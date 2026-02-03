@@ -1,0 +1,108 @@
+debug: false
+system:
+  name: Demo Application
+  default-language: en-US
+  enable-multi-tenancy: false
+  enable-insert-id: true
+  enable-change-log: false
+
+security:
+  encryption:
+    password: 12345678
+    algorithm: AESEncryption
+
+spring:
+  data:
+    redis:
+      root-key: demo_dev
+      host: localhost
+      port: 6379
+      database: 0
+      password: admin
+      timeout: 1000
+  datasource:
+#    dynamic:
+#      enable: true
+#      # mode: read-write-separation, switch-by-model, multi-tenancy-isolated, multi-datasource(default)
+#      mode: multi-datasource
+#      datasource:
+#        primary:
+#          driver-class-name: com.mysql.cj.jdbc.Driver
+#          url: jdbc:mysql://localhost:3306/demo
+#          username: admin
+#          password: admin
+#        db1:
+#          driver-class-name: com.mysql.cj.jdbc.Driver
+#          url: jdbc:mysql://localhost:3306/db1
+#          username: root
+#          password: admin
+#        db2:
+#          driver-class-name: com.mysql.cj.jdbc.Driver
+#          url: jdbc:mysql://localhost:3306/db2
+#          username: admin
+#          password: admin
+    url: jdbc:mysql://localhost:3306/demo?useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=GMT%2B8
+    username: admin
+    password: admin
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+      pool-name: HikariPool
+  elasticsearch:
+    cluster: http://localhost:9200
+    username: your_username
+    password: your_password
+    index:
+      changelog: demo_dev_changelog
+  pulsar:
+    client:
+      service-url: pulsar://localhost:6650
+    producer:
+      batching-enabled: true
+      send-timeout: 5s
+
+mq:
+  topics:
+    async-import:
+      topic: dev_demo_async_import
+      sub: dev_demo_async_import_sub
+    cron-task:
+      topic: dev_demo_cron_task
+      flow-sub: dev_demo_cron_task_flow_sub
+    change-log:
+      topic: dev_demo_change_log
+      flow-sub: dev_demo_change_log_flow_sub
+      persist-sub: dev_demo_change_log_persist_sub
+    flow-async-task:
+      topic: dev_demo_flow_async_task
+      sub: dev_demo_flow_async_task_sub
+    flow-event:
+      topic: dev_demo_flow_event
+      sub: dev_demo_flow_event_sub
+    inner-broadcast:
+      topic: dev_demo_inner_broadcast
+      sub: dev_demo_inner_broadcast_sub
+
+oss:
+  type: minio
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: demo-app
+  sub-dir:
+
+rpc:
+  enable: true
+  protocol: http
+  access-key: 123456
+  secret-key: 123456
+  services:
+    fast-dfs:
+      api-url: http://localhost:8888
+      api-key: 123456
+      api-secret: 123456

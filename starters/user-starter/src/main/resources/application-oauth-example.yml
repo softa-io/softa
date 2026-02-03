@@ -1,0 +1,44 @@
+# OAuth social login configuration example
+# Please add these configurations to your application.yml file
+social-oauth:
+  # Apple OAuth configuration
+  apple:
+    enable: false
+    client-id: your-apple-client-id
+
+  # Google OAuth configuration
+  google:
+    enable: true
+    client-id: your-google-client-id
+    client-secret: your-google-client-secret
+
+  # TikTok OAuth configuration
+  tiktok:
+    enable: true
+    client-id: your-tiktok-client-key
+    client-secret: your-tiktok-client-secret
+
+  # X (Twitter) OAuth configuration
+  x:
+    enable: true
+    client-id: your-x-client-id
+    client-secret: your-x-client-secret
+
+# Configuration Instructions:
+# 1. The 'enable' field controls whether the corresponding OAuth provider is enabled
+# 2. Only providers with enable=true and complete configurations will be activated
+# 3. The system will validate the completeness of the configuration at startup
+# 4. You can get the list of available providers through OAuthServiceFactory
+
+# Important Notes:
+# X OAuth 2.0 Configuration Considerations:
+# 1. X uses OAuth 2.0 Authorization Code Flow with PKCE
+# 2. The frontend must generate code_challenge and code_verifier
+# 3. The backend must include the codeVerifier field when receiving OAuthCredential
+# 4. Ensure the callback URL is correctly configured in the X developer portal
+
+# Configuration Access URLs:
+# - Google: https://console.cloud.google.com/apis/credentials
+# - TikTok: https://developers.tiktok.com/
+# - X: https://developer.twitter.com/en/portal/dashboard
+# - Apple: https://developer.apple.com/account/resources/identifiers/list/serviceId

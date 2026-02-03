@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: mini-app
+  threads:
+    virtual:
+      enabled: true
+  web:
+    resources:
+      add-mappings: false
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  cache:
+    redis:
+      # Global default expiration period for redis cache
+      time-to-live: 30d
+  jackson:
+    time-zone: GMT+8
+  jmx:
+    # Turn off JVM remote calls
+    enabled: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  port: 80
+  shutdown: graceful
+  servlet:
+    context-path: /api/mini
+  tomcat:
+    max-connections: 10000
+    accept-count: 600
+    max-swallow-size: 20MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    db:
+      enabled: false
+    elasticsearch:
+      enabled: false
+    mail:
+      enabled: false
+
+logging:
+  level:
+    root: info
+
+springdoc:
+  writer-with-order-by-keys: true
+  api-docs:
+    # Turn off in production environment
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui/index.html
+    tagsSorter: alpha
+    operations-sorter: alpha

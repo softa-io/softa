@@ -1,0 +1,94 @@
+package io.softa.starter.cron.service.impl;
+
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.orm.compute.CronUtils;
+import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.cron.scheduler.CronScheduler;
+import io.softa.starter.cron.entity.SysCron;
+import io.softa.starter.cron.service.SysCronService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+/**
+ * SysCron Model Service Implementation
+ */
+@Service
+public class SysCronServiceImpl extends EntityServiceImpl<SysCron, Long> implements SysCronService {
+
+    @Autowired
+    @Lazy
+    private CronScheduler cronScheduler;
+
+    /**
+     * Activate one cron job.
+     *
+     * @param cronId Cron ID
+     */
+    @Override
+    public void activateCron(Long cronId) {
+        // Cancel the existing cron job with the same ID first (if any).
+        cronScheduler.cancelTask(cronId);
+        // Schedule the new cron job.
+        SysCron sysCron = this.getById(cronId)
+                .orElseThrow(() -> new IllegalArgumentException("The cron job with ID `{0}` does not exist", cronId));
+        cronScheduler.registerCron(sysCron);
+    }
+
+    /**
+     * Activate multiple cron jobs.
+     *
+     * @param cronIds Cron IDs
+     */
+    @Override
+    public void activateCronList(List<Long> cronIds) {
+        // Cancel the existing cron jobs with the same IDs first (if any).
+        cronScheduler.cancelTaskList(cronIds);
+        // Schedule the new cron jobs.
+        List<SysCron> sysCronList = this.getByIds(cronIds);
+        for (SysCron sysCron : sysCronList) {
+            cronScheduler.registerCron(sysCron);
+        }
+    }
+
+    /**
+     * Execute the specified cron job immediately
+     *
+     * @param sysCron Cron job object
+     */
+    private void executeCron(SysCron sysCron) {
+        CronUtils.getCron(sysCron.getName(), sysCron.getCronExpression());
+        cronScheduler.sendToMessageQueue(sysCron);
+    }
+
+    /**
+     * Execute the specified cron job immediately
+     *
+     * @param cronId Cron job ID
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void executeNow(Long cronId) {
+        SysCron sysCron = this.getById(cronId)
+                .orElseThrow(() -> new IllegalArgumentException("The cron job with ID `{0}` does not exist", cronId));
+        this.executeCron(sysCron);
+    }
+
+    /**
+     * Execute the specified multiple cron jobs immediately
+     *
+     * @param cronIds Cron job IDs
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void executeMultipleNow(List<Long> cronIds) {
+        List<SysCron> sysCronList = this.getByIds(cronIds);
+        for (SysCron sysCron : sysCronList) {
+            this.executeCron(sysCron);
+        }
+    }
+
+}

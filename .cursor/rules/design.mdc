@@ -1,0 +1,51 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# Softa Development Principles
+This project is a multi-module Spring Boot project. All final application modules to be built are located under the `apps` directory.
+
+## Core Concepts
+
+1.  **Follow Framework Conventions (Convention over Configuration):**
+    *   Use the framework-provided base classes and utilities such as `AuditableModel`, `EntityController`, and `EntityService` to simplify development. `EntityService` encapsulates common CRUD operations for entities.
+    *   Service-layer implementations should be placed under the `service/impl` package and annotated with `@Service`.
+
+2.  **Model Definition Is Key (Model Definition is Key):**
+    *   Models (Entities) are the core carriers of business logic.
+    *   The `ModelManager` utility manages metadata for all business models and their fields.
+
+3. Spring Boot Conventions
+
+- **Component annotations**: Use standard Spring annotations to mark components, such as `@RestController`, `@Service`, `@Repository`, and `@Component`.
+- **Dependency injection**: Prefer constructor injection (Constructor Injection) to manage dependencies.
+- **Configuration**: Use `application.yml` for configuration management.
+
+## Coding Practices
+
+1.  **Leverage Framework Capabilities (Leverage Framework Capabilities):**
+    *   Queries: Prefer using the framework-provided `Filters`, `FlexQuery`, and methods from the parent interface `EntityService` for data retrieval, leveraging metadata-driven query capabilities.
+    *   Create/Update/Delete: Prefer calling the standard CRUD methods provided by `EntityService`. These methods delegate to the lower-level `ModelService`, which handles metadata-defined logic (e.g., default values, validation, lifecycle hooks, etc.).
+    *   File handling: The `File` and `MultiFile` field types return a `FileInfo` object and a list of such objects respectively, where the objects include OSS download URLs.
+
+2.  **Extension and Customization (Extension and Customization):**
+    *   When standard functionality does not meet requirements, extend by implementing specific interfaces or overriding base class methods.
+    *   Complex or non-standard business logic can be implemented in the Service layer.
+    *   Avoid operating on the database directly (unless necessary); prefer using the framework APIs.
+
+3. Development Standards
+*  Introduce logging via the `@Slf4j` annotation.
+*  Enum types must add the `@JsonValue` annotation for serialization.
+*  Use English by default for development, including comments, log messages, and code messages.
+*  For date operations, use `LocalDate` and `LocalDateTime`.
+
+# Follow These Design Principles
+- DRY (Don't Repeat Yourself)
+- SOLID
+- KISS (Keep It Simple, Stupid)
+- YAGNI (You Aren't Gonna Need It)
+- Separation of Concerns
+- Composition over Inheritance
+- Single Source of Truth
+- Loose Coupling, High Cohesion

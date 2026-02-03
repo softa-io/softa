@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.softa</groupId>
+        <artifactId>starters</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <name>Softa User Starter</name>
+    <artifactId>user-starter</artifactId>
+    <description>User Starter</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>web</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- JWT for Apple and Google ID token validation -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>10.3</version>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.0.2</version>
+	</parent>
+
+	<name>Softa Parent</name>
+	<groupId>io.softa</groupId>
+	<artifactId>softa-parent</artifactId>
+	<version>1.0.0</version>
+
+	<packaging>pom</packaging>
+	<url>https://softa.io</url>
+	<description>Softa development platform.</description>
+
+	<modules>
+		<module>framework</module>
+		<module>starters</module>
+		<module>apps</module>
+    </modules>
+
+	<properties>
+		<java.version>25</java.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+		<spring.boot.version>4.0.2</spring.boot.version>
+
+	</properties>
+
+	<dependencies>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+			<version>${spring.boot.version}</version>
+		</dependency>
+
+		<!-- JMH Benchmark Test-->
+		<dependency>
+			<groupId>org.openjdk.jmh</groupId>
+			<artifactId>jmh-generator-annprocess</artifactId>
+			<version>1.37</version>
+			<scope>test</scope>
+		</dependency>
+
+	</dependencies>
+
+	<build>
+		<!-- Global Plugins -->
+		<plugins>
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.14</version>
+				<executions>
+					<execution>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+
+			<!-- Publishing by Sonatype maven plugin-->
+			<plugin>
+				<groupId>org.sonatype.central</groupId>
+				<artifactId>central-publishing-maven-plugin</artifactId>
+				<version>0.10.0</version>
+				<extensions>true</extensions>
+				<configuration>
+					<publishingServerId>sonatype central</publishingServerId>
+				</configuration>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-gpg-plugin</artifactId>
+				<version>3.2.8</version>
+				<executions>
+					<execution>
+						<id>sign-artifacts</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>sign</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+				<version>3.12.0</version>
+				<executions>
+					<execution>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<!-- Skip all Javadoc checks -->
+					<doclint>none</doclint>
+					<additionalJOptions>-Xdoclint:none</additionalJOptions>
+					<failOnError>false</failOnError>
+					<encoding>${project.build.sourceEncoding}</encoding>
+					<docencoding>${project.build.sourceEncoding}</docencoding>
+					<charset>${project.build.sourceEncoding}</charset>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-source-plugin</artifactId>
+				<version>3.4.0</version>
+				<configuration>
+					<attach>true</attach>
+				</configuration>
+				<executions>
+					<execution>
+						<phase>compile</phase>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.15.0</version>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+							<version>${lombok.version}</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+	<scm>
+		<url>https://github.com/softa-io/softa</url>
+		<connection>scm:git@github.com:softa-io/softa.git</connection>
+		<developerConnection>scm:git@github.com:softa-io/softa.git</developerConnection>
+		<tag>HEAD</tag>
+	</scm>
+
+	<developers>
+		<developer>
+			<id>roganw</id>
+			<name>Rogan Wang</name>
+			<url>https://softa.io</url>
+		</developer>
+	</developers>
+
+	<licenses>
+		<license>
+			<name>Apache Software License 2.0</name>
+			<url>https://www.apache.org/licenses/LICENSE-2.0</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+</project>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <artifactId>softa-parent</artifactId>
+        <groupId>io.softa</groupId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <name>Softa Starters</name>
+    <artifactId>starters</artifactId>
+    <description>Starter modules that can be combined into an application.</description>
+    <packaging>pom</packaging>
+
+    <properties>
+        <java.version>25</java.version>
+    </properties>
+
+    <modules>
+        <module>metadata-starter</module>
+        <module>ai-starter</module>
+        <module>billing-starter</module>
+        <module>cron-starter</module>
+        <module>flow-starter</module>
+        <module>es-starter</module>
+        <module>file-starter</module>
+        <module>designer-starter</module>
+        <module>user-starter</module>
+    </modules>
+
+</project>

@@ -1,0 +1,15 @@
+package io.softa.starter.user.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
+
+@Data
+public class EmailRegisterDTO {
+
+    @NotBlank(message = "Email cannot be empty!")
+    private String email;
+
+    @NotBlank(message = "Password cannot be empty!")
+    private String password;
+
+}

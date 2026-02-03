@@ -1,0 +1,61 @@
+package io.softa.starter.designer.entity;
+
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.designer.enums.AppEnvType;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+import java.io.Serial;
+import java.time.LocalDateTime;
+
+/**
+ * DesignAppEnv Model
+ */
+@Data
+@Schema(name = "DesignAppEnv")
+@EqualsAndHashCode(callSuper = true)
+public class DesignAppEnv extends AuditableModel {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+    @Schema(description = "ID")
+    private Long id;
+
+    @Schema(description = "Env Name")
+    private String name;
+
+    @Schema(description = "App ID")
+    private Long appId;
+
+    @Schema(description = "App Code")
+    private String appCode;
+
+    @Schema(description = "Env Type")
+    private AppEnvType envType;
+
+    @Schema(description = "Upgrade API EndPoint")
+    private String upgradeEndpoint;
+
+    @Schema(description = "Last Publish Time")
+    private LocalDateTime lastPublishTime;
+
+    @Schema(description = "Client ID")
+    private String clientId;
+
+    @Schema(description = "Client Secret")
+    private String clientSecret;
+
+    @Schema(description = "Async Upgrade")
+    private Boolean asyncUpgrade;
+
+    @Schema(description = "Auto Upgrade")
+    private Boolean autoUpgrade;
+
+    @Schema(description = "Description")
+    private String description;
+
+    @Schema(description = "Deleted")
+    private Boolean deleted;
+}

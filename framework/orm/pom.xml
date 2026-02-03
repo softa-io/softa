@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.softa</groupId>
+        <artifactId>framework</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <name>Softa ORM</name>
+    <artifactId>orm</artifactId>
+    <description>Module for ORM functionality</description>
+    <url>https://softa.io</url>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>4.13.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>base</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+        <!--Pulsar-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-pulsar</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+        <!--Mysql Driver -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.4.0</version>
+        </dependency>
+
+        <!--aviator script-->
+        <dependency>
+            <groupId>com.googlecode.aviator</groupId>
+            <artifactId>aviator</artifactId>
+            <version>5.4.1</version>
+        </dependency>
+
+        <!-- Tool for generating, verifying, and calculating cron expressions -->
+        <dependency>
+            <groupId>com.cronutils</groupId>
+            <artifactId>cron-utils</artifactId>
+            <version>9.2.1</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/com.github.f4b6a3/ulid-creator -->
+        <dependency>
+            <groupId>com.github.f4b6a3</groupId>
+            <artifactId>ulid-creator</artifactId>
+            <version>5.2.3</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/com.github.f4b6a3/tsid-creator -->
+        <dependency>
+            <groupId>com.github.f4b6a3</groupId>
+            <artifactId>tsid-creator</artifactId>
+            <version>5.2.6</version>
+        </dependency>
+
+
+        <!-- Object storage service clients -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.6.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Use okhttp-jvm for MinIO to fix the version issue: https://github.com/minio/minio-java/issues/1670 -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
+            <version>5.3.2</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>3.18.4</version>
+        </dependency>
+    </dependencies>
+</project>

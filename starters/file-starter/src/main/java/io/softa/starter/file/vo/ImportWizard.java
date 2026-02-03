@@ -1,0 +1,82 @@
+package io.softa.starter.file.vo;
+
+import tools.jackson.core.type.TypeReference;
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.utils.FileUtils;
+import io.softa.starter.file.dto.ImportFieldDTO;
+import io.softa.starter.file.enums.ImportRule;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+
+@Data
+@Schema(name = "ImportWizard")
+public class ImportWizard {
+
+    @Schema(description = "Model name")
+    private String modelName;
+
+    @Schema(description = "Uploaded file")
+    private MultipartFile file;
+
+    @Schema(description = "Uploaded file name", hidden = true)
+    private String fileName;
+
+    @Schema(description = "Import Rule")
+    private ImportRule importRule;
+
+    @Schema(description = "Number of header rows", defaultValue = "1")
+    private int headerRows = 1;
+
+    @Schema(description = "Unique Constraints")
+    private String uniqueConstraints;
+
+    @Schema(description = """
+            JSON string of the import fields info. e.g.
+                [{"header": "Product Code", "fieldName": "productCode", "required": true},
+                 {"header": "Product Name", "fieldName": "productName", "required": true}]""")
+    private String importFieldStr;
+
+    @Schema(hidden = true)
+    private List<ImportFieldDTO> importFieldDTOList;
+
+    @Schema(description = "Whether to ignore empty values")
+    private Boolean ignoreEmpty;
+
+    @Schema(description = "Whether to continue importing next row data when encountering error.")
+    private Boolean skipException;
+
+    @Schema(description = "Custom Handler")
+    private String customHandler;
+
+    @Schema(description = "Synchronous Import")
+    private Boolean syncImport;
+
+    /**
+     * Set the uploaded file and extract the file name.
+     *
+     * @param file the uploaded file
+     */
+    public void setFile(MultipartFile file) {
+        this.file = file;
+        this.fileName = FileUtils.getShortFileName(file);
+    }
+
+    /**
+     * Set the importFieldStr and parse it into a list of ImportFieldDTO.
+     *
+     * @param importFieldStr the JSON string of the ImportFieldDTO list
+     */
+    public void setImportFieldStr(String importFieldStr) {
+        this.importFieldStr = importFieldStr;
+        try {
+            TypeReference<List<ImportFieldDTO>> typeRef = new TypeReference<>() {};
+            this.importFieldDTOList = JsonUtils.stringToObject(importFieldStr, typeRef);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("The JSON string of the import fields must be in JSON format: {0}", importFieldStr, e);
+        }
+    }
+}

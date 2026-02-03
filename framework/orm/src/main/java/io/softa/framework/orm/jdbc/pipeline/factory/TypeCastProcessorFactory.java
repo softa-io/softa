@@ -1,0 +1,54 @@
+package io.softa.framework.orm.jdbc.pipeline.factory;
+
+import io.softa.framework.base.enums.AccessType;
+import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.jdbc.pipeline.processor.*;
+import io.softa.framework.orm.meta.MetaField;
+import lombok.NoArgsConstructor;
+
+/**
+ * Type cast processor factory.
+ * Process the field type conversion for Option, List, Json, Filter, etc.
+ * The value can be used in calculation after convert.
+ */
+@NoArgsConstructor
+public class TypeCastProcessorFactory implements FieldProcessorFactory {
+
+    private ConvertType convertType;
+
+    public TypeCastProcessorFactory(ConvertType convertType) {
+        this.convertType = convertType;
+    }
+
+    /**
+     * Create a field processor according to the field metadata.
+     *
+     * @param metaField field metadata object
+     * @param accessType access type
+     * @return field processor
+     */
+    @Override
+    public FieldProcessor createProcessor(MetaField metaField, AccessType accessType) {
+        FieldType fieldType = metaField.getFieldType();
+        if (FieldType.JSON.equals(fieldType) || FieldType.DTO.equals(fieldType)) {
+            return new JsonProcessor(metaField, accessType);
+        } else if (FieldType.MULTI_STRING.equals(fieldType)) {
+            return new MultiStringProcessor(metaField, accessType, convertType);
+        } else if (FieldType.MULTI_OPTION.equals(fieldType)) {
+            // During type conversion for MULTI_OPTION fields, using `MultiStringProcessor` processor
+            // to convert the field value between List and String object.
+            // But in the expand case, using `MultiOptionExpandProcessor` processor to expand the field value.
+            return new MultiStringProcessor(metaField, accessType, convertType);
+        } else if (FieldType.MULTI_FILE.equals(fieldType)) {
+            // Similar to the MULTI_OPTION field
+            return new MultiStringProcessor(metaField, accessType, convertType);
+        } else if (FieldType.FILTERS.equals(fieldType)) {
+            return new FiltersProcessor(metaField, accessType);
+        } else if (FieldType.ORDERS.equals(fieldType)) {
+            return new OrdersProcessor(metaField, accessType);
+        }
+        return null;
+    }
+
+}
