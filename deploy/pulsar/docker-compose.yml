@@ -31,7 +31,7 @@ services:
   pulsar-init:
     container_name: pulsar-init
     hostname: pulsar-init
-    image: apachepulsar/pulsar:latest
+    image: apachepulsar/pulsar:4.1.2
     networks:
       - pulsar
     command:
@@ -72,6 +72,12 @@ services:
     volumes:
       - ~/data/pulsar/bookkeeper:/pulsar/data/bookkeeper
     command: bash -c "bin/apply-config-from-env.py conf/bookkeeper.conf && exec bin/pulsar bookie"
+    healthcheck:
+      test: ["CMD-SHELL", "bin/bookkeeper shell whatisinstanceid >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   # Start broker
   broker:
