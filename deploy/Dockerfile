@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# docker build -t ghcr.io/softa-io/demo-app:1.0.2 -f ./deploy/demo-app/Dockerfile .
+
 # Stage 1: Build app jar
 FROM maven:3.9.12-eclipse-temurin-25-alpine AS build_stage
 
@@ -7,9 +7,8 @@ ARG APP_DIR
 ARG APP_NAME
 WORKDIR /build
 
-# 1. Copy only necessary files to leverage Docker cache
-COPY pom.xml ./
-COPY ${APP_DIR}/${APP_NAME}/pom.xml ${APP_DIR}/${APP_NAME}/pom.xml
+# 1. Copy source files
+COPY . ./
 
 # 2. Pre-download all dependencies
 RUN --mount=type=cache,target=/root/.m2 \
@@ -17,10 +16,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     -pl ${APP_DIR}/${APP_NAME} \
     dependency:go-offline
 
-# 3. Copy all source files
-COPY . ./
-
-# 4. Build the application
+# 3. Build the application
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -ntp -DskipTests -Dgpg.skip=true \
     -pl ${APP_DIR}/${APP_NAME} \
