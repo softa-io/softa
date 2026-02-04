@@ -1,6 +1,8 @@
+# bash: docker network create shared-net
 networks:
-  pulsar:
-    driver: bridge
+  shared-net:
+    external: true
+    name: shared-net
 services:
   # Start zookeeper
   zookeeper:
@@ -8,7 +10,7 @@ services:
     container_name: zookeeper
     restart: on-failure
     networks:
-      - pulsar
+      - shared-net
     volumes:
       - ~/data/pulsar/zookeeper:/pulsar/data/zookeeper
     environment:
@@ -33,7 +35,7 @@ services:
     hostname: pulsar-init
     image: apachepulsar/pulsar:4.1.2
     networks:
-      - pulsar
+      - shared-net
     command:
       - bash
       - -c
@@ -54,7 +56,7 @@ services:
     container_name: bookie
     restart: on-failure
     networks:
-      - pulsar
+      - shared-net
     environment:
       - clusterName=cluster-a
       - zkServers=zookeeper:2181
@@ -86,7 +88,7 @@ services:
     hostname: broker
     restart: on-failure
     networks:
-      - pulsar
+      - shared-net
     environment:
       - metadataStoreUrl=zk:zookeeper:2181
       - zookeeperServers=zookeeper:2181
@@ -95,7 +97,7 @@ services:
       - managedLedgerDefaultWriteQuorum=1
       - managedLedgerDefaultAckQuorum=1
       - advertisedAddress=broker
-      - advertisedListeners=external:pulsar://127.0.0.1:6650
+      - advertisedListeners=external:pulsar://broker:6650
       - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
     depends_on:
       zookeeper:

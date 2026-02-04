@@ -3,4 +3,8 @@
 **/.gradle/
 **/.git/
 **/.idea/
+**/.vscode/
+**/.cursor/
 **/node_modules/
+**/.DS_Store
+**/*.iml

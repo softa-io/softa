@@ -1,13 +1,23 @@
+# bash: docker network create shared-net
+networks:
+  shared-net:
+    external: true
+    name: shared-net
+
 services:
 
   redis:
     image: redis:8.4.0-alpine
     command: redis-server --requirepass admin
+    networks:
+      - shared-net
     ports:
       - 6379:6379
 
 #  postgres:
 #    image: postgres:18.1-alpine
+#    networks:
+#      - shared-net
 #    ports:
 #      - 5432:5432
 #    environment:
@@ -19,6 +29,8 @@ services:
 
   mysql:
     image: mysql:9.6.0
+    networks:
+      - shared-net
     ports:
       - 3306:3306
     environment:
@@ -31,28 +43,30 @@ services:
       - ~/data/mysql/demo:/var/lib/mysql
       # Specify the directory containing the initial SQL scripts
       - ./init_mysql:/docker-entrypoint-initdb.d
-#
-#  demo-app:
-#    image: softa/demo-app:1.0.0
-#    ports:
-#      - 80:80
-#    environment:
-#      - SPRING_PROFILES_ACTIVE=dev
-#      - SPRING_DATA_REDIS_HOST=redis
-#      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/demo?useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=GMT%2B8
-#      - SPRING_PULSAR_CLIENT_SERVICE_URL=host.docker.internal:6650
-#      - SPRING_ELASTICSEARCH_CLUSTER=http://host.docker.internal:9200
-#      - SPRING_ELASTICSEARCH_USERNAME=your_username
-#      - SPRING_ELASTICSEARCH_PASSWORD=your_password
-#      - SPRING_ELASTICSEARCH_INDEX_CHANGELOG=demo_dev_changelog
-#      - OSS_TYPE=minio
-#      - OSS_ENDPOINT=http://host.docker.internal:9000
-#      - OSS_ACCESS_KEY=minioadmin
-#      - OSS_SECRET_KEY=minioadmin
-#      - OSS_BUCKET=demo-app
-#    depends_on:
-#      - redis
-#      - mysql
+
+  demo-app:
+    image: ghcr.io/softa-io/demo-app:1.0.2
+    networks:
+      - shared-net
+    ports:
+      - 80:80
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/demo?useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=GMT%2B8
+      - SPRING_PULSAR_CLIENT_SERVICE_URL=pulsar://broker:6650
+      - SPRING_ELASTICSEARCH_CLUSTER=http://host.docker.internal:9200
+      - SPRING_ELASTICSEARCH_USERNAME=your_username
+      - SPRING_ELASTICSEARCH_PASSWORD=your_password
+      - SPRING_ELASTICSEARCH_INDEX_CHANGELOG=demo_dev_changelog
+      - OSS_TYPE=minio
+      - OSS_ENDPOINT=http://host.docker.internal:9000
+      - OSS_ACCESS_KEY=minioadmin
+      - OSS_SECRET_KEY=minioadmin
+      - OSS_BUCKET=demo-app
+    depends_on:
+      - redis
+      - mysql
 
 #  nginx:
 #    image: nginx:1.29.4-alpine

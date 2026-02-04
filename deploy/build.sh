@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build script for multi-platform Docker images with namespace and registry
 # Usage: ./deploy/build.sh <APP_PATH> <APP_VERSION> [<REGISTRY_NAMESPACE>]
-# Example: ./deploy/build.sh ./apps/demo-app 1.0.0 registry.example.com/softa
+# Example: ./deploy/build.sh ./apps/demo-app 1.0.2 registry.example.com/softa
 
 # Check if sufficient arguments were provided
 if [ "$#" -lt 2 ]; then

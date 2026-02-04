@@ -1,13 +1,23 @@
+# bash: docker network create shared-net
+networks:
+  shared-net:
+    external: true
+    name: shared-net
+
 services:
 
   redis:
     image: redis:8.4.0-alpine
     command: redis-server --requirepass admin
+    networks:
+      - shared-net
     ports:
       - 6379:6379
 
 #  postgres:
 #    image: postgres:18.1-alpine
+#    networks:
+#      - shared-net
 #    ports:
 #      - 5432:5432
 #    environment:
@@ -19,6 +29,8 @@ services:
 
   mysql:
     image: mysql:9.6.0
+    networks:
+      - shared-net
     ports:
       - 3306:3306
     environment:
@@ -33,13 +45,16 @@ services:
       - ./init_mysql:/docker-entrypoint-initdb.d
 
   mini-app:
-    image: softa/mini-app:1.0.0
+    image: softa/mini-app:1.0.2
+    networks:
+      - shared-net
     ports:
       - 80:80
     environment:
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/mini?useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=GMT%2B8
+      - SPRING_PULSAR_CLIENT_SERVICE_URL=pulsar://broker:6650
     depends_on:
       - redis
       - mysql
