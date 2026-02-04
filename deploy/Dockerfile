@@ -24,7 +24,7 @@ COPY . ./
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -ntp -DskipTests -Dgpg.skip=true \
     -pl ${APP_DIR}/${APP_NAME} \
-    package \
+    package
 
 # Stage 2: Build final image with app jar
 FROM eclipse-temurin:25-jre-alpine
