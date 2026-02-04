@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.softa</groupId>
         <artifactId>starters</artifactId>
-        <version>1.0.1</version>
+        <version>1.0.2</version>
     </parent>
 
     <name>Softa ES Starter</name>
