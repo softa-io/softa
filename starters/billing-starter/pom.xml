@@ -15,7 +15,7 @@
     <dependencies>
         <dependency>
             <groupId>io.softa</groupId>
-            <artifactId>web</artifactId>
+            <artifactId>softa-web</artifactId>
             <version>${project.version}</version>
         </dependency>
 

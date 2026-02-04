@@ -10,8 +10,8 @@
     </parent>
 
     <name>Softa ORM</name>
-    <artifactId>orm</artifactId>
-    <description>Module for ORM functionality</description>
+    <artifactId>softa-orm</artifactId>
+    <description>Softa Module for ORM functionality</description>
     <url>https://softa.io</url>
 
     <dependencies>
@@ -23,7 +23,7 @@
 
         <dependency>
             <groupId>io.softa</groupId>
-            <artifactId>base</artifactId>
+            <artifactId>softa-base</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -47,14 +47,14 @@
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
-            <version>8.4.0</version>
+            <version>9.6.0</version>
         </dependency>
 
         <!--aviator script-->
         <dependency>
             <groupId>com.googlecode.aviator</groupId>
             <artifactId>aviator</artifactId>
-            <version>5.4.1</version>
+            <version>5.4.3</version>
         </dependency>
 
         <!-- Tool for generating, verifying, and calculating cron expressions -->
@@ -101,7 +101,7 @@
         <dependency>
             <groupId>com.aliyun.oss</groupId>
             <artifactId>aliyun-sdk-oss</artifactId>
-            <version>3.18.4</version>
+            <version>3.18.5</version>
         </dependency>
     </dependencies>
 </project>

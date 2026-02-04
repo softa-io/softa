@@ -10,14 +10,14 @@
     </parent>
 
     <name>Softa Web</name>
-    <artifactId>web</artifactId>
-    <description>Web Module</description>
+    <artifactId>softa-web</artifactId>
+    <description>Softa Web Module</description>
     <url>https://softa.io</url>
 
     <dependencies>
         <dependency>
             <groupId>io.softa</groupId>
-            <artifactId>orm</artifactId>
+            <artifactId>softa-orm</artifactId>
             <version>${project.version}</version>
         </dependency>
 

@@ -10,8 +10,8 @@
     </parent>
 
     <name>Softa Base</name>
-    <artifactId>base</artifactId>
-    <description>Base Module</description>
+    <artifactId>softa-base</artifactId>
+    <description>Softa Base Module</description>
     <url>https://softa.io</url>
 
     <dependencies>
