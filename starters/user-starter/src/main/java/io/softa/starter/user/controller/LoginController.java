@@ -110,13 +110,16 @@ public class LoginController {
         return ApiResponse.success();
     }
 
-    /** ----------------  Base on email + password, might be deprecated in the future ------------------ */
-
-    @PostMapping("/registerByEmailPassword")
+    /**
+     * Register by email and password.
+     * Automatically login after successful registration.
+     * Set cookie with session id
+     */
+    @PostMapping("/registerByPassword")
     @SwitchUser(SystemUser.REGISTERED_USER)
-    public ApiResponse<UserInfo> registerByEmailPassword(@RequestBody @Valid EmailPasswordDTO emailPasswordDTO, HttpServletResponse response) {
+    public ApiResponse<UserInfo> registerByPassword(@RequestBody @Valid EmailPasswordDTO emailPasswordDTO, HttpServletResponse response) {
         try {
-            UserInfo userInfo = loginService.registerByEmailPassword(emailPasswordDTO.getEmail(),
+            UserInfo userInfo = loginService.registerByEmailAndPassword(emailPasswordDTO.getEmail(),
                     emailPasswordDTO.getPassword());
             String sessionId = loginService.generateSessionId(userInfo.getUserId());
             CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
@@ -127,17 +130,24 @@ public class LoginController {
         }
     }
 
-    @PostMapping("/loginByEmailPassword")
+    /**
+     * Login by email and password
+     * Set cookie with session id
+     */
+    @PostMapping("/loginByPassword")
     @SwitchUser(SystemUser.REGISTERED_USER)
-    public ApiResponse<UserInfo> loginByEmailPassword(@RequestBody @Valid EmailPasswordDTO userNameLoginDTO,
+    public ApiResponse<UserInfo> loginByPassword(@RequestBody @Valid EmailPasswordDTO userNameLoginDTO,
             HttpServletResponse response) {
-        UserInfo userInfo = loginService.loginByEmailPassword(userNameLoginDTO.getEmail(),
+        UserInfo userInfo = loginService.loginByEmailAndPassword(userNameLoginDTO.getEmail(),
                         userNameLoginDTO.getPassword());
         String sessionId = loginService.generateSessionId(userInfo.getUserId());
         CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
         return ApiResponse.success(userInfo);
     }
 
+    /**
+     * Forgot password, send reset password email
+     */
     @PostMapping("/forgetPassword")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<Void> forgotPassword(@RequestBody @Valid ForgotPasswordDTO forgotPasswordDTO) {
@@ -145,6 +155,9 @@ public class LoginController {
         return ApiResponse.success();
     }
 
+    /**
+     * Reset password using the token sent via email
+     */
     @PostMapping("/resetPassword")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<Void> resetPassword(@RequestBody @Valid ResetPasswordDTO resetPasswordDTO) {

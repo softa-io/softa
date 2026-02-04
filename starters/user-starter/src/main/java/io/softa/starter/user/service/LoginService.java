@@ -48,13 +48,13 @@ public interface LoginService {
     String generateSessionId(String userId);
 
     /**
-     * User registration by email
+     * User registration by email and password
      *
      * @param email    email
      * @param password Password
      * @return UserInfo
      */
-    UserInfo registerByEmailPassword(String email, String password);
+    UserInfo registerByEmailAndPassword(String email, String password);
 
     /**
      * User login by email and password
@@ -63,7 +63,7 @@ public interface LoginService {
      * @param password Password
      * @return UserInfo
      */
-    UserInfo loginByEmailPassword(String email, String password);
+    UserInfo loginByEmailAndPassword(String email, String password);
 
     /**
      * Forget password, send password reset email
@@ -73,7 +73,7 @@ public interface LoginService {
     void forgetPassword(String username);
 
     /**
-     * Reset password
+     * Reset password using reset token
      *
      * @param token       Password reset token
      * @param newPassword New password

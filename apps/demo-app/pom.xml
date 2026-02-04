@@ -50,6 +50,12 @@
             <artifactId>designer-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>user-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

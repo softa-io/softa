@@ -112,8 +112,15 @@ public class LoginServiceImpl implements LoginService {
         return userInfo;
     }
 
+    /**
+     * User login by email and password
+     *
+     * @param email    Email address
+     * @param password Password
+     * @return UserInfo
+     */
     @Override
-    public UserInfo loginByEmailPassword(String email, String password) {
+    public UserInfo loginByEmailAndPassword(String email, String password) {
         UserAccount userAccount = accountService.getUserByEmail(email).orElseThrow(
                 () -> new BusinessException("User or password is incorrect."));
         String hashedPassword = PasswordUtils.hashPassword(password, userAccount.getPasswordSalt());
@@ -137,9 +144,15 @@ public class LoginServiceImpl implements LoginService {
         return sessionId;
     }
 
+    /**
+     * User registration by email and password
+     * @param email    email
+     * @param password Password
+     * @return UserInfo
+     */
     @Override
     @Transactional
-    public UserInfo registerByEmailPassword(String email, String password) {
+    public UserInfo registerByEmailAndPassword(String email, String password) {
         // Check if username already exists
         Filters filter = new Filters().eq(UserAccount::getEmail, email);
         if (accountService.count(filter) > 0) {
@@ -148,6 +161,9 @@ public class LoginServiceImpl implements LoginService {
         return accountService.registerNewUser(email, null, password);
     }
 
+    /**
+     * Forgot password, send reset password email
+     */
     @Override
     public void forgetPassword(String username) {
         Assert.hasText(username, "Username cannot be empty.");
@@ -176,6 +192,9 @@ public class LoginServiceImpl implements LoginService {
         throw new UnsupportedOperationException("Password reset token generation and Email sending not implemented yet.");
     }
 
+    /**
+     * Reset password using reset token
+     */
     @Override
     @Transactional
     public void resetPassword(String token, String newPassword) {
