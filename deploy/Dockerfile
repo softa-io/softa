@@ -13,13 +13,13 @@ COPY . ./
 # 2. Pre-download all dependencies
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -ntp -DskipTests -Dgpg.skip=true \
-    -pl ${APP_DIR}/${APP_NAME} \
+    -pl ${APP_DIR}/${APP_NAME} -am \
     dependency:go-offline
 
 # 3. Build the application
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -ntp -DskipTests -Dgpg.skip=true \
-    -pl ${APP_DIR}/${APP_NAME} \
+    -pl ${APP_DIR}/${APP_NAME} -am \
     package
 
 # Stage 2: Build final image with app jar
