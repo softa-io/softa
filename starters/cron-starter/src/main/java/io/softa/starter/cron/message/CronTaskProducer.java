@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.pulsar.core.PulsarTemplate;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.utils.Assert;
 import io.softa.starter.cron.message.dto.CronTaskMessage;
 
 /**
@@ -15,7 +16,7 @@ import io.softa.starter.cron.message.dto.CronTaskMessage;
 @Component
 public class CronTaskProducer {
 
-    @Value("${mq.topics.cron-task.topic}")
+    @Value("${mq.topics.cron-task.topic:}")
     private String cronTaskTopic;
 
     @Autowired
@@ -25,7 +26,8 @@ public class CronTaskProducer {
      * Send cron task message.
      */
     public void sendCronTask(CronTaskMessage message) {
-        pulsarTemplate.sendAsync(cronTaskTopic, message).whenComplete((messageId, ex) -> {
+        Assert.notBlank(cronTaskTopic, "Cron task topic is not configured");
+        pulsarTemplate.sendAsync(cronTaskTopic, message).whenComplete((_, ex) -> {
             if (ex == null) {
                 log.debug("Cron scheduler successfully sends task execution MQ: {}", message);
             } else {

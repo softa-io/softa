@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.pulsar.core.PulsarTemplate;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.utils.Assert;
 import io.softa.starter.flow.message.dto.FlowEventMessage;
 
 /**
@@ -15,7 +16,7 @@ import io.softa.starter.flow.message.dto.FlowEventMessage;
 @Component
 public class FlowEventProducer {
 
-    @Value("${mq.topics.flow-event.topic}")
+    @Value("${mq.topics.flow-event.topic:}")
     private String flowEventTopic;
 
     @Autowired
@@ -25,7 +26,8 @@ public class FlowEventProducer {
      * Send flow event to MQ.
      */
     public void sendFlowEvent(FlowEventMessage message) {
-        pulsarTemplate.sendAsync(flowEventTopic, message).whenComplete((messageId, ex) -> {
+        Assert.notBlank(flowEventTopic, "Flow event topic is not configured");
+        pulsarTemplate.sendAsync(flowEventTopic, message).whenComplete((_, ex) -> {
             if (ex != null) {
                 log.error("Failed to send flow event to MQ!", ex);
             }

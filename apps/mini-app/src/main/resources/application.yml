@@ -41,10 +41,6 @@ management:
   health:
     db:
       enabled: false
-    elasticsearch:
-      enabled: false
-    mail:
-      enabled: false
 
 logging:
   level:
@@ -60,3 +56,4 @@ springdoc:
     path: /swagger-ui/index.html
     tagsSorter: alpha
     operations-sorter: alpha
+    enabled: true

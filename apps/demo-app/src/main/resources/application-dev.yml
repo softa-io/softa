@@ -54,7 +54,7 @@ spring:
       connection-test-query: SELECT 1
       pool-name: HikariPool
   elasticsearch:
-    cluster: http://localhost:9200
+    uris: http://localhost:9200
     username: your_username
     password: your_password
     index:
@@ -68,25 +68,25 @@ spring:
 
 mq:
   topics:
-    async-import:
-      topic: dev_demo_async_import
-      sub: dev_demo_async_import_sub
-    cron-task:
-      topic: dev_demo_cron_task
-      flow-sub: dev_demo_cron_task_flow_sub
-    change-log:
-      topic: dev_demo_change_log
-      flow-sub: dev_demo_change_log_flow_sub
-      persist-sub: dev_demo_change_log_persist_sub
-    flow-async-task:
-      topic: dev_demo_flow_async_task
-      sub: dev_demo_flow_async_task_sub
-    flow-event:
-      topic: dev_demo_flow_event
-      sub: dev_demo_flow_event_sub
-    inner-broadcast:
-      topic: dev_demo_inner_broadcast
-      sub: dev_demo_inner_broadcast_sub
+#    async-import:
+#      topic: dev_demo_async_import
+#      sub: dev_demo_async_import_sub
+#    cron-task:
+#      topic: dev_demo_cron_task
+#      flow-sub: dev_demo_cron_task_flow_sub
+#    change-log:
+#      topic: dev_demo_change_log
+#      flow-sub: dev_demo_change_log_flow_sub
+#      persist-sub: dev_demo_change_log_persist_sub
+#    flow-async-task:
+#      topic: dev_demo_flow_async_task
+#      sub: dev_demo_flow_async_task_sub
+#    flow-event:
+#      topic: dev_demo_flow_event
+#      sub: dev_demo_flow_event_sub
+#    inner-broadcast:
+#      topic: dev_demo_inner_broadcast
+#      sub: dev_demo_inner_broadcast_sub
 
 oss:
   type: minio

@@ -2,7 +2,7 @@
 
 # Upgrade the version of all maven modules to the specified target version.
 # Usage: ./upgrade-versions.sh <target-version>
-# Example: ./upgrade-versions.sh 1.0.2
+# Example: ./upgrade-versions.sh 1.0.3
 
 # Check if a new version number is provided as an argument
 if [ -z "$1" ]; then

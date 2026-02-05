@@ -2,6 +2,7 @@ package io.softa.starter.flow.message;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ import io.softa.starter.flow.service.FlowConfigService;
  * Flow event consumer
  */
 @Component
+@ConditionalOnProperty(name = "mq.topics.flow-event.topic")
 public class FlowEventConsumer {
 
     @Autowired

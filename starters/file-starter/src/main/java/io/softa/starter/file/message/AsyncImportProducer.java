@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.pulsar.core.PulsarTemplate;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.utils.Assert;
 import io.softa.starter.file.dto.ImportTemplateDTO;
 
 /**
@@ -15,7 +16,7 @@ import io.softa.starter.file.dto.ImportTemplateDTO;
 @Component
 public class AsyncImportProducer {
 
-    @Value("${mq.topics.async-import.topic}")
+    @Value("${mq.topics.async-import.topic:}")
     private String importTopic;
 
     @Autowired
@@ -25,7 +26,8 @@ public class AsyncImportProducer {
      * Send asynchronous import task message.
      */
     public void sendAsyncImport(ImportTemplateDTO message) {
-        pulsarTemplate.sendAsync(importTopic, message).whenComplete((messageId, ex) -> {
+        Assert.notBlank(importTopic, "Async import topic is not configured");
+        pulsarTemplate.sendAsync(importTopic, message).whenComplete((_, ex) -> {
             if (ex == null) {
                 log.debug("The asynchronous import message was successfully sent: {}", message);
             } else {

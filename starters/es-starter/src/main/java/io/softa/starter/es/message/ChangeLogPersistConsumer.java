@@ -25,7 +25,7 @@ import io.softa.framework.orm.changelog.message.dto.ChangeLogMessage;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(prefix = "system", name = "enable-change-log", havingValue = "true")
+@ConditionalOnProperty(name = "mq.topics.change-log.topic")
 public class ChangeLogPersistConsumer {
 
     @Value("${spring.elasticsearch.index.changelog}")

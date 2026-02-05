@@ -27,10 +27,10 @@ public class InnerBroadcastProducer {
      */
     public void sendInnerBroadcast(InnerBroadcastMessage message) {
         if (StringUtils.isBlank(innerBroadcastTopic)) {
-            log.warn("mq.topics.inner-broadcast.topic not configured!");
+            log.error("Inner broadcast topic is not configured");
             return;
         }
-        pulsarTemplate.sendAsync(innerBroadcastTopic, message).whenComplete((messageId, ex) -> {
+        pulsarTemplate.sendAsync(innerBroadcastTopic, message).whenComplete((_, ex) -> {
             if (ex != null) {
                 log.error("Failed to send inner broadcast message to MQ!", ex);
             }

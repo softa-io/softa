@@ -2,6 +2,7 @@ package io.softa.starter.metadata.message;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarReader;
 import org.springframework.stereotype.Component;
 
@@ -16,6 +17,7 @@ import io.softa.starter.metadata.message.enums.InnerBroadcastType;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "mq.topics.inner-broadcast.topic")
 public class InnerBroadcastConsumer {
 
     @Autowired

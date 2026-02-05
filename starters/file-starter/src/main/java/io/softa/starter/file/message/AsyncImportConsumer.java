@@ -3,6 +3,7 @@ package io.softa.starter.file.message;
 import java.io.InputStream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,7 @@ import io.softa.starter.file.service.ImportService;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "mq.topics.async-import.topic")
 public class AsyncImportConsumer {
 
     @Autowired

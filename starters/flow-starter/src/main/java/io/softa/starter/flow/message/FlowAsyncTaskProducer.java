@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.pulsar.core.PulsarTemplate;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.utils.Assert;
 import io.softa.starter.flow.message.dto.FlowAsyncTaskMessage;
 
 /**
@@ -15,7 +16,7 @@ import io.softa.starter.flow.message.dto.FlowAsyncTaskMessage;
 @Component
 public class FlowAsyncTaskProducer {
 
-    @Value("${mq.topics.flow-async-task.topic}")
+    @Value("${mq.topics.flow-async-task.topic:}")
     private String asyncTaskTopic;
 
     @Autowired
@@ -25,7 +26,8 @@ public class FlowAsyncTaskProducer {
      * Send the async task of flow to MQ
      */
     public void sendFlowTask(FlowAsyncTaskMessage message) {
-        pulsarTemplate.sendAsync(asyncTaskTopic, message).whenComplete((messageId, ex) -> {
+        Assert.notBlank(asyncTaskTopic, "Flow async task topic is not configured");
+        pulsarTemplate.sendAsync(asyncTaskTopic, message).whenComplete((_, ex) -> {
             if (ex != null) {
                 log.error("Failed to send flow async task to MQ!", ex);
             }

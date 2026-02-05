@@ -45,7 +45,7 @@ services:
       - ./init_mysql:/docker-entrypoint-initdb.d
 
   demo-app:
-    image: ghcr.io/softa-io/demo-app:1.0.2
+    image: ghcr.io/softa-io/demo-app:1.0.3
     networks:
       - shared-net
     ports:

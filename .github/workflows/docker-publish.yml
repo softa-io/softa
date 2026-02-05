@@ -1,5 +1,6 @@
 name: Release Docker image (tag only)
 # Trigger action on push of tags starting with "v", e.g., v1.0.0
+
 on:
   push:
     tags:
@@ -58,6 +59,7 @@ jobs:
           file: ./deploy/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          # Remove unknown/unknown arch images from manifest list
           provenance: false
           sbom: false
           # Set build args to specify app directory and name

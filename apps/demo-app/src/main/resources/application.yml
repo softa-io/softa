@@ -61,3 +61,4 @@ springdoc:
     path: /swagger-ui.html
     tagsSorter: alpha
     operations-sorter: alpha
+    enabled: true

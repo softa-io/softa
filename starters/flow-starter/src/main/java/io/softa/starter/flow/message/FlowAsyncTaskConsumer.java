@@ -1,6 +1,7 @@
 package io.softa.starter.flow.message;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +14,7 @@ import io.softa.starter.flow.message.dto.FlowAsyncTaskMessage;
  * Flow async task consumer, also the async task executor
  */
 @Component
+@ConditionalOnProperty(name = "mq.topics.flow-async-task.topic")
 public class FlowAsyncTaskConsumer {
 
     @Autowired
