@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
+@ConditionalOnClass(name = "io.softa.starter.user.UserAutoConfiguration")
 public class ContextScopeFilter implements Filter {
 
     private final ContextBuilder contextBuilder;
