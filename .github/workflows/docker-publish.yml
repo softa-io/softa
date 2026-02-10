@@ -53,8 +53,8 @@ jobs:
           mvn -B -ntp -DskipTests -Dgpg.skip=true \
             -pl apps/${{ matrix.name }} -am \
             package
-          mkdir -p target
-          cp apps/${{ matrix.name }}/target/${{ matrix.name }}.jar target/${{ matrix.name }}.jar
+          mkdir -p app
+          cp apps/${{ matrix.name }}/target/${{ matrix.name }}.jar app/${{ matrix.name }}.jar
 
       # Setup Docker Buildx and QEMU for multi-platform builds
       - name: Set up QEMU

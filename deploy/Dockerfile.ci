@@ -8,7 +8,7 @@ ENV TZ=UTC
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 COPY ./deploy/entrypoint.sh /app/entrypoint.sh
-COPY ./target/${APP_NAME}.jar /app/${APP_NAME}.jar
+COPY ./app/${APP_NAME}.jar /app/${APP_NAME}.jar
 
 WORKDIR /app
 RUN chmod +x ./entrypoint.sh
