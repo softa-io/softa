@@ -1,5 +1,5 @@
-name: Publish Maven packages (GitHub Packages + Maven Central)
-# Publish Maven packages to both GitHub Packages and Maven Central upon new release/tag.
+name: Deploy Maven packages (GitHub Packages + Maven Central)
+# Deploy Maven packages to both GitHub Packages and Maven Central upon new release/tag.
 
 on:
   push:
@@ -20,7 +20,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-maven-${{ github.ref }}
+  group: deploy-maven-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

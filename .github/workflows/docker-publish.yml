@@ -1,4 +1,4 @@
-name: Release Docker image (tag only)
+name: Publish Docker image (tag only)
 # Trigger action on push of tags starting with "v", e.g., v1.0.0
 
 on:
@@ -20,7 +20,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-maven-${{ github.ref }}
+  group: publish-docker-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
