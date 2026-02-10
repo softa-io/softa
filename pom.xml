@@ -74,17 +74,6 @@
 				</executions>
 			</plugin>
 
-			<!-- Publishing by Sonatype maven plugin-->
-			<plugin>
-				<groupId>org.sonatype.central</groupId>
-				<artifactId>central-publishing-maven-plugin</artifactId>
-				<version>0.10.0</version>
-				<extensions>true</extensions>
-				<configuration>
-					<publishingServerId>sonatype central</publishingServerId>
-				</configuration>
-			</plugin>
-
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-gpg-plugin</artifactId>
@@ -153,6 +142,40 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!-- ========== GitHub Packages maven registry ========== -->
+		<profile>
+			<id>github</id>
+			<distributionManagement>
+				<repository>
+					<id>github</id>
+					<url>https://maven.pkg.github.com/softa-io/softa</url>
+				</repository>
+			</distributionManagement>
+		</profile>
+
+		<!-- ========== Maven Central maven registry ========== -->
+		<profile>
+			<id>central</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.sonatype.central</groupId>
+						<artifactId>central-publishing-maven-plugin</artifactId>
+						<version>0.10.0</version>
+						<extensions>true</extensions>
+						<configuration>
+							<publishingServerId>central</publishingServerId>
+<!--							<autoPublish>true</autoPublish>-->
+							<waitUntil>VALIDATED</waitUntil>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+
+	</profiles>
 
 	<scm>
 		<url>https://github.com/softa-io/softa</url>

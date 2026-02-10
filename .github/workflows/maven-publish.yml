@@ -1,0 +1,101 @@
+name: Publish Maven packages (GitHub Packages + Maven Central)
+
+on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [ created ]
+  # Manual trigger with version input if no tag is present in the commit history
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver version, e.g. 1.2.3 (optional; used when no tag)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-maven-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: central
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      # --- GPG: import private key for signing ---
+      - name: Import GPG key
+        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+        shell: bash
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --yes --import
+          # Optional: show keys for debugging
+          gpg --list-secret-keys --keyid-format=long || true
+
+      # --- Maven settings.xml: define BOTH servers: github + central ---
+      - name: Configure Maven settings.xml
+        shell: bash
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml <<'XML'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <!-- For GitHub Packages (distributionManagement id = github) -->
+              <server>
+                <id>github</id>
+                <username>${env.GITHUB_ACTOR}</username>
+                <password>${env.GITHUB_TOKEN}</password>
+              </server>
+
+              <!-- For Sonatype Central Portal (publishingServerId = central) -->
+              <server>
+                <id>central</id>
+                <username>${env.CENTRAL_TOKEN_USERNAME}</username>
+                <password>${env.CENTRAL_TOKEN_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          XML
+
+      # --- Build once (optional but recommended) ---
+      - name: Build & verify
+        shell: bash
+        run: |
+          mvn -B -ntp -DskipTests=false verify
+
+      # --- Publish to GitHub Packages ---
+      # Requires pom.xml distributionManagement with id=github and url=https://maven.pkg.github.com/<OWNER>/<REPO>
+      - name: Deploy to GitHub Packages (Maven Registry)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mvn -B -ntp -DskipTests -Pgithub deploy
+
+      # --- Publish to Maven Central (Central Portal) ---
+      # Assumes you configured central-publishing-maven-plugin under a profile, e.g. -Prelease-central
+      - name: Deploy to Maven Central (Central Portal)
+        shell: bash
+        env:
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          mvn -B -ntp -DskipTests -Pcentral deploy

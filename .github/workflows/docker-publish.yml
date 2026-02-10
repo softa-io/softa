@@ -5,10 +5,23 @@ on:
   push:
     tags:
       - "v*"
+  release:
+    types: [ created ]
+  # Manual trigger with version input if no tag is present in the commit history
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver version, e.g. 1.2.3 (optional; used when no tag)"
+        required: true
+        type: string
 
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: publish-maven-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   docker:
@@ -26,6 +39,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Set up Java
+      - name: Set up Java (with Maven cache)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      # Build fat-jar for the application
+      - name: Package fat-jar
+        run: |
+          mvn -B -ntp -DskipTests -Dgpg.skip=true \
+            -pl apps/${{ matrix.name }} -am \
+            package
+          mkdir -p target
+          cp apps/${{ matrix.name }}/target/${{ matrix.name }}.jar target/${{ matrix.name }}.jar
 
       # Setup Docker Buildx and QEMU for multi-platform builds
       - name: Set up QEMU
@@ -48,15 +77,16 @@ jobs:
           images: ${{ matrix.image }}
           tags: |
             type=semver,pattern={{version}}
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.title=${{ matrix.name }}
 
-      - name: Build and push
+      - name: Build and push docker image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./deploy/Dockerfile
+          file: ./deploy/Dockerfile.ci
           platforms: linux/amd64,linux/arm64
           push: true
           # Remove unknown/unknown arch images from manifest list
@@ -64,7 +94,6 @@ jobs:
           sbom: false
           # Set build args to specify app directory and name
           build-args: |
-            APP_DIR=apps
             APP_NAME=${{ matrix.name }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
