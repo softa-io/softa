@@ -41,7 +41,6 @@ jobs:
 
       # --- GPG: import private key for signing ---
       - name: Import GPG key
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
         shell: bash
         run: |
           echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --yes --import
