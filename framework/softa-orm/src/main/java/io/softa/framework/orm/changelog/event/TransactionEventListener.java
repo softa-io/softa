@@ -2,7 +2,7 @@ package io.softa.framework.orm.changelog.event;
 
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -15,7 +15,6 @@ import io.softa.framework.orm.changelog.message.dto.ChangeLog;
  * Transaction listener, send ChangeLog after transaction commit.
  */
 @Component
-@ConditionalOnProperty(prefix = "system", name = "enable-change-log", havingValue = "true")
 public class TransactionEventListener {
 
     @Autowired
@@ -29,15 +28,16 @@ public class TransactionEventListener {
     public void afterCommit(TransactionEvent event) {
         List<ChangeLog> changeLogs = ChangeLogHolder.get();
         changeLogProducer.sendChangeLog(changeLogs);
-        ChangeLogHolder.clear();
     }
 
     /**
-     * Clear transaction-bound buffer after transaction rollback.
+     * Clear transaction-bound buffer after transaction completion.
+     * No matter commit or rollback. @Order to ensure this runs after all other listeners.
      * @param event Transaction event
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_ROLLBACK)
-    public void onRollback(TransactionEvent event) {
+    @Order
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMPLETION)
+    public void afterCompletion(TransactionEvent event) {
         ChangeLogHolder.clear();
     }
 }

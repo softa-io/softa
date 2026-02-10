@@ -1,5 +1,14 @@
 package io.softa.starter.designer.version.impl;
 
+import java.io.Serializable;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
+import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
+
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.service.ModelService;
@@ -16,15 +25,6 @@ import io.softa.starter.designer.upgrade.RemoteApiClient;
 import io.softa.starter.designer.version.VersionPublish;
 import io.softa.starter.metadata.constant.MetadataConstant;
 import io.softa.starter.metadata.service.MetadataService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.env.Environment;
-import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
-
-import java.io.Serializable;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.*;
 
 import static io.softa.framework.orm.constant.ModelConstant.ID;
 
@@ -60,7 +60,7 @@ public class VersionPublishImpl implements VersionPublish {
         if (!CollectionUtils.isEmpty(modelChangesDTOList)) {
             for (ModelChangesDTO modelChangesDTO : modelChangesDTOList) {
                 MetadataUpgradePackage upgradeModelPackage = new MetadataUpgradePackage();
-                String runtimeModel = MetadataConstant.BASIC_METADATA_MODELS.get(modelChangesDTO.getModelName());
+                String runtimeModel = MetadataConstant.VERSION_CONTROL_MODELS.get(modelChangesDTO.getModelName());
                 upgradeModelPackage.setModelName(runtimeModel);
                 // created data
                 List<Map<String, Object>> createRows = modelChangesDTO.getCreatedRows().stream()

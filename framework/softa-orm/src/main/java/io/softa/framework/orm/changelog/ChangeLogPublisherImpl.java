@@ -1,17 +1,16 @@
 package io.softa.framework.orm.changelog;
 
-import jakarta.validation.constraints.NotNull;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
-import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.TimeConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -64,7 +63,7 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
     @Override
     public void publishCreationLog(String model, List<Map<String, Object>> createdRows, LocalDateTime createdTime) {
         // Skip if disabled or no rows
-        if (!SystemConfig.env.isEnableChangeLog() || createdRows == null || createdRows.isEmpty()) {
+        if (createdRows == null || createdRows.isEmpty()) {
             return;
         }
         String primaryKey = ModelManager.getModelPrimaryKey(model);
@@ -85,7 +84,7 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
     public void publishUpdateLog(String model, List<Map<String, Object>> updatedRows,
             Map<Serializable, Map<String, Object>> originalRowsMap, LocalDateTime updatedTime) {
         // Skip if disabled or no rows
-        if (!SystemConfig.env.isEnableChangeLog() || updatedRows == null || updatedRows.isEmpty()) {
+        if (updatedRows == null || updatedRows.isEmpty()) {
             return;
         }
         String primaryKey = ModelManager.getModelPrimaryKey(model);
@@ -115,7 +114,7 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
     @Override
     public void publishDeletionLog(String model, List<Map<String, Object>> deletedRows, LocalDateTime deleteTime) {
         // Skip if disabled or no rows
-        if (!SystemConfig.env.isEnableChangeLog() || deletedRows == null || deletedRows.isEmpty()) {
+        if (deletedRows == null || deletedRows.isEmpty()) {
             return;
         }
         String primaryKey = ModelManager.getModelPrimaryKey(model);

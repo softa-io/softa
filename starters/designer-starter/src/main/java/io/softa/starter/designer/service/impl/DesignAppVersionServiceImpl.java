@@ -1,6 +1,15 @@
 package io.softa.starter.designer.service.impl;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
+
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
@@ -19,15 +28,6 @@ import io.softa.starter.designer.version.VersionControl;
 import io.softa.starter.designer.version.VersionDdl;
 import io.softa.starter.designer.version.VersionPublish;
 import io.softa.starter.metadata.constant.MetadataConstant;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 
 /**
  * DesignAppVersion Model Service Implementation
@@ -128,7 +128,7 @@ public class DesignAppVersionServiceImpl extends EntityServiceImpl<DesignAppVers
         DesignAppEnv appEnv = appEnvService.getById(appVersion.getEnvId())
                 .orElseThrow(() -> new IllegalArgumentException("The envId {0} of app version {1} does not exist!",
                         appVersion.getEnvId(), appVersion.getName()));
-        for (String versionedModel : MetadataConstant.BASIC_METADATA_MODELS.keySet()) {
+        for (String versionedModel : MetadataConstant.VERSION_CONTROL_MODELS.keySet()) {
             ModelChangesDTO modelChangesDTO = versionControl.getModelChanges(appEnv, versionedModel, versionedTime);
             if (modelChangesDTO == null) {
                 continue;

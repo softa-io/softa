@@ -1,23 +1,23 @@
 package io.softa.starter.metadata.service.impl;
 
-import io.softa.framework.base.constant.BaseConstant;
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.web.dto.MetadataUpgradePackage;
-import io.softa.starter.metadata.message.InnerBroadcastProducer;
-import io.softa.starter.metadata.message.dto.InnerBroadcastMessage;
-import io.softa.starter.metadata.message.enums.InnerBroadcastType;
-import io.softa.starter.metadata.constant.MetadataConstant;
-import io.softa.starter.metadata.service.MetadataService;
+import java.io.Serializable;
+import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
-import java.io.Serializable;
-import java.util.List;
-import java.util.Map;
+import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.web.dto.MetadataUpgradePackage;
+import io.softa.starter.metadata.constant.MetadataConstant;
+import io.softa.starter.metadata.message.InnerBroadcastProducer;
+import io.softa.starter.metadata.message.dto.InnerBroadcastMessage;
+import io.softa.starter.metadata.message.enums.InnerBroadcastType;
+import io.softa.starter.metadata.service.MetadataService;
 
 /**
  * Metadata upgrade service implementation.
@@ -46,7 +46,7 @@ public class MetadataServiceImpl implements MetadataService {
      * Validate if the model is enabled for version control.
      */
     private void validateRuntimeModel(String modelName) {
-        Assert.isTrue(MetadataConstant.BASIC_METADATA_MODELS.containsValue(modelName),
+        Assert.isTrue(MetadataConstant.VERSION_CONTROL_MODELS.containsValue(modelName),
                 "Model {0} is not enabled for version control, and the upgrade API cannot be invoked.", modelName);
     }
 

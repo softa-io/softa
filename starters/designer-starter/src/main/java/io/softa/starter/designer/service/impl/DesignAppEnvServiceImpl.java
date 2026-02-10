@@ -1,5 +1,16 @@
 package io.softa.starter.designer.service.impl;
 
+import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.RequestParam;
+
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
@@ -19,17 +30,6 @@ import io.softa.starter.designer.service.DesignAppEnvService;
 import io.softa.starter.designer.service.DesignAppVersionService;
 import io.softa.starter.designer.version.VersionControl;
 import io.softa.starter.metadata.constant.MetadataConstant;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.RequestParam;
-
-import java.io.Serializable;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 /**
  * DesignAppEnv Model Service Implementation
@@ -58,7 +58,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
         DesignAppEnv appEnv = this.getById(envId)
                 .orElseThrow(() -> new IllegalArgumentException("The specified envId does not exist! {0}", envId));
         LocalDateTime lastVersionedTime = this.getLastVersionedTime(envId);
-        for (String versionedModel : MetadataConstant.BASIC_METADATA_MODELS.keySet()) {
+        for (String versionedModel : MetadataConstant.VERSION_CONTROL_MODELS.keySet()) {
             ModelChangesDTO modelChangesDTO = versionControl.getModelChanges(appEnv, versionedModel, lastVersionedTime);
             if (modelChangesDTO != null) {
                 modelChangesDTOList.add(modelChangesDTO);
@@ -98,7 +98,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
                 "The source and target environments must belong to the same App!");
         LocalDateTime lastMergeTime = this.getLastMergeTime(sourceEnvId, targetEnvId);
         List<ModelChangesDTO> modelChanges = new ArrayList<>();
-        for (String model : MetadataConstant.BASIC_METADATA_MODELS.keySet()) {
+        for (String model : MetadataConstant.VERSION_CONTROL_MODELS.keySet()) {
             ModelChangesDTO modelChangesDTO = versionControl.getModelChanges(sourceEnv, model, lastMergeTime);
             if (modelChangesDTO != null) {
                 modelChanges.add(modelChangesDTO);

@@ -4,11 +4,11 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.core.PulsarTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -21,7 +21,6 @@ import io.softa.framework.orm.changelog.message.dto.ChangeLogMessage;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(prefix = "system", name = "enable-change-log", havingValue = "true")
 public class ChangeLogProducer {
 
     @Value("${mq.topics.change-log.topic:}")
@@ -34,7 +33,7 @@ public class ChangeLogProducer {
      * Send ChangeLog to MQ in batches to avoid exceeding the message size limit
      */
     public void sendChangeLog(List<ChangeLog> changeLogs) {
-        if (CollectionUtils.isEmpty(changeLogs)) {
+        if (!SystemConfig.env.isEnableChangeLog() || CollectionUtils.isEmpty(changeLogs)) {
             return;
         }
         Assert.notBlank(changeLogTopic, "ChangeLog topic is not configured");

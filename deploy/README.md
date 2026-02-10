@@ -41,7 +41,7 @@ docker-compose -f deploy/pulsar/docker-compose.yml up -d
 ```
 Access the Pulsar console at http://localhost:8080
 
-Or you can specify the `spring.pulsar.service-url` property to connect to your own Pulsar cluster.
+Or you can specify the `spring.pulsar.client.service-url` property to connect to your own Pulsar cluster.
 
 The most crucial information is you need to configure the `mq.topics.xxx.topic` properties to enable the corresponding Listeners.
 
