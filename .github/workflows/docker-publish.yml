@@ -79,8 +79,8 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
           labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.title=${{ matrix.name }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Build and push docker image
         uses: docker/build-push-action@v6
@@ -95,7 +95,7 @@ jobs:
           # Set build args to specify app directory and name
           build-args: |
             APP_NAME=${{ matrix.name }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: latest,${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
