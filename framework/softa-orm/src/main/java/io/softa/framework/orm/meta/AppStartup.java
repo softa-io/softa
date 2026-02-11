@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,6 +24,9 @@ public class AppStartup implements InitializingBean {
     @Autowired
     private TranslationCache translationCache;
 
+    /**
+     * Initialize the system metadata cache after springboot startup.
+     */
     @Override
     public void afterPropertiesSet() {
         try {
@@ -35,5 +39,13 @@ public class AppStartup implements InitializingBean {
         } catch (CannotGetJdbcConnectionException e) {
             throw new RuntimeException("Database connection failed, please check the database configuration.", e);
         }
+    }
+
+    /**
+     * Reload the metadata cache asynchronously.
+     */
+    @Async
+    public void reloadMetadata() {
+        afterPropertiesSet();
     }
 }
