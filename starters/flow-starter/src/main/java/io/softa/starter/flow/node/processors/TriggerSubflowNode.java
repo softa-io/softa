@@ -1,19 +1,19 @@
 package io.softa.starter.flow.node.processors;
 
-import io.softa.framework.base.utils.Assert;
-import io.softa.starter.flow.FlowAutomation;
-import io.softa.starter.flow.node.NodeContext;
-import io.softa.starter.flow.node.NodeProcessor;
-import io.softa.starter.flow.node.params.TriggerSubflowParams;
-import io.softa.starter.flow.entity.FlowNode;
-import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.utils.FlowUtils;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
-import java.util.Map;
+import io.softa.framework.base.utils.Assert;
+import io.softa.starter.flow.FlowAutomation;
+import io.softa.starter.flow.entity.FlowNode;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.node.NodeContext;
+import io.softa.starter.flow.node.NodeProcessor;
+import io.softa.starter.flow.node.params.TriggerSubflowParams;
+import io.softa.starter.flow.utils.FlowUtils;
 
 /**
  * Processor for TriggerSubflow node.
@@ -55,7 +55,7 @@ public class TriggerSubflowNode implements NodeProcessor<TriggerSubflowParams> {
      */
     @Override
     public void validateParams(FlowNode flowNode, TriggerSubflowParams nodeParams) {
-        Assert.notBlank(nodeParams.getSubflowTriggerId(),
+        Assert.notNull(nodeParams.getSubflowTriggerId(),
                 "The subflow trigger code for Node {0} cannot be blank!", flowNode.getName());
     }
 
@@ -73,6 +73,6 @@ public class TriggerSubflowNode implements NodeProcessor<TriggerSubflowParams> {
         // Trigger the subflow through the subflow event and pass the subflow parameters
         Object result = automation.subflowEvent(nodeParams.getSubflowTriggerId(), subflowParams);
         // Put the subflow execution result into the Node context
-        nodeContext.put(flowNode.getId(), result);
+        nodeContext.put(flowNode.getId().toString(), result);
     }
 }

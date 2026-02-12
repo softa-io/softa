@@ -1,11 +1,11 @@
 package io.softa.starter.metadata.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * SysLanguage Model
@@ -19,7 +19,7 @@ public class SysLanguage extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Language Name")
     private String name;

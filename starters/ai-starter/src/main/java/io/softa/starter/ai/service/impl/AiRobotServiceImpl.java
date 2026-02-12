@@ -1,10 +1,10 @@
 package io.softa.starter.ai.service.impl;
 
+import java.util.Arrays;
 import com.plexpt.chatgpt.entity.chat.ChatCompletion;
 import com.plexpt.chatgpt.entity.chat.ChatCompletionResponse;
 import com.plexpt.chatgpt.entity.chat.Message;
 import com.plexpt.chatgpt.entity.chat.StreamOption;
-import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,7 +35,7 @@ import io.softa.starter.ai.service.AiRobotService;
  */
 @Service
 @Slf4j
-public class AiRobotServiceImpl extends EntityServiceImpl<AiRobot, String> implements AiRobotService {
+public class AiRobotServiceImpl extends EntityServiceImpl<AiRobot, Long> implements AiRobotService {
 
     @Value("${ai.response.timeout:60000}")
     private Long timeout;
@@ -50,7 +50,7 @@ public class AiRobotServiceImpl extends EntityServiceImpl<AiRobot, String> imple
     private AiMessageService aiMessageService;
 
     /**
-     * Persist user message and ai message in advance for stream response.
+     * Persist user message and AI message in advance for stream response.
      * Response: Conversation ID, User Message ID, AI Message ID
      *
      * @param aiUserMessage AI User message
@@ -59,7 +59,7 @@ public class AiRobotServiceImpl extends EntityServiceImpl<AiRobot, String> imple
     @Override
     public AiResponseMessage persistChatMessage(AiUserMessage aiUserMessage) {
         if (aiUserMessage.getConversationId() == null) {
-            String conversationId = conversationService.newConversation(aiUserMessage);
+            Long conversationId = conversationService.newConversation(aiUserMessage);
             aiUserMessage.setConversationId(conversationId);
         }
         // Save user message
@@ -80,8 +80,8 @@ public class AiRobotServiceImpl extends EntityServiceImpl<AiRobot, String> imple
      * @param robotId Robot ID
      * @return Robot object
      */
-    private AiRobot getAiRobotById(String robotId) {
-        Assert.notBlank(robotId, "Robot ID cannot be empty!");
+    private AiRobot getAiRobotById(Long robotId) {
+        Assert.notNull(robotId, "Robot ID cannot be empty!");
         return this.getById(robotId).orElseThrow(
                 () -> new IllegalArgumentException("Robot ID not exists: " + robotId));
     }
@@ -172,7 +172,7 @@ public class AiRobotServiceImpl extends EntityServiceImpl<AiRobot, String> imple
         AiRobot aiRobot = this.getAiRobotById(aiUserMessage.getRobotId());
         // New conversation if conversation ID is not set
         if (aiUserMessage.getConversationId() == null) {
-            String conversationId = conversationService.newConversation(aiUserMessage);
+            Long conversationId = conversationService.newConversation(aiUserMessage);
             aiUserMessage.setConversationId(conversationId);
         }
         // Complete chat

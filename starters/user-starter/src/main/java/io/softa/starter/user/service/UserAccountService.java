@@ -1,7 +1,7 @@
 package io.softa.starter.user.service;
 
-import jakarta.validation.constraints.NotNull;
 import java.util.Optional;
+import jakarta.validation.constraints.NotNull;
 
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.orm.service.EntityService;
@@ -12,7 +12,7 @@ import io.softa.starter.user.entity.UserAccount;
 /**
  * UserAccount Model Service Interface
  */
-public interface UserAccountService extends EntityService<UserAccount, String> {
+public interface UserAccountService extends EntityService<UserAccount, Long> {
 
     /**
      * Get user by email
@@ -64,5 +64,5 @@ public interface UserAccountService extends EntityService<UserAccount, String> {
      * @param newPassword New password
      * @return Success status
      */
-    boolean forceResetPassword(String userId, String newPassword);
+    boolean forceResetPassword(Long userId, String newPassword);
 }

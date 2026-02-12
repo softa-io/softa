@@ -1,17 +1,17 @@
 package io.softa.starter.flow.service;
 
-import io.softa.framework.orm.service.EntityService;
-import io.softa.starter.flow.entity.FlowConfig;
-import io.softa.starter.flow.message.dto.FlowEventMessage;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.flow.entity.FlowConfig;
+import io.softa.starter.flow.message.dto.FlowEventMessage;
+
 /**
  * FlowConfig Model Service Interface
  */
-public interface FlowConfigService extends EntityService<FlowConfig, String> {
+public interface FlowConfigService extends EntityService<FlowConfig, Long> {
 
     /**
      * Get the flow list by model name.
@@ -27,7 +27,7 @@ public interface FlowConfigService extends EntityService<FlowConfig, String> {
      * @param flowId flow ID
      * @return flowConfig object with nodes and edges
      */
-    Optional<FlowConfig> getFlowById(String flowId);
+    Optional<FlowConfig> getFlowById(Long flowId);
 
     /**
      * Execute a non-transactional flow according to the FlowEventMessage.

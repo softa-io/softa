@@ -1,6 +1,5 @@
 package io.softa.starter.designer.service.impl;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -183,7 +182,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
                 modelService.updateByExternalId(versionedModel, updatedRows);
             }
             if (!modelChangesDTO.getDeletedRows().isEmpty()) {
-                List<Serializable> deletedIds = modelChangesDTO.getDeletedRows().stream()
+                List<Long> deletedIds = modelChangesDTO.getDeletedRows().stream()
                         .map(RowChangeDTO::getRowId)
                         .toList();
                 modelService.deleteByExternalIds(versionedModel, deletedIds);

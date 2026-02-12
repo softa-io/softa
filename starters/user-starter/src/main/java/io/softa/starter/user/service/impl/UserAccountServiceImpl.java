@@ -1,8 +1,8 @@
 package io.softa.starter.user.service.impl;
 
-import jakarta.validation.constraints.NotNull;
 import java.util.Objects;
 import java.util.Optional;
+import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,7 +29,7 @@ import io.softa.starter.user.service.UserProfileService;
  */
 @Slf4j
 @Service
-public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, String> implements UserAccountService {
+public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long> implements UserAccountService {
 
     @Autowired
     private UserProfileService profileService;
@@ -73,7 +73,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Strin
         try {
             // Create user account
             UserAccount userAccount = this.buildUserAccount(accountInfo);
-            String userId = this.createOne(userAccount);
+            Long userId = this.createOne(userAccount);
 
             // Create user profile and return UserInfo
             return profileService.registerUserProfile(userId, profileInfo);
@@ -117,7 +117,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Strin
             userAccount.setPasswordSalt(salt);
             userAccount.setPassword(hashedPassword);
         }
-        String userId = this.createOne(userAccount);
+        Long userId = this.createOne(userAccount);
 
         // Create user profile and return UserInfo
         return profileService.registerUserProfile(userId, profileInfo);
@@ -130,7 +130,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Strin
         Assert.notBlank(newPassword, "New password cannot be empty.");
         // TODO: Add password strength validation
 
-        String userId = ContextHolder.getContext().getUserId();
+        Long userId = ContextHolder.getContext().getUserId();
         Assert.notNull(userId, "Cannot change password without logged-in user context.");
 
         UserAccount user = this.getById(userId).orElseThrow(() -> new BusinessException("Current user not found."));
@@ -157,7 +157,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Strin
 
     @Override
     @Transactional
-    public boolean forceResetPassword(String userId, String newPassword) {
+    public boolean forceResetPassword(Long userId, String newPassword) {
         Assert.notBlank(newPassword, "New password cannot be empty.");
         // TODO: Add password strength validation
 

@@ -29,7 +29,7 @@ import io.softa.starter.file.service.DocumentTemplateService;
  * DocumentTemplate Model Service Implementation
  */
 @Service
-public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTemplate, String> implements DocumentTemplateService {
+public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTemplate, Long> implements DocumentTemplateService {
 
     private static final Configure configure;
 
@@ -59,7 +59,7 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
      * @return generated document fileInfo with download URL
      */
     @Override
-    public FileInfo generateDocument(String templateId, Serializable rowId) {
+    public FileInfo generateDocument(Long templateId, Serializable rowId) {
         DocumentTemplate template = getTemplateById(templateId);
         Optional<Map<String, Object>> optionalData = modelService.getById(template.getModelName(), rowId);
         Map<String, Object> data = optionalData
@@ -76,7 +76,7 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
      * @return generated document fileInfo with download URL
      */
     @Override
-    public FileInfo generateDocument(String templateId, Object data) {
+    public FileInfo generateDocument(Long templateId, Object data) {
         DocumentTemplate template = getTemplateById(templateId);
         return generateDocumentByTemplate(template, data);
     }
@@ -87,7 +87,7 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
      * @param templateId the template ID
      * @return the document template
      */
-    private DocumentTemplate getTemplateById(String templateId) {
+    private DocumentTemplate getTemplateById(Long templateId) {
         DocumentTemplate template = this.getById(templateId)
                 .orElseThrow(() -> new IllegalArgumentException("The document template does not exist"));
         this.validateTemplate(template);
@@ -100,7 +100,7 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
      */
     private void validateTemplate(DocumentTemplate template) {
         Assert.notBlank(template.getModelName(), "The modelName of `{0}` template is empty", template.getFileName());
-        Assert.notBlank(template.getFileId(), "The document template file is empty");
+        Assert.notNull(template.getFileId(), "The document template file is empty");
     }
 
     /**

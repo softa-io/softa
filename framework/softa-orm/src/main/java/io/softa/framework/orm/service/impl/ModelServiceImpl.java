@@ -59,8 +59,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (ModelManager.isMultiTenant(modelName)) {
             rows.forEach(row -> {
                 if (row.containsKey(ModelConstant.TENANT_ID)) {
-                    String tenantId = (String) row.get(ModelConstant.TENANT_ID);
-                    if (StringUtils.isNotBlank(tenantId) && !tenantId.equals(ContextHolder.getContext().getTenantId())) {
+                    Long tenantId = (Long) row.get(ModelConstant.TENANT_ID);
+                    if (Objects.nonNull(tenantId) && !tenantId.equals(ContextHolder.getContext().getTenantId())) {
                         throw new SecurityException("In a multi-tenancy environment, cross-tenant data access is not allowed: {0}", row);
                     }
                     row.remove(ModelConstant.TENANT_ID);
@@ -520,7 +520,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * @param externalIds externalId list
      * @return externalId-id mapping
      */
-    private Map<Serializable, K> getExternalIdMapping(String modelName, List<Serializable> externalIds) {
+    private Map<Serializable, K> getExternalIdMapping(String modelName, List<? extends Serializable> externalIds) {
         List<String> fields = Arrays.asList(ModelConstant.ID, ModelConstant.EXTERNAL_ID);
         Filters filters = new Filters().in(ModelConstant.EXTERNAL_ID, externalIds);
         FlexQuery flexQuery = new FlexQuery(fields, filters);
@@ -862,10 +862,11 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public boolean deleteByExternalIds(String modelName, List<Serializable> externalIds) {
+    public boolean deleteByExternalIds(String modelName, List<? extends Serializable> externalIds) {
         Assert.allNotNull(externalIds, "The externalIds to be deleted cannot be empty! {0}", externalIds);
         Map<Serializable, K> eIdMap = this.getExternalIdMapping(modelName, externalIds);
-        List<Serializable> differenceIds = externalIds.stream().filter(externalId -> !eIdMap.containsKey(externalId)).toList();
+        List<? extends Serializable> differenceIds = externalIds.stream()
+                .filter(externalId -> !eIdMap.containsKey(externalId)).toList();
         Assert.isEmpty(differenceIds, "The externalId {0} does not exist in model {1}!", differenceIds, modelName);
         return this.deleteByIds(modelName, new ArrayList<>(eIdMap.values()));
     }

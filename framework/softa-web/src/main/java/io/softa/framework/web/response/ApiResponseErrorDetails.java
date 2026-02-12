@@ -1,9 +1,10 @@
 package io.softa.framework.web.response;
 
-import io.softa.framework.base.enums.ResponseCode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+
+import io.softa.framework.base.enums.ResponseCode;
 
 /**
  * API response body with error details:
@@ -37,7 +38,7 @@ public class ApiResponseErrorDetails<T> extends ApiResponse<T> {
      * @param error error message of the response.
      * @return ApiResponse<T>
      */
-    public static ApiResponseErrorDetails<String> exception(ResponseCode responseCode, String error) {
+    public static ApiResponseErrorDetails<Void> exception(ResponseCode responseCode, String error) {
         Integer code = responseCode.getCode();
         String message = responseCode.getMessage();
         return new ApiResponseErrorDetails<>(code, message, null, error);

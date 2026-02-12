@@ -21,7 +21,7 @@ import io.softa.starter.file.service.DocumentTemplateService;
 @Tag(name = "DocumentTemplate")
 @RestController
 @RequestMapping("/DocumentTemplate")
-public class DocumentTemplateController extends EntityController<DocumentTemplateService, DocumentTemplate, String> {
+public class DocumentTemplateController extends EntityController<DocumentTemplateService, DocumentTemplate, Long> {
 
     /**
      * Generate a word or PDF document according to the specified template ID and row ID.
@@ -36,7 +36,7 @@ public class DocumentTemplateController extends EntityController<DocumentTemplat
             @Parameter(name = "templateId", description = "Template ID"),
             @Parameter(name = "rowId", description = "Data ID of the business data model")
     })
-    public ApiResponse<FileInfo> generateDocument(String templateId, Serializable rowId) {
+    public ApiResponse<FileInfo> generateDocument(Long templateId, Serializable rowId) {
         FileInfo fileInfo = service.generateDocument(templateId, rowId);
         return ApiResponse.success(fileInfo);
     }

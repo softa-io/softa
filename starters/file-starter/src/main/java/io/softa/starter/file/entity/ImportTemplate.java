@@ -21,10 +21,10 @@ public class ImportTemplate extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "Template Name")
     private String name;

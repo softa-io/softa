@@ -212,7 +212,7 @@ public abstract class ReflectTool {
      * @param fileIds the file IDs
      * @return the list of FileInfo objects
      */
-    public static List<FileInfo> getByFileIds(List<String> fileIds) {
+    public static List<FileInfo> getByFileIds(List<Long> fileIds) {
         FileService fileService = SpringContextUtils.getBeanByClass(FileService.class);
         return fileService.getByFileIds(fileIds);
     }

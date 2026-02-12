@@ -20,7 +20,7 @@ import io.softa.starter.file.service.ExportTemplateService;
 @Tag(name = "Export Template")
 @RestController
 @RequestMapping("/ExportTemplate")
-public class ExportTemplateController extends EntityController<ExportTemplateService, ExportTemplate, String> {
+public class ExportTemplateController extends EntityController<ExportTemplateService, ExportTemplate, Long> {
 
     /**
      * List all export templates of the specified model

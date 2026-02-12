@@ -10,6 +10,6 @@ import io.softa.starter.file.service.ExportTemplateFieldService;
  * ExportTemplateField Model Service Implementation
  */
 @Service
-public class ExportTemplateFieldServiceImpl extends EntityServiceImpl<ExportTemplateField, String> implements ExportTemplateFieldService {
+public class ExportTemplateFieldServiceImpl extends EntityServiceImpl<ExportTemplateField, Long> implements ExportTemplateFieldService {
 
 }

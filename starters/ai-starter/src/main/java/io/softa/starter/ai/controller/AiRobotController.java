@@ -24,7 +24,7 @@ import io.softa.starter.ai.service.AiRobotService;
 @Tag(name = "AiRobot")
 @RestController
 @RequestMapping("/AiRobot")
-public class AiRobotController extends EntityController<AiRobotService, AiRobot, String> {
+public class AiRobotController extends EntityController<AiRobotService, AiRobot, Long> {
 
     /**
      * Persist user message and AI message in advance for stream response.

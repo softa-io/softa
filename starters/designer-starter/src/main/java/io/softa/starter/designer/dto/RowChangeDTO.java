@@ -1,12 +1,11 @@
 package io.softa.starter.designer.dto;
 
-import io.softa.framework.base.enums.AccessType;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
+import io.softa.framework.base.enums.AccessType;
 
 /**
  * DTO for row change information
@@ -16,7 +15,7 @@ import java.util.Map;
 public class RowChangeDTO {
 
     private String model;
-    private Serializable rowId;
+    private Long rowId;
     private AccessType accessType;
 
     // Field values before the change
@@ -26,11 +25,11 @@ public class RowChangeDTO {
     // Current values, stores the latest original values for CREATE and UPDATE operations
     private Map<String, Object> currentData = new HashMap<>();
 
-    private String lastChangedById;
+    private Long lastChangedById;
     private String lastChangedBy;
     private String lastChangedTime;
 
-    public RowChangeDTO(String model, Serializable rowId) {
+    public RowChangeDTO(String model, Long rowId) {
         this.model = model;
         this.rowId = rowId;
     }

@@ -1,11 +1,7 @@
 package io.softa.app.demo.controller;
 
-import io.softa.app.demo.entity.DeptInfo;
-import io.softa.app.demo.service.DeptInfoService;
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.orm.annotation.DataMask;
-import io.softa.framework.web.controller.EntityController;
-import io.softa.framework.web.response.ApiResponse;
+import java.time.LocalDate;
+import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -17,8 +13,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDate;
-import java.util.List;
+import io.softa.app.demo.entity.DeptInfo;
+import io.softa.app.demo.service.DeptInfoService;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.annotation.DataMask;
+import io.softa.framework.web.controller.EntityController;
+import io.softa.framework.web.response.ApiResponse;
 
 /**
  * DeptInfo Model Controller
@@ -34,7 +34,7 @@ public class DeptInfoController extends EntityController<DeptInfoService, DeptIn
     @GetMapping(value = "/readCustomize")
     @Operation(summary = "readCustomize", description = "Read customized department info by ID.")
     @Parameters({
-            @Parameter(name = "id", description = "Data ID, number or string type.", schema = @Schema(type = "number")),
+            @Parameter(name = "id", description = "Data ID, number or string type.", schema = @Schema(type = "string")),
             @Parameter(name = "fields", description = "A list of field names to be read. If not specified, it defaults to all visible fields."),
             @Parameter(name = "effectiveDate", description = "Effective date for timeline model.")
     })

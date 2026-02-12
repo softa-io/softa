@@ -12,7 +12,7 @@ import io.softa.starter.ai.service.AiConversationService;
  * AiConversation Model Service Implementation
  */
 @Service
-public class AiConversationServiceImpl extends EntityServiceImpl<AiConversation, String> implements AiConversationService {
+public class AiConversationServiceImpl extends EntityServiceImpl<AiConversation, Long> implements AiConversationService {
 
     /**
      * New conversation
@@ -22,7 +22,7 @@ public class AiConversationServiceImpl extends EntityServiceImpl<AiConversation,
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public String newConversation(AiUserMessage aiUserMessage) {
+    public Long newConversation(AiUserMessage aiUserMessage) {
         AiConversation conversation = new AiConversation();
         String content = aiUserMessage.getContent();
         conversation.setTitle(content.length() > 10 ? content.substring(0, 10) : content);

@@ -1,6 +1,5 @@
 package io.softa.starter.designer.version.impl;
 
-import java.io.Serializable;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -76,7 +75,7 @@ public class VersionPublishImpl implements VersionPublish {
                 }
                 upgradeModelPackage.setUpdateRows(updateRows);
                 // deleted ids
-                List<Serializable> deletedIds = modelChangesDTO.getDeletedRows().stream()
+                List<Long> deletedIds = modelChangesDTO.getDeletedRows().stream()
                         .map(RowChangeDTO::getRowId)
                         .toList();
                 upgradeModelPackage.setDeleteIds(deletedIds);

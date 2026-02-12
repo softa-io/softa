@@ -104,7 +104,7 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
             return filters;
         }
         // Add tenant filtering conditions
-        String tenantId = ContextHolder.getContext().getTenantId();
+        Long tenantId = ContextHolder.getContext().getTenantId();
         Filters tenantFilter = new Filters().eq(ModelConstant.TENANT_ID, tenantId);
         return Filters.and(filters, tenantFilter);
     }

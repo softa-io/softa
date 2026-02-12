@@ -1,5 +1,16 @@
 package io.softa.starter.flow.service.impl;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StopWatch;
+
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.JSONException;
@@ -20,17 +31,6 @@ import io.softa.starter.flow.node.params.LoopByDatasetParams;
 import io.softa.starter.flow.node.params.LoopByPageParams;
 import io.softa.starter.flow.service.FlowNodeService;
 import io.softa.starter.flow.utils.FlowUtils;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StopWatch;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
 
 import static io.softa.framework.base.constant.BaseConstant.DEFAULT_PAGE_SIZE;
 import static io.softa.framework.base.constant.BaseConstant.MAX_BATCH_SIZE;
@@ -40,7 +40,7 @@ import static io.softa.framework.base.constant.BaseConstant.MAX_BATCH_SIZE;
  */
 @Slf4j
 @Service
-public class FlowNodeServiceImpl extends EntityServiceImpl<FlowNode, String> implements FlowNodeService {
+public class FlowNodeServiceImpl extends EntityServiceImpl<FlowNode, Long> implements FlowNodeService {
 
     @Autowired
     private NodeFactory<?> nodeFactory;
@@ -136,7 +136,7 @@ public class FlowNodeServiceImpl extends EntityServiceImpl<FlowNode, String> imp
     public void processFlowNode(FlowNode flowNode, NodeContext nodeContext) {
         // Skip the current node and continue to the next node when the execution condition is not met.
         if (!isValidNodeCondition(flowNode.getNodeCondition(), nodeContext)) {
-            nodeContext.put(flowNode.getId(), null);
+            nodeContext.put(flowNode.getId().toString(), null);
             return;
         }
 

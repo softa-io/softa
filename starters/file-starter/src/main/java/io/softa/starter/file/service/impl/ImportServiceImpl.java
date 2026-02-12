@@ -91,7 +91,7 @@ public class ImportServiceImpl implements ImportService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public FileInfo getTemplateFile(String templateId) {
+    public FileInfo getTemplateFile(Long templateId) {
         SubQueries subQueries = new SubQueries().expand(ImportTemplate::getImportFields);
         ImportTemplate importTemplate = importTemplateService.getById(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
@@ -121,7 +121,7 @@ public class ImportServiceImpl implements ImportService {
      * @return the import result
      */
     @Override
-    public ImportHistory importByTemplate(String templateId, MultipartFile file, Map<String, Object> env) {
+    public ImportHistory importByTemplate(Long templateId, MultipartFile file, Map<String, Object> env) {
         SubQueries subQueries = new SubQueries().expand(ImportTemplate::getImportFields);
         ImportTemplate importTemplate = importTemplateService.getById(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
@@ -159,7 +159,7 @@ public class ImportServiceImpl implements ImportService {
         ImportDataDTO importDataDTO = this.generateImportDataDTO(importTemplateDTO, inputStream);
         dataHandler.importData(importTemplateDTO, importDataDTO);
         if (!CollectionUtils.isEmpty(importDataDTO.getFailedRows())) {
-            String failedFileId = this.generateFailedExcel(importTemplateDTO.getFileName(), importTemplateDTO, importDataDTO);
+            Long failedFileId = this.generateFailedExcel(importTemplateDTO.getFileName(), importTemplateDTO, importDataDTO);
             importHistory.setFailedFileId(failedFileId);
             ImportStatus status = CollectionUtils.isEmpty(importDataDTO.getRows()) ?
                     ImportStatus.FAILURE : ImportStatus.PARTIAL_FAILURE;
@@ -375,13 +375,13 @@ public class ImportServiceImpl implements ImportService {
      * @param fileId the fileId of the exported file in FileRecord model
      * @return the generated importHistory object
      */
-    protected ImportHistory generateImportHistory(String fileName, String importTemplateId, String fileId) {
+    protected ImportHistory generateImportHistory(String fileName, Long importTemplateId, Long fileId) {
         ImportHistory importHistory = new ImportHistory();
         importHistory.setFileName(fileName);
         importHistory.setTemplateId(importTemplateId);
         importHistory.setOriginalFileId(fileId);
         importHistory.setStatus(ImportStatus.PROCESSING);
-        String id = importHistoryService.createOne(importHistory);
+        Long id = importHistoryService.createOne(importHistory);
         importHistory.setId(id);
         return importHistory;
     }
@@ -394,7 +394,7 @@ public class ImportServiceImpl implements ImportService {
      * @param importDataDTO the import data DTO
      * @return the fileId of the generated Excel file with failed data
      */
-    private String generateFailedExcel(String fileName, ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
+    private Long generateFailedExcel(String fileName, ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
         fileName = fileName + "_" + FileConstant.FAILED_DATA;
         List<String> headers = new ArrayList<>();
         List<String> fields = new ArrayList<>();

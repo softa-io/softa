@@ -1,12 +1,7 @@
 package io.softa.starter.flow.controller;
 
-import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.web.controller.EntityController;
-import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.flow.entity.FlowConfig;
-import io.softa.starter.flow.service.FlowConfigService;
+import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -16,8 +11,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.Map;
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.web.controller.EntityController;
+import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.flow.entity.FlowConfig;
+import io.softa.starter.flow.service.FlowConfigService;
 
 /**
  * FlowConfig Model Controller
@@ -25,7 +25,7 @@ import java.util.Map;
 @Tag(name = "FlowConfig")
 @RestController
 @RequestMapping("/FlowConfig")
-public class FlowConfigController extends EntityController<FlowConfigService, FlowConfig, String> {
+public class FlowConfigController extends EntityController<FlowConfigService, FlowConfig, Long> {
 
     /**
      * Get the flow list by model name.
@@ -44,7 +44,7 @@ public class FlowConfigController extends EntityController<FlowConfigService, Fl
     @GetMapping(value = "/getFlowById")
     @Operation(summary = "getFlowById", description = "Get flow config by ID.")
     @Parameter(name = "id", description = "The flow ID", schema = @Schema(type = "string"))
-    public ApiResponse<FlowConfig> getFlowById(@RequestParam String id) {
+    public ApiResponse<FlowConfig> getFlowById(@RequestParam Long id) {
         FlowConfig flowConfig = service.getFlowById(id)
                 .orElseThrow(() -> new IllegalArgumentException("FlowConfig not found by ID: {0}", id));
         return ApiResponse.success(flowConfig);

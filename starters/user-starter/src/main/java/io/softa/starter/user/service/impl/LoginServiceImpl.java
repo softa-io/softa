@@ -136,7 +136,7 @@ public class LoginServiceImpl implements LoginService {
      * @param userId User ID
      * @return Session ID
      */
-    public String generateSessionId(String userId) {
+    public String generateSessionId(Long userId) {
         String sessionId = UUIDUtils.shortUUID22();
         // Store session ID -> user ID mapping in cache
         String sessionKey = RedisConstant.SESSION + sessionId;

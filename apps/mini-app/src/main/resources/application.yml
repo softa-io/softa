@@ -16,7 +16,7 @@ spring:
       # Global default expiration period for redis cache
       time-to-live: 30d
   jackson:
-    time-zone: GMT+8
+    time-zone: UTC
   jmx:
     # Turn off JVM remote calls
     enabled: false
@@ -32,6 +32,15 @@ server:
     max-connections: 10000
     accept-count: 600
     max-swallow-size: 20MB
+
+cosid:
+  namespace: ${spring.application.name}
+  machine:
+    enabled: true
+    distributor:
+      type: redis
+  snowflake:
+    enabled: true
 
 management:
   endpoints:

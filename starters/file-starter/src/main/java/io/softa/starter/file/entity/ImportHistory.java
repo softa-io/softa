@@ -20,16 +20,16 @@ public class ImportHistory extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "Template ID")
-    private String templateId;
+    private Long templateId;
 
     @Schema(description = "Original File ID")
-    private String originalFileId;
+    private Long originalFileId;
 
     @Schema(description = "File Name")
     private String fileName;
@@ -38,7 +38,7 @@ public class ImportHistory extends AuditableModel {
     private ImportStatus status;
 
     @Schema(description = "Failed File ID")
-    private String failedFileId;
+    private Long failedFileId;
 
     @Schema(description = "Total Rows")
     private Integer totalRows;

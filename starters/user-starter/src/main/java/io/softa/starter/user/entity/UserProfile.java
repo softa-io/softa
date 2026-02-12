@@ -1,15 +1,15 @@
 package io.softa.starter.user.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serial;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.base.enums.Language;
 import io.softa.framework.base.enums.Timezone;
+import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.user.enums.Gender;
 
 /**
@@ -24,13 +24,13 @@ public class UserProfile extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "User ID")
-    private String userId;
+    private Long userId;
 
     @Schema(description = "Full Name")
     private String fullName;
@@ -50,8 +50,8 @@ public class UserProfile extends AuditableModel {
     @Schema(description = "Gender")
     private Gender gender;
 
-    @Schema(description = "Profile Photo")
-    private String photo;
+    @Schema(description = "Profile Photo File ID")
+    private Long photoId;
 
     @Schema(description = "Language")
     private Language language;

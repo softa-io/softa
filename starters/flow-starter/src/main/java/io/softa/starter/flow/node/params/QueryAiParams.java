@@ -14,10 +14,10 @@ import lombok.NoArgsConstructor;
 public class QueryAiParams implements NodeParams {
 
     @Schema(description = "Robot ID")
-    private String robotId;
+    private Long robotId;
 
     @Schema(description = "Conversation ID")
-    private String conversationId;
+    private Long conversationId;
 
     @Schema(description = "Query text, support string interpolation #{var}")
     private String queryContent;

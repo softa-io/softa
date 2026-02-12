@@ -42,7 +42,7 @@ public interface ExportService {
      * @param flexQuery the flex query to be used for data retrieval
      * @return fileInfo object with download URL
      */
-    FileInfo exportByTemplate(String exportTemplateId, FlexQuery flexQuery);
+    FileInfo exportByTemplate(Long exportTemplateId, FlexQuery flexQuery);
 
     /**
      * Export multiple sheets merged to on Excel file by specifying multi export templates.
@@ -53,7 +53,7 @@ public interface ExportService {
      * @param ids the list of export template id
      * @return fileInfo object with download URL
      */
-    FileInfo exportByMultiTemplate(String fileName, List<String> ids);
+    FileInfo exportByMultiTemplate(String fileName, List<Long> ids);
 
     FileInfo dynamicExportByMultiTemplate(String fileName, List<ExportTemplateDTO> dtoList);
 
@@ -65,5 +65,5 @@ public interface ExportService {
      * @param flexQuery the flexQuery of the exported conditions
      * @return fileInfo object with download URL
      */
-    FileInfo exportByFileTemplate(String exportTemplateId, FlexQuery flexQuery);
+    FileInfo exportByFileTemplate(Long exportTemplateId, FlexQuery flexQuery);
 }

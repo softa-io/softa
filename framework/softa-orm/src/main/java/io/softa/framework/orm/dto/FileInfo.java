@@ -1,10 +1,11 @@
 package io.softa.framework.orm.dto;
 
-import io.softa.framework.orm.enums.FileType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import io.softa.framework.orm.enums.FileType;
 
 @Data
 @NoArgsConstructor
@@ -12,8 +13,8 @@ import lombok.NoArgsConstructor;
 @Schema(name = "FileInfo")
 public class FileInfo {
 
-    @Schema(description = "File ID")
-    private String fileId;
+    @Schema(description = "File ID", type = "string")
+    private Long fileId;
 
     @Schema(description = "File Name")
     private String fileName;

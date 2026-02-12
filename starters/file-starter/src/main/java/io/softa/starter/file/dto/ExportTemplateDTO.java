@@ -7,7 +7,7 @@ import io.softa.framework.orm.domain.Filters;
 @Data
 public class ExportTemplateDTO {
 
-    private String templateId;
+    private Long templateId;
 
     private Filters filters;
 

@@ -1,17 +1,15 @@
 package io.softa.framework.orm.utils;
 
-import com.github.f4b6a3.tsid.TsidCreator;
-import com.github.f4b6a3.ulid.UlidCreator;
+import java.io.Serializable;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
-
-import java.io.Serializable;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * ID primary field format, mainly used for an id field type is Long,
@@ -196,43 +194,6 @@ public class IdUtils {
      */
     public static boolean validId(Object id) {
         return id != null && !id.equals(0) && !id.equals(0L) && !id.equals("");
-    }
-
-    /**
-     * Generate a 26-character ULID, with 48-bit timestamp and 80-bit random value.
-     *
-     * @return the ULID id
-     */
-    public static String getULID() {
-        return UlidCreator.getMonotonicUlid().toString();
-    }
-
-    /**
-     * Generate a Long id, up to 256 nodes and 16,384 unique ids per node per millisecond.
-     *
-     * @return the Long id
-     */
-    public static Long getTSIDLong() {
-        return TsidCreator.getTsid256().toLong();
-    }
-
-    /**
-     * Generate a String id, up to 256 nodes and 16,384 unique ids per node per millisecond.
-     *
-     * @return the String id
-     */
-    public static String getTSIDString() {
-        return TsidCreator.getTsid256().toString();
-    }
-
-    /**
-     * Get a simple 16-digit id to compatible with the JavaScript Number.MAX_SAFE_INTEGER.
-     * Not recommended for use in large concurrent systems.
-     *
-     * @return Long
-     */
-    public static Long getSimpleId() {
-        return SimpleId.getInstance().nextId();
     }
 
 }

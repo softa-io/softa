@@ -1,13 +1,13 @@
 package io.softa.starter.user.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.user.enums.LoginMethod;
+import java.io.Serial;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.util.List;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.user.enums.LoginMethod;
 
 /**
  * UserSecurityPolicy Model
@@ -21,10 +21,10 @@ public class UserSecurityPolicy extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "Policy Name")
     private String name;

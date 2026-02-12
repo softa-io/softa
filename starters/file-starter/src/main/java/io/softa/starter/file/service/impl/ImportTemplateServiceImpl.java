@@ -12,6 +12,6 @@ import io.softa.starter.file.service.ImportTemplateService;
  */
 @Slf4j
 @Service
-public class ImportTemplateServiceImpl extends EntityServiceImpl<ImportTemplate, String> implements ImportTemplateService {
+public class ImportTemplateServiceImpl extends EntityServiceImpl<ImportTemplate, Long> implements ImportTemplateService {
 
 }

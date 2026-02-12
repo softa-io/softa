@@ -45,7 +45,7 @@ public interface LoginService {
      * @param userId User ID
      * @return Session ID
      */
-    String generateSessionId(String userId);
+    String generateSessionId(Long userId);
 
     /**
      * User registration by email and password

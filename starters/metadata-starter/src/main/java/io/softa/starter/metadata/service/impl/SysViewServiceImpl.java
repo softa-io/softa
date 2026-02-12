@@ -1,5 +1,10 @@
 package io.softa.starter.metadata.service.impl;
 
+import java.util.List;
+import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -9,11 +14,6 @@ import io.softa.starter.metadata.entity.SysView;
 import io.softa.starter.metadata.entity.SysViewDefault;
 import io.softa.starter.metadata.service.SysViewDefaultService;
 import io.softa.starter.metadata.service.SysViewService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.Optional;
 
 /**
  * SysView Model Service Implementation
@@ -32,7 +32,7 @@ public class SysViewServiceImpl extends EntityServiceImpl<SysView, Long> impleme
      */
     @Override
     public boolean setDefaultView(String modelName, Long viewId) {
-        String currentUserId = ContextHolder.getContext().getUserId();
+        Long currentUserId = ContextHolder.getContext().getUserId();
         Filters personalFilters = new Filters().eq(SysViewDefault::getModelName, modelName)
                 .eq(SysViewDefault::getCreatedId, currentUserId);
         Optional<SysViewDefault> optionalDefaultView = viewDefaultService.searchOne(new FlexQuery(personalFilters));
@@ -56,7 +56,7 @@ public class SysViewServiceImpl extends EntityServiceImpl<SysView, Long> impleme
      */
     @Override
     public List<SysView> getModelViews(String modelName) {
-        String currentUserId = ContextHolder.getContext().getUserId();
+        Long currentUserId = ContextHolder.getContext().getUserId();
         // Public views first, personal views second, and sorted by sequence. Search filters:
         // model_name={modelName} and (public_view=true or created_id={currentUserId}) ORDER BY public_view DESC, sequence
         Filters viewFilters = new Filters().eq(SysView::getModelName, modelName)

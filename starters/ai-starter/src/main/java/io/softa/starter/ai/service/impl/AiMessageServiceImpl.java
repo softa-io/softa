@@ -1,8 +1,8 @@
 package io.softa.starter.ai.service.impl;
 
-import com.plexpt.chatgpt.entity.billing.Usage;
 import java.util.HashMap;
 import java.util.Map;
+import com.plexpt.chatgpt.entity.billing.Usage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +20,7 @@ import io.softa.starter.ai.service.AiMessageService;
  * AiMessage Model Service Implementation
  */
 @Service
-public class AiMessageServiceImpl extends EntityServiceImpl<AiMessage, String> implements AiMessageService {
+public class AiMessageServiceImpl extends EntityServiceImpl<AiMessage, Long> implements AiMessageService {
 
     /**
      * Save user request message.
@@ -74,7 +74,7 @@ public class AiMessageServiceImpl extends EntityServiceImpl<AiMessage, String> i
      * @param parentId Parent message ID
      * @param usage    Usage
      */
-    private void updateParentMessageTokenUsage(String parentId, Usage usage) {
+    private void updateParentMessageTokenUsage(Long parentId, Usage usage) {
         Map<String, Object> userMessageMap = new HashMap<>();
         userMessageMap.put(ModelConstant.ID, parentId);
         String tokenField = LambdaUtils.getAttributeName(AiMessage::getTokens);
@@ -112,7 +112,7 @@ public class AiMessageServiceImpl extends EntityServiceImpl<AiMessage, String> i
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateAiMessageAfterStream(String aiMessageId, AiContent aiContent, String userMessageId) {
+    public void updateAiMessageAfterStream(Long aiMessageId, AiContent aiContent, Long userMessageId) {
         Usage usage = aiContent.getUsage();
         Map<String, Object> updateMap = new HashMap<>();
         updateMap.put(ModelConstant.ID, aiMessageId);

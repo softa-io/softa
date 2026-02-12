@@ -34,7 +34,7 @@ public class NodeExceptionResolver {
         if (exceptionPolicy == null) {
             return;
         }
-        Object value = nodeContext.get(flowNode.getId());
+        Object value = nodeContext.get(flowNode.getId().toString());
         boolean throwExceptionSignal = checkResultForException(value, exceptionPolicy);
         if (!throwExceptionSignal) {
             return;

@@ -1,13 +1,14 @@
 package io.softa.starter.flow.node.processors;
 
-import io.softa.framework.orm.compute.ComputeUtils;
+import org.springframework.stereotype.Component;
+
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.compute.ComputeUtils;
+import io.softa.starter.flow.entity.FlowNode;
+import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.node.NodeContext;
 import io.softa.starter.flow.node.NodeProcessor;
 import io.softa.starter.flow.node.params.ComputeDataParams;
-import io.softa.starter.flow.entity.FlowNode;
-import io.softa.starter.flow.enums.FlowNodeType;
-import org.springframework.stereotype.Component;
 
 /**
  * Processor for ComputeData node.
@@ -60,7 +61,7 @@ public class ComputeDataNode implements NodeProcessor<ComputeDataParams> {
     @Override
     public void execute(FlowNode flowNode, ComputeDataParams nodeParams, NodeContext nodeContext) {
         Object result = ComputeUtils.execute(nodeParams.getExpression(), nodeContext.getEnv(), nodeParams.getValueType());
-        nodeContext.put(flowNode.getId(), result);
+        nodeContext.put(flowNode.getId().toString(), result);
     }
 
 

@@ -1,10 +1,10 @@
 package io.softa.framework.orm.changelog.message.dto;
 
-import io.softa.framework.base.enums.AccessType;
-import lombok.Data;
-
 import java.io.Serializable;
 import java.util.Map;
+import lombok.Data;
+
+import io.softa.framework.base.enums.AccessType;
 
 /**
  * ChangeLog DTO
@@ -24,8 +24,8 @@ public class ChangeLog {
     private Map<String, Object> dataBeforeChange;
     private Map<String, Object> dataAfterChange;
 
-    private String tenantId;
-    private String changedById;
+    private Long tenantId;
+    private Long changedById;
     private String changedBy;
     private String changedTime;
 

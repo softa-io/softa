@@ -1,13 +1,13 @@
 package io.softa.app.demo.entity;
 
-import io.softa.framework.orm.dto.FileInfo;
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.util.List;
+import io.softa.framework.orm.dto.FileInfo;
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * EmpInfo Model
@@ -48,5 +48,5 @@ public class EmpInfo extends AuditableModel {
     private String description;
 
     @Schema(description = "TenantID")
-    private String tenantId;
+    private Long tenantId;
 }

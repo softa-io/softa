@@ -13,16 +13,16 @@ public class EmpInfo implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private String empId;
+    private Long empId;
     private String name;
     private String email;
     private String phone;
     private String photoUrl;
-    private String deptId;
+    private Long deptId;
     private String deptName;
-    private String positionId;
+    private Long positionId;
     private String positionName;
-    private String companyId;
+    private Long companyId;
     private String companyName;
-    private String tenantId;
+    private Long tenantId;
 }

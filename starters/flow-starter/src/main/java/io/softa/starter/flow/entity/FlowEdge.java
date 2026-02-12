@@ -1,11 +1,11 @@
 package io.softa.starter.flow.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * FlowEdge Model
@@ -19,17 +19,17 @@ public class FlowEdge extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Flow ID")
-    private String flowId;
+    private Long flowId;
 
     @Schema(description = "Edge Label")
     private String label;
 
     @Schema(description = "Source Node ID")
-    private String sourceId;
+    private Long sourceId;
 
     @Schema(description = "Target Node ID")
-    private String targetId;
+    private Long targetId;
 }

@@ -1,10 +1,11 @@
 package io.softa.starter.user.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import java.io.Serial;
+
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * UserAccountHistory Model
@@ -18,13 +19,13 @@ public class UserAccountHistory extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "User ID")
-    private String userId;
+    private Long userId;
 
     @Schema(description = "Password")
     private String password;

@@ -9,7 +9,7 @@ import io.softa.starter.user.enums.OAuthProvider;
 /**
  * UserAuthProvider Model Service Interface
  */
-public interface UserAuthProviderService extends EntityService<UserAuthProvider, String> {
+public interface UserAuthProviderService extends EntityService<UserAuthProvider, Long> {
 
     /**
      * Get user id by provider and providerId
@@ -18,7 +18,7 @@ public interface UserAuthProviderService extends EntityService<UserAuthProvider,
      * @param providerId Provider ID
      * @return UserAuthProvider
      */
-    Optional<String> getUserIdByAuthProvider(OAuthProvider provider, String providerId);
+    Optional<Long> getUserIdByAuthProvider(OAuthProvider provider, String providerId);
 
     /**
      * Add auth provider
@@ -28,5 +28,5 @@ public interface UserAuthProviderService extends EntityService<UserAuthProvider,
      * @param providerId Provider ID
      * @param additionalInfo Additional Info
      */
-    void addAuthProvider(String userId, OAuthProvider provider, String providerId, Object additionalInfo);
+    void addAuthProvider(Long userId, OAuthProvider provider, String providerId, Object additionalInfo);
 }

@@ -6,6 +6,6 @@ import io.softa.starter.file.entity.ExportTemplate;
 /**
  * Export template service interface
  */
-public interface ExportTemplateService extends EntityService<ExportTemplate, String> {
+public interface ExportTemplateService extends EntityService<ExportTemplate, Long> {
 
 }

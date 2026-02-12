@@ -1,10 +1,10 @@
 package io.softa.starter.flow.message.dto;
 
-import io.softa.framework.base.context.Context;
+import java.util.Map;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
+import io.softa.framework.base.context.Context;
 
 /**
  * Flow async task message
@@ -13,8 +13,8 @@ import java.util.Map;
 @NoArgsConstructor
 public class FlowAsyncTaskMessage {
 
-    private String flowId;
-    private String nodeId;
+    private Long flowId;
+    private Long nodeId;
     private String asyncTaskHandlerCode;
     private Map<String, Object> asyncTaskParams;
 

@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Optional;
-import com.github.f4b6a3.tsid.TsidCreator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,13 +31,14 @@ import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.FileUtils;
 import io.softa.framework.orm.utils.HttpDownloadUtils;
+import io.softa.framework.orm.utils.IDGenerator;
 
 /**
  * FileRecord Service Implementation
  */
 @Service
 @Slf4j
-public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> implements FileService {
+public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> implements FileService {
 
     @Autowired
     private OssClientService ossClientService;
@@ -52,7 +52,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
     /**
      * Generate an OSS key for the file
      * ModelName is used as the prefix of the OSS key, to store files in different directories
-     * Set the TSID as a part of the OSS key to avoid conflicts between files with the same name
+     * Set the UUID as a part of the OSS key to avoid conflicts between files with the same name
      *
      * @param modelName the name of the corresponding business model
      * @param fileName the name of the file
@@ -66,8 +66,8 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
         }
         // Add tenantId as a subdirectory if multi-tenancy is enabled
         if (SystemConfig.env.isEnableMultiTenancy()) {
-            String tenantId = ContextHolder.getContext().getTenantId();
-            if (StringUtils.isNotBlank(tenantId)) {
+            Long tenantId = ContextHolder.getContext().getTenantId();
+            if (tenantId != null) {
                 key.append(tenantId).append("/");
             }
         }
@@ -77,8 +77,8 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
         } else {
             key.append(FileConstant.DEFAULT_SUBFOLDER).append("/");
         }
-        // Set the TSID as a part of the OSS key
-        key.append(TsidCreator.getTsid()).append("/").append(fileName);
+        // Set the UUID as a part of the OSS key
+        key.append(IDGenerator.generateStringId()).append("/").append(fileName);
         return key.toString();
     }
 
@@ -116,7 +116,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
         fileRecord.setFileSize(uploadFileDTO.getFileSize());
         fileRecord.setModelName(uploadFileDTO.getModelName());
         fileRecord.setRowId(uploadFileDTO.getRowId() == null ? null : uploadFileDTO.getRowId().toString());
-        String id = this.createOne(fileRecord);
+        Long id = this.createOne(fileRecord);
         fileRecord.setId(id);
         return fileRecord;
     }
@@ -168,7 +168,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
         fileRecord.setChecksum(checksum);
         // bytes to KB
         fileRecord.setFileSize((int) file.getSize() / 1024);
-        String id = this.createOne(fileRecord);
+        Long id = this.createOne(fileRecord);
         fileRecord.setId(id);
         return fileRecord;
     }
@@ -240,7 +240,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
             fileRecord.setChecksum(checksum);
             fileRecord.setFileSize(downloadResult.getFileSize());
 
-            String id = this.createOne(fileRecord);
+            Long id = this.createOne(fileRecord);
             fileRecord.setId(id);
 
             return this.convertToFileInfo(fileRecord, expireSeconds);
@@ -292,7 +292,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
      * @return the InputStream of the file
      */
     @Override
-    public InputStream downloadStream(String fileId) {
+    public InputStream downloadStream(Long fileId) {
         FileRecord fileRecord = this.getById(fileId)
                 .orElseThrow(() -> new IllegalArgumentException("FileRecord not found by fileId {0}", fileId));
         return ossClientService.downloadStreamFromOSS(fileRecord.getOssKey(), fileRecord.getFileName());
@@ -305,7 +305,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
      * @return Optional object containing the FileInfo object if found, or empty if not found
      */
     @Override
-    public Optional<FileInfo> getByFileId(String fileId) {
+    public Optional<FileInfo> getByFileId(Long fileId) {
         Optional<FileRecord> fileRecordOpt = this.getById(fileId);
         return fileRecordOpt.map(this::convertToFileInfo);
     }
@@ -318,7 +318,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
      * @return Optional object containing the FileInfo object if found, or empty if not found
      */
     @Override
-    public Optional<FileInfo> getByFileId(String fileId, int expireSeconds) {
+    public Optional<FileInfo> getByFileId(Long fileId, int expireSeconds) {
         Optional<FileRecord> fileRecordOpt = this.getById(fileId);
         return fileRecordOpt.map(record -> this.convertToFileInfo(record, expireSeconds));
     }
@@ -330,7 +330,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, String> imple
      * @return the list of FileInfo objects
      */
     @Override
-    public List<FileInfo> getByFileIds(List<String> fileIds) {
+    public List<FileInfo> getByFileIds(List<Long> fileIds) {
         List<FileRecord> fileRecords = this.getByIds(fileIds);
         return fileRecords.stream().map(this::convertToFileInfo).toList();
     }

@@ -1,11 +1,11 @@
 package io.softa.framework.web.controller;
 
+import java.io.Serializable;
+import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.io.Serializable;
-import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -32,8 +32,8 @@ public class FileController {
     @Operation(description = "Get the fileInfo by fileId")
     @GetMapping(value = "/getByFileId")
     @Parameter(name = "fileId", description = "The id of the file object.")
-    public ApiResponse<FileInfo> getByFileId(@RequestParam String fileId) {
-        Assert.notBlank(fileId, "fileId cannot be empty.");
+    public ApiResponse<FileInfo> getByFileId(@RequestParam Long fileId) {
+        Assert.notNull(fileId, "fileId cannot be empty.");
         return ApiResponse.success(service.getByFileId(fileId).orElse(null));
     }
 

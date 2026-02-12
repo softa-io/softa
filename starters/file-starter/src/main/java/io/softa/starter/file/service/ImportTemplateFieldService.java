@@ -6,6 +6,6 @@ import io.softa.starter.file.entity.ImportTemplateField;
 /**
  * ImportTemplateField Model Service Interface
  */
-public interface ImportTemplateFieldService extends EntityService<ImportTemplateField, String> {
+public interface ImportTemplateFieldService extends EntityService<ImportTemplateField, Long> {
 
 }

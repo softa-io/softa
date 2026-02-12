@@ -12,7 +12,7 @@ import io.softa.starter.ai.entity.AiRobot;
 /**
  * AiRobot Model Service Interface
  */
-public interface AiRobotService extends EntityService<AiRobot, String> {
+public interface AiRobotService extends EntityService<AiRobot, Long> {
 
     /**
      * Persist user message and ai message in advance for stream response.

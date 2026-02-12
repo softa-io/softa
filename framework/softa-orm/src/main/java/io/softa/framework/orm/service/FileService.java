@@ -61,7 +61,7 @@ public interface FileService {
      * @param fileId the ID of the file to be downloaded
      * @return the InputStream of the file
      */
-    InputStream downloadStream(String fileId);
+    InputStream downloadStream(Long fileId);
 
     /**
      * Get the FileInfo object by fileId
@@ -69,7 +69,7 @@ public interface FileService {
      * @param fileId the ID of the file
      * @return Optional object containing the FileInfo object if found, or empty if not found
      */
-    Optional<FileInfo> getByFileId(String fileId);
+    Optional<FileInfo> getByFileId(Long fileId);
 
     /**
      * Get the FileInfo object by fileId
@@ -78,7 +78,7 @@ public interface FileService {
      * @param expireSeconds the expiration time in seconds
      * @return Optional object containing the FileInfo object if found, or empty if not found
      */
-    Optional<FileInfo> getByFileId(String fileId, int expireSeconds);
+    Optional<FileInfo> getByFileId(Long fileId, int expireSeconds);
 
     /**
      * Get the FileInfo object list by fileIds.
@@ -86,7 +86,7 @@ public interface FileService {
      * @param fileIds the file IDs
      * @return the list of FileInfo objects
      */
-    List<FileInfo> getByFileIds(List<String> fileIds);
+    List<FileInfo> getByFileIds(List<Long> fileIds);
 
     /**
      * Get the FileInfo object by modelName and rowId

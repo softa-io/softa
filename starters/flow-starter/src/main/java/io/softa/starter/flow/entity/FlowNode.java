@@ -1,14 +1,14 @@
 package io.softa.starter.flow.entity;
 
-import tools.jackson.databind.JsonNode;
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.flow.enums.FlowNodeType;
+import java.io.Serial;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import tools.jackson.databind.JsonNode;
 
-import java.io.Serial;
-import java.util.List;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.flow.enums.FlowNodeType;
 
 /**
  * FlowNode Model
@@ -22,13 +22,13 @@ public class FlowNode extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Node Name")
     private String name;
 
     @Schema(description = "Flow ID")
-    private String flowId;
+    private Long flowId;
 
     @Schema(description = "Stage ID")
     private Long stageId;
@@ -40,7 +40,7 @@ public class FlowNode extends AuditableModel {
     private Integer sequence;
 
     @Schema(description = "Parent Node ID")
-    private String parentId;
+    private Long parentId;
 
     @Schema(description = "Child Nodes")
     private List<FlowNode> childNodes;

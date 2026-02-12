@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.constant.RedisConstant;
@@ -33,7 +32,7 @@ import io.softa.starter.user.service.UserProfileService;
  */
 @Slf4j
 @Service
-public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, String> implements UserProfileService {
+public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long> implements UserProfileService {
 
     @Autowired
     private FileService fileService;
@@ -50,7 +49,7 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
      */
     @Override
     public UserProfile getCurrentUserProfile() {
-        String userId = ContextHolder.getContext().getUserId();
+        Long userId = ContextHolder.getContext().getUserId();
         Filters profileFilters = new Filters().eq(UserProfile::getUserId, userId);
         Optional<UserProfile> profileOpt = this.searchOne(profileFilters);
         return profileOpt.orElseThrow(() -> new IllegalArgumentException("Current user profile not found."));
@@ -61,7 +60,7 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
      */
     @Override
     public Map<String, Object> getCurrentUserProfileMap() {
-        String userId = ContextHolder.getContext().getUserId();
+        Long userId = ContextHolder.getContext().getUserId();
         Filters profileFilters = new Filters().eq(UserProfile::getUserId, userId);
         FlexQuery flexQuery = new FlexQuery(profileFilters);
         flexQuery.setConvertType(ConvertType.REFERENCE);
@@ -76,7 +75,7 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
      * @return UserInfo object
      */
     @Override
-    public UserInfo getUserInfo(String userId) {
+    public UserInfo getUserInfo(Long userId) {
         // Check and potentially update UserInfo cache
         String userInfoKey = RedisConstant.USER_INFO + userId;
         UserInfo userInfo = cacheService.get(userInfoKey, UserInfo.class);
@@ -96,7 +95,7 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
      * @param userId User ID
      * @param userInfo UserInfo object
      */
-    private void refreshUserInfo(String userId, UserInfo userInfo) {
+    private void refreshUserInfo(Long userId, UserInfo userInfo) {
         String userInfoKey = RedisConstant.USER_INFO + userId;
         cacheService.save(userInfoKey, userInfo, RedisConstant.ONE_MONTH);
     }
@@ -114,9 +113,9 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
         userInfo.setLanguage(profile.getLanguage());
         userInfo.setTimezone(profile.getTimezone());
         userInfo.setTenantId(profile.getTenantId());
-        if (StringUtils.isNotBlank(profile.getPhoto())) {
+        if (profile.getPhotoId() != null) {
             // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time
-            Optional<FileInfo> fileInfoOpt = fileService.getByFileId(profile.getPhoto(), RedisConstant.ONE_QUARTER);
+            Optional<FileInfo> fileInfoOpt = fileService.getByFileId(profile.getPhotoId(), RedisConstant.ONE_QUARTER);
             fileInfoOpt.ifPresent(fileInfo -> userInfo.setPhotoUrl(fileInfo.getUrl()));
         }
         return userInfo;
@@ -137,6 +136,7 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
         userProfile.setBirthDate(profileInfo.getBirthDate());
         userProfile.setBirthTime(profileInfo.getBirthTime());
         userProfile.setBirthCity(profileInfo.getBirthCity());
+        userProfile.setPhotoId(profileInfo.getPhotoId());
         userProfile.setLanguage(Optional.ofNullable(profileInfo.getLanguage()).orElse(context.getLanguage()));
         userProfile.setTimezone(Optional.ofNullable(profileInfo.getTimezone()).orElse(context.getTimezone()));
         userProfile.setTenantId(context.getTenantId());
@@ -151,18 +151,14 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
      * @return UserInfo object
      */
     @Override
-    public UserInfo registerUserProfile(String userId, UserProfileDTO profileDTO) {
+    public UserInfo registerUserProfile(Long userId, UserProfileDTO profileDTO) {
         // Create user profile
         UserProfile userProfile = this.buildUserProfile(profileDTO);
         userProfile.setUserId(userId);
-        String profileId = this.createOne(userProfile);
+        Long profileId = this.createOne(userProfile);
 
         // Build UserInfo and upload photo if photo is not empty
         UserInfo userInfo = this.buildUserInfo(userProfile);
-        if (StringUtils.isNotBlank(profileDTO.getPhoto())) {
-            userInfo.setPhotoUrl(profileDTO.getPhoto());
-            selfProxy.asyncFetchPhoto(userId, profileId, profileDTO.getPhoto());
-        }
 
         // Update UserInfo cache
         this.refreshUserInfo(userId, userInfo);
@@ -171,35 +167,26 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Strin
     }
 
     /**
-     * Fetch user photo from remote server, if photo starts with "http" or "https"
+     * Fetch user photo from remote URL and save it locally
      *
-     * @param userId User ID
-     * @param profileId User profile ID
      * @param photoUrl Photo URL
+     * @param profileId Profile ID
+     * @return FileInfo of the saved photo
      */
-    @Async
     @Override
-    public void asyncFetchPhoto(String userId, String profileId, String photoUrl) {
-        // Upload photo from URL if it is a valid URL
-        if (StringUtils.isNotBlank(photoUrl)
-                && (photoUrl.startsWith(StringConstant.HTTP_PREFIX)
+    public FileInfo fetchPhotoFromURL(String photoUrl, Long profileId) {
+        if (StringUtils.isNotBlank(photoUrl) && (
+                photoUrl.startsWith(StringConstant.HTTP_PREFIX)
                         || photoUrl.startsWith(StringConstant.HTTPS_PREFIX))) {
-            String fieldName = LambdaUtils.getAttributeName(UserProfile::getPhoto);
+            String fieldName = LambdaUtils.getAttributeName(UserProfile::getPhotoId);
             try {
                 // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time
-                FileInfo fileInfo = fileService.uploadFromUrl(this.modelName, profileId, fieldName, photoUrl,
-                        RedisConstant.ONE_QUARTER);
-                UserProfile userProfile = new UserProfile();
-                userProfile.setId(profileId);
-                userProfile.setPhoto(fileInfo.getFileId());
-                this.updateOne(userProfile);
-                // Update UserInfo cache
-                UserInfo userInfo = this.getUserInfo(userId);
-                userInfo.setPhotoUrl(fileInfo.getUrl());
-                this.refreshUserInfo(userId, userInfo);
+                return fileService.uploadFromUrl(this.modelName, profileId, fieldName, photoUrl, RedisConstant.ONE_QUARTER);
             } catch (Exception e) {
                 log.error("Failed to upload photo from URL: {}", photoUrl, e);
             }
         }
+        return null;
     }
+
 }

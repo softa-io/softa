@@ -10,6 +10,6 @@ import io.softa.starter.file.service.ExportHistoryService;
  * ExportHistory Service Implementation
  */
 @Service
-public class ExportHistoryServiceImpl extends EntityServiceImpl<ExportHistory, String> implements ExportHistoryService {
+public class ExportHistoryServiceImpl extends EntityServiceImpl<ExportHistory, Long> implements ExportHistoryService {
 
 }

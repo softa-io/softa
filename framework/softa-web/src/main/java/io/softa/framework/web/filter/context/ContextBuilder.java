@@ -46,7 +46,7 @@ public class ContextBuilder {
             throw new UserNotFoundException("Session ID is missing");
         }
 
-        String userId = cacheService.get(RedisConstant.SESSION + sessionId, String.class);
+        Long userId = cacheService.get(RedisConstant.SESSION + sessionId, Long.class);
         if (userId == null) {
             // Session provided but invalid -> "missing user"
             throw new UserNotFoundException("Invalid session ID");
@@ -150,7 +150,7 @@ public class ContextBuilder {
      * @param userInfo the user info
      */
     private void setMultiTenancyEnv(Context context, UserInfo userInfo) {
-        Assert.notBlank(userInfo.getTenantId(), "User tenantId cannot be null in multi-tenancy mode.");
+        Assert.notNull(userInfo.getTenantId(), "User tenantId cannot be null in multi-tenancy mode.");
         context.setTenantId(userInfo.getTenantId());
     }
 

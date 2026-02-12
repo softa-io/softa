@@ -1,5 +1,17 @@
 package io.softa.framework.web.controller;
 
+import java.io.Serializable;
+import java.time.LocalDate;
+import java.util.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.CollectionUtils;
+import org.springframework.web.bind.annotation.*;
+
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
@@ -12,18 +24,6 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.web.dto.*;
 import io.softa.framework.web.response.ApiResponse;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.Parameters;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.util.CollectionUtils;
-import org.springframework.web.bind.annotation.*;
-
-import java.io.Serializable;
-import java.time.LocalDate;
-import java.util.*;
 
 /**
  * Model Common Controller.
@@ -186,7 +186,7 @@ public class ModelController<K extends Serializable> {
      */
     @GetMapping("/getCopyableFields")
     @Operation(description = "Get the copyable fields value by ID, no data inserted.")
-    @Parameter(name = "id", description = "Data ID to be copied.", schema = @Schema(type = "number"))
+    @Parameter(name = "id", description = "Data ID to be copied.", schema = @Schema(type = "string"))
     @DataMask
     public ApiResponse<Map<String, Object>> getCopyableFields(@PathVariable String modelName, @RequestParam K id) {
         id = IdUtils.formatId(modelName, id);
@@ -224,7 +224,7 @@ public class ModelController<K extends Serializable> {
     @GetMapping("/getUnmaskedField")
     @Operation(description = "Get the original value for masking field.")
     @Parameters({
-            @Parameter(name = "id", description = "Data ID to be read", schema = @Schema(type = "number")),
+            @Parameter(name = "id", description = "Data ID to be read", schema = @Schema(type = "string")),
             @Parameter(name = "field", description = "The masking field name to get the original value"),
             @Parameter(name = "effectiveDate", description = "Effective date for timeline model.")
     })
@@ -248,7 +248,7 @@ public class ModelController<K extends Serializable> {
     @GetMapping("/getUnmaskedFields")
     @Operation(description = "Get the original values for multiple masking fields.")
     @Parameters({
-            @Parameter(name = "id", description = "Data ID to be read", schema = @Schema(type = "number")),
+            @Parameter(name = "id", description = "Data ID to be read", schema = @Schema(type = "string")),
             @Parameter(name = "fields", description = "The masking field list to get the original values"),
             @Parameter(name = "effectiveDate", description = "Effective date for timeline model.")
     })
@@ -362,7 +362,7 @@ public class ModelController<K extends Serializable> {
      */
     @PostMapping(value = "/deleteById")
     @Operation(description = "Delete one row by ID. All slices related to this `ID` will be deleted for timeline model.")
-    @Parameter(name = "id", description = "ID of the data to be deleted.", schema = @Schema(type = "number"))
+    @Parameter(name = "id", description = "ID of the data to be deleted.", schema = @Schema(type = "string"))
     public ApiResponse<Boolean> deleteById(@PathVariable String modelName, @RequestParam K id) {
         id = IdUtils.formatId(modelName, id);
         return ApiResponse.success(modelService.deleteById(modelName, id));
@@ -377,7 +377,7 @@ public class ModelController<K extends Serializable> {
      */
     @PostMapping(value = "/deleteBySliceId")
     @Operation(description = "Delete one slice of the timeline model by `sliceId`.")
-    @Parameter(name = "sliceId", description = "`sliceId` of the timeline slice data to delete.", schema = @Schema(type = "number"))
+    @Parameter(name = "sliceId", description = "`sliceId` of the timeline slice data to delete.", schema = @Schema(type = "string"))
     public ApiResponse<Boolean> deleteBySliceId(@PathVariable String modelName, @RequestParam Serializable sliceId) {
         return ApiResponse.success(modelService.deleteBySliceId(modelName, sliceId));
     }
@@ -408,7 +408,7 @@ public class ModelController<K extends Serializable> {
      */
     @PostMapping(value = "/copyById")
     @Operation(description = "Copy one row based on ID, and return the ID of the new row.")
-    @Parameter(name = "id", description = "Data ID to be copied.", schema = @Schema(type = "number"))
+    @Parameter(name = "id", description = "Data ID to be copied.", schema = @Schema(type = "string"))
     @DataMask
     public ApiResponse<K> copyById(@PathVariable String modelName, @RequestParam K id) {
         id = IdUtils.formatId(modelName, id);
@@ -425,7 +425,7 @@ public class ModelController<K extends Serializable> {
      */
     @PostMapping(value = "/copyByIdAndFetch")
     @Operation(description = "Copy one row based on ID, and fetch the new row.")
-    @Parameter(name = "id", description = "Data ID to be copied.", schema = @Schema(type = "number"))
+    @Parameter(name = "id", description = "Data ID to be copied.", schema = @Schema(type = "string"))
     @DataMask
     public ApiResponse<Map<String, Object>> copyByIdAndFetch(@PathVariable String modelName, @RequestParam K id) {
         id = IdUtils.formatId(modelName, id);

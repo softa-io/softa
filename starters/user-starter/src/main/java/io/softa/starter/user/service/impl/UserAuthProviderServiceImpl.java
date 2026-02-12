@@ -15,7 +15,7 @@ import io.softa.starter.user.service.UserAuthProviderService;
  * UserAuthProvider Model Service Implementation
  */
 @Service
-public class UserAuthProviderServiceImpl extends EntityServiceImpl<UserAuthProvider, String> implements UserAuthProviderService {
+public class UserAuthProviderServiceImpl extends EntityServiceImpl<UserAuthProvider, Long> implements UserAuthProviderService {
 
     /**
      * Get user id by provider and providerId
@@ -25,7 +25,7 @@ public class UserAuthProviderServiceImpl extends EntityServiceImpl<UserAuthProvi
      * @return UserAuthProvider
      */
     @Override
-    public Optional<String> getUserIdByAuthProvider(OAuthProvider provider, String providerId) {
+    public Optional<Long> getUserIdByAuthProvider(OAuthProvider provider, String providerId) {
         Filters filters = new Filters()
                 .eq(UserAuthProvider::getProvider, provider.getProvider())
                 .eq(UserAuthProvider::getProviderUserId, providerId);
@@ -42,7 +42,7 @@ public class UserAuthProviderServiceImpl extends EntityServiceImpl<UserAuthProvi
      * @param additionalInfo Additional Info
      */
     @Override
-    public void addAuthProvider(String userId, OAuthProvider provider, String providerId, Object additionalInfo) {
+    public void addAuthProvider(Long userId, OAuthProvider provider, String providerId, Object additionalInfo) {
         UserAuthProvider userAuthProvider = new UserAuthProvider();
         userAuthProvider.setUserId(userId);
         userAuthProvider.setProvider(provider);

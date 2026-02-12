@@ -1,11 +1,11 @@
 package io.softa.app.demo.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * EmpProjectRel Model
@@ -28,5 +28,5 @@ public class EmpProjectRel extends AuditableModel {
     private Long projectId;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 }

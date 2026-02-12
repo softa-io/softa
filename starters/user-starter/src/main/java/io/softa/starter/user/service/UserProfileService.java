@@ -3,6 +3,7 @@ package io.softa.starter.user.service;
 import java.util.Map;
 
 import io.softa.framework.base.context.UserInfo;
+import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.entity.UserProfile;
@@ -10,7 +11,7 @@ import io.softa.starter.user.entity.UserProfile;
 /**
  * UserProfile Model Service Interface
  */
-public interface UserProfileService extends EntityService<UserProfile, String> {
+public interface UserProfileService extends EntityService<UserProfile, Long> {
 
     /**
      * Get Current User Profile
@@ -28,7 +29,7 @@ public interface UserProfileService extends EntityService<UserProfile, String> {
      * @param userId User ID
      * @return UserInfo object
      */
-    UserInfo getUserInfo(String userId);
+    UserInfo getUserInfo(Long userId);
 
     /**
      * Register new user profile when user register
@@ -37,15 +38,15 @@ public interface UserProfileService extends EntityService<UserProfile, String> {
      * @param profileDTO User profile DTO
      * @return UserInfo object
      */
-    UserInfo registerUserProfile(String userId, UserProfileDTO profileDTO);
+    UserInfo registerUserProfile(Long userId, UserProfileDTO profileDTO);
 
     /**
-     * Fetch user photo from remote server, if photo is not empty.
+     * Fetch user photo from remote URL and save it locally
      *
-     * @param userId User ID
-     * @param profileId User profile ID
      * @param photoUrl Photo URL
+     * @param profileId UserProfile ID
+     * @return FileInfo of the saved photo
      */
-    void asyncFetchPhoto(String userId, String profileId, String photoUrl);
+    FileInfo fetchPhotoFromURL(String photoUrl, Long profileId);
 
 }

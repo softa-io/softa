@@ -6,6 +6,6 @@ import io.softa.starter.file.entity.ImportTemplate;
 /**
  * ImportTemplate service interface
  */
-public interface ImportTemplateService extends EntityService<ImportTemplate, String> {
+public interface ImportTemplateService extends EntityService<ImportTemplate, Long> {
 
 }

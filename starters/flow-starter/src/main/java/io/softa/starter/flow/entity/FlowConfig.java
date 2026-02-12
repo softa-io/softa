@@ -1,15 +1,15 @@
 package io.softa.starter.flow.entity;
 
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.flow.enums.FlowLayoutType;
-import io.softa.starter.flow.enums.FlowType;
+import java.io.Serial;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.util.List;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.flow.enums.FlowLayoutType;
+import io.softa.starter.flow.enums.FlowType;
 
 /**
  * FlowConfig Model
@@ -23,7 +23,7 @@ public class FlowConfig extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Flow Name")
     private String name;

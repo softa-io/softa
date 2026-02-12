@@ -11,6 +11,7 @@ import org.springframework.util.CollectionUtils;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.web.dto.MetadataUpgradePackage;
 import io.softa.starter.metadata.constant.MetadataConstant;
@@ -82,10 +83,10 @@ public class MetadataServiceImpl implements MetadataService {
      * @param modelName The name of the model
      * @param ids The list of codes for the data to be deleted
      */
-    private void deleteById(String modelName, List<Serializable> ids) {
+    private void deleteByIds(String modelName, List<? extends Serializable> ids) {
         if (!CollectionUtils.isEmpty(ids)) {
             this.validateBatchSize(ids.size());
-            modelService.deleteByIds(modelName, ids);
+            modelService.deleteByIds(modelName, Cast.of(ids));
         }
     }
 
@@ -106,7 +107,7 @@ public class MetadataServiceImpl implements MetadataService {
             // update
             this.updateById(modelName, modelPackage.getUpdateRows());
             // delete
-            this.deleteById(modelName, modelPackage.getDeleteIds());
+            this.deleteByIds(modelName, modelPackage.getDeleteIds());
         });
     }
 

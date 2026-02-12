@@ -11,12 +11,12 @@ import lombok.Data;
 public class AiResponseMessage {
 
     @Schema(description = "Conversation ID")
-    private String conversationId;
+    private Long conversationId;
 
     @Schema(description = "User Message ID")
-    private String userMessageId;
+    private Long userMessageId;
 
     @Schema(description = "AI Message ID")
-    private String aiMessageId;
+    private Long aiMessageId;
 
 }

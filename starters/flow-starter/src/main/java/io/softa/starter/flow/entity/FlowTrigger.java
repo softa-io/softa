@@ -1,13 +1,13 @@
 package io.softa.starter.flow.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.flow.enums.TriggerEventType;
+import java.io.Serial;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.util.List;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.flow.enums.TriggerEventType;
 
 /**
  * FlowTrigger Model
@@ -21,13 +21,13 @@ public class FlowTrigger extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Trigger Name")
     private String name;
 
     @Schema(description = "Triggered Flow")
-    private String flowId;
+    private Long flowId;
 
     @Schema(description = "Trigger Event Type")
     private TriggerEventType eventType;

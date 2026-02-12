@@ -1,13 +1,13 @@
 package io.softa.starter.billing.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.billing.enums.ServiceCategory;
+import java.io.Serial;
+import java.math.BigDecimal;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.math.BigDecimal;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.billing.enums.ServiceCategory;
 
 /**
  * ServiceProduct Model
@@ -21,7 +21,7 @@ public class ServiceProduct extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Service Name")
     private String name;

@@ -1,14 +1,14 @@
 package io.softa.starter.user.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.user.enums.LoginDeviceType;
-import io.softa.starter.user.enums.LoginMethod;
-import io.softa.starter.user.enums.LoginStatus;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.user.enums.LoginDeviceType;
+import io.softa.starter.user.enums.LoginMethod;
+import io.softa.starter.user.enums.LoginStatus;
 
 /**
  * UserLoginHistory Model
@@ -22,13 +22,13 @@ public class UserLoginHistory extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "User ID")
-    private String userId;
+    private Long userId;
 
     @Schema(description = "Login Method")
     private LoginMethod loginMethod;

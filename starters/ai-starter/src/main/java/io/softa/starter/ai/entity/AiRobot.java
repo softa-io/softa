@@ -1,12 +1,12 @@
 package io.softa.starter.ai.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.ai.enums.AiModelProvider;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.ai.enums.AiModelProvider;
 
 /**
  * AiRobot Model
@@ -20,7 +20,7 @@ public class AiRobot extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Robot Name")
     private String name;
@@ -29,7 +29,7 @@ public class AiRobot extends AuditableModel {
     private String code;
 
     @Schema(description = "AI Model ID")
-    private String aiModelId;
+    private Long aiModelId;
 
     @Schema(description = "AI Model Code")
     private String aiModel;

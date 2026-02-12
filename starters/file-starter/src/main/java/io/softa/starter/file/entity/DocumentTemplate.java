@@ -19,10 +19,10 @@ public class DocumentTemplate extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "Model Name")
     private String modelName;
@@ -31,7 +31,7 @@ public class DocumentTemplate extends AuditableModel {
     private String fileName;
 
     @Schema(description = "File Template ID")
-    private String fileId;
+    private Long fileId;
 
     @Schema(description = "Convert To PDF")
     private Boolean convertToPdf;

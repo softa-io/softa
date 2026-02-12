@@ -19,14 +19,14 @@ public class Context implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private String userId;
+    private Long userId;
     private String name;
 
     private Language language = BaseConstant.DEFAULT_LANGUAGE;
     private Timezone timezone;
 
-    private String companyId;
-    private String tenantId;
+    private Long companyId;
+    private Long tenantId;
 
     private String token;
     private String traceId;

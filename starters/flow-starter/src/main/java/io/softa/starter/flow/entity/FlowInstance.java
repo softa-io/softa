@@ -1,13 +1,13 @@
 package io.softa.starter.flow.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.flow.enums.FlowStatus;
-import io.softa.starter.flow.enums.FlowType;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.flow.enums.FlowStatus;
+import io.softa.starter.flow.enums.FlowType;
 
 /**
  * FlowInstance Model
@@ -21,7 +21,7 @@ public class FlowInstance extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Main Model")
     private String modelName;
@@ -30,16 +30,16 @@ public class FlowInstance extends AuditableModel {
     private String rowId;
 
     @Schema(description = "Flow ID")
-    private String flowId;
+    private Long flowId;
 
     @Schema(description = "Flow Type")
     private FlowType flowType;
 
     @Schema(description = "Trigger ID")
-    private String triggerId;
+    private Long triggerId;
 
     @Schema(description = "Current Node ID")
-    private String currentNodeId;
+    private Long currentNodeId;
 
     @Schema(description = "Current Status")
     private FlowStatus currentStatus;

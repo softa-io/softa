@@ -1,13 +1,12 @@
 package io.softa.framework.web.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * Metadata upgrade package
@@ -25,5 +24,5 @@ public class MetadataUpgradePackage implements Serializable {
 
     private List<Map<String, Object>> updateRows = new ArrayList<>();
 
-    private List<Serializable> deleteIds = new ArrayList<>();
+    private List<Long> deleteIds = new ArrayList<>();
 }

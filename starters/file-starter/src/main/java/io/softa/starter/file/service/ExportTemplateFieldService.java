@@ -6,6 +6,6 @@ import io.softa.starter.file.entity.ExportTemplateField;
 /**
  * ExportTemplateField Model Service Interface
  */
-public interface ExportTemplateFieldService extends EntityService<ExportTemplateField, String> {
+public interface ExportTemplateFieldService extends EntityService<ExportTemplateField, Long> {
 
 }

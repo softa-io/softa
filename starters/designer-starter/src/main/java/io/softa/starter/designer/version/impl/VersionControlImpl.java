@@ -168,10 +168,10 @@ public class VersionControlImpl implements VersionControl {
      * @return RowChangeDTO object
      */
     private static RowChangeDTO convertToRowChangeDTO(String modelName, AccessType accessType, Map<String, Object> row) {
-        RowChangeDTO rowChangeDTO = new RowChangeDTO(modelName, (Serializable) row.get(ModelConstant.ID));
+        RowChangeDTO rowChangeDTO = new RowChangeDTO(modelName, (Long) row.get(ModelConstant.ID));
         rowChangeDTO.setAccessType(accessType);
         rowChangeDTO.setCurrentData(row);
-        rowChangeDTO.setLastChangedById((String) row.get(ModelConstant.UPDATED_ID));
+        rowChangeDTO.setLastChangedById((Long) row.get(ModelConstant.UPDATED_ID));
         rowChangeDTO.setLastChangedBy((String) row.get(ModelConstant.UPDATED_BY));
         rowChangeDTO.setLastChangedTime(DateUtils.dateTimeToString(row.get(ModelConstant.UPDATED_TIME)));
         return rowChangeDTO;
@@ -186,7 +186,7 @@ public class VersionControlImpl implements VersionControl {
      */
     private static RowChangeDTO mergeUpdatedToRowChangeDTO(List<ChangeLog> changeLogs, Map<String, Object> currentData) {
         ChangeLog lastLog = changeLogs.getLast();
-        RowChangeDTO rowChangeDTO = new RowChangeDTO(lastLog.getModel(), lastLog.getRowId());
+        RowChangeDTO rowChangeDTO = new RowChangeDTO(lastLog.getModel(), (Long) lastLog.getRowId());
         rowChangeDTO.setAccessType(UPDATE);
         rowChangeDTO.setCurrentData(currentData);
         rowChangeDTO.setLastChangedById(lastLog.getChangedById());

@@ -9,7 +9,7 @@ import io.softa.starter.file.entity.DocumentTemplate;
 /**
  * DocumentTemplate Model Service Interface
  */
-public interface DocumentTemplateService extends EntityService<DocumentTemplate, String> {
+public interface DocumentTemplateService extends EntityService<DocumentTemplate, Long> {
 
     /**
      * Generate a document according to the specified template ID and row ID.
@@ -18,7 +18,7 @@ public interface DocumentTemplateService extends EntityService<DocumentTemplate,
      * @param rowId row ID
      * @return generated document fileInfo with download URL
      */
-    FileInfo generateDocument(String templateId, Serializable rowId);
+    FileInfo generateDocument(Long templateId, Serializable rowId);
 
     /**
      * Generate a document according to the specified template ID and data object.
@@ -28,6 +28,6 @@ public interface DocumentTemplateService extends EntityService<DocumentTemplate,
      * @param data the data object to render the document
      * @return generated document fileInfo with download URL
      */
-    FileInfo generateDocument(String templateId, Object data);
+    FileInfo generateDocument(Long templateId, Object data);
 
 }

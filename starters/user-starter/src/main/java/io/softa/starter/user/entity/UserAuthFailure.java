@@ -1,12 +1,12 @@
 package io.softa.starter.user.entity;
 
-import tools.jackson.databind.JsonNode;
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import tools.jackson.databind.JsonNode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * UserAuthFailure Model
@@ -23,7 +23,7 @@ public class UserAuthFailure extends AuditableModel {
     private Long id;
 
     @Schema(description = "User ID")
-    private String userId;
+    private Long userId;
 
     @Schema(description = "Request Params")
     private JsonNode requestParams;

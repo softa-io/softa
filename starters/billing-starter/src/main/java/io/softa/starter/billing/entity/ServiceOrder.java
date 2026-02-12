@@ -1,13 +1,13 @@
 package io.softa.starter.billing.entity;
 
-import io.softa.starter.billing.enums.OrderStatus;
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
+import java.math.BigDecimal;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.math.BigDecimal;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.billing.enums.OrderStatus;
 
 /**
  * ServiceOrder Model
@@ -21,13 +21,13 @@ public class ServiceOrder extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "User")
-    private String userId;
+    private Long userId;
 
     @Schema(description = "Service Product")
-    private String serviceId;
+    private Long serviceId;
 
     @Schema(description = "Order Number")
     private String orderNumber;

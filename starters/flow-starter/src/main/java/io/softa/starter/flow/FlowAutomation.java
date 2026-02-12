@@ -1,5 +1,15 @@
 package io.softa.starter.flow;
 
+import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.util.*;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+
 import io.softa.framework.base.constant.TimeConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.AccessType;
@@ -8,23 +18,13 @@ import io.softa.framework.orm.changelog.message.dto.ChangeLog;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.utils.MapUtils;
 import io.softa.starter.cron.message.dto.CronTaskMessage;
+import io.softa.starter.flow.dto.TriggerEventDTO;
 import io.softa.starter.flow.entity.FlowConfig;
 import io.softa.starter.flow.entity.FlowTrigger;
 import io.softa.starter.flow.enums.TriggerEventType;
 import io.softa.starter.flow.message.FlowEventProducer;
 import io.softa.starter.flow.message.dto.FlowEventMessage;
 import io.softa.starter.flow.service.FlowConfigService;
-import io.softa.starter.flow.dto.TriggerEventDTO;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
-
-import java.io.Serializable;
-import java.time.LocalDateTime;
-import java.util.*;
 
 /**
  * Flow automation service.
@@ -153,7 +153,7 @@ public class FlowAutomation {
     public Object apiEvent(TriggerEventDTO triggerEventDTO) {
         TriggerEventType eventType = TriggerEventType.API_EVENT;
         String sourceModel = triggerEventDTO.getSourceModel();
-        String triggerId = triggerEventDTO.getTriggerId();
+        Long triggerId = triggerEventDTO.getTriggerId();
         FlowTrigger flowTrigger = FlowManager.getTriggerById(sourceModel, triggerId, eventType);
         Assert.isTrue(this.validateTriggerCondition(flowTrigger, triggerEventDTO.getEventParams()),
                 "The trigger condition {0} for API Trigger {1} is not met; the flow will not be triggered!",
@@ -204,7 +204,7 @@ public class FlowAutomation {
      * @param triggerParams The trigger parameters.
      * @return The subflow event result.
      */
-    public Object subflowEvent(String triggerId, Map<String, Object> triggerParams) {
+    public Object subflowEvent(Long triggerId, Map<String, Object> triggerParams) {
         FlowTrigger flowTrigger = FlowManager.getTriggerById(triggerId);
         if (!this.validateTriggerCondition(flowTrigger, triggerParams)) {
             log.debug("The trigger condition {} for Subflow Trigger {} is not met; the flow will not be triggered!",

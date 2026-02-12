@@ -1,23 +1,26 @@
 package io.softa.framework.web.filter;
 
+import java.io.IOException;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
+import io.softa.framework.base.exception.BaseException;
 import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.web.enums.IdentifyType;
 import io.softa.framework.web.filter.context.ContextBuilder;
 import io.softa.framework.web.filter.context.IdentityResolver;
 import io.softa.framework.web.response.ApiResponse;
-import jakarta.servlet.*;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
+import io.softa.framework.web.response.ApiResponseErrorDetails;
 
 @Slf4j
 @Component
@@ -49,6 +52,9 @@ public class ContextScopeFilter implements Filter {
                 // Must-login endpoint but no user => legacy behavior: USER_NOT_FOUND JSON
                 log.info("User context resolution failed: {}", e.getMessage());
                 this.userNotFound(httpRes, e.getMessage());
+            } catch (BaseException e) {
+                log.error("Failed to build user context", e);
+                this.responseError(httpRes, e.getResponseCode(), e.getMessage());
             }
         } else if (IdentifyType.ANONYMOUS.equals(identifyRequired)) {
             Context anonymousContext = contextBuilder.buildAnonymousContext(httpReq);
@@ -98,5 +104,15 @@ public class ContextScopeFilter implements Filter {
         } catch (IOException e) {
             log.error("User not found", e);
         }
+    }
+
+    /**
+     * Send error response as JSON.
+     */
+    private void responseError(HttpServletResponse response, ResponseCode code, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        ApiResponseErrorDetails<Void> apiResponse = ApiResponseErrorDetails.exception(code, message);
+        response.getWriter().write(JsonUtils.objectToString(apiResponse));
     }
 }

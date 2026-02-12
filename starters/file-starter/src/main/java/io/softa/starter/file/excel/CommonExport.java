@@ -226,7 +226,7 @@ public class CommonExport {
      * @param exportTemplateId the ID of the export template
      * @param fileId the fileId of the exported file in FileRecord model
      */
-    protected void generateExportHistory(String exportTemplateId, String fileId) {
+    protected void generateExportHistory(Long exportTemplateId, Long fileId) {
         ExportHistory exportHistory = new ExportHistory();
         exportHistory.setTemplateId(exportTemplateId);
         exportHistory.setExportedFileId(fileId);

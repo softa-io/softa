@@ -1,20 +1,21 @@
 package io.softa.starter.flow;
 
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import jakarta.validation.constraints.NotNull;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
+
 import io.softa.framework.base.enums.AccessType;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.starter.flow.entity.FlowConfig;
 import io.softa.starter.flow.entity.FlowTrigger;
 import io.softa.starter.flow.enums.TriggerEventType;
-import jakarta.validation.constraints.NotNull;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.InitializingBean;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
 
 import static io.softa.framework.base.enums.AccessType.*;
 
@@ -29,16 +30,16 @@ import static io.softa.framework.base.enums.AccessType.*;
 public class FlowManager implements InitializingBean {
 
     // { triggerId: FlowTrigger }
-    private static final Map<String, FlowTrigger> TRIGGER_MAP = new ConcurrentHashMap<>();
+    private static final Map<Long, FlowTrigger> TRIGGER_MAP = new ConcurrentHashMap<>();
 
     // { sourceModel: [TriggerId] }
-    private static final Map<String, List<String>> MODEL_TRIGGER_MAP = new ConcurrentHashMap<>();
+    private static final Map<String, List<Long>> MODEL_TRIGGER_MAP = new ConcurrentHashMap<>();
 
     // { cronId: TriggerId }
-    private static final Map<Long, String> CRON_TRIGGER_MAP = new ConcurrentHashMap<>();
+    private static final Map<Long, Long> CRON_TRIGGER_MAP = new ConcurrentHashMap<>();
 
     // { flowId: FlowConfig }
-    private static final Map<String, FlowConfig> FLOW_MAP = new ConcurrentHashMap<>();
+    private static final Map<Long, FlowConfig> FLOW_MAP = new ConcurrentHashMap<>();
 
     @Autowired
     private JdbcService<?> jdbcService;
@@ -71,7 +72,7 @@ public class FlowManager implements InitializingBean {
      * @param flowId flowId
      * @return FlowConfig
      */
-    public static FlowConfig getById(String flowId) {
+    public static FlowConfig getById(Long flowId) {
         return FLOW_MAP.get(flowId);
     }
 
@@ -96,7 +97,7 @@ public class FlowManager implements InitializingBean {
      * @return List of FlowTrigger
      */
     private static List<FlowTrigger> getModelTriggers(String sourceModel) {
-        List<String> triggerIds = MODEL_TRIGGER_MAP.get(sourceModel);
+        List<Long> triggerIds = MODEL_TRIGGER_MAP.get(sourceModel);
         if (CollectionUtils.isEmpty(triggerIds)) {
             return Collections.emptyList();
         }
@@ -109,7 +110,7 @@ public class FlowManager implements InitializingBean {
      * @param triggerId triggerId
      * @return FlowTrigger object
      */
-    public static FlowTrigger getTriggerById(@NotNull String triggerId) {
+    public static FlowTrigger getTriggerById(@NotNull Long triggerId) {
         return TRIGGER_MAP.get(triggerId);
     }
 
@@ -121,7 +122,7 @@ public class FlowManager implements InitializingBean {
      * @param eventType eventType
      * @return FlowTrigger
      */
-    public static FlowTrigger getTriggerById(String sourceModel, @NotNull String triggerId, @NotNull TriggerEventType eventType) {
+    public static FlowTrigger getTriggerById(String sourceModel, @NotNull Long triggerId, @NotNull TriggerEventType eventType) {
         List<FlowTrigger> flowTriggers = getModelTriggers(sourceModel);
         for (FlowTrigger flowTrigger : flowTriggers) {
             if (triggerId.equals(flowTrigger.getId()) && eventType.equals(flowTrigger.getEventType())) {

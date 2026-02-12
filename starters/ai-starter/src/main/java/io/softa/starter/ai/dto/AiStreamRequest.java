@@ -13,10 +13,10 @@ public class AiStreamRequest {
 
     @Schema(description = "User Message ID")
     @NotBlank(message = "User Message ID cannot be empty!")
-    private String userMessageId;
+    private Long userMessageId;
 
     @Schema(description = "AI Message ID")
     @NotBlank(message = "AI Message ID cannot be empty!")
-    private String aiMessageId;
+    private Long aiMessageId;
 
 }

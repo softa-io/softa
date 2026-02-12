@@ -91,7 +91,7 @@ public class ExportByFileTemplate extends CommonExport {
      * @param fileId the ID of the file template
      * @return all variables in the template
      */
-    private Set<String> extractVariablesOfFileTemplate(String fileId) {
+    private Set<String> extractVariablesOfFileTemplate(Long fileId) {
         try (InputStream inputStream = fileService.downloadStream(fileId);
              Workbook workbook = new XSSFWorkbook(inputStream)) {
             return getVariablesInWorkbook(workbook);

@@ -21,7 +21,7 @@ import io.softa.starter.file.service.ImportTemplateService;
 @Tag(name = "Import Template")
 @RestController
 @RequestMapping("/ImportTemplate")
-public class ImportTemplateController extends EntityController<ImportTemplateService, ImportTemplate, String> {
+public class ImportTemplateController extends EntityController<ImportTemplateService, ImportTemplate, Long> {
 
     @Autowired
     private ImportService importService;
@@ -51,7 +51,7 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
             Get the fileInfo of the import template by template ID.
             The fileInfo contains the download URL.""")
     @GetMapping("/getTemplateFile")
-    public ApiResponse<FileInfo> getTemplateFile(@RequestParam(name = "id") String id) {
+    public ApiResponse<FileInfo> getTemplateFile(@RequestParam(name = "id") Long id) {
         return ApiResponse.success(importService.getTemplateFile(id));
     }
 

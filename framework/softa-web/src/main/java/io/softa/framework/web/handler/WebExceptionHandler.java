@@ -1,12 +1,6 @@
 package io.softa.framework.web.handler;
 
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.enums.ResponseCode;
-import io.softa.framework.base.exception.BaseException;
-import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.i18n.I18n;
-import io.softa.framework.web.response.ApiResponse;
-import io.softa.framework.web.response.ApiResponseErrorDetails;
+import java.util.List;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ValidationException;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +22,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
-import java.util.List;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.ResponseCode;
+import io.softa.framework.base.exception.BaseException;
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.i18n.I18n;
+import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.response.ApiResponseErrorDetails;
 
 /**
  * Web request exception handler, which catch the API exception that requires specifying responseCode.
@@ -53,8 +53,8 @@ public class WebExceptionHandler {
      * @param responseCode responseCode
      * @return ResponseEntity
      */
-    private ResponseEntity<ApiResponse<String>> wrapResponse(ResponseCode responseCode, String exceptionMessage) {
-        ApiResponse<String> response = ApiResponseErrorDetails.exception(responseCode, exceptionMessage);
+    private ResponseEntity<ApiResponse<Void>> wrapResponse(ResponseCode responseCode, String exceptionMessage) {
+        ApiResponse<Void> response = ApiResponseErrorDetails.exception(responseCode, exceptionMessage);
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
@@ -66,7 +66,7 @@ public class WebExceptionHandler {
      * @param e            Exception
      * @return ResponseEntity
      */
-    private ResponseEntity<ApiResponse<String>> handler(ResponseCode responseCode, Throwable e) {
+    private ResponseEntity<ApiResponse<Void>> handler(ResponseCode responseCode, Throwable e) {
         String exceptionMessage = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
         return handler(responseCode, e, exceptionMessage);
     }
@@ -80,7 +80,7 @@ public class WebExceptionHandler {
      * @param exceptionMessage the custom message for the exception
      * @return a ResponseEntity wrapping the ApiResponse with the specified message
      */
-    private ResponseEntity<ApiResponse<String>> handler(ResponseCode responseCode, Throwable e, String exceptionMessage) {
+    private ResponseEntity<ApiResponse<Void>> handler(ResponseCode responseCode, Throwable e, String exceptionMessage) {
         if (!(e instanceof BaseException)) {
             // If the exception is not an instance of BaseException, translate the exception message.
             // Support i18n of Java exception messages and third-party exception messages.
@@ -103,7 +103,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = Throwable.class)
-    public ResponseEntity<ApiResponse<String>> handleException(Exception e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
         String clientExceptionMessage;
         if (ContextHolder.getContext().isDebug()) {
             clientExceptionMessage = e.toString();
@@ -120,7 +120,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = BaseException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(BaseException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(BaseException e) {
         return handler(e.getResponseCode(), e);
     }
 
@@ -131,7 +131,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = NoHandlerFoundException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(NoHandlerFoundException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(NoHandlerFoundException e) {
         return handler(ResponseCode.REQUEST_NOT_FOUND, e);
     }
 
@@ -142,12 +142,12 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(HttpRequestMethodNotSupportedException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(HttpRequestMethodNotSupportedException e) {
         return handler(ResponseCode.HTTP_BAD_METHOD, e);
     }
 
     @ExceptionHandler(value = MaxUploadSizeExceededException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(MaxUploadSizeExceededException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(MaxUploadSizeExceededException e) {
         String message = "Maximum upload size exceeded";
         return handler(ResponseCode.BAD_REQUEST, e, message);
     }
@@ -159,7 +159,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = IllegalArgumentException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(IllegalArgumentException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(IllegalArgumentException e) {
         return handler(ResponseCode.BAD_REQUEST, e);
     }
 
@@ -170,7 +170,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(HttpMessageNotReadableException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(HttpMessageNotReadableException e) {
         return handler(ResponseCode.BAD_REQUEST, e, "Failed to parse the request body!");
     }
 
@@ -181,7 +181,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = DataIntegrityViolationException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(DataIntegrityViolationException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(DataIntegrityViolationException e) {
         return handler(ResponseCode.BAD_SQL_STATEMENT, e);
     }
 
@@ -193,7 +193,7 @@ public class WebExceptionHandler {
      * @return All the validation error messages.
      */
     @ExceptionHandler(value = MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(MethodArgumentNotValidException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(MethodArgumentNotValidException e) {
         StringBuilder errorMessage = new StringBuilder("Validation Error: {}");
         List<FieldError> fieldErrors = e.getBindingResult().getFieldErrors();
         for (FieldError fieldError : fieldErrors) {
@@ -212,7 +212,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = UnsatisfiedServletRequestParameterException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(UnsatisfiedServletRequestParameterException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(UnsatisfiedServletRequestParameterException e) {
         return handler(ResponseCode.BAD_REQUEST, e);
     }
 
@@ -223,7 +223,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = NoSuchMethodError.class)
-    public ResponseEntity<ApiResponse<String>> handleException(NoSuchMethodError e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(NoSuchMethodError e) {
         return handler(ResponseCode.BAD_REQUEST, e);
     }
 
@@ -234,7 +234,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = ConstraintViolationException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(ConstraintViolationException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(ConstraintViolationException e) {
         return handler(ResponseCode.BAD_REQUEST, e);
     }
 
@@ -245,7 +245,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = ValidationException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(ValidationException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(ValidationException e) {
         return handler(ResponseCode.ERROR, e);
     }
 
@@ -256,8 +256,8 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = BusinessException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(BusinessException e) {
-        ApiResponse<String> response = ApiResponseErrorDetails.exception(e.getResponseCode(), e.getMessage());
+    public ResponseEntity<ApiResponse<Void>> handleException(BusinessException e) {
+        ApiResponse<Void> response = ApiResponseErrorDetails.exception(e.getResponseCode(), e.getMessage());
         log.warn("BusinessException: {}", e.getMessage(), e);
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
@@ -279,7 +279,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = BadSqlGrammarException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(BadSqlGrammarException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(BadSqlGrammarException e) {
         String errorMessage = "SQL Syntax Error";
         return handler(ResponseCode.ERROR, e, errorMessage);
     }
@@ -291,7 +291,7 @@ public class WebExceptionHandler {
      * @return ResponseEntity
      */
     @ExceptionHandler(value = DuplicateKeyException.class)
-    public ResponseEntity<ApiResponse<String>> handleException(DuplicateKeyException e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(DuplicateKeyException e) {
         String errorMessage = "Duplicate Key Error";
         if (e.getCause() instanceof Exception) {
             errorMessage = e.getCause().getMessage();

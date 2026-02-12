@@ -1,23 +1,23 @@
 package io.softa.starter.flow.node.processors;
 
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.base.utils.Assert;
-import io.softa.starter.flow.node.NodeContext;
-import io.softa.starter.flow.node.NodeProcessor;
-import io.softa.starter.flow.node.params.GetDataParams;
-import io.softa.starter.flow.entity.FlowNode;
-import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.utils.FlowUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
 import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.flow.entity.FlowNode;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.node.NodeContext;
+import io.softa.starter.flow.node.NodeProcessor;
+import io.softa.starter.flow.node.params.GetDataParams;
+import io.softa.starter.flow.utils.FlowUtils;
 
 import static io.softa.framework.base.constant.BaseConstant.MAX_BATCH_SIZE;
 import static io.softa.starter.flow.node.enums.NodeGetDataType.*;
@@ -95,7 +95,7 @@ public class GetDataNode implements NodeProcessor<GetDataParams> {
             result = this.executeMultiRows(nodeParams, clonedFilters);
         }
         // Put the result into the nodeContext
-        nodeContext.put(flowNode.getId(), result);
+        nodeContext.put(flowNode.getId().toString(), result);
     }
 
     /**

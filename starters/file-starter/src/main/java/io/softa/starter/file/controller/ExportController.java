@@ -57,7 +57,7 @@ public class ExportController {
     @Operation(description = "Exported by exportTemplate with dynamic fields and ExportParams")
     @PostMapping(value = "/exportByTemplate")
     @Parameter(name = "exportTemplateId", description = "The id of the ExportTemplate.")
-    public ApiResponse<FileInfo> exportByTemplate(@RequestParam String exportTemplateId,
+    public ApiResponse<FileInfo> exportByTemplate(@RequestParam Long exportTemplateId,
                                                   @RequestBody ExportParams exportParams) {
         FlexQuery flexQuery = ExportParams.convertParamsToFlexQuery(exportParams);
         return ApiResponse.success(exportService.exportByTemplate(exportTemplateId, flexQuery));
@@ -76,7 +76,7 @@ public class ExportController {
     @Operation(description = "Exported by file template and ExportParams")
     @PostMapping(value = "/exportByFileTemplate")
     @Parameter(name = "exportTemplateId", description = "The id of the ExportTemplate.")
-    public ApiResponse<FileInfo> exportByFileTemplate(@RequestParam String exportTemplateId,
+    public ApiResponse<FileInfo> exportByFileTemplate(@RequestParam Long exportTemplateId,
                                                       @RequestBody ExportParams exportParams) {
         Assert.notNull(exportTemplateId, "Export template ID cannot be null.");
         FlexQuery flexQuery = ExportParams.convertParamsToFlexQuery(exportParams);

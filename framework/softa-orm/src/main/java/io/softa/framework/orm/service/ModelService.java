@@ -364,7 +364,7 @@ public interface ModelService<K extends Serializable> {
      * @param externalIds a list of external IDs
      * @return {@code true} if successful; otherwise an exception is thrown
      */
-    boolean deleteByExternalIds(String modelName, List<Serializable> externalIds);
+    boolean deleteByExternalIds(String modelName, List<? extends Serializable> externalIds);
 
     /**
      * Deletes rows matching the specified filters.

@@ -1,7 +1,7 @@
 package io.softa.starter.user.entity;
 
-import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -20,13 +20,13 @@ public class UserAuthProvider extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "User ID")
-    private String userId;
+    private Long userId;
 
     @Schema(description = "Provider")
     private OAuthProvider provider;

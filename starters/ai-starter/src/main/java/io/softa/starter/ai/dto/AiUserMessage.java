@@ -13,16 +13,16 @@ public class AiUserMessage {
 
     @Schema(description = "Robot ID")
     @NotBlank(message = "Robot ID cannot be empty!")
-    private String robotId;
+    private Long robotId;
 
     @Schema(description = "Chat Content")
     @NotBlank(message = "Chat content cannot be empty!")
     private String content;
 
     @Schema(description = "Conversation ID")
-    private String conversationId;
+    private Long conversationId;
 
     @Schema(description = "Parent Message ID")
-    private String parentId;
+    private Long parentId;
 
 }

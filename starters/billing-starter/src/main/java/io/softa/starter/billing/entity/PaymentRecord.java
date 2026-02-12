@@ -1,15 +1,15 @@
 package io.softa.starter.billing.entity;
 
-import io.softa.starter.billing.enums.PaymentMethod;
-import io.softa.starter.billing.enums.PaymentStatus;
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.billing.enums.PaymentMethod;
+import io.softa.starter.billing.enums.PaymentStatus;
 
 /**
  * PaymentRecord Model
@@ -23,10 +23,10 @@ public class PaymentRecord extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Order ID")
-    private String orderId;
+    private Long orderId;
 
     @Schema(description = "Payment Method")
     private PaymentMethod paymentMethod;

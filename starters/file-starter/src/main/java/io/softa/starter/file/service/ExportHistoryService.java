@@ -6,6 +6,6 @@ import io.softa.starter.file.entity.ExportHistory;
 /**
  * ExportHistory Service Interface
  */
-public interface ExportHistoryService extends EntityService<ExportHistory, String> {
+public interface ExportHistoryService extends EntityService<ExportHistory, Long> {
 
 }

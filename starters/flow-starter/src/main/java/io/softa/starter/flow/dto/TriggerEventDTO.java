@@ -1,13 +1,11 @@
 package io.softa.starter.flow.dto;
 
-import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
-import lombok.Data;
-
-import jakarta.validation.constraints.NotEmpty;
-
 import java.io.Serializable;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import lombok.Data;
 
 /**
  * Trigger Event DTO
@@ -25,7 +23,7 @@ public class TriggerEventDTO {
 
     @Schema(description = "Trigger ID")
     @NotEmpty(message = "Trigger ID is required!")
-    private String triggerId;
+    private Long triggerId;
 
     @Schema(description = "Event Params")
     private Map<String, Object> eventParams;

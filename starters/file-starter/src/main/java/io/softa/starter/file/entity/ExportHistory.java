@@ -19,16 +19,16 @@ public class ExportHistory extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "Template ID")
-    private String templateId;
+    private Long templateId;
 
     @Schema(description = "Exported File ID")
-    private String exportedFileId;
+    private Long exportedFileId;
 
     @Schema(description = "Deleted")
     private Boolean deleted;

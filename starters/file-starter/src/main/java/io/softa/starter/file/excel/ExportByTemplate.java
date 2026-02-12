@@ -68,11 +68,11 @@ public class ExportByTemplate extends CommonExport {
         return this.getFileInfo(fileName, exportTemplates, Collections.emptyMap());
     }
 
-    public FileInfo dynamicExportMultiSheet(String fileName, List<ExportTemplate> exportTemplates, Map<String, Filters> dynamicTemplateMap) {
+    public FileInfo dynamicExportMultiSheet(String fileName, List<ExportTemplate> exportTemplates, Map<Long, Filters> dynamicTemplateMap) {
         return this.getFileInfo(fileName, exportTemplates, dynamicTemplateMap);
     }
 
-    private FileInfo getFileInfo(String fileName, List<ExportTemplate> exportTemplates, Map<String, Filters> dynamicTemplateMap) {
+    private FileInfo getFileInfo(String fileName, List<ExportTemplate> exportTemplates, Map<Long, Filters> dynamicTemplateMap) {
         FileInfo fileInfo;
         // Generate the Excel file
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();

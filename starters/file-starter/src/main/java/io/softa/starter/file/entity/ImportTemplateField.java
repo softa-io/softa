@@ -19,10 +19,10 @@ public class ImportTemplateField extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Import Template ID")
-    private String templateId;
+    private Long templateId;
 
     @Schema(description = "Field Name")
     private String fieldName;

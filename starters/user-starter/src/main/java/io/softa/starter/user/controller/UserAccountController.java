@@ -1,11 +1,11 @@
 package io.softa.starter.user.controller;
 
+import java.util.Optional;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +31,7 @@ import io.softa.starter.user.service.UserAccountService;
 @Tag(name = "UserAccount Controller")
 @RestController
 @RequestMapping("/UserAccount")
-public class UserAccountController extends EntityController<UserAccountService, UserAccount, String> {
+public class UserAccountController extends EntityController<UserAccountService, UserAccount, Long> {
 
     private static final Logger log = LoggerFactory.getLogger(UserAccountController.class);
 
@@ -56,7 +56,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @Operation(summary = "getMyAccount")
     @GetMapping("/getMyAccount")
     public ApiResponse<UserAccount> getMyAccount() {
-        String userId = ContextHolder.getContext().getUserId();
+        Long userId = ContextHolder.getContext().getUserId();
         try {
             Optional<UserAccount> accountOpt = service.getById(userId);
 
@@ -79,7 +79,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @Operation(summary = "saveMyAccount")
     @PostMapping("/saveMyAccount")
     public ApiResponse<Void> saveMyAccount(@RequestBody @Valid UserAccountDTO myAccountDTO) {
-        String currentUserId;
+        Long currentUserId;
         try {
             currentUserId = ContextHolder.getContext().getUserId();
             if (currentUserId == null) {

@@ -96,7 +96,7 @@ public class ExportServiceImpl implements ExportService {
      * @param flexQuery the flex query to be used for data retrieval
      * @return fileInfo object with download URL
      */
-    public FileInfo exportByTemplate(String exportTemplateId, FlexQuery flexQuery) {
+    public FileInfo exportByTemplate(Long exportTemplateId, FlexQuery flexQuery) {
         ExportTemplate exportTemplate = exportTemplateService.getById(exportTemplateId)
                 .orElseThrow(() -> new IllegalArgumentException("The export template does not exist."));
         this.validateExportTemplate(exportTemplate);
@@ -112,18 +112,18 @@ public class ExportServiceImpl implements ExportService {
      * @param ids the list of export template id
      * @return fileInfo object with download URL
      */
-    public FileInfo exportByMultiTemplate(String fileName, List<String> ids) {
+    public FileInfo exportByMultiTemplate(String fileName, List<Long> ids) {
         List<ExportTemplate> exportTemplates = this.getExportTemplates(ids);
         return exportByTemplate.exportMultiSheet(fileName, exportTemplates);
     }
 
     public FileInfo dynamicExportByMultiTemplate(String fileName, List<ExportTemplateDTO> dtoList) {
-        Map<String, Filters> dynamicTemplateMap = dtoList.stream().collect(Collectors.toMap(ExportTemplateDTO::getTemplateId, ExportTemplateDTO::getFilters));
+        Map<Long, Filters> dynamicTemplateMap = dtoList.stream().collect(Collectors.toMap(ExportTemplateDTO::getTemplateId, ExportTemplateDTO::getFilters));
         List<ExportTemplate> exportTemplates = this.getExportTemplates(new ArrayList<>(dynamicTemplateMap.keySet()));
         return exportByTemplate.dynamicExportMultiSheet(fileName, exportTemplates, dynamicTemplateMap);
     }
 
-    private List<ExportTemplate> getExportTemplates(List<String> ids) {
+    private List<ExportTemplate> getExportTemplates(List<Long> ids) {
         List<ExportTemplate> exportTemplates = exportTemplateService.getByIds(ids);
         List<String> sheetNames = new ArrayList<>();
         exportTemplates.forEach(template -> {
@@ -145,11 +145,11 @@ public class ExportServiceImpl implements ExportService {
      * @param flexQuery the flexQuery of the exported conditions
      * @return fileInfo object with download URL
      */
-    public FileInfo exportByFileTemplate(String exportTemplateId, FlexQuery flexQuery) {
+    public FileInfo exportByFileTemplate(Long exportTemplateId, FlexQuery flexQuery) {
         ExportTemplate exportTemplate = exportTemplateService.getById(exportTemplateId)
                 .orElseThrow(() -> new IllegalArgumentException("The export template does not exist."));
         this.validateExportTemplate(exportTemplate);
-        Assert.notBlank(exportTemplate.getFileId(), "The export template does not have a file template.");
+        Assert.notNull(exportTemplate.getFileId(), "The export template does not have a file template.");
         return exportByFileTemplate.export(exportTemplate, flexQuery);
     }
 }

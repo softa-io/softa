@@ -21,10 +21,10 @@ public class ExportTemplate extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "File Name")
     private String fileName;
@@ -36,7 +36,7 @@ public class ExportTemplate extends AuditableModel {
     private String modelName;
 
     @Schema(description = "File Template ID")
-    private String fileId;
+    private Long fileId;
 
     @Schema(description = "Filters")
     private Filters filters;

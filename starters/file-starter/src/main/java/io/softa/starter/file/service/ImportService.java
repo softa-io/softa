@@ -17,7 +17,7 @@ public interface ImportService {
      * @param templateId template ID
      * @return import template fileInfo
      */
-    FileInfo getTemplateFile(String templateId);
+    FileInfo getTemplateFile(Long templateId);
 
     /**
      * Import data from the uploaded file and the import template ID
@@ -27,7 +27,7 @@ public interface ImportService {
      * @param env the environment variables
      * @return the import result
      */
-    ImportHistory importByTemplate(String templateId, MultipartFile file, Map<String, Object> env);
+    ImportHistory importByTemplate(Long templateId, MultipartFile file, Map<String, Object> env);
 
     /**
      * Import data from the uploaded file and dynamic import settings

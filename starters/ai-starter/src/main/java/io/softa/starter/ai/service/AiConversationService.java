@@ -7,7 +7,7 @@ import io.softa.starter.ai.entity.AiConversation;
 /**
  * AiConversation Model Service Interface
  */
-public interface AiConversationService extends EntityService<AiConversation, String> {
+public interface AiConversationService extends EntityService<AiConversation, Long> {
 
     /**
      * New conversation
@@ -15,6 +15,6 @@ public interface AiConversationService extends EntityService<AiConversation, Str
      * @param aiUserMessage AI User Message
      * @return Conversation ID
      */
-    String newConversation(AiUserMessage aiUserMessage);
+    Long newConversation(AiUserMessage aiUserMessage);
 
 }

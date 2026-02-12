@@ -1,18 +1,18 @@
 package io.softa.starter.flow.node.processors;
 
-import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.StringTools;
-import io.softa.starter.flow.node.NodeContext;
-import io.softa.starter.flow.node.NodeProcessor;
-import io.softa.starter.flow.node.params.ExtractTransformParams;
-import io.softa.starter.flow.entity.FlowNode;
-import io.softa.starter.flow.enums.FlowNodeType;
+import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import java.util.*;
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.StringTools;
+import io.softa.starter.flow.entity.FlowNode;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.node.NodeContext;
+import io.softa.starter.flow.node.NodeProcessor;
+import io.softa.starter.flow.node.params.ExtractTransformParams;
 
 /**
  * Processor for ExtractTransform node.
@@ -72,7 +72,7 @@ public class ExtractTransformNode implements NodeProcessor<ExtractTransformParam
     public void execute(FlowNode flowNode, ExtractTransformParams nodeParams, NodeContext nodeContext) {
         Object variableValue = StringTools.extractVariable(nodeParams.getCollectionVariable(), nodeContext.getEnv());
         if (variableValue == null || (variableValue instanceof Collection<?> col && CollectionUtils.isEmpty(col))) {
-            nodeContext.put(flowNode.getId(), Collections.emptySet());
+            nodeContext.put(flowNode.getId().toString(), Collections.emptySet());
         } else if (variableValue instanceof Collection<?> col) {
             Set<Object> result = new HashSet<>();
             col.forEach(row -> {
@@ -83,7 +83,7 @@ public class ExtractTransformNode implements NodeProcessor<ExtractTransformParam
                     }
                 }
             });
-            nodeContext.put(flowNode.getId(), result);
+            nodeContext.put(flowNode.getId().toString(), result);
         } else {
             throw new IllegalArgumentException("""
                     The value of the data source variable {0} for Extract-Transform Node {1} is not a collection: {2}.

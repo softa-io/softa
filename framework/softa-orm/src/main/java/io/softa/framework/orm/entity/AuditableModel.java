@@ -21,7 +21,7 @@ public abstract class AuditableModel extends AbstractModel {
     protected LocalDateTime createdTime;
 
     @Schema(description = "Creator ID")
-    protected String createdId;
+    protected Long createdId;
 
     @Schema(description = "Created By")
     protected String createdBy;
@@ -30,7 +30,7 @@ public abstract class AuditableModel extends AbstractModel {
     protected LocalDateTime updatedTime;
 
     @Schema(description = "Updater ID")
-    protected String updatedId;
+    protected Long updatedId;
 
     @Schema(description = "Updated By")
     protected String updatedBy;

@@ -6,6 +6,6 @@ import io.softa.starter.user.entity.UserAuthFailure;
 /**
  * UserAuthFailure Model Service Interface
  */
-public interface UserAuthFailureService extends EntityService<UserAuthFailure, String> {
+public interface UserAuthFailureService extends EntityService<UserAuthFailure, Long> {
 
 }

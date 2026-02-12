@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.dto.FileInfo;
 import io.softa.starter.user.config.OAuthProperties;
 import io.softa.starter.user.dto.*;
 import io.softa.starter.user.enums.OAuthProvider;
@@ -74,6 +75,20 @@ public class OAuth2ServiceImpl implements OAuth2Service {
     }
 
     /**
+     * Build profileDTO from social information
+     */
+    public UserProfileDTO buildProfileFromSocial(String fullName, String photoUrl) {
+        UserProfileDTO dto = new UserProfileDTO();
+        dto.setFullName(fullName);
+        // Upload photo from URL if it is a valid URL
+        if (StringUtils.isNotBlank(photoUrl)) {
+            FileInfo fileInfo = profileService.fetchPhotoFromURL(photoUrl, null);
+            dto.setPhotoId(fileInfo.getFileId());
+        }
+        return dto;
+    }
+
+    /**
      * Apple Login
      *
      * @param idToken Apple id_token
@@ -93,13 +108,13 @@ public class OAuth2ServiceImpl implements OAuth2Service {
                 log.warn("New Apple user is not verified: {}", appleUserInfo.getEmail());
             }
 
-            Optional<String> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.APPLE,
+            Optional<Long> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.APPLE,
                     appleUserInfo.getId());
             if (optionalUserId.isEmpty()) {
                 String username = generateSocialUsername(OAuthProvider.APPLE, null, appleUserInfo.getEmail(),
                         appleUserInfo.getId());
                 UserAccountDTO accountInfo = UserAccountDTO.forSocialRegistration(username, null);
-                UserProfileDTO profileInfo = UserProfileDTO.withSocialInfo(appleUserInfo.getEmail(), null);
+                UserProfileDTO profileInfo = this.buildProfileFromSocial(appleUserInfo.getEmail(), null);
                 UserInfo userInfo = accountService.registerNewUser(accountInfo, profileInfo);
                 // Add auth provider
                 authProviderService.addAuthProvider(userInfo.getUserId(), OAuthProvider.APPLE, appleUserInfo.getId(),
@@ -168,12 +183,12 @@ public class OAuth2ServiceImpl implements OAuth2Service {
             }
 
             // 3. Check if user exists
-            Optional<String> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.GOOGLE,
+            Optional<Long> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.GOOGLE,
                     googleId);
             if (optionalUserId.isEmpty()) {
                 String username = generateSocialUsername(OAuthProvider.GOOGLE, null, email, name);
                 UserAccountDTO accountInfo = UserAccountDTO.forSocialRegistration(username, name);
-                UserProfileDTO profileInfo = UserProfileDTO.withSocialInfo(name, googleUserInfo.getPicture());
+                UserProfileDTO profileInfo = this.buildProfileFromSocial(name, googleUserInfo.getPicture());
                 UserInfo userInfo = accountService.registerNewUser(accountInfo, profileInfo);
                 // Add auth provider
                 authProviderService.addAuthProvider(userInfo.getUserId(), OAuthProvider.GOOGLE, googleId,
@@ -211,13 +226,13 @@ public class OAuth2ServiceImpl implements OAuth2Service {
             }
 
             // 3. Check if user exists
-            Optional<String> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.TIKTOK, openId);
+            Optional<Long> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.TIKTOK, openId);
             if (optionalUserId.isPresent()) {
                 return profileService.getUserInfo(optionalUserId.get());
             } else {
                 String username = generateSocialUsername(OAuthProvider.TIKTOK, null, null, displayName);
                 UserAccountDTO accountInfo = UserAccountDTO.forSocialRegistration(username, displayName);
-                UserProfileDTO profileInfo = UserProfileDTO.withSocialInfo(displayName, photoUrl);
+                UserProfileDTO profileInfo = this.buildProfileFromSocial(displayName, photoUrl);
                 UserInfo userInfo = accountService.registerNewUser(accountInfo, profileInfo);
                 // Add auth provider
                 authProviderService.addAuthProvider(userInfo.getUserId(), OAuthProvider.TIKTOK, openId, tikTokUserInfo);
@@ -252,13 +267,13 @@ public class OAuth2ServiceImpl implements OAuth2Service {
             }
 
             // 3. Check if user exists
-            Optional<String> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.X, xUserId);
+            Optional<Long> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.X, xUserId);
             if (optionalUserId.isPresent()) {
                 return profileService.getUserInfo(optionalUserId.get());
             } else {
                 username = generateSocialUsername(OAuthProvider.X, username, null, name);
                 UserAccountDTO accountInfo = UserAccountDTO.forSocialRegistration(username, name);
-                UserProfileDTO profileInfo = UserProfileDTO.withSocialInfo(name, profileImageUrl);
+                UserProfileDTO profileInfo = this.buildProfileFromSocial(name, profileImageUrl);
                 UserInfo userInfo = accountService.registerNewUser(accountInfo, profileInfo);
                 // Add auth provider
                 authProviderService.addAuthProvider(userInfo.getUserId(), OAuthProvider.X, xUserId, xUserInfo);
@@ -292,14 +307,14 @@ public class OAuth2ServiceImpl implements OAuth2Service {
             log.info("LinkedIn user logged in: {}", name);
 
             // 3. Check if user exists
-            Optional<String> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.LINKED_IN,
+            Optional<Long> optionalUserId = authProviderService.getUserIdByAuthProvider(OAuthProvider.LINKED_IN,
                     linkedInId);
             if (optionalUserId.isPresent()) {
                 return profileService.getUserInfo(optionalUserId.get());
             } else {
                 String username = generateSocialUsername(OAuthProvider.LINKED_IN, null, email, name);
                 UserAccountDTO accountInfo = UserAccountDTO.forSocialRegistration(username, name);
-                UserProfileDTO profileInfo = UserProfileDTO.withSocialInfo(name, photoUrl);
+                UserProfileDTO profileInfo = this.buildProfileFromSocial(name, photoUrl);
                 UserInfo userInfo = accountService.registerNewUser(accountInfo, profileInfo);
                 // Add auth provider
                 authProviderService.addAuthProvider(userInfo.getUserId(), OAuthProvider.LINKED_IN, linkedInId,

@@ -38,7 +38,7 @@ public class ImportController {
      */
     @Operation(description = "Import data from the uploaded file")
     @PostMapping(value = "/importByTemplate")
-    public ApiResponse<ImportHistory> importByTemplate(@RequestParam(name = "templateId") String templateId,
+    public ApiResponse<ImportHistory> importByTemplate(@RequestParam(name = "templateId") Long templateId,
                                                        @RequestParam(name = "file") MultipartFile file,
                                                        @RequestParam(name = "env") String jsonEnv) {
         String fileName = file.getOriginalFilename();

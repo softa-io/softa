@@ -1,10 +1,9 @@
 package io.softa.starter.flow.node.params;
 
+import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.util.Map;
 
 /**
  * Parameters for triggering a subflow.
@@ -15,7 +14,7 @@ import java.util.Map;
 public class TriggerSubflowParams implements NodeParams {
 
     @Schema(description = "Subflow trigger ID")
-    private String subflowTriggerId;
+    private Long subflowTriggerId;
 
     @Schema(description = """
             The key-value structure configuration of the subflow data.

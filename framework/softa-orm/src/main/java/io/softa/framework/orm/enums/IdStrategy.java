@@ -1,9 +1,6 @@
 package io.softa.framework.orm.enums;
 
 import com.fasterxml.jackson.annotation.JsonValue;
-
-import java.util.Set;
-
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -13,29 +10,29 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum IdStrategy {
-    // Database Auto-increment ID: 64-bit numeric ID, as default
+    /**
+     * Database Auto-increment ID
+     * Type: Long (64-bit)
+     */
     DB_AUTO_ID("DbAutoID", "DB Auto-increment ID"),
+
     /**
-     * Unique Lexicographically Sortable Identifier: 128-bit, with 48-bit timestamp and 80-bit random value.
-     * Base32: 26-character string with 10-character timestamp and 16-character random value.
-     * ULID is designed to be used as a primary key in distributed systems.
-     * More secure than TSID_STRING.
+     * Distributed Unique ID of Long type (64-bit)
+     * An implementation of SnowflakeId by CosID library.
+     * Time-sorted, with 41-bit timestamp, 10-bit machine ID, and 12-bit sequence number.
+     * Suitable for distributed systems to ensure uniqueness across multiple nodes.
      */
-    ULID("ULID", "ULID"),
+    DISTRIBUTED_LONG("DistributedLong", "Distributed Long ID"),
+
     /**
-     * Numeric time trending Unique Identifier (Combined SnowFlakeID and ULID): 64-bit, with 42-bit timestamp,
-     * 10-bit server ID and 12-bit sequence number by default.
+     * Distributed Unique ID of String type
+     * An implementation of SnowflakeId by CosID library.
+     * Encoded in Base36, resulting in a 13-character string.
+     * Also, can be configured to be Base62, resulting in an 11-character string.
+     * Suitable for distributed systems without large-scale data volume requirements.
      */
-    TSID_LONG("TSIDLong", "Long Time-Sorted ID"),
-    /**
-     * Base32: 13-character string TSID, less secure than ULID
-     * Suitable for small-scale systems.
-     */
-    TSID_STRING("TSIDString", "String Time-Sorted ID"),
-    // 16-digit numeric Long id
-    SIMPLE_ID("SimpleID", "Simple 16-digit Long ID"),
-    // Standard UUID: 128-bit, 32-character hexadecimal string
-    UUID("UUID", "UUID"),
+    DISTRIBUTED_STRING("DistributedString", "Distributed String ID"),
+
     // External ID: external input ID
     EXTERNAL_ID("ExternalID", "External ID");
 
@@ -43,7 +40,5 @@ public enum IdStrategy {
     private final String type;
 
     private final String name;
-
-    public static final Set<IdStrategy> LONG_ID_STRATEGIES = Set.of(DB_AUTO_ID, TSID_LONG, SIMPLE_ID);
 
 }

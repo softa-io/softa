@@ -1,8 +1,8 @@
 package io.softa.starter.user.dto;
 
-import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import io.softa.framework.base.enums.Language;
@@ -36,22 +36,12 @@ public class UserProfileDTO {
     private String birthCity;
 
     @Schema(description = "Photo ID")
-    private String photo;
+    private Long photoId;
 
     @Schema(description = "Preferred Language")
     private Language language;
 
     @Schema(description = "Timezone")
     private Timezone timezone;
-
-    /**
-     * Create social profile information
-     */
-    public static UserProfileDTO withSocialInfo(String fullName, String photo) {
-        UserProfileDTO dto = new UserProfileDTO();
-        dto.setFullName(fullName);
-        dto.setPhoto(photo);
-        return dto;
-    }
 
 }

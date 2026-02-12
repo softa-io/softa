@@ -1,19 +1,19 @@
 package io.softa.framework.orm.jdbc.pipeline.processor;
 
-import io.softa.framework.base.enums.AccessType;
-import io.softa.framework.orm.dto.FileInfo;
-import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.utils.ReflectTool;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.util.CollectionUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.util.CollectionUtils;
+
+import io.softa.framework.base.enums.AccessType;
+import io.softa.framework.orm.dto.FileInfo;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.utils.ReflectTool;
 
 /**
  * File and MultiFile fields group processor.
@@ -59,23 +59,23 @@ public class FilesGroupProcessor extends BaseProcessor {
      * @param rows The list of output data
      */
     public void batchProcessOutputRows(List<Map<String, Object>> rows) {
-        List<String> fileIds = getFileIds(rows);
+        List<Long> fileIds = getFileIds(rows);
         if (CollectionUtils.isEmpty(fileIds)) {
             return;
         }
         List<FileInfo> fileInfos = ReflectTool.getByFileIds(fileIds);
-        Map<String, FileInfo> fileInfoMap = fileInfos.stream()
+        Map<Long, FileInfo> fileInfoMap = fileInfos.stream()
                 .collect(Collectors.toMap(FileInfo::getFileId, fileInfo -> fileInfo));
         for (Map<String, Object> row : rows) {
             for (MetaField fileField : fileFields) {
                 String fieldName = fileField.getFieldName();
                 if (FieldType.FILE.equals(fileField.getFieldType()) &&
                         StringUtils.isNotBlank((String) row.get(fieldName))) {
-                    row.put(fieldName, fileInfoMap.get((String) row.get(fieldName)));
+                    row.put(fieldName, fileInfoMap.get((Long) row.get(fieldName)));
                 } else if (FieldType.MULTI_FILE.equals(fileField.getFieldType()) &&
                         row.get(fieldName) instanceof List<?> fileIdList) {
                     List<FileInfo> fileInfoList = fileIdList.stream()
-                            .map(fileId -> fileInfoMap.get((String) fileId))
+                            .map(fileId -> fileInfoMap.get((Long) fileId))
                             .filter(Objects::nonNull)
                             .toList();
                     row.put(fieldName, fileInfoList);
@@ -90,17 +90,17 @@ public class FilesGroupProcessor extends BaseProcessor {
      * @param rows The list of rows
      * @return The list of fileIds
      */
-    private List<String> getFileIds(List<Map<String, Object>> rows) {
-        List<String> fileIds = new ArrayList<>();
+    private List<Long> getFileIds(List<Map<String, Object>> rows) {
+        List<Long> fileIds = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             fileFields.forEach(fileField -> {
                 Object fileId = row.get(fileField.getFieldName());
                 if (FieldType.FILE.equals(fileField.getFieldType()) &&
-                        StringUtils.isNotBlank((String) fileId)) {
-                    fileIds.add((String) fileId);
+                        Objects.nonNull(fileId)) {
+                    fileIds.add((Long) fileId);
                 } else if (FieldType.MULTI_FILE.equals(fileField.getFieldType()) &&
                         fileId instanceof List<?> fileIdList) {
-                    fileIdList.forEach(id -> fileIds.add((String) id));
+                    fileIdList.forEach(id -> fileIds.add((Long) id));
                 }
             });
         }

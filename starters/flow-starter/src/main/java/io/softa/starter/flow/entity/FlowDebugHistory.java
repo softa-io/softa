@@ -1,15 +1,15 @@
 package io.softa.starter.flow.entity;
 
-import tools.jackson.databind.JsonNode;
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.flow.enums.FlowStatus;
-import io.softa.starter.flow.enums.FlowType;
+import java.io.Serial;
+import java.time.LocalDateTime;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import tools.jackson.databind.JsonNode;
 
-import java.io.Serial;
-import java.time.LocalDateTime;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.flow.enums.FlowStatus;
+import io.softa.starter.flow.enums.FlowType;
 
 /**
  * FlowDebugHistory Model
@@ -23,10 +23,10 @@ public class FlowDebugHistory extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Flow ID")
-    private String flowId;
+    private Long flowId;
 
     @Schema(description = "Flow Type")
     private FlowType flowType;

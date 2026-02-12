@@ -30,9 +30,9 @@ public class ImportTemplateDTO {
     private List<ImportFieldDTO> importFields;
 
     // file info
-    private String templateId;
-    private String fileId;
-    private String historyId;
+    private Long templateId;
+    private Long fileId;
+    private Long historyId;
     private String fileName;
 
     public void addImportField(ImportFieldDTO importFieldDTO) {

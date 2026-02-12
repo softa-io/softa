@@ -1,19 +1,19 @@
 package io.softa.framework.orm.jdbc.pipeline.processor;
 
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.enums.AccessType;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.utils.IDGenerator;
 import io.softa.framework.orm.utils.IdUtils;
-
-import java.io.Serializable;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.function.Supplier;
 
 /**
  * ID field processor
@@ -36,20 +36,11 @@ public class IdProcessor extends BaseProcessor {
             case DB_AUTO_ID:
                 // Skip auto-increment ID
                 return;
-            case ULID:
-                generateIds(rows, IdUtils::getULID);
+            case DISTRIBUTED_LONG:
+                generateIds(rows, IDGenerator::generateLongId);
                 break;
-            case TSID_LONG:
-                generateIds(rows, IdUtils::getTSIDLong);
-                break;
-            case TSID_STRING:
-                generateIds(rows, IdUtils::getTSIDString);
-                break;
-            case SIMPLE_ID:
-                generateIds(rows, IdUtils::getSimpleId);
-                break;
-            case UUID:
-                generateIds(rows, () -> UUID.randomUUID().toString());
+            case DISTRIBUTED_STRING:
+                generateIds(rows, IDGenerator::generateStringId);
                 break;
             case EXTERNAL_ID:
                 formatExternalIds(rows);

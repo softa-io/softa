@@ -22,9 +22,9 @@ CREATE TABLE sys_model(
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Model';
@@ -33,7 +33,7 @@ CREATE TABLE sys_model(
 ALTER TABLE sys_model ADD UNIQUE INDEX uniq_modelname (model_name);
 
 CREATE TABLE sys_language(
-    id VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'ID' ,
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Name' ,
     code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     date_format VARCHAR(32)    COMMENT 'Date Format' ,
@@ -58,9 +58,9 @@ CREATE TABLE sys_model_trans(
     description VARCHAR(256)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Model Translation';
@@ -99,10 +99,10 @@ CREATE TABLE sys_field(
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Field';
@@ -118,9 +118,9 @@ CREATE TABLE sys_field_trans(
     description VARCHAR(256)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Field Translation';
@@ -132,10 +132,10 @@ CREATE TABLE sys_option_set(
     option_set_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Code' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
@@ -149,9 +149,9 @@ CREATE TABLE sys_option_set_trans(
     description VARCHAR(256)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Option Set Translation';
@@ -168,10 +168,10 @@ CREATE TABLE sys_option_item(
     item_color VARCHAR(64)   DEFAULT '' COMMENT 'Item Color' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
@@ -185,9 +185,9 @@ CREATE TABLE sys_option_item_trans(
     description VARCHAR(256)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Option Items Translation';
@@ -201,10 +201,10 @@ CREATE TABLE sys_config(
     value_type VARCHAR(64)   DEFAULT '' COMMENT 'Value Data Type' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(64)    COMMENT 'Created ID' ,
+    created_id VARCHAR(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(64)    COMMENT 'Updated ID' ,
+    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)

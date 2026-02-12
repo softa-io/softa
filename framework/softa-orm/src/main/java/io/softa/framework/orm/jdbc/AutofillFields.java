@@ -1,13 +1,14 @@
 package io.softa.framework.orm.jdbc;
 
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.meta.ModelManager;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.meta.ModelManager;
 
 /**
  * A tool class for filling in the audit fields of the data.
@@ -22,7 +23,7 @@ public class AutofillFields {
      * @return Audit field values to be filled
      */
     private static Map<String, Object> getInsertAudit(String modelName, LocalDateTime insertTime) {
-        String userId = ContextHolder.getContext().getUserId();
+        Long userId = ContextHolder.getContext().getUserId();
         String name = ContextHolder.getContext().getName();
         Map<String, Object> result = new HashMap<>();
         Set<String> auditCreateFields = ModelManager.getModel(modelName).getAuditCreateFields();
@@ -47,7 +48,7 @@ public class AutofillFields {
      * @return Audit field values to be filled
      */
     private static Map<String, Object> getUpdateAudit(String modelName, LocalDateTime updatedTime) {
-        String userId = ContextHolder.getContext().getUserId();
+        Long userId = ContextHolder.getContext().getUserId();
         String name = ContextHolder.getContext().getName();
         Map<String, Object> result = new HashMap<>();
         Set<String> auditUpdateFields = ModelManager.getModel(modelName).getAuditUpdateFields();
@@ -102,7 +103,7 @@ public class AutofillFields {
     public static void fillTenantFieldForInsert(String modelName, List<Map<String, Object>> rows) {
         // Check if the model is multi-tenant
         if (ModelManager.isMultiTenant(modelName)) {
-            String tenantId = ContextHolder.getContext().getTenantId();
+            Long tenantId = ContextHolder.getContext().getTenantId();
             rows.forEach(row -> row.put(ModelConstant.TENANT_ID, tenantId));
         }
     }

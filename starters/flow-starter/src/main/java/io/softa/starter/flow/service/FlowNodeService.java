@@ -7,7 +7,7 @@ import io.softa.starter.flow.node.NodeContext;
 /**
  * FlowNode Model Service Interface
  */
-public interface FlowNodeService extends EntityService<FlowNode, String> {
+public interface FlowNodeService extends EntityService<FlowNode, Long> {
 
     /**
      * Process flow node.

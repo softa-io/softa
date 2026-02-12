@@ -1,12 +1,12 @@
 package io.softa.framework.orm.entity;
 
-import io.softa.framework.orm.enums.FileType;
-import io.softa.framework.orm.enums.FileSource;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.enums.FileSource;
+import io.softa.framework.orm.enums.FileType;
 
 /**
  * FileRecord Model
@@ -20,10 +20,10 @@ public class FileRecord extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Tenant ID")
-    private String tenantId;
+    private Long tenantId;
 
     @Schema(description = "File Name")
     private String fileName;

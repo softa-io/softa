@@ -28,7 +28,7 @@ import io.softa.starter.flow.service.*;
  */
 @Slf4j
 @Service
-public class FlowConfigServiceImpl extends EntityServiceImpl<FlowConfig, String> implements FlowConfigService {
+public class FlowConfigServiceImpl extends EntityServiceImpl<FlowConfig, Long> implements FlowConfigService {
 
     @Autowired
     private FlowInstanceService flowInstanceService;
@@ -51,7 +51,7 @@ public class FlowConfigServiceImpl extends EntityServiceImpl<FlowConfig, String>
     @Override
     public List<Map<String, Object>> getByModel(String modelName) {
         Filters filters = new Filters().eq(FlowTrigger::getSourceModel, modelName);
-        List<String> flowIds = flowTriggerService.getRelatedIds(filters, FlowTrigger::getFlowId);
+        List<Long> flowIds = flowTriggerService.getRelatedIds(filters, FlowTrigger::getFlowId);
         return modelService.getByIds(modelName, flowIds, Collections.emptyList());
     }
 
@@ -62,7 +62,7 @@ public class FlowConfigServiceImpl extends EntityServiceImpl<FlowConfig, String>
      * @return flowConfig object with nodes and edges
      */
     @Override
-    public Optional<FlowConfig> getFlowById(String flowId) {
+    public Optional<FlowConfig> getFlowById(Long flowId) {
         SubQueries subQueries = new SubQueries()
                 .expand(FlowConfig::getNodeList)
                 .expand(FlowConfig::getEdgeList)

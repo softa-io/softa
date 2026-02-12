@@ -14,6 +14,10 @@
     <description>Softa Module for ORM functionality</description>
     <url>https://softa.io</url>
 
+    <properties>
+        <cosid.version>3.0.2</cosid.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.antlr</groupId>
@@ -72,20 +76,22 @@
             <version>9.2.1</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.github.f4b6a3/ulid-creator -->
+        <!-- CosId: Distributed ID Generator -->
         <dependency>
-            <groupId>com.github.f4b6a3</groupId>
-            <artifactId>ulid-creator</artifactId>
-            <version>5.2.3</version>
+            <groupId>me.ahoo.cosid</groupId>
+            <artifactId>cosid-spring-boot-starter</artifactId>
+            <version>${cosid.version}</version>
         </dependency>
-
-        <!-- https://mvnrepository.com/artifact/com.github.f4b6a3/tsid-creator -->
         <dependency>
-            <groupId>com.github.f4b6a3</groupId>
-            <artifactId>tsid-creator</artifactId>
-            <version>5.2.6</version>
+            <groupId>me.ahoo.cosid</groupId>
+            <artifactId>cosid-jdbc</artifactId>
+            <version>${cosid.version}</version>
         </dependency>
-
+        <dependency>
+            <groupId>me.ahoo.cosid</groupId>
+            <artifactId>cosid-spring-redis</artifactId>
+            <version>${cosid.version}</version>
+        </dependency>
 
         <!-- Object storage service clients -->
         <dependency>

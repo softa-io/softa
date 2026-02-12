@@ -1,9 +1,9 @@
 package io.softa.starter.user.controller;
 
+import java.util.Map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,12 +22,12 @@ import io.softa.starter.user.service.UserProfileService;
 @Tag(name = "UserProfile Controller")
 @RestController
 @RequestMapping("/UserProfile")
-public class UserProfileController extends EntityController<UserProfileService, UserProfile, String> {
+public class UserProfileController extends EntityController<UserProfileService, UserProfile, Long> {
 
     @Operation(summary = "Get Current User Info", description = "Retrieves the user info of the logged-in user.")
     @GetMapping("/getMyUserInfo")
     public ApiResponse<UserInfo> getMyUserInfo() {
-        String userId = ContextHolder.getContext().getUserId();
+        Long userId = ContextHolder.getContext().getUserId();
         UserInfo userInfo = service.getUserInfo(userId);
         return ApiResponse.success(userInfo);
     }
@@ -58,7 +58,7 @@ public class UserProfileController extends EntityController<UserProfileService, 
         profile.setBirthTime(dto.getBirthTime());
         profile.setBirthCity(dto.getBirthCity());
         profile.setGender(dto.getGender());
-        profile.setPhoto(dto.getPhoto());
+        profile.setPhotoId(dto.getPhotoId());
         profile.setLanguage(dto.getLanguage());
         profile.setTimezone(dto.getTimezone());
     }

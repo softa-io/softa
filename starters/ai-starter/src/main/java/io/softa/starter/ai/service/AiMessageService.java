@@ -10,7 +10,7 @@ import io.softa.starter.ai.entity.AiMessage;
 /**
  * AiMessage Model Service Interface
  */
-public interface AiMessageService extends EntityService<AiMessage, String> {
+public interface AiMessageService extends EntityService<AiMessage, Long> {
 
     /**
      * Save user request message.
@@ -35,7 +35,7 @@ public interface AiMessageService extends EntityService<AiMessage, String> {
      * @param aiContent     AI response content
      * @param userMessageId User message ID
      */
-    void updateAiMessageAfterStream(String aiMessageId, AiContent aiContent, String userMessageId);
+    void updateAiMessageAfterStream(Long aiMessageId, AiContent aiContent, Long userMessageId);
 
     /**
      * Save AI response message for non-streaming response.

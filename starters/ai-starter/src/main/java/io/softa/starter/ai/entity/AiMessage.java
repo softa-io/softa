@@ -1,7 +1,7 @@
 package io.softa.starter.ai.entity;
 
-import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -21,13 +21,13 @@ public class AiMessage extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "ID")
-    private String id;
+    private Long id;
 
     @Schema(description = "Robot ID")
-    private String robotId;
+    private Long robotId;
 
     @Schema(description = "Conversation ID")
-    private String conversationId;
+    private Long conversationId;
 
     @Schema(description = "Role")
     private AiMessageRole role;
@@ -42,7 +42,7 @@ public class AiMessage extends AuditableModel {
     private Boolean stream;
 
     @Schema(description = "Parent Message ID")
-    private String parentId;
+    private Long parentId;
 
     @Schema(description = "Status")
     private AiMessageStatus status;
