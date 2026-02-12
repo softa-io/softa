@@ -8,12 +8,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import cn.idev.excel.ExcelWriter;
-import cn.idev.excel.FastExcel;
-import cn.idev.excel.write.builder.ExcelWriterSheetBuilder;
-import cn.idev.excel.write.handler.WriteHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fesod.sheet.ExcelWriter;
+import org.apache.fesod.sheet.FesodSheet;
+import org.apache.fesod.sheet.write.builder.ExcelWriterSheetBuilder;
+import org.apache.fesod.sheet.write.handler.WriteHandler;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -177,11 +177,11 @@ public class CommonExport {
                                           WriteHandler handler) {
         // Generate the Excel file
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-             // Use FastExcel to write the file with dynamic headers and data
-             ExcelWriter excelWriter = FastExcel.write(outputStream).build()) {
-            // Write the header and data, FastExcel requires the header to be a list of lists
+             // Use FesodSheet to write the file with dynamic headers and data
+             ExcelWriter excelWriter = FesodSheet.write(outputStream).build()) {
+            // Write the header and data, FesodSheet requires the header to be a list of lists
             List<List<String>> headersList = excelDataDTO.getHeaders().stream().map(Collections::singletonList).toList();
-            ExcelWriterSheetBuilder builder = FastExcel.writerSheet(excelDataDTO.getSheetName()).head(headersList);
+            ExcelWriterSheetBuilder builder = FesodSheet.writerSheet(excelDataDTO.getSheetName()).head(headersList);
 
             // Add custom cells and sheet handler
             builder = handler == null ? builder : builder.registerWriteHandler(handler);

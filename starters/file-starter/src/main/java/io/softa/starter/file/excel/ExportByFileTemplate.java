@@ -9,11 +9,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import cn.idev.excel.ExcelWriter;
-import cn.idev.excel.FastExcel;
-import cn.idev.excel.write.metadata.WriteSheet;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fesod.sheet.ExcelWriter;
+import org.apache.fesod.sheet.FesodSheet;
+import org.apache.fesod.sheet.write.metadata.WriteSheet;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,10 +70,10 @@ public class ExportByFileTemplate extends CommonExport {
                 : fileName;
         try (InputStream inputStream = fileService.downloadStream(exportTemplate.getFileId());
              ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-             // Use FastExcel to write the template and fill in the data
-             ExcelWriter excelWriter = FastExcel.write(outputStream).withTemplate(inputStream).build()) {
+             // Use FesodSheet to write the template and fill in the data
+             ExcelWriter excelWriter = FesodSheet.write(outputStream).withTemplate(inputStream).build()) {
             // Create a write sheet and fill in the data
-            WriteSheet writeSheet = FastExcel.writerSheet(sheetName).build();
+            WriteSheet writeSheet = FesodSheet.writerSheet(sheetName).build();
             excelWriter.fill(rows, writeSheet);
             // TODO: fill in the ENV related to current user
             excelWriter.finish();

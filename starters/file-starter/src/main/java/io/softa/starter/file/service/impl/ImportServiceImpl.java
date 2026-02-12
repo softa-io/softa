@@ -3,11 +3,11 @@ package io.softa.starter.file.service.impl;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
-import cn.idev.excel.FastExcel;
-import cn.idev.excel.context.AnalysisContext;
-import cn.idev.excel.event.AnalysisEventListener;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fesod.sheet.FesodSheet;
+import org.apache.fesod.sheet.context.AnalysisContext;
+import org.apache.fesod.sheet.event.AnalysisEventListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -329,14 +329,14 @@ public class ImportServiceImpl implements ImportService {
 
     /**
      * Extract the data from the uploaded Excel file.
-     * Load the first sheet of the Excel file by FastExcel.read(file, {}).sheet(0).doRead().
+     * Load the first sheet of the Excel file by FesodSheet.read(file, {}).sheet(0).doRead().
      *
      * @param headerToFieldMap the mapping of the header to fieldName
      * @param inputStream the input stream of the uploaded file
      */
     private List<Map<String, Object>> extractDataFromExcel(Map<String, String> headerToFieldMap, InputStream inputStream) {
         List<Map<String, Object>> rows = new ArrayList<>();
-        FastExcel.read(inputStream, new AnalysisEventListener<Map<Integer, String>>() {
+        FesodSheet.read(inputStream, new AnalysisEventListener<Map<Integer, String>>() {
             // The mapping of column index and header name
             private Map<Integer, String> headerMap = new HashMap<>();
 

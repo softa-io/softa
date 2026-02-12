@@ -5,11 +5,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import cn.idev.excel.ExcelWriter;
-import cn.idev.excel.FastExcel;
-import cn.idev.excel.write.metadata.WriteSheet;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fesod.sheet.ExcelWriter;
+import org.apache.fesod.sheet.FesodSheet;
+import org.apache.fesod.sheet.write.metadata.WriteSheet;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.constant.StringConstant;
@@ -73,17 +73,17 @@ public class ExportByDynamic extends CommonExport {
         FileInfo fileInfo;
         // Generate the Excel file
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-             // Use FastExcel to write the file with dynamic headers and data
-             ExcelWriter excelWriter = FastExcel.write(outputStream).build()) {
+             // Use FesodSheet to write the file with dynamic headers and data
+             ExcelWriter excelWriter = FesodSheet.write(outputStream).build()) {
             for (int i = 0; i < sheetInfoList.size(); i++) {
                 SheetInfo sheetInfo = sheetInfoList.get(i);
                 List<String> headers = new ArrayList<>();
                 List<List<Object>> rowsTable = this.extractDataTableFromDB(sheetInfo.getModelName(), sheetInfo.getFlexQuery(), headers);
-                // Write the header and data, FastExcel requires the header to be a list of lists
+                // Write the header and data, FesodSheet requires the header to be a list of lists
                 List<List<String>> headerList = headers.stream().map(Collections::singletonList).toList();
                 String sheetName = StringUtils.isNotBlank(sheetInfo.getSheetName()) ? sheetInfo.getSheetName()
                         : sheetInfo.getModelName();
-                WriteSheet writeSheet = FastExcel.writerSheet(i, sheetName).head(headerList).build();
+                WriteSheet writeSheet = FesodSheet.writerSheet(i, sheetName).head(headerList).build();
                 excelWriter.write(rowsTable, writeSheet);
             }
             excelWriter.finish();
