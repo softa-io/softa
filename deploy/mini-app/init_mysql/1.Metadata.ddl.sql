@@ -99,10 +99,10 @@ CREATE TABLE sys_field(
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Field';

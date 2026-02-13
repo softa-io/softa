@@ -99,10 +99,10 @@ CREATE TABLE sys_field(
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Field';
@@ -287,10 +287,10 @@ CREATE TABLE file_record(
     source VARCHAR(64)    COMMENT 'Source' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'File Record';
@@ -1283,10 +1283,10 @@ CREATE TABLE design_field(
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
     PRIMARY KEY (id)
@@ -1536,10 +1536,10 @@ CREATE TABLE ai_model(
     max_tokens INT(11)   DEFAULT 0 COMMENT 'Max Context Tokens' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
@@ -1563,10 +1563,10 @@ CREATE TABLE ai_robot(
     frequency_penalty DOUBLE(24,2)   DEFAULT 0 COMMENT 'Frequency Penalty;From -2 to 2. The larger the value, the more the dispersion.' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
@@ -1580,10 +1580,10 @@ CREATE TABLE ai_conversation(
     total_tokens INT(11)   DEFAULT 0 COMMENT 'Total Tokens' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'AI Conversation';
@@ -1599,10 +1599,10 @@ CREATE TABLE ai_message(
     parent_id BIGINT(32)    COMMENT 'Parent Message ID' ,
     status VARCHAR(64)    COMMENT 'Status' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'AI Message';
@@ -1613,26 +1613,26 @@ CREATE TABLE ai_feedback(
     message_id BIGINT(32) NOT NULL   COMMENT 'Message ID' ,
     feedback VARCHAR(256)   DEFAULT '' COMMENT 'Feedback Content' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'AI Response Feedback';
 
 CREATE TABLE service_record(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     user_id VARCHAR(32)    COMMENT 'User' ,
     service_id VARCHAR(32)    COMMENT 'Service Product' ,
     order_id BIGINT(32)    COMMENT 'Order ID' ,
     request_data TEXT NOT NULL   COMMENT 'Request Data' ,
     result_summary VARCHAR(3000)    COMMENT 'Result Summary' ,
     result_detail TEXT(20000)    COMMENT 'Result Detail' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
@@ -1640,17 +1640,17 @@ CREATE TABLE service_record(
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = '服务记录';
 
 CREATE TABLE service_product(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     name VARCHAR(32)    COMMENT 'Service Name' ,
     description TEXT(20000)    COMMENT 'Service Description' ,
     category VARCHAR(64)    COMMENT 'Service Category' ,
     price DECIMAL(32,8)    COMMENT 'Price($)' ,
     duration INT(11)    COMMENT 'Service Duration(mins)' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)    COMMENT 'Deleted' ,
@@ -1658,17 +1658,17 @@ CREATE TABLE service_product(
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = '服务产品';
 
 CREATE TABLE service_order(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     user_id VARCHAR(32)    COMMENT 'User' ,
     service_id VARCHAR(32)    COMMENT 'Service Product' ,
     order_number VARCHAR(32)    COMMENT 'Order Number' ,
     order_status VARCHAR(64)    COMMENT 'Order Status' ,
     amount DECIMAL(32,8)    COMMENT 'Amount' ,
     notes VARCHAR(1000)    COMMENT 'Notes' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
@@ -1676,17 +1676,17 @@ CREATE TABLE service_order(
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = '服务订单';
 
 CREATE TABLE payment_record(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     order_id BIGINT(32)    COMMENT 'Order ID' ,
     payment_method VARCHAR(64)    COMMENT 'Payment Method' ,
     payment_status VARCHAR(64)    COMMENT 'Payment Status' ,
     paid_amount DECIMAL(32,8)    COMMENT 'Paid Amount' ,
     paid_at DATETIME    COMMENT 'Paid At' ,
     transaction_id VARCHAR(64)    COMMENT 'Transaction ID;Third party transaction number' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
@@ -1694,8 +1694,8 @@ CREATE TABLE payment_record(
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = '支付记录';
 
 CREATE TABLE user_login_history(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
-    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
+    tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
     user_id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'User ID' ,
     login_method VARCHAR(64)    COMMENT 'Login Method' ,
     login_device_type VARCHAR(64)    COMMENT 'Login Device Type' ,
@@ -1705,16 +1705,16 @@ CREATE TABLE user_login_history(
     status VARCHAR(64)    COMMENT 'Status' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'User Login History';
 
 CREATE TABLE user_account(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
-    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
+    tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
     nickname VARCHAR(64)    COMMENT 'Nickname' ,
     username VARCHAR(64)    COMMENT 'Username' ,
     password VARCHAR(256)    COMMENT 'Password' ,
@@ -1728,14 +1728,14 @@ CREATE TABLE user_account(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'User Account';
 
 CREATE TABLE user_profile(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
-    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
+    tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
     user_id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'User ID' ,
     full_name VARCHAR(64)    COMMENT 'Full Name' ,
     chinese_name VARCHAR(64)    COMMENT 'Chinese Name' ,
@@ -1747,17 +1747,17 @@ CREATE TABLE user_profile(
     language VARCHAR(64)    COMMENT 'Language' ,
     timezone VARCHAR(64)    COMMENT 'Timezone' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'User Profile';
 
 CREATE TABLE user_auth_provider(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
-    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
+    tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
     user_id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'User ID' ,
     provider VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Provider' ,
     provider_user_id VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Provider User ID' ,
@@ -1766,8 +1766,8 @@ CREATE TABLE user_auth_provider(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'User Auth Provider';
 
@@ -1781,16 +1781,16 @@ CREATE TABLE user_auth_failure(
     user_agent VARCHAR(64)    COMMENT 'User Agent' ,
     location VARCHAR(64)    COMMENT 'Location' ,
     created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'User Auth Failure';
 
 CREATE TABLE user_security_policy(
-    id VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'ID' ,
+    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
     name VARCHAR(64)    COMMENT 'Policy Name' ,
     code VARCHAR(64)    COMMENT 'Policy Code' ,
@@ -1810,10 +1810,10 @@ CREATE TABLE user_security_policy(
     min_digits INT(11)    COMMENT 'Minimum Digits' ,
     min_modified_chars INT(11)    COMMENT 'Minimum Modified Characters' ,
     min_special_chars INT(11)    COMMENT 'Minimum Special Characters' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
