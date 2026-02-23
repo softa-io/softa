@@ -1,5 +1,14 @@
 package io.softa.framework.orm.meta;
 
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
+
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
@@ -12,14 +21,6 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.utils.ListUtils;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
 
 /**
  * Model Manager, maintaining model metadata and field metadata in memory.
@@ -377,24 +378,24 @@ public class ModelManager {
                     "{0}:{1} is a OneToMany field, the relatedModel `{2}` does not contain the related field `{3}`!",
                     metaField.getModelName(), metaField.getFieldName(), relatedModel, metaField.getRelatedField());
         } else if (FieldType.MANY_TO_MANY.equals(metaField.getFieldType())) {
-            Assert.notBlank(metaField.getJointModel(),
-                    "{0}:{1} is a ManyToMany field, the `jointModel` cannot be empty!",
+            Assert.notBlank(metaField.getJoinModel(),
+                    "{0}:{1} is a ManyToMany field, the `joinModel` cannot be empty!",
                     metaField.getModelName(), metaField.getFieldName());
-            Assert.isTrue(MODEL_MAP.containsKey(metaField.getJointModel()),
-                    "{0}:{1} is a ManyToMany field, the jointModel `{2}` does not exist in the model metadata!",
-                    metaField.getModelName(), metaField.getFieldName(), metaField.getJointModel());
-            Assert.notBlank(metaField.getJointLeft(),
-                    "{0}:{1} is a ManyToMany field, the `jointLeft` cannot be empty!",
+            Assert.isTrue(MODEL_MAP.containsKey(metaField.getJoinModel()),
+                    "{0}:{1} is a ManyToMany field, the joinModel `{2}` does not exist in the model metadata!",
+                    metaField.getModelName(), metaField.getFieldName(), metaField.getJoinModel());
+            Assert.notBlank(metaField.getJoinLeft(),
+                    "{0}:{1} is a ManyToMany field, the `joinLeft` cannot be empty!",
                     metaField.getModelName(), metaField.getFieldName());
-            Assert.isTrue(MODEL_FIELDS.get(metaField.getJointModel()).containsKey(metaField.getJointLeft()),
-                    "{0}:{1} is a ManyToMany field, the jointModel `{2}` does not contain the jointLeft field `{3}`!",
-                    metaField.getModelName(), metaField.getFieldName(), metaField.getJointModel(), metaField.getJointLeft());
-            Assert.notBlank(metaField.getJointRight(),
-                    "{0}:{1} is a ManyToMany field, the `jointRight` cannot be empty!",
+            Assert.isTrue(MODEL_FIELDS.get(metaField.getJoinModel()).containsKey(metaField.getJoinLeft()),
+                    "{0}:{1} is a ManyToMany field, the joinModel `{2}` does not contain the joinLeft field `{3}`!",
+                    metaField.getModelName(), metaField.getFieldName(), metaField.getJoinModel(), metaField.getJoinLeft());
+            Assert.notBlank(metaField.getJoinRight(),
+                    "{0}:{1} is a ManyToMany field, the `joinRight` cannot be empty!",
                     metaField.getModelName(), metaField.getFieldName());
-            Assert.isTrue(MODEL_FIELDS.get(metaField.getJointModel()).containsKey(metaField.getJointRight()),
-                    "{0}:{1} is a ManyToMany field, the jointModel `{2}` does not contain the jointRight field `{3}`!",
-                    metaField.getModelName(), metaField.getFieldName(), metaField.getJointModel(), metaField.getJointRight());
+            Assert.isTrue(MODEL_FIELDS.get(metaField.getJoinModel()).containsKey(metaField.getJoinRight()),
+                    "{0}:{1} is a ManyToMany field, the joinModel `{2}` does not contain the joinRight field `{3}`!",
+                    metaField.getModelName(), metaField.getFieldName(), metaField.getJoinModel(), metaField.getJoinRight());
         }
     }
 

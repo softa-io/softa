@@ -1,9 +1,9 @@
 package io.softa.framework.orm.jdbc.pipeline.processor;
 
-import com.google.common.collect.Sets;
 import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.google.common.collect.Sets;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
@@ -235,7 +235,7 @@ public class OneToManyProcessor extends BaseProcessor {
         Filters filters = new Filters().in(metaField.getRelatedField(), mainModelIds);
         // When there is a subQuery filters, merge them with `AND` logic
         filters.and(subQuery.getFilters());
-        // count subQuery on the joint model
+        // count subQuery on the join model
         FlexQuery relatedFlexQuery = new FlexQuery(List.of(metaField.getRelatedField()), filters);
         // Count is automatically added during the groupBy operation
         relatedFlexQuery.setGroupBy(metaField.getRelatedField());

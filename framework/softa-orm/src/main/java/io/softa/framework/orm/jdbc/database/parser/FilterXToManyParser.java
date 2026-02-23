@@ -1,5 +1,13 @@
 package io.softa.framework.orm.jdbc.database.parser;
 
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.Data;
+import org.springframework.util.CollectionUtils;
+
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterUnit;
@@ -10,14 +18,6 @@ import io.softa.framework.orm.jdbc.database.SqlWrapper;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.ReflectTool;
-import lombok.Data;
-import org.springframework.util.CollectionUtils;
-
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * FilterXToManyParser
@@ -176,12 +176,12 @@ public class FilterXToManyParser {
             mainIds = ReflectTool.getRelatedIds(metaField.getRelatedModel(), metaField.getRelatedField(), filters);
         } else {
             // ManyToMany scenario: query the ids of the related model, that is,
-            // the values of the jointRight in the joint table.
+            // the values of the joinRight in the join table.
             List<Serializable> rightIds = ReflectTool.getIds(metaField.getRelatedModel(), filters);
-            // Query the joint table to get the main model ids
+            // Query the join table to get the main model ids
             if (!CollectionUtils.isEmpty(rightIds)) {
-                Filters jointFilters = new Filters().in(metaField.getJointRight(), rightIds);
-                mainIds = ReflectTool.getRelatedIds(metaField.getJointModel(), metaField.getJointLeft(), jointFilters);
+                Filters joinFilters = new Filters().in(metaField.getJoinRight(), rightIds);
+                mainIds = ReflectTool.getRelatedIds(metaField.getJoinModel(), metaField.getJoinLeft(), joinFilters);
             }
         }
         return mainIds;
@@ -236,21 +236,21 @@ public class FilterXToManyParser {
             excludedMainIds = ReflectTool.getRelatedIds(metaField.getRelatedModel(), metaField.getRelatedField(), negationFilters);
             // When the reverse search result is empty, there is no data to be excluded,
             // directly execute the positive search, otherwise merge and search.
-            Filters finalJointFilters = CollectionUtils.isEmpty(excludedMainIds) ? positiveFilters : Filters.and(positiveFilters, Filters.of(metaField.getRelatedField(), Operator.NOT_IN, excludedMainIds));
-            mainIds = ReflectTool.getRelatedIds(metaField.getRelatedModel(), metaField.getRelatedField(), finalJointFilters);
+            Filters finalJoinFilters = CollectionUtils.isEmpty(excludedMainIds) ? positiveFilters : Filters.and(positiveFilters, Filters.of(metaField.getRelatedField(), Operator.NOT_IN, excludedMainIds));
+            mainIds = ReflectTool.getRelatedIds(metaField.getRelatedModel(), metaField.getRelatedField(), finalJoinFilters);
         } else {
             // ManyToMany scenario:
-            // query the ids of the related model, that is, the values of the jointLeft in the joint model.
+            // query the ids of the related model, that is, the values of the joinLeft in the join model.
             List<Serializable> negativeRightIds = ReflectTool.getIds(metaField.getRelatedModel(), negationFilters);
-            // Query the joint model to get the main model ids
+            // Query the join model to get the main model ids
             if (!CollectionUtils.isEmpty(negativeRightIds)) {
-                Filters jointFilters = new Filters().in(metaField.getJointRight(), negativeRightIds);
-                excludedMainIds = ReflectTool.getRelatedIds(metaField.getJointModel(), metaField.getJointLeft(), jointFilters);
+                Filters joinFilters = new Filters().in(metaField.getJoinRight(), negativeRightIds);
+                excludedMainIds = ReflectTool.getRelatedIds(metaField.getJoinModel(), metaField.getJoinLeft(), joinFilters);
                 if (!CollectionUtils.isEmpty(excludedMainIds)) {
                     List<Serializable> positiveRightIds = ReflectTool.getIds(metaField.getRelatedModel(), positiveFilters);
                     if (!CollectionUtils.isEmpty(positiveRightIds)) {
-                        Filters finalJointFilters = new Filters().notIn(metaField.getJointLeft(), excludedMainIds).in(metaField.getJointRight(), positiveRightIds);
-                        mainIds = ReflectTool.getRelatedIds(metaField.getJointModel(), metaField.getJointLeft(), finalJointFilters);
+                        Filters finalJoinFilters = new Filters().notIn(metaField.getJoinLeft(), excludedMainIds).in(metaField.getJoinRight(), positiveRightIds);
+                        mainIds = ReflectTool.getRelatedIds(metaField.getJoinModel(), metaField.getJoinLeft(), finalJoinFilters);
                     }
                 } else {
                     // When the reverse search result is empty, there is no data to be excluded,

@@ -44,11 +44,11 @@ public class MetaField implements Serializable {
 
     private String relatedField;
 
-    private String jointModel;
+    private String joinModel;
 
-    private String jointLeft;
+    private String joinLeft;
 
-    private String jointRight;
+    private String joinRight;
 
     private String cascadedField;
 

@@ -1,14 +1,14 @@
 package io.softa.starter.metadata.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.enums.MaskingType;
-import io.softa.framework.orm.enums.WidgetType;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.MaskingType;
+import io.softa.framework.orm.enums.WidgetType;
 
 /**
  * SysField Model
@@ -57,14 +57,14 @@ public class SysField extends AuditableModel {
     @Schema(description = "Related Field")
     private String relatedField;
 
-    @Schema(description = "Joint Model")
-    private String jointModel;
+    @Schema(description = "Join Model")
+    private String joinModel;
 
-    @Schema(description = "Joint Model Left Field")
-    private String jointLeft;
+    @Schema(description = "Join Model Left Field")
+    private String joinLeft;
 
-    @Schema(description = "Joint Model Left Field")
-    private String jointRight;
+    @Schema(description = "Join Model Left Field")
+    private String joinRight;
 
     @Schema(description = "Cascaded Field")
     private String cascadedField;
