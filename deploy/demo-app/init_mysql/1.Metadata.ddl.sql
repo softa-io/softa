@@ -1746,6 +1746,7 @@ CREATE TABLE user_profile(
     photo VARCHAR(32)    COMMENT 'Profile Photo' ,
     language VARCHAR(64)    COMMENT 'Language' ,
     timezone VARCHAR(64)    COMMENT 'Timezone' ,
+    density VARCHAR(64)    COMMENT 'Density' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_time DATETIME    COMMENT 'Created Time' ,

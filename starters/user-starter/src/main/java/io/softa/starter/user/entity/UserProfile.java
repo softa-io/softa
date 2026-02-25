@@ -11,6 +11,7 @@ import io.softa.framework.base.enums.Language;
 import io.softa.framework.base.enums.Timezone;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.user.enums.Gender;
+import io.softa.starter.user.enums.UserLayoutDensity;
 
 /**
  * UserProfile Model
@@ -58,4 +59,7 @@ public class UserProfile extends AuditableModel {
 
     @Schema(description = "Timezone")
     private Timezone timezone;
+
+    @Schema(description = "Density")
+    private UserLayoutDensity density;
 }
