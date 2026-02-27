@@ -1,10 +1,10 @@
 package io.softa.starter.metadata.service;
 
-import io.softa.framework.orm.service.EntityService;
-import io.softa.starter.metadata.entity.SysPreData;
+import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
+import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.metadata.entity.SysPreData;
 
 /**
  * SysPreData Model Service Interface
@@ -19,7 +19,18 @@ public interface SysPreDataService extends EntityService<SysPreData, Long> {
      *
      * @param fileNames List of relative directory data file names to load
      */
-    void loadPredefinedData(List<String> fileNames);
+    void loadPreSystemData(List<String> fileNames);
+
+    /**
+     * Load the specified list of predefined tenant data files from the root directory: resources/data-tenant.
+     * Supports data files in JSON, XML, and CSV formats. Data files support a two-layer domain model,
+     * i.e., main model and subModel, but they will be created separately when loading.
+     * The main model is created first to generate the main model id, then the subModel data is created.
+     *
+     * @param fileNames List of relative directory tenant data file names to load
+     * @param tenantId tenant id to which the data will be loaded
+     */
+    void loadPreTenantData(List<String> fileNames, Long tenantId);
 
     /**
      * Loads predefined data from a given multipart file.
@@ -39,6 +50,6 @@ public interface SysPreDataService extends EntityService<SysPreData, Long> {
      *             into the system. The file should not be null and must contain
      *             valid data as per the required format.
      */
-    void loadPredefinedData(MultipartFile file);
+    void loadPreSystemData(MultipartFile file);
 
 }

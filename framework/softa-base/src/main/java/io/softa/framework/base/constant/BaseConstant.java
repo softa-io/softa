@@ -31,8 +31,10 @@ public interface BaseConstant {
     /** The optionSet code of Boolean field */
     String BOOLEAN_OPTION_SET_CODE = "BooleanValue";
 
-    /** The directory of predefined data, located in src/resources/data/ */
-    String PREDEFINED_DATA_DIR = "data/";
+    /** The directory of predefined data, located in src/resources/data-system/ */
+    String PREDEFINED_DATA_SYSTEM_DIR = "data-system/";
+    /** The directory of predefined tenant data, located in src/resources/data-tenant/ */
+    String PREDEFINED_DATA_TENANT_DIR = "data-tenant/";
 
     String SESSION_ID = "sessionId";
     String SESSION_ID_HEADER = "X-Session-Id";

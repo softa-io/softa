@@ -1,11 +1,11 @@
 package io.softa.starter.metadata.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * SysPreData Model
@@ -32,4 +32,7 @@ public class SysPreData extends AuditableModel {
 
     @Schema(description = "Frozen")
     private Boolean frozen;
+
+    @Schema(description = "Tenant ID")
+    private Long tenantId;
 }

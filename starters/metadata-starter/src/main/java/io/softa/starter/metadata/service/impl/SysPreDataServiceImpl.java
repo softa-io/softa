@@ -17,6 +17,8 @@ import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.utils.Assert;
@@ -63,12 +65,35 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void loadPredefinedData(List<String> fileNames) {
-        String dataDir = BaseConstant.PREDEFINED_DATA_DIR;
+    public void loadPreSystemData(List<String> fileNames) {
+        String dataDir = BaseConstant.PREDEFINED_DATA_SYSTEM_DIR;
         for (String fileName : fileNames) {
             FileObject fileObject = FileUtils.getFileObjectByPath(dataDir, fileName);
             loadFileObject(fileObject);
         }
+    }
+
+    /**
+     * Load the specified list of predefined tenant data files from the root directory: resources/data-tenant.
+     * Supports data files in JSON, XML, and CSV formats. Data files support a two-layer domain model,
+     * i.e., main model and subModel, but they will be created separately when loading.
+     * The main model is created first to generate the main model id, then the subModel data is created.
+     *
+     * @param fileNames List of relative directory tenant data file names to load
+     * @param tenantId tenant id to which the data will be loaded
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void loadPreTenantData(List<String> fileNames, Long tenantId) {
+        String dataDir = BaseConstant.PREDEFINED_DATA_TENANT_DIR;
+        Context tenantContext = ContextHolder.cloneContext();
+        tenantContext.setTenantId(tenantId);
+        ContextHolder.runWith(tenantContext, () -> {
+            for (String fileName : fileNames) {
+                FileObject fileObject = FileUtils.getFileObjectByPath(dataDir, fileName);
+                loadFileObject(fileObject);
+            }
+        });
     }
 
     /**
@@ -81,7 +106,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void loadPredefinedData(MultipartFile file) {
+    public void loadPreSystemData(MultipartFile file) {
         FileObject fileObject = FileUtils.getFileObject(file);
         loadFileObject(fileObject);
     }
