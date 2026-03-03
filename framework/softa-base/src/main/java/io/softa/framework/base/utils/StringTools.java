@@ -161,12 +161,12 @@ public class StringTools {
         StringBuilder result = new StringBuilder();
         final char[] c = value.toCharArray();
         int previousType = Character.getType(c[0]);
-        // Convert the first character to lowercase
+        // Convert the first character to the lowercase
         result.append(Character.toLowerCase(c[0]));
         for (int pos = 1; pos < c.length; pos++) {
             final int currentType = Character.getType(c[pos]);
             if (currentType == Character.LOWERCASE_LETTER || currentType == Character.DECIMAL_DIGIT_NUMBER) {
-                // When the current character is lowercase or a number, add it directly
+                // When the current character is a lowercase or a number, add it directly
                 result.append(c[pos]);
             } else if (currentType == Character.UPPERCASE_LETTER) {
                 if (previousType == Character.LOWERCASE_LETTER || previousType == Character.DECIMAL_DIGIT_NUMBER) {
@@ -331,9 +331,9 @@ public class StringTools {
     }
 
     /**
-     * Convert the first letter of the string to lowercase
+     * Convert the first letter of the string to the lowercase
      * @param str string
-     * @return string with the first letter in lowercase
+     * @return string with the first letter in the lowercase
      */
     public static String lowerCaseFirstLetter(String str) {
         if (str == null || str.isEmpty()) {
@@ -350,7 +350,7 @@ public class StringTools {
     }
 
     /**
-     * Determine whether the string is an expression, the expression is wrapped in `${}`
+     * Determine whether the string is an expression; the expression is wrapped in `${}`
      *
      * @param str string
      * @return whether it is a calculation expression
@@ -360,7 +360,7 @@ public class StringTools {
     }
 
     /**
-     * Determine whether the string is a variable, the variable is wrapped in `#{}`.
+     * Determine whether the string is a variable; the variable is wrapped in `#{}`.
      *
      * @param str string
      * @return whether it is a variable parameter
@@ -370,7 +370,7 @@ public class StringTools {
     }
 
     /**
-     * Determine whether the string is a reserved field, the reserved field is wrapped in `@{}`.
+     * Determine whether the string is a reserved field; the reserved field is wrapped in `@{}`.
      *
      * @param str string
      * @return whether it is a reserved field

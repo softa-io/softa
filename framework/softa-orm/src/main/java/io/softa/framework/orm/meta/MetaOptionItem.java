@@ -40,7 +40,7 @@ public class MetaOptionItem implements Serializable {
     private String description;
 
     /**
-     * Get item name by language code from translations.
+     * Get the item name by language code from translations.
      * If the translation is not found, return the item name.
      *
      * @return item name

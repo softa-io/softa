@@ -1,9 +1,6 @@
 package io.softa.framework.web.controller;
 
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.meta.MetaOptionItem;
-import io.softa.framework.orm.meta.OptionManager;
-import io.softa.framework.web.response.ApiResponse;
+import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,7 +9,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.meta.MetaOptionItem;
+import io.softa.framework.orm.meta.OptionManager;
+import io.softa.framework.web.response.ApiResponse;
 
 /**
  * SysOptionSet Model Controller
@@ -25,7 +25,7 @@ public class OptionController {
     /**
      * Get the option set items of the specified option set code.
      *
-     * @param optionSetCode option set code
+     * @param optionSetCode optionSet Code
      * @return option set items
      */
     @GetMapping("/getOptionItems/{optionSetCode}")

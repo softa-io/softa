@@ -4,14 +4,14 @@ import java.util.UUID;
 
 /**
  * UUIDUtils
- *  1. Generate UUID string without dashes
- *  2. Generate UUID string with 22 characters in Base62
+ *  1. Generate a UUID string without dashes
+ *  2. Generate a UUID string with 22 characters in Base62
  */
 public class UUIDUtils {
     private static final char[] BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".toCharArray();
 
     /**
-     * Generate UUID string, remove `-`.
+     * Generate a UUID string, remove `-`.
      * @return UUID string without dashes, 32 characters
      */
     public static String uuidWithoutDash() {
@@ -39,7 +39,7 @@ public class UUIDUtils {
         StringBuilder sb = new StringBuilder();
         do {
             int digit = (int)(value % 62);
-            // Convert negative number to positive number
+            // Convert a negative number to a positive number
             digit = Math.abs(digit);
             sb.append(BASE62[digit]);
             value /= 62;

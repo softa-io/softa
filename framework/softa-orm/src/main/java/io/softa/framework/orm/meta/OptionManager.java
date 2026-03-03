@@ -46,7 +46,7 @@ public class OptionManager {
     /**
      * Get the optionItems by optionSetCode
      *
-     * @param optionSetCode option set code
+     * @param optionSetCode optionSet code
      * @return unmodifiable optionItems
      */
     public static List<MetaOptionItem> getMetaOptionItems(String optionSetCode) {
@@ -58,7 +58,7 @@ public class OptionManager {
     /**
      * Get the optionItem object by optionSetCode and optionItemCode, return null if not exists.
      *
-     * @param optionSetCode option set code
+     * @param optionSetCode optionSet code
      * @param itemCode option item code
      * @return optionItem object
      */
@@ -71,7 +71,7 @@ public class OptionManager {
     /**
      * Get the optionItem name by optionSetCode and optionItemCode, return null if not exists.
      *
-     * @param optionSetCode option set code
+     * @param optionSetCode optionSet code
      * @param itemCode option item code
      * @return optionItem name
      */
@@ -83,7 +83,7 @@ public class OptionManager {
     /**
      * Get the optionItem code by optionSetCode and optionItemName, return null if not exists.
      *
-     * @param optionSetCode option set code
+     * @param optionSetCode optionSet code
      * @param itemName option item name
      * @return optionItem code
      */
@@ -99,7 +99,7 @@ public class OptionManager {
     /**
      * Check if the optionSet exists by optionSetCode.
      *
-     * @param optionSetCode option set code
+     * @param optionSetCode optionSet code
      * @return true if exists
      */
     public static boolean existsOptionSetCode(String optionSetCode) {
@@ -109,7 +109,7 @@ public class OptionManager {
     /**
      * Check if the optionItem exists by optionSetCode and optionItemCode.
      *
-     * @param optionSetCode option set code
+     * @param optionSetCode optionSet code
      * @param itemCode option item code
      * @return true if exists
      */

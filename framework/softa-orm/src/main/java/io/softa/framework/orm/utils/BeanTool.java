@@ -132,7 +132,7 @@ public class BeanTool {
     }
 
     /**
-     * Object list to Map list. Null values are not ignored.
+     * Object list to a Map list. Null values are not ignored.
      *
      * @param objects object list
      * @return Map list
@@ -143,7 +143,7 @@ public class BeanTool {
     }
 
     /**
-     * Object list to Map list.
+     * Object list to a Map list.
      *
      * @param objects object list
      * @param ignoreNull whether to ignore null values
@@ -164,7 +164,7 @@ public class BeanTool {
     }
 
     /**
-     * Object list to Map list, the object property value will be serialized.
+     * Object list to a Map list, the object property value will be serialized.
      * @param objects object list
      * @return List<Map>
      */
@@ -173,7 +173,7 @@ public class BeanTool {
     }
 
     /**
-     * Convert string value to object property type, which matched to the fieldType
+     * Convert a string value to an object property type, which matched to the fieldType
      * @param fieldTypeClass field type class
      * @param value string value
      * @return object
@@ -204,7 +204,7 @@ public class BeanTool {
     }
 
     /**
-     * Convert the original data Map to bean object, ignore non-existent properties.
+     * Convert the original data Map to a bean object, ignore non-existent properties.
      *
      * @param row original data map
      * @param entityClass bean class
@@ -216,7 +216,7 @@ public class BeanTool {
     }
 
     /**
-     * Convert the original data Map to bean object.
+     * Convert the original data Map to a bean object.
      *
      * @param row original data map
      * @param entityClass bean class
@@ -267,7 +267,7 @@ public class BeanTool {
     }
 
     /**
-     * Convert the original data Map list to bean object list.
+     * Convert the original data Map list to a bean object list.
      *
      * @param rows map list of the original data
      * @param entityClass bean class
