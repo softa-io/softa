@@ -143,8 +143,8 @@ public class SqlWrapper {
         }
         if (ModelManager.isMultiTenant(metaField.getRelatedModel())) {
             // Add the `ON` condition of the tenant ID when the associated model is a multi-tenant model:
-            //      AND tn.tenantId = 'tenantId'
-            joinClause.append(" AND ").append(rightAlias).append(".").append(ModelConstant.TENANT_ID)
+            //      AND tn.tenant_id = 'tenantId'
+            joinClause.append(" AND ").append(rightAlias).append(".").append(ModelConstant.TENANT_ID_UNDERSCORE)
                     .append(" = ").append("'").append(ContextHolder.getContext().getTenantId()).append("' ");
         }
     }

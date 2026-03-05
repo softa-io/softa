@@ -25,6 +25,7 @@ public interface ModelConstant {
     String SEARCH_NAME = "searchName";
     // Reserved field: Tenant ID identifier
     String TENANT_ID = "tenantId";
+    String TENANT_ID_UNDERSCORE = "tenant_id";
     // Reserved field: Version number identifier, used for optimistic lock control
     String VERSION = "version";
     Integer DEFAULT_VERSION = 1;
