@@ -1,5 +1,14 @@
 package io.softa.starter.es.controller;
 
+import java.io.Serializable;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.SystemRole;
 import io.softa.framework.base.utils.Assert;
@@ -10,19 +19,9 @@ import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.web.dto.QueryParams;
+import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.es.service.ChangeLogService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.Parameters;
-import io.swagger.v3.oas.annotations.tags.Tag;
-
-import java.io.Serializable;
-
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
 
 /**
  * ChangeLog Controller
@@ -60,7 +59,7 @@ public class ChangeLogController {
      * @param order sort rule based on change time, default is reverse order, only support DESC, ASC string
      * @param includeCreation whether to include data at creation time, default is false, that is, not included
      * @param dataMask whether to desensitize, default is true, that is, data desensitization
-     * @return a page of change log list
+     * @return a page of the changeLog list
      */
     @Operation(description = "Read the data change records according to the id, " +
             "and return the page of the data change record, default in reverse order by change time.")

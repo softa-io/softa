@@ -1,5 +1,6 @@
 package io.softa.framework.orm.jdbc.pipeline.processor;
 
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.orm.enums.AccessType;
@@ -21,4 +22,24 @@ public class BooleanProcessor extends BaseProcessor {
         super(metaField, accessType);
     }
 
+    /**
+     * Convert the Boolean object
+     *
+     * @param row Single-row output data
+     */
+    @Override
+    public void processOutputRow(Map<String, Object> row) {
+        if (!row.containsKey(fieldName)) {
+            return;
+        }
+        Object value = row.get(fieldName);
+        if (value instanceof Boolean) {
+            return;
+        }
+        if (value instanceof Number v && v.intValue() == 1) {
+            row.put(fieldName, true);
+        } else {
+            row.put(fieldName, false);
+        }
+    }
 }

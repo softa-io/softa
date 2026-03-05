@@ -65,8 +65,8 @@ public class ComputedProcessor extends BaseProcessor {
     }
 
     /**
-     * Format the environment variable of the calculation formula. Such as:
-     * convert the number to BigDecimal, and convert the date to LocalDate or LocalDateTime.
+     * Format the environment variable of the calculation formula. Such as
+     * convert the number to BigDecimal and convert the date to LocalDate or LocalDateTime.
      *
      * @param field field name
      * @param value field value
@@ -79,10 +79,10 @@ public class ComputedProcessor extends BaseProcessor {
             // If the fieldType is numeric, convert the value to BigDecimal, and the return value is BigDecimal.
             result = value == null ? new BigDecimal("0") : new BigDecimal(String.valueOf(value));
         } else if (fieldType.equals(DATE) && !(value instanceof LocalDate)) {
-            // Convert Date type to LocalDate object.
+            // Convert the Date type to a LocalDate object.
             result = DateUtils.dateToLocalDate(value);
         } else if (fieldType.equals(DATE_TIME) && !(value instanceof LocalDateTime)) {
-            // Convert DateTime type to LocalDateTime object.
+            // Convert the DateTime type to a LocalDateTime object.
             result = DateUtils.dateToLocalDateTime(value);
         } else if (fieldType.equals(TIME) && value instanceof String strValue) {
             // Convert Time type to LocalTime object.
