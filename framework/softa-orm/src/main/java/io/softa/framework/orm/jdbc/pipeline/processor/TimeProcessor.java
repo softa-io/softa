@@ -58,7 +58,7 @@ public class TimeProcessor extends BaseProcessor {
         if (!row.containsKey(fieldName)) {
             return;
         }
-        LocalTime time = DateUtils.stringToLocalTime((String) row.get(fieldName));
+        LocalTime time = DateUtils.stringToLocalTime(String.valueOf(row.get(fieldName)));
         row.put(fieldName, time);
     }
 }
