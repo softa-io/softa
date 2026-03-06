@@ -9,8 +9,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.framework.base.constant.BaseConstant;
-
 /**
  * Sub query conditions, used to specify the fields, filters, orders, pageNumber, pageSize of the sub query.
  * Application scenarios of different field types:
@@ -47,9 +45,6 @@ public class SubQuery implements Serializable {
     private Filters filters;
 
     private Orders orders;
-
-    @Schema(description = "Limit size for the first page of the sub-model, default 50.", example = "50")
-    private Integer limitSize = BaseConstant.DEFAULT_PAGE_SIZE;
 
     @Schema(description = "Only return the count of related records, true/false")
     private Boolean count;

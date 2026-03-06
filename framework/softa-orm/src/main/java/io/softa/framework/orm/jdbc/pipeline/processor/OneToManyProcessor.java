@@ -382,14 +382,18 @@ public class OneToManyProcessor extends BaseProcessor {
                 subQueries.setQueryMap(subQuery.getSubQueries());
                 relatedFlexQuery.setSubQueries(subQueries);
             }
-            if (subQuery.getTopN() != null && subQuery.getTopN() > 0) {
-                Assert.notNull(subQuery.getOrders(), "TopN query must have orderBy fields!");
-                relatedFlexQuery.setTopN(subQuery.getTopN());
-                // the `relatedField` field as the partition field of the TopN query, without aggregation
-                relatedFlexQuery.setGroupBy(Collections.singletonList(metaField.getRelatedField()));
-                relatedFlexQuery.setAggregate(false);
-            } else if (subQuery.getLimitSize() != null && subQuery.getLimitSize() > 0) {
-                relatedFlexQuery.setLimitSize(subQuery.getLimitSize());
+            if (subQuery.getTopN() != null) {
+                if (mainModelIds.size() == 1) {
+                    // If the size of mainModelIds is 1, get the limited number of records directly.
+                    relatedFlexQuery.setLimitSize(subQuery.getTopN());
+                } else if (mainModelIds.size() > 1) {
+                    // If the size of mainModelIds > 1, fetch the top N records for each mainModelId using the TopN query.
+                    Assert.notNull(subQuery.getOrders(), "TopN query must have orderBy fields!");
+                    relatedFlexQuery.setTopN(subQuery.getTopN());
+                    // the `relatedField` field as the partition field of the TopN query, without aggregation
+                    relatedFlexQuery.setGroupBy(Collections.singletonList(metaField.getRelatedField()));
+                    relatedFlexQuery.setAggregate(false);
+                }
             }
         }
         relatedFlexQuery.setConvertType(flexQuery.getConvertType());

@@ -408,12 +408,18 @@ public class ManyToManyProcessor extends BaseProcessor {
         Filters joinFilters = Filters.of(joinLeft, Operator.IN, mainModelIds);
         Set<String> joinModelFields = Sets.newHashSet(joinLeft, joinRight);
         FlexQuery joinModelFlexQuery = new FlexQuery(joinModelFields, joinFilters);
-        if (subQuery.getTopN() != null && subQuery.getTopN() > 0) {
-            // If there exists topN parameter, fetch the top N records for each mainModelId.
-            joinModelFlexQuery.setTopN(subQuery.getTopN());
-        } else if (subQuery.getLimitSize() != null && subQuery.getLimitSize() > 0) {
-            // If there exists limitSize parameter, fetch the limited number of records for each mainModelId.
-            joinModelFlexQuery.setLimitSize(subQuery.getLimitSize());
+        if (subQuery != null && subQuery.getTopN() != null) {
+            if (mainModelIds.size() == 1) {
+                // If the size of mainModelIds is 1, get the limited number of records directly.
+                joinModelFlexQuery.setLimitSize(subQuery.getTopN());
+            } else if (mainModelIds.size() > 1) {
+                // If the size of mainModelIds > 1, fetch the top N records for each mainModelId using the TopN query.
+                joinModelFlexQuery.setTopN(subQuery.getTopN());
+                Assert.notNull(subQuery.getOrders(), "TopN query must have orderBy fields!");
+                // the `relatedField` field as the partition field of the TopN query, without aggregation
+                joinModelFlexQuery.setGroupBy(List.of(metaField.getJoinLeft(), metaField.getJoinRight()));
+                joinModelFlexQuery.setAggregate(false);
+            }
         }
         return ReflectTool.searchList(metaField.getJoinModel(), joinModelFlexQuery);
     }

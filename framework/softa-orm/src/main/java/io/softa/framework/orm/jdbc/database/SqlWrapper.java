@@ -1,7 +1,7 @@
 package io.softa.framework.orm.jdbc.database;
 
-import com.google.common.collect.Sets;
 import java.util.*;
+import com.google.common.collect.Sets;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 
@@ -144,7 +144,7 @@ public class SqlWrapper {
         if (ModelManager.isMultiTenant(metaField.getRelatedModel())) {
             // Add the `ON` condition of the tenant ID when the associated model is a multi-tenant model:
             //      AND tn.tenant_id = 'tenantId'
-            joinClause.append(" AND ").append(rightAlias).append(".").append(ModelConstant.TENANT_ID_UNDERSCORE)
+            joinClause.append(" AND ").append(rightAlias).append(".").append(ModelConstant.TENANT_ID_COLUMN)
                     .append(" = ").append("'").append(ContextHolder.getContext().getTenantId()).append("' ");
         }
     }

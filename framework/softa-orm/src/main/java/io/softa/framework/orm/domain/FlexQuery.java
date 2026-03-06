@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.ConvertType;
@@ -277,6 +278,29 @@ public class FlexQuery implements Serializable {
             this.fields = new ArrayList<>(fields);
         }
         return this;
+    }
+
+    public void setLimitSize(Integer limitSize) {
+        if (limitSize != null) {
+            if (limitSize <= 0) {
+                throw new IllegalArgumentException("Limit size must be positive");
+            }
+            if (limitSize > BaseConstant.MAX_EXPORT_SIZE) {
+                throw new IllegalArgumentException("Limit size cannot exceed " + BaseConstant.MAX_EXPORT_SIZE);
+            }
+            this.limitSize = limitSize;
+        }
+    }
+
+    public void setTopN(Integer topN) {
+        if (topN != null) {
+            if (topN <= 0) {
+                throw new IllegalArgumentException("Top N must be positive");
+            } else if (topN > BaseConstant.MAX_BATCH_SIZE) {
+                throw new IllegalArgumentException("Top N cannot exceed " + BaseConstant.MAX_BATCH_SIZE);
+            }
+            this.topN = topN;
+        }
     }
 
     public FlexQuery setGroupBy(String groupBy) {

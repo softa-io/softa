@@ -1,6 +1,5 @@
 package io.softa.framework.orm.jdbc.database;
 
-import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.jdbc.database.builder.*;
@@ -102,11 +101,6 @@ public class SqlBuilderFactory {
      * @return SELECT SQL
      */
     public static SqlParams buildTopNSql(String modelName, FlexQuery flexQuery) {
-        if (flexQuery.getTopN() == null || flexQuery.getTopN() < 0) {
-            throw new IllegalArgumentException("TopN value cannot be null or non-positive");
-        } else if (flexQuery.getTopN() > BaseConstant.MAX_BATCH_SIZE) {
-            throw new IllegalArgumentException("TopN value cannot exceed " + BaseConstant.MAX_BATCH_SIZE);
-        }
         SqlWrapper sqlWrapper = new SqlWrapper(modelName);
         // SELECT query, first process Filter, then build select, groupBy, orderBy clauses in turn.
         SqlBuilderChain chain = new SqlBuilderChain()

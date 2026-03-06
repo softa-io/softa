@@ -1,9 +1,8 @@
 package io.softa.framework.orm.constant;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.time.LocalDate;
 import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 
 /**
  * Model constant
@@ -25,7 +24,7 @@ public interface ModelConstant {
     String SEARCH_NAME = "searchName";
     // Reserved field: Tenant ID identifier
     String TENANT_ID = "tenantId";
-    String TENANT_ID_UNDERSCORE = "tenant_id";
+    String TENANT_ID_COLUMN = "tenant_id";
     // Reserved field: Version number identifier, used for optimistic lock control
     String VERSION = "version";
     Integer DEFAULT_VERSION = 1;
