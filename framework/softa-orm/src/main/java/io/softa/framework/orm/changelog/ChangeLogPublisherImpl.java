@@ -19,7 +19,7 @@ import io.softa.framework.orm.changelog.message.dto.ChangeLog;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.orm.utils.ListUtils;
+import io.softa.framework.base.utils.ListUtils;
 
 /**
  * Default implementation of ChangeLogPublisher.

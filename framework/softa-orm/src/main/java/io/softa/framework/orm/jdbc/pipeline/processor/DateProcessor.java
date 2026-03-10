@@ -2,6 +2,7 @@ package io.softa.framework.orm.jdbc.pipeline.processor;
 
 import java.time.LocalDate;
 import java.util.Map;
+import org.apache.commons.lang3.StringUtils;
 
 import io.softa.framework.base.constant.EnvConstant;
 import io.softa.framework.base.utils.DateUtils;
@@ -36,10 +37,14 @@ public class DateProcessor extends BaseProcessor {
         if (AccessType.CREATE.equals(accessType)) {
             checkRequired(value);
             row.computeIfAbsent(fieldName, _ -> {
-                if (EnvConstant.TODAY.equalsIgnoreCase(metaField.getDefaultValue())) {
+                String defaultValueUpper = StringUtils.upperCase(metaField.getDefaultValue());
+                if (EnvConstant.TODAY.equals(defaultValueUpper) || EnvConstant.NOW.equals(defaultValueUpper)) {
                     // Assign the current time as the default value.
-                    return LocalDate.now();
-                } else {
+                    return EnvConstant.getToday();
+                } else if (EnvConstant.YESTERDAY.equals(defaultValueUpper)) {
+                    return EnvConstant.getYesterday();
+                }
+                else {
                     return metaField.getDefaultValueObject();
                 }
             });

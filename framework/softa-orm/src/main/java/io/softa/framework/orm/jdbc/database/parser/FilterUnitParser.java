@@ -1,7 +1,5 @@
 package io.softa.framework.orm.jdbc.database.parser;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.*;
 
 import io.softa.framework.base.constant.EnvConstant;
@@ -130,8 +128,9 @@ public class FilterUnitParser {
             };
         } else {
             return switch (value) {
-                case EnvConstant.NOW -> LocalDateTime.now();
-                case EnvConstant.TODAY -> LocalDate.now();
+                case EnvConstant.NOW -> EnvConstant.getNow();
+                case EnvConstant.TODAY -> EnvConstant.getToday();
+                case EnvConstant.YESTERDAY -> EnvConstant.getYesterday();
                 default -> throw new IllegalArgumentException("Not support the env parameter {0}! ", value);
             };
         }

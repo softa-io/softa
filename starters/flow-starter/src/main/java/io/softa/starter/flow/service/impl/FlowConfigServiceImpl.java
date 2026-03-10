@@ -10,10 +10,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StopWatch;
 
+import io.softa.framework.base.constant.EnvConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.starter.flow.FlowEnv;
 import io.softa.starter.flow.constant.FlowConstant;
 import io.softa.starter.flow.entity.*;
 import io.softa.starter.flow.enums.FlowStatus;
@@ -88,7 +88,7 @@ public class FlowConfigServiceImpl extends EntityServiceImpl<FlowConfig, Long> i
         FlowConfig flowConfig = flowConfigOptional.get();
         StopWatch stopWatch = new StopWatch("Executing flow: " + flowConfig.getName());
         // Add the row data that triggers the flow to the environment variables
-        NodeContext nodeContext = new NodeContext(FlowEnv.getEnv());
+        NodeContext nodeContext = new NodeContext(EnvConstant.getEnv());
         nodeContext.put(FlowConstant.SOURCE_ROW_ID, eventMessage.getSourceRowId());
         nodeContext.put(FlowConstant.TRIGGER_PARAMS, eventMessage.getTriggerParams());
         for (FlowNode flowNode : flowConfig.getNodeList()) {

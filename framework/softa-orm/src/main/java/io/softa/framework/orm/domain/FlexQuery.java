@@ -11,10 +11,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.ConvertType;
-import io.softa.framework.orm.utils.LambdaUtils;
 
 /**
  * Flexible query building utility class, used to build query conditions for model data.

@@ -1,15 +1,15 @@
 package io.softa.starter.designer.generator;
 
-import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.utils.MapUtils;
-import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.Test;
+
+import io.softa.framework.base.utils.MapUtils;
+import io.softa.framework.orm.enums.FieldType;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 

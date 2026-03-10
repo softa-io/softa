@@ -1,11 +1,8 @@
-package io.softa.framework.orm.utils;
-
-import com.google.common.collect.ImmutableMap;
-import io.softa.framework.base.utils.SFunction;
-import io.softa.framework.base.utils.Cast;
+package io.softa.framework.base.utils;
 
 import java.util.HashMap;
 import java.util.Map;
+import com.google.common.collect.ImmutableMap;
 
 /**
  * Map utility class

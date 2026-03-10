@@ -14,13 +14,13 @@ import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.ValidationException;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.jdbc.JdbcService;
-import io.softa.framework.orm.utils.ListUtils;
 
 /**
  * Model Manager, maintaining model metadata and field metadata in memory.

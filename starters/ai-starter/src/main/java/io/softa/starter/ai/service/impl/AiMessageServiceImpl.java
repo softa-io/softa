@@ -6,9 +6,9 @@ import com.plexpt.chatgpt.entity.billing.Usage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.framework.orm.utils.LambdaUtils;
 import io.softa.starter.ai.dto.AiContent;
 import io.softa.starter.ai.dto.AiUserMessage;
 import io.softa.starter.ai.entity.AiMessage;

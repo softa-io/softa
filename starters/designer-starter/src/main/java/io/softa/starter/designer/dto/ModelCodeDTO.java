@@ -1,7 +1,7 @@
 package io.softa.starter.designer.dto;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.orm.utils.MapUtils;
+import io.softa.framework.base.utils.MapUtils;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 

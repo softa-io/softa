@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.domain.*;
@@ -605,4 +606,12 @@ public class ModelController<K extends Serializable> {
         }
     }
 
+
+    @PostMapping(value = "/onChange/{fieldName}")
+    @DataMask
+    public ApiResponse<OnChangeResponse> onChange(@PathVariable String modelName,
+                                                  @PathVariable String fieldName,
+                                                 @RequestBody(required = false) OnChangeParams onChangeParams) {
+        throw new BusinessException("OnChange method of {0}.{1} not implemented yet", modelName, fieldName);
+    }
 }

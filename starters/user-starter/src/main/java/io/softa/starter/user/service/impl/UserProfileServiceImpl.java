@@ -22,7 +22,7 @@ import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.framework.orm.utils.LambdaUtils;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.service.UserProfileService;

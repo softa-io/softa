@@ -1,16 +1,12 @@
-package io.softa.framework.orm.utils;
-
-import io.softa.framework.base.utils.Cast;
-import io.softa.framework.base.utils.SFunction;
-import io.softa.framework.base.utils.StringTools;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.jspecify.annotations.Nullable;
+package io.softa.framework.base.utils;
 
 import java.io.*;
 import java.util.*;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.SerializationUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.Nullable;
 
 /**
  * List utils

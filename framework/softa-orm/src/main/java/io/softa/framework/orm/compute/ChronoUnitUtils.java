@@ -4,7 +4,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 
-import io.softa.framework.orm.utils.MapUtils;
+import io.softa.framework.base.utils.MapUtils;
 
 /**
  * ChronoUnit utility class.

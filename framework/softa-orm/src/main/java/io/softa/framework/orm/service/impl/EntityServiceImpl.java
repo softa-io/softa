@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.CollectionUtils;
 
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
@@ -19,7 +20,6 @@ import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.service.EntityService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.BeanTool;
-import io.softa.framework.orm.utils.LambdaUtils;
 
 /**
  * Implementation of the Entity Service.

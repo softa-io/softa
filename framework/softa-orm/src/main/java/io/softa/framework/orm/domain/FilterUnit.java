@@ -5,7 +5,7 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.SFunction;
-import io.softa.framework.orm.utils.LambdaUtils;
+import io.softa.framework.base.utils.LambdaUtils;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.StringUtils;

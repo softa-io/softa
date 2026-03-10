@@ -1,6 +1,4 @@
-package io.softa.framework.orm.utils;
-
-import io.softa.framework.base.utils.SFunction;
+package io.softa.framework.base.utils;
 
 import java.beans.Introspector;
 import java.lang.invoke.SerializedLambda;

@@ -9,9 +9,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.utils.MapUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.orm.utils.MapUtils;
 import io.softa.framework.web.dto.MetadataUpgradePackage;
 import io.softa.starter.designer.dto.ModelChangesDTO;
 import io.softa.starter.designer.dto.RowChangeDTO;

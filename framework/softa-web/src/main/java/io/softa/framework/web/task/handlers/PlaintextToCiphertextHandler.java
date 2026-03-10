@@ -10,7 +10,7 @@ import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.orm.utils.ListUtils;
+import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.web.task.AsyncTaskHandler;
 import io.softa.framework.web.task.AsyncTaskHandlerList;
 import io.softa.framework.web.task.params.PlaintextToCiphertextParams;

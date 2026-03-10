@@ -18,7 +18,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.orm.utils.ListUtils;
+import io.softa.framework.base.utils.ListUtils;
 import io.softa.starter.file.dto.ExcelDataDTO;
 import io.softa.starter.file.dto.SheetInfo;
 

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.collect.ImmutableMap;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.utils.MapUtils;
+import io.softa.framework.base.utils.MapUtils;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 

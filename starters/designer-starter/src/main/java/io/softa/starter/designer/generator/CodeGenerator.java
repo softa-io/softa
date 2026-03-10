@@ -5,7 +5,7 @@ import io.softa.starter.designer.dto.ModelCodeDTO;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.orm.utils.MapUtils;
+import io.softa.framework.base.utils.MapUtils;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;

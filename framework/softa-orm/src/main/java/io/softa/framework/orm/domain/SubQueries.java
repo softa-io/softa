@@ -3,7 +3,7 @@ package io.softa.framework.orm.domain;
 import tools.jackson.databind.annotation.JsonDeserialize;
 import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.orm.domain.serializer.SubQueriesDeserializer;
-import io.softa.framework.orm.utils.LambdaUtils;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;

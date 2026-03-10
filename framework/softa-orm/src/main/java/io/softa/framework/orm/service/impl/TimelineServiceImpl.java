@@ -1,28 +1,28 @@
 package io.softa.framework.orm.service.impl;
 
+import java.io.Serializable;
+import java.time.LocalDate;
+import java.util.*;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.DateUtils;
+import io.softa.framework.base.utils.MapUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.entity.TimelineSlice;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.TimelineService;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
-import io.softa.framework.orm.utils.MapUtils;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
-
-import java.io.Serializable;
-import java.time.LocalDate;
-import java.util.*;
 
 /**
  * Timeline Model Service
@@ -93,7 +93,7 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
      * Get the TimelineSlice object by `sliceId`.
      *
      * @param modelName model name
-     * @param sliceId the sliceId of timeline model
+     * @param sliceId the sliceId of a timeline model
      * @return TimelineSlice object
      */
     @Override
@@ -106,10 +106,10 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
     }
 
     /**
-     * Delete a slice of timeline model by `sliceId`.
+     * Delete a slice of a timeline model by `sliceId`.
      *
      * @param modelName model name
-     * @param timelineSlice the slice object of timeline model
+     * @param timelineSlice the slice object of a timeline model
      * @return true / Exception
      */
     @Override
@@ -122,7 +122,7 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
     }
 
     /**
-     * Create multiple slices of timeline model, and return the data list with `sliceId`.
+     * Create multiple slices of a timeline model, and return the data list with `sliceId`.
      *
      * @param modelName model name
      * @param rows the data list to be created
@@ -146,7 +146,7 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
     }
 
     /**
-     * Create a timeline slice. If the ID exists, copy from adjacent slice.
+     * Create a timeline slice. If the ID exists, copy from the adjacent slice.
      *
      * @param modelName model name
      * @param sliceRow the slice data
