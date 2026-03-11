@@ -48,7 +48,7 @@ public class UserAccount extends AuditableModel {
     private LocalDateTime activationTime;
 
     @Schema(description = "Policy ID")
-    private String policyId;
+    private Long policyId;
 
     @Schema(description = "Locked")
     private Boolean locked;

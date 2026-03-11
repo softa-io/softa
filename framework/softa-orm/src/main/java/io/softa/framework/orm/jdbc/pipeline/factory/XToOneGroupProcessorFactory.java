@@ -47,10 +47,11 @@ public class XToOneGroupProcessorFactory implements FieldProcessorFactory {
                 // READ scenario: calculate dynamic cascaded field
                 return this.newCascadedGroupProcessor(metaField, accessType);
             } else if (FieldType.TO_ONE_TYPES.contains(fieldType)) {
-                if (ConvertType.EXPAND_TYPES.contains(flexQuery.getConvertType())
-                        && !metaField.getFieldName().equals(flexQuery.getKeepIdField())) {
+                if (!metaField.getFieldName().equals(flexQuery.getKeepIdField())) {
                     // Create the XToOneGroupProcessor when the field group is not created by the cascaded field.
-                    return this.newXToOneGroupProcessor(metaField, accessType);
+                    if (ConvertType.EXPAND_TYPES.contains(flexQuery.getConvertType()) || flexQuery.getSubQueries().contains(metaField.getFieldName())) {
+                        return this.newXToOneGroupProcessor(metaField, accessType);
+                    }
                 } else {
                     // When READ OneToMany field, don't enhance the ManyToOne field of the associated model.
                     return fieldValueTypeCast(metaField, accessType);

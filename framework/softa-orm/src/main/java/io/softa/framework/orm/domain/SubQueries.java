@@ -1,18 +1,19 @@
 package io.softa.framework.orm.domain;
 
-import tools.jackson.databind.annotation.JsonDeserialize;
-import io.softa.framework.base.utils.SFunction;
-import io.softa.framework.orm.domain.serializer.SubQueriesDeserializer;
-import io.softa.framework.base.utils.LambdaUtils;
-import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import tools.jackson.databind.annotation.JsonDeserialize;
+
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.LambdaUtils;
+import io.softa.framework.base.utils.SFunction;
+import io.softa.framework.orm.domain.serializer.SubQueriesDeserializer;
 
 /**
  * SubQueries object, used to specify the subQuery for different relational fields.
@@ -91,6 +92,11 @@ public class SubQueries implements Serializable {
         String field = LambdaUtils.getAttributeName(method);
         this.queryMap.put(field, subQuery);
         return this;
+    }
+
+    public boolean contains(String field) {
+        Assert.notBlank(field, "Field cannot be empty!");
+        return this.queryMap.containsKey(field);
     }
 
 }

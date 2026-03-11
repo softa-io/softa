@@ -306,6 +306,8 @@ public class BeanTool {
                 value = JsonUtils.jsonNodeToObject(jsonNode, fieldTypeClass);
             } else if (value instanceof List<?> valueList && !valueList.isEmpty()) {
                 value = formatListProperty(field, Cast.of(valueList), entityClass);
+            } else if (value instanceof Map<?,?> mapValue && AbstractModel.class.isAssignableFrom(fieldTypeClass)) {
+                value = mapToObject(Cast.of(mapValue), fieldTypeClass);
             }
             try {
                 beanMap.put(field, value);
