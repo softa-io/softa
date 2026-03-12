@@ -230,11 +230,13 @@ public class CommonExport {
      * Generate an export history record.
      *
      * @param exportTemplateId the ID of the export template
+     * @param modelName the model name of the exported data, used for export history record
      * @param fileId the fileId of the exported file in FileRecord model
      */
-    protected void generateExportHistory(Long exportTemplateId, Long fileId) {
+    protected void generateExportHistory(Long exportTemplateId, String modelName, Long fileId) {
         ExportHistory exportHistory = new ExportHistory();
         exportHistory.setTemplateId(exportTemplateId);
+        exportHistory.setModelName(modelName);
         exportHistory.setExportedFileId(fileId);
         exportHistoryService.createOne(exportHistory);
     }

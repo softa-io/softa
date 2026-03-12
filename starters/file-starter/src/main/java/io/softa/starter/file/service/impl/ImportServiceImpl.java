@@ -377,7 +377,6 @@ public class ImportServiceImpl implements ImportService {
      */
     protected ImportHistory generateImportHistory(String fileName, Long importTemplateId, Long fileId) {
         ImportHistory importHistory = new ImportHistory();
-        importHistory.setFileName(fileName);
         importHistory.setTemplateId(importTemplateId);
         importHistory.setOriginalFileId(fileId);
         importHistory.setStatus(ImportStatus.PROCESSING);

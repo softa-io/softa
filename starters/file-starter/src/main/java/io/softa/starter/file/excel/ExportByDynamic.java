@@ -14,11 +14,11 @@ import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.base.utils.ListUtils;
 import io.softa.starter.file.dto.ExcelDataDTO;
 import io.softa.starter.file.dto.SheetInfo;
 import io.softa.starter.file.excel.handler.CommonFontStyleHandler;
@@ -58,7 +58,7 @@ public class ExportByDynamic extends CommonExport {
         excelDataDTO.setRowsTable(rowsTable);
         FileInfo fileInfo = this.generateFileAndUpload(modelName, excelDataDTO);
         // Generate an export history record
-        this.generateExportHistory(null, fileInfo.getFileId());
+        this.generateExportHistory(null, modelName, fileInfo.getFileId());
         return fileInfo;
     }
 
@@ -100,7 +100,7 @@ public class ExportByDynamic extends CommonExport {
             throw new BusinessException("Error generating Excel {0} with the provided data.", fileName, e);
         }
         // Generate an export history record
-        this.generateExportHistory(null, fileInfo.getFileId());
+        this.generateExportHistory(null, sheetInfoList.getFirst().getModelName(), fileInfo.getFileId());
         return fileInfo;
     }
 

@@ -52,7 +52,7 @@ public class ExportByTemplate extends CommonExport {
         FileInfo fileInfo = this.generateFileAndUpload(exportTemplate.getModelName(), excelDataDTO,
                 new CustomExportStyleHandler());
         // Generate an export history record
-        this.generateExportHistory(exportTemplate.getId(), fileInfo.getFileId());
+        this.generateExportHistory(exportTemplate.getId(), exportTemplate.getModelName(), fileInfo.getFileId());
         return fileInfo;
     }
 
@@ -112,7 +112,7 @@ public class ExportByTemplate extends CommonExport {
             throw new BusinessException("Error generating Excel {0} with the provided data.", fileName, e);
         }
         // Generate an export history record
-        this.generateExportHistory(null, fileInfo.getFileId());
+        this.generateExportHistory(null, exportTemplates.getFirst().getModelName(), fileInfo.getFileId());
         return fileInfo;
     }
 

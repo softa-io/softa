@@ -53,7 +53,7 @@ public class ExportByFileTemplate extends CommonExport {
         // Fill in the data into the file template
         FileInfo fileInfo = this.generateByFileTemplateAndUpload(exportTemplate, rows);
         // Generate export history
-        this.generateExportHistory(exportTemplate.getId(), fileInfo.getFileId());
+        this.generateExportHistory(exportTemplate.getId(), exportTemplate.getModelName(), fileInfo.getFileId());
         return fileInfo;
     }
 

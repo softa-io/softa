@@ -552,7 +552,9 @@ public class ModelManager {
      */
     public static void validateModel(String modelName) {
         Assert.notBlank(modelName, "Model name cannot be empty!");
-        Assert.isTrue(existModel(modelName), "Model {0} does not exist in the model metadata!", modelName);
+        if (!existModel(modelName)) {
+            throw new IllegalArgumentException("Model {0} does not exist in the model metadata!", modelName);
+        }
     }
 
     /**

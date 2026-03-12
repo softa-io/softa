@@ -28,11 +28,11 @@ public class ImportHistory extends AuditableModel {
     @Schema(description = "Template ID")
     private Long templateId;
 
+    @Schema(description = "Model Name")
+    private String modelName;
+
     @Schema(description = "Original File ID")
     private Long originalFileId;
-
-    @Schema(description = "File Name")
-    private String fileName;
 
     @Schema(description = "Import Status")
     private ImportStatus status;

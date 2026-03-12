@@ -27,6 +27,9 @@ public class ExportHistory extends AuditableModel {
     @Schema(description = "Template ID")
     private Long templateId;
 
+    @Schema(description = "Model Name")
+    private String modelName;
+
     @Schema(description = "Exported File ID")
     private Long exportedFileId;
 
