@@ -17,10 +17,7 @@ import io.softa.starter.file.dto.ExportTemplateDTO;
 import io.softa.starter.file.dto.SheetInfo;
 import io.softa.starter.file.entity.ExportHistory;
 import io.softa.starter.file.entity.ExportTemplate;
-import io.softa.starter.file.excel.export.strategy.ExportByDynamic;
-import io.softa.starter.file.excel.export.strategy.ExportByFieldTemplate;
-import io.softa.starter.file.excel.export.strategy.ExportByFileTemplate;
-import io.softa.starter.file.excel.export.strategy.ExportStrategyFactory;
+import io.softa.starter.file.excel.export.strategy.*;
 import io.softa.starter.file.service.ExportHistoryService;
 import io.softa.starter.file.service.ExportTemplateService;
 
@@ -147,10 +144,9 @@ class ExportServiceImplTest {
                                             ExportHistoryService exportHistoryService) {
         ExportServiceImpl exportService = new ExportServiceImpl();
         ReflectionTestUtils.setField(exportService, "exportByDynamic", exportByDynamic);
-        ReflectionTestUtils.setField(exportService, "exportByTemplate", exportByFieldTemplate);
-        ExportStrategyFactory exportStrategyFactory = new ExportStrategyFactory();
-        ReflectionTestUtils.setField(exportStrategyFactory, "exportStrategies",
-                List.of(exportByDynamic, exportByFieldTemplate, exportByFileTemplate));
+        ReflectionTestUtils.setField(exportService, "exportByFieldTemplate", exportByFieldTemplate);
+        ExportStrategyFactory exportStrategyFactory = new StubExportStrategyFactory(exportByDynamic, exportByFieldTemplate,
+                exportByFileTemplate);
         ReflectionTestUtils.setField(exportService, "exportStrategyFactory", exportStrategyFactory);
         ReflectionTestUtils.setField(exportService, "exportTemplateService", exportTemplateService);
         ReflectionTestUtils.setField(exportService, "exportHistoryService", exportHistoryService);
@@ -317,6 +313,34 @@ class ExportServiceImplTest {
         @Override
         public ExportResult export(ExportTemplate exportTemplate, FlexQuery flexQuery) {
             return singleResult;
+        }
+    }
+
+    /**
+     * 测试专用：替代反射塞入 ExportStrategyFactory 内部字段，避免 factory 实现细节变化导致单测脆弱。
+     */
+    private static class StubExportStrategyFactory extends ExportStrategyFactory {
+        private final ExportByDynamic exportByDynamic;
+        private final ExportByFieldTemplate exportByFieldTemplate;
+        private final ExportByFileTemplate exportByFileTemplate;
+
+        private StubExportStrategyFactory(ExportByDynamic exportByDynamic, ExportByFieldTemplate exportByFieldTemplate,
+                                          ExportByFileTemplate exportByFileTemplate) {
+            this.exportByDynamic = exportByDynamic;
+            this.exportByFieldTemplate = exportByFieldTemplate;
+            this.exportByFileTemplate = exportByFileTemplate;
+        }
+
+        @Override
+        public ExportStrategy getStrategy(ExportContext exportContext) {
+            if (exportContext == null || exportContext.getExportTemplate() == null) {
+                return exportByDynamic;
+            }
+            ExportTemplate exportTemplate = exportContext.getExportTemplate();
+            if (Boolean.TRUE.equals(exportTemplate.getCustomFileTemplate())) {
+                return exportByFileTemplate;
+            }
+            return exportByFieldTemplate;
         }
     }
 }

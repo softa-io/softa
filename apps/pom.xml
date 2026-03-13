@@ -30,6 +30,7 @@
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.10.0</version>
                 <executions>
                     <execution>
                         <id>injected-central-publishing</id>
