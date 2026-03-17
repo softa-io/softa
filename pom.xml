@@ -11,7 +11,7 @@
 	<name>Softa Parent</name>
 	<groupId>io.softa</groupId>
 	<artifactId>softa-parent</artifactId>
-	<version>1.1.9</version>
+	<version>1.1.10</version>
 
 	<packaging>pom</packaging>
 	<url>https://softa.io</url>
