@@ -9,14 +9,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.constant.StringConstant;
-import io.softa.framework.base.exception.IllegalArgumentException;
 
 /**
  * String utility class.
  */
 @Slf4j
 public class StringTools {
-
     private StringTools() {
         throw new IllegalStateException("Utility class");
     }
@@ -350,36 +348,6 @@ public class StringTools {
     }
 
     /**
-     * Determine whether the string is an expression; the expression is wrapped in `${}`
-     *
-     * @param str string
-     * @return whether it is a calculation expression
-     */
-    public static boolean isExpression(String str) {
-        return str != null && str.startsWith(StringConstant.FORMULA_PREFIX) && str.endsWith("}");
-    }
-
-    /**
-     * Determine whether the string is a variable; the variable is wrapped in `#{}`.
-     *
-     * @param str string
-     * @return whether it is a variable parameter
-     */
-    public static boolean isVariable(String str) {
-        return str != null && str.startsWith(StringConstant.VARIABLE_PREFIX) && str.endsWith("}");
-    }
-
-    /**
-     * Determine whether the string is a reserved field; the reserved field is wrapped in `@{}`.
-     *
-     * @param str string
-     * @return whether it is a reserved field
-     */
-    public static boolean isReservedField(String str) {
-        return str != null && str.startsWith(StringConstant.RESERVED_PREFIX) && str.endsWith("}");
-    }
-
-    /**
      * Split the idPath separated by `/` into a set of Long type ids.
      *
      * @param idPath `/` separated string
@@ -397,35 +365,4 @@ public class StringTools {
         return parentIds;
     }
 
-
-    /**
-     * Extract the value of the variable parameter `#{}` from the input variable parameter.
-     *
-     * @param variableLabel Variable parameter label
-     * @param env the environment context
-     * @return Variable parameter value
-     */
-    public static Object extractVariable(String variableLabel, Map<String, Object> env) {
-        // Remove the string variable parameter placeholder `#{}`.
-        String variable = variableLabel.substring(2, variableLabel.length() - 1);
-        Assert.notBlank(variable, "Variable parameter {0} cannot be empty.", variable);
-        if (variable.contains(".")) {
-            // Cascade variable parameters, split into two variable parameters.
-            String[] variableNames = StringUtils.split(variable, ".", 2);
-            Assert.isTrue(env.containsKey(variableNames[0]),
-                    "Variable parameter {0} does not exist in the environment context!", variable);
-            Object value = env.get(variableNames[0]);
-            if (value instanceof Map<?, ?> valueMap) {
-                return valueMap.get(variableNames[1]);
-            } else {
-                throw new IllegalArgumentException(
-                        "The variable parameter {0} cannot retrieve its value from the environment context: {1}!",
-                        variable, value);
-            }
-        } else {
-            Assert.isTrue(env.containsKey(variable),
-                    "Variable parameter {0} does not exist in the environment context!", variable);
-            return env.get(variable);
-        }
-    }
 }

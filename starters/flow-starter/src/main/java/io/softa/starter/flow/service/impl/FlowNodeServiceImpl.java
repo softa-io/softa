@@ -14,9 +14,11 @@ import org.springframework.util.StopWatch;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.JSONException;
+import io.softa.framework.base.placeholder.PlaceholderKind;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -81,8 +83,9 @@ public class FlowNodeServiceImpl extends EntityServiceImpl<FlowNode, Long> imple
                 "Loop parameters are not defined for the `LoopByDataset` node {0}!", flowNode.getName());
         Assert.notBlank(loopByDatasetParams.getDataSetParam(),
                 "The `LoopByDataset` node {0} must specify a dataset variable!", flowNode.getName());
-        Assert.isTrue(StringTools.isVariable(loopByDatasetParams.getDataSetParam()),
-                "The dataset variable {0} of the `LoopByDataset` node {1} must be identified with `#{}`!",
+        PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(loopByDatasetParams.getDataSetParam());
+        Assert.isTrue(placeholder != null && PlaceholderKind.VARIABLE.equals(placeholder.getKind()),
+                "The dataset variable {0} of the `LoopByDataset` node {1} must be identified with `{{ }}`!",
                 loopByDatasetParams.getDataSetParam(), flowNode.getName());
         Assert.notBlank(loopByDatasetParams.getLoopItemNaming(),
                 "The loop parameter name of the `LoopByDataset` node {0} cannot be empty!",
@@ -159,7 +162,10 @@ public class FlowNodeServiceImpl extends EntityServiceImpl<FlowNode, Long> imple
      */
     private void executeLoopByDataset(FlowNode flowNode, NodeContext nodeContext) {
         LoopByDatasetParams loopByDatasetParams = this.extractLoopByDatasetParams(flowNode);
-        Object dataSet = StringTools.extractVariable(loopByDatasetParams.getDataSetParam(), nodeContext.getEnv());
+        PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(loopByDatasetParams.getDataSetParam());
+        Assert.notNull(placeholder, "The dataset variable {0} of the `LoopByDataset` node {1} must be identified with `{{ }}`!",
+                loopByDatasetParams.getDataSetParam(), flowNode.getName());
+        Object dataSet = PlaceholderUtils.extractVariable(placeholder, nodeContext.getEnv());
         if (dataSet instanceof Collection<?> dataCol) {
             // Iterate over the collection object and execute the node list.
             List<Object> returnList = new ArrayList<>();

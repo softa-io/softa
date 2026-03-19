@@ -17,10 +17,12 @@ import org.springframework.web.multipart.MultipartFile;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.i18n.I18n;
+import io.softa.framework.base.placeholder.PlaceholderKind;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.DateUtils;
 import io.softa.framework.base.utils.ListUtils;
-import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -339,10 +341,13 @@ public class ImportServiceImpl implements ImportService {
      * @return the default value
      */
     private Object getDefaultValue(FieldType fieldType, String defaultValue, Map<String, Object> env) {
-        if (StringTools.isVariable(defaultValue)) {
-            return StringTools.extractVariable(defaultValue, env);
-        } else {
+        PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(defaultValue);
+        if (placeholder == null) {
             return FieldType.convertStringToFieldValue(fieldType, defaultValue);
+        } else if (PlaceholderKind.VARIABLE.equals(placeholder.getKind())) {
+            return PlaceholderUtils.extractVariable(placeholder, env);
+        } else {
+            throw new IllegalArgumentException("The default value `{0}` is not a valid placeholder or literal value.", defaultValue);
         }
     }
 

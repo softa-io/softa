@@ -8,6 +8,9 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.placeholder.PlaceholderKind;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -49,16 +52,22 @@ public class FilterUnitParser {
             case LESS_THAN:
             case LESS_THAN_OR_EQUAL:
                 condition.append(" ").append(DBUtil.getPredicate(operator));
-                if (value instanceof String expression && StringTools.isReservedField(expression)) {
-                    // Handle field comparison, value is @{fieldName}, which is a reserved field name,
-                    // embed it into SQL after checking the field name is legal
-                    String fieldName = expression.substring(2, expression.length() - 1).trim();
-                    String columnName = ModelManager.getModelFieldColumn(metaField.getModelName(), fieldName);
-                    condition.append(" ").append(tableAlias).append(".").append(columnName).append(" ");
-                } else {
-                    if (value instanceof String v && EnvConstant.ENV_PARAMS.contains(v.toUpperCase())) {
-                        value = convertEnvParameter(v);
+                if (value instanceof String expression) {
+                    PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(expression);
+                    if (placeholder != null && PlaceholderKind.RESERVED_FIELD.equals(placeholder.getKind())) {
+                        // Handle field comparison, value is {{ @fieldName }}, which is a reserved field reference,
+                        // embed it into SQL after checking the field name is legal
+                        String fieldName = placeholder.getContent();
+                        String columnName = ModelManager.getModelFieldColumn(metaField.getModelName(), fieldName);
+                        condition.append(" ").append(tableAlias).append(".").append(columnName).append(" ");
+                    } else {
+                        if (EnvConstant.ENV_PARAMS.contains(expression.toUpperCase())) {
+                            value = convertEnvParameter(expression);
+                        }
+                        condition.append(" ?");
+                        sqlWrapper.addArgValue(value);
                     }
+                } else {
                     condition.append(" ?");
                     sqlWrapper.addArgValue(value);
                 }

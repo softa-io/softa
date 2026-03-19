@@ -8,7 +8,8 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import io.softa.framework.base.utils.StringTools;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.web.dto.ModelField;
 import io.softa.framework.web.dto.ModelFields;
@@ -65,8 +66,9 @@ public class ToolkitController {
     @GetMapping("/validateExpression")
     @Parameter(name = "expression", description = "The expression to be validated", schema = @Schema(type = "string"), required = true)
     public ApiResponse<Boolean> validateExpression(@RequestParam String expression) {
-        if (StringTools.isExpression(expression)) {
-            expression = expression.substring(2, expression.length() - 1);
+        PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(expression);
+        if (placeholder != null) {
+            expression = placeholder.getContent();
         }
         boolean isValid = ComputeUtils.validateExpression(expression);
         return ApiResponse.success(isValid);

@@ -52,7 +52,7 @@ public enum Operator {
     private final String name;
     private final String abbr;
 
-    /** Supports `@{fieldName}` reserved field name as comparison value */
+    /** Supports `{{ @fieldName }}` reserved field reference as comparison value */
     public static final Set<Operator> COMPARISON_OPERATORS = Sets.newHashSet(EQUAL, NOT_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL);
     /** String matching operator */
     public static final Set<Operator> MATCHING_OPERATORS = Sets.newHashSet(CONTAINS, NOT_CONTAINS, START_WITH, NOT_START_WITH);

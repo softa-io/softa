@@ -171,4 +171,13 @@ class ComputeUtilsTest {
         String formula = " 1 / 3 , 3;";
         Assertions.assertFalse(ComputeUtils.validateExpression(formula));
     }
+
+    @Test
+    void stringInterpolation() {
+        Map<String, Object> env = new HashMap<>();
+        env.put("TriggerParams", Map.of("id", 1001, "status", "PAID"));
+        String result = ComputeUtils.stringInterpolation(
+                "Order {{ TriggerParams.id }} is {{ TriggerParams.status }}", env);
+        Assertions.assertEquals("Order 1001 is PAID", result);
+    }
 }
