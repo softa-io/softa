@@ -21,6 +21,7 @@ public enum WidgetType {
     EMAIL("Email", "Email"),
     TEXT("Text", "Text"),
     RICH_TEXT("RichText", "Rich Text"),
+    TEMPLATE_EDITOR("TemplateEditor", "Template Editor"),
     MARKDOWN("Markdown", "Markdown"),
     CODE("Code", "Code"),
     COLOR("Color", "Color picker"),

@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
  * Example:
  * <p>
  * {
- *     "collectionVariable": "#{GetIds}",
+ *     "collectionVariable": "{{ GetIds }}",
  *     "itemKey": "id"
  * }
  * </p>

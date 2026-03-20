@@ -50,6 +50,14 @@
             <artifactId>jackson-databind</artifactId>
             <version>${jackson-bom.version}</version>
         </dependency>
+
+        <!-- The template engine for rendering HTML and generating code -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-freemarker</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>

@@ -29,22 +29,28 @@ public abstract class BaseImportHandler {
     }
 
     /**
-     * Handle the rows.
-     * Catch the ValidationException and set the failed reason to the row.
+     * Handle the rows with skipException support.
+     * When skipException=true, catch ValidationException and set the failed reason to the row.
+     * When skipException=false, let the ValidationException propagate to trigger a transaction rollback.
      *
      * @param rows The rows
+     * @param skipException Whether to skip exceptions
      */
-    public void handleRows(List<Map<String, Object>> rows) {
+    public void handleRows(List<Map<String, Object>> rows, boolean skipException) {
         rows.forEach(row -> {
-            try {
-                handleRow(row);
-            } catch (ValidationException e) {
-                String failedReason = "";
-                if (row.get(FileConstant.FAILED_REASON) != null) {
-                    failedReason = row.get(FileConstant.FAILED_REASON) + "; ";
+            if (skipException) {
+                try {
+                    handleRow(row);
+                } catch (ValidationException e) {
+                    String failedReason = "";
+                    if (row.get(FileConstant.FAILED_REASON) != null) {
+                        failedReason = row.get(FileConstant.FAILED_REASON) + "; ";
+                    }
+                    failedReason += e.getMessage();
+                    row.put(FileConstant.FAILED_REASON, failedReason);
                 }
-                failedReason += e.getMessage();
-                row.put(FileConstant.FAILED_REASON, failedReason);
+            } else {
+                handleRow(row);
             }
         });
     }

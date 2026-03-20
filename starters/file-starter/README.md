@@ -8,12 +8,12 @@ File Starter provides three core capabilities for developers:
 This document focuses on developer usage and API-level examples.
 
 ## Code Structure
-The Excel module is organized by responsibility:
 
 - `excel/export/strategy`: export strategy selection and concrete export implementations
 - `excel/export/support`: shared export support components such as data fetch, template resolve, writer, upload, and custom export hooks
 - `excel/imports`: import pipeline, handler factory, failure collection, persistence, and custom import hook
 - `excel/style`: shared Excel style handlers
+- `file/`: document file generators (Word, PDF)
 
 ## Dependency
 ```xml
@@ -80,11 +80,11 @@ File Starter supports two import modes:
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `templateId` | Long | `null` | ImportTemplate id |
-| `fieldName` | String | `null` | Model field name |
+| `fieldName` | String | `null` | Model field name (supports `deptId.code` relation lookup) |
 | `customHeader` | String | `null` | Custom Excel header |
 | `sequence` | Integer | `null` | Field order in template |
 | `required` | Boolean | `null` | Required field |
-| `defaultValue` | String | `null` | Default value (supports `#{var}`) |
+| `defaultValue` | String | `null` | Default value (supports `{{ expr }}`) |
 | `description` | String | `null` | Description text |
 
 ### A1. Import By Template (Configured)
@@ -99,9 +99,65 @@ ImportTemplateField key fields:
 - `fieldName`, `customHeader`, `sequence`, `required`, `defaultValue`
 
 Notes:
-- Default values in ImportTemplateField support variables `#{var}`. Variables are resolved from `env`.
+- Default values in ImportTemplateField support placeholders `{{ expr }}`. Simple variables are resolved from `env`, and expressions are evaluated against `env`.
 - If `syncImport = true`, import is executed in-process.
 - If `syncImport = false`, an async import message is sent to MQ.
+
+### A1.1 Relation Lookup Import (Cascaded Import)
+The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic import) supports **dotted-path relation lookup** via `RelationLookupResolver`. Instead of importing a raw FK id, you can import a human-readable business key of the related model, and the system will reverse-lookup the FK id automatically.
+
+**Syntax:** `{fkField}.{businessKey}` — e.g. `deptId.code`, `deptId.name`
+
+**How it works:**
+1. The system detects dotted-path fields whose root is a ManyToOne/OneToOne field.
+2. Groups them by root FK field (e.g. `deptId.code` and `deptId.name` form one group).
+3. Batch-queries the related model by the business key values to resolve FK ids.
+4. Writes back the resolved FK id to the root field (`deptId`) and removes the dotted-path columns.
+
+**Rules:**
+- Only **single-level** cascade is supported: `deptId.code` ✅, `deptId.companyId.code` ❌
+- A direct FK field (e.g. `deptId`) and a lookup field (e.g. `deptId.code`) **must not coexist** in the same template.
+- Multiple lookup fields sharing the same root are combined as a composite business key (e.g. `deptId.code` + `deptId.name` together uniquely identify a Department).
+- When all lookup values in a row are empty:
+  - If `ignoreEmpty = true`: the FK field is skipped (not written).
+  - If `ignoreEmpty = false`: the FK field is explicitly set to `null`.
+- When a lookup fails (no matching record found):
+  - If `skipException = true`: the row is marked as failed with a reason message.
+  - If `skipException = false`: a `ValidationException` is thrown immediately.
+
+**Example — Template-based import:**
+
+ImportTemplateField configuration:
+```
+fieldName: "deptId.code"    customHeader: "Department Code"    sequence: 3
+fieldName: "name"           customHeader: "Employee Name"      sequence: 1
+fieldName: "jobTitle"       customHeader: "Job Title"          sequence: 2
+```
+
+Excel file:
+| Employee Name | Job Title | Department Code |
+| --- | --- | --- |
+| Alice | Engineer | D001 |
+| Bob | Manager | D002 |
+
+The system will look up `Department` by `code = "D001"` / `"D002"`, resolve the `id`, and write it into `deptId`.
+
+**Example — Dynamic import with relation lookup:**
+```bash
+curl -X POST http://localhost:8080/import/dynamicImport \
+  -F file=@/path/to/employees.xlsx \
+  -F 'wizard={
+    "modelName":"Employee",
+    "importRule":"CreateOrUpdate",
+    "uniqueConstraints":"employeeCode",
+    "importFieldDTOList":[
+      {"header":"Employee Name","fieldName":"name","required":true},
+      {"header":"Department Code","fieldName":"deptId.code","required":true},
+      {"header":"Job Title","fieldName":"jobTitle"}
+    ],
+    "syncImport":true
+  };type=application/json'
+```
 
 2. Download the template file (optional)
 
@@ -198,7 +254,8 @@ File Starter supports three export modes:
 | `fileName` | String | `null` | Export file name |
 | `sheetName` | String | `null` | Sheet name |
 | `modelName` | String | `null` | Model name to export |
-| `fileId` | Long | `null` | Template file id (for file-template export) |
+| `customFileTemplate` | Boolean | `null` | If true, use file template export mode; otherwise use field template mode |
+| `fileId` | Long | `null` | Template file id (required when `customFileTemplate = true`) |
 | `filters` | Filters | `null` | Default filters |
 | `orders` | Orders | `null` | Default orders |
 | `customHandler` | String | `null` | Spring bean name for CustomExportHandler |
@@ -208,10 +265,54 @@ File Starter supports three export modes:
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `templateId` | Long | `null` | ExportTemplate id |
-| `fieldName` | String | `null` | Model field name |
+| `fieldName` | String | `null` | Model field name (supports cascaded fields like `deptId.name`) |
 | `customHeader` | String | `null` | Custom column header |
 | `sequence` | Integer | `null` | Field order in export |
 | `ignored` | Boolean | `null` | Whether to ignore the field in output |
+
+### Cascaded Field Export
+All three export modes support **cascaded field references** using dotted-path syntax (e.g. `deptId.name`, `deptId.companyId.code`).
+This allows exporting fields from related models through ManyToOne/OneToOne associations.
+
+**Syntax:** `{field1}.{field2}` or `{field1}.{field2}.{field3}` (up to 4 levels of cascade)
+
+**How it works:**
+1. The ORM layer creates dynamic virtual fields for dotted-path references (via `MetaField.createDynamicField`).
+2. The field is split into 2 parts: the root ManyToOne/OneToOne field and the remaining path.
+3. The related model is queried with the remaining path as expand fields.
+4. For 3+ levels, the process recurses: `deptId.companyId.code` → query `Dept` with field `companyId.code` → query `Company` with field `code`.
+5. The resolved value is stored in the row map with the full dotted key (e.g. `deptId.companyId.code`).
+6. The column header defaults to the **last field's label** (e.g. the label of `code`), unless `customHeader` is set.
+
+**Rules:**
+- Maximum cascade depth: **4 levels** (`BaseConstant.CASCADE_LEVEL = 4`).
+- Each intermediate field must be **ManyToOne or OneToOne** type.
+- The last field must be a **stored field** (not dynamic/computed).
+- `ConvertType.DISPLAY` is used, so option fields show `itemName` and relation fields show `displayName`.
+
+**Example — Template export with cascaded fields:**
+
+ExportTemplateField configuration:
+```
+fieldName: "name"                customHeader: null           sequence: 1
+fieldName: "deptId.name"         customHeader: "Department"   sequence: 2
+fieldName: "deptId.managerId.name" customHeader: "Dept Manager" sequence: 3
+```
+
+**Example — Dynamic export with cascaded fields:**
+```bash
+curl -X POST 'http://localhost:8080/export/dynamicExport?modelName=Employee' \
+  -H 'Content-Type: application/json' \
+  -d @- <<'JSON'
+{
+  "fields": ["name", "deptId.name", "deptId.managerId.name"],
+  "filters": ["status", "=", "ACTIVE"],
+  "orders": ["name", "ASC"]
+}
+JSON
+```
+
+Result Excel columns: `Name | Department | Dept Manager`
 
 ### B1. Export By Template Fields
 1. Configure ExportTemplate and ExportTemplateField
@@ -248,27 +349,32 @@ JSON
 ```
 
 ### B2. Export By File Template (Upload Template File)
-This mode uses an uploaded Excel template file with placeholders like `{field}` or `{object.field}`.
+This mode uses an uploaded Excel template file with placeholders like `{{ field }}` or `{{ object.field }}`.
 The system extracts variables from the template to decide which fields to query.
 
+To use this mode, set `customFileTemplate = true` and `fileId` to the uploaded template file in ExportTemplate.
+The same `exportByTemplate` endpoint is used; the system dispatches to file-template mode automatically based on the `customFileTemplate` flag.
+
 Endpoint:
-- `POST /export/exportByFileTemplate?exportTemplateId={id}`
+- `POST /export/exportByTemplate?exportTemplateId={id}`
 
 Example:
 ```bash
-curl -X POST http://localhost:8080/export/exportByFileTemplate?exportTemplateId=2002 \
+curl -X POST http://localhost:8080/export/exportByTemplate?exportTemplateId=2002 \
   -H 'Content-Type: application/json' \
   -d @- <<'JSON'
 {
-  "fields": ["id", "name", "code", "status"],
   "filters": ["status", "=", "ACTIVE"],
   "orders": ["createdTime", "DESC"],
-  "limit": 200,
-  "groupBy": [],
-  "effectiveDate": "2026-03-03"
+  "limit": 200
 }
 JSON
 ```
+
+**File template placeholder syntax:**
+- `{{ fieldName }}` — replaced with the field value of each row
+- `{{ deptId.name }}` — cascaded field reference (resolved by the ORM layer)
+- The `{{ }}` syntax is normalized to underlying Fesod `{}` syntax before rendering
 
 ### B3. Dynamic Export
 Export without a template by providing fields and filters directly.
@@ -316,21 +422,47 @@ Contract:
 Document templates are stored in `DocumentTemplate` and rendered as Word or PDF.
 
 ### DocumentTemplate Configuration Table
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `modelName` | String | `null` | Model name to fetch data |
-| `fileName` | String | `null` | Output file name |
-| `fileId` | Long | `null` | Template file id (docx) |
-| `convertToPdf` | Boolean | `null` | Convert to PDF if true |
+| Field          | Type | Default | Description |
+|----------------| --- | --- | --- |
+| `modelName`    | String | required | Model name to fetch data |
+| `fileName`     | String | required | Output file name |
+| `templateType` | DocumentTemplateType | `WORD` | `WORD`, `RICH_TEXT`, or `PDF` |
+| `fileId`       | Long | `null` | Template file id (required for WORD type) |
+| `htmlTemplate`  | String | `null` | HTML with `{{ }}` placeholders (required for RICH_TEXT type) |
+| `convertToPdf` | Boolean | `null` | Convert WORD output to PDF if true |
+| `description`  | String | `null` | Description text |
 
-DocumentTemplate key fields:
-- `modelName`, `fileName`, `fileId`, `convertToPdf`
+### Template Types and Generation Pipeline
 
-Template syntax:
-- Uses `#{var}` placeholders, supports Spring EL.
-- Supports table row loops via `LoopRowTableRenderPolicy`.
+```
+templateType = WORD
+  1. Extract variables from .docx via poi-tl (skip # and > plugin tags)
+  2. Build SubQueries for OneToMany fields (LoopRowTableRenderPolicy)
+  3. Fetch data: modelService.getById(modelName, rowId, fields, subQueries, ConvertType.DISPLAY)
+  4. Render .docx via poi-tl (WordFileGenerator)
+  5. If convertToPdf=true, convert DOCX to PDF via docx4j
+  6. Upload to OSS -> return FileInfo
 
-Endpoint:
+templateType = RICH_TEXT
+  1. Extract {{ }} variables from htmlTemplate (HTML) via PlaceholderUtils
+  2. Build SubQueries for OneToMany fields
+  3. Fetch data: modelService.getById(modelName, rowId, fields, subQueries, ConvertType.DISPLAY)
+  4. Convert {{ }} -> ${} and render HTML via FreeMarker (PdfFileGenerator)
+  5. Convert HTML to PDF via OpenPDF
+  6. Upload to OSS -> return FileInfo
+```
+
+### WORD Template Syntax
+- Uses `{{ variable }}` placeholder syntax with Spring EL support.
+- Use `{{#fieldName}}` for OneToMany fields rendered as looping table rows via `LoopRowTableRenderPolicy`.
+- OneToMany fields are auto-detected from model metadata; SubQueries are built automatically to load related data.
+
+### RICH_TEXT Template
+- `htmlTemplate` stores HTML with `{{ variable }}` placeholders.
+- Placeholders are converted to FreeMarker `${}` syntax before rendering.
+- The rendered HTML is converted to PDF via OpenPDF.
+
+### Endpoint
 - `GET /DocumentTemplate/generateDocument?templateId={id}&rowId={rowId}`
 
 Example:
@@ -338,7 +470,31 @@ Example:
 curl -X GET 'http://localhost:8080/DocumentTemplate/generateDocument?templateId=3001&rowId=10001'
 ```
 
-If `convertToPdf=true`, the generated file is PDF; otherwise Word.
+### Programmatic API
+Besides the REST endpoint (which fetches data by `modelName` + `rowId`), you can also call `DocumentTemplateService` directly with a custom data object:
+
+```java
+@Autowired
+private DocumentTemplateService documentTemplateService;
+
+// Option 1: Generate by rowId (fetches data from the model automatically)
+FileInfo fileInfo = documentTemplateService.generateDocument(templateId, rowId);
+
+// Option 2: Generate by custom data object (Map or POJO)
+Map<String, Object> data = Map.of(
+    "name", "Alice",
+    "deptId", "Engineering",
+    "orderItems", List.of(
+        Map.of("productName", "Widget", "quantity", 10),
+        Map.of("productName", "Gadget", "quantity", 5)
+    )
+);
+FileInfo fileInfo = documentTemplateService.generateDocument(templateId, data);
+```
+
+The `generateDocument(templateId, data)` overload skips the model data fetch step and renders the template directly with the provided data. This is useful when:
+- The data comes from an external source or custom aggregation.
+- You want to render a document from a non-model data structure.
 
 ## REST APIs (Summary)
 - Import
@@ -346,8 +502,7 @@ If `convertToPdf=true`, the generated file is PDF; otherwise Word.
   - `POST /import/dynamicImport`
   - `GET /ImportTemplate/getTemplateFile`
 - Export
-  - `POST /export/exportByTemplate`
-  - `POST /export/exportByFileTemplate`
+  - `POST /export/exportByTemplate` (dispatches to field-template or file-template mode based on `customFileTemplate`)
   - `POST /export/dynamicExport`
 - Document
   - `GET /DocumentTemplate/generateDocument`
@@ -356,10 +511,10 @@ If `convertToPdf=true`, the generated file is PDF; otherwise Word.
   - `POST /ExportTemplate/listByModel`
 
 ## Examples
-Export params:
+Export params (with cascaded fields):
 ```json
 {
-  "fields": ["id", "name", "code", "status"],
+  "fields": ["id", "name", "code", "status", "deptId.name", "deptId.managerId.name"],
   "filters": ["status", "=", "ACTIVE"],
   "orders": ["createdTime", "DESC"],
   "limit": 200,
@@ -368,7 +523,17 @@ Export params:
 }
 ```
 
-Import field mapping:
+Import field mapping (with relation lookup):
+```json
+[
+  {"header": "Product Code", "fieldName": "productCode", "required": true},
+  {"header": "Product Name", "fieldName": "productName", "required": true},
+  {"header": "Category Code", "fieldName": "categoryId.code", "required": true},
+  {"header": "Price", "fieldName": "price"}
+]
+```
+
+Import field mapping (direct FK id):
 ```json
 [
   {"header": "Product Code", "fieldName": "productCode", "required": true},

@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
  * <p>
  * {
  *     "modelName": "DemoModel",
- *     "pkVariable": "#{ids}",
+ *     "pkVariable": "{{ ids }}",
  *     "filters": ["active", "=", true]
  * }
  * </p>
@@ -26,11 +26,11 @@ public class DeleteDataParams implements NodeParams {
     private String modelName;
 
     @Schema(description = """
-            The primary key variable name of the data to be deleted, supports field name and variable #{var}.""")
+            The primary key variable name of the data to be deleted, supports field name and placeholder {{ var }}.""")
     private String pkVariable;
 
     @Schema(description = """
-            The filters of the data to be deleted, value supports constants, variables `#{}`,
-             calculation formulas `${}`, reserved field names `@{}`.""")
+            The filters of the data to be deleted. Values support constants, placeholders `{{ expr }}`,
+            and reserved field references `{{ @fieldName }}`.""")
     private Filters filters;
 }

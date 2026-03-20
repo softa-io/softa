@@ -37,6 +37,28 @@ public interface ImportService {
     ImportHistory importByDynamic(ImportWizard importWizard);
 
     /**
+     * Validate data from the uploaded file using the import template ID (no persistence).
+     * Forces skipException=true to collect all row errors. Generates a result Excel containing
+     * all rows (both passed and failed) for complete user feedback.
+     *
+     * @param templateId the ID of the import template
+     * @param file       the uploaded file
+     * @param env        the environment variables
+     * @return the validation result as ImportHistory
+     */
+    ImportHistory validateByTemplate(Long templateId, MultipartFile file, Map<String, Object> env);
+
+    /**
+     * Validate data from the uploaded file using dynamic import settings (no persistence).
+     * Forces skipException=true to collect all row errors. Generates a result Excel containing
+     * all rows (both passed and failed) for complete user feedback.
+     *
+     * @param importWizard the import wizard with dynamic settings
+     * @return the validation result as ImportHistory
+     */
+    ImportHistory validateByDynamic(ImportWizard importWizard);
+
+    /**
      * Synchronous import data from the uploaded file and import template
      *
      * @param importTemplateDTO the import template DTO
@@ -45,4 +67,16 @@ public interface ImportService {
      * @return the import history object
      */
     ImportHistory syncImport(ImportTemplateDTO importTemplateDTO, InputStream inputStream, ImportHistory importHistory);
+
+    /**
+     * Synchronous validation of data from the uploaded file (no persistence).
+     * Forces skipException=true to collect all row errors. Generates a result Excel
+     * containing all rows (both passed and failed).
+     *
+     * @param importTemplateDTO the import template DTO
+     * @param inputStream the input stream of the uploaded file
+     * @param importHistory the import history object
+     * @return the import history object with validation status
+     */
+    ImportHistory syncValidate(ImportTemplateDTO importTemplateDTO, InputStream inputStream, ImportHistory importHistory);
 }

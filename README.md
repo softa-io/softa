@@ -20,3 +20,19 @@ Metadata-driven, open source enterprise application development framework, inclu
 7. Multilingual Support
 8. Multiple Databases Support
 9. Multi-Tenancy Support
+
+## Global Placeholder Syntax
+Softa uses one placeholder syntax across Flow, document templates, and file templates:
+
+- `{{ expr }}` for dynamic values and expressions
+- `{{ TriggerParams.status }}` for simple variable paths
+- `{{ @fieldName }}` for reserved field references in Filters
+
+Examples:
+
+```text
+{{ TriggerParams.id }}
+{{ price * qty }}
+{{ NOW }}
+{{ @createdTime }}
+```

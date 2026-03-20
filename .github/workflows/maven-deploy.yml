@@ -1,5 +1,12 @@
 name: Deploy Maven packages (GitHub Packages + Maven Central)
 # Deploy Maven packages to both GitHub Packages and Maven Central upon new release/tag.
+#
+# Strategy:
+#   1) Resolve version from tag / release / manual input.
+#   2) If main already has the target version → deploy directly from main.
+#   3) Otherwise → create release branch, bump versions, deploy from that branch,
+#      and only after deploy succeeds → create PR, merge it, clean up.
+#   This guarantees main is never polluted by a failed deploy.
 
 on:
   push:
@@ -7,7 +14,6 @@ on:
       - "v*"
   release:
     types: [ created ]
-  # Manual trigger with version input if no tag is present in the commit history
   workflow_dispatch:
     inputs:
       version:
@@ -16,11 +22,12 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  pull-requests: write
 
 concurrency:
-  group: deploy-maven-${{ github.ref }}
+  group: deploy-maven
   cancel-in-progress: false
 
 jobs:
@@ -29,8 +36,44 @@ jobs:
     environment: central
 
     steps:
+      # ──────────────────────────────────────────────────────────
+      # 1. Checkout & resolve version
+      # ──────────────────────────────────────────────────────────
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          v="${{ inputs.version }}"
+          if [[ -z "$v" ]]; then
+            ref="${GITHUB_REF:-}"
+            if [[ "$ref" == refs/tags/v* ]]; then
+              v="${ref#refs/tags/v}"
+            fi
+          fi
+          if [[ -z "$v" ]]; then
+            v="${{ github.event.release.tag_name }}"
+            v="${v#v}"
+          fi
+
+          if [[ -z "$v" ]]; then
+            echo "Unable to resolve version. Provide workflow_dispatch input 'version' or use a v* tag." >&2
+            exit 1
+          fi
+
+          if [[ ! "$v" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "Invalid version '$v'. Expected digits and dots, e.g. 1.2.3" >&2
+            exit 1
+          fi
+
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "branch=release/$v" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -39,15 +82,85 @@ jobs:
           java-version: "25"
           cache: maven
 
-      # --- GPG: import private key for signing ---
+      # ──────────────────────────────────────────────────────────
+      # 2. Check whether main already has target version
+      # ──────────────────────────────────────────────────────────
+      - name: Check whether main already has target version
+        id: mainver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+
+          worktree_dir="$(mktemp -d)"
+          cleanup() {
+            git worktree remove --force "$worktree_dir" >/dev/null 2>&1 || true
+            rm -rf "$worktree_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          git worktree add --detach "$worktree_dir" origin/main
+          v_main=$(cd "$worktree_dir" && mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
+
+          if [[ -z "$v_main" ]]; then
+            echo "Unable to evaluate project.version on origin/main" >&2
+            exit 1
+          fi
+
+          echo "main_version=$v_main" >> "$GITHUB_OUTPUT"
+
+          if [[ "$v_main" == "${{ steps.version.outputs.version }}" ]]; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Main is already at version $v_main; will deploy directly from main."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "Main version is $v_main, target is ${{ steps.version.outputs.version }}; will create release branch."
+          fi
+
+      # ──────────────────────────────────────────────────────────
+      # 3a. Fast path: main already at target version → checkout main
+      # ──────────────────────────────────────────────────────────
+      - name: Checkout main (already at target version)
+        if: steps.mainver.outputs.already == 'true'
+        shell: bash
+        run: |
+          git checkout origin/main
+
+      # ──────────────────────────────────────────────────────────
+      # 3b. Slow path: create release branch & bump versions
+      # ──────────────────────────────────────────────────────────
+      - name: Create release branch and bump versions
+        if: steps.mainver.outputs.already == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main
+          git checkout -B "${{ steps.version.outputs.branch }}" "origin/main"
+
+          chmod +x ./upgrade-versions.sh
+          ./upgrade-versions.sh "${{ steps.version.outputs.version }}"
+
+          if git status --porcelain | grep -q .; then
+            git add -A
+            git commit -m "chore(release): bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          else
+            echo "No changes after version bump; continuing."
+          fi
+
+          git push -u origin "${{ steps.version.outputs.branch }}" --force
+
+      # ──────────────────────────────────────────────────────────
+      # 4. GPG + Maven settings (needed for deploy)
+      # ──────────────────────────────────────────────────────────
       - name: Import GPG key
         shell: bash
         run: |
           echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --yes --import
-          # Optional: show keys for debugging
           gpg --list-secret-keys --keyid-format=long || true
 
-      # --- Maven settings.xml: define BOTH servers: github + central ---
       - name: Configure Maven settings.xml
         shell: bash
         run: |
@@ -74,14 +187,14 @@ jobs:
           </settings>
           XML
 
-      # --- Build once (optional but recommended) ---
+      # ──────────────────────────────────────────────────────────
+      # 5. Build & Deploy (from current branch: main or release/*)
+      # ──────────────────────────────────────────────────────────
       - name: Build & verify
         shell: bash
         run: |
           mvn -B -ntp -DskipTests=false verify
 
-      # --- Publish to GitHub Packages ---
-      # Requires pom.xml distributionManagement with id=github and url=https://maven.pkg.github.com/<OWNER>/<REPO>
       - name: Deploy to GitHub Packages (Maven Registry)
         shell: bash
         env:
@@ -89,8 +202,6 @@ jobs:
         run: |
           mvn -B -ntp -DskipTests -Pgithub deploy
 
-      # --- Publish to Maven Central (Central Portal) ---
-      # Assumes you configured central-publishing-maven-plugin under a profile, e.g. -Prelease-central
       - name: Deploy to Maven Central (Central Portal)
         shell: bash
         env:
@@ -99,3 +210,59 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           mvn -B -ntp -DskipTests -Pcentral deploy
+
+      # ──────────────────────────────────────────────────────────
+      # 6. Post-deploy: merge release branch into main (fire-and-forget)
+      #    Only runs when we created a release branch (not fast-path).
+      #    Deploy already succeeded, so merging is safe.
+      # ──────────────────────────────────────────────────────────
+      - name: Create PR and merge into main
+        if: steps.mainver.outputs.already == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          branch="${{ steps.version.outputs.branch }}"
+          version="${{ steps.version.outputs.version }}"
+
+          title="chore(release): $version"
+          body="Automated release PR — bumps Maven module versions to $version.
+
+          Deploy to GitHub Packages and Maven Central succeeded; merging version bump into main."
+
+          # Create PR (or reuse existing one)
+          url=$(gh pr create \
+            --head "$branch" \
+            --base "main" \
+            --title "$title" \
+            --body "$body" \
+            2>/dev/null || true)
+
+          if [[ -z "$url" ]]; then
+            url=$(gh pr view "$branch" --json url -q .url 2>/dev/null || true)
+          fi
+
+          if [[ -z "$url" ]]; then
+            echo "⚠️  No PR created/found (possibly no diff). Skipping merge."
+            exit 0
+          fi
+
+          echo "PR: $url"
+
+          # Merge immediately (squash). Deploy already succeeded so this is safe.
+          # Falls back to auto-merge if branch protection blocks direct merge.
+          gh pr merge --squash --delete-branch "$url" || {
+            echo "⚠️  Direct merge failed; enabling auto-merge instead."
+            gh pr merge --auto --squash --delete-branch "$url" || true
+          }
+
+      - name: Clean up release branch (fallback)
+        if: steps.mainver.outputs.already == 'false' && always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # If the PR merge already deleted the branch, this is a no-op.
+          git push origin --delete "${{ steps.version.outputs.branch }}" 2>/dev/null || true

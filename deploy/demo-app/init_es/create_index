@@ -9,6 +9,9 @@ PUT /dev_local_changelog
             "traceId": {
                 "type": "keyword"
             },
+            "correlationId": {
+                "type": "keyword"
+            },
             "model": {
                 "type": "keyword"
             },

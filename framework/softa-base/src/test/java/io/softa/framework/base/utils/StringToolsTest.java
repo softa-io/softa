@@ -14,5 +14,4 @@ class StringToolsTest {
         Assertions.assertEquals("json", StringTools.toUnderscoreCase("Json"));
         Assertions.assertEquals("s9001_test", StringTools.toUnderscoreCase("S9001Test"));
     }
-
 }

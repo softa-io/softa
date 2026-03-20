@@ -3,11 +3,13 @@ package io.softa.starter.flow.utils;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.Nullable;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.ValidationException;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
@@ -16,7 +18,6 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.flow.entity.FlowNode;
 import io.softa.starter.flow.node.NodeContext;
-import org.jspecify.annotations.Nullable;
 
 /**
  * Flow utility class.
@@ -29,17 +30,13 @@ public class FlowUtils {
      * Get the primary key list from the context based on the primary key variable.
      *
      * @param flowNode Flow node
-     * @param pkVariable Primary key variable
+     * @param pkToken Parsed placeholder token for the primary key variable
      * @param nodeContext Node context
      * @return ids Primary key list
      */
-    public static Collection<?> getIdsFromPkVariable(FlowNode flowNode, String pkVariable, NodeContext nodeContext) {
-        // String variable parameter `#{}` is obtained from the environment variables.
-        String variableName = pkVariable.substring(2, pkVariable.length() - 1);
-        Assert.isTrue(nodeContext.containsKey(variableName),
-                "In flow node {0}, the primary key parameter {1} does not exist in the nodeContext.",
-                flowNode.getName(), variableName);
-        Object pks = nodeContext.get(variableName);
+    public static Collection<?> getIdsFromPkVariable(FlowNode flowNode, PlaceholderToken pkToken, NodeContext nodeContext) {
+        // Variable placeholders `{{ }}` are resolved from the flow environment.
+        Object pks = PlaceholderUtils.extractVariable(pkToken, nodeContext.getEnv());
         if (pks == null) {
             return Collections.emptyList();
         } else if (pks instanceof Collection<?> pksCol) {
@@ -75,14 +72,26 @@ public class FlowUtils {
                                                          NodeContext nodeContext) {
         Map<String, Object> rowMap = new HashMap<>();
         rowTemplate.forEach((field, value) -> {
-            if (value instanceof String str && StringTools.isVariable(str)) {
-                // Extract variable parameters `#{}` from the environment variables.
-                Object fieldValue = StringTools.extractVariable(str, nodeContext.getEnv());
-                rowMap.put(field, fieldValue);
-            } else if (value instanceof String str && StringTools.isExpression(str)) {
-                // When the field value is a formula `${}`, the calculation result is converted to the actual value.
-                Object result = executeExpression(modelName, field, str, nodeContext);
-                rowMap.put(field, result);
+            if (value instanceof String str) {
+                PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(str);
+                if (placeholder != null) {
+                    switch (placeholder.getKind()) {
+                        case VARIABLE -> {
+                            // Resolve simple variable placeholders `{{ TriggerParams.id }}` from the environment.
+                            Object fieldValue = PlaceholderUtils.extractVariable(placeholder, nodeContext.getEnv());
+                            rowMap.put(field, fieldValue);
+                        }
+                        case EXPRESSION -> {
+                            // Evaluate expression placeholders `{{ expr }}` and convert the result to the target field type.
+                            Object result = executeExpression(modelName, field, placeholder.getContent(), nodeContext);
+                            rowMap.put(field, result);
+                        }
+                        case RESERVED_FIELD -> rowMap.put(field, value);
+                    }
+                } else {
+                    // When the value is a constant, directly assign the value to the field.
+                    rowMap.put(field, value);
+                }
             } else {
                 // When the value is a constant, directly assign the value to the field.
                 rowMap.put(field, value);
@@ -92,25 +101,24 @@ public class FlowUtils {
     }
 
     /**
-     * Execute the calculation expression `${}`.
+     * Execute the calculation expression.
      * The variables in the calculation expression must all be in the node context variables.
      *
      * @param modelName Model name of the data to be operated, when it is empty,
      *                  the result of the calculation formula is not converted.
      * @param field Field name
-     * @param expressionLabel Calculation expression label
+     * @param expression Calculation expression content (already extracted from the placeholder)
      * @param nodeContext Node context
      * @return Calculation expression result
      */
-    public static Object executeExpression(@Nullable String modelName, String field, String expressionLabel,
+    public static Object executeExpression(@Nullable String modelName, String field, String expression,
                                            NodeContext nodeContext) {
-        String expression = expressionLabel.substring(2, expressionLabel.length() - 1);
         // Determine if the variables in the calculation formula exist in the node context.
         List<String> dependentVariables;
         try {
             dependentVariables = ComputeUtils.getVariables(expression);
         } catch (ValidationException e) {
-            throw new IllegalArgumentException("The expression `{0}` is invalid.", expressionLabel);
+            throw new IllegalArgumentException("The expression `{0}` is invalid.", expression);
         }
         dependentVariables.removeAll(nodeContext.keySet());
         Assert.isTrue(dependentVariables.isEmpty(), """
@@ -126,7 +134,7 @@ public class FlowUtils {
     }
 
     /**
-     * Convert variables in Filters to actual values, `#{}`.
+     * Convert placeholders in Filters to actual values.
      *
      * @param modelName Model name of the current node parameter
      * @param filters Filters
@@ -140,18 +148,26 @@ public class FlowUtils {
                 && filters.getFilterUnit() != null
                 && filters.getFilterUnit().getValue() instanceof String paramValue) {
             FilterUnit filterUnit = filters.getFilterUnit();
-            if (StringTools.isVariable(paramValue)) {
-                // Extract variable parameter values `#{}`.
-                Object value = StringTools.extractVariable(paramValue, nodeContext.getEnv());
-                filterUnit.setValue(value);
-                validateFilterUnitValue(filterUnit, paramValue);
-            } else if (StringTools.isExpression(paramValue)) {
-                // Execute the calculation expression `${}`, where the field in FilterUnit allows cascaded definition,
-                // and the type of the last field is used as the actual assignment type.
-                MetaField lastField = ModelManager.getLastFieldOfCascaded(modelName, filterUnit.getField());
-                Object value = executeExpression(modelName, lastField.getFieldName(), paramValue, nodeContext);
-                filterUnit.setValue(value);
-                validateFilterUnitValue(filterUnit, paramValue);
+            PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(paramValue);
+            if (placeholder != null) {
+                switch (placeholder.getKind()) {
+                    case VARIABLE -> {
+                        // Resolve simple variable placeholders `{{ TriggerParams.id }}` from the environment.
+                        Object value = PlaceholderUtils.extractVariable(placeholder, nodeContext.getEnv());
+                        filterUnit.setValue(value);
+                        validateFilterUnitValue(filterUnit, paramValue);
+                    }
+                    case EXPRESSION -> {
+                        // Execute the calculation expression `{{ expr }}`, where the field in FilterUnit allows cascaded definition,
+                        // and the type of the last field is used as the actual assignment type.
+                        MetaField lastField = ModelManager.getLastFieldOfCascaded(modelName, filterUnit.getField());
+                        Object value = executeExpression(modelName, lastField.getFieldName(), placeholder.getContent(), nodeContext);
+                        filterUnit.setValue(value);
+                        validateFilterUnitValue(filterUnit, paramValue);
+                    }
+                    case RESERVED_FIELD -> {
+                    }
+                }
             }
         } else if (FilterType.TREE.equals(filters.getType()) && filters.getChildren() != null) {
             List<Filters> children = filters.getChildren();

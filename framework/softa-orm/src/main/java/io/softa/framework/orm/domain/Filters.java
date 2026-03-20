@@ -50,9 +50,9 @@ import static io.softa.framework.orm.enums.FilterType.EMPTY;
  *      [["title", "=", "PM"], ["grade", "=", 6]]
  *      [["title", "=", "PM"], "OR", ["code", "=", "A010"], "OR", ["grade", "=", 6]]
  *      [[["title", "=", "PM"], "OR", ["code", "=", "A010"]], "AND", ["grade", "=", 6]]
- *  Support value using @{fieldName} to reserve field name for field comparison.
+ *  Support value using {{ @fieldName }} to reserve field name for field comparison.
  *  For example,
- *      ["updatedTime", ">", "@{createdTime}"] converts to sql: `updated_time > created_time`
+ *      ["updatedTime", ">", "{{ @createdTime }}"] converts to sql: `updated_time > created_time`
  *  The reserved field name must be a field of the same model as the leftmost field name.
  * <p>
  *  Example of semantic query:

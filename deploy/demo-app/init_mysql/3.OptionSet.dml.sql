@@ -40,31 +40,6 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AccessType','Update','Update',3,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AccessType','Delete','Delete',4,'','','');
 
--- Option Set: WidgetType
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='WidgetType';
-DELETE FROM sys_option_item WHERE option_set_code='WidgetType';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('WidgetType','Widget Type','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','URL','URL',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','CheckBox','Check Box',10,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','StatusBar','Status Bar',11,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Image','Single Image',12,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','MultiImage','Multi Image',13,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','yyyy-MM','Year-Month Picker',14,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','MM-dd','Month-Day Picker',15,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','HH:mm','Hour-Minute Picker',16,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','HH:mm:ss','Time Picker',17,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Email','Email',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Html','HTML',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Text','Text',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Color','Color Picker',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Monetary','Monetary',6,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Percentage','Percentage',7,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Slider','Slider',8,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Radio','Radio Button',9,'','','');
-
 -- Option Set: RoleUserFilter
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='RoleUserFilter';
@@ -99,6 +74,36 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ViewType','Calendar','Calendar',5,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ViewType','Dashboard','Dashboard',6,'','','');
 
+-- Option Set: WidgetType
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='WidgetType';
+DELETE FROM sys_option_item WHERE option_set_code='WidgetType';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('WidgetType','Widget Type','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','URL','URL',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','CheckBox','Check Box',10,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','JsonTree','JSON Tree',11,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','StatusBar','Status Bar',11,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','SelectTree','Select Tree',11,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','TagList','Tag List',11,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Image','Single Image',12,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','MultiImage','Multi Image',13,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','yyyy-MM','Year-Month Picker',14,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','MM-dd','Month-Day Picker',15,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','HH:mm','Hour-Minute Picker',16,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','HH:mm:ss','Time Picker',17,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Email','Email',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Text','Text',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','RichText','Rich Text',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Code','Code',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Markdown','Markdown',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Color','Color Picker',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Monetary','Monetary',6,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Percentage','Percentage',7,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Slider','Slider',8,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Radio','Radio Button',9,'','','');
+
 -- Option Set: RoleDataFilter
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='RoleDataFilter';
@@ -115,10 +120,10 @@ DELETE FROM sys_option_item WHERE option_set_code='DeptLevel';
 -- Insert option set
 INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DeptLevel','部门级别','销售部门级别，根据部门表的 type 和 deptRank 字段计算得出。示例 一级大区 type=05,deptRank=4; 二级大区 type=05,deptRank=5; 城市 type=05,deptRank=6。');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','Full','全部部门',1,'','light,purple','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','FirstLevelRegion','一级大区',2,'','light,red','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','SecondLevelRegion','二级大区',3,'','light,yellow','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','City','城市',4,'','light,green','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','Full','全部部门',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','FirstLevelRegion','一级大区',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','SecondLevelRegion','二级大区',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','City','城市',4,'','','');
 
 -- Option Set: RoleDataValueFilter
 -- Clean up historical data
@@ -146,6 +151,18 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','Success','Success',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','Failure','Failure',3,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','PartialFailure','Partial Failure',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','ValidationSuccess','Validation Success',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','ValidationFailure','Validation Failure',6,'','','');
+
+-- Option Set: ImportType
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='ImportType';
+DELETE FROM sys_option_item WHERE option_set_code='ImportType';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('ImportType','Import Type','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportType','Import','Import',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportType','Validate','Validate',2,'','','');
 
 -- Option Set: ImportRule
 -- Clean up historical data
@@ -329,17 +346,29 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ActionGetDataType','Exist','Exist',5,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ActionGetDataType','Count','Count',6,'','','');
 
--- Option Set: PublishStatus
+-- Option Set: DesignReleaseStatus
 -- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='PublishStatus';
-DELETE FROM sys_option_item WHERE option_set_code='PublishStatus';
+DELETE FROM sys_option_set WHERE option_set_code='DesignReleaseStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignReleaseStatus';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('PublishStatus','Publish Status','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignReleaseStatus','Design Release Status','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PublishStatus','Unreleased','Unreleased',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PublishStatus','InRelease','In Release',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PublishStatus','Released','Released',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PublishStatus','Failure','Failure',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseStatus','Draft','Draft',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseStatus','Frozen','Frozen',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseStatus','Archived','Archived',3,'','','');
+
+-- Option Set: DesignReleaseDeployStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignReleaseDeployStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignReleaseDeployStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignReleaseDeployStatus','Design Release Deploy Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Pending','Pending',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Deploying','Deploying',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Success','Success',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Failure','Failure',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','RolledBack','Rolled Back',5,'','','');
 
 -- Option Set: DatabaseType
 -- Clean up historical data
@@ -356,17 +385,62 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','Redis','Redis',6,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','Ignite','Ignite',7,'','','');
 
--- Option Set: AppEnvType
+-- Option Set: DesignAppStatus
 -- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='AppEnvType';
-DELETE FROM sys_option_item WHERE option_set_code='AppEnvType';
+DELETE FROM sys_option_set WHERE option_set_code='DesignAppStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignAppStatus';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('AppEnvType','App Env Type','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignAppStatus','Design App Status','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AppEnvType','Dev','Dev',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AppEnvType','Test','Test',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AppEnvType','UAT','UAT',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AppEnvType','Prod','Prod',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Active','Active',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Maintenance','Maintenance',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Deprecated','Deprecated',3,'','','');
+
+-- Option Set: DesignPortfolioStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignPortfolioStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignPortfolioStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignPortfolioStatus','Design Portfolio Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignPortfolioStatus','Active','Active',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignPortfolioStatus','Archived','Archived',2,'','','');
+
+-- Option Set: DesignWorkItemStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignWorkItemStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignWorkItemStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignWorkItemStatus','Design Work Item Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','InProgress','In Progress',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Ready','Ready',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Deferred','Deferred',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Done','Done',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Cancelled','Cancelled',5,'','','');
+
+-- Option Set: DesignAppEnvType
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignAppEnvType';
+DELETE FROM sys_option_item WHERE option_set_code='DesignAppEnvType';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignAppEnvType','Design App Env Type','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvType','Dev','Dev',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvType','Test','Test',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvType','UAT','UAT',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvType','Prod','Prod',4,'','','');
+
+-- Option Set: DesignAppVersionStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignAppVersionStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignAppVersionStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignAppVersionStatus','Design App Version Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionStatus','Draft','Draft',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionStatus','Sealed','Sealed',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionStatus','Frozen','Frozen',3,'','','');
 
 -- Option Set: IdStrategy
 -- Clean up historical data
@@ -563,7 +637,7 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 DELETE FROM sys_option_set WHERE option_set_code='Language';
 DELETE FROM sys_option_item WHERE option_set_code='Language';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('Language','','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('Language','Language','');
 -- Insert option set items
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('Language','en-US','English (US)',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('Language','zh-CN','Chinese (Simplified) / 简体中文',2,'','','');
@@ -777,6 +851,16 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('LoginStatus','Invalid','Invalid',0,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('LoginStatus','NotFound','Not Found',0,'','','');
 
+-- Option Set: UserLayoutDensity
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='UserLayoutDensity';
+DELETE FROM sys_option_item WHERE option_set_code='UserLayoutDensity';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('UserLayoutDensity','User Layout Density','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('UserLayoutDensity','Compact','Compact',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('UserLayoutDensity','Comfortable','Comfortable',2,'','','');
+
 -- Option Set: TenantStatus
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='TenantStatus';
@@ -802,3 +886,13 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycleStage','Offboarding','Offboarding',0,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycleStage','Archived','Archived',0,'','','');
 
+-- Option Set: DocumentTemplateType
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DocumentTemplateType';
+DELETE FROM sys_option_item WHERE option_set_code='DocumentTemplateType';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DocumentTemplateType','Document Template Type','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','RichText','Rich Text',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','Word','Word',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','PDF','PDF',3,'','','');

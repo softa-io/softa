@@ -7,6 +7,7 @@ import com.google.common.collect.Sets;
 import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -1183,9 +1184,53 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         return jdbcService.getIds(modelName, ModelConstant.ID, flexQuery);
     }
 
+    /**
+     * Get the mapping of business keys to IDs for the specified model.
+     * Each business key is a list of field values corresponding to the uniqueFields.
+     * The lookup result for each unique key must be exactly one row; otherwise, an exception is thrown.
+     *
+     * @param modelName the name of the model
+     * @param uniqueFields the ordered list of field names forming the unique key
+     * @param businessKeys the collection of business key value lists to look up
+     * @return a map from business key (as a list of values) to the corresponding row ID
+     */
+    @Override
+    public Map<List<Object>, K> getIdsByBusinessKeys(String modelName, List<String> uniqueFields, Collection<List<Object>> businessKeys) {
+        Assert.notEmpty(uniqueFields, "The uniqueFields for model {0} cannot be empty.", modelName);
+        if (CollectionUtils.isEmpty(businessKeys)) {
+            return Collections.emptyMap();
+        }
+        // Normalize business key values
+        List<UniqueKey> normalizedKeys = businessKeys.stream()
+                .map(values -> {
+                    List<Object> normalized = new ArrayList<>(values.size());
+                    for (int i = 0; i < uniqueFields.size(); i++) {
+                        normalized.add(normalizeUniqueConstraintValue(modelName, uniqueFields.get(i), values.get(i)));
+                    }
+                    return new UniqueKey(normalized);
+                }).toList();
+        Filters filters = this.buildUniqueConstraintFilters(uniqueFields, normalizedKeys);
+        List<String> fields = new ArrayList<>(List.of(ModelConstant.ID));
+        fields.addAll(uniqueFields);
+        FlexQuery flexQuery = new FlexQuery(fields, filters);
+        List<Map<String, Object>> dbRows = this.searchList(modelName, flexQuery);
+        Map<List<Object>, K> result = new HashMap<>();
+        for (Map<String, Object> dbRow : dbRows) {
+            List<Object> keyValues = new ArrayList<>(uniqueFields.size());
+            for (String field : uniqueFields) {
+                keyValues.add(normalizeUniqueConstraintValue(modelName, field, dbRow.get(field)));
+            }
+            Assert.notTrue(result.containsKey(keyValues),
+                    "The business key `{0}` of uniqueFields `{1}` is duplicated in database model `{2}`.",
+                    keyValues, uniqueFields, modelName);
+            result.put(keyValues, Cast.of(dbRow.get(ModelConstant.ID)));
+        }
+        return result;
+    }
+
     private record UniqueKey(List<Object> values) {
         @Override
-        public String toString() {
+        public @NonNull String toString() {
             return values.toString();
         }
     }

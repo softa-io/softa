@@ -77,4 +77,49 @@ public class ImportController {
         return ApiResponse.success(importService.importByDynamic(importWizard));
     }
 
+    /**
+     * Validate import data from the uploaded file without persisting.
+     * Supports both template import (by templateId) and dynamic import (by ImportWizard).
+     *
+     * <p>Template import: provide templateId and file as request parameters.
+     * <p>Dynamic import: provide file and wizard as multipart form data parts.
+     *
+     * @param templateId   (optional) the ID of the import template for template-based validation
+     * @param file         the uploaded file
+     * @param jsonEnv      (optional) environment variables in JSON format, used with template import
+     * @param importWizard (optional) the import wizard JSON payload for dynamic validation
+     * @return the validation result as ImportHistory (with validation status, failed file, etc.)
+     */
+    @Operation(description = "Validate import data from the uploaded file without persisting")
+    @PostMapping(value = "/validateImport", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<ImportHistory> validateImport(
+            @RequestParam(name = "templateId", required = false) Long templateId,
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(name = "env", required = false) String jsonEnv,
+            @RequestPart(name = "wizard", required = false) ImportWizard importWizard) {
+        String fileName = file.getOriginalFilename();
+        Assert.isTrue(StringUtils.isNotBlank(fileName), "File name cannot be empty!");
+        Assert.notNull(file, "File cannot be empty!");
+        if (templateId != null) {
+            // Template-based validation
+            Map<String, Object> env = null;
+            if (StringUtils.isNotBlank(jsonEnv)) {
+                try {
+                    env = JsonUtils.stringToObject(jsonEnv, new TypeReference<>() {});
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("The string of environment variables must be in JSON format: {0}", jsonEnv, e);
+                }
+            }
+            return ApiResponse.success(importService.validateByTemplate(templateId, file, env));
+        } else if (importWizard != null) {
+            // Dynamic validation
+            importWizard.setFile(file);
+            Assert.notNull(importWizard.getImportRule(), "ImportRule cannot be null.");
+            Assert.notEmpty(importWizard.getImportFieldDTOList(), "Import fields cannot be empty.");
+            return ApiResponse.success(importService.validateByDynamic(importWizard));
+        } else {
+            throw new IllegalArgumentException("Either templateId or wizard must be provided for validation.");
+        }
+    }
+
 }
