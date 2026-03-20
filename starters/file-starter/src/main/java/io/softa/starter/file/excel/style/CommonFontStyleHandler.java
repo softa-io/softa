@@ -20,6 +20,7 @@ public class CommonFontStyleHandler implements CellWriteHandler {
         writeFont.setFontName(FileConstant.DEFAULT_EXCEL_FONT_NAME);
         if (context.getHead()) {
             writeFont.setFontHeightInPoints(FileConstant.DEFAULT_EXCEL_HEAD_FONT_SIZE);
+            writeFont.setColor(FileConstant.DEFAULT_EXCEL_HEAD_FONT_COLOR);
         } else {
             writeFont.setFontHeightInPoints(FileConstant.DEFAULT_EXCEL_BODY_FONT_SIZE);
         }

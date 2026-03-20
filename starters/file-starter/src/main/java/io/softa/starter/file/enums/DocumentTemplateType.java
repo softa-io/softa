@@ -7,9 +7,10 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum DocumentTemplateType {
-    PDF("PDF", "Upload a PDF template"),
+    RICH_TEXT("RichText", "Online Rich Text Editor"),
     WORD("Word", "Upload a Word template"),
-    RICH_TEXT("RichText", "Online Rich Text Editor"),;
+    PDF("PDF", "Upload a PDF template"),
+    ;
 
     @JsonValue
     private final String type;

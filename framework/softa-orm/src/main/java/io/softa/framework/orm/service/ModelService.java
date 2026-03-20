@@ -534,4 +534,19 @@ public interface ModelService<K extends Serializable> {
      * @return a list of IDs that exist
      */
     List<K> filterExistIds(String modelName, Collection<K> ids);
+
+    /**
+     * Get the mapping of business keys to IDs for the specified model.
+     * Each business key is a list of field values corresponding to the uniqueFields.
+     * The lookup result for each unique key must be exactly one row; otherwise, an exception is thrown.
+     * <p>
+     * When uniqueFields contains a single field, an IN query is used for optimization.
+     * When uniqueFields contains multiple fields, a tupleIn query is used.
+     *
+     * @param modelName the name of the model
+     * @param uniqueFields the ordered list of field names forming the unique key
+     * @param businessKeys the collection of business key value lists to look up
+     * @return a map from business key (as a list of values) to the corresponding row ID
+     */
+    Map<List<Object>, K> getIdsByBusinessKeys(String modelName, List<String> uniqueFields, Collection<List<Object>> businessKeys);
 }

@@ -151,6 +151,18 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','Success','Success',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','Failure','Failure',3,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','PartialFailure','Partial Failure',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','ValidationSuccess','Validation Success',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportStatus','ValidationFailure','Validation Failure',6,'','','');
+
+-- Option Set: ImportType
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='ImportType';
+DELETE FROM sys_option_item WHERE option_set_code='ImportType';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('ImportType','Import Type','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportType','Import','Import',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportType','Validate','Validate',2,'','','');
 
 -- Option Set: ImportRule
 -- Clean up historical data
@@ -881,7 +893,6 @@ DELETE FROM sys_option_item WHERE option_set_code='DocumentTemplateType';
 -- Insert option set
 INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DocumentTemplateType','Document Template Type','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','PDF','PDF',0,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','Word','Word',0,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','RichText','Rich Text',0,'','','');
-
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','RichText','Rich Text',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','Word','Word',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','PDF','PDF',3,'','','');
