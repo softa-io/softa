@@ -1,9 +1,10 @@
 # File Starter
 
-File Starter provides three core capabilities for developers:
-- Data import
-- Data export
-- Document export (Word/PDF)
+File Starter provides four core capabilities for developers:
+- [Data import](./import)
+- [Data export](./export)
+- [Document export (Word/PDF)](./document)
+- Document signing
 
 This document focuses on developer usage and API-level examples.
 
@@ -13,7 +14,7 @@ This document focuses on developer usage and API-level examples.
 - `excel/export/support`: shared export support components such as data fetch, template resolve, writer, upload, and custom export hooks
 - `excel/imports`: import pipeline, handler factory, failure collection, persistence, and custom import hook
 - `excel/style`: shared Excel style handlers
-- `file/`: document file generators (Word, PDF)
+- `file/`: document file generators and PDF signing helpers (Word, PDF, signing)
 
 ## Dependency
 ```xml
@@ -28,9 +29,10 @@ This document focuses on developer usage and API-level examples.
 - OSS storage (Minio or other supported providers) for template files and generated files.
 - Pulsar is required if you use async import.
 - Database contains file metadata tables and file-starter tables:
-  ImportTemplate, ImportTemplateField, ImportHistory,
-  ExportTemplate, ExportTemplateField, ExportHistory,
-  DocumentTemplate.
+  - Import: ImportTemplate, ImportTemplateField, ImportHistory,
+  - Export: ExportTemplate, ExportTemplateField, ExportHistory,
+  - Document: DocumentTemplate,
+  - Signing: SigningRequest, SigningDocument.
 
 ## Configuration
 ### MQ topics (async import)
@@ -58,8 +60,16 @@ oss:
 
 ## A. Data Import
 File Starter supports two import modes:
-- Import by configured template (ImportTemplate + ImportTemplateField)
-- Dynamic mapping import (no template, mapping provided in request)
+1. Import by configured template (ImportTemplate + ImportTemplateField)
+  - Import by configured template (ImportTemplate + ImportTemplateField)
+  - supports template download
+  - submits uploaded files through the configured template
+
+2. Dynamic mapping import (no template, mapping provided in request)
+  - Dynamic mapping import (no template, mapping provided in request)
+  - parses the uploaded `.xlsx` workbook in the browser
+  - auto-maps workbook headers to model fields using metadata
+  - lets the user adjust mappings before submit
 
 ### ImportTemplate Configuration Table
 | Field | Type | Default | Description |
@@ -87,7 +97,7 @@ File Starter supports two import modes:
 | `defaultValue` | String | `null` | Default value (supports `{{ expr }}`) |
 | `description` | String | `null` | Description text |
 
-### A1. Import By Template (Configured)
+### 1. Import By Template (Configured)
 1. Configure ImportTemplate and ImportTemplateField
 
 ImportTemplate key fields:
@@ -103,7 +113,7 @@ Notes:
 - If `syncImport = true`, import is executed in-process.
 - If `syncImport = false`, an async import message is sent to MQ.
 
-### A1.1 Relation Lookup Import (Cascaded Import)
+### 1.1 Relation Lookup Import (Cascaded Import)
 The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic import) supports **dotted-path relation lookup** via `RelationLookupResolver`. Instead of importing a raw FK id, you can import a human-readable business key of the related model, and the system will reverse-lookup the FK id automatically.
 
 **Syntax:** `{fkField}.{businessKey}` — e.g. `deptId.code`, `deptId.name`
@@ -184,7 +194,7 @@ curl -X POST http://localhost:8080/import/importByTemplate \
   -F file=@/path/to/import.xlsx
 ```
 
-### A2. Dynamic Mapping Import (No Template)
+### 2. Dynamic Mapping Import (No Template)
 Endpoint:
 - `POST /import/dynamicImport`
 
@@ -216,12 +226,12 @@ curl -X POST http://localhost:8080/import/dynamicImport \
   };type=application/json'
 ```
 
-### A3. Import Result and Failed Rows
+### 3. Import Result and Failed Rows
 - Import returns `ImportHistory`.
 - If any row fails, a “failed data” Excel file is generated and saved, with a `Failed Reason` column.
 - Import status can be `PROCESSING`, `SUCCESS`, `FAILURE`, `PARTIAL_FAILURE`.
 
-### A4. Custom Import Handler
+### 4. Custom Import Handler
 You can register a Spring bean implementing `CustomImportHandler` and reference it by name in
 `ImportTemplate.customHandler` or `ImportWizard.customHandler`.
 
@@ -244,9 +254,25 @@ Contract:
 
 ## B. Data Export
 File Starter supports three export modes:
-- Export by template fields
-- Export by file template
-- Dynamic export
+1. Export by template fields
+  - builds candidate fields from current model metadata
+  - defaults selected fields to the currently visible table columns
+  - lets the user change fields, file name, and sheet name
+  - generates `.xlsx` workbooks for front-end initiated exports
+2. Export by file template
+    - uses an uploaded Excel template file with `{{ field }}` placeholders
+    - extracts variables from the template to determine which fields to query
+    - generates `.xlsx` workbooks by rendering the template with data
+
+3. Dynamic export
+  - exports without a template by providing fields and filters directly in the request
+
+Built-in export supports three scopes:
+- `Selected Rows` uses the current toolbar bulk selection ids
+- `Current Page` uses the current page id snapshot, not `pageNumber/pageSize` replay
+- `All Filtered Data` reuses current `filters/orders/groupBy/aggFunctions/effectiveDate`
+
+Front-end export is limited to `100000` records for a single request; over-limit scopes are disabled instead of truncated.
 
 ### ExportTemplate Configuration Table
 | Field | Type | Default | Description |
@@ -314,7 +340,7 @@ JSON
 
 Result Excel columns: `Name | Department | Dept Manager`
 
-### B1. Export By Template Fields
+### 1. Export By Template Fields
 1. Configure ExportTemplate and ExportTemplateField
 
 ExportTemplate key fields:
@@ -348,7 +374,7 @@ curl -X POST http://localhost:8080/export/exportByTemplate?exportTemplateId=2001
 JSON
 ```
 
-### B2. Export By File Template (Upload Template File)
+### 2. Export By File Template (Upload Template File)
 This mode uses an uploaded Excel template file with placeholders like `{{ field }}` or `{{ object.field }}`.
 The system extracts variables from the template to decide which fields to query.
 
@@ -376,7 +402,7 @@ JSON
 - `{{ deptId.name }}` — cascaded field reference (resolved by the ORM layer)
 - The `{{ }}` syntax is normalized to underlying Fesod `{}` syntax before rendering
 
-### B3. Dynamic Export
+### 3. Dynamic Export
 Export without a template by providing fields and filters directly.
 
 Endpoint:
@@ -398,7 +424,7 @@ curl -X POST 'http://localhost:8080/export/dynamicExport?modelName=Product&fileN
 JSON
 ```
 
-### B4. Custom Export Handler
+### 4. Custom Export Handler
 You can register a Spring bean implementing `CustomExportHandler` and reference it by name in
 `ExportTemplate.customHandler`.
 
@@ -496,6 +522,152 @@ The `generateDocument(templateId, data)` overload skips the model data fetch ste
 - The data comes from an external source or custom aggregation.
 - You want to render a document from a non-model data structure.
 
+## D. Document Signing
+File Starter also provides a lightweight signing flow built on top of `SigningRequest` and `SigningDocument`.
+
+### Signing Model
+- `SigningRequest`: signing transaction header, recipient, status, expiration time, and related `SigningDocument` list.
+- `SigningDocument`: one signable document under a signing request.
+
+Current implementation stores a compact set of top-level fields on `SigningDocument`:
+- business fields: `signingRequestId`, `templateId`, `signSlotCode`, `status`
+- generated file fields: `signedImageId`, `signedPdfId`
+- signer fields: `signerUserId`, `signerName`, `signedAt`
+- audit correlation: `evidenceId`
+- full evidence payload: `signatureEvidence` (`JsonNode`)
+
+`signatureEvidence` contains:
+- `evidenceId`
+- `signSlotCode`
+- `clientPayload`
+- `resolvedPlacement`
+- `resolvedRenderOptions`
+- `serverEvidence`
+  - `signatureMethod`
+  - `signerUserId`, `signerName`
+  - `serverSignedAt`
+  - `clientIp`, `userAgent`
+  - `signatureImageFileId`, `generatedSignedFileId`, `originalTemplateFileId`
+  - `originalPdfSha256`, `signatureImageSha256`, `signedPdfSha256`
+
+### Status
+`SigningRequestStatus`:
+- `Draft`
+- `Sent`
+- `InProgress`
+- `Completed`
+- `Cancelled`
+- `Expired`
+
+`SigningDocumentStatus`:
+- `Pending`
+- `InProgress`
+- `Completed`
+
+### Sign Endpoint
+Endpoint:
+- `POST /SigningDocument/sign?id={id}`
+
+Content type:
+- `multipart/form-data`
+
+Parts:
+- `signatureFile`: handwritten signature image file, usually PNG
+- `payload`: JSON payload of `SigningDocumentSignRequest`
+
+Request DTO:
+```json
+{
+  "signSlotCode": "EMPLOYEE_SIGN",
+  "placement": {
+    "page": 1,
+    "x": 120,
+    "y": 90,
+    "width": 180,
+    "height": 64,
+    "unit": "PT"
+  },
+  "evidence": {
+    "signatureMethod": "DRAW",
+    "clientSignedAt": "2026-03-24T10:15:30+08:00",
+    "clientTimeZone": "Asia/Shanghai",
+    "consentAccepted": true,
+    "consentTextVersion": "v1",
+    "signerDisplayName": "Alice",
+    "userAgent": "Mozilla/5.0",
+    "canvasWidth": 800,
+    "canvasHeight": 240
+  },
+  "renderOptions": {
+    "flattenToPdf": true,
+    "keepSignatureImage": true,
+    "imageScaleMode": "FIT"
+  }
+}
+```
+
+Response DTO:
+```json
+{
+  "signingDocumentId": 9001,
+  "status": "Completed",
+  "signedFile": {
+    "fileId": 701,
+    "fileName": "contract_signed_20260324.pdf",
+    "fileType": "PDF",
+    "url": "https://...",
+    "size": 256,
+    "checksum": "..."
+  },
+  "signatureImageFile": {
+    "fileId": 700,
+    "fileName": "signature.png",
+    "fileType": "PNG",
+    "url": "https://...",
+    "size": 12,
+    "checksum": "..."
+  },
+  "signedAt": "2026-03-24T10:15:32+08:00",
+  "evidenceId": "abc123"
+}
+```
+
+### Signing Rules
+The current `sign` flow completes the following steps in one request:
+1. Validate current user, recipient, signing request status, and expiration time.
+2. Upload the signature image file and persist `signedImageId`.
+3. Build the original PDF from `DocumentTemplate`.
+4. Resolve signature placement:
+   - Prefer `signSlotCode` by locating a PDF form field in the source PDF.
+   - Fallback to `placement` if the slot does not exist or the source PDF has no matching field.
+5. Stamp the signature image onto the PDF.
+6. Upload the signed PDF and persist `signedPdfId`.
+7. Persist `signatureEvidence`, `evidenceId`, signer info, and sign timestamp.
+8. Update `SigningDocument.status` and refresh `SigningRequest.status`.
+
+### Placement Resolution
+- `signSlotCode` is the recommended mode for template-defined sign slots.
+- `placement` is the fallback for free positioning.
+- Supported placement units:
+  - `PT`
+  - `PX`
+  - `MM`
+  - `CM`
+  - `IN`
+
+### Current Limitation
+The current signing implementation builds the original PDF only from `DocumentTemplate`:
+- `DocumentTemplate.fileId` with `PDF` is used directly
+- `DocumentTemplate.fileId` with `DOCX` is rendered with empty data and then converted to PDF
+- `DocumentTemplate.htmlTemplate` is rendered with empty data and converted to PDF
+
+This means the current implementation is suitable for:
+- signing fixed PDF templates
+- signing static DOCX or HTML templates without business-row rendering
+
+It does not yet support:
+- signing a document that must first be rendered with business row data and then assigned to a `SigningDocument`
+
 ## REST APIs (Summary)
 - Import
   - `POST /import/importByTemplate`
@@ -506,6 +678,8 @@ The `generateDocument(templateId, data)` overload skips the model data fetch ste
   - `POST /export/dynamicExport`
 - Document
   - `GET /DocumentTemplate/generateDocument`
+- Signing
+  - `POST /SigningDocument/sign`
 - Template Listing
   - `POST /ImportTemplate/listByModel`
   - `POST /ExportTemplate/listByModel`
