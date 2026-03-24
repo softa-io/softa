@@ -636,34 +636,44 @@ CREATE TABLE design_work_item(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Work Item';
 
-CREATE TABLE design_release(
-    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
+CREATE TABLE design_deployment(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    app_id BIGINT(32) NOT NULL   COMMENT 'App ID' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
+    source_version_id BIGINT(32)    COMMENT 'Source Version ID' ,
+    target_version_id BIGINT(32)    COMMENT 'Target Version ID' ,
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    status VARCHAR(64)   DEFAULT 'Draft' COMMENT 'Status' ,
+    full_publish TINYINT(1)   DEFAULT 0 COMMENT 'Full Publish' ,
+    deploy_status VARCHAR(64)   DEFAULT 'Pending' COMMENT 'Deploy Status' ,
     description VARCHAR(256)    COMMENT 'Description' ,
-    blocked_reason VARCHAR(256)    COMMENT 'Blocked Reason' ,
+    diff_hash VARCHAR(128)    COMMENT 'Diff Hash' ,
+    merged_content MEDIUMTEXT    COMMENT 'Merged Content' ,
+    merged_ddl_table MEDIUMTEXT    COMMENT 'Merged Table DDL' ,
+    merged_ddl_index TEXT(20000)    COMMENT 'Merged Index DDL' ,
+    deploy_duration DOUBLE(24,2)    COMMENT 'Deploy Duration (S)' ,
+    started_time DATETIME    COMMENT 'Started Time' ,
+    finished_time DATETIME    COMMENT 'Finished Time' ,
+    operator_id VARCHAR(32)    COMMENT 'Operator' ,
+    error_message VARCHAR(256)    COMMENT 'Error Message' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT false COMMENT 'Deleted' ,
+    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Release';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Deployment';
 
-CREATE TABLE design_release_version(
-    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-    release_id BIGINT(32)    COMMENT 'Release ID' ,
+CREATE TABLE design_deployment_version(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    deployment_id BIGINT(32)    COMMENT 'Deployment ID' ,
     version_id BIGINT(32)    COMMENT 'Version ID' ,
-    sequence INT(11)   DEFAULT 1 COMMENT 'sequence' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    sequence INT(11)   DEFAULT 1 COMMENT 'Merge Sequence' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT false COMMENT 'Deleted' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Release Version';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Deployment Version';
 
 CREATE TABLE design_app_env(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -696,7 +706,6 @@ CREATE TABLE design_app_version(
     description VARCHAR(256)   DEFAULT '' COMMENT 'Upgrade description' ,
     ddl_table MEDIUMTEXT    COMMENT 'Table DDL' ,
     ddl_index TEXT(20000)    COMMENT 'Index DDL' ,
-    parent_version_id BIGINT(32)    COMMENT 'Parent Version' ,
     versioned_content MEDIUMTEXT    COMMENT 'Version Content' ,
     status VARCHAR(64)    COMMENT 'Status' ,
     sealed_time DATETIME    COMMENT 'Sealed Time' ,
@@ -726,25 +735,6 @@ CREATE TABLE design_app_env_diff(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App Env Diff';
 
-CREATE TABLE design_release_deployment(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32) NOT NULL   COMMENT 'App ID' ,
-    release_id BIGINT(32) NOT NULL   COMMENT 'Release ID' ,
-    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
-    deploy_status VARCHAR(64)    COMMENT 'Deploy Status' ,
-    deploy_duration DOUBLE(24,2)    COMMENT 'Deploy Duration (S)' ,
-    deploy_content MEDIUMTEXT    COMMENT 'Deploy Content' ,
-    started_time VARCHAR(32)    COMMENT 'Started Time' ,
-    finished_time VARCHAR(32)    COMMENT 'Finished Time' ,
-    operator_id VARCHAR(32)    COMMENT 'Operator' ,
-    error_message VARCHAR(32)    COMMENT 'Error Message' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Release Deployment';
 
 CREATE TABLE sys_app(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -785,7 +775,7 @@ CREATE TABLE sys_data_source(
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'External Data Source;The default datasource is configured in the spring.datasource configuration.
 This model is used to configure additional external data sources.';
 
-CREATE TABLE design_field_type_mapping(
+CREATE TABLE design_field_db_mapping(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     database_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Database Type' ,
     field_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Type' ,
@@ -799,7 +789,87 @@ CREATE TABLE design_field_type_mapping(
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field Type Mapping;Mapping between the FieldType and the column type of the database.';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field DB Mapping;Mapping between the FieldType and the column type of the database.';
+
+CREATE TABLE design_field_type_default(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    field_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Type' ,
+    default_value VARCHAR(256)   DEFAULT '' COMMENT 'Default Value' ,
+    length INT(11)    COMMENT 'Length' ,
+    scale INT(11)    COMMENT 'Scale' ,
+    required TINYINT(1)   DEFAULT 0 COMMENT 'Is Required' ,
+    readonly TINYINT(1)   DEFAULT 0 COMMENT 'Is Readonly' ,
+    hidden TINYINT(1)   DEFAULT 0 COMMENT 'Hidden' ,
+    translatable TINYINT(1)   DEFAULT 0 COMMENT 'Translatable' ,
+    non_copyable TINYINT(1)   DEFAULT 0 COMMENT 'Non Copyable' ,
+    unsearchable TINYINT(1)   DEFAULT 0 COMMENT 'Unsearchable' ,
+    computed TINYINT(1)   DEFAULT 0 COMMENT 'Is Computed' ,
+    dynamic TINYINT(1)   DEFAULT 0 COMMENT 'Dynamic Field' ,
+    encrypted TINYINT(1)   DEFAULT 0 COMMENT 'Is Encrypted' ,
+    masking_type VARCHAR(64)   DEFAULT '' COMMENT 'Masking Type' ,
+    widget_type VARCHAR(64)   DEFAULT '' COMMENT 'Widget Type' ,
+    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field Type Default;Default metadata values for each FieldType.';
+
+CREATE TABLE design_field_code_mapping(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    code_lang VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code Language' ,
+    field_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Type' ,
+    property_type VARCHAR(256) NOT NULL  DEFAULT '' COMMENT 'Property Type Template' ,
+    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field Code Mapping;Language-specific code type mapping for each FieldType.';
+
+CREATE TABLE design_sql_template(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    database_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Database Type' ,
+    create_table_template MEDIUMTEXT    COMMENT 'Create Table Template' ,
+    alter_index_template MEDIUMTEXT    COMMENT 'Alter Index Template' ,
+    alter_table_template MEDIUMTEXT    COMMENT 'Alter Table Template' ,
+    drop_table_template MEDIUMTEXT    COMMENT 'Drop Table Template' ,
+    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design SQL Template;Pebble SQL templates managed by database type.';
+
+CREATE TABLE design_code_template(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    code_lang VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code Language' ,
+    sequence INT   DEFAULT 0 COMMENT 'Sequence' ,
+    sub_directory VARCHAR(255)   DEFAULT '' COMMENT 'Sub Directory' ,
+    file_name VARCHAR(255) NOT NULL  DEFAULT '' COMMENT 'File Name Placeholder' ,
+    template_content MEDIUMTEXT    COMMENT 'Template Content' ,
+    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Code Template;Pebble code templates managed by language, sequence, output path, and file name placeholders.';
 
 CREATE TABLE sys_model_index(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -1306,7 +1376,7 @@ CREATE TABLE document_template(
     tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
     file_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'File Name;FileName default.' ,
-    template_type VARCHAR(64)    COMMENT 'Template Type' ,
+    template_type VARCHAR(64)   DEFAULT 'RichText' COMMENT 'Template Type' ,
     file_id BIGINT(32)    COMMENT 'File Template' ,
     html_template MEDIUMTEXT    COMMENT 'HTML Template Content' ,
     convert_to_pdf TINYINT(1)    COMMENT 'Convert To PDF' ,
@@ -1319,6 +1389,66 @@ CREATE TABLE document_template(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Document Template';
+
+CREATE TABLE document_template_sign_slot(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
+    template_id BIGINT(32) NOT NULL   COMMENT 'Document Template' ,
+    slot_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Slot Name' ,
+    slot_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Slot Code' ,
+    sequence INT(11)    COMMENT 'sequence' ,
+    placement TEXT    COMMENT 'Placement' ,
+    description VARCHAR(128)    COMMENT 'Description' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Document Template Sign Slot';
+
+CREATE TABLE signing_request(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
+    model_name VARCHAR(64)    COMMENT 'Model Name' ,
+    title VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'title;FileName default.' ,
+    code VARCHAR(64)    COMMENT 'Code' ,
+    status VARCHAR(64) NOT NULL  DEFAULT 'Draft' COMMENT 'Status' ,
+    recipient BIGINT(32)    COMMENT 'Recipient User' ,
+    expires_time DATETIME    COMMENT 'Expires Time' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Signing Request';
+
+CREATE TABLE signing_document(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
+    signing_request_id BIGINT(32)    COMMENT 'Signing Request ID' ,
+    title VARCHAR(64)    COMMENT 'Title' ,
+    sequence INT(11)   DEFAULT 1 COMMENT 'Sequence;FileName default.' ,
+    status VARCHAR(64)   DEFAULT 'Pending' COMMENT 'Status' ,
+    template_id BIGINT(32)    COMMENT 'Document Template' ,
+    sign_field_code VARCHAR(64)    COMMENT 'Sign Field Code' ,
+    signed_image_id BIGINT(32)    COMMENT 'Signed Image File' ,
+    signed_pdf_id BIGINT(32)    COMMENT 'Signed PDF File' ,
+    signer_user_id BIGINT(32)    COMMENT 'Signer User ID' ,
+    evidenceId VARCHAR(64)    COMMENT 'Evidence Unique ID' ,
+    signature_evidence TEXT    COMMENT 'Signature Evidence' ,
+    signed_time DATETIME    COMMENT 'Signed Time' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Signing Document';
 
 CREATE TABLE design_model(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -2024,4 +2154,3 @@ CREATE TABLE tenant_config(
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Tenant Config';
-

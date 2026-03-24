@@ -48,3 +48,6 @@ build/
 *.tar.gz
 *.rar
 *.versionBackup
+
+# Claude code
+.claude

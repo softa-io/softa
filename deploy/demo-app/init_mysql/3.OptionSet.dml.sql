@@ -396,6 +396,23 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Maintenance','Maintenance',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Deprecated','Deprecated',3,'','','');
 
+-- Option Set: DesignCodeLang
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignCodeLang';
+DELETE FROM sys_option_item WHERE option_set_code='DesignCodeLang';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignCodeLang','Design Code Language','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Java','Java',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Rust','Rust',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Golang','Golang',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','TypeScript','TypeScript',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Python','Python',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','CSharp','CSharp',6,'','','');
+
+DELETE FROM sys_option_set WHERE option_set_code='CodeFileType';
+DELETE FROM sys_option_item WHERE option_set_code='CodeFileType';
+
 -- Option Set: DesignPortfolioStatus
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='DesignPortfolioStatus';
@@ -896,3 +913,28 @@ INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DocumentTem
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','RichText','Rich Text',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','Word','Word',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DocumentTemplateType','PDF','PDF',3,'','','');
+
+-- Option Set: SigningRequestStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='SigningRequestStatus';
+DELETE FROM sys_option_item WHERE option_set_code='SigningRequestStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('SigningRequestStatus','Signing Request Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningRequestStatus','Draft','Draft',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningRequestStatus','Sent','Sent',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningRequestStatus','InProgress','In Progress',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningRequestStatus','Completed','Completed',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningRequestStatus','Cancelled','Cancelled',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningRequestStatus','Expired','Expired',6,'','','');
+
+-- Option Set: SigningDocumentStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='SigningDocumentStatus';
+DELETE FROM sys_option_item WHERE option_set_code='SigningDocumentStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('SigningDocumentStatus','Signing Document Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningDocumentStatus','Pending','Pending',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningDocumentStatus','InProgress','In Progress',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningDocumentStatus','Completed','Completed',3,'','','');
