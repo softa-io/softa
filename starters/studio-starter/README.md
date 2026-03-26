@@ -120,13 +120,10 @@ Pebble SQL templates can be stored in the database and customized per applicatio
 | `DesignSqlTemplate` | Database-managed Pebble SQL templates per database type                                                                             |
 | `DesignCodeTemplate` | Database-managed Pebble code templates per language with configurable `sequence`, `subDirectory`, `fileName`, and `templateContent` |
 | `DesignModelIndex` | Model index definition                                                                                                              |
-| `DesignModelValidation` | Model validation rules                                                                                                              |
-| `DesignModelOnchange` | Model onchange event rules                                                                                                          |
 | `DesignView` | View definition                                                                                                                     |
 | `DesignNavigation` | Navigation definition                                                                                                               |
 | `DesignOptionSet` | Option set definition                                                                                                               |
 | `DesignOptionItem` | Option item definition                                                                                                              |
-| `DesignConfig` | Configuration management                                                                                                            |
 
 ### Version Control & Deployment Models
 | Entity | Description |
@@ -152,9 +149,6 @@ The current version-control and deployment pipeline only upgrades the following 
 The following design-time entities currently have CRUD support in `studio-starter`, but are not included in the release pipeline:
 - `DesignView`
 - `DesignNavigation`
-- `DesignConfig`
-- `DesignModelValidation`
-- `DesignModelOnchange`
 
 ## DDL Storage Design
 
@@ -288,16 +282,14 @@ Deployment selects the versions to merge from the app's released stream:
 ## Current Gaps
 
 ### Highest-Priority Fixes
-1. **Bring `DesignView` / `DesignNavigation` / `DesignConfig` into the release pipeline**
+1. **Bring `DesignView` / `DesignNavigation` into the release pipeline**
    - These entities have design-time CRUD, and runtime counterparts already exist, but they are not part of `VERSION_CONTROL_MODELS`. This is the highest-value functional gap because design changes cannot be promoted through environments today.
-2. **Implement runtime support for `DesignModelValidation` and `DesignModelOnchange`**
-   - Both entities are currently stored only on the design side. Without runtime models and executors, their fields do not affect application behavior.
-3. **Repair the WorkItem activation model**
+2. **Repair the WorkItem activation model**
    - README previously documented `startWorkItem`, but the implementation exposes `readyWorkItem` and does not populate `DesignWorkItem.startTime`. The API name, workflow semantics, and persisted timestamps should be aligned.
-4. **Close the deployment contract gaps**
+3. **Close the deployment contract gaps**
    - `README` previously mentioned rollback, and `DesignDeploymentStatus` includes `ROLLED_BACK`, but no rollback endpoint/service exists. `DesignAppEnv.asyncUpgrade` also still executes synchronously.
-5. **Clean up reserved or partially wired environment/config fields**
-   - `DesignAppEnv.protectedEnv`, `active`, `clientId`, and `autoUpgrade` are not currently enforced in deployment flow. `DesignConfig` also does not yet expose the runtime `active` flag present on `SysConfig`.
+4. **Clean up reserved or partially wired environment/config fields**
+   - `DesignAppEnv.protectedEnv`, `active`, `clientId`, and `autoUpgrade` are not currently enforced in deployment flow.
 
 ### Additional Notes
 - `DesignView.defaultView` is currently only a design-time flag. Runtime personal default views are managed by `SysViewDefault`.

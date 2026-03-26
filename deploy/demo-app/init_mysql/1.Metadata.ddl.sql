@@ -932,25 +932,6 @@ CREATE TABLE design_option_item(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Option Items';
 
-CREATE TABLE design_config(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)   DEFAULT 0 COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code' ,
-    value TEXT NOT NULL   COMMENT 'Value' ,
-    value_type VARCHAR(64)   DEFAULT '' COMMENT 'Value Data Type' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
-    active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id VARCHAR(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Config';
-
 CREATE TABLE design_view(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)    COMMENT 'App ID' ,
@@ -1073,45 +1054,6 @@ CREATE TABLE design_option_item_trans(
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Option Items Translation';
-
-CREATE TABLE design_model_validation(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    code VARCHAR(64)   DEFAULT '' COMMENT 'Code' ,
-    model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
-    priority TINYINT(4) NOT NULL  DEFAULT 1 COMMENT 'priority' ,
-    expression VARCHAR(1000) NOT NULL  DEFAULT '' COMMENT 'Expression' ,
-    exception_msg VARCHAR(256) NOT NULL  DEFAULT '' COMMENT 'Exception Message' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)    COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Model Validation;';
-
-CREATE TABLE design_model_onchange(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    code VARCHAR(64)   DEFAULT '' COMMENT 'Code' ,
-    model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
-    onchange_fields VARCHAR(255) NOT NULL  DEFAULT '' COMMENT 'Onchange Fields' ,
-    expression VARCHAR(1000) NOT NULL  DEFAULT '' COMMENT 'Expression' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)    COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Model Onchange Event;';
 
 CREATE TABLE ai_model(
     id BIGINT(32) NOT NULL   COMMENT 'ID' ,
