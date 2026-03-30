@@ -8,6 +8,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fesod.sheet.FesodSheet;
 import org.apache.fesod.sheet.context.AnalysisContext;
 import org.apache.fesod.sheet.event.AnalysisEventListener;
+import org.apache.fesod.sheet.write.handler.CellWriteHandler;
+import org.apache.fesod.sheet.write.handler.WriteHandler;
+import org.apache.fesod.sheet.write.handler.context.CellWriteHandlerContext;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -122,7 +128,10 @@ public class ImportServiceImpl implements ImportService {
                     "Import instructions",
                     headers,
                     List.of(instructionRow),
-                    new CustomHeadStyleHandler[]{headStyleHandler}
+                    new WriteHandler[]{
+                            headStyleHandler,
+                            createInstructionWrapHandler()
+                    }
             );
             sheetDataList.add(instructionSheetData);
         }
@@ -167,6 +176,37 @@ public class ImportServiceImpl implements ImportService {
             asyncImportProducer.sendAsyncImport(importTemplateDTO);
         }
         return importHistory;
+    }
+
+    private WriteHandler createInstructionWrapHandler() {
+        return new CellWriteHandler() {
+            private final Map<Short, CellStyle> wrappedStyles = new HashMap<>();
+
+            @Override
+            public void afterCellDispose(CellWriteHandlerContext context) {
+                if (context.getHead()) {
+                    return;
+                }
+                Cell cell = context.getCell();
+                if (cell == null) {
+                    return;
+                }
+                CellStyle sourceStyle = cell.getCellStyle();
+                short sourceStyleIndex = sourceStyle == null ? 0 : sourceStyle.getIndex();
+                CellStyle wrappedStyle = wrappedStyles.computeIfAbsent(sourceStyleIndex, styleIndex -> {
+                    CellStyle newStyle = cell.getSheet().getWorkbook().createCellStyle();
+                    if (sourceStyle != null) {
+                        newStyle.cloneStyleFrom(sourceStyle);
+                    }
+                    newStyle.setWrapText(true);
+                    newStyle.setVerticalAlignment(VerticalAlignment.TOP);
+                    return newStyle;
+                });
+                cell.setCellStyle(wrappedStyle);
+                // Keep default row-height behavior so wrapped content can expand in Excel.
+                cell.getRow().setHeight((short) -1);
+            }
+        };
     }
 
     /**
