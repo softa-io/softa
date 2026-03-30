@@ -9,10 +9,13 @@ import org.apache.fesod.sheet.FesodSheet;
 import org.apache.fesod.sheet.context.AnalysisContext;
 import org.apache.fesod.sheet.event.AnalysisEventListener;
 import org.apache.fesod.sheet.write.handler.CellWriteHandler;
+import org.apache.fesod.sheet.write.handler.RowWriteHandler;
 import org.apache.fesod.sheet.write.handler.WriteHandler;
 import org.apache.fesod.sheet.write.handler.context.CellWriteHandlerContext;
+import org.apache.fesod.sheet.write.handler.context.RowWriteHandlerContext;
+import org.apache.fesod.sheet.write.metadata.style.WriteCellStyle;
 import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -130,7 +133,8 @@ public class ImportServiceImpl implements ImportService {
                     List.of(instructionRow),
                     new WriteHandler[]{
                             headStyleHandler,
-                            createInstructionWrapHandler()
+                            createInstructionWrapHandler(),
+                            createInstructionRowHeightHandler()
                     }
             );
             sheetDataList.add(instructionSheetData);
@@ -180,33 +184,59 @@ public class ImportServiceImpl implements ImportService {
 
     private WriteHandler createInstructionWrapHandler() {
         return new CellWriteHandler() {
-            private final Map<Short, CellStyle> wrappedStyles = new HashMap<>();
-
             @Override
             public void afterCellDispose(CellWriteHandlerContext context) {
                 if (context.getHead()) {
                     return;
                 }
-                Cell cell = context.getCell();
-                if (cell == null) {
-                    return;
-                }
-                CellStyle sourceStyle = cell.getCellStyle();
-                short sourceStyleIndex = sourceStyle == null ? 0 : sourceStyle.getIndex();
-                CellStyle wrappedStyle = wrappedStyles.computeIfAbsent(sourceStyleIndex, styleIndex -> {
-                    CellStyle newStyle = cell.getSheet().getWorkbook().createCellStyle();
-                    if (sourceStyle != null) {
-                        newStyle.cloneStyleFrom(sourceStyle);
-                    }
-                    newStyle.setWrapText(true);
-                    newStyle.setVerticalAlignment(VerticalAlignment.TOP);
-                    return newStyle;
-                });
-                cell.setCellStyle(wrappedStyle);
-                // Keep default row-height behavior so wrapped content can expand in Excel.
-                cell.getRow().setHeight((short) -1);
+                WriteCellStyle writeCellStyle = context.getFirstCellData().getOrCreateStyle();
+                writeCellStyle.setWrapped(Boolean.TRUE);
+                writeCellStyle.setVerticalAlignment(VerticalAlignment.TOP);
             }
         };
+    }
+
+    private WriteHandler createInstructionRowHeightHandler() {
+        return new RowWriteHandler() {
+            @Override
+            public void afterRowDispose(RowWriteHandlerContext context) {
+                Row row = context.getRow();
+                if (context.getHead() || row == null) {
+                    return;
+                }
+                row.setHeightInPoints(calculateInstructionRowHeight(row));
+            }
+        };
+    }
+
+    private float calculateInstructionRowHeight(Row row) {
+        int estimatedLineCount = 1;
+        short lastCellNum = row.getLastCellNum();
+        if (lastCellNum <= 0) {
+            return estimatedLineCount * 16f;
+        }
+        int charsPerLine = Math.max(1, io.softa.starter.file.constant.FileConstant.DEFAULT_EXCEL_COLUMN_WIDTH - 4);
+        for (int i = 0; i < lastCellNum; i++) {
+            Cell cell = row.getCell(i);
+            if (cell == null) {
+                continue;
+            }
+            String cellText = cell.toString();
+            if (StringUtils.isBlank(cellText)) {
+                continue;
+            }
+            estimatedLineCount = Math.max(estimatedLineCount, estimateWrappedLineCount(cellText, charsPerLine));
+        }
+        return estimatedLineCount * 16f;
+    }
+
+    private int estimateWrappedLineCount(String text, int charsPerLine) {
+        int lineCount = 0;
+        for (String segment : text.split("\\R", -1)) {
+            int segmentLength = Math.max(1, segment.length());
+            lineCount += Math.max(1, (segmentLength + charsPerLine - 1) / charsPerLine);
+        }
+        return Math.max(1, lineCount);
     }
 
     /**
