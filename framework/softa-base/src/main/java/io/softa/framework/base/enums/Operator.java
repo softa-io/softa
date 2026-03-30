@@ -52,7 +52,7 @@ public enum Operator {
     private final String name;
     private final String abbr;
 
-    /** Supports `@{fieldName}` reserved field name as comparison value */
+    /** Supports `{{ @fieldName }}` reserved field reference as comparison value */
     public static final Set<Operator> COMPARISON_OPERATORS = Sets.newHashSet(EQUAL, NOT_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL);
     /** String matching operator */
     public static final Set<Operator> MATCHING_OPERATORS = Sets.newHashSet(CONTAINS, NOT_CONTAINS, START_WITH, NOT_START_WITH);
@@ -60,6 +60,9 @@ public enum Operator {
     public static final Set<Operator> ASSIGNED_OPERATORS = Sets.newHashSet(IS_SET, IS_NOT_SET);
 
     public static final Set<Operator> COLLECTION_OPERATORS = Sets.newHashSet(IN, NOT_IN, BETWEEN, NOT_BETWEEN, PARENT_OF, CHILD_OF);
+
+    /** Tuple predicates only support row-value IN / NOT IN */
+    public static final Set<Operator> TUPLE_OPERATORS = Sets.newHashSet(IN, NOT_IN);
 
     /** On XToMany query conditions, the negative operators are reversed to positive operators */
     public static final Set<Operator> TO_MANY_NEGATIVE_OPERATORS = Sets.newHashSet(NOT_EQUAL, NOT_CONTAINS, NOT_START_WITH, NOT_IN, NOT_BETWEEN);

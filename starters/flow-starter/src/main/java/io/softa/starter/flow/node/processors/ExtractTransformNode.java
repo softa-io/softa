@@ -6,8 +6,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.placeholder.PlaceholderKind;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.StringTools;
 import io.softa.starter.flow.entity.FlowNode;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.node.NodeContext;
@@ -53,8 +55,9 @@ public class ExtractTransformNode implements NodeProcessor<ExtractTransformParam
         Assert.notBlank(nodeParams.getCollectionVariable(),
                 "The collection parameter configuration for Extract-Transform Node {0} cannot be empty!",
                 flowNode.getName());
-        Assert.isTrue(StringTools.isVariable(nodeParams.getCollectionVariable()),
-                "The parameter {0} for Extract-Transform Node {1} must be identified with `#{}`.",
+        PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(nodeParams.getCollectionVariable());
+        Assert.isTrue(placeholder != null && PlaceholderKind.VARIABLE.equals(placeholder.getKind()),
+                "The parameter {0} for Extract-Transform Node {1} must be identified with `{{ }}`.",
                 nodeParams.getCollectionVariable(), flowNode.getName());
         Assert.notBlank(nodeParams.getItemKey(),
                 "The item key configuration for Extract-Transform Node {0} cannot be empty!",
@@ -70,7 +73,10 @@ public class ExtractTransformNode implements NodeProcessor<ExtractTransformParam
      */
     @Override
     public void execute(FlowNode flowNode, ExtractTransformParams nodeParams, NodeContext nodeContext) {
-        Object variableValue = StringTools.extractVariable(nodeParams.getCollectionVariable(), nodeContext.getEnv());
+        PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(nodeParams.getCollectionVariable());
+        Assert.notNull(placeholder, "The parameter {0} for Extract-Transform Node {1} must be identified with `{{ }}`.",
+                nodeParams.getCollectionVariable(), flowNode.getName());
+        Object variableValue = PlaceholderUtils.extractVariable(placeholder, nodeContext.getEnv());
         if (variableValue == null || (variableValue instanceof Collection<?> col && CollectionUtils.isEmpty(col))) {
             nodeContext.put(flowNode.getId().toString(), Collections.emptySet());
         } else if (variableValue instanceof Collection<?> col) {

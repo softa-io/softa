@@ -19,7 +19,7 @@ public class TriggerSubflowParams implements NodeParams {
     @Schema(description = """
             The key-value structure configuration of the subflow data.
             The value can be a constant, a variable, or a calculation formula.
-            Variables are represented by `#{}` and calculation formulas are represented by `${}`.
+            Dynamic values are represented by `{{ expr }}`.
             """)
     private Map<String, Object> dataTemplate;
 

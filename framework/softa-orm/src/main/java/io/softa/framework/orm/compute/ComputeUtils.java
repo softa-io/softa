@@ -10,11 +10,13 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import tools.jackson.databind.JsonNode;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import com.googlecode.aviator.*;
 import com.googlecode.aviator.exception.ExpressionSyntaxErrorException;
 import com.googlecode.aviator.runtime.JavaMethodReflectionFunctionMissing;
 import jakarta.validation.constraints.NotNull;
+import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
@@ -28,6 +30,8 @@ import io.softa.framework.orm.enums.ValueType;
  * Formula calculation tool class, set to safe sandbox mode.
  */
 public abstract class ComputeUtils {
+    private static final Pattern INTERPOLATION_PATTERN = Pattern.compile("\\{\\{\\s*(.+?)\\s*}}");
+
     private ComputeUtils() {}
 
     private static final AviatorEvaluatorInstance ENGINE = AviatorEvaluator.newInstance();
@@ -223,19 +227,24 @@ public abstract class ComputeUtils {
     /**
      * String interpolation calculation.
      * Return original value if it is not an interpolation expression.
-     * @param expression expression, e.g.: hello, #{name}
+     * @param expression expression, e.g.: hello, {{ name }}
      * @param env environment variables
      * @return interpolation calculation result
      */
     public static String stringInterpolation(String expression, Map<String, Object> env) {
         if (expression == null || expression.isEmpty()) {
             return "";
-        } else if (!expression.contains("#{")) {
+        } else if (!expression.contains("{{")) {
             return expression;
         }
-        // Wrap the original string in double quotes, forming a string interpolation form: "hello, #{name}", as the expression calculation formula
-        expression = "\"" + expression + "\"";
-        return executeString(expression, env);
+        Matcher matcher = INTERPOLATION_PATTERN.matcher(expression);
+        StringBuilder result = new StringBuilder();
+        while (matcher.find()) {
+            Object value = execute(matcher.group(1).trim(), env);
+            matcher.appendReplacement(result, Matcher.quoteReplacement(value == null ? "" : value.toString()));
+        }
+        matcher.appendTail(result);
+        return result.toString();
     }
 
     /**

@@ -9,15 +9,15 @@ import java.util.Map;
 /**
  * Parameters for creating data.
  * Used to create data based on the model and field value configuration.
- * Field values can be constants, variables (`#{}`), or formulas (`${}`).
+ * Field values can be constants or placeholders (`{{ expr }}`).
  * Example:
  * <p>
  * {
  *     "modelName": "SysModel",
  *     "rowTemplate":  {
- *         "modelName": "#{modelName}",
- *         "modelId": "#{id}",
- *         "appId": "#{appId}",
+ *         "modelName": "{{ modelName }}",
+ *         "modelId": "{{ id }}",
+ *         "appId": "{{ appId }}",
  *         "fieldName": "effectiveEndDate",
  *         "name": "Timeline effectiveEndDate",
  *         "fieldType": "DateTime"
@@ -36,7 +36,7 @@ public class CreateDataParams implements NodeParams {
     /**
      * The field value configuration of the data to be created.
      * The value can be a constant, a variable, or a calculation formula.
-     * Variables are represented by `#{}` and calculation formulas are represented by `${}`.
+     * Dynamic values are represented by `{{ expr }}`.
      */
     @Schema(description = "The field value configuration of the data template")
     private Map<String, Object> rowTemplate;

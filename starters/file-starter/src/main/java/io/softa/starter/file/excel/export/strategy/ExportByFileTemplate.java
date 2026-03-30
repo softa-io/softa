@@ -1,5 +1,6 @@
 package io.softa.starter.file.excel.export.strategy;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,8 +37,8 @@ import io.softa.starter.file.excel.export.support.ExportDataFetcher;
 @Component
 public class ExportByFileTemplate implements ExportStrategy {
 
-    // ${variable} or ${  variable  } or ${variable.subField}
-    private static final Pattern VARIABLE_PATTERN = Pattern.compile("(?<!\\\\)\\{\\s*([a-zA-Z0-9_.]+)\\s*}");
+    // {{ variable }} or {{ object.field }} in the uploaded template.
+    private static final Pattern VARIABLE_PATTERN = Pattern.compile("(?<!\\\\)\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*}}");
 
     @Autowired
     private FileService fileService;
@@ -88,7 +89,7 @@ public class ExportByFileTemplate implements ExportStrategy {
         String fileName = exportTemplate.getFileName();
         String sheetName = StringUtils.isNotBlank(exportTemplate.getSheetName()) ? exportTemplate.getSheetName()
                 : fileName;
-        try (InputStream inputStream = fileService.downloadStream(exportTemplate.getFileId());
+        try (InputStream inputStream = normalizeTemplateInputStream(fileService.downloadStream(exportTemplate.getFileId()));
              ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
              // Use FesodSheet to write the template and fill in the data
              ExcelWriter excelWriter = FesodSheet.write(outputStream).withTemplate(inputStream).build()) {
@@ -122,14 +123,15 @@ public class ExportByFileTemplate implements ExportStrategy {
 
     /**
      * Get all the variable parameters in the Workbook (format: {variable})
+     * The uploaded template uses `{{ variable }}` and is normalized to the underlying Fesod `{variable}` syntax.
      * Cases of variable extraction:
-     *      - `{name}` -> `name`
-     *      - `{  name }` -> `name`
-     *      - `Hello, {name123}!` -> `name123`
-     *      - `{name}, {orderNumber}` -> `name`, `orderNumber`
-     *      - `{deptId.name}` -> `deptId.name`
-     *      - `Hello, {name}, {}` -> `name`
-     *      - `Hello, {name}, \{id\}` -> `name`
+     *      - `{{ name }}` -> `name`
+     *      - `{{  name }}` -> `name`
+     *      - `Hello, {{ name123 }}!` -> `name123`
+     *      - `{{ name }}, {{ orderNumber }}` -> `name`, `orderNumber`
+     *      - `{{ deptId.name }}` -> `deptId.name`
+     *      - `Hello, {{ name }}, {{}}` -> `name`
+     *      - `Hello, {{ name }}, \{{ id }}` -> `name`
      *
      * @param workbook workbook object
      * @return all variables in the template
@@ -144,7 +146,7 @@ public class ExportByFileTemplate implements ExportStrategy {
                 for(Cell cell : row) {
                     if(cell.getCellType() == CellType.STRING) {
                         String cellValue = cell.getStringCellValue();
-                        // Use regular expressions to match the variable format ${variable}
+                        // Use regular expressions to match the variable format {{ variable }}
                         Matcher matcher = VARIABLE_PATTERN.matcher(cellValue);
                         while(matcher.find()) {
                             variables.add(matcher.group(1));
@@ -154,6 +156,40 @@ public class ExportByFileTemplate implements ExportStrategy {
             }
         }
         return variables;
+    }
+
+    private static InputStream normalizeTemplateInputStream(InputStream inputStream) throws IOException {
+        try (Workbook workbook = new XSSFWorkbook(inputStream);
+             ByteArrayOutputStream normalizedOutput = new ByteArrayOutputStream()) {
+            normalizeWorkbookPlaceholders(workbook);
+            workbook.write(normalizedOutput);
+            return new ByteArrayInputStream(normalizedOutput.toByteArray());
+        }
+    }
+
+    private static void normalizeWorkbookPlaceholders(Workbook workbook) {
+        for (Sheet sheet : workbook) {
+            for (Row row : sheet) {
+                for (Cell cell : row) {
+                    if (cell.getCellType() == CellType.STRING) {
+                        String normalized = normalizeCellValue(cell.getStringCellValue());
+                        if (!normalized.equals(cell.getStringCellValue())) {
+                            cell.setCellValue(normalized);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static String normalizeCellValue(String cellValue) {
+        Matcher matcher = VARIABLE_PATTERN.matcher(cellValue);
+        StringBuilder normalized = new StringBuilder();
+        while (matcher.find()) {
+            matcher.appendReplacement(normalized, Matcher.quoteReplacement("{" + matcher.group(1).trim() + "}"));
+        }
+        matcher.appendTail(normalized);
+        return normalized.toString();
     }
 
 }

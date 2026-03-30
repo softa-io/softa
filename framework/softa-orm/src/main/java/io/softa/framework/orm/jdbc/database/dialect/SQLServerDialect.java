@@ -45,6 +45,11 @@ public class SQLServerDialect implements DialectInterface {
         return OPERATOR_MAP.get(operator);
     }
 
+    @Override
+    public boolean supportsTuplePredicate() {
+        return false;
+    }
+
     /**
      * Get the database paging clause according to the limit and offset.
      *

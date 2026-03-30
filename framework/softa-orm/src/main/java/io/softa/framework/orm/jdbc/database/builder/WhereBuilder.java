@@ -1,5 +1,6 @@
 package io.softa.framework.orm.jdbc.database.builder;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -193,6 +194,9 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
      * @param xToManyBuilder XToMany query condition builder at the same level.
      */
     private StringBuilder parseFilterUnit(FilterUnit filterUnit, FilterXToManyParser xToManyBuilder) {
+        if (filterUnit.isTuple()) {
+            return this.parseTupleFilterUnit(filterUnit);
+        }
         String logicField = filterUnit.getField();
         if (ModelConstant.SEARCH_NAME.equals(logicField)) {
             // Search by main model `searchName` directly.
@@ -220,6 +224,66 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
                 return FilterUnitParser.parse(sqlWrapper, SqlWrapper.MAIN_TABLE_ALIAS, metaField, filterUnit);
             }
         }
+    }
+
+    private StringBuilder parseTupleFilterUnit(FilterUnit filterUnit) {
+        List<ResolvedTupleField> resolvedFields = filterUnit.getFields().stream()
+                .map(this::resolveTupleField)
+                .toList();
+        filterUnit.setValue(this.normalizeTupleValues(filterUnit, resolvedFields));
+        return FilterUnitParser.parseTuple(sqlWrapper,
+                resolvedFields.stream().map(ResolvedTupleField::fieldAlias).toList(),
+                filterUnit);
+    }
+
+    private ResolvedTupleField resolveTupleField(String logicField) {
+        Assert.notTrue(ModelConstant.SEARCH_NAME.equals(logicField),
+                "Tuple filter does not support searchName field: {0}", logicField);
+        if (logicField.contains(".")) {
+            return this.resolveTupleCascadeField(logicField);
+        }
+        MetaField metaField = ModelManager.getModelField(mainModelName, logicField);
+        if (StringUtils.isNotBlank(metaField.getCascadedField())) {
+            return this.resolveTupleField(metaField.getCascadedField());
+        }
+        sqlWrapper.accessModelField(mainModelName, logicField);
+        Assert.notTrue(FieldType.TO_MANY_TYPES.contains(metaField.getFieldType()),
+                "Tuple filter does not support XToMany field: {0}", logicField);
+        return new ResolvedTupleField(getFieldAlias(SqlWrapper.MAIN_TABLE_ALIAS, metaField), metaField);
+    }
+
+    private ResolvedTupleField resolveTupleCascadeField(String logicField) {
+        List<String> cascadeFields = Arrays.asList(StringUtils.split(logicField, "."));
+        Assert.isTrue(cascadeFields.size() - 1 <= BaseConstant.CASCADE_LEVEL,
+                "Based on database performance considerations, the cascading query of model {0} cannot exceed the {1} level: {2}!",
+                mainModelName, BaseConstant.CASCADE_LEVEL, logicField);
+        String currentAlias = SqlWrapper.MAIN_TABLE_ALIAS;
+        String currentModelName = mainModelName;
+        MetaField metaField = null;
+        for (int i = 0; i < cascadeFields.size(); i++) {
+            String fieldName = cascadeFields.get(i);
+            sqlWrapper.accessModelField(currentModelName, fieldName);
+            metaField = ModelManager.getModelField(currentModelName, fieldName);
+            if (FieldType.RELATED_TYPES.contains(metaField.getFieldType())) {
+                Assert.notTrue(FieldType.TO_MANY_TYPES.contains(metaField.getFieldType()),
+                        "Tuple filter does not support XToMany field: {0}", logicField);
+                if (i < cascadeFields.size() - 1) {
+                    String fieldChain = String.join(".", cascadeFields.subList(0, i + 1));
+                    String rightAlias = sqlWrapper.getTableAlias().getRightTableAlias(fieldChain);
+                    if (StringUtils.isBlank(rightAlias)) {
+                        rightAlias = sqlWrapper.getTableAlias().generateRightTableAlias(fieldChain);
+                        sqlWrapper.leftJoin(metaField, currentAlias, rightAlias, flexQuery.isAcrossTimeline());
+                    }
+                    currentAlias = rightAlias;
+                    currentModelName = metaField.getRelatedModel();
+                }
+            } else {
+                Assert.isTrue(i == cascadeFields.size() - 1,
+                        "For the cascading query of model {0}, the field {1} in cascade string {2} is not a relational field!",
+                        mainModelName, fieldName, logicField);
+            }
+        }
+        return new ResolvedTupleField(getFieldAlias(currentAlias, metaField), metaField);
     }
 
     /**
@@ -325,6 +389,36 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
         return filterUnitSql;
     }
 
+    private List<List<Object>> normalizeTupleValues(FilterUnit filterUnit, List<ResolvedTupleField> resolvedFields) {
+        List<List<Object>> normalizedTuples = new ArrayList<>();
+        for (Object tupleValue : (Collection<?>) filterUnit.getValue()) {
+            List<?> tuple = (List<?>) tupleValue;
+            List<Object> normalizedTuple = new ArrayList<>(tuple.size());
+            for (int i = 0; i < tuple.size(); i++) {
+                normalizedTuple.add(convertTupleValue(resolvedFields.get(i).metaField(), tuple.get(i)));
+            }
+            normalizedTuples.add(normalizedTuple);
+        }
+        return normalizedTuples;
+    }
+
+    private Object convertTupleValue(MetaField metaField, Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (metaField.isEncrypted() && value instanceof String strValue) {
+            return EncryptUtils.encrypt(strValue);
+        }
+        return value;
+    }
+
+    private String getFieldAlias(String tableAlias, MetaField metaField) {
+        if (metaField.isTranslatable()) {
+            return sqlWrapper.filterTranslatableField(tableAlias, metaField);
+        }
+        return tableAlias + "." + metaField.getColumnName();
+    }
+
     /**
      * Convert the operator and value of the filterUnit based on the field type for non-relational fields.
      *
@@ -356,4 +450,6 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
             filterUnit.setValue(value);
         }
     }
+
+    private record ResolvedTupleField(String fieldAlias, MetaField metaField) {}
 }

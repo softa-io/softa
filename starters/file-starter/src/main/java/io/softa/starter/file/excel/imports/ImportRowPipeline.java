@@ -13,6 +13,7 @@ import io.softa.framework.base.utils.SpringContextUtils;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.starter.file.dto.ImportDataDTO;
 import io.softa.starter.file.dto.ImportTemplateDTO;
+import io.softa.starter.file.enums.ImportRule;
 import io.softa.starter.file.excel.imports.handler.BaseImportHandler;
 
 @Component
@@ -22,22 +23,78 @@ public class ImportRowPipeline {
     private ImportHandlerFactory importHandlerFactory;
 
     @Autowired
+    private RelationLookupResolver relationLookupResolver;
+
+    @Autowired
     private ImportFailureCollector importFailureCollector;
 
     @Autowired
     private ImportPersistenceService importPersistenceService;
 
+    @Autowired
+    private UniqueConstraintValidator uniqueConstraintValidator;
+
     /**
-     * Run the full import row pipeline: standard handlers, custom handler, failure collection, persistence.
+     * Run the full import row pipeline:
+     * 1. Standard field handlers (type conversion, validation, etc.)
+     * 2. Relation lookup resolution (dotted-path fields -> FK ids)
+     * 3. Custom handler
+     * 4. Failure collection (when skipException=true) or fail-fast (when skipException=false)
+     * 5. Persistence
      */
     public void importData(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
+        processRows(importTemplateDTO, importDataDTO);
+        importPersistenceService.persist(importTemplateDTO, importDataDTO.getRows());
+    }
+
+    /**
+     * Run the validation-only pipeline (no persistence).
+     * Forces skipException=true so all row errors are collected for complete user feedback.
+     *
+     * 1. Standard field handlers (type conversion, validation, etc.)
+     * 2. Relation lookup resolution (dotted-path fields -> FK ids)
+     * 3. Unique constraint pre-check against the database (for ONLY_CREATE rule)
+     * 4. Custom handler
+     * 5. Failure collection
+     */
+    public void validateData(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
+        // Force skipException=true in validation mode to collect all errors
+        Boolean originalSkipException = importTemplateDTO.getSkipException();
+        try {
+            importTemplateDTO.setSkipException(true);
+            processRows(importTemplateDTO, importDataDTO);
+        } finally {
+            importTemplateDTO.setSkipException(originalSkipException);
+        }
+    }
+
+    /**
+     * Common row processing pipeline shared by importData and validateData:
+     * 1. Standard field handlers (type conversion, validation, etc.)
+     * 2. Relation lookup resolution (dotted-path fields -> FK ids)
+     * 3. Unique constraint pre-check against the database (for ONLY_CREATE rule)
+     * 4. Custom handler
+     * 5. Failure collection
+     */
+    private void processRows(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
+        boolean skipException = Boolean.TRUE.equals(importTemplateDTO.getSkipException());
         List<BaseImportHandler> handlers = importHandlerFactory.createHandlers(importTemplateDTO);
         for (BaseImportHandler handler : handlers) {
-            handler.handleRows(importDataDTO.getRows());
+            handler.handleRows(importDataDTO.getRows(), skipException);
+        }
+        // Resolve relation lookup fields (e.g. deptId.code -> deptId)
+        List<RelationLookupResolver.LookupGroup> lookupGroups =
+                relationLookupResolver.detectLookupGroups(importTemplateDTO.getModelName(), importTemplateDTO.getImportFields());
+        if (!lookupGroups.isEmpty()) {
+            relationLookupResolver.resolveRows(importDataDTO.getRows(), lookupGroups, skipException);
+        }
+        // Pre-check unique constraints against the database for ONLY_CREATE rule
+        if (ImportRule.ONLY_CREATE.equals(importTemplateDTO.getImportRule())) {
+            uniqueConstraintValidator.validate(importTemplateDTO.getModelName(),
+                    importTemplateDTO.getUniqueConstraints(), importDataDTO.getRows(), skipException);
         }
         executeCustomHandler(importTemplateDTO.getCustomHandler(), importDataDTO);
         importFailureCollector.collect(importDataDTO);
-        importPersistenceService.persist(importTemplateDTO, importDataDTO.getRows());
     }
 
     private void executeCustomHandler(String handlerName, ImportDataDTO importDataDTO) {

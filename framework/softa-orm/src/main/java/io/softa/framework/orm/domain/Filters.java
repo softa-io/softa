@@ -50,9 +50,9 @@ import static io.softa.framework.orm.enums.FilterType.EMPTY;
  *      [["title", "=", "PM"], ["grade", "=", 6]]
  *      [["title", "=", "PM"], "OR", ["code", "=", "A010"], "OR", ["grade", "=", 6]]
  *      [[["title", "=", "PM"], "OR", ["code", "=", "A010"]], "AND", ["grade", "=", 6]]
- *  Support value using @{fieldName} to reserve field name for field comparison.
+ *  Support value using {{ @fieldName }} to reserve field name for field comparison.
  *  For example,
- *      ["updatedTime", ">", "@{createdTime}"] converts to sql: `updated_time > created_time`
+ *      ["updatedTime", ">", "{{ @createdTime }}"] converts to sql: `updated_time > created_time`
  *  The reserved field name must be a field of the same model as the leftmost field name.
  * <p>
  *  Example of semantic query:
@@ -171,6 +171,10 @@ public class Filters implements Serializable {
         return Filters.of(new FilterUnit(field, operator, value));
     }
 
+    public static Filters of(Collection<String> fields, Operator operator, Object value) {
+        return Filters.of(new FilterUnit(fields, operator, value));
+    }
+
     /**
      * Create a leaf node with filterUnit object.
      *
@@ -214,6 +218,21 @@ public class Filters implements Serializable {
             this.children.add(Filters.of(field, operator, value));
         } else if (FilterType.TREE.equals(this.type)) {
             this.children.add(Filters.of(field, operator, value));
+        } else {
+            throw new IllegalArgumentException("Unsupported filter type: " + this.type);
+        }
+        return this;
+    }
+
+    public Filters add(Collection<String> fields, Operator operator, Object value) {
+        if (EMPTY.equals(this.getType())) {
+            this.setType(FilterType.LEAF);
+            this.setFilterUnit(FilterUnit.of(fields, operator, value));
+        } else if (FilterType.LEAF.equals(this.type)) {
+            this.convertLeafToTree();
+            this.children.add(Filters.of(fields, operator, value));
+        } else if (FilterType.TREE.equals(this.type)) {
+            this.children.add(Filters.of(fields, operator, value));
         } else {
             throw new IllegalArgumentException("Unsupported filter type: " + this.type);
         }
@@ -440,6 +459,10 @@ public class Filters implements Serializable {
         return this.add(field, Operator.IN, value);
     }
 
+    public Filters tupleIn(Collection<String> fields, Collection<? extends Collection<?>> value) {
+        return this.add(fields, Operator.IN, value);
+    }
+
     /**
      * Add a NOT_IN filter to the current Filters object using method reference (lambda expression).
      * @param method the method reference of the field
@@ -458,6 +481,10 @@ public class Filters implements Serializable {
      */
     public Filters notIn(String field, Collection<?> value) {
         return this.add(field, Operator.NOT_IN, value);
+    }
+
+    public Filters tupleNotIn(Collection<String> fields, Collection<? extends Collection<?>> value) {
+        return this.add(fields, Operator.NOT_IN, value);
     }
 
     /**
@@ -835,7 +862,7 @@ public class Filters implements Serializable {
         if (FilterType.TREE.equals(this.type)) {
             this.children.forEach(filters -> fields.addAll(filters.extractFields()));
         } else if (FilterType.LEAF.equals(this.type)) {
-            fields.add(this.filterUnit.getField());
+            fields.addAll(this.filterUnit.getEffectiveFields());
         }
         return fields;
     }
@@ -864,9 +891,16 @@ public class Filters implements Serializable {
         if (filterList.isEmpty()) {
             // Empty filters: [], which will be ignored in the final SQL.
             return new Filters();
-        } else if (filterList.get(0) instanceof String fieldName && filterList.size() == FilterUnit.UNIT_LENGTH) {
-            // LEAF type filters: ["title", "=", "PM"]
-            return Filters.of(fieldName.trim(), Operator.of(((String) filterList.get(1)).trim()), filterList.get(2));
+        }
+        Operator operator = parseQueryOperator(filterList);
+        if (operator != null) {
+            if (filterList.get(0) instanceof String fieldName) {
+                // LEAF type filters: ["title", "=", "PM"]
+                return Filters.of(fieldName.trim(), operator, filterList.get(2));
+            } else if (filterList.get(0) instanceof List<?> fieldList && fieldList.stream().allMatch(String.class::isInstance)) {
+                return Filters.of(fieldList.stream().map(String.class::cast).collect(Collectors.toList()), operator, filterList.get(2));
+            }
+            throw new IllegalArgumentException("Exception occurs in filters: {0}", filterList);
         } else if (filterList.get(0) instanceof List<?> firstElement) {
             if (filterList.size() == 1) {
                 // Remove redundant [] noise, such as: [[]], [["title", "=", "PM"]], [[[leaf1], "AND", [leaf2]]]
@@ -876,6 +910,17 @@ public class Filters implements Serializable {
             }
         } else {
             throw new IllegalArgumentException("Exception occurs in filters: {0}", filterList);
+        }
+    }
+
+    private static Operator parseQueryOperator(List<?> filterList) {
+        if (filterList.size() != FilterUnit.UNIT_LENGTH || !(filterList.get(1) instanceof String operatorName)) {
+            return null;
+        }
+        try {
+            return Operator.of(operatorName.trim());
+        } catch (IllegalArgumentException ignored) {
+            return null;
         }
     }
 

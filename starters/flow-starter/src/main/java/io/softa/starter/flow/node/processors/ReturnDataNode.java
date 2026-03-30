@@ -43,15 +43,15 @@ public class ReturnDataNode implements NodeProcessor<ReturnDataParams> {
 
     /**
      * Execute the ReturnDataNode processor.
-     * The value supports constants, variables, and calculation formulas,
-     * where variables are represented by `#{}` and calculation formulas are represented by `${}`.
+     * The value supports constants and placeholders,
+     * where dynamic values are represented by `{{ expr }}`.
      * Example:
      * <p>
      * {
      *     "dataTemplate":  {
-     *         "parentId": "#{parentId}",
-     *         "name": "#{deptName}",
-     *         "ownId": "#{ownId}"
+     *         "parentId": "{{ parentId }}",
+     *         "name": "{{ deptName }}",
+     *         "ownId": "{{ ownId }}"
      *     }
      * }
      * </p>

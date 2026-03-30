@@ -23,15 +23,22 @@ public class ImportHandlerFactory {
 
     /**
      * Create the field handlers for the import template.
+     * Dotted-path relation lookup fields (e.g. deptId.code) are skipped here
+     * because they are resolved by {@link RelationLookupResolver}.
      */
     public List<BaseImportHandler> createHandlers(ImportTemplateDTO importTemplateDTO) {
         String modelName = importTemplateDTO.getModelName();
         List<BaseImportHandler> handlers = new ArrayList<>();
         for (ImportFieldDTO importFieldDTO : importTemplateDTO.getImportFields()) {
-            if (!ModelManager.existField(modelName, importFieldDTO.getFieldName())) {
+            String fieldName = importFieldDTO.getFieldName();
+            // Skip relation lookup fields — they contain a dot and are handled by RelationLookupResolver
+            if (fieldName.contains(".")) {
                 continue;
             }
-            MetaField metaField = ModelManager.getModelField(modelName, importFieldDTO.getFieldName());
+            if (!ModelManager.existField(modelName, fieldName)) {
+                continue;
+            }
+            MetaField metaField = ModelManager.getModelField(modelName, fieldName);
             if (!Boolean.TRUE.equals(importFieldDTO.getRequired())) {
                 importFieldDTO.setRequired(metaField.isRequired());
             }

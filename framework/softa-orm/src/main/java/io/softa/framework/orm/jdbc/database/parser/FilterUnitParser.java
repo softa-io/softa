@@ -8,6 +8,10 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.placeholder.PlaceholderKind;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
+import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterUnit;
@@ -48,16 +52,22 @@ public class FilterUnitParser {
             case LESS_THAN:
             case LESS_THAN_OR_EQUAL:
                 condition.append(" ").append(DBUtil.getPredicate(operator));
-                if (value instanceof String expression && StringTools.isReservedField(expression)) {
-                    // Handle field comparison, value is @{fieldName}, which is a reserved field name,
-                    // embed it into SQL after checking the field name is legal
-                    String fieldName = expression.substring(2, expression.length() - 1).trim();
-                    String columnName = ModelManager.getModelFieldColumn(metaField.getModelName(), fieldName);
-                    condition.append(" ").append(tableAlias).append(".").append(columnName).append(" ");
-                } else {
-                    if (value instanceof String v && EnvConstant.ENV_PARAMS.contains(v.toUpperCase())) {
-                        value = convertEnvParameter(v);
+                if (value instanceof String expression) {
+                    PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(expression);
+                    if (placeholder != null && PlaceholderKind.RESERVED_FIELD.equals(placeholder.getKind())) {
+                        // Handle field comparison, value is {{ @fieldName }}, which is a reserved field reference,
+                        // embed it into SQL after checking the field name is legal
+                        String fieldName = placeholder.getContent();
+                        String columnName = ModelManager.getModelFieldColumn(metaField.getModelName(), fieldName);
+                        condition.append(" ").append(tableAlias).append(".").append(columnName).append(" ");
+                    } else {
+                        if (EnvConstant.ENV_PARAMS.contains(expression.toUpperCase())) {
+                            value = convertEnvParameter(expression);
+                        }
+                        condition.append(" ?");
+                        sqlWrapper.addArgValue(value);
                     }
+                } else {
                     condition.append(" ?");
                     sqlWrapper.addArgValue(value);
                 }
@@ -106,6 +116,26 @@ public class FilterUnitParser {
                 throw new IllegalArgumentException("FilterUnitParser currently does not support the operator {0}! ", operator.getName());
         }
         return condition;
+    }
+
+    public static StringBuilder parseTuple(SqlWrapper sqlWrapper, List<String> fieldAliases, FilterUnit filterUnit) {
+        Operator operator = filterUnit.getOperator();
+        Assert.isTrue(filterUnit.isTuple(), "Tuple parser only supports tuple filter units: {0}", filterUnit);
+        Assert.isTrue(Operator.TUPLE_OPERATORS.contains(operator),
+                "Tuple parser only supports IN or NOT IN operators: {0}", filterUnit);
+        Assert.isTrue(fieldAliases.size() == filterUnit.getFields().size(),
+                "Tuple parser field size mismatch: {0}", filterUnit);
+        List<List<?>> tuples = new ArrayList<>();
+        for (Object tupleValue : (Collection<?>) filterUnit.getValue()) {
+            tuples.add(new ArrayList<>((Collection<?>) tupleValue));
+        }
+        if (tuples.isEmpty()) {
+            return new StringBuilder(Operator.NOT_IN.equals(operator) ? "1 = 1" : "1 = 0");
+        }
+        if (DBUtil.getDbDialect().supportsTuplePredicate()) {
+            return buildNativeTupleCondition(sqlWrapper, fieldAliases, operator, tuples);
+        }
+        return buildFallbackTupleCondition(sqlWrapper, fieldAliases, operator, tuples);
     }
 
     /**
@@ -216,5 +246,63 @@ public class FilterUnitParser {
         idPath = idPath + "%";
         sqlWrapper.addArgValue(idPath);
         return condition;
+    }
+
+    private static StringBuilder buildNativeTupleCondition(SqlWrapper sqlWrapper, List<String> fieldAliases,
+                                                           Operator operator, List<List<?>> tuples) {
+        StringBuilder condition = new StringBuilder("(")
+                .append(String.join(", ", fieldAliases))
+                .append(") ")
+                .append(DBUtil.getPredicate(operator))
+                .append(" (");
+        for (int i = 0; i < tuples.size(); i++) {
+            if (i > 0) {
+                condition.append(", ");
+            }
+            condition.append("(");
+            appendTuplePlaceholders(condition, tuples.get(i).size());
+            condition.append(")");
+            tuples.get(i).forEach(sqlWrapper::addArgValue);
+        }
+        condition.append(")");
+        return condition;
+    }
+
+    private static StringBuilder buildFallbackTupleCondition(SqlWrapper sqlWrapper, List<String> fieldAliases,
+                                                             Operator operator, List<List<?>> tuples) {
+        boolean negative = Operator.NOT_IN.equals(operator);
+        String outerLogic = negative ? " AND " : " OR ";
+        String innerLogic = negative ? " OR " : " AND ";
+        Operator comparisonOperator = negative ? Operator.NOT_EQUAL : Operator.EQUAL;
+        StringBuilder condition = new StringBuilder("(");
+        for (int tupleIndex = 0; tupleIndex < tuples.size(); tupleIndex++) {
+            if (tupleIndex > 0) {
+                condition.append(outerLogic);
+            }
+            condition.append("(");
+            List<?> tuple = tuples.get(tupleIndex);
+            for (int valueIndex = 0; valueIndex < tuple.size(); valueIndex++) {
+                if (valueIndex > 0) {
+                    condition.append(innerLogic);
+                }
+                condition.append(fieldAliases.get(valueIndex))
+                        .append(" ")
+                        .append(DBUtil.getPredicate(comparisonOperator))
+                        .append(" ?");
+                sqlWrapper.addArgValue(tuple.get(valueIndex));
+            }
+            condition.append(")");
+        }
+        condition.append(")");
+        return condition;
+    }
+
+    private static void appendTuplePlaceholders(StringBuilder condition, int size) {
+        for (int i = 0; i < size; i++) {
+            if (i > 0) {
+                condition.append(", ");
+            }
+            condition.append("?");
+        }
     }
 }

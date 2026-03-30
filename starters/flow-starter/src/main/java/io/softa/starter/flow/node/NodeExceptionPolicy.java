@@ -19,7 +19,7 @@ public class NodeExceptionPolicy {
     @Schema(description = "Exception Signal")
     private NodeExceptionSignal exceptionSignal;
 
-    @Schema(description = "Exception message, supports string interpolation, `#{var}`")
+    @Schema(description = "Exception message, supports string interpolation, `{{ expr }}`")
     private String exceptionMessage;
 
 }

@@ -1,23 +1,25 @@
 package io.softa.starter.flow.node.processors;
 
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.StringTools;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.service.ModelService;
-import io.softa.starter.flow.node.NodeContext;
-import io.softa.starter.flow.node.NodeProcessor;
-import io.softa.starter.flow.node.params.UpdateDataParams;
-import io.softa.starter.flow.entity.FlowNode;
-import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.utils.FlowUtils;
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import java.io.Serializable;
-import java.util.Collection;
-import java.util.Map;
+import io.softa.framework.base.placeholder.PlaceholderKind;
+import io.softa.framework.base.placeholder.PlaceholderToken;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.flow.entity.FlowNode;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.node.NodeContext;
+import io.softa.starter.flow.node.NodeProcessor;
+import io.softa.starter.flow.node.params.UpdateDataParams;
+import io.softa.starter.flow.utils.FlowUtils;
 
 import static io.softa.framework.orm.constant.ModelConstant.ID;
 
@@ -60,19 +62,19 @@ public class UpdateDataNode implements NodeProcessor<UpdateDataParams> {
 
     /**
      * Execute the UpdateDataNode processor.
-     * The value supports constants, variables, and calculation formulas,
-     * where variables are represented by `#{}` and calculation formulas are represented by `${}`.
+     * The value supports constants and placeholders,
+     * where dynamic values are represented by `{{ expr }}`.
      * Example:
      * <p>
      * {
      *     "modelName": "SysModel",
-     *     "pkVariable": "#{deptId}",
-     *     "filters": ["code", "=", "#{deptCode}"],
-     *     "rowTemplate":  {
-     *         "parentId": "#{parentId}",
-     *         "name": "#{deptName}",
-     *         "ownId": "#{ownId}"
-     *     }
+     *     "pkVariable": "{{ deptId }}",
+     *     "filters": ["code", "=", "{{ deptCode }}"],
+ *     "rowTemplate":  {
+     *         "parentId": "{{ parentId }}",
+     *         "name": "{{ deptName }}",
+     *         "ownId": "{{ ownId }}"
+ *     }
      * }
      * </p>
      *
@@ -84,9 +86,10 @@ public class UpdateDataNode implements NodeProcessor<UpdateDataParams> {
     public void execute(FlowNode flowNode, UpdateDataParams nodeParams, NodeContext nodeContext) {
         String pkVariable = nodeParams.getPkVariable();
         Filters updateFilters = new Filters();
-        if (StringTools.isVariable(pkVariable)) {
-            // String variable parameter `#{}`: retrieve ids from the nodeContext
-            Collection<?> ids = FlowUtils.getIdsFromPkVariable(flowNode, pkVariable, nodeContext);
+        PlaceholderToken placeholder = PlaceholderUtils.parsePlaceholder(pkVariable);
+        if (placeholder != null && PlaceholderKind.VARIABLE.equals(placeholder.getKind())) {
+            // Resolve simple variable placeholders `{{ TriggerParams.id }}` from the node context.
+            Collection<?> ids = FlowUtils.getIdsFromPkVariable(flowNode, placeholder, nodeContext);
             if (CollectionUtils.isEmpty(ids)) {
                 return;
             }

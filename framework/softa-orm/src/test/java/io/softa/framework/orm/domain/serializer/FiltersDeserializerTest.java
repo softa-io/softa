@@ -57,6 +57,14 @@ class FiltersDeserializerTest {
         log.info(filters.toString());
     }
 
+    @Test
+    void testDeserializerTupleFilterList() {
+        String json = "[\"modelName,fieldName\",\"IN\",[[\"User\",\"name\"],[\"User\",\"email\"]]]";
+        Filters filters = JsonUtils.stringToObject(json, Filters.class);
+        assertNotNull(filters);
+        log.info(filters.toString());
+    }
+
     /** filters value is null */
     @Test
     void testDeserializerFiltersNull() {

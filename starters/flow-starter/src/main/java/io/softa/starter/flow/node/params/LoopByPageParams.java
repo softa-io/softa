@@ -22,8 +22,8 @@ public class LoopByPageParams implements NodeParams {
     private List<String> fields;
 
     @Schema(description = """
-            Filters for data retrieval, value supports constants, variables `#{}`, expressions `${}`,
-            and reserved field name `@{}`.
+            Filters for data retrieval. Values support constants, placeholders `{{ expr }}`,
+            and reserved field references `{{ @fieldName }}`.
             """)
     private Filters filters;
 

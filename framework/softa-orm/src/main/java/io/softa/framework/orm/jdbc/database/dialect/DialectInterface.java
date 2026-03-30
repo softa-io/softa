@@ -13,6 +13,15 @@ public interface DialectInterface {
     String getPredicate(Operator operator);
 
     /**
+     * Whether the database supports row-value tuple predicates such as `(c1, c2) IN ((?, ?), (?, ?))`.
+     *
+     * @return whether tuple predicates are supported
+     */
+    default boolean supportsTuplePredicate() {
+        return true;
+    }
+
+    /**
      * Get the database paging clause.
      *
      * @param limit limit

@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.file.enums.DocumentTemplateType;
 
 /**
  * DocumentTemplate Model
@@ -30,9 +31,18 @@ public class DocumentTemplate extends AuditableModel {
     @Schema(description = "File Name")
     private String fileName;
 
+    @Schema(description = "Template Type")
+    private DocumentTemplateType templateType;
+
     @Schema(description = "File Template ID")
     private Long fileId;
 
+    @Schema(description = "HTML Template Content")
+    private String htmlTemplate;
+
     @Schema(description = "Convert To PDF")
     private Boolean convertToPdf;
+
+    @Schema(description = "Description")
+    private String description;
 }

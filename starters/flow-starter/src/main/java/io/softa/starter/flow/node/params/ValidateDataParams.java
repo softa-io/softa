@@ -18,7 +18,7 @@ public class ValidateDataParams implements NodeParams {
     @Schema(description = """
             The exception message when the validation fails.
             Supports string interpolation using environment variables,
-            such as "Department ID #{deptId} does not exist!"
+            such as "Department ID {{ deptId }} does not exist!"
             """)
     private String exceptionMsg;
 }

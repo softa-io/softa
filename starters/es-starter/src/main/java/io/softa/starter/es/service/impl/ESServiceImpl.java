@@ -1,5 +1,6 @@
 package io.softa.starter.es.service.impl;
 
+import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterUnit;
@@ -126,6 +127,7 @@ public abstract class ESServiceImpl<T> implements ESService<T> {
      */
     private Criteria convertFilterUnit(FilterUnit filterUnit) {
         // TODO: validate field metadata existence for ES object
+        Assert.notTrue(filterUnit.isTuple(), "Elasticsearch does not support tuple filters: {0}", filterUnit);
         String field = filterUnit.getField();
         Object value = filterUnit.getValue();
         Criteria criteria = new Criteria(field);

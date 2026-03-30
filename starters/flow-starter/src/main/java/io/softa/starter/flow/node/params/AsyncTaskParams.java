@@ -14,7 +14,7 @@ import java.util.Map;
  * {
  *     "asyncTaskCode": "CleanDataLog",
  *     "dataTemplate": {
- *         "id": "#{GetData.id}",
+ *         "id": "{{ GetData.id }}",
  *         "reason": "AutoClean",
  *         "description": "Auto Clean"
  *     }
@@ -31,7 +31,7 @@ public class AsyncTaskParams implements NodeParams {
 
     @Schema(description = """
             The params for the async task. The value can be a constant, a variable, or a calculation formula.
-            Variables are represented by `#{}` and calculation formulas are represented by `${}`.
+            Dynamic values are represented by `{{ expr }}`.
             """)
     private Map<String, Object> dataTemplate;
 }

@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.IllegalArgumentException;
 
+import java.util.List;
+
 @Slf4j
 class FiltersTest {
 
@@ -57,6 +59,33 @@ class FiltersTest {
         Filters filters = Filters.of(source);
         assert filters != null;
         Assertions.assertEquals(source, filters.toString());
+    }
+
+    @Test
+    void parseTupleFilterUnit() {
+        String source = "[\"modelName,fieldName\",\"IN\",[[\"User\",\"name\"],[\"User\",\"email\"]]]";
+        Filters filters = Filters.of(source);
+        assert filters != null;
+        Assertions.assertEquals(source, filters.toString());
+        Assertions.assertEquals(java.util.Set.of("modelName", "fieldName"), filters.extractFields());
+    }
+
+    @Test
+    void parseTupleFilterUnitWithFieldList() {
+        String source = "[[\"modelName\",\"fieldName\"],\"IN\",[[\"User\",\"name\"],[\"User\",\"email\"]]]";
+        String expected = "[\"modelName,fieldName\",\"IN\",[[\"User\",\"name\"],[\"User\",\"email\"]]]";
+        Filters filters = Filters.of(source);
+        assert filters != null;
+        Assertions.assertEquals(expected, filters.toString());
+    }
+
+    @Test
+    void parseTupleFilterUnitSingleTupleShortForm() {
+        String source = "[\"modelName,fieldName\",\"IN\",[\"User\",\"name\"]]";
+        String expected = "[\"modelName,fieldName\",\"IN\",[[\"User\",\"name\"]]]";
+        Filters filters = Filters.of(source);
+        assert filters != null;
+        Assertions.assertEquals(expected, filters.toString());
     }
 
     /**
@@ -148,6 +177,14 @@ class FiltersTest {
         Filters filters = Filters.of("title", Operator.EQUAL, "PM")
                 .and(Filters.of("active", Operator.EQUAL, false));
         Assertions.assertEquals(source, filters.toString());
+    }
+
+    @Test
+    void parseWithTupleConstructionMethod() {
+        String expected = "[\"modelName,fieldName\",\"IN\",[[\"User\",\"name\"],[\"User\",\"email\"]]]";
+        Filters filters = new Filters().tupleIn(List.of("modelName", "fieldName"),
+                List.of(List.of("User", "name"), List.of("User", "email")));
+        Assertions.assertEquals(expected, filters.toString());
     }
 
     @Test

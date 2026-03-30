@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.softa</groupId>
         <artifactId>framework</artifactId>
-        <version>1.1.11</version>
+        <version>1.2.2</version>
     </parent>
 
     <name>Softa Base</name>
@@ -50,6 +50,14 @@
             <artifactId>jackson-databind</artifactId>
             <version>${jackson-bom.version}</version>
         </dependency>
+
+        <!-- The template engine for rendering HTML and generating code -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-freemarker</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>

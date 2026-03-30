@@ -48,7 +48,7 @@ public class QueryAiNode implements NodeProcessor<QueryAiParams> {
 
     /**
      * Execute the QueryAiNode processor.
-     * Query content supports string interpolation `#{var}`.
+     * Query content supports string interpolation `{{ expr }}`.
      *
      * @param flowNode The flow node
      * @param nodeParams The parameters of the flow node.

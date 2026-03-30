@@ -29,6 +29,6 @@ public class ConditionParams implements NodeParams {
     @Schema(description = "The exception signal when the pass condition is false")
     private NodeExceptionSignal exceptionSignal;
 
-    @Schema(description = "Exception message, support string interpolation, #{var}")
+    @Schema(description = "Exception message, support string interpolation, {{ expr }}")
     private String exceptionMessage;
 }

@@ -9,14 +9,14 @@ import java.util.Map;
 /**
  * Parameters for returning data.
  * The value supports constants, variables, and calculation formulas,
- * where variables are represented by `#{}` and calculation formulas are represented by `${}`.
+ * where dynamic values are represented by `{{ expr }}`.
  * Example:
  * <p>
  * {
  *     "dataTemplate":  {
- *         "parentId": "#{parentId}",
- *         "name": "#{deptName}",
- *         "ownId": "#{ownId}"
+ *         "parentId": "{{ parentId }}",
+ *         "name": "{{ deptName }}",
+ *         "ownId": "{{ ownId }}"
  *     }
  * }
  * </p>
@@ -29,7 +29,7 @@ public class ReturnDataParams implements NodeParams {
     @Schema(description = """
             The key-value structure configuration of the returned data.
             The value can be a constant, a variable, or a calculation formula.
-            Variables are represented by `#{}` and calculation formulas are represented by `${}`.
+            Dynamic values are represented by `{{ expr }}`.
             """)
     private Map<String, Object> dataTemplate;
 }

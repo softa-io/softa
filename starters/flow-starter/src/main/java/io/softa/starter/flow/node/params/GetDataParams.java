@@ -30,8 +30,8 @@ public class GetDataParams implements NodeParams {
     private List<String> fields;
 
     @Schema(description = """
-            The filters of the data to be obtained, value supports constants, variables `#{}`,
-            calculation formulas `${}`, reserved field names `@{}`""")
+            The filters of the data to be obtained. Values support constants, placeholders `{{ expr }}`,
+            and reserved field references `{{ @fieldName }}`""")
     private Filters filters;
 
     @Schema(description = "The order of the data to be obtained.")
