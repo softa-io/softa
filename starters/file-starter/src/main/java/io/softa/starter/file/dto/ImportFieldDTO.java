@@ -19,6 +19,9 @@ public class ImportFieldDTO {
     @Schema(description = "Default Value")
     private Object defaultValue;
 
+    @Schema(description = "Field description configured on import template")
+    private String description;
+
     @Schema(hidden = true)
     private Boolean ignoreEmpty;
 

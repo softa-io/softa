@@ -8,6 +8,15 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fesod.sheet.FesodSheet;
 import org.apache.fesod.sheet.context.AnalysisContext;
 import org.apache.fesod.sheet.event.AnalysisEventListener;
+import org.apache.fesod.sheet.write.handler.CellWriteHandler;
+import org.apache.fesod.sheet.write.handler.RowWriteHandler;
+import org.apache.fesod.sheet.write.handler.WriteHandler;
+import org.apache.fesod.sheet.write.handler.context.CellWriteHandlerContext;
+import org.apache.fesod.sheet.write.handler.context.RowWriteHandlerContext;
+import org.apache.fesod.sheet.write.metadata.style.WriteCellStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -102,14 +111,43 @@ public class ImportServiceImpl implements ImportService {
         validateImportTemplate(importTemplate);
         // Construct the importTemplateDTO object
         ImportTemplateDTO importTemplateDTO = this.getImportTemplateDTO(importTemplate, null);
-        List<String> headers = importTemplateDTO.getImportFields().stream()
-                .map(ImportFieldDTO::getHeader).toList();
-        List<String> requiredHeaderList = importTemplateDTO.getImportFields().stream()
+
+        List<ImportFieldDTO> importFields = importTemplateDTO.getImportFields();
+        List<String> headers = importFields.stream().map(ImportFieldDTO::getHeader).toList();
+        List<String> requiredHeaderList = importFields.stream()
                 .filter(ImportFieldDTO::getRequired).map(ImportFieldDTO::getHeader).toList();
+
+        // 1) Main sheet: header row only (existing behavior)
         CustomHeadStyleHandler headStyleHandler = new CustomHeadStyleHandler(requiredHeaderList);
-        ExcelSheetData sheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
+        ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
                 new CustomHeadStyleHandler[]{headStyleHandler});
-        return excelUploadService.generateFileAndUpload(importTemplate.getModelName(), importTemplate.getName(), sheetData);
+        List<ExcelSheetData> sheetDataList = new ArrayList<>();
+        sheetDataList.add(mainSheetData);
+        if (Boolean.TRUE.equals(importTemplate.getIncludeDescription())) {
+            // 2) Instruction sheet: header row + a second row containing field descriptions.
+            // Use the description configured on the import template field (not MetaField.description).
+            List<Object> instructionRow = importFields.stream().<Object>map(f -> {
+                String description = f.getDescription();
+                return description == null ? "" : description;
+            }).toList();
+            ExcelSheetData instructionSheetData = new ExcelSheetData(
+                    "Import instructions",
+                    headers,
+                    List.of(instructionRow),
+                    new WriteHandler[]{
+                            headStyleHandler,
+                            createInstructionWrapHandler(),
+                            createInstructionRowHeightHandler()
+                    }
+            );
+            sheetDataList.add(instructionSheetData);
+        }
+
+        return excelUploadService.generateFileAndUpload(
+                importTemplate.getModelName(),
+                importTemplate.getName(),
+                sheetDataList
+        );
     }
 
     /**
@@ -145,6 +183,63 @@ public class ImportServiceImpl implements ImportService {
             asyncImportProducer.sendAsyncImport(importTemplateDTO);
         }
         return importHistory;
+    }
+
+    private WriteHandler createInstructionWrapHandler() {
+        return new CellWriteHandler() {
+            @Override
+            public void afterCellDispose(CellWriteHandlerContext context) {
+                if (context.getHead()) {
+                    return;
+                }
+                WriteCellStyle writeCellStyle = context.getFirstCellData().getOrCreateStyle();
+                writeCellStyle.setWrapped(Boolean.TRUE);
+                writeCellStyle.setVerticalAlignment(VerticalAlignment.TOP);
+            }
+        };
+    }
+
+    private WriteHandler createInstructionRowHeightHandler() {
+        return new RowWriteHandler() {
+            @Override
+            public void afterRowDispose(RowWriteHandlerContext context) {
+                Row row = context.getRow();
+                if (context.getHead() || row == null) {
+                    return;
+                }
+                row.setHeightInPoints(calculateInstructionRowHeight(row));
+            }
+        };
+    }
+
+    private float calculateInstructionRowHeight(Row row) {
+        int estimatedLineCount = 1;
+        short lastCellNum = row.getLastCellNum();
+        if (lastCellNum <= 0) {
+            return estimatedLineCount * 16f;
+        }
+        int charsPerLine = Math.max(1, io.softa.starter.file.constant.FileConstant.DEFAULT_EXCEL_COLUMN_WIDTH - 4);
+        for (int i = 0; i < lastCellNum; i++) {
+            Cell cell = row.getCell(i);
+            if (cell == null) {
+                continue;
+            }
+            String cellText = cell.toString();
+            if (StringUtils.isBlank(cellText)) {
+                continue;
+            }
+            estimatedLineCount = Math.max(estimatedLineCount, estimateWrappedLineCount(cellText, charsPerLine));
+        }
+        return estimatedLineCount * 16f;
+    }
+
+    private int estimateWrappedLineCount(String text, int charsPerLine) {
+        int lineCount = 0;
+        for (String segment : text.split("\\R", -1)) {
+            int segmentLength = Math.max(1, segment.length());
+            lineCount += Math.max(1, (segmentLength + charsPerLine - 1) / charsPerLine);
+        }
+        return Math.max(1, lineCount);
     }
 
     /**
@@ -412,6 +507,7 @@ public class ImportServiceImpl implements ImportService {
         importFieldDTO.setFieldName(importTemplateField.getFieldName());
         importFieldDTO.setRequired(importTemplateField.getRequired());
         importFieldDTO.setIgnoreEmpty(importTemplateDTO.getIgnoreEmpty());
+        importFieldDTO.setDescription(importTemplateField.getDescription());
         // Get the metaField object of the last field in cascading `fieldName`.
         MetaField lastField = ModelManager.getLastFieldOfCascaded(importTemplateDTO.getModelName(), importTemplateField.getFieldName());
         // Set the default value of the imported field
