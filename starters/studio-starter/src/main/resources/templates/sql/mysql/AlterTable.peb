@@ -40,7 +40,7 @@ RENAME TABLE {{ model.oldTableName }} TO {{ model.tableName }};
 {% endif %}
 {% if model.hasAlterTableChanges %}
 ALTER TABLE {{ model.tableName }}
-{% if model.descriptionChanged %} COMMENT '{{ model.description }}'{% if model.createdFields is not empty or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}{% endif %}
+{%- if model.descriptionChanged %} COMMENT '{{ model.description }}'{% if model.createdFields is not empty or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}{% endif %}
 
 {% for field in model.createdFields %}
     ADD COLUMN {{ field.columnName }} {{ field.typeDeclaration }}
@@ -53,6 +53,7 @@ ALTER TABLE {{ model.tableName }}
 {% endfor %}
 {% for field in model.deletedFields %}
     DROP COLUMN {{ field.columnName }}{% if not loop.last or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}
+
 {% endfor %}
 {% for field in model.updatedFields %}
     MODIFY COLUMN {{ field.columnName }} {{ field.typeDeclaration }}
@@ -61,6 +62,7 @@ ALTER TABLE {{ model.tableName }}
     {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
     {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
     {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last or model.renamedFields is not empty %},{% endif %}
+
 {% endfor %}
 {% for field in model.renamedFields %}
     CHANGE COLUMN {{ field.oldColumnName }} {{ field.columnName }} {{ field.typeDeclaration }}
@@ -69,5 +71,8 @@ ALTER TABLE {{ model.tableName }}
     {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
     {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
     {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last %},{% endif %}
-{% endfor %};
+
+{%- endfor %};
 {% endif %}
+
+
