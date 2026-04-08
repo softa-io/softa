@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.CollectionUtils;
 
+import io.softa.framework.base.utils.Cast;
 import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -261,15 +262,16 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
     /**
      * Get distinct values for the specified field, filtered by the given conditions.
      *
-     * @param <V> the type of the field's value
+     * @param <R> the type of the field's value
      * @param fieldReference the field reference to get the value from
      * @param filters optional filtering conditions
      * @return a list of distinct field values
      */
     @Override
-    public <V extends Serializable, R> List<V> getDistinctFieldValue(SFunction<T, R> fieldReference, Filters filters) {
+    public <R extends Serializable> List<R> getDistinctFieldValue(SFunction<T, R> fieldReference, Filters filters) {
         String fieldName = LambdaUtils.getAttributeName(fieldReference);
-        return modelService.getDistinctFieldValue(modelName, fieldName, filters);
+        List<Object> result = modelService.getDistinctFieldValue(modelName, fieldName, filters);
+        return BeanTool.convertPropertyValues(entityClass, fieldName, result);
     }
 
     /**
@@ -281,9 +283,10 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      * @return field value
      */
     @Override
-    public <V extends Serializable, R> V getFieldValue(K id, SFunction<T, R> fieldReference) {
+    public <R extends Serializable> R getFieldValue(K id, SFunction<T, R> fieldReference) {
         String fieldName = LambdaUtils.getAttributeName(fieldReference);
-        return modelService.getFieldValue(modelName, id, fieldName);
+        Object value = modelService.getFieldValue(modelName, id, fieldName);
+        return Cast.of(BeanTool.convertPropertyValue(entityClass, fieldName, value));
     }
 
     /**

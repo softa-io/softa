@@ -18,6 +18,7 @@ import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.jdbc.JdbcService;
@@ -143,6 +144,7 @@ public class ModelManager {
             validateActiveControl(metaModel);
             // Check and complete the model-level displayName configuration.
             validateModelDisplayName(metaModel);
+            validateDefaultOrder(metaModel);
             // Check and complete the searchName configuration
             validateSearchName(metaModel);
             // Check if the timeline model contains the required timeline fields: sliceId, effectiveStartDate, effectiveEndDate
@@ -292,6 +294,24 @@ public class ModelManager {
             metaModel.setDisplayName(Collections.singletonList("name"));
         } else {
             metaModel.setDisplayName(Collections.singletonList(ModelConstant.ID));
+        }
+    }
+
+    private static void validateDefaultOrder(MetaModel metaModel) {
+        Orders defaultOrder = metaModel.getDefaultOrder();
+        if (defaultOrder != null && !defaultOrder.isEmpty()) {
+            for (List<String> order : defaultOrder.getOrderList()) {
+                Assert.isTrue(order.size() == 2, "The defaultOrder {0} of model {1} is invalid! Only `fieldName ASC/DESC` format is allowed.",
+                        order, metaModel.getModelName());
+                String fieldName = order.get(0);
+                String orderType = order.get(1);
+                Assert.isTrue(Orders.ASC.equalsIgnoreCase(orderType) || Orders.DESC.equalsIgnoreCase(orderType),
+                        "The defaultOrder {0} of model {1} is invalid! The order type must be ASC or DESC.",
+                        order, metaModel.getModelName());
+                Assert.isTrue(existField(metaModel.getModelName(), fieldName),
+                        "The defaultOrder {0} of model {1} is invalid! The field `{2}` does not exist.",
+                        order, metaModel.getModelName(), fieldName);
+            }
         }
     }
 

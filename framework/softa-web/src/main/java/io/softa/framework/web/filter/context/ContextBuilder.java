@@ -1,8 +1,10 @@
 package io.softa.framework.web.filter.context;
 
+import java.util.List;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.config.SystemConfig;
@@ -22,9 +24,12 @@ import io.softa.framework.web.utils.CookieUtils;
 public class ContextBuilder {
 
     private final CacheService cacheService;
+    private final List<ContextEnricher> contextEnrichers;
 
-    public ContextBuilder(CacheService cacheService) {
+    public ContextBuilder(CacheService cacheService,
+                          @Autowired(required = false) List<ContextEnricher> contextEnrichers) {
         this.cacheService = cacheService;
+        this.contextEnrichers = contextEnrichers != null ? contextEnrichers : List.of();
     }
 
     /**
@@ -81,7 +86,17 @@ public class ContextBuilder {
         if (SystemConfig.env.isEnableMultiTenancy()) {
             this.setMultiTenancyEnv(context, userInfo);
         }
+        context.setCorrelationId(request.getHeader(BaseConstant.X_CORRELATION_ID));
         this.setDebugModeFromRequest(request, context);
+        // Allow business modules to enrich the context (e.g., EmpInfo, PermissionInfo)
+        for (ContextEnricher enricher : contextEnrichers) {
+            try {
+                enricher.enrich(context);
+            } catch (Exception e) {
+                log.error("ContextEnricher [{}] failed for userId={}: {}",
+                        enricher.getClass().getSimpleName(), context.getUserId(), e.getMessage());
+            }
+        }
         return context;
     }
 

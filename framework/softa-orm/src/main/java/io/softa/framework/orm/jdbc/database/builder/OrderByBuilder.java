@@ -1,14 +1,13 @@
 package io.softa.framework.orm.jdbc.database.builder;
 
+import java.util.List;
+
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
-import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.jdbc.database.SqlWrapper;
-import org.apache.commons.lang3.StringUtils;
-
-import java.util.List;
+import io.softa.framework.orm.meta.ModelManager;
 
 /**
  * OrderBy Builder
@@ -43,9 +42,9 @@ public class OrderByBuilder extends BaseBuilder implements SqlClauseBuilder {
         Orders orders = flexQuery.getOrders();
         if (orders == null) {
             // When `orders` in flexQuery is empty, using the `defaultOrder` configuration of model.
-            String defaultOrder = ModelManager.getModel(mainModelName).getDefaultOrder();
-            if (StringUtils.isNotBlank(defaultOrder)) {
-                orders = Orders.of(defaultOrder);
+            Orders defaultOrder = ModelManager.getModel(mainModelName).getDefaultOrder();
+            if (defaultOrder != null && !defaultOrder.isEmpty()) {
+                orders = defaultOrder;
             } else if (page != null && !flexQuery.isAggregate()) {
                 // In page query, if the order is not specified, and it is not an aggregate query, use the default order.
                 orders = Orders.of(ModelConstant.DEFAULT_PAGED_ORDER);

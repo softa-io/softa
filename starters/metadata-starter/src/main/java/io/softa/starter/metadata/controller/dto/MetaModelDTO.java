@@ -5,6 +5,8 @@ import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import io.softa.framework.orm.domain.Orders;
+
 /**
  * MetaModelDTO
  */
@@ -16,7 +18,7 @@ public class MetaModelDTO {
     private String description;
     private List<String> displayName;
     private List<String> searchName;
-    private String defaultOrder;
+    private Orders defaultOrder;
     private boolean timeline;
     private Map<String, MetaFieldDTO> modelFields;
 }

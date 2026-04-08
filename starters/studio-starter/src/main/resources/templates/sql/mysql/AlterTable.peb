@@ -1,0 +1,73 @@
+{#
+Template: AlterTable.peb
+Root:
+- model: ModelDdlCtx
+
+Used model fields:
+- tableName
+- oldTableName
+- labelName
+- renamed
+- hasAlterTableChanges
+- descriptionChanged
+- description
+- createdFields
+- deletedFields
+- updatedFields
+- renamedFields
+
+Used field fields:
+- columnName
+- oldColumnName
+- dbType
+- length
+- scale
+- required
+- autoIncrement
+- defaultValue
+- description
+
+Notes:
+- renamedFields means the column name changed.
+- Current MySQL behavior renders field rename as DROP COLUMN + ADD COLUMN.
+- updatedFields means non-rename column changes only.
+#}
+{% if model.renamed or model.hasAlterTableChanges %}
+/* Alter table for model: {{ model.labelName }} */
+{% endif %}
+{% if model.renamed %}
+RENAME TABLE {{ model.oldTableName }} TO {{ model.tableName }};
+{% endif %}
+{% if model.hasAlterTableChanges %}
+ALTER TABLE {{ model.tableName }}
+{% if model.descriptionChanged %} COMMENT '{{ model.description }}'{% if model.createdFields is not empty or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}{% endif %}
+
+{% for field in model.createdFields %}
+    ADD COLUMN {{ field.columnName }} {{ field.typeDeclaration }}
+    {%- if field.required %} NOT NULL{% endif -%}
+    {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
+    {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
+    {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
+    {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}
+
+{% endfor %}
+{% for field in model.deletedFields %}
+    DROP COLUMN {{ field.columnName }}{% if not loop.last or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}
+{% endfor %}
+{% for field in model.updatedFields %}
+    MODIFY COLUMN {{ field.columnName }} {{ field.typeDeclaration }}
+    {%- if field.required %} NOT NULL{% endif -%}
+    {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
+    {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
+    {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
+    {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last or model.renamedFields is not empty %},{% endif %}
+{% endfor %}
+{% for field in model.renamedFields %}
+    CHANGE COLUMN {{ field.oldColumnName }} {{ field.columnName }} {{ field.typeDeclaration }}
+    {%- if field.required %} NOT NULL{% endif -%}
+    {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
+    {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
+    {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
+    {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last %},{% endif %}
+{% endfor %};
+{% endif %}

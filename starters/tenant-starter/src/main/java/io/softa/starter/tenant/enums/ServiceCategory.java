@@ -5,21 +5,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /**
- * Service category:
- * BirthChart, NamingService, FengShui, DateSelection
- * MarriageCompatibility, CareerFortune, AcademicFortune, WealthAnalysis
+ * Service category
  */
 @Getter
 @AllArgsConstructor
 public enum ServiceCategory {
-    BIRTH_CHART("BirthChart"),
-    NAMING_SERVICE("NamingService"),
-    FENG_SHUI("FengShui"),
-    DATE_SELECTION("DateSelection"),
-    MARRIAGE_COMPATIBILITY("MarriageCompatibility"),
-    CAREER_FORTUNE("CareerFortune"),
-    ACADEMIC_FORTUNE("AcademicFortune"),
-    WEALTH_ANALYSIS("WealthAnalysis"),
+    SUPPORT("SUPPORT"),
     ;
 
     @JsonValue

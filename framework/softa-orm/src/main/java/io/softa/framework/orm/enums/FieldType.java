@@ -64,14 +64,14 @@ public enum FieldType {
     DTO("DTO", "DTO", DTOFieldObject.class, Types.LONGVARCHAR),
 
     // File and MultiFile store the ids of FileRecord model
-    FILE("File", "File", null, Types.VARCHAR),
-    MULTI_FILE("MultiFile", "MultiFile", null, Types.VARCHAR),
+    FILE("File", "File", Long.class, Types.VARCHAR),
+    MULTI_FILE("MultiFile", "MultiFile", List.class, Types.VARCHAR),
 
     // Relational fields
-    ONE_TO_ONE("OneToOne", "OneToOne", null, Types.BIGINT),
-    MANY_TO_ONE("ManyToOne", "ManyToOne", null, Types.BIGINT),
-    ONE_TO_MANY("OneToMany", "OneToMany", null, Types.NULL),
-    MANY_TO_MANY("ManyToMany", "ManyToMany", null, Types.NULL);
+    ONE_TO_ONE("OneToOne", "OneToOne", Long.class, Types.BIGINT),
+    MANY_TO_ONE("ManyToOne", "ManyToOne", Long.class, Types.BIGINT),
+    ONE_TO_MANY("OneToMany", "OneToMany", List.class, Types.NULL),
+    MANY_TO_MANY("ManyToMany", "ManyToMany", List.class, Types.NULL);
 
     @JsonValue
     private final String type;

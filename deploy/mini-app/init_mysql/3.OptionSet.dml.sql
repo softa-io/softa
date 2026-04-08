@@ -167,7 +167,7 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 DELETE FROM sys_option_set WHERE option_set_code='DataType';
 DELETE FROM sys_option_item WHERE option_set_code='DataType';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DataType','Data Type','字段值的Java数据类型');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DataType','Data Type','Java data type of the field value');
 -- Insert option set items
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DataType','String','String',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DataType','MultiString','MultiString',10,'','','');
@@ -242,4 +242,3 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('Timezone','UTC-06:00','UTC-06:00 (Chicago, CST)',7,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('Timezone','UTC-05:00','UTC-05:00 (New York, EST)',8,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('Timezone','UTC-04:00','UTC-04:00 (Halifax, AST)',9,'','','');
-

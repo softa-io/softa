@@ -39,15 +39,15 @@
             <version>${project.version}</version>
         </dependency>
 
-        <dependency>
-            <groupId>io.softa</groupId>
-            <artifactId>flow-starter</artifactId>
-            <version>${project.version}</version>
-        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>io.softa</groupId>-->
+<!--            <artifactId>flow-starter</artifactId>-->
+<!--            <version>${project.version}</version>-->
+<!--        </dependency>-->
 
         <dependency>
             <groupId>io.softa</groupId>
-            <artifactId>designer-starter</artifactId>
+            <artifactId>studio-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
 

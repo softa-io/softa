@@ -1,9 +1,12 @@
 package io.softa.framework.orm.meta;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,31 +22,59 @@ import io.softa.framework.orm.jdbc.JdbcService;
 @Slf4j
 public class OptionManager {
 
-    private static final Map<String, Map<String, MetaOptionItem>> META_OPTION_SET_MAP = new ConcurrentHashMap<>(100);
+    private static volatile Map<String, Map<String, MetaOptionItem>> META_OPTION_SET_MAP = new ConcurrentHashMap<>(100);
+    private static final ThreadLocal<Map<String, Map<String, MetaOptionItem>>> BUILDING_OPTION_SET_MAP = new ThreadLocal<>();
+
+    private final ReentrantLock initLock = new ReentrantLock();
 
     @Autowired
     private JdbcService<?> jdbcService;
+
+    private static Map<String, Map<String, MetaOptionItem>> currentOptionSetMap() {
+        Map<String, Map<String, MetaOptionItem>> buildingOptionSetMap = BUILDING_OPTION_SET_MAP.get();
+        return buildingOptionSetMap != null ? buildingOptionSetMap : META_OPTION_SET_MAP;
+    }
+
+    private static Map<String, Map<String, MetaOptionItem>> createMutableOptionSetMap() {
+        return new HashMap<>(100);
+    }
+
+    private static Map<String, Map<String, MetaOptionItem>> freezeOptionSetMap(
+            Map<String, Map<String, MetaOptionItem>> draft) {
+        Map<String, Map<String, MetaOptionItem>> frozenOptionSetMap =
+                new ConcurrentHashMap<>(Math.max(100, draft.size()));
+        draft.forEach((optionSetCode, optionItems) ->
+                frozenOptionSetMap.put(optionSetCode, Collections.unmodifiableMap(new LinkedHashMap<>(optionItems))));
+        return frozenOptionSetMap;
+    }
+
+    private static Map<String, MetaOptionItem> getOptionItems(String optionSetCode) {
+        Map<String, MetaOptionItem> optionItems = currentOptionSetMap().get(optionSetCode);
+        Assert.isTrue(optionItems != null,
+                "optionSetCode {0} does not exist in OptionSet metadata.", optionSetCode);
+        return optionItems;
+    }
 
     /**
      * Initialize the optionSet structure as: {optionSetCode: {itemCode: metaOptionItem}}
      */
     public void init() {
-        META_OPTION_SET_MAP.clear();
-        // Select all optionItems from the database, and order by optionItem sequence
-        List<MetaOptionItem> metaOptionItems = jdbcService.selectMetaEntityList("SysOptionItem", MetaOptionItem.class, "sequence");
-        metaOptionItems.stream()
-                .filter(item -> StringUtils.isNotBlank(item.getOptionSetCode()))
-                .forEach(item -> {
-                    // Update the optionSet cache
-                    if (META_OPTION_SET_MAP.containsKey(item.getOptionSetCode())) {
-                        META_OPTION_SET_MAP.get(item.getOptionSetCode()).put(item.getItemCode(), item);
-                    } else {
-                        // Use LinkedHashMap to ensure the order of options
-                        Map<String, MetaOptionItem> map = new LinkedHashMap<>();
-                        map.put(item.getItemCode(), item);
-                        META_OPTION_SET_MAP.put(item.getOptionSetCode(), map);
-                    }
-                });
+        initLock.lock();
+        try {
+            Map<String, Map<String, MetaOptionItem>> draft = createMutableOptionSetMap();
+            BUILDING_OPTION_SET_MAP.set(draft);
+            // Select all optionItems from the database, and order by optionItem sequence
+            List<MetaOptionItem> metaOptionItems =
+                    jdbcService.selectMetaEntityList("SysOptionItem", MetaOptionItem.class, "sequence");
+            metaOptionItems.stream()
+                    .filter(item -> StringUtils.isNotBlank(item.getOptionSetCode()))
+                    .forEach(item -> draft.computeIfAbsent(item.getOptionSetCode(), key -> new LinkedHashMap<>())
+                            .put(item.getItemCode(), item));
+            META_OPTION_SET_MAP = freezeOptionSetMap(draft);
+        } finally {
+            BUILDING_OPTION_SET_MAP.remove();
+            initLock.unlock();
+        }
     }
 
     /**
@@ -53,9 +84,7 @@ public class OptionManager {
      * @return unmodifiable optionItems
      */
     public static List<MetaOptionItem> getMetaOptionItems(String optionSetCode) {
-        Assert.isTrue(META_OPTION_SET_MAP.containsKey(optionSetCode),
-                "optionSetCode {0} does not exist in OptionSet metadata.", optionSetCode);
-        return META_OPTION_SET_MAP.get(optionSetCode).values().stream().toList();
+        return getOptionItems(optionSetCode).values().stream().toList();
     }
 
     /**
@@ -66,9 +95,7 @@ public class OptionManager {
      * @return optionItem object
      */
     public static MetaOptionItem getMetaOptionItem(String optionSetCode, String itemCode) {
-        Assert.isTrue(META_OPTION_SET_MAP.containsKey(optionSetCode),
-                "optionSetCode {0} does not exist in OptionSet metadata.", optionSetCode);
-        return META_OPTION_SET_MAP.get(optionSetCode).get(itemCode);
+        return getOptionItems(optionSetCode).get(itemCode);
     }
 
     /**
@@ -91,7 +118,7 @@ public class OptionManager {
      * @return optionItem code
      */
     public static String getItemCodeByName(String optionSetCode, String itemName) {
-        for (MetaOptionItem metaOptionItem : META_OPTION_SET_MAP.get(optionSetCode).values()) {
+        for (MetaOptionItem metaOptionItem : getOptionItems(optionSetCode).values()) {
             if (metaOptionItem.getItemName().equals(itemName)) {
                 return metaOptionItem.getItemCode();
             }
@@ -106,7 +133,7 @@ public class OptionManager {
      * @return true if exists
      */
     public static boolean existsOptionSetCode(String optionSetCode) {
-        return META_OPTION_SET_MAP.containsKey(optionSetCode);
+        return currentOptionSetMap().containsKey(optionSetCode);
     }
 
     /**
@@ -117,6 +144,7 @@ public class OptionManager {
      * @return true if exists
      */
     public static boolean existsItemCode(String optionSetCode, String itemCode) {
-        return META_OPTION_SET_MAP.containsKey(optionSetCode) && META_OPTION_SET_MAP.get(optionSetCode).containsKey(itemCode);
+        return currentOptionSetMap().containsKey(optionSetCode)
+                && currentOptionSetMap().get(optionSetCode).containsKey(itemCode);
     }
 }

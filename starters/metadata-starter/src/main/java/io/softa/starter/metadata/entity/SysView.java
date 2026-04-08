@@ -1,13 +1,15 @@
 package io.softa.starter.metadata.entity;
 
-import tools.jackson.databind.JsonNode;
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.framework.orm.enums.ViewType;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import tools.jackson.databind.JsonNode;
 
-import java.io.Serial;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.ViewType;
 
 /**
  * SysView Model
@@ -45,10 +47,10 @@ public class SysView extends AuditableModel {
     private JsonNode structure;
 
     @Schema(description = "Default Filters")
-    private JsonNode defaultFilter;
+    private Filters defaultFilter;
 
     @Schema(description = "Default Order")
-    private JsonNode defaultOrder;
+    private Orders defaultOrder;
 
     @Schema(description = "Navigation ID")
     private Long navId;

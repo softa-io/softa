@@ -15,7 +15,11 @@ public class ChangeLog {
     // ChangeLog uuid
     private String uuid;
 
+    // Trace ID for distributed tracing
     private String traceId;
+
+    // Correlation ID for business context
+    private String correlationId;
 
     private String model;
     private Serializable rowId;

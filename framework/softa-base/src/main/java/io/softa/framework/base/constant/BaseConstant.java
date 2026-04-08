@@ -42,7 +42,9 @@ public interface BaseConstant {
     String TOKEN = "token";
     String AUTHORIZATION = "Authorization";
 
-    // TraceId in request header
+    // TraceId in the request header
     String X_B3_TRACEID = "X-B3-TraceId";
+
+    String X_CORRELATION_ID = "X-Correlation-Id";
 
 }

@@ -204,18 +204,6 @@ public class BeanTool {
     }
 
     /**
-     * Convert the original data Map to a bean object, ignore non-existent properties.
-     *
-     * @param row original data map
-     * @param entityClass bean class
-     * @return bean object
-     * @param <T> the bean object type
-     */
-    public static <T> T originalMapToObject(@NotNull Map<String, Object> row, Class<T> entityClass) {
-        return originalMapToObject(row, entityClass, true);
-    }
-
-    /**
      * Convert the original data Map to a bean object.
      *
      * @param row original data map
@@ -280,13 +268,26 @@ public class BeanTool {
     }
 
     /**
-     * Convert the Map to a bean object.
-     * @param row map data
+     * Convert the data Map to a bean object, ignore non-existent properties.
+     *
+     * @param row original data map
      * @param entityClass bean class
      * @return bean object
      * @param <T> the bean object type
      */
     public static <T> T mapToObject(@NotNull Map<String, Object> row, Class<T> entityClass) {
+        return mapToObject(row, entityClass, true);
+    }
+
+    /**
+     * Convert the Map to a bean object.
+     * @param row map data
+     * @param entityClass bean class
+     * @param ignoreNotExist whether to ignore the properties that do not exist in the entity
+     * @return bean object
+     * @param <T> the bean object type
+     */
+    public static <T> T mapToObject(@NotNull Map<String, Object> row, Class<T> entityClass, boolean ignoreNotExist) {
         T bean;
         try {
             bean = entityClass.getDeclaredConstructor().newInstance();
@@ -298,17 +299,12 @@ public class BeanTool {
         row.forEach((field, value) -> {
             Class<?> fieldTypeClass = beanMap.getPropertyType(field);
             if (fieldTypeClass == null) {
-                log.warn("The {} attribute does not exist in the entity class {}!", field, entityClass.getSimpleName());
+                if (!ignoreNotExist) {
+                    log.warn("Entity class {} does not contain attribute {}!", entityClass.getSimpleName(), field);
+                }
                 return;
-            } else if (value instanceof String strValue && Enum.class.isAssignableFrom(fieldTypeClass)) {
-                value = formatEnumProperty(strValue, fieldTypeClass);
-            } else if (value instanceof JsonNode jsonNode && DTOFieldObject.class.isAssignableFrom(fieldTypeClass)) {
-                value = JsonUtils.jsonNodeToObject(jsonNode, fieldTypeClass);
-            } else if (value instanceof List<?> valueList && !valueList.isEmpty()) {
-                value = formatListProperty(field, Cast.of(valueList), entityClass);
-            } else if (value instanceof Map<?,?> mapValue && AbstractModel.class.isAssignableFrom(fieldTypeClass)) {
-                value = mapToObject(Cast.of(mapValue), fieldTypeClass);
             }
+            value = convertValueForField(entityClass, field, fieldTypeClass, value);
             try {
                 beanMap.put(field, value);
             }  catch (ClassCastException e) {
@@ -317,6 +313,19 @@ public class BeanTool {
             }
         });
         return bean;
+    }
+
+    public static <T> Object convertValueForField(Class<T> entityClass, String fieldName, Class<?> fieldTypeClass, Object value) {
+        if (value instanceof String strValue && Enum.class.isAssignableFrom(fieldTypeClass)) {
+            value = formatEnumProperty(strValue, fieldTypeClass);
+        } else if (value instanceof JsonNode jsonNode && DTOFieldObject.class.isAssignableFrom(fieldTypeClass)) {
+            value = JsonUtils.jsonNodeToObject(jsonNode, fieldTypeClass);
+        } else if (value instanceof List<?> valueList && !valueList.isEmpty()) {
+            value = formatListProperty(fieldName, Cast.of(valueList), entityClass);
+        } else if (value instanceof Map<?,?> mapValue && AbstractModel.class.isAssignableFrom(fieldTypeClass)) {
+            value = mapToObject(Cast.of(mapValue), fieldTypeClass);
+        }
+        return value;
     }
 
     /**
@@ -361,6 +370,24 @@ public class BeanTool {
      */
     public static <T> List<T> mapListToObjects(List<Map<String, Object>> rows, Class<T> entityClass) {
         return rows.stream().map(row -> mapToObject(row, entityClass)).collect(Collectors.toList());
+    }
+
+    public static <T> Object convertPropertyValue(Class<T> entityClass, String fieldName, Object value) {
+        try {
+            Class<?> fieldTypeClass = entityClass.getDeclaredField(fieldName).getType();
+            return convertValueForField(entityClass, fieldName, fieldTypeClass, value);
+        } catch (NoSuchFieldException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
+    }
+
+    public static <T, R> List<R> convertPropertyValues(Class<T> entityClass, String fieldName, List<Object> values) {
+        try {
+            Class<?> fieldTypeClass = entityClass.getDeclaredField(fieldName).getType();
+            return Cast.of(values.stream().map(value -> convertValueForField(entityClass, fieldName, fieldTypeClass, value)).toList());
+        } catch (NoSuchFieldException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
     }
 
     /**

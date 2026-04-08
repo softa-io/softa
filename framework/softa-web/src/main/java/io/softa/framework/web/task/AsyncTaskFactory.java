@@ -1,14 +1,14 @@
 package io.softa.framework.web.task;
 
-import io.softa.framework.base.exception.JSONException;
-import io.softa.framework.web.task.params.TaskHandlerParams;
-import io.softa.framework.orm.utils.BeanTool;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import io.softa.framework.base.exception.JSONException;
+import io.softa.framework.orm.utils.BeanTool;
+import io.softa.framework.web.task.params.TaskHandlerParams;
 
 /**
  * Asynchronous Task Factory
@@ -45,7 +45,7 @@ public class AsyncTaskFactory<T extends TaskHandlerParams> {
             Class<T> paramsClass = asyncTaskHandler.getParamsType();
             T taskHandlerParams;
             try {
-                taskHandlerParams = BeanTool.originalMapToObject(asyncTaskParams, paramsClass);
+                taskHandlerParams = BeanTool.mapToObject(asyncTaskParams, paramsClass);
             } catch (JSONException e) {
                 throw new JSONException("Failed to convert asynchronous task {0} parameters to {1} object: {2}",
                         asyncTaskHandlerCode, paramsClass.getSimpleName(), e.getMessage());

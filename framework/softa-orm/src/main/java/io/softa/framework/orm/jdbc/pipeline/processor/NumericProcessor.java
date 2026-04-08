@@ -41,10 +41,10 @@ public class NumericProcessor extends BaseProcessor {
         if (isContain && value != null) {
             row.put(fieldName, formatInputNumeric(value));
         } else if (AccessType.CREATE.equals(accessType)) {
-            checkRequired(value);
+            checkRequired(null);
             row.computeIfAbsent(fieldName, k -> metaField.getDefaultValueObject());
         } else if (isContain) {
-            checkRequired((Object) null);
+            checkRequired(null);
         }
     }
 
@@ -55,17 +55,23 @@ public class NumericProcessor extends BaseProcessor {
      * @return converted object
      */
     private Object formatInputNumeric(Object number) {
-        if (FieldType.LONG.equals(fieldType) && number instanceof Integer intValue) {
-            number = intValue.longValue();
+        if (FieldType.LONG.equals(fieldType)) {
+            if (number instanceof Integer intValue) {
+                number = intValue.longValue();
+            } else if (number instanceof String stringValue) {
+                try {
+                    number = Long.parseLong(stringValue);
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("The fieldType of {0} is {1}, but the input value is {2}.",
+                            fieldName, fieldType, number);
+                }
+            }
         } else if (FieldType.DOUBLE.equals(fieldType)) {
             if (number instanceof Integer intValue) {
                 number = intValue.doubleValue();
             } else if (number instanceof Long longValue) {
                 number = longValue.doubleValue();
             }
-        } else if (!FieldType.BIG_DECIMAL.equals(fieldType) && number instanceof String) {
-            throw new IllegalArgumentException("The fieldType of {0} is {1}, but the input value is {2}.",
-                    fieldName, fieldType, number);
         }
         return number;
     }
