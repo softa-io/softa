@@ -10,7 +10,7 @@ import lombok.Data;
  * Role codes of the current user
  */
 @Data
-public class UserPermission implements Serializable {
+public class PermissionInfo implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 

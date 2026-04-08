@@ -39,7 +39,7 @@ public class Context implements Serializable {
 
     private UserInfo userInfo;
     private EmpInfo empInfo;
-    private UserPermission userPermission;
+    private PermissionInfo permissionInfo;
 
     /**
      * Whether to skip permission verification (including model permission and data range),
@@ -113,6 +113,8 @@ public class Context implements Serializable {
         newContext.setTimezone(this.timezone);
         newContext.setCompanyId(this.companyId);
         newContext.setTenantId(this.tenantId);
+        newContext.setUserInfo(this.userInfo);
+        newContext.setEmpInfo(this.empInfo);
         newContext.setSkipAutoAudit(this.skipAutoAudit);
         newContext.setDataMask(this.dataMask);
         newContext.setTriggerFlow(this.triggerFlow);

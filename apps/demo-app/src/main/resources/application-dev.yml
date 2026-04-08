@@ -58,7 +58,7 @@ spring:
     username: your_username
     password: your_password
     index:
-      changelog: demo_dev_changelog
+      changelog: dev_demo_change_log
   pulsar:
     client:
       service-url: pulsar://localhost:6650
