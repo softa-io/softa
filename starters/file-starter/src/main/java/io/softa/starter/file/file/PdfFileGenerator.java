@@ -1,19 +1,17 @@
 package io.softa.starter.file.file;
 
 import java.io.ByteArrayOutputStream;
-import java.io.StringReader;
-import org.openpdf.text.Document;
-import org.openpdf.text.PageSize;
-import org.openpdf.text.html.simpleparser.HTMLWorker;
-import org.openpdf.text.pdf.PdfWriter;
+import lombok.extern.slf4j.Slf4j;
+import org.openpdf.pdf.ITextRenderer;
 
 import io.softa.framework.base.exception.SystemException;
-import io.softa.framework.base.placeholder.HtmlTemplateRenderer;
+import io.softa.framework.base.utils.Assert;
 
 /**
  * PDF file generator for rich text (HTML) templates.
- * Uses {@link HtmlTemplateRenderer} for HTML template rendering and OpenPDF for HTML-to-PDF conversion.
+ * Converts rendered HTML strings to PDF bytes using OpenPDF (ITextRenderer).
  */
+@Slf4j
 public final class PdfFileGenerator {
 
     private PdfFileGenerator() {}
@@ -21,19 +19,19 @@ public final class PdfFileGenerator {
     /**
      * Convert rendered HTML string to PDF bytes using OpenPDF.
      *
-     * @param html the rendered HTML string
+     * @param html the rendered HTML string, must not be blank
      * @return the PDF content as byte array
      */
     public static byte[] convertHtmlToPdf(String html) {
+        Assert.notBlank(html, "The HTML content for PDF generation must not be blank.");
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
-            Document document = new Document(PageSize.A4);
-            PdfWriter.getInstance(document, outputStream);
-            document.open();
-            HTMLWorker htmlWorker = new HTMLWorker(document);
-            htmlWorker.parse(new StringReader(html));
-            document.close();
+            ITextRenderer renderer = new ITextRenderer();
+            renderer.setDocumentFromString(html);
+            renderer.layout();
+            renderer.createPDF(outputStream);
             return outputStream.toByteArray();
         } catch (Exception e) {
+            log.error("Failed to convert HTML to PDF, HTML length: {}", html.length(), e);
             throw new SystemException("Failed to convert HTML to PDF.", e);
         }
     }

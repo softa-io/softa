@@ -473,19 +473,19 @@ templateType = RICH_TEXT
   1. Extract {{ }} variables from htmlTemplate (HTML) via PlaceholderUtils
   2. Build SubQueries for OneToMany fields
   3. Fetch data: modelService.getById(modelName, rowId, fields, subQueries, ConvertType.DISPLAY)
-  4. Convert {{ }} -> ${} and render HTML via FreeMarker (PdfFileGenerator)
+  4. Convert {{ }} are rendered to the final HTML via Pebble
   5. Convert HTML to PDF via OpenPDF
   6. Upload to OSS -> return FileInfo
 ```
 
 ### WORD Template Syntax
-- Uses `{{ variable }}` placeholder syntax with Spring EL support.
+- Uses `{{ variable }}` placeholder syntax.
 - Use `{{#fieldName}}` for OneToMany fields rendered as looping table rows via `LoopRowTableRenderPolicy`.
 - OneToMany fields are auto-detected from model metadata; SubQueries are built automatically to load related data.
 
 ### RICH_TEXT Template
 - `htmlTemplate` stores HTML with `{{ variable }}` placeholders.
-- Placeholders are converted to FreeMarker `${}` syntax before rendering.
+- Placeholders are rendered to the final HTML via Pebble.
 - The rendered HTML is converted to PDF via OpenPDF.
 
 ### Endpoint

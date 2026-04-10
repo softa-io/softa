@@ -6,19 +6,15 @@ import java.util.Map;
 import java.util.Optional;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
-import io.softa.starter.studio.template.entity.DesignFieldDbMapping;
-import io.softa.starter.studio.template.entity.DesignFieldTypeDefault;
-import io.softa.starter.studio.template.entity.DesignSqlTemplate;
-import io.softa.starter.studio.template.generator.TemplateEngine;
-import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolver;
-import io.softa.starter.studio.template.enums.DesignCodeLang;
-import io.softa.starter.studio.template.entity.DesignCodeTemplate;
-import io.softa.starter.studio.template.entity.DesignFieldCodeMapping;
 import io.softa.starter.studio.template.ddl.context.FieldDdlCtx;
 import io.softa.starter.studio.template.ddl.context.ModelDdlCtx;
+import io.softa.starter.studio.template.entity.*;
+import io.softa.starter.studio.template.enums.DesignCodeLang;
+import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolver;
 
 /**
  * Shared template-backed DDL dialect support.
@@ -172,8 +168,8 @@ public abstract class AbstractTemplateDdlDialect implements DdlDialect {
                 .map(templateGetter)
                 .orElse(null);
         if (StringUtils.hasText(databaseTemplate)) {
-            return TemplateEngine.renderString(databaseTemplate, context);
+            return TemplateEngine.render(databaseTemplate, context);
         }
-        return TemplateEngine.render(fallbackPath, context);
+        return TemplateEngine.renderFilePath(fallbackPath, context);
     }
 }

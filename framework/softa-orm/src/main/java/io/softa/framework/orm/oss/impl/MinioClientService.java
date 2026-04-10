@@ -6,7 +6,7 @@ import io.minio.*;
 import io.minio.errors.InternalException;
 import io.minio.errors.MinioException;
 import io.minio.errors.ServerException;
-import io.minio.http.Method;
+import io.minio.Http.Method;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -50,7 +50,7 @@ public class MinioClientService implements OssClientService {
                     PutObjectArgs.builder()
                             .bucket(getBucketName())
                             .object(ossKey)
-                            .stream(inputStream, -1, 5 * 1024 * 1024) // 5MB part size
+                            .stream(inputStream, -1L, 5L * 1024 * 1024) // 5MB part size
                             .build()
             );
             StatObjectResponse objectResult = ossClient.statObject(

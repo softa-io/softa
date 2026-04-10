@@ -3,11 +3,11 @@ package io.softa.starter.studio.template.ddl;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.starter.studio.template.ddl.context.FieldDdlCtx;
 import io.softa.starter.studio.template.ddl.context.IndexDdlCtx;
 import io.softa.starter.studio.template.ddl.context.ModelDdlCtx;
-import io.softa.starter.studio.template.generator.TemplateEngine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -152,7 +152,7 @@ class PebbleSqlTemplateWhitespaceTest {
     }
 
     private String render(String templatePath, ModelDdlCtx model) {
-        return TemplateEngine.render(templatePath, Map.of("model", model));
+        return TemplateEngine.renderFilePath(templatePath, Map.of("model", model));
     }
 
     private ModelDdlCtx baseModel(String tableName, String description, String pkColumn, boolean autoIncrementPrimaryKey) {

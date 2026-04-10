@@ -9,22 +9,17 @@ import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.base.utils.MapUtils;
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.starter.studio.dto.ModelCodeDTO;
-import io.softa.starter.studio.template.entity.DesignCodeTemplate;
 import io.softa.starter.studio.meta.entity.DesignField;
-import io.softa.starter.studio.template.entity.DesignFieldCodeMapping;
-import io.softa.starter.studio.template.entity.DesignFieldDbMapping;
-import io.softa.starter.studio.template.entity.DesignFieldTypeDefault;
 import io.softa.starter.studio.meta.entity.DesignModel;
-import io.softa.starter.studio.template.entity.DesignSqlTemplate;
+import io.softa.starter.studio.template.entity.*;
 import io.softa.starter.studio.template.enums.DesignCodeLang;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 @Slf4j
 class CodeGeneratorTest {
@@ -94,7 +89,7 @@ class CodeGeneratorTest {
 
     @Test
     void generateService() {
-        String code = TemplateEngine.render(TEMPLATE_DIR + "service/{{modelName}}Service.java.peb", mockModel());
+        String code = TemplateEngine.renderFilePath(TEMPLATE_DIR + "service/{{modelName}}Service.java.peb", mockModel());
         assertNotNull(code);
     }
 
@@ -103,7 +98,7 @@ class CodeGeneratorTest {
         Map<String, Object> modelData = mockModel();
         List<Map<String, Object>> modelFields = IntStream.range(0, 5).mapToObj(i -> mockField()).collect(Collectors.toList());
         modelData.put("modelFields", modelFields);
-        String code = TemplateEngine.render(TEMPLATE_DIR + "entity/{{modelName}}.java.peb", modelData);
+        String code = TemplateEngine.renderFilePath(TEMPLATE_DIR + "entity/{{modelName}}.java.peb", modelData);
         log.info("Generated entity code:\n{}", code);
         assertNotNull(code);
     }

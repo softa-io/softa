@@ -9,8 +9,8 @@ import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.SystemException;
-import io.softa.framework.base.placeholder.HtmlTemplateRenderer;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.domain.SubQuery;
@@ -65,15 +65,15 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
     }
 
     /**
-     * Generate a document according to the specified template ID and data object.
-     * The data object could be a map or a POJO.
+     * Generate a document according to the specified template ID and data.
+     * The data must be a map.
      *
      * @param templateId template ID
-     * @param data the data object to render the document
+     * @param data the data map to render the document
      * @return generated document fileInfo with download URL
      */
     @Override
-    public FileInfo generateDocument(Long templateId, Object data) {
+    public FileInfo generateDocument(Long templateId, Map<String, Object> data) {
         DocumentTemplate template = getTemplateById(templateId);
         return generateDocumentByTemplate(template, data);
     }
@@ -149,10 +149,10 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
      * Generate a document based on template type, dispatching to the appropriate generator.
      *
      * @param template the document template
-     * @param data the data object to render the document
+     * @param data the data map to render the document
      * @return generated document fileInfo with download URL
      */
-    private FileInfo generateDocumentByTemplate(DocumentTemplate template, Object data) {
+    private FileInfo generateDocumentByTemplate(DocumentTemplate template, Map<String, Object> data) {
         DocumentTemplateType templateType = template.getTemplateType();
         if (templateType == null || DocumentTemplateType.WORD.equals(templateType)) {
             return generateWordDocument(template, data);
@@ -167,7 +167,7 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
      * Generate a Word document from a WORD template.
      * Renders the template via poi-tl and optionally converts to PDF via docx4j.
      */
-    private FileInfo generateWordDocument(DocumentTemplate template, Object data) {
+    private FileInfo generateWordDocument(DocumentTemplate template, Map<String, Object> data) {
         try (InputStream templateInputStream = fileService.downloadStream(template.getFileId());
              ByteArrayOutputStream docOutputStream = new ByteArrayOutputStream()
         ) {
@@ -186,11 +186,11 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
 
     /**
      * Generate a PDF document from a RICH_TEXT template.
-     * Renders HTML via FreeMarker and converts to PDF via OpenPDF.
+     * Renders HTML via Pebble and converts to PDF via OpenPDF.
      */
-    private FileInfo generateRichTextDocument(DocumentTemplate template, Object data) {
-        // Render HTML from rich text template content using FreeMarker
-        String renderedHtml = HtmlTemplateRenderer.render(template.getHtmlTemplate(), data);
+    private FileInfo generateRichTextDocument(DocumentTemplate template, Map<String, Object> data) {
+        // Render HTML from rich text template content using Pebble
+        String renderedHtml = TemplateEngine.render(template.getHtmlTemplate(), data);
         // Convert rendered HTML to PDF via OpenPDF
         byte[] pdfBytes = PdfFileGenerator.convertHtmlToPdf(renderedHtml);
         return uploadGeneratedFile(template, pdfBytes, FileType.PDF);

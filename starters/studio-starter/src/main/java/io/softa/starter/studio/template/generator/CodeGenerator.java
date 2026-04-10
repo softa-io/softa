@@ -4,28 +4,24 @@ import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.base.utils.MapUtils;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.starter.studio.dto.ModelCodeDTO;
 import io.softa.starter.studio.dto.ModelCodeFileDTO;
+import io.softa.starter.studio.meta.entity.DesignModel;
 import io.softa.starter.studio.template.entity.DesignCodeTemplate;
 import io.softa.starter.studio.template.entity.DesignFieldCodeMapping;
-import io.softa.starter.studio.meta.entity.DesignModel;
 import io.softa.starter.studio.template.enums.DesignCodeLang;
 
 /**
@@ -112,7 +108,7 @@ public class CodeGenerator {
         FieldType fieldType = fieldTypeValue instanceof FieldType ft ? ft : FieldType.of(String.valueOf(fieldTypeValue));
         DesignFieldCodeMapping mapping = codeMappings.get(fieldType);
         if (mapping != null && StringUtils.hasText(mapping.getPropertyType())) {
-            return TemplateEngine.renderString(mapping.getPropertyType(), MapUtils.strObj()
+            return TemplateEngine.render(mapping.getPropertyType(), MapUtils.strObj()
                     .put("field", fieldMap)
                     .put("codeLang", requestedCodeLang)
                     .build()).trim();
@@ -186,9 +182,9 @@ public class CodeGenerator {
 
     private String renderTemplate(CodeTemplateSpec template, Map<String, Object> modelData) {
         if (template.classpathTemplatePath() != null) {
-            return TemplateEngine.render(template.classpathTemplatePath(), modelData);
+            return TemplateEngine.renderFilePath(template.classpathTemplatePath(), modelData);
         }
-        return TemplateEngine.renderString(Objects.toString(template.templateContent(), ""), modelData);
+        return TemplateEngine.render(Objects.toString(template.templateContent(), ""), modelData);
     }
 
     private ModelCodeFileDTO renderCodeFile(CodeTemplateSpec template, Map<String, Object> modelData) {
@@ -209,7 +205,7 @@ public class CodeGenerator {
         if (!StringUtils.hasText(subDirectoryTemplate)) {
             return "";
         }
-        return normalizeSubDirectory(TemplateEngine.renderString(subDirectoryTemplate, modelData));
+        return normalizeSubDirectory(TemplateEngine.render(subDirectoryTemplate, modelData));
     }
 
     private String normalizeSubDirectory(String subDirectory) {
@@ -235,7 +231,7 @@ public class CodeGenerator {
 
     private String renderFileName(String fileNameTemplate, Map<String, Object> modelData) {
         String fileName = StringUtils.hasText(fileNameTemplate)
-                ? TemplateEngine.renderString(fileNameTemplate, modelData)
+                ? TemplateEngine.render(fileNameTemplate, modelData)
                 : "";
         String normalized = fileName.trim().replace('\\', '/');
         while (normalized.startsWith("./")) {

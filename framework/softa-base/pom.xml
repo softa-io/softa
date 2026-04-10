@@ -51,11 +51,11 @@
             <version>${jackson-bom.version}</version>
         </dependency>
 
-        <!-- The template engine for rendering HTML and generating code -->
+        <!-- Pebble template engine for code generation and DDL generation -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-freemarker</artifactId>
-            <version>${spring.boot.version}</version>
+            <groupId>io.pebbletemplates</groupId>
+            <artifactId>pebble</artifactId>
+            <version>4.1.1</version>
         </dependency>
 
         <dependency>
@@ -66,7 +66,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.42</version>
+            <version>1.18.44</version>
         </dependency>
 
         <!--Apache Commons-->
@@ -78,20 +78,20 @@
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
-            <version>1.14.0</version>
+            <version>1.15.0</version>
         </dependency>
 
         <!-- extract file mimetype -->
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>
-            <version>3.2.3</version>
+            <version>3.3.0</version>
         </dependency>
 
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>3.0.1</version>
+            <version>3.0.2</version>
         </dependency>
 
     </dependencies>

@@ -15,14 +15,14 @@
     <url>https://softa.io</url>
 
     <properties>
-        <cosid.version>3.0.2</cosid.version>
+        <cosid.version>3.0.5</cosid.version>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>org.antlr</groupId>
             <artifactId>antlr4-runtime</artifactId>
-            <version>4.13.1</version>
+            <version>4.13.2</version>
         </dependency>
 
         <dependency>
@@ -58,7 +58,6 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.9</version>
             <optional>true</optional>
         </dependency>
 
@@ -97,7 +96,7 @@
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
-            <version>8.6.0</version>
+            <version>9.0.0</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.squareup.okhttp3</groupId>

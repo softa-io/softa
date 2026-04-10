@@ -1,6 +1,7 @@
 package io.softa.starter.file.service;
 
 import java.io.Serializable;
+import java.util.Map;
 
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.service.EntityService;
@@ -25,9 +26,9 @@ public interface DocumentTemplateService extends EntityService<DocumentTemplate,
      * The data object could be a map or a POJO.
      *
      * @param templateId  template ID
-     * @param data the data object to render the document
+     * @param data the data map to render the document
      * @return generated document fileInfo with download URL
      */
-    FileInfo generateDocument(Long templateId, Object data);
+    FileInfo generateDocument(Long templateId, Map<String, Object> data);
 
 }

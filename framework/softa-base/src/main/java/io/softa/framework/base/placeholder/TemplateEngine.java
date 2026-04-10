@@ -1,4 +1,4 @@
-package io.softa.starter.studio.template.generator;
+package io.softa.framework.base.placeholder;
 
 import java.io.StringWriter;
 import java.util.Map;
@@ -28,32 +28,32 @@ public class TemplateEngine {
     private TemplateEngine() {}
 
     /**
-     * Render a classpath template with the given data model.
-     *
-     * @param templatePath classpath-relative template path, e.g. "templates/code/entity/{{modelName}}.java.peb"
-     * @param context      data model (Map of variable names to values)
-     * @return rendered text
-     */
-    public static String render(String templatePath, Map<String, Object> context) {
-        try {
-            return renderTemplate(ENGINE.getTemplate(templatePath), context);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to render template {0}: {1}", templatePath, e.getMessage());
-        }
-    }
-
-    /**
      * Render a raw Pebble template string with the given data model.
      *
      * @param templateContent raw Pebble template content
      * @param context         data model (Map of variable names to values)
      * @return rendered text
      */
-    public static String renderString(String templateContent, Map<String, Object> context) {
+    public static String render(String templateContent, Map<String, Object> context) {
         try {
             return renderTemplate(ENGINE.getLiteralTemplate(templateContent), context);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to render raw template: {0}", e.getMessage());
+        }
+    }
+
+    /**
+     * Render a classpath template with the given data model.
+     *
+     * @param templatePath classpath-relative template path, e.g. "templates/code/entity/{{modelName}}.java.peb"
+     * @param context      data model (Map of variable names to values)
+     * @return rendered text
+     */
+    public static String renderFilePath(String templatePath, Map<String, Object> context) {
+        try {
+            return renderTemplate(ENGINE.getTemplate(templatePath), context);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to render template {0}: {1}", templatePath, e.getMessage());
         }
     }
 

@@ -23,7 +23,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.SystemException;
-import io.softa.framework.base.placeholder.HtmlTemplateRenderer;
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -201,7 +201,7 @@ public class SigningDocumentServiceImpl extends EntityServiceImpl<SigningDocumen
             }
         }
         if (StringUtils.isNotBlank(template.getHtmlTemplate())) {
-            String renderedHtml = HtmlTemplateRenderer.render(template.getHtmlTemplate(), Collections.emptyMap());
+            String renderedHtml = TemplateEngine.render(template.getHtmlTemplate(), Collections.emptyMap());
             return new OriginalPdfSource(null, PdfFileGenerator.convertHtmlToPdf(renderedHtml));
         }
         throw new BusinessException("The signing document template does not contain a signable source file.");

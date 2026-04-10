@@ -26,12 +26,5 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Pebble template engine for code generation and DDL generation -->
-        <dependency>
-            <groupId>io.pebbletemplates</groupId>
-            <artifactId>pebble</artifactId>
-            <version>4.1.1</version>
-        </dependency>
-
     </dependencies>
 </project>

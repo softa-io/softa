@@ -12,6 +12,10 @@
     <name>Softa File Starter</name>
     <artifactId>file-starter</artifactId>
 
+    <properties>
+        <docx4j.version>11.5.12</docx4j.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.softa</groupId>
@@ -23,7 +27,7 @@
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
-            <version>2.19.0</version>
+            <version>2.21.0</version>
         </dependency>
 
         <!-- Source: https://mvnrepository.com/artifact/org.apache.fesod/fesod-sheet -->
@@ -32,13 +36,6 @@
             <artifactId>fesod-sheet</artifactId>
             <version>2.0.1-incubating</version>
             <scope>compile</scope>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.httpcomponents.client5/httpclient5 -->
-        <dependency>
-            <groupId>org.apache.httpcomponents.client5</groupId>
-            <artifactId>httpclient5</artifactId>
-            <version>5.3.1</version>
         </dependency>
 
         <!-- Render word template to docx-->
@@ -54,19 +51,18 @@
         <dependency>
             <groupId>org.docx4j</groupId>
             <artifactId>docx4j-export-fo</artifactId>
-            <version>11.5.9</version>
+            <version>${docx4j.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.docx4j/docx4j-JAXB-ReferenceImpl -->
         <dependency>
             <groupId>org.docx4j</groupId>
             <artifactId>docx4j-JAXB-ReferenceImpl</artifactId>
-            <version>11.5.1</version>
+            <version>${docx4j.version}</version>
         </dependency>
 
-        <!-- Source: https://mvnrepository.com/artifact/com.github.librepdf/openpdf -->
         <dependency>
             <groupId>com.github.librepdf</groupId>
-            <artifactId>openpdf</artifactId>
+            <artifactId>openpdf-html</artifactId>
             <version>3.0.3</version>
             <scope>compile</scope>
         </dependency>
