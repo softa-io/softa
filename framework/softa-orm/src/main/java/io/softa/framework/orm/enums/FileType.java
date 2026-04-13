@@ -49,6 +49,9 @@ public enum FileType {
     YAML("yaml", List.of("application/x-yaml", "text/yaml")),
     MD("md", List.of("text/markdown", "text/x-markdown", "text/x-web-markdown")),
 
+    // Email types
+    EML("eml", List.of("message/rfc822")),
+
     // Compressed file types
     ZIP("zip", List.of("application/zip", "application/x-zip-compressed")),
     GZIP("gzip", List.of("application/gzip", "application/x-gzip")),
