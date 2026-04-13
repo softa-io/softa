@@ -6,7 +6,7 @@
     <parent>
         <artifactId>softa-parent</artifactId>
         <groupId>io.softa</groupId>
-        <version>1.2.2</version>
+        <version>1.3.3</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -26,7 +26,7 @@
         <module>flow-starter</module>
         <module>es-starter</module>
         <module>file-starter</module>
-        <module>designer-starter</module>
+        <module>studio-starter</module>
         <module>user-starter</module>
         <module>tenant-starter</module>
     </modules>

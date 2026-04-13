@@ -1,0 +1,47 @@
+{#
+Template: AlterIndex.peb
+Root:
+- model: ModelDdlCtx
+
+Used model fields:
+- tableName
+- labelName
+- createdIndexes
+- deletedIndexes
+- updatedIndexes
+- renamedIndexes
+
+Used index fields:
+- indexName
+- oldIndexName
+- columns
+- unique
+
+Notes:
+- updatedIndexes means the index name is unchanged and the latest definition should replace it.
+- renamedIndexes means the index name changed and oldIndexName is available.
+- Current MySQL behavior renders both update and rename as DROP INDEX + ADD INDEX.
+- Pure deleted indexes also generate SQL.
+#}
+/* Table indexes for model: {{ model.labelName }} */
+{% for index in model.deletedIndexes -%}
+DROP INDEX {{ index.indexName }};
+{% endfor -%}
+{% for index in model.createdIndexes -%}
+CREATE {% if index.unique %}UNIQUE {% endif -%}
+INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
+{% endfor -%}
+{% for index in model.updatedIndexes -%}
+DROP INDEX {{ index.indexName }};
+CREATE {% if index.unique %}UNIQUE {% endif -%}
+INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
+{% endfor -%}
+{% for index in model.renamedIndexes -%}
+{% if index.definitionChanged -%}
+DROP INDEX {{ index.oldIndexName }};
+CREATE {% if index.unique %}UNIQUE {% endif -%}
+INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
+{% else -%}
+ALTER INDEX {{ index.oldIndexName }} RENAME TO {{ index.indexName }};
+{% endif -%}
+{% endfor -%}

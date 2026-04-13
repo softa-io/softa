@@ -151,6 +151,10 @@ public class Orders implements Serializable {
         return addDesc(field);
     }
 
+    public boolean isEmpty() {
+        return this.orderList.isEmpty();
+    }
+
     /**
      * Orders string parsing, remove leading and trailing spaces from the string
      * @param ordersString Sorting string, such as "name ASC, sequence DESC"

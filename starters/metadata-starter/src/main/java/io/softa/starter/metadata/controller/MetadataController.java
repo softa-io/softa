@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.controller;
 
 import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -55,6 +56,21 @@ public class MetadataController {
         metadataService.upgradeMetadata(metadataPackages);
         metadataService.reloadMetadata();
         return ApiResponse.success(true);
+    }
+
+    /**
+     * Export all runtime metadata rows for a given version-controlled model.
+     * Used by the studio to compare design-time snapshots with runtime state.
+     *
+     * @param modelName runtime model name
+     * @return list of row data maps
+     */
+    @Operation(summary = "exportRuntimeMetadata", description = "Export all runtime metadata rows for a version-controlled model")
+    @PostMapping("/exportRuntimeMetadata")
+    @Parameter(name = "modelName", description = "Runtime model name", required = true)
+    public ApiResponse<List<Map<String, Object>>> exportRuntimeMetadata(@RequestParam String modelName) {
+        Assert.notBlank(modelName, "Model name cannot be empty.");
+        return ApiResponse.success(metadataService.exportRuntimeMetadata(modelName));
     }
 
     /**

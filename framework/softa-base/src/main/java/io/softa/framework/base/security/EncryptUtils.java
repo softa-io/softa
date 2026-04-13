@@ -1,17 +1,22 @@
 package io.softa.framework.base.security;
 
-import io.softa.framework.base.exception.SystemException;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.SpringContextUtils;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.HexFormat;
+import java.util.Map;
+import jakarta.annotation.PostConstruct;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import jakarta.annotation.PostConstruct;
-import java.util.HashMap;
-import java.util.Map;
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.exception.SystemException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.SpringContextUtils;
 
 
 @Component
@@ -104,4 +109,16 @@ public class EncryptUtils {
         return new HashMap<>();
     }
 
+    /**
+     * Compute SHA-256 hash of the input content
+     */
+    public static String computeSha256(String content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(content.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new BusinessException("SHA-256 algorithm not available", e);
+        }
+    }
 }

@@ -1,21 +1,5 @@
 package io.softa.starter.cron.scheduler;
 
-import com.cronutils.model.Cron;
-import com.cronutils.model.time.ExecutionTime;
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.enums.SystemUser;
-import io.softa.framework.orm.annotation.SwitchUser;
-import io.softa.framework.orm.compute.CronUtils;
-import io.softa.framework.orm.jdbc.JdbcService;
-import io.softa.starter.cron.entity.SysCron;
-import io.softa.starter.cron.message.CronTaskProducer;
-import io.softa.starter.cron.message.dto.CronTaskMessage;
-import jakarta.annotation.PreDestroy;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
-
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -26,6 +10,25 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.cronutils.model.Cron;
+import com.cronutils.model.time.ExecutionTime;
+import jakarta.annotation.PreDestroy;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
+
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.SystemUser;
+import io.softa.framework.orm.annotation.SwitchUser;
+import io.softa.framework.orm.compute.CronUtils;
+import io.softa.framework.orm.jdbc.JdbcService;
+import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.cron.entity.SysCron;
+import io.softa.starter.cron.enums.TenantJobMode;
+import io.softa.starter.cron.message.CronTaskProducer;
+import io.softa.starter.cron.message.dto.CronTaskMessage;
 
 /**
  * Cron Scheduler
@@ -43,6 +46,9 @@ public class CronScheduler {
 
     @Autowired
     private CronTaskProducer cronTaskProducer;
+
+    @Autowired(required = false)
+    private TenantInfoService tenantInfoService;
 
     private final Map<Long, ScheduledFuture<?>> scheduledTasksMap = new ConcurrentHashMap<>();
 
@@ -140,16 +146,41 @@ public class CronScheduler {
 
     /**
      * Send the scheduled task message.
+     * When tenantMode is PER_TENANT, sends one message per active tenant for distributed parallel execution.
+     * When tenantMode is CROSS_TENANT, sends a single message with crossTenant=true in context.
+     * Otherwise, sends a single message with the current context.
      *
      * @param sysCron Scheduled task object
      */
     public void sendToMessageQueue(SysCron sysCron) {
+        if (TenantJobMode.PER_TENANT.equals(sysCron.getTenantJobMode())) {
+            if (tenantInfoService == null) {
+                log.error("TenantInfoService is not available for PER_TENANT cron job: {}", sysCron.getName());
+                return;
+            }
+            List<Long> tenantIds = tenantInfoService.getActiveTenantIds();
+            for (Long tenantId : tenantIds) {
+                sendCronMessage(sysCron, tenantId, false);
+            }
+        } else if (TenantJobMode.CROSS_TENANT.equals(sysCron.getTenantJobMode())) {
+            sendCronMessage(sysCron, null, true);
+        } else {
+            sendCronMessage(sysCron, null, false);
+        }
+    }
+
+    private void sendCronMessage(SysCron sysCron, Long tenantId, boolean crossTenant) {
+        Context ctx = ContextHolder.cloneContext();
+        if (tenantId != null) {
+            ctx.setTenantId(tenantId);
+        }
+        ctx.setCrossTenant(crossTenant);
         CronTaskMessage message = new CronTaskMessage();
         message.setCronId(sysCron.getId());
         message.setCronName(sysCron.getName());
         message.setTriggerTime(LocalDateTime.now());
         message.setLastExecTime(sysCron.getLastExecTime());
-        message.setContext(ContextHolder.getContext());
+        message.setContext(ctx);
         cronTaskProducer.sendCronTask(message);
     }
 

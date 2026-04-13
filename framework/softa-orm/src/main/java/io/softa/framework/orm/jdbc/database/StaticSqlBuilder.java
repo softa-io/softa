@@ -1,18 +1,18 @@
 package io.softa.framework.orm.jdbc.database;
 
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.IntStream;
+import org.apache.commons.lang3.StringUtils;
+
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Cast;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
-import org.apache.commons.lang3.StringUtils;
-
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.IntStream;
 
 /**
  * Static SQL Builder
@@ -75,7 +75,7 @@ public class StaticSqlBuilder {
         appendIdSql(readSql, ids.size());
         // Add the id list to the SQL parameter list.
         sqlParams.setArgs(Cast.of(ids));
-        if (ModelManager.isMultiTenant(modelName)) {
+        if (ModelManager.isMultiTenantControl(modelName)) {
             // Add tenantId condition
             readSql.append(" AND tenant_id = ? ");
             sqlParams.addArgValue(ContextHolder.getContext().getTenantId());

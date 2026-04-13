@@ -1,0 +1,91 @@
+package io.softa.starter.studio.template.ddl;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.studio.meta.entity.DesignField;
+import io.softa.starter.studio.meta.entity.DesignModel;
+import io.softa.starter.studio.template.ddl.context.DdlContextBuilder;
+import io.softa.starter.studio.template.ddl.dialect.MySqlDdlDialect;
+import io.softa.starter.studio.template.TestMetadataResolver;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class MySQLDDLTest {
+
+    private final MySqlDdlDialect mysqlDDL = new MySqlDdlDialect(TestMetadataResolver.INSTANCE);
+
+    @Test
+    void createTableUsesDbAutoIdAsAutoIncrement() {
+        String sql = mysqlDDL.createTableDDL(
+                DdlContextBuilder.fromCreatedModel(designModel("OrderAuto", IdStrategy.DB_AUTO_ID))).toString();
+
+        assertTrue(sql.contains("AUTO_INCREMENT"), sql);
+        assertTrue(sql.contains("AUTO_INCREMENT=1"), sql);
+    }
+
+    @Test
+    void createTableOmitsAutoIncrementForNonDbAutoId() {
+        String sql = mysqlDDL.createTableDDL(
+                DdlContextBuilder.fromCreatedModel(designModel("OrderDistributed", IdStrategy.DISTRIBUTED_LONG))).toString();
+
+        assertFalse(sql.contains("AUTO_INCREMENT"), sql);
+        assertFalse(sql.contains("AUTO_INCREMENT=1"), sql);
+    }
+
+    @Test
+    void createTableUsesSliceIdColumnForTimelinePrimaryKey() {
+        String sql = mysqlDDL.createTableDDL(
+                DdlContextBuilder.fromCreatedModel(timelineModel("PriceTimeline", IdStrategy.DB_AUTO_ID))).toString();
+
+        assertTrue(sql.contains("slice_id"), sql);
+        assertTrue(sql.contains("PRIMARY KEY (slice_id)"), sql);
+        assertTrue(sql.contains("AUTO_INCREMENT"), sql);
+    }
+
+    private DesignModel designModel(String modelName, IdStrategy idStrategy) {
+        DesignModel designModel = new DesignModel();
+        designModel.setModelName(modelName);
+        designModel.setLabelName(modelName);
+        designModel.setTableName(modelName.toLowerCase());
+        designModel.setIdStrategy(idStrategy);
+        designModel.setModelFields(List.of(idField()));
+        return designModel;
+    }
+
+    private DesignField idField() {
+        DesignField field = new DesignField();
+        field.setFieldName("id");
+        field.setColumnName("id");
+        field.setFieldType(FieldType.LONG);
+        field.setLength(32);
+        field.setRequired(true);
+        field.setLabelName("ID");
+        return field;
+    }
+
+    private DesignModel timelineModel(String modelName, IdStrategy idStrategy) {
+        DesignModel designModel = new DesignModel();
+        designModel.setModelName(modelName);
+        designModel.setLabelName(modelName);
+        designModel.setTableName(modelName.toLowerCase());
+        designModel.setTimeline(true);
+        designModel.setIdStrategy(idStrategy);
+        designModel.setModelFields(List.of(sliceIdField()));
+        return designModel;
+    }
+
+    private DesignField sliceIdField() {
+        DesignField field = new DesignField();
+        field.setFieldName("sliceId");
+        field.setColumnName("slice_id");
+        field.setFieldType(FieldType.LONG);
+        field.setLength(32);
+        field.setRequired(true);
+        field.setLabelName("Slice ID");
+        return field;
+    }
+}

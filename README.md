@@ -22,7 +22,7 @@ Metadata-driven, open source enterprise application development framework, inclu
 9. Multi-Tenancy Support
 
 ## Global Placeholder Syntax
-Softa uses one placeholder syntax across Flow, document templates, and file templates:
+Softa uses one placeholder syntax across Flow, document templates, file templates, and code/SQL generation:
 
 - `{{ expr }}` for dynamic values and expressions
 - `{{ TriggerParams.status }}` for simple variable paths
@@ -36,3 +36,9 @@ Examples:
 {{ NOW }}
 {{ @createdTime }}
 ```
+
+The `{{ }}` convention is consistent across:
+- **PlaceholderUtils / HtmlTemplateRenderer**: runtime placeholder resolution
+- **Pebble Template Engine**: code generation and DDL generation (see `studio-starter`)
+- **AviatorScript**: expression evaluation for computed fields (see `metadata-starter`)
+

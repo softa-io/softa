@@ -141,7 +141,7 @@ public class SqlWrapper {
         if (ModelManager.isTimelineModel(metaField.getRelatedModel())) {
             this.joinOnTimelineModel(metaField, leftAlias, rightAlias, isAcrossTimeline);
         }
-        if (ModelManager.isMultiTenant(metaField.getRelatedModel())) {
+        if (ModelManager.isMultiTenantControl(metaField.getRelatedModel())) {
             // Add the `ON` condition of the tenant ID when the associated model is a multi-tenant model:
             //      AND tn.tenant_id = 'tenantId'
             joinClause.append(" AND ").append(rightAlias).append(".").append(ModelConstant.TENANT_ID_COLUMN)

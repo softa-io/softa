@@ -1,12 +1,12 @@
 package io.softa.starter.metadata.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.util.List;
+import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * SysModelIndex Model
@@ -27,9 +27,6 @@ public class SysModelIndex extends AuditableModel {
 
     @Schema(description = "Index Title")
     private String name;
-
-    @Schema(description = "Index Code")
-    private String code;
 
     @Schema(description = "Model Name")
     private String modelName;

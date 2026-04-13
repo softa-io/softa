@@ -1,0 +1,56 @@
+{#
+The variables available in this template include:
+
+- Top-level variables:
+  - appName, appCode
+  - labelName, modelName, displayName, searchName, defaultOrder
+  - tableName, softDelete, softDeleteField, activeControl, timeline
+  - idStrategy, storageType, versionLock, multiTenant, dataSource, serviceName
+  - businessKey, partitionField, description, modelFields, modelIndexes, deleted
+  - packageName, codeLang, userName, currentDate
+- modelFields[*]:
+  - labelName, fieldName, columnName, modelName
+  - description, fieldType, optionSetCode, relatedModel, relatedField
+  - joinModel, joinLeft, joinRight, cascadedField, filters
+  - defaultValue, length, scale, required, readonly, hidden, translatable
+  - nonCopyable, unsearchable, computed, expression, dynamic, encrypted
+  - maskingType, widgetType, deleted, javaType
+
+#}
+package {{ packageName }}.entity;
+
+import java.io.Serial;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.List;
+import tools.jackson.databind.JsonNode;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.Orders;
+
+/**
+ * {{ modelName }} Model
+{% if description is not empty %}
+ * {{ description }}
+{% endif %}
+ */
+@Data
+@Schema(name = "{{ modelName }}")
+@EqualsAndHashCode(callSuper = true)
+public class {{ modelName }} extends AuditableModel {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+{% for field in modelFields %}
+    @Schema(description = "{{ field.labelName }}")
+    private {{ field.javaType }} {{ field.fieldName }};
+
+{% endfor %}
+}

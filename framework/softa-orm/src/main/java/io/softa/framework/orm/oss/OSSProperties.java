@@ -27,6 +27,10 @@ public class OSSProperties {
     @NotBlank(message = "The bucket name of OSS must be specified.")
     private String bucketName;
 
+    // The region of the OSS service, used to avoid network requests when generating pre-signed URLs.
+    // For Minio, it is typically "us-east-1" by default.
+    private String region;
+
     // The optional subdirectory for storing files.
     private String subDir;
 

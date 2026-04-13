@@ -1,12 +1,13 @@
 package io.softa.starter.cron.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
+import java.time.LocalDateTime;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.time.LocalDateTime;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.cron.enums.TenantJobMode;
 
 /**
  * SysCron Model
@@ -51,6 +52,9 @@ public class SysCron extends AuditableModel {
 
     @Schema(description = "Description")
     private String description;
+
+    @Schema(description = "Tenant job execution mode: PER_TENANT or CROSS_TENANT")
+    private TenantJobMode tenantJobMode;
 
     @Schema(description = "Active")
     private Boolean active;

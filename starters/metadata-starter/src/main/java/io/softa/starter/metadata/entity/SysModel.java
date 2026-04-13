@@ -1,14 +1,15 @@
 package io.softa.starter.metadata.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.framework.orm.enums.IdStrategy;
-import io.softa.framework.orm.enums.StorageType;
+import java.io.Serial;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.util.List;
+import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.StorageType;
 
 /**
  * SysModel Model
@@ -40,7 +41,7 @@ public class SysModel extends AuditableModel {
     private List<String> searchName;
 
     @Schema(description = "Default Order")
-    private String defaultOrder;
+    private Orders defaultOrder;
 
     @Schema(description = "Table Name")
     private String tableName;

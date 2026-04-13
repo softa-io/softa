@@ -1,7 +1,6 @@
 # bash: docker network create shared-net
 networks:
   shared-net:
-    external: true
     name: shared-net
 
 services:

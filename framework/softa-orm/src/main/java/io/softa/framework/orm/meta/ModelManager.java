@@ -11,6 +11,7 @@ import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.ValidationException;
 import io.softa.framework.base.utils.Assert;
@@ -18,6 +19,7 @@ import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.jdbc.JdbcService;
@@ -143,6 +145,7 @@ public class ModelManager {
             validateActiveControl(metaModel);
             // Check and complete the model-level displayName configuration.
             validateModelDisplayName(metaModel);
+            validateDefaultOrder(metaModel);
             // Check and complete the searchName configuration
             validateSearchName(metaModel);
             // Check if the timeline model contains the required timeline fields: sliceId, effectiveStartDate, effectiveEndDate
@@ -292,6 +295,24 @@ public class ModelManager {
             metaModel.setDisplayName(Collections.singletonList("name"));
         } else {
             metaModel.setDisplayName(Collections.singletonList(ModelConstant.ID));
+        }
+    }
+
+    private static void validateDefaultOrder(MetaModel metaModel) {
+        Orders defaultOrder = metaModel.getDefaultOrder();
+        if (defaultOrder != null && !defaultOrder.isEmpty()) {
+            for (List<String> order : defaultOrder.getOrderList()) {
+                Assert.isTrue(order.size() == 2, "The defaultOrder {0} of model {1} is invalid! Only `fieldName ASC/DESC` format is allowed.",
+                        order, metaModel.getModelName());
+                String fieldName = order.get(0);
+                String orderType = order.get(1);
+                Assert.isTrue(Orders.ASC.equalsIgnoreCase(orderType) || Orders.DESC.equalsIgnoreCase(orderType),
+                        "The defaultOrder {0} of model {1} is invalid! The order type must be ASC or DESC.",
+                        order, metaModel.getModelName());
+                Assert.isTrue(existField(metaModel.getModelName(), fieldName),
+                        "The defaultOrder {0} of model {1} is invalid! The field `{2}` does not exist.",
+                        order, metaModel.getModelName(), fieldName);
+            }
         }
     }
 
@@ -679,6 +700,19 @@ public class ModelManager {
     }
 
     /**
+     * Get the MetaField name String collection of the model.
+     *
+     * @param modelName model name
+     * @return MetaField name String collection
+     */
+    public static List<String> getModelFieldNames(String modelName) {
+        return getModelFields(modelName)
+                .stream()
+                .map(MetaField::getFieldName)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Get the copyable fields of the specified model.
      *
      * @param modelName model name
@@ -989,8 +1023,31 @@ public class ModelManager {
      * @param modelName model name
      * @return true or false
      */
-    public static boolean isMultiTenant(String modelName) {
-        return SystemConfig.env.isEnableMultiTenancy() && ModelManager.getModel(modelName).isMultiTenant();
+    public static boolean isMultiTenantModel(String modelName) {
+        return SystemConfig.env.isEnableMultiTenancy()
+                && ModelManager.getModel(modelName).isMultiTenant();
+    }
+
+    /**
+     * Determine whether the model data needs to be isolated by tenantId.
+     *
+     * @param modelName model name
+     * @return true or false
+     */
+    public static boolean isMultiTenantControl(String modelName) {
+        return SystemConfig.env.isEnableMultiTenancy()
+                && ModelManager.getModel(modelName).isMultiTenant()
+                && !ContextHolder.getContext().isCrossTenant();
+    }
+
+    /**
+     * Determine whether the model data needs to be isolated by tenantId.
+     *
+     * @return true or false
+     */
+    public static boolean isMultiTenantControl() {
+        return SystemConfig.env.isEnableMultiTenancy()
+                && !ContextHolder.getContext().isCrossTenant();
     }
 
     /**

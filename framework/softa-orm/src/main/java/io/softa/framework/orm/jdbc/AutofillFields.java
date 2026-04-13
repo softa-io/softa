@@ -102,7 +102,7 @@ public class AutofillFields {
      */
     public static void fillTenantFieldForInsert(String modelName, List<Map<String, Object>> rows) {
         // Check if the model is multi-tenant
-        if (ModelManager.isMultiTenant(modelName)) {
+        if (ModelManager.isMultiTenantControl(modelName)) {
             Long tenantId = ContextHolder.getContext().getTenantId();
             rows.forEach(row -> row.put(ModelConstant.TENANT_ID, tenantId));
         }

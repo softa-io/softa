@@ -267,7 +267,7 @@ CREATE TABLE sys_model_onchange(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(32)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Model Onchange Event;页面元素的字段变更事件';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Model Onchange Event;Field change events for page elements';
 
 CREATE TABLE sys_model_validation(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -286,7 +286,7 @@ CREATE TABLE sys_model_validation(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(32)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Model Validation;模型数据创建、更新、删除时的同步校验规则';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Model Validation;Synchronous validation rules for model data create, update, and delete operations';
 
 CREATE TABLE sys_app(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -348,12 +348,12 @@ CREATE TABLE sys_model_index(
 
 CREATE TABLE auth_registered_client(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    client_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT '客户端名称' ,
-    client_id VARCHAR(64)   DEFAULT '' COMMENT 'Client ID;OAuth2 客户端 ID' ,
-    client_secret VARCHAR(256)   DEFAULT '' COMMENT 'Client Secret;OAuth2 客户端 Secret，编码后存储' ,
-    expired_date DATE    COMMENT '失效日期' ,
-    grant_type VARCHAR(64)   DEFAULT '' COMMENT '授权类型;同步升级走API，异步升级先走MQ再走API，默认同步' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT '客户端描述' ,
+    client_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Client Name' ,
+    client_id VARCHAR(64)   DEFAULT '' COMMENT 'Client ID;OAuth2 Client ID' ,
+    client_secret VARCHAR(256)   DEFAULT '' COMMENT 'Client Secret;OAuth2 Client Secret, stored in encoded form' ,
+    expired_date DATE    COMMENT 'Expiration Date' ,
+    grant_type VARCHAR(64)   DEFAULT '' COMMENT 'Grant Type;Synchronous upgrades use the API, asynchronous upgrades go through MQ first and then the API, default is synchronous' ,
+    description VARCHAR(256)   DEFAULT '' COMMENT 'Client Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(32)    COMMENT 'Created By' ,
@@ -361,7 +361,7 @@ CREATE TABLE auth_registered_client(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(32)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = '已注册客户端';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Registered Client';
 
 
 ALTER TABLE auth_registered_client ADD UNIQUE INDEX uniq_clientid (client_id);
@@ -425,10 +425,10 @@ CREATE TABLE sys_cron(
     cron_semantic VARCHAR(64)   DEFAULT '' COMMENT 'Semantic Description' ,
     limit_execution TINYINT(1)    COMMENT 'Limit the Execution Times' ,
     remaining_count TINYINT(4)   DEFAULT -1 COMMENT 'Remaining Execution Times;Subtract 1 after each execution. If the value is less than 1, no more execution is performed. Clear the next execution time and set Enable to false.' ,
-    next_exec_time DATETIME    COMMENT 'Next Execution Time;每次执行成功后，计算并更新。允许回拨补偿运行。' ,
-    last_exec_time DATETIME    COMMENT 'Last Execution Time;每次执行成功后，记录开始执行时间，允许回拨补偿运行变更数据。' ,
-    redo_misfire TINYINT(1)   DEFAULT 0 COMMENT 'Redo Missed Task;默认不补偿，为true时仅立即补偿一次' ,
-    priority TINYINT(4)   DEFAULT 1 COMMENT 'Priority;数字越小，优先级越高，0-10' ,
+    next_exec_time DATETIME    COMMENT 'Next Execution Time;Recalculated and updated after each successful execution. Allows rollback compensation runs.' ,
+    last_exec_time DATETIME    COMMENT 'Last Execution Time;Records the execution start time after each successful execution and allows rollback compensation for changed data.' ,
+    redo_misfire TINYINT(1)   DEFAULT 0 COMMENT 'Redo Missed Task;No compensation by default. When true, compensate immediately only once.' ,
+    priority TINYINT(4)   DEFAULT 1 COMMENT 'Priority;Smaller numbers indicate higher priority, from 0 to 10' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
@@ -438,7 +438,7 @@ CREATE TABLE sys_cron(
     updated_by VARCHAR(32)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Cron;执行任务时，携带任务归属时间，支持错过的任务自动补偿机制。';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Cron;Carries the task ownership time during execution and supports automatic compensation for missed tasks.';
 
 CREATE TABLE sys_cron_log(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -470,4 +470,3 @@ CREATE TABLE change_log(
     changed_by VARCHAR(64)    COMMENT 'Changed By' ,
     changed_time DATETIME    COMMENT 'Changed Time'
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Change Log';
-

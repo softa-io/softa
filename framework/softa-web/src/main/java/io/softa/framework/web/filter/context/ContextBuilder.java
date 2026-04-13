@@ -1,14 +1,17 @@
 package io.softa.framework.web.filter.context;
 
+import java.util.List;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.Language;
 import io.softa.framework.base.enums.Timezone;
@@ -21,11 +24,11 @@ import io.softa.framework.web.utils.CookieUtils;
 @Component
 public class ContextBuilder {
 
-    private final CacheService cacheService;
+    @Autowired
+    private CacheService cacheService;
 
-    public ContextBuilder(CacheService cacheService) {
-        this.cacheService = cacheService;
-    }
+    @Autowired(required = false)
+    private List<ContextEnricher> contextEnrichers;
 
     /**
      * Get UserInfo from the request based on session ID in cookies or headers.
@@ -81,8 +84,29 @@ public class ContextBuilder {
         if (SystemConfig.env.isEnableMultiTenancy()) {
             this.setMultiTenancyEnv(context, userInfo);
         }
+        context.setCorrelationId(request.getHeader(BaseConstant.X_CORRELATION_ID));
+        // HTTP requests for users are never allowed to use cross-tenant mode
+        context.setCrossTenant(false);
         this.setDebugModeFromRequest(request, context);
+        // Allow business modules to enrich the context (e.g., EmpInfo, PermissionInfo)
+        // Bind the just-built context before enrichers run; enrichers may execute ORM queries
+        // that rely on ContextHolder for tenant filtering.
+        ContextHolder.runWith(context, () -> this.enrichContext(context));
         return context;
+    }
+
+    private void enrichContext(Context context) {
+        if (contextEnrichers == null || contextEnrichers.isEmpty()) {
+            return;
+        }
+        for (ContextEnricher enricher : contextEnrichers) {
+            try {
+                enricher.enrich(context);
+            } catch (Exception e) {
+                log.error("ContextEnricher [{}] failed for userId={}: {}",
+                        enricher.getClass().getSimpleName(), context.getUserId(), e.getMessage());
+            }
+        }
     }
 
     /**
@@ -100,6 +124,8 @@ public class ContextBuilder {
             context.setTimezone(Timezone.of(timezone));
         }
         this.setDebugModeFromRequest(request, context);
+        // HTTP requests for non-login users are set to use cross-tenant mode
+        context.setCrossTenant(true);
         return context;
     }
 
@@ -150,8 +176,12 @@ public class ContextBuilder {
      * @param userInfo the user info
      */
     private void setMultiTenancyEnv(Context context, UserInfo userInfo) {
-        Assert.notNull(userInfo.getTenantId(), "User tenantId cannot be null in multi-tenancy mode.");
-        context.setTenantId(userInfo.getTenantId());
+        Long tenantId = userInfo.getTenantId();
+        Assert.notNull(tenantId, "User tenantId cannot be null in multi-tenancy mode.");
+//        TenantInfo tenantInfo = tenantInfoService.getTenantInfo(tenantId);
+//        Assert.notNull(tenantInfo, "Tenant info not found for tenantId: {0}", tenantId);
+//        Assert.isEqual(TenantStatus.ACTIVE, tenantInfo.getStatus(), "Tenant with tenantId {0} is not active", tenantId);
+        context.setTenantId(tenantId);
     }
 
 }

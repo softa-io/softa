@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.changelog.message.dto.ChangeLog;
@@ -105,6 +106,45 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
             this.processChangeLogData(model, page, convertType);
         }
         return page;
+    }
+
+    /**
+     * Query all ChangeLogs for the specified model whose correlationId is in the given list,
+     * ordered by changedTime ascending.
+     *
+     * @param model          model name
+     * @param correlationIds list of correlationId values (workItemId as string)
+     * @return all matching ChangeLogs ordered by changedTime ASC
+     */
+    @Override
+    public List<ChangeLog> searchByCorrelationIds(String model, List<String> correlationIds) {
+        return searchByCorrelationIds(List.of(model), correlationIds);
+    }
+
+    /**
+     * Query all ChangeLogs for the specified models whose correlationId is in the given list,
+     * ordered by changedTime ascending.
+     *
+     * @param models         model names
+     * @param correlationIds list of correlationId values (workItemId as string)
+     * @return all matching ChangeLogs ordered by changedTime ASC
+     */
+    @Override
+    public List<ChangeLog> searchByCorrelationIds(List<String> models, List<String> correlationIds) {
+        if (models == null || models.isEmpty() || correlationIds == null || correlationIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Filters filters = new Filters()
+                .in(ChangeLog::getModel, models)
+                .in(ChangeLog::getCorrelationId, correlationIds);
+        Orders orders = Orders.ofAsc(ChangeLog::getChangedTime);
+        Page<ChangeLog> page = Page.of(1, BaseConstant.MAX_BATCH_SIZE, false);
+        this.searchPage(filters, orders, page);
+        Assert.isTrue(page.getTotalCount() <= BaseConstant.MAX_BATCH_SIZE,
+                "The number of change logs ({0}) for models {1} exceeds the maximum limit ({2}). " +
+                "Please use full publish mode instead.",
+                page.getTotalCount(), models, BaseConstant.MAX_BATCH_SIZE);
+        return page.getRows();
     }
 
     /**

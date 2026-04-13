@@ -317,7 +317,7 @@ class ExportServiceImplTest {
     }
 
     /**
-     * 测试专用：替代反射塞入 ExportStrategyFactory 内部字段，避免 factory 实现细节变化导致单测脆弱。
+     * Test-only stub that avoids reflection-based field injection so factory implementation details do not make the test brittle.
      */
     private static class StubExportStrategyFactory extends ExportStrategyFactory {
         private final ExportByDynamic exportByDynamic;

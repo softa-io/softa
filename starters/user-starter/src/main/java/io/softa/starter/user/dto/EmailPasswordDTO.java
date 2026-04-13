@@ -11,4 +11,6 @@ public class EmailPasswordDTO {
 
     @NotBlank(message = "Password cannot be empty!")
     private String password;
+
+    private String tenantCode;
 }

@@ -522,7 +522,7 @@ DELETE FROM sys_field WHERE model_name = 'SysModelOnchange';
 
 -- Insert model metadata
 INSERT INTO sys_model(label_name, model_name, table_name, description, default_order, display_name, search_name, timeline, id_strategy, soft_delete, soft_delete_field, active_control, multi_tenant, version_lock, data_source, service_name, business_key, partition_field)
-    VALUES('Model Onchange Event', 'SysModelOnchange', 'sys_model_onchange', '页面元素的字段变更事件', '', '', '', false, 'ExternalID', false,  '', false, false, false, '', '', '', '');
+    VALUES('Model Onchange Event', 'SysModelOnchange', 'sys_model_onchange', '', '', '', '', false, 'ExternalID', false,  '', false, false, false, '', '', '', '');
 
 -- Insert field metadata
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
@@ -562,7 +562,7 @@ DELETE FROM sys_field WHERE model_name = 'SysModelValidation';
 
 -- Insert model metadata
 INSERT INTO sys_model(label_name, model_name, table_name, description, default_order, display_name, search_name, timeline, id_strategy, soft_delete, soft_delete_field, active_control, multi_tenant, version_lock, data_source, service_name, business_key, partition_field)
-    VALUES('Model Validation', 'SysModelValidation', 'sys_model_validation', '模型数据创建、更新、删除时的同步校验规则', 'modelName,sequence', '', '', false, 'ExternalID', false,  '', false, false, false, '', '', '', '');
+    VALUES('Model Validation', 'SysModelValidation', 'sys_model_validation', '', 'modelName,sequence', '', '', false, 'ExternalID', false,  '', false, false, false, '', '', '', '');
 
 -- Insert field metadata
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
@@ -725,23 +725,23 @@ DELETE FROM sys_field WHERE model_name = 'AuthRegisteredClient';
 
 -- Insert model metadata
 INSERT INTO sys_model(label_name, model_name, table_name, description, default_order, display_name, search_name, timeline, id_strategy, soft_delete, soft_delete_field, active_control, multi_tenant, version_lock, data_source, service_name, business_key, partition_field)
-    VALUES('已注册客户端', 'AuthRegisteredClient', 'auth_registered_client', '', '', '', '', false, '', false,  '', false, false, false, '', '', '', '');
+    VALUES('Registered Client', 'AuthRegisteredClient', 'auth_registered_client', '', '', '', '', false, '', false,  '', false, false, false, '', '', '', '');
 
 -- Insert field metadata
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
     VALUES('ID', 'id', 'id', 'AuthRegisteredClient', '', 'Long', '', '', '', '', '', '', '', '', "", 32, 0, 0, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('客户端名称', 'clientName', 'client_name', 'AuthRegisteredClient', '', 'String', '', '', '', '', '', '', '', '', "''", 64, 0, true, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Client Name', 'clientName', 'client_name', 'AuthRegisteredClient', '', 'String', '', '', '', '', '', '', '', '', "''", 64, 0, true, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('Client ID', 'clientId', 'client_id', 'AuthRegisteredClient', 'OAuth2 客户端 ID', 'String', '', '', '', '', '', '', '', '', "''", 64, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Client ID', 'clientId', 'client_id', 'AuthRegisteredClient', 'OAuth2 Client ID', 'String', '', '', '', '', '', '', '', '', "''", 64, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('Client Secret', 'clientSecret', 'client_secret', 'AuthRegisteredClient', 'OAuth2 客户端 Secret，编码后存储', 'String', '', '', '', '', '', '', '', '', "''", 256, 0, false, 0, 0, 0, 0, 0, '', 0, 0, 'All', '');
+    VALUES('Client Secret', 'clientSecret', 'client_secret', 'AuthRegisteredClient', 'OAuth2 Client Secret, stored in encoded form', 'String', '', '', '', '', '', '', '', '', "''", 256, 0, false, 0, 0, 0, 0, 0, '', 0, 0, 'All', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('失效日期', 'expiredDate', 'expired_date', 'AuthRegisteredClient', '', 'Date', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Expiration Date', 'expiredDate', 'expired_date', 'AuthRegisteredClient', '', 'Date', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('授权类型', 'grantType', 'grant_type', 'AuthRegisteredClient', '同步升级走API，异步升级先走MQ再走API，默认同步', 'String', '', '', '', '', '', '', '', '', "''", 64, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Grant Type', 'grantType', 'grant_type', 'AuthRegisteredClient', 'Synchronous upgrades use the API, asynchronous upgrades go through MQ first and then the API, default is synchronous', 'String', '', '', '', '', '', '', '', '', "''", 64, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('客户端描述', 'description', 'description', 'AuthRegisteredClient', '', 'String', '', '', '', '', '', '', '', '', "''", 256, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Client Description', 'description', 'description', 'AuthRegisteredClient', '', 'String', '', '', '', '', '', '', '', '', "''", 256, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
     VALUES('Created Time', 'createdTime', 'created_time', 'AuthRegisteredClient', '', 'DateTime', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
@@ -865,7 +865,7 @@ DELETE FROM sys_field WHERE model_name = 'SysCron';
 
 -- Insert model metadata
 INSERT INTO sys_model(label_name, model_name, table_name, description, default_order, display_name, search_name, timeline, id_strategy, soft_delete, soft_delete_field, active_control, multi_tenant, version_lock, data_source, service_name, business_key, partition_field)
-    VALUES('System Cron', 'SysCron', 'sys_cron', '执行任务时，携带任务归属时间，支持错过的任务自动补偿机制。', '', '', '', false, '', false,  '', true, false, false, '', '', '', '');
+    VALUES('System Cron', 'SysCron', 'sys_cron', 'Carries the task ownership time during execution and supports automatic compensation for missed tasks.', '', '', '', false, '', false,  '', true, false, false, '', '', '', '');
 
 -- Insert field metadata
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
@@ -881,13 +881,13 @@ INSERT INTO sys_field(label_name, field_name, column_name, model_name, descripti
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
     VALUES('Remaining Execution Times', 'remainingCount', 'remaining_count', 'SysCron', 'Subtract 1 after each execution. If the value is less than 1, no more execution is performed. Clear the next execution time and set Enable to false.', 'Integer', '', '', '', '', '', '', '', '', "-1", 4, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('Next Execution Time', 'nextExecTime', 'next_exec_time', 'SysCron', '每次执行成功后，计算并更新。允许回拨补偿运行。', 'DateTime', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Next Execution Time', 'nextExecTime', 'next_exec_time', 'SysCron', 'Recalculated and updated after each successful execution. Allows rollback compensation runs.', 'DateTime', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('Last Execution Time', 'lastExecTime', 'last_exec_time', 'SysCron', '每次执行成功后，记录开始执行时间，允许回拨补偿运行变更数据。', 'DateTime', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Last Execution Time', 'lastExecTime', 'last_exec_time', 'SysCron', 'Records the execution start time after each successful execution and allows rollback compensation for changed data.', 'DateTime', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('Redo Missed Task', 'redoMisfire', 'redo_misfire', 'SysCron', '默认不补偿，为true时仅立即补偿一次', 'Boolean', '', '', '', '', '', '', '', '', "0", 1, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Redo Missed Task', 'redoMisfire', 'redo_misfire', 'SysCron', 'No compensation by default. When true, compensate immediately only once.', 'Boolean', '', '', '', '', '', '', '', '', "0", 1, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
-    VALUES('Priority', 'priority', 'priority', 'SysCron', '数字越小，优先级越高，0-10', 'Integer', '', '', '', '', '', '', '', '', "1", 4, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
+    VALUES('Priority', 'priority', 'priority', 'SysCron', 'Smaller numbers indicate higher priority, from 0 to 10', 'Integer', '', '', '', '', '', '', '', '', "1", 4, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
     VALUES('Description', 'description', 'description', 'SysCron', '', 'String', '', '', '', '', '', '', '', '', "''", 256, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
@@ -972,4 +972,3 @@ INSERT INTO sys_field(label_name, field_name, column_name, model_name, descripti
     VALUES('Changed By', 'changedBy', 'changed_by', 'ChangeLog', '', 'String', '', '', '', '', '', '', '', '', "", 64, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)
     VALUES('Changed Time', 'changedTime', 'changed_time', 'ChangeLog', '', 'DateTime', '', '', '', '', '', '', '', '', "", 0, 0, false, 0, 0, 0, 0, 0, '', 0, 0, '', '');
-

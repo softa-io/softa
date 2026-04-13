@@ -40,26 +40,6 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AccessType','Update','Update',3,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('AccessType','Delete','Delete',4,'','','');
 
--- Option Set: RoleUserFilter
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='RoleUserFilter';
-DELETE FROM sys_option_item WHERE option_set_code='RoleUserFilter';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('RoleUserFilter','用户筛选字典','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','User','用户',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','Seq','专业序列',10,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','SeqSub','专业子序列',11,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','ManageStdPosition','管理标准岗',12,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','ManageSeq','管理序列',13,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','ManageSeqSub','管理子序列',14,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','Department','部门',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','Workplace','工作地点',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','PositionName','岗位名称',6,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','ReporterId','汇报人',7,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','Identity','任职身份',8,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleUserFilter','StdPosition','专业标准岗位',9,'','','');
-
 -- Option Set: ViewType
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='ViewType';
@@ -104,42 +84,6 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Slider','Slider',8,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('WidgetType','Radio','Radio Button',9,'','','');
 
--- Option Set: RoleDataFilter
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='RoleDataFilter';
-DELETE FROM sys_option_item WHERE option_set_code='RoleDataFilter';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('RoleDataFilter','数据筛选字典','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilter','Dept','按部门',1,'','','');
-
--- Option Set: DeptLevel
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DeptLevel';
-DELETE FROM sys_option_item WHERE option_set_code='DeptLevel';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DeptLevel','部门级别','销售部门级别，根据部门表的 type 和 deptRank 字段计算得出。示例 一级大区 type=05,deptRank=4; 二级大区 type=05,deptRank=5; 城市 type=05,deptRank=6。');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','Full','全部部门',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','FirstLevelRegion','一级大区',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','SecondLevelRegion','二级大区',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLevel','City','城市',4,'','','');
-
--- Option Set: RoleDataValueFilter
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='RoleDataValueFilter';
-DELETE FROM sys_option_item WHERE option_set_code='RoleDataValueFilter';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('RoleDataValueFilter','部门数据权限选项','按部门分配数据权限时选项');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataValueFilter','Full','全部部门',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataValueFilter','FirstLevelRegion','员工所在一级大区（含下级）',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataValueFilter','SecondLevelRegion','员工所在二级大区（含下级）',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataValueFilter','City','员工所在城市（含下级）',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataValueFilter','Own','员工所在部门（含下级）',7,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataValueFilter','Specific','指定部门（含下级）',8,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataValueFilter','LeaderDept','员工负责的部门（含下级）',9,'','','');
-
 -- Option Set: ImportStatus
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='ImportStatus';
@@ -174,21 +118,6 @@ INSERT INTO sys_option_set(option_set_code,name,description) VALUES('ImportRule'
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportRule','OnlyUpdate','Only Update',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportRule','CreateOrUpdate','Create or Update',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ImportRule','OnlyCreate','Only Create',3,'','','');
-
--- Option Set: RoleDataFilterV2
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='RoleDataFilterV2';
-DELETE FROM sys_option_item WHERE option_set_code='RoleDataFilterV2';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('RoleDataFilterV2','数据筛选字典 v2 版本','entity 能授权的属性');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilterV2','DeptId','部门',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilterV2','EmpId','员工',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilterV2','EmpDept','员工当前部门',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilterV2','FirstRegion','大区',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilterV2','City','城市',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilterV2','PerformanceItem','绩效项目',6,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('RoleDataFilterV2','State','状态',7,'','','');
 
 -- Option Set: OptionItemColor
 -- Clean up historical data
@@ -346,44 +275,33 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ActionGetDataType','Exist','Exist',5,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ActionGetDataType','Count','Count',6,'','','');
 
--- Option Set: DesignReleaseStatus
+-- Option Set: DesignDeploymentStatus
 -- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DesignReleaseStatus';
-DELETE FROM sys_option_item WHERE option_set_code='DesignReleaseStatus';
+DELETE FROM sys_option_set WHERE option_set_code='DesignDeploymentStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignDeploymentStatus';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignReleaseStatus','Design Release Status','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignDeploymentStatus','Design Release Deployment Status','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseStatus','Draft','Draft',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseStatus','Frozen','Frozen',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseStatus','Archived','Archived',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignDeploymentStatus','Pending','Pending',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignDeploymentStatus','Deploying','Deploying',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignDeploymentStatus','Success','Success',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignDeploymentStatus','Failure','Failure',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignDeploymentStatus','RolledBack','Rolled Back',5,'','','');
 
--- Option Set: DesignReleaseDeployStatus
+-- Option Set: DesignCodeLang
 -- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DesignReleaseDeployStatus';
-DELETE FROM sys_option_item WHERE option_set_code='DesignReleaseDeployStatus';
+DELETE FROM sys_option_set WHERE option_set_code='DesignCodeLang';
+DELETE FROM sys_option_item WHERE option_set_code='DesignCodeLang';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignReleaseDeployStatus','Design Release Deploy Status','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignCodeLang','Design Code Lang','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Pending','Pending',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Deploying','Deploying',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Success','Success',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','Failure','Failure',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignReleaseDeployStatus','RolledBack','Rolled Back',5,'','','');
-
--- Option Set: DatabaseType
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DatabaseType';
-DELETE FROM sys_option_item WHERE option_set_code='DatabaseType';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DatabaseType','Database Type','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','MySQL','MySQL',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','PostgreSQL','PostgreSQL',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','TiDB','TiDB',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','ElasticSearch','ElasticSearch',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','MongoDB','MongoDB',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','Redis','Redis',6,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DatabaseType','Ignite','Ignite',7,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Java','Java',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Rust','Rust',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Golang','Golang',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','TypeScript','TypeScript',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Python','Python',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Csharp','Csharp',6,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Ruby','Ruby',8,'','','');
 
 -- Option Set: DesignAppStatus
 -- Clean up historical data
@@ -395,23 +313,6 @@ INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignAppSt
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Active','Active',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Maintenance','Maintenance',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppStatus','Deprecated','Deprecated',3,'','','');
-
--- Option Set: DesignCodeLang
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DesignCodeLang';
-DELETE FROM sys_option_item WHERE option_set_code='DesignCodeLang';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignCodeLang','Design Code Language','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Java','Java',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Rust','Rust',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Golang','Golang',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','TypeScript','TypeScript',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','Python','Python',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignCodeLang','CSharp','CSharp',6,'','','');
-
-DELETE FROM sys_option_set WHERE option_set_code='CodeFileType';
-DELETE FROM sys_option_item WHERE option_set_code='CodeFileType';
 
 -- Option Set: DesignPortfolioStatus
 -- Clean up historical data
@@ -431,9 +332,9 @@ DELETE FROM sys_option_item WHERE option_set_code='DesignWorkItemStatus';
 INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignWorkItemStatus','Design Work Item Status','');
 -- Insert option set items
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','InProgress','In Progress',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Ready','Ready',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Done','Done',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Deferred','Deferred',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Done','Done',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Closed','Closed',4,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignWorkItemStatus','Cancelled','Cancelled',5,'','','');
 
 -- Option Set: DesignAppEnvType
@@ -458,6 +359,16 @@ INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignAppVe
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionStatus','Draft','Draft',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionStatus','Sealed','Sealed',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionStatus','Frozen','Frozen',3,'','','');
+
+-- Option Set: DesignAppVersionType
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignAppVersionType';
+DELETE FROM sys_option_item WHERE option_set_code='DesignAppVersionType';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignAppVersionType','Design App Version Type','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionType','Normal','Normal',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppVersionType','Hotfix','Hotfix',2,'','','');
 
 -- Option Set: IdStrategy
 -- Clean up historical data
@@ -534,91 +445,12 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('CronStatus','Timeout','Timeout',7,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('CronStatus','Failed','Failed',8,'','','');
 
--- Option Set: MessageResult
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='MessageResult';
-DELETE FROM sys_option_item WHERE option_set_code='MessageResult';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('MessageResult','消息发送结果','结果（Result）');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('MessageResult','Succeed','成功',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('MessageResult','Failed','失败',2,'','','');
-
--- Option Set: DeptLabel
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DeptLabel';
-DELETE FROM sys_option_item WHERE option_set_code='DeptLabel';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DeptLabel','部门标签','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','BigKA','大KA',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','SmallKA','小KA',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','SME','SME',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','NewTraining','新训营',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','Operations','运营',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','HR','HR',6,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','Training','培训',7,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','Market','市场',8,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','AdministrationOrIT','行政/IT',9,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptLabel','Other','其他',10,'','','');
-
--- Option Set: DeptStationLevel
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DeptStationLevel';
-DELETE FROM sys_option_item WHERE option_set_code='DeptStationLevel';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DeptStationLevel','部门站级','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptStationLevel','FirstTier','一级站',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptStationLevel','NoFirstTier','二级站',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptStationLevel','SecondaryCenter','二级中心站',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptStationLevel','NewSite','三级站',4,'','','');
-
--- Option Set: DeptState
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DeptState';
-DELETE FROM sys_option_item WHERE option_set_code='DeptState';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DeptState','部门状态','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptState','Active','启用',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptState','Repeal','撤销',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptState','Disable','已禁用',3,'','','');
-
--- Option Set: DeptType
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DeptType';
-DELETE FROM sys_option_item WHERE option_set_code='DeptType';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DeptType','部门类型','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptType','1','大区级',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptType','2','城市级',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptType','3','业务组织',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptType','4','职能组织',4,'','','');
-
--- Option Set: DeptRank
--- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='DeptRank';
-DELETE FROM sys_option_item WHERE option_set_code='DeptRank';
--- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DeptRank','部门级别','');
--- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','1','一级部门',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','2','二级部门',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','3','三级部门',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','4','四级部门',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','5','五级部门',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','6','六级部门',6,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','7','七级部门',7,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DeptRank','8','八级部门',8,'','','');
-
 -- Option Set: DataType
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='DataType';
 DELETE FROM sys_option_item WHERE option_set_code='DataType';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DataType','Data Type','字段值的Java数据类型');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DataType','Data Type','Java data type of the field value');
 -- Insert option set items
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DataType','String','String',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DataType','MultiString','MultiString',10,'','','');
@@ -714,40 +546,40 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 DELETE FROM sys_option_set WHERE option_set_code='OrderStatus';
 DELETE FROM sys_option_item WHERE option_set_code='OrderStatus';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('OrderStatus','订单状态','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('OrderStatus','Order Status','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','PendingPayment','待付款',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','InProgress','进行中',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','Completed','已完成',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','Canceled','已取消',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','Refunded','已退款',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','PendingPayment','Pending Payment',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','InProgress','In Progress',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','Completed','Completed',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','Canceled','Canceled',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('OrderStatus','Refunded','Refunded',5,'','','');
 
 -- Option Set: PaymentMethod
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='PaymentMethod';
 DELETE FROM sys_option_item WHERE option_set_code='PaymentMethod';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('PaymentMethod','支付方式','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('PaymentMethod','Payment Method','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','WeChat','微信支付',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','AliPay','支付宝',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','WeChat','WeChat Pay',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','AliPay','Alipay',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','Stripe','Stripe',3,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','PayPal','PayPal',4,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','ApplePay','Apple Pay',5,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','OfflinePayment','线下支付',6,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentMethod','OfflinePayment','Offline Payment',6,'','','');
 
 -- Option Set: PaymentStatus
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='PaymentStatus';
 DELETE FROM sys_option_item WHERE option_set_code='PaymentStatus';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('PaymentStatus','支付状态','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('PaymentStatus','Payment Status','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Unpaid','待支付',1,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Paid','已支付',2,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Failed','支付失败',3,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Canceled','取消支付',4,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Refunded','已退款',5,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Unpaid','Unpaid',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Paid','Paid',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Failed','Payment Failed',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Canceled','Payment Canceled',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('PaymentStatus','Refunded','Refunded',5,'','','');
 
 -- Option Set: LoginMethod
 -- Clean up historical data
@@ -890,18 +722,28 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantStatus','Suspended','Suspended',3,'','orange','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantStatus','Closed','Closed',4,'','red','');
 
--- Option Set: TenantLifecycleStage
+-- Option Set: TenantLifecycle
 -- Clean up historical data
-DELETE FROM sys_option_set WHERE option_set_code='TenantLifecycleStage';
-DELETE FROM sys_option_item WHERE option_set_code='TenantLifecycleStage';
+DELETE FROM sys_option_set WHERE option_set_code='TenantLifecycle';
+DELETE FROM sys_option_item WHERE option_set_code='TenantLifecycle';
 -- Insert option set
-INSERT INTO sys_option_set(option_set_code,name,description) VALUES('TenantLifecycleStage','Tenant Lifecycle Stage','');
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('TenantLifecycle','Tenant Lifecycle','');
 -- Insert option set items
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycleStage','Trial','Trial',0,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycleStage','Subscribed','Subscribed',0,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycleStage','GracePeriod','Grace Period',0,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycleStage','Offboarding','Offboarding',0,'','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycleStage','Archived','Archived',0,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycle','Trial','Trial',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycle','Subscribed','Subscribed',2,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycle','GracePeriod','Grace Period',3,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycle','Offboarding','Offboarding',4,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantLifecycle','Archived','Archived',5,'','','');
+
+-- Option Set: TenantJobMode
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='TenantJobMode';
+DELETE FROM sys_option_item WHERE option_set_code='TenantJobMode';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('TenantJobMode','Tenant Job Mode','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantJobMode','PerTenant','Per Tenant',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('TenantJobMode','CrossTenant','Cross Tenant',2,'','','');
 
 -- Option Set: DocumentTemplateType
 -- Clean up historical data

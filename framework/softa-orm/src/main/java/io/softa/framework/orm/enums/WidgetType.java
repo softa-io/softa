@@ -36,6 +36,7 @@ public enum WidgetType {
     // Boolean, MultiOption fields
     CHECK_BOX("CheckBox", "CheckBox"),
 
+
     // Option, OneToMany fields
     STATUS_BAR("StatusBar", "Status bar"),
 

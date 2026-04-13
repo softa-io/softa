@@ -1,10 +1,6 @@
 package io.softa.framework.orm.jdbc.database.builder;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
@@ -100,7 +96,7 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
      * @return processed filters
      */
     private Filters handleMultiTenant(Filters filters) {
-        if (!ModelManager.isMultiTenant(mainModelName)) {
+        if (!ModelManager.isMultiTenantControl(mainModelName)) {
             // The model is not multi-tenant, return directly
             return filters;
         }

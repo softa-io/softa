@@ -1,5 +1,175 @@
-# Configuration
-## MQ Topic:
+# Softa ORM
+
+## Common Annotations
+### `@DataSource`
+Switch the current method or class to a named datasource.
+
+Behavior:
+- Method-level annotation overrides class-level annotation.
+- If no datasource is currently bound, the target datasource is used for the method scope.
+- If the same datasource is already bound, no switch happens.
+- If a different datasource is already bound and a Spring transaction is active, the framework throws an exception instead of switching.
+
+Typical usage:
+```java
+@DataSource("db1")
+public void readFromDb1() {
+    // ...
+}
+```
+
+### `@Debug`
+Temporarily sets `Context.debug=true` for the annotated method.
+
+Behavior:
+- Enables SQL debug output for methods intercepted by `@ExecuteSql`.
+- `ExecuteSqlAspect` logs SQL text, parameters, partial results, and elapsed time while debug mode is enabled.
+
+Typical usage:
+```java
+@Debug
+public List<Map<String, Object>> inspectQuery() {
+    return jdbcService.searchList(...);
+}
+```
+
+### `@SwitchUser`
+Clones the current context, replaces the current user name with a system user or alias, and sets
+`skipPermissionCheck=true` for the method scope.
+
+Typical usage:
+```java
+@SwitchUser(SystemUser.CRON_USER)
+public void runAsCronUser() {
+    // ...
+}
+```
+
+Notes:
+- This is useful for scheduled tasks, system jobs, or framework-level operations.
+- It changes the execution context user name, not the datasource or tenant mode.
+
+### `@SkipPermissionCheck`
+Temporarily sets `Context.skipPermissionCheck=true` for the annotated method.
+
+Typical usage:
+- metadata loading
+- internal framework pipelines
+- trusted system entry points
+
+### `@RequireRole`
+Intended to require a specific `SystemRole` before entering the method.
+
+Current implementation note:
+- The role check is still marked `TODO` in `PermissionAspect`.
+- Today it mainly behaves like a placeholder wrapper that enables `skipPermissionCheck` after the future role check hook.
+
+### `@SkipAutoAudit`
+Temporarily disables automatic audit field filling for the current method scope.
+
+Effect:
+- created/updated audit fields are not auto-filled while the method runs.
+
+### `@DataMask`
+Toggles response/result masking in the current method scope.
+
+Behavior:
+- `@DataMask` or `@DataMask(true)` enables masking.
+- `@DataMask(false)` disables masking temporarily, which is useful for trusted internal endpoints.
+
+### `@ExecuteSql` and `@WriteOperation`
+These are infrastructure annotations used by the low-level JDBC proxy layer.
+
+Behavior:
+- `@ExecuteSql` marks a method as an SQL execution entry point.
+- In read-write-separation mode, datasource routing happens around `@ExecuteSql`.
+- `@WriteOperation` tells the read/write router that the method must use the primary datasource when not inside a transaction.
+
+Recommendation:
+- Most application service methods should not add these annotations directly.
+- Use them when building framework-level JDBC wrappers or custom low-level SQL executors.
+
+### Less Common Annotations
+- `@RpcCheckpoint`: service-switch / RPC interception hook.
+- `@CrossTenant` and `@PerTenant`: covered in the multi-tenancy section below.
+
+## Multi-Tenancy
+### Runtime Preconditions
+To use shared-db multi-tenancy correctly:
+- set `system.enable-multi-tenancy=true`
+- mark the model metadata with `multiTenant=true`
+- ensure the model contains a `tenantId` field
+
+Startup validation:
+- `ModelManager` validates that every `multiTenant=true` model contains `tenantId`
+- otherwise startup fails with: `The multi-tenant model {modelName} must contain the tenantId field`
+
+### Default ORM Behavior
+When multi-tenancy is enabled and the current context is not cross-tenant:
+- reads automatically append `tenant_id = Context.tenantId` for multi-tenant models
+- inserts automatically fill `tenantId` from the current context
+- non-multi-tenant models are not affected
+
+When `Context.crossTenant=true`:
+- tenant filtering is skipped
+- tenant auto-fill on insert is skipped
+
+This means cross-tenant writes must set `tenantId` explicitly if you still want to write tenant-owned rows.
+
+### `@CrossTenant`
+Use this when a method must run once and see data across all tenants.
+
+Behavior:
+- clones the current context
+- sets `crossTenant=true`
+- sets `skipPermissionCheck=true`
+- runs the method once
+
+Typical usage:
+```java
+@CrossTenant
+public void rebuildGlobalStatistics() {
+    // ORM reads are not restricted by tenant_id here
+}
+```
+
+Use cases:
+- global reconciliation
+- data migration
+- admin-wide reporting
+
+### `@PerTenant`
+Use this when one method invocation should be expanded into one execution per active tenant.
+
+Behavior:
+- requires `TenantInfoService`, which means multi-tenancy must be enabled
+- method return type must be `void`
+- queries active tenant IDs from `TenantInfoService`
+- runs once per active tenant
+- sets `tenantId` for each invocation
+- sets `skipPermissionCheck=true` for each invocation
+- uses virtual threads with max concurrency `100`
+- waits for all tenant executions and throws after collecting failures
+
+Typical usage:
+```java
+@PerTenant
+public void syncTenantCache() {
+    // Runs once per active tenant with that tenant's context
+}
+```
+
+Use cases:
+- per-tenant scheduled jobs
+- tenant-local cache refresh
+- tenant-local reconciliation
+
+Important rule:
+- Do not combine `@PerTenant` with upstream fan-out that already split work per tenant
+  (for example, `cron-starter` with `SysCron.tenantJobMode=PerTenant`), otherwise the job is expanded twice.
+
+## Configuration
+### MQ Topic
 ```yml
 mq:
   topics:
@@ -7,12 +177,12 @@ mq:
       topic: 
 ```
 
-## Multi-Datasource
+### Multi-Datasource
 Application Scenarios:
 * Read-write separation
 * Operate multiple databases in one project
 
-### Multiple Datasource Configuration
+#### Multiple Datasource Configuration
 The multi-datasource is enabled by configuring `spring.datasource.dynamic.enable = true`.
 Otherwise, using the original `spring.datasource.*` as the single datasource.
 
@@ -43,7 +213,7 @@ spring:
           password: pass2
 ```
 
-### Specify the datasource in Java code
+#### Specify the datasource in Java code
 The name of the datasource is the same as the key in the `application.yml` file.
 ```java
 @DataSource("db1")
@@ -58,7 +228,7 @@ Datasource propagation mechanism:
 * If the previous datasource is null, set the specified datasource as the current datasource.
 * If the datasource is set firstly, it will be cleared after the method is executed.
 
-### Deal with the problem of read-after-write consistency
+#### Deal with the problem of read-after-write consistency
 In the read-write separation scenario, and non-transactional context environment, the read-after-write consistency problem may occur.
 The solution is to use the `@DataSource` annotation to specify the datasource for the read operation.
 ```java

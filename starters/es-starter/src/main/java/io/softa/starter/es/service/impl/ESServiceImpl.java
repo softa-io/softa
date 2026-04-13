@@ -1,15 +1,10 @@
 package io.softa.starter.es.service.impl;
 
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.StringTools;
-import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.domain.FilterUnit;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.Orders;
-import io.softa.framework.orm.domain.Page;
-import io.softa.framework.orm.enums.FilterType;
-import io.softa.framework.orm.enums.LogicOperator;
-import io.softa.starter.es.service.ESService;
+import java.lang.reflect.ParameterizedType;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -22,11 +17,16 @@ import org.springframework.data.elasticsearch.core.query.Criteria;
 import org.springframework.data.elasticsearch.core.query.CriteriaQuery;
 import org.springframework.data.elasticsearch.core.query.Query;
 
-import java.lang.reflect.ParameterizedType;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.StringTools;
+import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FilterUnit;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
+import io.softa.framework.orm.enums.FilterType;
+import io.softa.framework.orm.enums.LogicOperator;
+import io.softa.starter.es.service.ESService;
 
 /**
  * Implementation of Common ES service
@@ -91,6 +91,7 @@ public abstract class ESServiceImpl<T> implements ESService<T> {
         page.setRows(entityList);
         return page;
     }
+
 
     /**
      * Convert Filters to ES query criteria

@@ -5,6 +5,7 @@ import java.io.Serializable;
 import java.util.*;
 import lombok.*;
 
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.enums.StorageType;
 
@@ -35,7 +36,7 @@ public class MetaModel implements Serializable {
     private StorageType storageType;
 
     // Model level default orders, such as "name ASC"
-    private String defaultOrder;
+    private Orders defaultOrder;
 
     // Display name fields
     @Setter(AccessLevel.NONE)

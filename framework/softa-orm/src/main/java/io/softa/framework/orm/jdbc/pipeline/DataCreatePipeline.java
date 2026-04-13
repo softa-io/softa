@@ -58,7 +58,7 @@ public class DataCreatePipeline extends DataPipeline {
             this.processorChain.addProcessor(new IdProcessor(pkField, accessType));
             this.storedFields.add(pkField.getFieldName());
         }
-        if (ModelManager.isMultiTenant(modelName)) {
+        if (ModelManager.isMultiTenantModel(modelName)) {
             this.storedFields.add(ModelConstant.TENANT_ID);
         }
     }

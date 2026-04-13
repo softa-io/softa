@@ -15,14 +15,19 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
+import io.softa.framework.orm.entity.TenantInfo;
 import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.TenantStatus;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.FileService;
+import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.service.UserProfileService;
@@ -39,6 +44,9 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
 
     @Autowired
     private CacheService cacheService;
+
+    @Autowired
+    private TenantInfoService tenantInfoService;
 
     @Autowired
     @Lazy
@@ -113,12 +121,23 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         userInfo.setLanguage(profile.getLanguage());
         userInfo.setTimezone(profile.getTimezone());
         userInfo.setTenantId(profile.getTenantId());
+        this.validateTenantInfo(profile);
         if (profile.getPhotoId() != null) {
             // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time
             Optional<FileInfo> fileInfoOpt = fileService.getByFileId(profile.getPhotoId(), RedisConstant.ONE_QUARTER);
             fileInfoOpt.ifPresent(fileInfo -> userInfo.setPhotoUrl(fileInfo.getUrl()));
         }
         return userInfo;
+    }
+
+    private void validateTenantInfo(UserProfile profile) {
+        if (ModelManager.isMultiTenantControl()) {
+            Long tenantId = profile.getTenantId();
+            Assert.notNull(tenantId, "UserProfile(id = {0}) tenantID is required for multi-tenant model.", profile.getId());
+            TenantInfo tenantInfo = tenantInfoService.getTenantInfo(tenantId);
+            Assert.notNull(tenantInfo, "Tenant info not found for UserProfile tenantId: {0}", tenantId);
+            Assert.isEqual(TenantStatus.ACTIVE, tenantInfo.getStatus(), "Tenant with tenantId {0} is not active", tenantId);
+        }
     }
 
     /**

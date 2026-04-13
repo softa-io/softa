@@ -1,0 +1,39 @@
+{#
+Template: CreateTable.peb
+Root:
+- model: ModelDdlCtx
+
+Used model fields:
+- tableName
+- description
+- labelName
+- pkColumn
+- autoIncrementPrimaryKey
+- createdFields
+
+Used field fields:
+- columnName
+- dbType
+- length
+- scale
+- required
+- autoIncrement
+- defaultValue
+- description
+
+Notes:
+- This template renders a newly created table only.
+- Fields are taken from model.createdFields.
+#}
+/* Create table for model: {{ model.labelName }} */
+CREATE TABLE {{ model.tableName }} (
+{% for field in model.createdFields %}
+    {{ field.columnName }} {{ field.typeDeclaration }}
+    {%- if field.required %} NOT NULL{% endif -%}
+    {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
+    {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
+    {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
+    {%- endif %} COMMENT '{{ field.description }}',
+{% endfor %}
+    PRIMARY KEY ({{ model.pkColumn }})
+) ENGINE=InnoDB{% if model.autoIncrementPrimaryKey %} AUTO_INCREMENT=1{% endif %} DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='{{ model.description }}';

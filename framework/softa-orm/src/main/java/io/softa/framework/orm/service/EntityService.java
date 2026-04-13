@@ -164,12 +164,12 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
     /**
      * Get distinct values for the specified field, filtered by the given conditions.
      *
-     * @param <V> the type of the field's value
+     * @param <R> the type of the field's value
      * @param fieldReference the field reference to get the value from
      * @param filters optional filtering conditions
      * @return a list of distinct field values
      */
-    <V extends Serializable, R> List<V> getDistinctFieldValue(SFunction<T, R> fieldReference, Filters filters);
+    <R extends Serializable> List<R> getDistinctFieldValue(SFunction<T, R> fieldReference, Filters filters);
 
     /**
      * Get the specified field value by id and field reference.
@@ -179,7 +179,7 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      * @param fieldReference field reference to get the value from
      * @return field value
      */
-    <V extends Serializable, R> V getFieldValue(K id, SFunction<T, R> fieldReference);
+    <R extends Serializable> R getFieldValue(K id, SFunction<T, R> fieldReference);
 
     /**
      * Get the ids based on the filters.
