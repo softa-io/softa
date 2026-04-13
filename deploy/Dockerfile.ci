@@ -1,6 +1,16 @@
 # syntax=docker/dockerfile:1.7
 
+# ── Stage 1: download fonts ──
+FROM alpine:3.20 AS fonts
+RUN apk add --no-cache curl
+COPY ./deploy/install-font.sh /tmp/install-font.sh
+RUN sh /tmp/install-font.sh /fonts
+
+# ── Stage 2: application ──
 FROM eclipse-temurin:25-jre-alpine
+
+# Noto fonts (rarely changes → cached Docker layer)
+COPY --from=fonts /fonts/ /usr/share/fonts/noto/
 
 ARG APP_NAME
 ENV TZ=UTC

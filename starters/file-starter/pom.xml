@@ -60,11 +60,16 @@
             <version>${docx4j.version}</version>
         </dependency>
 
+        <!-- HTML to PDF via OpenHTMLToPDF -->
         <dependency>
-            <groupId>com.github.librepdf</groupId>
-            <artifactId>openpdf-html</artifactId>
-            <version>3.0.3</version>
-            <scope>compile</scope>
+            <groupId>io.github.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>1.1.37</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-svg-support</artifactId>
+            <version>1.1.37</version>
         </dependency>
     </dependencies>
 </project>

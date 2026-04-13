@@ -40,12 +40,12 @@ import io.softa.starter.file.entity.SigningDocument;
 import io.softa.starter.file.entity.SigningRequest;
 import io.softa.starter.file.enums.SigningDocumentStatus;
 import io.softa.starter.file.enums.SigningRequestStatus;
-import io.softa.starter.file.file.PdfFileGenerator;
-import io.softa.starter.file.file.PdfSigningHelper;
-import io.softa.starter.file.file.WordFileGenerator;
+import io.softa.starter.file.pdf.PdfFileGenerator;
+import io.softa.starter.file.pdf.PdfSigningHelper;
 import io.softa.starter.file.service.DocumentTemplateService;
 import io.softa.starter.file.service.SigningDocumentService;
 import io.softa.starter.file.service.SigningRequestService;
+import io.softa.starter.file.word.WordFileGenerator;
 
 /**
  * SigningDocument Model Service Implementation

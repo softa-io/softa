@@ -38,7 +38,7 @@ Examples:
 ```
 
 The `{{ }}` convention is consistent across:
-- **PlaceholderUtils / HtmlTemplateRenderer**: runtime placeholder resolution
+- **PlaceholderUtils / TemplateEngine**: runtime placeholder resolution
 - **Pebble Template Engine**: code generation and DDL generation (see `studio-starter`)
 - **AviatorScript**: expression evaluation for computed fields (see `metadata-starter`)
 
