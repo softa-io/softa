@@ -26,6 +26,7 @@
         <module>flow-starter</module>
         <module>es-starter</module>
         <module>file-starter</module>
+        <module>message-starter</module>
         <module>studio-starter</module>
         <module>user-starter</module>
         <module>tenant-starter</module>
