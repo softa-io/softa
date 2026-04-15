@@ -1,6 +1,12 @@
 # syntax=docker/dockerfile:1.7
 
-# Stage 1: Build app jar
+# ── Stage 1: download fonts ──
+FROM alpine:3.20 AS fonts
+RUN apk add --no-cache curl
+COPY ./deploy/install-font.sh /tmp/install-font.sh
+RUN sh /tmp/install-font.sh /fonts
+
+# Stage 2: Build app jar
 FROM maven:3.9.12-eclipse-temurin-25-alpine AS build_stage
 
 ARG APP_DIR
@@ -22,8 +28,11 @@ RUN --mount=type=cache,target=/root/.m2 \
     -pl ${APP_DIR}/${APP_NAME} -am \
     package
 
-# Stage 2: Build final image with app jar
+# Stage 3: Build final image with app jar
 FROM eclipse-temurin:25-jre-alpine
+
+# Noto fonts (rarely changes → cached Docker layer)
+COPY --from=fonts /fonts/ /usr/share/fonts/noto/
 
 ARG APP_DIR
 ARG APP_NAME

@@ -59,6 +59,7 @@ management:
 logging:
   level:
     root: info
+    org.apache.fontbox.ttf.CmapSubtable: error
 
 springdoc:
   writer-with-order-by-keys: true

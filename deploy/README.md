@@ -1,17 +1,23 @@
 
-# 1. Build multi-platform images 
+# 1. Build multi-platform images
 
 ## 1.1 Build & Push by GitHub Actions
 You can use the GitHub Actions workflow or any other CI tools, to build and push multi-platform images to Docker container registry.
 Refer to the `.github/workflows/build-and-push.yml` file for more details.
 Trigger build action on push of tags starting with "v", e.g., v1.0.0
 
-`./deploy/Dockerfile` is a common multi-stage Dockerfile, which can be used to build the app image.
+`./deploy/Dockerfile` is a multi-stage Dockerfile with three stages:
+1. **fonts** — downloads Noto font files via `deploy/install-font.sh` (cached layer, rarely changes)
+2. **build_stage** — compiles the application jar with Maven
+3. **final image** — copies the fonts and jar into a minimal JRE image
+
 The `APP_PATH`, `APP_NAME` parameters are passed as build arguments in the GitHub Actions workflow.
 The image `version` is extracted from the tag name e.g., `v1.0.0` -> `1.0.0`.
 
+`./deploy/Dockerfile.ci` is a two-stage variant for CI pipelines where the jar is pre-built. It includes the same font installation stage.
+
 ## 1.2 Build & Push by Local Script Manually
-Build images and push them to Docker container registry
+Build images and push them to Docker container registry.
 Specify the `APP_PATH`, `APP_VERSION` to build the image for the Java application.
 ```
 ./deploy/build.sh <APP_PATH> <APP_VERSION> [<REGISTRY_NAMESPACE>]
@@ -20,14 +26,26 @@ The `APP_PATH` is the relative path to the application source code directory, su
 And the last name in `APP_PATH` is the application name, such as `demo-app`.
 
 The `REGISTRY_NAMESPACE` is optional, and the default value is `softa`.
-Your can specify the `REGISTRY_NAMESPACE` to push the image to your own docker image repository.
+You can specify the `REGISTRY_NAMESPACE` to push the image to your own docker image repository.
 
 Example to build the demo application image:
 ```bash
 ./deploy/build.sh apps/demo-app 1.0.3
 ```
 
-# 2. Start EFK by Docker Compose (Optional)
+# 2. Install Noto Fonts (PDF Generation)
+Noto fonts are required for PDF generation with `file-starter` (RICH_TEXT document templates).
+The fonts are installed automatically inside Docker images (see above). For local development, run:
+```bash
+sh deploy/install-font.sh
+```
+The script auto-detects the OS font directory (`~/Library/Fonts` on macOS, `~/.local/share/fonts` on Linux).
+You can also pass an explicit target directory:
+```bash
+sh deploy/install-font.sh /path/to/fonts
+```
+
+# 3. Start EFK by Docker Compose (Optional)
 ```bash
 docker-compose -f deploy/efk/docker-compose.yml up -d
 ```
@@ -37,7 +55,7 @@ Or you can specify the `spring.elasticsearch.uris` property to connect to your o
 
 Then create index using `demo-app/init_es/create_index`.
 
-# 3. Start Pulsar by Docker Compose (Optional)
+# 4. Start Pulsar by Docker Compose (Optional)
 ```bash
 docker-compose -f deploy/pulsar/docker-compose.yml up -d
 ```
@@ -47,10 +65,10 @@ Or you can specify the `spring.pulsar.client.service-url` property to connect to
 
 The most crucial information is you need to configure the `mq.topics.xxx.topic` properties to enable the corresponding Listeners.
 
-On the other hand, if you are not ready to set up the pulsar service, you can also choose not to configure 
+On the other hand, if you are not ready to set up the pulsar service, you can also choose not to configure
 or comment out the `mq.topics.xxx` topics to avoid the issue of being unable to start.
 
-# 4. Start Minio by Docker Compose (Optional)
+# 5. Start Minio by Docker Compose (Optional)
 ```bash
 docker-compose -f deploy/minio/docker-compose.yml up -d
 ```
@@ -62,11 +80,11 @@ http://localhost:9001
 Username: minioadmin
 Password: minioadmin
 
-# 5. Start the demo application by Docker Compose
+# 6. Start the demo application by Docker Compose
 ```bash
 docker-compose -f ./deploy/demo-app/docker-compose.yml up -d
 ```
 Create a database instance and execute the SQL scripts in `deploy/demo-app/init_mysql`.
 
-# 6. Production Environment
+# 7. Production Environment
 It is highly recommended that the production environment be deployed using a pipeline and Kubernetes for containerization.

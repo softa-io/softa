@@ -1,4 +1,4 @@
-package io.softa.starter.file.file;
+package io.softa.starter.file.word;
 
 import java.io.*;
 import java.util.ArrayList;

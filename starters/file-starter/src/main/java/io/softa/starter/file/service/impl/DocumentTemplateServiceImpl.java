@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.SystemException;
@@ -23,17 +24,20 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.file.entity.DocumentTemplate;
 import io.softa.starter.file.enums.DocumentTemplateType;
-import io.softa.starter.file.file.PdfFileGenerator;
-import io.softa.starter.file.file.WordFileGenerator;
+import io.softa.starter.file.pdf.PdfFileGenerator;
 import io.softa.starter.file.service.DocumentTemplateService;
+import io.softa.starter.file.word.WordFileGenerator;
 
 /**
  * DocumentTemplate Model Service Implementation
  */
 @Service
 public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTemplate, Long> implements DocumentTemplateService {
+
+    private static final String PREVIEW_FILE_NAME = "preview_document";
 
     @Autowired
     private ModelService<Serializable> modelService;
@@ -53,13 +57,14 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
     public FileInfo generateDocument(Long templateId, Serializable rowId) {
         DocumentTemplate template = getTemplateById(templateId);
         String modelName = template.getModelName();
+        Serializable formattedRowId = IdUtils.formatId(modelName, rowId);
         // Extract variables from template based on template type
         List<String> variables = extractTemplateVariables(template);
         // Build SubQueries for OneToMany fields to support
         // dynamic table row looping in Word templates via LoopRowTableRenderPolicy.
         SubQueries subQueries = buildOneToManySubQueries(modelName);
         // Fetch data with targeted fields and DISPLAY conversion
-        Map<String, Object> data = modelService.getById(modelName, rowId, variables, subQueries, ConvertType.DISPLAY)
+        Map<String, Object> data = modelService.getById(modelName, formattedRowId, variables, subQueries, ConvertType.DISPLAY)
                 .orElseThrow(() -> new IllegalArgumentException("The data of `{0}` does not exist", rowId));
         return generateDocumentByTemplate(template, data);
     }
@@ -76,6 +81,34 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
     public FileInfo generateDocument(Long templateId, Map<String, Object> data) {
         DocumentTemplate template = getTemplateById(templateId);
         return generateDocumentByTemplate(template, data);
+    }
+
+    /**
+     * Generate a preview PDF directly from the specified HTML body.
+     *
+     * @param htmlBody HTML content to preview
+     * @return generated preview fileInfo with download URL
+     */
+    @Override
+    public FileInfo generatePreviewDocument(String htmlBody) {
+        Assert.notBlank(htmlBody, "The htmlBody of preview document is empty.");
+        String renderedHtml = TemplateEngine.render(htmlBody, Collections.emptyMap());
+        byte[] pdfBytes = PdfFileGenerator.convertHtmlToPdf(renderedHtml);
+        return uploadGeneratedFile(this.modelName, PREVIEW_FILE_NAME, pdfBytes, FileType.PDF);
+    }
+
+    /**
+     * Generate a preview PDF according to the specified template ID with empty data.
+     *
+     * @param templateId template ID
+     * @return generated preview fileInfo with download URL
+     */
+    @Override
+    public FileInfo generatePreviewTemplate(Long templateId) {
+        DocumentTemplate template = getTemplateById(templateId);
+        byte[] pdfBytes = buildPreviewPdf(template);
+        String previewFileName = StringUtils.hasText(template.getFileName()) ? template.getFileName() : PREVIEW_FILE_NAME;
+        return uploadGeneratedFile(template.getModelName(), previewFileName, pdfBytes, FileType.PDF);
     }
 
     /**
@@ -186,14 +219,55 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
 
     /**
      * Generate a PDF document from a RICH_TEXT template.
-     * Renders HTML via Pebble and converts to PDF via OpenPDF.
+     * Renders HTML via Pebble and converts to PDF via OpenHTMLToPDF
      */
     private FileInfo generateRichTextDocument(DocumentTemplate template, Map<String, Object> data) {
         // Render HTML from rich text template content using Pebble
         String renderedHtml = TemplateEngine.render(template.getHtmlTemplate(), data);
-        // Convert rendered HTML to PDF via OpenPDF
+        // Convert rendered HTML to PDF via OpenHTMLToPDF
         byte[] pdfBytes = PdfFileGenerator.convertHtmlToPdf(renderedHtml);
         return uploadGeneratedFile(template, pdfBytes, FileType.PDF);
+    }
+
+    /**
+     * Build a preview PDF with empty data for the specified template.
+     */
+    private byte[] buildPreviewPdf(DocumentTemplate template) {
+        if (template.getFileId() != null) {
+            FileInfo templateFileInfo = fileService.getByFileId(template.getFileId())
+                    .orElseThrow(() -> new IllegalArgumentException("The template file does not exist: {0}",
+                            template.getFileId()));
+            try (InputStream inputStream = fileService.downloadStream(template.getFileId())) {
+                byte[] templateFileBytes = inputStream.readAllBytes();
+                return switch (templateFileInfo.getFileType()) {
+                    case PDF -> templateFileBytes;
+                    case DOCX -> renderWordTemplateToPdf(templateFileBytes, Collections.emptyMap());
+                    default -> throw new IllegalArgumentException(
+                            "Preview only supports PDF or DOCX template files. Current file type: {0}",
+                            templateFileInfo.getFileType().getType());
+                };
+            } catch (IOException e) {
+                throw new SystemException("Failed to load the template file for preview.", e);
+            }
+        }
+        if (StringUtils.hasText(template.getHtmlTemplate())) {
+            String renderedHtml = TemplateEngine.render(template.getHtmlTemplate(), Collections.emptyMap());
+            return PdfFileGenerator.convertHtmlToPdf(renderedHtml);
+        }
+        throw new IllegalArgumentException("The template does not contain previewable content.");
+    }
+
+    /**
+     * Render the DOCX template with the given data and convert it to PDF.
+     */
+    private byte[] renderWordTemplateToPdf(byte[] templateFileBytes, Map<String, Object> data) {
+        try (ByteArrayInputStream inputStream = new ByteArrayInputStream(templateFileBytes);
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            WordFileGenerator.renderDocument(inputStream, data, outputStream);
+            return WordFileGenerator.convertDocxToPdf(outputStream.toByteArray());
+        } catch (IOException e) {
+            throw new SystemException("Failed to render the preview DOCX template.", e);
+        }
     }
 
     /**
@@ -205,10 +279,17 @@ public class DocumentTemplateServiceImpl extends EntityServiceImpl<DocumentTempl
      * @return FileInfo with download URL
      */
     private FileInfo uploadGeneratedFile(DocumentTemplate template, byte[] fileBytes, FileType fileType) {
+        return uploadGeneratedFile(template.getModelName(), template.getFileName(), fileBytes, fileType);
+    }
+
+    /**
+     * Upload the generated file to OSS and return the FileInfo.
+     */
+    private FileInfo uploadGeneratedFile(String modelName, String fileName, byte[] fileBytes, FileType fileType) {
         try (InputStream inputStream = new ByteArrayInputStream(fileBytes)) {
             UploadFileDTO uploadFileDTO = new UploadFileDTO();
-            uploadFileDTO.setModelName(template.getModelName());
-            uploadFileDTO.setFileName(template.getFileName());
+            uploadFileDTO.setModelName(modelName);
+            uploadFileDTO.setFileName(fileName);
             uploadFileDTO.setFileType(fileType);
             // bytes to KB
             uploadFileDTO.setFileSize(fileBytes.length / 1024);

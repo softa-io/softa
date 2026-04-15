@@ -61,6 +61,8 @@ public enum WidgetType {
     JSON_TREE("JsonTree", "Json Tree"),
 
     TAG_LIST("TagList", "Tag List"),
+
+    CRON_EDITOR("CronEditor", "Cron expression editor")
     ;
 
     @JsonValue
