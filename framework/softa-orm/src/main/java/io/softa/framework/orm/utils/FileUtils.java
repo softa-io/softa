@@ -124,8 +124,7 @@ public class FileUtils {
     public static FileType getActualFileType(MultipartFile file) {
         String fileName = file.getOriginalFilename();
         try (InputStream inputStream = file.getInputStream()) {
-            byte[] fileBytes = FileCopyUtils.copyToByteArray(inputStream);
-            FileType actualFileType = getActualFileType(fileName, new ByteArrayInputStream(fileBytes));
+            FileType actualFileType = getActualFileType(fileName, inputStream);
             FileType seemingFileType = FileType.of(file.getContentType()).orElseThrow(() -> new BusinessException(
                     "The file {0} is not supported. Its content type is: {1}.", fileName, file.getContentType()));
             validateFileType(fileName, actualFileType, seemingFileType);
