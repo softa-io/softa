@@ -87,6 +87,8 @@ public class ModelManager {
                 this.validateModelAttributes(models);
                 // Validate field attributes
                 this.validateFieldAttributes(fields);
+                // Identify composition relationships and build childModels
+                this.identifyChildModels();
                 // Identify the audit fields of the models.
                 this.identifyAuditFields(models);
                 // Seal the model attributes to make them immutable after initialization
@@ -223,6 +225,22 @@ public class ModelManager {
             }
             if (modelFields().get(metaModel.getModelName()).containsKey(ModelConstant.UPDATED_TIME)) {
                 metaModel.addAuditUpdateField(ModelConstant.UPDATED_TIME);
+            }
+        }
+    }
+
+    /**
+     * Identify composition relationships from OneToMany fields and populate childModels on each model.
+     * A composition field (composition=true) means the child model's lifecycle is fully managed by the parent.
+     */
+    private void identifyChildModels() {
+        for (Map.Entry<String, Map<String, MetaField>> entry : modelFields().entrySet()) {
+            String modelName = entry.getKey();
+            MetaModel metaModel = modelMap().get(modelName);
+            for (MetaField field : entry.getValue().values()) {
+                if (FieldType.ONE_TO_MANY.equals(field.getFieldType())) {
+                    metaModel.addChildModel(field.getRelatedModel());
+                }
             }
         }
     }
@@ -1066,5 +1084,10 @@ public class ModelManager {
         return modelFields().get(modelName).values().stream()
                 .filter(f -> f.getColumnName().equals(columnName))
                 .findFirst();
+    }
+
+    public static Set<String> getChildModels(String modelName) {
+        validateModel(modelName);
+        return modelMap().get(modelName).getChildModels();
     }
 }

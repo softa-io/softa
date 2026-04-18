@@ -35,9 +35,6 @@ public class HttpDownloadUtils {
     /** Default User-Agent */
     private static final String DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
-    /** BufferedInputStream buffer size: 64KB, enough for file type detection */
-    private static final int BUFFER_SIZE = 64 * 1024;
-
     /**
      * Download file from URL
      *
@@ -63,7 +60,7 @@ public class HttpDownloadUtils {
             String fileName = extractFileName(url, connection);
 
             // Detect file type by reading the stream (after mark)
-            fileStream = FileUtils.getFileStream(fileName, connection.getInputStream());;
+            fileStream = FileUtils.getFileStream(fileName, connection.getInputStream());
 
             return new DownloadFileDTO(fileStream, connection);
 

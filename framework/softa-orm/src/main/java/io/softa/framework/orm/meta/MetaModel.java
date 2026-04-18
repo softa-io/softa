@@ -83,6 +83,13 @@ public class MetaModel implements Serializable {
     @Setter(AccessLevel.NONE)
     private Set<String> auditUpdateFields = new HashSet<>();
 
+    /**
+     * Child models in the aggregate root, derived from OneToMany fields with composition=true.
+     * The lifecycle of child models is fully managed by this aggregate root model.
+     */
+    @Setter(AccessLevel.NONE)
+    private Set<String> childModels = new HashSet<>();
+
     protected void setDisplayName(List<String> displayName) {
         this.displayName = Collections.unmodifiableList(displayName);
     }
@@ -107,6 +114,10 @@ public class MetaModel implements Serializable {
         this.auditUpdateFields.add(fieldName);
     }
 
+    protected void addChildModel(String modelName) {
+        this.childModels.add(modelName);
+    }
+
     /**
      * Seal the model fields and related attributes to make them immutable after initialization,
      * preventing accidental modification.
@@ -116,6 +127,7 @@ public class MetaModel implements Serializable {
         this.storedCascadedFields = Collections.unmodifiableList(this.storedCascadedFields);
         this.auditCreateFields = Collections.unmodifiableSet(this.auditCreateFields);
         this.auditUpdateFields = Collections.unmodifiableSet(this.auditUpdateFields);
+        this.childModels = Collections.unmodifiableSet(this.childModels);
     }
 
 
