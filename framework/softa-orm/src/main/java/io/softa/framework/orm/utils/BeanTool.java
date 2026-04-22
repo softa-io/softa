@@ -344,21 +344,27 @@ public class BeanTool {
      * Convert List to OneToMany object list.
      *
      * @param field the OneToMany field
-     * @param rows the OneToMany map data list
+     * @param valueList the data list
      * @param entityClass the entity class
      * @return object list
      * @param <T> the entity class type
      */
-    private static <T> List<?> formatListProperty(String field, List<Map<String, Object>> rows, Class<T> entityClass) {
-        MetaField metaField = ModelManager.getModelField(entityClass.getSimpleName(), field);
-        if (FieldType.TO_MANY_TYPES.contains(metaField.getFieldType())) {
-            // OneToMany or ManyToMany field type, need to convert to object list
-            Class<?> rightManyClass = getElementClass(entityClass, field);
-            if (AbstractModel.class.isAssignableFrom(rightManyClass)) {
-                return mapListToObjects(rows, rightManyClass);
-            }
+    private static <T> List<?> formatListProperty(String field, List<?> valueList, Class<T> entityClass) {
+        Class<?> elementClass = getElementClass(entityClass, field);
+        if (Enum.class.isAssignableFrom(elementClass)) {
+            return valueList.stream()
+                    .map(item -> item instanceof String str
+                            ? formatEnumProperty(str, elementClass)
+                            : elementClass.cast(item))
+                    .toList();
         }
-        return rows;
+        MetaField metaField = ModelManager.getModelField(entityClass.getSimpleName(), field);
+        if (FieldType.TO_MANY_TYPES.contains(metaField.getFieldType()) && AbstractModel.class.isAssignableFrom(elementClass)) {
+            // OneToMany or ManyToMany field type, need to convert to object list
+            List<Map<String, Object>> rows = Cast.of(valueList);
+            return mapListToObjects(rows, elementClass);
+        }
+        return valueList;
     }
 
     /**

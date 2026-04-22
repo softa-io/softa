@@ -60,10 +60,10 @@ public class UserAccountController extends EntityController<UserAccountService, 
 
     @Operation(summary = "Unlock User Account")
     @PostMapping("/unlockAccount")
-    public ApiResponse<Void> unlockAccount(@RequestBody @Valid UnlockAccountDTO unlockAccountDTO) {
-        Long userId = unlockAccountDTO.getId();
-        validateNotSelf(userId, "unlock");
-        service.unlockAccount(userId, unlockAccountDTO.getReason());
+    public ApiResponse<Void> unlockAccount(@RequestParam @NotNull Long id,
+                                           @RequestBody UnlockAccountDTO unlockAccountDTO) {
+        validateNotSelf(id, "unlock");
+        service.unlockAccount(id, unlockAccountDTO.getReason());
         return ApiResponse.success();
     }
 

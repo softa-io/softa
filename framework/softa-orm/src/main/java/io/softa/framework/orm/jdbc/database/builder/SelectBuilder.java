@@ -56,6 +56,10 @@ public class SelectBuilder extends BaseBuilder implements SqlClauseBuilder {
             selectFields.addAll(dependentFields);
             // Add the ID field by default
             selectFields.add(ModelConstant.ID);
+            // When optimistic lock is enabled, include the `version` field so the client can round-trip it on updates.
+            if (ModelManager.isVersionControl(mainModelName)) {
+                selectFields.add(ModelConstant.VERSION);
+            }
         }
         // When subQuery is specified, append the XToMany relationship fields in subQuery to selectFields.
         if (flexQuery.getSubQueries() != null) {

@@ -1,8 +1,12 @@
 package io.softa.framework.base.placeholder;
 
 import java.io.StringWriter;
+import java.util.List;
 import java.util.Map;
 import io.pebbletemplates.pebble.PebbleEngine;
+import io.pebbletemplates.pebble.extension.AbstractExtension;
+import io.pebbletemplates.pebble.extension.Filter;
+import io.pebbletemplates.pebble.template.EvaluationContext;
 import io.pebbletemplates.pebble.template.PebbleTemplate;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
@@ -16,6 +20,13 @@ import io.softa.framework.base.exception.IllegalArgumentException;
  * <p>
  * Pebble uses {@code {{ var }}} / {@code {% if %}} syntax, which is consistent
  * with the project-wide placeholder convention ({@code {{ }} }).
+ * <p>
+ * Built-in filters:
+ * <ul>
+ *   <li>{@code sqlLiteral} — escapes a value for safe embedding inside a single-quoted
+ *       SQL literal (e.g. a {@code COMMENT '...'} clause). Returns {@code ""} for null.
+ *       Usage: {@code COMMENT '{{ description | sqlLiteral }}'}.</li>
+ * </ul>
  */
 public class TemplateEngine {
 
@@ -23,7 +34,46 @@ public class TemplateEngine {
             .autoEscaping(false)      // SQL and Java code must not be HTML-escaped
             .strictVariables(false)   // Allow missing variables to render as empty
             .cacheActive(true)        // Cache compiled templates for performance
+            .extension(new TemplateEngineExtension())
             .build();
+
+    /**
+     * Custom Pebble extension registering shared filters.
+     */
+    private static final class TemplateEngineExtension extends AbstractExtension {
+        @Override
+        public Map<String, Filter> getFilters() {
+            return Map.of("sqlLiteral", new SqlLiteralFilter());
+        }
+    }
+
+    /**
+     * Pebble filter that escapes a value for safe embedding inside a single-quoted
+     * SQL literal. It doubles every {@code '} so the enclosing quotes of the template
+     * literal (e.g. {@code COMMENT '...'}) stay balanced regardless of the input.
+     * <p>
+     * Null and empty values render as empty string. Backslashes are left untouched
+     * because MySQL {@code NO_BACKSLASH_ESCAPES} mode is not assumed; the surrounding
+     * {@code '...'} quoting is the only contract this filter enforces.
+     */
+    private static final class SqlLiteralFilter implements Filter {
+        @Override
+        public List<String> getArgumentNames() {
+            return List.of();
+        }
+
+        @Override
+        public Object apply(Object input,
+                            Map<String, Object> args,
+                            PebbleTemplate self,
+                            EvaluationContext context,
+                            int lineNumber) {
+            if (input == null) {
+                return "";
+            }
+            return input.toString().replace("'", "''");
+        }
+    }
 
     private TemplateEngine() {}
 

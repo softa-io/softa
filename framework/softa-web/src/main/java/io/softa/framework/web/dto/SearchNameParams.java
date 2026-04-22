@@ -49,6 +49,9 @@ public class SearchNameParams {
     @Schema(description = "Effective date, default is `Today`.")
     private LocalDate effectiveDate;
 
+    @Schema(description = "The source record parameters from the frontend, used for providing the context of current record in some scenarios, such as searching in the form with relational field context.")
+    private SourceRecord sourceRecord;
+
     /**
      * Convert QueryParams to FlexQuery.
      *
