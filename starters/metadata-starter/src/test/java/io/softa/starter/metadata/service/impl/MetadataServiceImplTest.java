@@ -15,39 +15,107 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.web.dto.MetadataUpgradePackage;
+import io.softa.starter.metadata.dto.MetadataUpgradePackage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class MetadataServiceImplTest {
 
     @Test
-    void exportRuntimeMetadataUsesRequestedModelName() {
+    void exportRuntimeMetadataScopesMainModelByAppId() {
         MetadataServiceImpl service = new MetadataServiceImpl();
         @SuppressWarnings("unchecked")
         ModelService<Serializable> modelService = mock(ModelService.class);
         ReflectionTestUtils.setField(service, "modelService", modelService);
 
-        List<Map<String, Object>> rows = List.of(Map.of("id", 1L, "fieldName", "name"));
+        List<Map<String, Object>> rows = List.of(Map.of("id", 1L, "fieldName", "name", "appId", 42L));
         when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class))).thenReturn(rows);
 
         try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SysField", "appId")).thenReturn(true);
             modelManager.when(() -> ModelManager.getModelFieldsWithoutXToMany("SysField"))
-                    .thenReturn(Set.of("id", "fieldName"));
+                    .thenReturn(Set.of("id", "fieldName", "appId"));
 
-            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysField");
+            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysField", 42L);
 
             assertEquals(rows, result);
             verify(modelService).searchList(eq("SysField"), Mockito.argThat(query ->
                     query != null
-                            && query.getFields().size() == 2
-                            && query.getFields().containsAll(Set.of("id", "fieldName"))));
+                            && query.getFields().containsAll(Set.of("id", "fieldName", "appId"))
+                            && query.getFilters() != null
+                            && query.getFilters().toString().contains("appId")));
+        }
+    }
+
+    @Test
+    void exportRuntimeMetadataResolvesTransModelViaParentIds() {
+        MetadataServiceImpl service = new MetadataServiceImpl();
+        @SuppressWarnings("unchecked")
+        ModelService<Serializable> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(service, "modelService", modelService);
+
+        List<Map<String, Object>> parentRows = List.of(Map.of("id", 7L), Map.of("id", 8L));
+        List<Map<String, Object>> transRows = List.of(Map.of("id", 100L, "rowId", 7L, "languageCode", "en"));
+        when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class))).thenReturn(parentRows);
+        when(modelService.searchList(eq("SysFieldTrans"), Mockito.any(FlexQuery.class))).thenReturn(transRows);
+
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SysFieldTrans", "appId")).thenReturn(false);
+            modelManager.when(() -> ModelManager.existField("SysField", "appId")).thenReturn(true);
+            modelManager.when(() -> ModelManager.getModelFieldsWithoutXToMany("SysFieldTrans"))
+                    .thenReturn(Set.of("id", "rowId", "languageCode"));
+
+            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysFieldTrans", 42L);
+
+            assertEquals(transRows, result);
+            verify(modelService).searchList(eq("SysField"), Mockito.argThat(query ->
+                    query != null
+                            && query.getFields().contains(ModelConstant.ID)
+                            && query.getFilters() != null
+                            && query.getFilters().toString().contains("appId")));
+            verify(modelService).searchList(eq("SysFieldTrans"), Mockito.argThat(query ->
+                    query != null
+                            && query.getFilters() != null
+                            && query.getFilters().toString().contains("rowId")));
+        }
+    }
+
+    @Test
+    void exportRuntimeMetadataReturnsEmptyWhenTransParentHasNoRows() {
+        MetadataServiceImpl service = new MetadataServiceImpl();
+        @SuppressWarnings("unchecked")
+        ModelService<Serializable> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(service, "modelService", modelService);
+
+        when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class))).thenReturn(List.of());
+
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SysFieldTrans", "appId")).thenReturn(false);
+            modelManager.when(() -> ModelManager.existField("SysField", "appId")).thenReturn(true);
+
+            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysFieldTrans", 42L);
+
+            assertEquals(List.of(), result);
+            verify(modelService, never()).searchList(eq("SysFieldTrans"), Mockito.any(FlexQuery.class));
+        }
+    }
+
+    @Test
+    void exportRuntimeMetadataRejectsUnscopableModel() {
+        MetadataServiceImpl service = new MetadataServiceImpl();
+        @SuppressWarnings("unchecked")
+        ModelService<Serializable> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(service, "modelService", modelService);
+
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SomeOtherModel", "appId")).thenReturn(false);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.exportRuntimeMetadata("SomeOtherModel", 42L));
+            verify(modelService, never()).searchList(Mockito.anyString(), Mockito.any(FlexQuery.class));
         }
     }
 

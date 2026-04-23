@@ -4,15 +4,15 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
+import io.softa.starter.studio.release.event.DesignAppEnvDriftRefreshEvent;
 import io.softa.starter.studio.release.service.DesignAppEnvService;
 
 /**
@@ -23,18 +23,86 @@ import io.softa.starter.studio.release.service.DesignAppEnvService;
 @RequestMapping("/DesignAppEnv")
 public class DesignAppEnvController extends EntityController<DesignAppEnvService, DesignAppEnv, Long> {
 
+    @Autowired
+    private ApplicationEventPublisher applicationEventPublisher;
+
     /**
      * Compare the design-time snapshot with the actual runtime metadata for the given environment.
      * Detects drift caused by direct SQL changes, unsynced runtime modifications, etc.
      *
-     * @param envId Environment ID
+     * @param id Environment ID
      * @return List of model changes representing the drift between snapshot and runtime
      */
     @Operation(description = "Compare design-time snapshot with runtime metadata for an environment.")
     @GetMapping(value = "/compareDesignWithRuntime")
-    @Parameter(name = "envId", description = "Environment ID")
-    public ApiResponse<List<ModelChangesDTO>> compareDesignWithRuntime(@RequestParam Long envId) {
-        return ApiResponse.success(service.compareDesignWithRuntime(envId));
+    @Parameter(name = "id", description = "Environment ID")
+    public ApiResponse<List<ModelChangesDTO>> compareDesignWithRuntime(@RequestParam Long id) {
+        return ApiResponse.success(service.compareDesignWithRuntime(id));
     }
 
+    /**
+     * Kick off an asynchronous drift recomputation for an env. Returns immediately —
+     * the fresh result appears on {@code GET /compareDesignWithRuntime} once the
+     * background worker finishes. Safe to spam: concurrent refreshes for the same
+     * env are idempotent (both converge to the same row, last write wins).
+     *
+     * @param id Environment ID
+     */
+    @Operation(description = "Kick off an async drift recompute for an env. Poll /compareDesignWithRuntime for the result.")
+    @PostMapping(value = "/refreshDrift")
+    @Parameter(name = "id", description = "Environment ID")
+    public ApiResponse<Void> refreshDrift(@RequestParam Long id) {
+        applicationEventPublisher.publishEvent(new DesignAppEnvDriftRefreshEvent(id));
+        return ApiResponse.success();
+    }
+
+    /**
+     * Issue a fresh Ed25519 keypair for this env.
+     * <p>
+     * Writes the new private key (encrypted at rest) onto the env row and returns
+     * the public key half — the operator copies this into the runtime's
+     * {@code system.runtime-public-key} entry so the runtime recognises
+     * requests signed with the new key. Calling this again atomically replaces the
+     * keypair: previous signatures stop validating as soon as the operator updates
+     * the runtime yml.
+     *
+     * @param id Environment ID
+     * @return base64-encoded public key
+     */
+    @Operation(description = "Issue / rotate the Ed25519 keypair used to sign studio → runtime requests for this env.")
+    @PostMapping(value = "/issueKey")
+    @Parameter(name = "id", description = "Environment ID")
+    public ApiResponse<DesignAppEnvService.IssuedKey> issueKey(@RequestParam Long id) {
+        return ApiResponse.success(service.issueKey(id));
+    }
+
+    /**
+     * Drift-repair entry point: overwrite design-time metadata with the already-cached
+     * runtime drift for this env. Use when the operator has just inspected the drift
+     * report and is accepting those exact changes as the new design-time truth.
+     *
+     * @param id Environment ID
+     */
+    @Operation(description = "Apply the cached runtime drift onto design-time metadata (accepts the current drift report as-is).")
+    @PostMapping(value = "/applyDrift")
+    @Parameter(name = "id", description = "Environment ID")
+    public ApiResponse<Void> applyDrift(@RequestParam Long id) {
+        service.applyDrift(id, true);
+        return ApiResponse.success();
+    }
+
+    /**
+     * First-time import entry point: refresh drift against the current runtime and then
+     * apply it onto design-time metadata. Use when seeding a new studio app from a
+     * runtime that already owns the authoritative metadata.
+     *
+     * @param id Environment ID
+     */
+    @Operation(description = "Refresh drift against the runtime, then overwrite design-time metadata with the result.")
+    @PostMapping(value = "/importFromRuntime")
+    @Parameter(name = "id", description = "Environment ID")
+    public ApiResponse<Void> importFromRuntime(@RequestParam Long id) {
+        service.applyDrift(id, false);
+        return ApiResponse.success();
+    }
 }

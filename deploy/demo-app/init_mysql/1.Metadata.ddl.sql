@@ -494,6 +494,7 @@ CREATE TABLE flow_instance(
     trigger_id BIGINT(32)    COMMENT 'Trigger ID' ,
     current_node_id BIGINT(32)    COMMENT 'Current Node ID' ,
     current_status VARCHAR(64)    COMMENT 'Current Status' ,
+    version INT NOT NULL DEFAULT 1 COMMENT 'Version' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
@@ -678,13 +679,13 @@ CREATE TABLE design_app_env(
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Env Name' ,
     sequence INT(11)    COMMENT 'Sequence' ,
     env_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Env Type' ,
+    env_status VARCHAR(32) NOT NULL DEFAULT 'Stable' COMMENT 'Env runtime status — deployment mutex (Stable / Deploying)' ,
     protected_env TINYINT(1)    COMMENT 'Protected Env' ,
     current_version_id BIGINT(32)    COMMENT 'Current Version' ,
     active TINYINT(1)    DEFAULT 1 COMMENT 'Active' ,
     upgrade_endpoint VARCHAR(128) NOT NULL  DEFAULT '' COMMENT 'Upgrade API EndPoint' ,
-    client_id VARCHAR(64)   DEFAULT '' COMMENT 'Client ID;OAuth2 Client ID' ,
-    client_secret VARCHAR(256)   DEFAULT '' COMMENT 'Client Secret;OAuth2 Client Secret' ,
-    async_upgrade TINYINT(1)   DEFAULT 0 COMMENT 'Async Upgrade;Synchronous upgrade invokes the upgrade API directly, asynchronous upgrade uses MQ first and then the upgrade API, and the default synchronization' ,
+    public_key VARCHAR(256)   DEFAULT '' COMMENT 'Public Key;Base64-encoded X.509 SubjectPublicKeyInfo' ,
+    private_key VARCHAR(512)   DEFAULT '' COMMENT 'Private Key;Base64-encoded PKCS#8, ORM-layer encrypted at rest' ,
     auto_upgrade TINYINT(1)   DEFAULT 0 COMMENT 'Auto Upgrade;Metadata is automatically synchronized' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
@@ -710,8 +711,29 @@ CREATE TABLE design_app_env_snapshot(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    UNIQUE KEY unique_env_snapshot (app_id, env_id, deployment_id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App Env Snapshot';
+
+CREATE TABLE design_app_env_drift(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    app_id BIGINT(32) NOT NULL  DEFAULT 0 COMMENT 'App ID' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
+    has_drift TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'True when the last check found drift' ,
+    drift_content MEDIUMTEXT    COMMENT 'Serialized List<ModelChangesDTO>' ,
+    check_status VARCHAR(32) NOT NULL DEFAULT 'Success' COMMENT 'Outcome of the last drift check' ,
+    error_message VARCHAR(1024)   DEFAULT '' COMMENT 'Error message from the last failed check' ,
+    last_checked_time DATETIME   COMMENT 'When the last drift check completed' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
+    PRIMARY KEY (id),
+    UNIQUE KEY unique_env_drift (app_id, env_id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App Env Drift Cache';
 
 CREATE TABLE design_app_version(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
@@ -748,6 +770,9 @@ CREATE TABLE design_deployment(
     merged_ddl_index TEXT(20000)    COMMENT 'Merged Index DDL' ,
     started_time DATETIME    COMMENT 'Started Time' ,
     finished_time DATETIME    COMMENT 'Finished Time' ,
+    callback_token VARCHAR(128)    COMMENT 'Callback Token;One-time token sent to the runtime and verified on webhook return. ORM-layer encrypted at rest' ,
+    callback_token_expire_at DATETIME    COMMENT 'Callback Token Expire At;Tokens received after this point are rejected' ,
+    callback_received_at DATETIME    COMMENT 'Callback Received At;When the runtime webhook landed' ,
     operator_id VARCHAR(32)    COMMENT 'Operator' ,
     error_message TEXT(20000)    COMMENT 'Error Message' ,
     created_time DATETIME    COMMENT 'Created Time' ,

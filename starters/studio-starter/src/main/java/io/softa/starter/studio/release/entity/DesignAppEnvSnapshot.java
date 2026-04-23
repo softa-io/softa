@@ -11,9 +11,13 @@ import io.softa.framework.orm.entity.AuditableModel;
 /**
  * DesignAppEnvSnapshot Model — stores a full metadata snapshot for a DesignAppEnv.
  * <p>
- * Each Env has at most one snapshot (OneToOne), which is created or updated after a
- * successful deployment. The snapshot records the expected full state of runtime metadata
- * at deployment time, enabling drift detection between design-time and runtime.
+ * Each successful deployment produces one snapshot row, uniquely keyed by
+ * {@code (appId, envId, deploymentId)} (UNIQUE index enforced at the DB level).
+ * The snapshot records the expected full state of runtime metadata at deployment time,
+ * enabling drift detection between design-time and runtime, and per-deployment rollback.
+ * <p>
+ * The "current" snapshot for an env is the one belonging to the latest deployment
+ * (ordered by id / deploymentId DESC).
  */
 @Data
 @Schema(name = "DesignAppEnvSnapshot")

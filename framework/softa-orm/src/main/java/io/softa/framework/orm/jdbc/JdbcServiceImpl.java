@@ -13,7 +13,7 @@ import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.base.utils.Cast;
-import io.softa.framework.orm.annotation.RpcCheckpoint;
+import io.softa.framework.orm.annotation.RPCCheckpoint;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.changelog.ChangeLogPublisher;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -42,7 +42,7 @@ import io.softa.framework.orm.utils.IdUtils;
  */
 @Slf4j
 @Service
-@RpcCheckpoint
+@RPCCheckpoint
 public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
 
     @Autowired

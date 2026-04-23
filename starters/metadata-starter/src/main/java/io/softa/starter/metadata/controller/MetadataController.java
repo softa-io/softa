@@ -6,18 +6,26 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import io.softa.framework.base.enums.SystemUser;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.annotation.SwitchUser;
-import io.softa.framework.web.dto.MetadataUpgradePackage;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.signature.RequireSignature;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
+import io.softa.starter.metadata.dto.MetadataUpgradeRequest;
 import io.softa.starter.metadata.service.MetadataService;
+import io.softa.starter.metadata.upgrade.MetadataUpgradeWorker;
 
 /**
- * Metadata Upgrade controller
+ * Metadata Upgrade controller.
+ * <p>
+ * The {@code /metadata/upgrade} and {@code /metadata/exportRuntimeMetadata} endpoints
+ * are tagged with {@link RequireSignature} — they are studio-internal APIs called
+ * over the public network, so every invocation must carry a valid Ed25519 signature
+ * issued by the calling studio env. Unsigned or stale-nonce requests are rejected at
+ * the filter layer before reaching these handlers.
  */
 @Tag(name = "Metadata API")
 @RestController
@@ -26,6 +34,9 @@ public class MetadataController {
 
     @Autowired
     private MetadataService metadataService;
+
+    @Autowired
+    private MetadataUpgradeWorker upgradeWorker;
 
     /**
      * Get the MetaModel object by modelName
@@ -42,35 +53,50 @@ public class MetadataController {
     }
 
     /**
-     * Upgrades the metadata of multiple models, all within a single transaction
-     * to avoid refreshing the model pool repeatedly and missing dependency data.
+     * Accept a metadata upgrade envelope from the studio and dispatch it asynchronously.
+     * <p>
+     * Returns {@code 202 Accepted} as soon as the envelope is validated; the actual
+     * upgrade runs on a virtual-thread worker and the result is delivered back to
+     * {@code callbackUrl} via {@link MetadataUpgradeWorker}. The studio keeps the
+     * corresponding Deployment in {@code DEPLOYING} state until the webhook lands.
      *
-     * @param metadataPackages the metadata packages to upgrade
-     * @return Success or not
+     * @param request envelope with packages + callback coordinates
+     * @return 202 + empty success body
      */
-    @Operation(summary = "upgrade")
+    @Operation(summary = "upgrade", description = "Dispatch a metadata upgrade (202 Accepted, completion via callback)")
     @PostMapping("/upgrade")
-    @SwitchUser(value = SystemUser.INTEGRATION_USER)
-    public ApiResponse<Boolean> upgradePackage(@RequestBody List<MetadataUpgradePackage> metadataPackages) {
-        Assert.notEmpty(metadataPackages, "Metadata upgrade data must not be empty!");
-        metadataService.upgradeMetadata(metadataPackages);
-        metadataService.reloadMetadata();
-        return ApiResponse.success(true);
+    @RequireSignature
+    public ResponseEntity<ApiResponse<Boolean>> upgradePackage(@RequestBody MetadataUpgradeRequest request) {
+        Assert.notNull(request, "Metadata upgrade request must not be null!");
+        Assert.notEmpty(request.getPackages(), "Metadata upgrade packages must not be empty!");
+        Assert.notBlank(request.getCallbackUrl(), "Callback URL is required for async upgrade.");
+        Assert.notBlank(request.getCallbackToken(), "Callback token is required for async upgrade.");
+
+        upgradeWorker.runUpgrade(request);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(true));
     }
 
     /**
-     * Export all runtime metadata rows for a given version-controlled model.
-     * Used by the studio to compare design-time snapshots with runtime state.
+     * Export runtime metadata rows for a version-controlled model, scoped to an app.
+     * <p>
+     * Used by the studio to compare design-time snapshots with runtime state. The
+     * {@code appId} filter is required because a single runtime may host several apps
+     * that share the same metadata tables — without it the studio would overwrite one
+     * app's design-time state with another app's rows.
      *
      * @param modelName runtime model name
+     * @param appId     app id the caller is synchronising
      * @return list of row data maps
      */
-    @Operation(summary = "exportRuntimeMetadata", description = "Export all runtime metadata rows for a version-controlled model")
+    @Operation(summary = "exportRuntimeMetadata", description = "Export runtime metadata rows for a version-controlled model, scoped to an app")
     @PostMapping("/exportRuntimeMetadata")
-    @Parameter(name = "modelName", description = "Runtime model name", required = true)
-    public ApiResponse<List<Map<String, Object>>> exportRuntimeMetadata(@RequestParam String modelName) {
+    @RequireSignature
+    public ApiResponse<List<Map<String, Object>>> exportRuntimeMetadata(
+            @Parameter(description = "Runtime model name", required = true) @RequestParam String modelName,
+            @Parameter(description = "App ID", required = true) @RequestParam Long appId) {
         Assert.notBlank(modelName, "Model name cannot be empty.");
-        return ApiResponse.success(metadataService.exportRuntimeMetadata(modelName));
+        Assert.notNull(appId, "App id cannot be null.");
+        return ApiResponse.success(metadataService.exportRuntimeMetadata(modelName, appId));
     }
 
     /**

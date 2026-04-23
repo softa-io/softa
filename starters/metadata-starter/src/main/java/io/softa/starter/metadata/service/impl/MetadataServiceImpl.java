@@ -1,11 +1,7 @@
 package io.softa.starter.metadata.service.impl;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -24,10 +20,10 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.web.dto.MetadataUpgradePackage;
 import io.softa.starter.metadata.constant.MetadataConstant;
 import io.softa.starter.metadata.controller.dto.MetaFieldDTO;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
+import io.softa.starter.metadata.dto.MetadataUpgradePackage;
 import io.softa.starter.metadata.message.InnerBroadcastProducer;
 import io.softa.starter.metadata.message.dto.InnerBroadcastMessage;
 import io.softa.starter.metadata.message.enums.InnerBroadcastType;
@@ -238,16 +234,53 @@ public class MetadataServiceImpl implements MetadataService {
     }
 
     /**
-     * Export all runtime metadata rows for a given version-controlled model.
-     * Returns all scalar fields as row maps for cross-environment comparison.
-     *
-     * @param modelName runtime model name
-     * @return list of row data maps
+     * Export runtime metadata rows for the given version-controlled model, scoped to an app.
+     * <p>
+     * Main entities carry {@code appId} directly — filter on that. Translation entities
+     * (suffix {@code Trans}) do not; the parent model does, so a two-step query resolves
+     * the parent row ids for this app and filters the Trans rows by {@code rowId}.
      */
     @Override
-    public List<Map<String, Object>> exportRuntimeMetadata(String modelName) {
+    public List<Map<String, Object>> exportRuntimeMetadata(String modelName, Long appId) {
         Assert.notBlank(modelName, "Model name cannot be empty.");
-        FlexQuery flexQuery = new FlexQuery(ModelManager.getModelFieldsWithoutXToMany(modelName));
+        Assert.notNull(appId, "App id cannot be null.");
+        Filters filters = buildAppScopedFilter(modelName, appId);
+        if (filters == null) {
+            return List.of();
+        }
+        FlexQuery flexQuery = new FlexQuery(ModelManager.getModelFieldsWithoutXToMany(modelName), filters);
         return modelService.searchList(modelName, flexQuery);
+    }
+
+    /**
+     * Build an appId-scoped {@link Filters} for the runtime model.
+     * <p>
+     * Returns {@code null} when the scope resolves to "no possible rows" (e.g. a Trans
+     * model whose parent has no rows for this app) so the caller can short-circuit
+     * instead of issuing a query that the filter layer would reject for being empty.
+     */
+    private Filters buildAppScopedFilter(String modelName, Long appId) {
+        if (ModelManager.existField(modelName, "appId")) {
+            return new Filters().eq("appId", appId);
+        }
+        Assert.isTrue(modelName.endsWith(ModelConstant.MODEL_TRANS_SUFFIX),
+                "Runtime model {0} has no appId column and is not a translation model; cannot scope by app.",
+                modelName);
+        String parentModel = modelName.substring(0, modelName.length() - ModelConstant.MODEL_TRANS_SUFFIX.length());
+        List<Serializable> parentIds = this.findAppScopedIds(parentModel, appId);
+        if (parentIds.isEmpty()) {
+            return null;
+        }
+        return new Filters().in("rowId", parentIds);
+    }
+
+    private List<Serializable> findAppScopedIds(String modelName, Long appId) {
+        Assert.isTrue(ModelManager.existField(modelName, "appId"),
+                "Parent model {0} must carry appId to scope its translations.", modelName);
+        FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID), new Filters().eq("appId", appId));
+        List<Map<String, Object>> rows = modelService.searchList(modelName, flexQuery);
+        return rows.stream()
+                .map(row -> (Serializable) row.get(ModelConstant.ID))
+                .toList();
     }
 }

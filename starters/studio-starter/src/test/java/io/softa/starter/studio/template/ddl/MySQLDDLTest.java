@@ -23,8 +23,12 @@ class MySQLDDLTest {
         String sql = mysqlDDL.createTableDDL(
                 DdlContextBuilder.fromCreatedModel(designModel("OrderAuto", IdStrategy.DB_AUTO_ID))).toString();
 
+        // The column-level AUTO_INCREMENT modifier is present so MySQL generates ids.
         assertTrue(sql.contains("AUTO_INCREMENT"), sql);
-        assertTrue(sql.contains("AUTO_INCREMENT=1"), sql);
+        // The table-level `AUTO_INCREMENT=N` seed is intentionally omitted — hardcoding `=1`
+        // was unsafe when tables get recreated on top of existing data. MySQL defaults the
+        // starting value on its own; DBAs can adjust via ALTER TABLE when they need a seed.
+        assertFalse(sql.contains("AUTO_INCREMENT=1"), sql);
     }
 
     @Test

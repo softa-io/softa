@@ -10,6 +10,7 @@ Used model fields:
 - pkColumn
 - autoIncrementPrimaryKey
 - createdFields
+- createdIndexes
 
 Used field fields:
 - columnName
@@ -21,9 +22,23 @@ Used field fields:
 - defaultValue
 - description
 
+Used index fields:
+- indexName
+- columns
+- unique
+
 Notes:
-- This template renders a newly created table only.
-- Fields are taken from model.createdFields.
+- This template renders a newly created table and its inline indexes.
+- Fields are taken from model.createdFields; indexes from model.createdIndexes.
+- String literals embedded in SQL (COMMENTs, defaults already materialized as literals
+  by the context builder) are escaped via the `| sqlLiteral` filter to defend against
+  single quotes in descriptions.
+- AUTO_INCREMENT starting value is intentionally omitted; primary keys are generated
+  by the ORM layer (CosID snowflake / DB auto increment) and should not be reseeded here.
+  If a future requirement calls for a seed value it must be read from information_schema
+  at runtime, never hard-coded.
+- FOREIGN KEY constraints are not emitted — referential integrity is enforced at the
+  ORM / application layer in this framework.
 #}
 /* Create table for model: {{ model.labelName }} */
 CREATE TABLE {{ model.tableName }} (
@@ -33,7 +48,10 @@ CREATE TABLE {{ model.tableName }} (
     {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
     {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
     {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
-    {%- endif %} COMMENT '{{ field.description }}',
+    {%- endif %} COMMENT '{{ field.description | sqlLiteral }}',
+{% endfor %}
+{% for index in model.createdIndexes %}
+    {% if index.unique %}UNIQUE {% endif %}KEY {{ index.indexName }} ({{ index.columns | join(', ') }}),
 {% endfor %}
     PRIMARY KEY ({{ model.pkColumn }})
-) ENGINE=InnoDB{% if model.autoIncrementPrimaryKey %} AUTO_INCREMENT=1{% endif %} DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='{{ model.description }}';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='{{ model.description | sqlLiteral }}';

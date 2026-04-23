@@ -8,148 +8,159 @@ import org.mockito.Mockito;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.web.dto.MetadataUpgradePackage;
+import io.softa.starter.metadata.dto.MetadataUpgradeCallback;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
-import io.softa.starter.studio.release.entity.DesignAppVersion;
 import io.softa.starter.studio.release.entity.DesignDeployment;
-import io.softa.starter.studio.release.entity.DesignDeploymentVersion;
-import io.softa.starter.studio.release.entity.DesignWorkItem;
+import io.softa.starter.studio.release.enums.DesignAppEnvStatus;
 import io.softa.starter.studio.release.enums.DesignAppEnvType;
-import io.softa.starter.studio.release.enums.DesignAppVersionStatus;
-import io.softa.starter.studio.release.enums.DesignWorkItemStatus;
+import io.softa.starter.studio.release.enums.DesignDeploymentStatus;
 import io.softa.starter.studio.release.service.DesignAppEnvService;
 import io.softa.starter.studio.release.service.DesignAppVersionService;
 import io.softa.starter.studio.release.service.DesignDeploymentVersionService;
 import io.softa.starter.studio.release.service.DesignWorkItemService;
 import io.softa.starter.studio.release.upgrade.DeploymentExecutor;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class DesignDeploymentServiceImplTest {
 
     @Test
-    void executeDeploymentClosesReleasedWorkItemsAfterSuccessfulProdDeploy() {
-        DesignDeploymentServiceImpl service = Mockito.spy(new DesignDeploymentServiceImpl());
-        DeploymentExecutor deploymentExecutor = mock(DeploymentExecutor.class);
-        DesignAppEnvService appEnvService = mock(DesignAppEnvService.class);
-        DesignAppVersionService appVersionService = mock(DesignAppVersionService.class);
-        DesignDeploymentVersionService deploymentVersionService = mock(DesignDeploymentVersionService.class);
-        DesignWorkItemService workItemService = mock(DesignWorkItemService.class);
-        ApplicationEventPublisher applicationEventPublisher = mock(ApplicationEventPublisher.class);
+    void successCallbackAdvancesEnvVersionAndReleasesLock() {
+        CallbackScenario s = new CallbackScenario();
+        s.deployment.setDeployStatus(DesignDeploymentStatus.DEPLOYING);
+        s.deployment.setCallbackTokenExpireAt(LocalDateTime.now().plusHours(1));
 
-        ReflectionTestUtils.setField(service, "deploymentExecutor", deploymentExecutor);
-        ReflectionTestUtils.setField(service, "appEnvService", appEnvService);
-        ReflectionTestUtils.setField(service, "appVersionService", appVersionService);
-        ReflectionTestUtils.setField(service, "deploymentVersionService", deploymentVersionService);
-        ReflectionTestUtils.setField(service, "workItemService", workItemService);
-        ReflectionTestUtils.setField(service, "applicationEventPublisher", applicationEventPublisher);
-        doReturn(true).when(service).updateOne(any(DesignDeployment.class));
+        MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
+        payload.setStatus("SUCCESS");
+        payload.setDurationMillis(1200L);
 
-        when(deploymentExecutor.convertToUpgradePackages(anyList())).thenReturn(List.<MetadataUpgradePackage>of());
+        s.service.handleUpgradeCallback(s.token, payload);
 
-        DesignDeployment deployment = new DesignDeployment();
-        deployment.setId(10L);
-        deployment.setMergedContent(JsonUtils.objectToJsonNode(List.of()));
-
-        DesignAppEnv targetEnv = new DesignAppEnv();
-        targetEnv.setId(100L);
-        targetEnv.setEnvType(DesignAppEnvType.PROD);
-        targetEnv.setAsyncUpgrade(false);
-
-        DesignDeploymentVersion deploymentVersion = new DesignDeploymentVersion();
-        deploymentVersion.setDeploymentId(10L);
-        deploymentVersion.setVersionId(20L);
-        when(deploymentVersionService.searchList(any(FlexQuery.class))).thenReturn(List.of(deploymentVersion));
-
-        DesignWorkItem doneWorkItem = new DesignWorkItem();
-        doneWorkItem.setId(1L);
-        doneWorkItem.setVersionId(20L);
-        doneWorkItem.setStatus(DesignWorkItemStatus.DONE);
-
-        DesignWorkItem closedWithoutTime = new DesignWorkItem();
-        closedWithoutTime.setId(2L);
-        closedWithoutTime.setVersionId(20L);
-        closedWithoutTime.setStatus(DesignWorkItemStatus.CLOSED);
-
-        DesignWorkItem alreadyClosed = new DesignWorkItem();
-        alreadyClosed.setId(3L);
-        alreadyClosed.setVersionId(20L);
-        alreadyClosed.setStatus(DesignWorkItemStatus.CLOSED);
-        alreadyClosed.setClosedTime(LocalDateTime.parse("2026-03-30T12:00:00"));
-
-        when(workItemService.searchList(any(FlexQuery.class)))
-                .thenReturn(List.of(doneWorkItem, closedWithoutTime, alreadyClosed));
-
-        DesignAppVersion targetVersion = new DesignAppVersion();
-        targetVersion.setId(20L);
-        targetVersion.setStatus(DesignAppVersionStatus.SEALED);
-        when(appVersionService.getById(20L)).thenReturn(Optional.of(targetVersion));
-
-        ReflectionTestUtils.invokeMethod(service, "executeDeployment", deployment, targetEnv, 20L);
-
-        assertEquals(DesignWorkItemStatus.CLOSED, doneWorkItem.getStatus());
-        assertNotNull(doneWorkItem.getClosedTime());
-        assertEquals(deployment.getFinishedTime(), doneWorkItem.getClosedTime());
-        assertEquals(DesignWorkItemStatus.CLOSED, closedWithoutTime.getStatus());
-        assertEquals(deployment.getFinishedTime(), closedWithoutTime.getClosedTime());
-        assertEquals(LocalDateTime.parse("2026-03-30T12:00:00"), alreadyClosed.getClosedTime());
-        verify(workItemService, times(2)).updateOne(any(DesignWorkItem.class));
-        verify(workItemService).updateOne(argThat(workItem ->
-                workItem.getId().equals(1L)
-                        && workItem.getStatus() == DesignWorkItemStatus.CLOSED
-                        && workItem.getClosedTime() != null));
-        verify(workItemService).updateOne(argThat(workItem ->
-                workItem.getId().equals(2L)
-                        && workItem.getStatus() == DesignWorkItemStatus.CLOSED
-                        && workItem.getClosedTime() != null));
-        verify(appVersionService).freezeVersion(20L);
+        assertEquals(DesignDeploymentStatus.SUCCESS, s.deployment.getDeployStatus());
+        assertNotNull(s.deployment.getCallbackReceivedAt());
+        assertNotNull(s.deployment.getFinishedTime());
+        assertEquals(1.2, s.deployment.getDeployDuration());
+        // currentVersionId must advance to the target version.
+        assertEquals(s.targetVersionId, s.targetEnv.getCurrentVersionId());
+        // Env mutex is released back to STABLE.
+        verify(s.appEnvService).updateByFilter(any(), argThat(env ->
+                env.getEnvStatus() == DesignAppEnvStatus.STABLE));
     }
 
     @Test
-    void executeDeploymentDoesNotCloseWorkItemsOutsideProd() {
-        DesignDeploymentServiceImpl service = Mockito.spy(new DesignDeploymentServiceImpl());
-        DeploymentExecutor deploymentExecutor = mock(DeploymentExecutor.class);
-        DesignAppEnvService appEnvService = mock(DesignAppEnvService.class);
-        DesignDeploymentVersionService deploymentVersionService = mock(DesignDeploymentVersionService.class);
-        DesignWorkItemService workItemService = mock(DesignWorkItemService.class);
-        ApplicationEventPublisher applicationEventPublisher = mock(ApplicationEventPublisher.class);
+    void failureCallbackRecordsErrorAndReleasesLockWithoutAdvancing() {
+        CallbackScenario s = new CallbackScenario();
+        s.deployment.setDeployStatus(DesignDeploymentStatus.DEPLOYING);
+        s.targetEnv.setCurrentVersionId(1L);
 
-        ReflectionTestUtils.setField(service, "deploymentExecutor", deploymentExecutor);
-        ReflectionTestUtils.setField(service, "appEnvService", appEnvService);
-        ReflectionTestUtils.setField(service, "appVersionService", mock(DesignAppVersionService.class));
-        ReflectionTestUtils.setField(service, "deploymentVersionService", deploymentVersionService);
-        ReflectionTestUtils.setField(service, "workItemService", workItemService);
-        ReflectionTestUtils.setField(service, "applicationEventPublisher", applicationEventPublisher);
-        doReturn(true).when(service).updateOne(any(DesignDeployment.class));
+        MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
+        payload.setStatus("FAILURE");
+        payload.setErrorMessage("DDL apply failed");
+        payload.setDurationMillis(400L);
 
-        when(deploymentExecutor.convertToUpgradePackages(anyList())).thenReturn(List.<MetadataUpgradePackage>of());
+        s.service.handleUpgradeCallback(s.token, payload);
 
-        DesignDeployment deployment = new DesignDeployment();
-        deployment.setId(11L);
-        deployment.setMergedContent(JsonUtils.objectToJsonNode(List.of()));
+        assertEquals(DesignDeploymentStatus.FAILURE, s.deployment.getDeployStatus());
+        assertEquals("DDL apply failed", s.deployment.getErrorMessage());
+        // currentVersionId must NOT move on failure.
+        assertEquals(1L, s.targetEnv.getCurrentVersionId());
+        verify(s.appEnvService).updateByFilter(any(), argThat(env ->
+                env.getEnvStatus() == DesignAppEnvStatus.STABLE));
+    }
 
-        DesignAppEnv targetEnv = new DesignAppEnv();
-        targetEnv.setId(101L);
-        targetEnv.setEnvType(DesignAppEnvType.TEST);
-        targetEnv.setAsyncUpgrade(false);
+    @Test
+    void unknownTokenIsRejected() {
+        CallbackScenario s = new CallbackScenario();
+        doReturn(List.of()).when(s.service).searchList(any(FlexQuery.class));
+        MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
+        payload.setStatus("SUCCESS");
+        assertThrows(IllegalArgumentException.class,
+                () -> s.service.handleUpgradeCallback("no-such-token", payload));
+    }
 
-        ReflectionTestUtils.invokeMethod(service, "executeDeployment", deployment, targetEnv, 21L);
+    @Test
+    void expiredTokenIsRejected() {
+        CallbackScenario s = new CallbackScenario();
+        s.deployment.setDeployStatus(DesignDeploymentStatus.DEPLOYING);
+        s.deployment.setCallbackTokenExpireAt(LocalDateTime.now().minusMinutes(1));
+        MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
+        payload.setStatus("SUCCESS");
+        assertThrows(IllegalArgumentException.class,
+                () -> s.service.handleUpgradeCallback(s.token, payload));
+    }
 
-        assertNull(deployment.getErrorMessage());
-        verifyNoInteractions(deploymentVersionService);
-        verifyNoInteractions(workItemService);
+    @Test
+    void duplicateCallbackIsRejectedByReceivedAtGuard() {
+        CallbackScenario s = new CallbackScenario();
+        s.deployment.setDeployStatus(DesignDeploymentStatus.DEPLOYING);
+        s.deployment.setCallbackReceivedAt(LocalDateTime.now().minusSeconds(10));
+        MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
+        payload.setStatus("SUCCESS");
+        assertThrows(IllegalArgumentException.class,
+                () -> s.service.handleUpgradeCallback(s.token, payload));
+    }
+
+    @Test
+    void callbackRejectedWhenDeploymentNoLongerDeploying() {
+        CallbackScenario s = new CallbackScenario();
+        s.deployment.setDeployStatus(DesignDeploymentStatus.SUCCESS);
+        MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
+        payload.setStatus("SUCCESS");
+        assertThrows(IllegalArgumentException.class,
+                () -> s.service.handleUpgradeCallback(s.token, payload));
+    }
+
+    /**
+     * Fixture that wires up a {@link DesignDeploymentServiceImpl} spy with just enough
+     * collaborators to exercise {@link DesignDeploymentServiceImpl#handleUpgradeCallback}.
+     * Each test mutates the pre-built {@code deployment} / {@code targetEnv} to set up
+     * the scenario it wants to validate.
+     */
+    private static final class CallbackScenario {
+        final DesignDeploymentServiceImpl service = Mockito.spy(new DesignDeploymentServiceImpl());
+        final DesignAppEnvService appEnvService = mock(DesignAppEnvService.class);
+        final DesignAppVersionService appVersionService = mock(DesignAppVersionService.class);
+        final DesignDeploymentVersionService deploymentVersionService = mock(DesignDeploymentVersionService.class);
+        final DesignWorkItemService workItemService = mock(DesignWorkItemService.class);
+        final ApplicationEventPublisher applicationEventPublisher = mock(ApplicationEventPublisher.class);
+
+        final String token = "token-123";
+        final Long deploymentId = 99L;
+        final Long envId = 200L;
+        final Long targetVersionId = 500L;
+
+        final DesignDeployment deployment = new DesignDeployment();
+        final DesignAppEnv targetEnv = new DesignAppEnv();
+
+        CallbackScenario() {
+            ReflectionTestUtils.setField(service, "deploymentExecutor", mock(DeploymentExecutor.class));
+            ReflectionTestUtils.setField(service, "appEnvService", appEnvService);
+            ReflectionTestUtils.setField(service, "appVersionService", appVersionService);
+            ReflectionTestUtils.setField(service, "deploymentVersionService", deploymentVersionService);
+            ReflectionTestUtils.setField(service, "workItemService", workItemService);
+            ReflectionTestUtils.setField(service, "applicationEventPublisher", applicationEventPublisher);
+            doReturn(true).when(service).updateOne(any(DesignDeployment.class));
+            when(appEnvService.updateOne(any(DesignAppEnv.class))).thenReturn(true);
+
+            deployment.setId(deploymentId);
+            deployment.setEnvId(envId);
+            deployment.setTargetVersionId(targetVersionId);
+            deployment.setCallbackToken(token);
+            deployment.setMergedContent(JsonUtils.objectToJsonNode(List.of()));
+
+            targetEnv.setId(envId);
+            targetEnv.setEnvType(DesignAppEnvType.TEST);
+
+            // Spy method overrides must use doReturn(...).when(...) — when(...).thenReturn(...)
+            // invokes the real method first, which here delegates to an un-wired modelService.
+            doReturn(List.of(deployment)).when(service).searchList(any(FlexQuery.class));
+            when(appEnvService.getById(envId)).thenReturn(Optional.of(targetEnv));
+        }
     }
 }

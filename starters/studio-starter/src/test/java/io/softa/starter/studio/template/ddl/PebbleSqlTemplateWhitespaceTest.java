@@ -21,13 +21,14 @@ class PebbleSqlTemplateWhitespaceTest {
 
         String sql = render("templates/sql/mysql/CreateTable.peb", model);
 
+        // No table-level AUTO_INCREMENT=1 seed — see MySQLDDLTest for the reasoning.
         assertEquals("""
                 /* Create table for model: Order */
                 CREATE TABLE orders (
                     id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'ID',
                     name VARCHAR(100) NOT NULL DEFAULT '' COMMENT 'Name',
                     PRIMARY KEY (id)
-                ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Order';
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Order';
                 """.stripTrailing(), sql.stripTrailing());
     }
 
@@ -42,8 +43,12 @@ class PebbleSqlTemplateWhitespaceTest {
 
         String sql = render("templates/sql/mysql/AlterTable.peb", model);
 
+        // The template emits an online-DDL advisory block right after the model header so
+        // DBAs reviewing the generated SQL see the caveat about table-rewrite / locking.
         assertEquals("""
                 /* Alter table for model: Order */
+                /* Review for large tables: MySQL ALTER TABLE may rewrite the table and lock it.
+                   Prefer `ALGORITHM=INPLACE, LOCK=NONE` or an online DDL tool when applicable. */
                 ALTER TABLE orders COMMENT 'Order',
                     ADD COLUMN name VARCHAR(100) NOT NULL DEFAULT '' COMMENT 'Name',
                     DROP COLUMN removed_at,
@@ -109,8 +114,10 @@ class PebbleSqlTemplateWhitespaceTest {
 
         String sql = render("templates/sql/postgresql/AlterTable.peb", model);
 
+        // The postgres template also emits an ACCESS EXCLUSIVE advisory block.
         assertEquals("""
                 /* Alter table for model: Archived Order */
+                /* Review for large tables: PostgreSQL ALTER TABLE may take an ACCESS EXCLUSIVE lock. */
                 ALTER TABLE orders RENAME TO archived_orders;
                 COMMENT ON TABLE archived_orders IS 'Archived Order';
                 ALTER TABLE archived_orders ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT '';

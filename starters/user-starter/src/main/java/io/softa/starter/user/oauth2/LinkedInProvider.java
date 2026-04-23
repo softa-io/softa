@@ -3,12 +3,13 @@ package io.softa.starter.user.oauth2;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.user.config.OAuthProperties;
@@ -24,7 +25,8 @@ public class LinkedInProvider {
     private OAuthProperties oAuthProperties;
 
     @Autowired
-    private RestTemplate restTemplate;
+    @Qualifier("userOAuthRestClient")
+    private RestClient restClient;
 
     /**
      * Get LinkedIn Access Token using OAuth Code based on OpenID Connect standard
@@ -40,7 +42,6 @@ public class LinkedInProvider {
             Assert.hasText(oAuthCredential.getCode(), "Authorization code is required for LinkedIn OAuth2");
             Assert.hasText(oAuthCredential.getRedirectUri(), "Redirect URI is required for LinkedIn OAuth2");
 
-            // Build request parameters
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("grant_type", "authorization_code");
             params.add("code", oAuthCredential.getCode());
@@ -48,22 +49,19 @@ public class LinkedInProvider {
             params.add("client_id", linkedInConfig.getClientId());
             params.add("client_secret", linkedInConfig.getClientSecret());
 
-            // Build headers
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            LinkedInTokenResponseDTO tokenResponse = restClient.post()
+                    .uri(tokenUrl)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(params)
+                    .retrieve()
+                    .body(LinkedInTokenResponseDTO.class);
 
-            HttpEntity<MultiValueMap<String, String>> entity = new HttpEntity<>(params, headers);
-
-            // Send POST request to exchange code for tokens
-            ResponseEntity<LinkedInTokenResponseDTO> response = restTemplate.exchange(
-                    tokenUrl, HttpMethod.POST, entity, LinkedInTokenResponseDTO.class);
-
-            LinkedInTokenResponseDTO tokenResponse = response.getBody();
             if (tokenResponse == null || StringUtils.isBlank(tokenResponse.getAccessToken())) {
                 throw new BusinessException("LinkedIn OAuth token Response is invalid");
             }
-
             return tokenResponse;
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("LinkedIn OAuth token fetch failed", e);
             throw new BusinessException("LinkedIn OAuth token fetch failed: " + e.getMessage());
@@ -78,27 +76,25 @@ public class LinkedInProvider {
      */
     public LinkedInUserInfoDTO getLinkedInUserInfo(String accessToken) {
         try {
-            // The LinkedIn OpenID Connect userinfo endpoint
             String userInfoUrl = "https://api.linkedin.com/v2/userinfo";
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(accessToken);
-            headers.setAccept(MediaType.parseMediaTypes("application/json"));
+            LinkedInUserInfoDTO userInfo = restClient.get()
+                    .uri(userInfoUrl)
+                    .headers(h -> {
+                        h.setBearerAuth(accessToken);
+                        h.setAccept(MediaType.parseMediaTypes("application/json"));
+                    })
+                    .retrieve()
+                    .body(LinkedInUserInfoDTO.class);
 
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            // Send GET request to fetch user info
-            ResponseEntity<LinkedInUserInfoDTO> response = restTemplate.exchange(
-                    userInfoUrl, HttpMethod.GET, entity, LinkedInUserInfoDTO.class);
-
-            LinkedInUserInfoDTO userInfo = response.getBody();
             if (userInfo == null || StringUtils.isBlank(userInfo.getSub())) {
                 throw new BusinessException("LinkedIn returned invalid user info");
             }
 
             log.info("LinkedIn OpenID Connect login success: {}", userInfo.getName());
             return userInfo;
-
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new BusinessException("Get LinkedIn user info failed.", e);
         }

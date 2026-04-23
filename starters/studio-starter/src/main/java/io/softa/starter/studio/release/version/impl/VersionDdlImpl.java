@@ -150,7 +150,8 @@ public class VersionDdlImpl implements VersionDdl {
                 continue;
             }
             FieldDdlCtx currentField = DdlContextBuilder.fromFieldData(
-                    currentData, resolvePkColumn(currentData), isAutoIncrementPrimaryKey(currentData));
+                    currentData, resolvePkColumn(currentData, modelName, accumulator),
+                    isAutoIncrementPrimaryKey(currentData, modelName, accumulator));
             accumulator.addCreatedField(modelName, currentField);
         }
         for (RowChangeDTO rowChangeDTO : fieldChanges.getDeletedRows()) {
@@ -160,7 +161,8 @@ public class VersionDdlImpl implements VersionDdl {
                 continue;
             }
             FieldDdlCtx previousField = DdlContextBuilder.fromFieldData(
-                    currentData, resolvePkColumn(currentData), isAutoIncrementPrimaryKey(currentData));
+                    currentData, resolvePkColumn(currentData, modelName, accumulator),
+                    isAutoIncrementPrimaryKey(currentData, modelName, accumulator));
             accumulator.addDeletedField(modelName, previousField);
         }
         for (RowChangeDTO rowChangeDTO : fieldChanges.getUpdatedRows()) {
@@ -173,9 +175,11 @@ public class VersionDdlImpl implements VersionDdl {
             boolean storedBefore = isStoredField(previousData);
             boolean storedAfter = isStoredField(currentData);
             FieldDdlCtx currentField = DdlContextBuilder.fromFieldData(
-                    currentData, resolvePkColumn(currentData), isAutoIncrementPrimaryKey(currentData));
+                    currentData, resolvePkColumn(currentData, modelName, accumulator),
+                    isAutoIncrementPrimaryKey(currentData, modelName, accumulator));
             FieldDdlCtx previousField = DdlContextBuilder.fromFieldData(
-                    previousData, resolvePkColumn(previousData), isAutoIncrementPrimaryKey(previousData));
+                    previousData, resolvePkColumn(previousData, modelName, accumulator),
+                    isAutoIncrementPrimaryKey(previousData, modelName, accumulator));
             accumulator.addUpdatedField(modelName, currentField, previousField, storedBefore, storedAfter);
         }
     }
@@ -293,11 +297,34 @@ public class VersionDdlImpl implements VersionDdl {
                 DdlContextBuilder.asBoolean(data.get("dynamic")));
     }
 
-    private String resolvePkColumn(Map<String, Object> data) {
+    /**
+     * Resolve the primary key column name for this field's owning model.
+     * <p>
+     * Field change records do not carry the model's {@code timeline} flag, so we first
+     * consult the accumulator (which holds the model context when the model itself is
+     * being created / renamed in the same change set) before falling back to the field
+     * data (which for standalone field changes must be assumed {@code timeline = false}).
+     */
+    private String resolvePkColumn(Map<String, Object> data, String modelName, ModelDdlAccumulator accumulator) {
+        ModelDdlCtx model = modelName == null ? null : accumulator.findModel(modelName);
+        if (model != null && model.getPkColumn() != null) {
+            return model.getPkColumn();
+        }
         return DdlContextBuilder.resolvePkColumn(DdlContextBuilder.asBoolean(data.get("timeline")));
     }
 
-    private boolean isAutoIncrementPrimaryKey(Map<String, Object> data) {
+    /**
+     * Resolve whether the field's owning model uses an auto-increment primary key.
+     * <p>
+     * Same caveat as {@link #resolvePkColumn}: field change records do not carry the
+     * model's {@code idStrategy}, so we delegate to the accumulator whenever possible.
+     */
+    private boolean isAutoIncrementPrimaryKey(Map<String, Object> data, String modelName,
+                                              ModelDdlAccumulator accumulator) {
+        ModelDdlCtx model = modelName == null ? null : accumulator.findModel(modelName);
+        if (model != null && model.getIdStrategy() != null) {
+            return model.isAutoIncrementPrimaryKey();
+        }
         return DdlContextBuilder.isAutoIncrementPrimaryKey(DdlContextBuilder.asIdStrategy(data.get("idStrategy")));
     }
 

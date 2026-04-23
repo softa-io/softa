@@ -29,8 +29,12 @@ Used field fields:
 
 Notes:
 - renamedFields means the column name changed.
-- Current MySQL behavior renders field rename as DROP COLUMN + ADD COLUMN.
 - updatedFields means non-rename column changes only.
+- String literals (COMMENTs) are escaped via the `| sqlLiteral` filter to defend against
+  single quotes in descriptions.
+- PostgreSQL ALTER TABLE acquires an ACCESS EXCLUSIVE lock for most DDL; for large tables
+  consider batching changes and running during low-traffic windows. DROP / SET DEFAULT
+  and COMMENT operations are generally fast, but ALTER COLUMN TYPE may rewrite the table.
 #}
 {% macro renderAlterColumnBlock(tableName, field) %}
 ALTER TABLE {{ tableName }} ALTER COLUMN {{ field.columnName }} TYPE {{ field.typeDeclaration }};
@@ -47,17 +51,18 @@ ALTER TABLE {{ tableName }} ALTER COLUMN {{ field.columnName }} SET DEFAULT '';
 ALTER TABLE {{ tableName }} ALTER COLUMN {{ field.columnName }} DROP DEFAULT;
 {% endif -%}
 {% if field.description is not empty %}
-COMMENT ON COLUMN {{ tableName }}.{{ field.columnName }} IS '{{ field.description }}';
+COMMENT ON COLUMN {{ tableName }}.{{ field.columnName }} IS '{{ field.description | sqlLiteral }}';
 {% endif %}
 {% endmacro %}
 {% if model.renamed or model.hasAlterTableChanges %}
 /* Alter table for model: {{ model.labelName }} */
+/* Review for large tables: PostgreSQL ALTER TABLE may take an ACCESS EXCLUSIVE lock. */
 {% endif %}
 {% if model.renamed %}
 ALTER TABLE {{ model.oldTableName }} RENAME TO {{ model.tableName }};
 {% endif %}
 {% if model.descriptionChanged %}
-COMMENT ON TABLE {{ model.tableName }} IS '{{ model.description }}';
+COMMENT ON TABLE {{ model.tableName }} IS '{{ model.description | sqlLiteral }}';
 {% endif %}
 {% for field in model.createdFields -%}
 ALTER TABLE {{ model.tableName }} ADD COLUMN {{ field.columnName }} {{ field.typeDeclaration }}
@@ -67,7 +72,7 @@ ALTER TABLE {{ model.tableName }} ADD COLUMN {{ field.columnName }} {{ field.typ
 {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
 {%- endif -%};
 {% if field.description is not empty %}
-COMMENT ON COLUMN {{ model.tableName }}.{{ field.columnName }} IS '{{ field.description }}';
+COMMENT ON COLUMN {{ model.tableName }}.{{ field.columnName }} IS '{{ field.description | sqlLiteral }}';
 {% endif %}
 {% endfor -%}
 {% for field in model.deletedFields -%}

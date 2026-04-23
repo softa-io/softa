@@ -1,6 +1,8 @@
 debug: false
 system:
   name: Demo Application
+  public-access-url: http://localhost:8080
+  runtime-public-key:
 security:
   encryption:
     password: 12345678

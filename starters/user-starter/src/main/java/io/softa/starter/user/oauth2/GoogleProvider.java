@@ -3,11 +3,12 @@ package io.softa.starter.user.oauth2;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.user.config.OAuthProperties;
@@ -22,7 +23,8 @@ public class GoogleProvider {
     private OAuthProperties oAuthProperties;
 
     @Autowired
-    private RestTemplate restTemplate;
+    @Qualifier("userOAuthRestClient")
+    private RestClient restClient;
 
     /**
      * Exchange OAuth authorization code for access token and ID token
@@ -35,7 +37,6 @@ public class GoogleProvider {
             String tokenUrl = "https://oauth2.googleapis.com/token";
             OAuthProperties.OAuthConfig googleConfig = oAuthProperties.getGoogle();
 
-            // Build request parameters
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("client_id", googleConfig.getClientId());
             params.add("client_secret", googleConfig.getClientSecret());
@@ -43,21 +44,19 @@ public class GoogleProvider {
             params.add("grant_type", "authorization_code");
             params.add("redirect_uri", oAuthCredential.getRedirectUri());
 
-            // Build headers
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            GoogleTokenResponseDTO tokenResponse = restClient.post()
+                    .uri(tokenUrl)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(params)
+                    .retrieve()
+                    .body(GoogleTokenResponseDTO.class);
 
-            HttpEntity<MultiValueMap<String, String>> entity = new HttpEntity<>(params, headers);
-
-            // Send POST request to exchange code for tokens
-            ResponseEntity<GoogleTokenResponseDTO> response = restTemplate.exchange(
-                    tokenUrl, HttpMethod.POST, entity, GoogleTokenResponseDTO.class);
-
-            GoogleTokenResponseDTO tokenResponse = response.getBody();
             if (tokenResponse == null || StringUtils.isBlank(tokenResponse.getIdToken())) {
                 throw new BusinessException("Google OAuth token fetch failed: empty response or missing ID token");
             }
             return tokenResponse;
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new BusinessException("Google OAuth token fetch failed.", e);
         }

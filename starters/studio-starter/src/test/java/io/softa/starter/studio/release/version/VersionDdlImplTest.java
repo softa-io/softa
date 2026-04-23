@@ -205,8 +205,11 @@ class VersionDdlImplTest {
                 createdModelChanges("OrderAuto", IdStrategy.DB_AUTO_ID),
                 createdIdFieldChanges("OrderAuto")
         ));
+        // Column-level AUTO_INCREMENT modifier is still emitted for DB_AUTO_ID.
         assertTrue(autoIncrementSql.contains("AUTO_INCREMENT"), autoIncrementSql);
-        assertTrue(autoIncrementSql.contains("AUTO_INCREMENT=1"), autoIncrementSql);
+        // But the hardcoded table-level AUTO_INCREMENT=1 seed is intentionally dropped —
+        // it collides with replicated / restored data when a table is recreated.
+        assertFalse(autoIncrementSql.contains("AUTO_INCREMENT=1"), autoIncrementSql);
 
         String distributedSql = versionDdl.generateDDL(DatabaseType.MYSQL, List.of(
                 createdModelChanges("OrderDistributed", IdStrategy.DISTRIBUTED_LONG),
@@ -226,6 +229,8 @@ class VersionDdlImplTest {
         assertTrue(sql.contains("slice_id"), sql);
         assertTrue(sql.contains("PRIMARY KEY (slice_id)"), sql);
         assertTrue(sql.contains("AUTO_INCREMENT"), sql);
+        // Table-level seed still intentionally absent (see above).
+        assertFalse(sql.contains("AUTO_INCREMENT=1"), sql);
     }
 
     @Test

@@ -1,13 +1,13 @@
 package io.softa.framework.web.rpc;
 
-import io.softa.framework.base.context.Context;
-import lombok.Data;
-
 import java.io.Serial;
 import java.io.Serializable;
+import lombok.Data;
+
+import io.softa.framework.base.context.Context;
 
 @Data
-public class RpcRequestBody implements Serializable {
+public class RPCRequestBody implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 

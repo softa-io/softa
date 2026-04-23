@@ -29,18 +29,28 @@ Used field fields:
 
 Notes:
 - renamedFields means the column name changed.
-- Current MySQL behavior renders field rename as DROP COLUMN + ADD COLUMN.
+- Current MySQL behavior renders field rename as CHANGE COLUMN (may rewrite the table).
 - updatedFields means non-rename column changes only.
+- String literals (COMMENTs) are escaped via the `| sqlLiteral` filter to defend against
+  single quotes in descriptions.
+- MySQL ALTER TABLE on large tables (> 1M rows) can lock the table for a long period.
+  Production DBAs should review the generated DDL and consider running it via
+  `ALGORITHM=INPLACE, LOCK=NONE` or an online schema change tool
+  (pt-online-schema-change / gh-ost) when the change targets a large table.
+  The template does NOT inject ALGORITHM/LOCK hints because the supported algorithm
+  depends on the specific change (e.g. CHANGE COLUMN with a type change forces COPY).
 #}
 {% if model.renamed or model.hasAlterTableChanges %}
 /* Alter table for model: {{ model.labelName }} */
+/* Review for large tables: MySQL ALTER TABLE may rewrite the table and lock it.
+   Prefer `ALGORITHM=INPLACE, LOCK=NONE` or an online DDL tool when applicable. */
 {% endif %}
 {% if model.renamed %}
 RENAME TABLE {{ model.oldTableName }} TO {{ model.tableName }};
 {% endif %}
 {% if model.hasAlterTableChanges %}
 ALTER TABLE {{ model.tableName }}
-{%- if model.descriptionChanged %} COMMENT '{{ model.description }}'{% if model.createdFields is not empty or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}{% endif %}
+{%- if model.descriptionChanged %} COMMENT '{{ model.description | sqlLiteral }}'{% if model.createdFields is not empty or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}{% endif %}
 
 {% for field in model.createdFields %}
     ADD COLUMN {{ field.columnName }} {{ field.typeDeclaration }}
@@ -48,7 +58,7 @@ ALTER TABLE {{ model.tableName }}
     {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
     {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
     {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
-    {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}
+    {%- endif %} COMMENT '{{ field.description | sqlLiteral }}'{% if not loop.last or model.deletedFields is not empty or model.updatedFields is not empty or model.renamedFields is not empty %},{% endif %}
 
 {% endfor %}
 {% for field in model.deletedFields %}
@@ -61,7 +71,7 @@ ALTER TABLE {{ model.tableName }}
     {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
     {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
     {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
-    {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last or model.renamedFields is not empty %},{% endif %}
+    {%- endif %} COMMENT '{{ field.description | sqlLiteral }}'{% if not loop.last or model.renamedFields is not empty %},{% endif %}
 
 {% endfor %}
 {% for field in model.renamedFields %}
@@ -70,7 +80,7 @@ ALTER TABLE {{ model.tableName }}
     {%- if field.autoIncrement %} AUTO_INCREMENT{% endif -%}
     {%- if field.defaultValue is not empty %} DEFAULT {{ field.defaultValue }}
     {%- elseif field.required and field.dbType == "VARCHAR" %} DEFAULT ''
-    {%- endif %} COMMENT '{{ field.description }}'{% if not loop.last %},{% endif %}
+    {%- endif %} COMMENT '{{ field.description | sqlLiteral }}'{% if not loop.last %},{% endif %}
 
 {%- endfor %};
 {% endif %}

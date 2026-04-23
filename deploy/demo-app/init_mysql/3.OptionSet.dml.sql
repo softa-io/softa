@@ -349,6 +349,26 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvType','UAT','UAT',3,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvType','Prod','Prod',4,'','','');
 
+-- Option Set: DesignAppEnvStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignAppEnvStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignAppEnvStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignAppEnvStatus','Design App Env Status','Per-env deployment mutex status');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvStatus','Stable','Stable',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignAppEnvStatus','Deploying','Deploying',2,'','','');
+
+-- Option Set: DesignDriftCheckStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='DesignDriftCheckStatus';
+DELETE FROM sys_option_item WHERE option_set_code='DesignDriftCheckStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('DesignDriftCheckStatus','Design Drift Check Status','Outcome of the last drift check');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignDriftCheckStatus','Success','Success',1,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('DesignDriftCheckStatus','Failure','Failure',2,'','','');
+
 -- Option Set: DesignAppVersionStatus
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='DesignAppVersionStatus';

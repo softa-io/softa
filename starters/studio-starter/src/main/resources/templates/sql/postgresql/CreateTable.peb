@@ -8,8 +8,8 @@ Used model fields:
 - description
 - labelName
 - pkColumn
-- autoIncrementPrimaryKey
 - createdFields
+- createdIndexes
 
 Used field fields:
 - columnName
@@ -21,9 +21,19 @@ Used field fields:
 - defaultValue
 - description
 
+Used index fields:
+- indexName
+- columns
+- unique
+
 Notes:
-- This template renders a newly created table only.
-- Fields are taken from model.createdFields.
+- This template renders a newly created table and inline indexes.
+- String literals (COMMENTs) are escaped via the `| sqlLiteral` filter to defend against
+  single quotes in descriptions.
+- PostgreSQL indexes are created as separate CREATE INDEX statements (not inline on CREATE TABLE),
+  mirroring the AlterIndex template.
+- FOREIGN KEY constraints are not emitted — referential integrity is enforced at the
+  ORM / application layer.
 #}
 /* Create table for model: {{ model.labelName }} */
 CREATE TABLE {{ model.tableName }} (
@@ -38,10 +48,13 @@ CREATE TABLE {{ model.tableName }} (
     PRIMARY KEY ({{ model.pkColumn }})
 );
 {% if model.description is not empty %}
-COMMENT ON TABLE {{ model.tableName }} IS '{{ model.description }}';
+COMMENT ON TABLE {{ model.tableName }} IS '{{ model.description | sqlLiteral }}';
 {% endif %}
 {% for field in model.createdFields %}
 {% if field.description is not empty %}
-COMMENT ON COLUMN {{ model.tableName }}.{{ field.columnName }} IS '{{ field.description }}';
+COMMENT ON COLUMN {{ model.tableName }}.{{ field.columnName }} IS '{{ field.description | sqlLiteral }}';
 {% endif %}
+{% endfor %}
+{% for index in model.createdIndexes %}
+CREATE {% if index.unique %}UNIQUE {% endif %}INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
 {% endfor %}

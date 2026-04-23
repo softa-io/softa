@@ -120,6 +120,27 @@ public final class ModelDdlAccumulator {
         return context;
     }
 
+    /**
+     * Look up the model context associated with a given model name, preferring the
+     * CREATE side. Exposed so downstream code (e.g. field-change processors) can read
+     * model-level attributes — {@code pkColumn}, {@code autoIncrementPrimaryKey} — that
+     * are not carried on per-field change records.
+     *
+     * @return the model context, or {@code null} if no model change has been recorded
+     *         for {@code modelName}
+     */
+    public ModelDdlCtx findModel(String modelName) {
+        ModelDdlCtx created = createdModels.get(modelName);
+        if (created != null) {
+            return created;
+        }
+        ModelDdlCtx updated = updatedModels.get(modelName);
+        if (updated != null) {
+            return updated;
+        }
+        return deletedModels.get(modelName);
+    }
+
     private ModelDdlCtx targetModel(String modelName) {
         ModelDdlCtx createdModel = createdModels.get(modelName);
         return createdModel != null ? createdModel : updatedModel(modelName);

@@ -1,4 +1,4 @@
-package io.softa.framework.web.dto;
+package io.softa.starter.metadata.dto;
 
 import java.io.Serial;
 import java.io.Serializable;

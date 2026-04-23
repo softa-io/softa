@@ -226,6 +226,9 @@ public class CodeGenerator {
         if (!StringUtils.hasText(normalized) || ".".equals(normalized)) {
             return "";
         }
+        if (normalized.contains("..")) {
+            throw new IllegalArgumentException("The rendered subDirectory {0} cannot contain '..' path segments.", normalized);
+        }
         return normalized;
     }
 

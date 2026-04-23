@@ -12,7 +12,8 @@ Key capabilities:
 - **DDL Preview**: preview DDL SQL at every stage — WorkItem, Version, and Deployment — for easy copy-paste to a DB client
 - **Version Control**: WorkItem-based change tracking with ES changelog integration, version sealing/unsealing, and freezing
 - **Deployment**: direct Version-to-Env deployment with automatic released-version merging by `sealedTime`, DDL generation, and execution tracking; new environments merge all released versions up to the target
-- **Multi-Environment Deployment**: deploy to Dev/Test/UAT/Prod environments with local or remote upgrade
+- **Multi-Environment Deployment**: deploy to Dev/Test/UAT/Prod environments over a signed remote channel
+- **Drift Detection & Runtime Import**: compare the design-time snapshot with the live runtime per env, and optionally overwrite design-time metadata with the runtime state — covers both first-time seeding (design-time empty, runtime already populated) and drift repair after out-of-band SQL changes
 
 ## Template Engine
 
@@ -129,7 +130,8 @@ Pebble SQL templates can be stored in the database and customized per applicatio
 | Entity | Description |
 | --- | --- |
 | `DesignAppEnv` | Application environment (Dev/Test/UAT/Prod), stores environment config and deployment cursor such as `currentVersionId`; it does not store the full metadata snapshot |
-| `DesignAppEnvSnapshot` | One-to-one snapshot record for `DesignAppEnv` via `envId`; stores the full expected runtime metadata JSON plus the `deploymentId` that last rebuilt it |
+| `DesignAppEnvSnapshot` | Per-deployment snapshot of the full expected runtime metadata JSON. One row per deployment, uniquely keyed by `(appId, envId, deploymentId)` |
+| `DesignAppEnvDrift` | Cached drift between the latest snapshot and the live runtime for an env, one row per `(appId, envId)` — refreshed after deployments and on demand |
 | `DesignWorkItem` | Change work item — scopes a unit of design changes via ES correlationId; `versionId` links it to a Version and `closedTime` records when it is closed by deployment |
 | `DesignAppVersion` | Version shell — aggregates WorkItem changes; `versionType` distinguishes `Normal` and `Hotfix`, and released ordering is determined by `status + sealedTime` |
 | `DesignDeployment` | Immutable deployment record — merged content from the sealedTime release interval with DDL and execution results |
@@ -137,8 +139,9 @@ Pebble SQL templates can be stored in the database and customized per applicatio
 
 Environment snapshot relationship:
 - `DesignAppEnv` is the environment state record. It owns deployment progress (`currentVersionId`) and upgrade configuration.
-- `DesignAppEnvSnapshot` stores the environment's full expected runtime metadata state and is maintained separately as a OneToOne record keyed by `envId`.
-- After a successful deployment commits, the snapshot is rebuilt asynchronously by applying `mergedChanges` onto the previous snapshot baseline, then upserted into `DesignAppEnvSnapshot`.
+- `DesignAppEnvSnapshot` stores the full expected runtime metadata state. Each successful deployment writes its own row, uniquely keyed by `(appId, envId, deploymentId)` — the latest row (highest id) is the effective snapshot for drift comparison.
+- After a deployment commits, the next snapshot is built asynchronously as `previous_snapshot + mergedChanges` and upserted, so the write is idempotent against event replay.
+- `importFromRuntime` / `applyDrift` also write a snapshot row after overwriting design-time with runtime state. The synthetic `DesignAppVersion` id doubles as the `deploymentId` slot (globally unique via CosID), so these rows coexist with deployment snapshots without collision.
 
 ### Current Runtime Sync Coverage
 The current version-control and deployment pipeline only upgrades the following design-time models to runtime metadata:
@@ -155,6 +158,8 @@ The current version-control and deployment pipeline only upgrades the following 
 The following design-time entities currently have CRUD support in `studio-starter`, but are not included in the release pipeline:
 - `DesignView`
 - `DesignNavigation`
+
+Runtime export (`/metadata/exportRuntimeMetadata`) is app-scoped: the studio passes the env's `appId`, and the runtime filters by the `appId` column for main models or joins through the parent row for translation models (`*Trans`). A single runtime hosting multiple apps will never leak sibling-app rows into drift comparison or import.
 
 ## DDL Storage Design
 
@@ -204,15 +209,15 @@ Notes:
    - Selects released versions by `sealedTime` in `(env.currentVersionId, targetVersion]`
    - Merges version contents via `VersionMerger`, generates DDL
    - Creates a self-contained Deployment record with merged content + DDL
-   - Executes deployment (local or remote) and updates `env.currentVersionId`
+   - Dispatches the signed upgrade envelope to the target runtime and advances `env.currentVersionId` once the runtime reports success
    - After the deployment transaction commits, asynchronously rebuilds or updates the env's `DesignAppEnvSnapshot`
    - Auto-freezes versions after successful PROD deployment
    - For new environments (no `currentVersionId`), all released versions up to the target are merged
 2. **Retry**: `POST /DesignDeployment/retry?id=`
 
 Notes:
-- `DesignDeploymentStatus` contains `ROLLED_BACK`, but there is currently no rollback API or rollback implementation in `studio-starter`.
-- `DesignAppEnv.asyncUpgrade` currently falls back to synchronous execution.
+- Every deploy is async end-to-end — `deployToEnv` returns the deployment id once the record is persisted, and completion is reported later by the target runtime's webhook at `POST /DesignDeployment/callback`.
+- `DesignDeploymentStatus` contains `ROLLED_BACK`, but there is currently no automatic rollback — `cancelDeployment` only marks the record rolled back and releases the env mutex so the next deployment can proceed.
 
 ## Key APIs
 
@@ -257,7 +262,13 @@ Notes:
 ### Environment
 | Endpoint                                            | Description |
 |-----------------------------------------------------| --- |
-| `GET /DesignAppEnv/compareDesignWithRuntime?envId=` | Compare the env's `DesignAppEnvSnapshot` with runtime metadata to detect drift |
+| `GET /DesignAppEnv/compareDesignWithRuntime?id=` | Read the cached drift between `DesignAppEnvSnapshot` and runtime metadata |
+| `POST /DesignAppEnv/refreshDrift?id=`            | Kick off an async drift recompute; poll `compareDesignWithRuntime` for the result |
+| `POST /DesignAppEnv/applyDrift?id=`              | Overwrite design-time metadata with the cached runtime drift (useCached=true — operator accepts the current drift report as the new truth) |
+| `POST /DesignAppEnv/importFromRuntime?id=`       | Refresh drift against the live runtime, then overwrite design-time with the result (useCached=false — first-time seed from an already-populated runtime) |
+| `POST /DesignAppEnv/issueKey?id=`                | Issue / rotate the Ed25519 keypair used to sign studio → runtime requests. Returns the new public key — the operator pastes it into the paired runtime's `system.runtime-public-key`. Each runtime pairs with exactly one env, so rotation is an atomic yml swap rather than a multi-key grace period |
+
+Both `applyDrift` and `importFromRuntime` share one service method with a `useCached` boolean. They acquire the env's deployment mutex (concurrent with deploy — one at a time per env), mint a FROZEN `DesignAppVersion` named `imported-from-runtime-<ISO>`, advance `env.currentVersionId` to it, write a post-import snapshot keyed by the synthetic version id, and clear the drift cache. No-op when drift is empty.
 
 ### App And Portfolio Status
 | Endpoint | Description |
@@ -303,7 +314,7 @@ Deployment selects the versions to merge from the app's released stream:
 1. **Bring `DesignView` / `DesignNavigation` into the release pipeline**
    - These entities have design-time CRUD, and runtime counterparts already exist, but they are not part of `VERSION_CONTROL_MODELS`. This is the highest-value functional gap because design changes cannot be promoted through environments today.
 2. **Close the deployment contract gaps**
-   - `README` previously mentioned rollback, and `DesignDeploymentStatus` includes `ROLLED_BACK`, but no rollback endpoint/service exists. `DesignAppEnv.asyncUpgrade` also still executes synchronously.
+   - `README` previously mentioned rollback, and `DesignDeploymentStatus` includes `ROLLED_BACK`, but no automatic rollback service exists — `cancelDeployment` only unlocks the env for the next attempt.
 3. **Clean up reserved or partially wired environment/config fields**
    - `DesignAppEnv.protectedEnv`, `active`, `clientId`, and `autoUpgrade` are not currently enforced in deployment flow.
 

@@ -33,5 +33,18 @@
             <version>${spring.boot.version}</version>
         </dependency>
 
+        <!--
+            Resilience4j Spring Boot 4 starter — provides auto-configured RetryRegistry /
+            CircuitBreakerRegistry / ReactiveMicrometerTaggedRegistry beans from
+            `resilience4j.*` YAML, plus `/actuator/circuitbreakers` / `/actuator/retries`.
+            We don't use the @Retry / @CircuitBreaker AOP annotations; policies are applied
+            at the HTTP client layer via ResilientRestClientBuilder.
+        -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
+            <version>2.4.0</version>
+        </dependency>
+
     </dependencies>
 </project>

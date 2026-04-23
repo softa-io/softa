@@ -1,19 +1,15 @@
 package io.softa.starter.studio.template.ddl.dialect;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.starter.studio.template.ddl.context.FieldDdlCtx;
 import io.softa.starter.studio.template.ddl.context.ModelDdlCtx;
 import io.softa.starter.studio.template.entity.*;
-import io.softa.starter.studio.template.enums.DesignCodeLang;
 import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolver;
 
 /**
@@ -21,42 +17,11 @@ import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolv
  */
 public abstract class AbstractTemplateDdlDialect implements DdlDialect {
 
-    private static final DesignGenerationMetadataResolver NOOP_METADATA_RESOLVER = new DesignGenerationMetadataResolver() {
-        @Override
-        public Map<FieldType, DesignFieldTypeDefault> getFieldTypeDefaults() {
-            return Collections.emptyMap();
-        }
-
-        @Override
-        public Map<FieldType, DesignFieldDbMapping> getFieldDbMappings(DatabaseType databaseType) {
-            return Collections.emptyMap();
-        }
-
-        @Override
-        public Optional<DesignSqlTemplate> getSqlTemplate(DatabaseType databaseType) {
-            return Optional.empty();
-        }
-
-        @Override
-        public Map<FieldType, DesignFieldCodeMapping> getFieldCodeMappings(DesignCodeLang codeLang) {
-            return Collections.emptyMap();
-        }
-
-        @Override
-        public List<DesignCodeTemplate> getCodeTemplates(DesignCodeLang codeLang) {
-            return Collections.emptyList();
-        }
-
-        @Override
-        public List<DesignCodeLang> getAvailableCodeLangs() {
-            return Collections.emptyList();
-        }
-    };
-
     private final DesignGenerationMetadataResolver metadataResolver;
 
     protected AbstractTemplateDdlDialect(DesignGenerationMetadataResolver metadataResolver) {
-        this.metadataResolver = metadataResolver != null ? metadataResolver : NOOP_METADATA_RESOLVER;
+        Assert.notNull(metadataResolver, "DesignGenerationMetadataResolver must not be null");
+        this.metadataResolver = metadataResolver;
     }
 
     protected abstract String getTemplateDir();

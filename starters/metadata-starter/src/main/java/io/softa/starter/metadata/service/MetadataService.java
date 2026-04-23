@@ -3,8 +3,8 @@ package io.softa.starter.metadata.service;
 import java.util.List;
 import java.util.Map;
 
-import io.softa.framework.web.dto.MetadataUpgradePackage;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
+import io.softa.starter.metadata.dto.MetadataUpgradePackage;
 
 /**
  * Metadata Upgrade Service.
@@ -35,11 +35,17 @@ public interface MetadataService {
     void reloadMetadata();
 
     /**
-     * Export all runtime metadata rows for a given version-controlled model.
-     * Returns all scalar fields as row maps for cross-environment comparison.
+     * Export runtime metadata rows for the given version-controlled model, scoped to an app.
+     * <p>
+     * Many runtimes host several apps side-by-side, so the studio must constrain the export
+     * to the app it is synchronising: for models that carry an {@code appId} column the
+     * filter is applied directly; for translation models (suffix {@code Trans}) the column
+     * lives on the parent row, so the implementation resolves the parent app and matches
+     * on {@code rowId}.
      *
      * @param modelName runtime model name
+     * @param appId     app owning the rows; required
      * @return list of row data maps
      */
-    List<Map<String, Object>> exportRuntimeMetadata(String modelName);
+    List<Map<String, Object>> exportRuntimeMetadata(String modelName, Long appId);
 }

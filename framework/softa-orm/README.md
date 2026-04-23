@@ -90,7 +90,7 @@ Recommendation:
 - Use them when building framework-level JDBC wrappers or custom low-level SQL executors.
 
 ### Less Common Annotations
-- `@RpcCheckpoint`: service-switch / RPC interception hook.
+- `@RPCCheckpoint`: service-switch / RPC interception hook.
 - `@CrossTenant` and `@PerTenant`: covered in the multi-tenancy section below.
 
 ## Multi-Tenancy

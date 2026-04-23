@@ -79,6 +79,15 @@ public class DesignDeployment extends AuditableModel {
     @Schema(description = "Finished Time")
     private LocalDateTime finishedTime;
 
+    @Schema(description = "Callback Token — one-time token sent to the runtime and verified on webhook return")
+    private String callbackToken;
+
+    @Schema(description = "Callback Token Expire At — tokens received after this point are rejected")
+    private LocalDateTime callbackTokenExpireAt;
+
+    @Schema(description = "Callback Received At — when the runtime webhook landed")
+    private LocalDateTime callbackReceivedAt;
+
     @Schema(description = "Operator")
     private String operatorId;
 

@@ -4,11 +4,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import io.softa.framework.base.exception.BusinessException;
@@ -29,7 +30,8 @@ public class TikTokProvider {
     private OAuthProperties oAuthProperties;
 
     @Autowired
-    private RestTemplate restTemplate;
+    @Qualifier("userOAuthRestClient")
+    private RestClient restClient;
 
     /**
      * Get TikTok access token using OAuth Code
@@ -42,28 +44,27 @@ public class TikTokProvider {
             String tokenUrl = "https://open.tiktokapis.com/v2/oauth/token/";
             MultiValueMap<String, String> params = buildRequestParams(oAuthCredential);
 
-            // Build form-urlencoded request body using UriComponentsBuilder
+            // TikTok requires a form-urlencoded body string (not multipart); build it with
+            // UriComponentsBuilder so special characters are percent-encoded.
             String requestBody = UriComponentsBuilder.newInstance()
                     .queryParams(params)
                     .build()
                     .getQuery();
 
-            // Build headers
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.set("Cache-Control", "no-cache");
+            TikTokTokenResponseDTO tokenResponse = restClient.post()
+                    .uri(tokenUrl)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .header("Cache-Control", "no-cache")
+                    .body(requestBody)
+                    .retrieve()
+                    .body(TikTokTokenResponseDTO.class);
 
-            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-
-            // Send POST request to exchange code for tokens
-            ResponseEntity<TikTokTokenResponseDTO> response = restTemplate.exchange(
-                    tokenUrl, HttpMethod.POST, entity, TikTokTokenResponseDTO.class);
-
-            TikTokTokenResponseDTO tokenResponse = response.getBody();
             if (tokenResponse == null || StringUtils.isBlank(tokenResponse.getAccessToken())) {
-                throw new BusinessException("TikTok OAuth token response is invalid: \n{0}", response);
+                throw new BusinessException("TikTok OAuth token response is invalid: \n{0}", tokenResponse);
             }
             return tokenResponse;
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new BusinessException("TikTok OAuth token fetch failed.", e);
         }
@@ -73,7 +74,6 @@ public class TikTokProvider {
     private MultiValueMap<String, String> buildRequestParams(OAuthCredential oAuthCredential) {
         OAuthProperties.OAuthConfig tikTokConfig = oAuthProperties.getTiktok();
 
-        // Build request parameters
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
         params.add("client_key", tikTokConfig.getClientId());
         params.add("client_secret", tikTokConfig.getClientSecret());
@@ -82,8 +82,6 @@ public class TikTokProvider {
         params.add("redirect_uri", oAuthCredential.getRedirectUri());
         return params;
     }
-
-
 
     /**
      * Get TikTok User Info
@@ -95,21 +93,19 @@ public class TikTokProvider {
         try {
             String userInfoUrl = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name";
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(accessToken);
+            TikTokUserInfoResponseDTO responseBody = restClient.get()
+                    .uri(userInfoUrl)
+                    .headers(h -> h.setBearerAuth(accessToken))
+                    .retrieve()
+                    .body(TikTokUserInfoResponseDTO.class);
 
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            // Convert the response to TikTokUserInfoResponseDTO
-            ResponseEntity<TikTokUserInfoResponseDTO> response = restTemplate.exchange(
-                    userInfoUrl, HttpMethod.GET, entity, TikTokUserInfoResponseDTO.class);
-
-            TikTokUserInfoResponseDTO responseBody = response.getBody();
             if (responseBody == null || responseBody.getData() == null || responseBody.getData().getUser() == null) {
-                throw new BusinessException("TikTok response is invalid: \n{0}", response);
+                throw new BusinessException("TikTok response is invalid: \n{0}", responseBody);
             }
 
             return responseBody.getData().getUser();
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new BusinessException("TikTok OAuth user info fetch failed.", e);
         }

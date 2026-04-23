@@ -5,6 +5,9 @@ system:
   enable-multi-tenancy: false
   enable-insert-id: true
   enable-change-log: false
+  public-access-url: http://localhost:8080
+  # Ed25519 request signing.
+  runtime-public-key: 
 
 security:
   encryption:
