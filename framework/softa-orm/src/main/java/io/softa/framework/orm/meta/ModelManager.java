@@ -1088,6 +1088,6 @@ public class ModelManager {
 
     public static Set<String> getChildModels(String modelName) {
         validateModel(modelName);
-        return modelMap().get(modelName).getChildModels();
+        return new HashSet<>(modelMap().get(modelName).getChildModels());
     }
 }

@@ -2,7 +2,6 @@ package io.softa.starter.file.controller;
 
 import java.util.List;
 import java.util.Set;
-import java.util.HashSet;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +37,7 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
     @Operation(summary="listByModel", description = "List all import templates of the specified model")
     @PostMapping(value = "/listByModel")
     public ApiResponse<List<ImportTemplate>> listByModel(@RequestParam String modelName) {
-        Set<String> modelNames = new HashSet<>(ModelManager.getChildModels(modelName));
+        Set<String> modelNames = ModelManager.getChildModels(modelName);
         modelNames.add(modelName);
         Filters filters = new Filters().in(ImportTemplate::getModelName, modelNames);
         FlexQuery flexQuery = new FlexQuery(filters).expandSubQuery(ImportTemplate::getImportFields);

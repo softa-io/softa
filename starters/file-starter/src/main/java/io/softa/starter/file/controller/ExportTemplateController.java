@@ -2,7 +2,6 @@ package io.softa.starter.file.controller;
 
 import java.util.List;
 import java.util.Set;
-import java.util.HashSet;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,11 +34,7 @@ public class ExportTemplateController extends EntityController<ExportTemplateSer
     @Operation(summary = "listByModel", description = "List all export templates of the specified model")
     @PostMapping(value = "/listByModel")
     public ApiResponse<List<ExportTemplate>> listByModel(@RequestParam String modelName) {
-        Set<String> modelNames = new HashSet<>();
-        Set<String> childModels = ModelManager.getChildModels(modelName);
-        if (childModels != null) {
-            modelNames.addAll(childModels);
-        }
+        Set<String> modelNames = ModelManager.getChildModels(modelName);
         modelNames.add(modelName);
         Filters filters = new Filters().in(ExportTemplate::getModelName, modelNames);
         FlexQuery flexQuery = new FlexQuery(filters).expandSubQuery(ExportTemplate::getExportFields);
