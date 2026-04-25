@@ -1,18 +1,20 @@
 package io.softa.framework.base.security.algorithm;
 
-import io.softa.framework.base.security.Encryptor;
-import org.springframework.stereotype.Service;
-
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
-import java.security.SecureRandom;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 
+import io.softa.framework.base.security.Encryptor;
+
+@Slf4j
 @Service
 public class AESEncryption implements Encryptor {
 
@@ -95,6 +97,7 @@ public class AESEncryption implements Encryptor {
             ivParameterSpec = extractIvFromCombinedData(encryptedIvTextBytes);
         } catch (Exception e) {
             // Return original string if it cannot be decrypted
+            log.error("Failed to decode or extract IV from ciphertext: {}", e.getMessage(), e);
             return ciphertext;
         }
 

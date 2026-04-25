@@ -253,12 +253,12 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
                 .eq(DesignAppEnv::getId, appEnv.getId())
                 .eq(DesignAppEnv::getEnvStatus, DesignAppEnvStatus.STABLE);
         DesignAppEnv update = new DesignAppEnv();
-        update.setEnvStatus(DesignAppEnvStatus.DEPLOYING);
-        Integer affected = this.updateByFilter(casFilter, update);
-        Assert.isTrue(affected != null && affected == 1,
-                "Env {0} is currently DEPLOYING or missing — an import or deployment is in progress. Retry later.",
+        update.setEnvStatus(DesignAppEnvStatus.IMPORTING);
+        int affected = this.updateByFilter(casFilter, update);
+        Assert.isTrue(affected == 1,
+                "Env {0} is currently Deploying or Importing. Retry later.",
                 appEnv.getId());
-        appEnv.setEnvStatus(DesignAppEnvStatus.DEPLOYING);
+        appEnv.setEnvStatus(DesignAppEnvStatus.IMPORTING);
     }
 
     private void releaseEnvLock(Long envId) {

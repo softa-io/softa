@@ -2,7 +2,6 @@ package io.softa.framework.orm.domain;
 
 import java.io.Serial;
 import java.io.Serializable;
-import java.text.MessageFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 import lombok.Data;
@@ -184,13 +183,24 @@ public class FilterUnit implements Serializable {
 
     @Override
     public String toString() {
-        String str = this.value instanceof String ? ("\"" + this.value + "\"") : JsonUtils.objectToString(this.value);
-        return MessageFormat.format("[\"{0}\",\"{1}\",{2}]", this.field, this.operator.getName(), str);
+        Object val = formatValue(this.value);
+        return String.format("[\"%s\",\"%s\",%s]", this.field, this.operator.getName(), val);
     }
 
     public String toSemanticString() {
-        String str = this.value instanceof String ? ("\"" + this.value + "\"") : JsonUtils.objectToString(this.value);
-        return MessageFormat.format("{0} {1} {2}", this.field, this.operator.getName(), str);
+        Object val = formatValue(this.value);
+        return String.format("%s %s %s", this.field, this.operator.getName(), val);
+    }
+
+    private Object formatValue(Object value) {
+        if (value instanceof String strValue) {
+            return "\"" + strValue + "\"";
+        } else if (value instanceof Number || value instanceof Boolean) {
+            return value;
+        }
+        else {
+            return JsonUtils.objectToString(value);
+        }
     }
 
     @Override

@@ -30,7 +30,7 @@ public class DesignAppEnvDriftRefreshListener {
         try {
             appEnvService.refreshDrift(event.envId());
         } catch (RuntimeException e) {
-            log.warn("Drift refresh failed for env {}: {}", event.envId(), e.getMessage());
+            log.warn("Drift refresh failed for env {}: {}", event.envId(), e.getMessage(), e);
         }
     }
 }

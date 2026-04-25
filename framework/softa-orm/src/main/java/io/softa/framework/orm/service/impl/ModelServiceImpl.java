@@ -772,7 +772,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Integer updateByFilter(String modelName, Filters filters, Map<String, Object> value) {
+    public int updateByFilter(String modelName, Filters filters, Map<String, Object> value) {
         Assert.notTrue(value.containsKey(ModelConstant.ID),
                 "When batch editing data through Filters, `value` parameter cannot contains the key of `id`!");
         List<K> ids = this.getIds(modelName, filters);
@@ -785,7 +785,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             }).collect(Collectors.toList());
             updateList(modelName, rowBatch);
         }
-        return null;
+        return ids.size();
     }
 
     /**

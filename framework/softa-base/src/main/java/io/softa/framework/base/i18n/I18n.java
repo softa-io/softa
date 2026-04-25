@@ -40,7 +40,7 @@ public class I18n {
             return getByLanguage(languageCode, original, args);
         } else {
             log.warn("Language {} does not has any translation", languageCode);
-            return args == null || args.length == 0 ? original : MessageFormat.format(original, args);
+            return args == null || args.length == 0 ? original : MessageFormat.format(original, normalizeArgs(args));
         }
     }
 
@@ -58,7 +58,22 @@ public class I18n {
             return StringUtils.EMPTY;
         }
         String translation = MESSAGE_TRANSLATIONS.get(languageCode).getOrDefault(original, original);
-        return args == null || args.length == 0 ? translation : MessageFormat.format(translation, args);
+        return args == null || args.length == 0 ? translation : MessageFormat.format(translation, normalizeArgs(args));
+    }
+
+    /**
+     * Convert Number args to String before handing to MessageFormat, so that integral IDs
+     * (e.g. Long snowflake/CosID values) are not rendered with locale-specific grouping separators.
+     * Callers who need number formatting can still use explicit patterns like {0,number,#.##}
+     * by pre-formatting the value themselves.
+     */
+    private static Object[] normalizeArgs(Object[] args) {
+        Object[] normalized = new Object[args.length];
+        for (int i = 0; i < args.length; i++) {
+            Object arg = args[i];
+            normalized[i] = arg instanceof Number ? arg.toString() : arg;
+        }
+        return normalized;
     }
 
     /**

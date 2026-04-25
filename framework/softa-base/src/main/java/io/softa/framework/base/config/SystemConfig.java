@@ -53,6 +53,9 @@ public class SystemConfig {
     @Value("${server.servlet.context-path:}")
     private String contextPath;
 
+    @Value("${debug:false}")
+    private boolean debug;
+
     // Singleton instance
     public static SystemConfig env;
 

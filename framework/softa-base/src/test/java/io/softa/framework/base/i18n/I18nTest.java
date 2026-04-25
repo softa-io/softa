@@ -16,4 +16,10 @@ class I18nTest {
     @Test
     void testGet() {
     }
+
+    @Test
+    void numericArgsAreNotGrouped() {
+        String msg = I18n.get("Env {0} is busy", 829273278605463553L);
+        Assertions.assertEquals("Env 829273278605463553 is busy", msg);
+    }
 }

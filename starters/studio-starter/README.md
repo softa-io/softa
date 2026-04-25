@@ -26,6 +26,7 @@ consistent with the project-wide `{{ }}` placeholder convention.
 | --- | --- | --- |
 | `templates/code/` | `entity/{{modelName}}.java.peb`, `service/{{modelName}}Service.java.peb`, `service/impl/{{modelName}}ServiceImpl.java.peb`, `controller/{{modelName}}Controller.java.peb` | Fallback code generation templates. When no `DesignCodeTemplate` is configured, all `templates/code/**/*.peb` files are scanned; the relative directory becomes the default output subdirectory and the last path segment before `.peb` becomes the rendered output file name |
 | `templates/sql/mysql/` | `CreateTable.peb`, `AlterTable.peb`, `DropTable.peb`, `AlterIndex.peb` | Fallback MySQL DDL templates |
+| `templates/sql/postgresql/` | `CreateTable.peb`, `AlterTable.peb`, `DropTable.peb`, `AlterIndex.peb` | Fallback PostgreSQL DDL templates |
 
 ### Code Template Rules
 - Database mode: `DesignCodeTemplate` entries are loaded by `codeLang` and sorted by `sequence`, then rendered into a `ModelCodeDTO.files` list.
@@ -41,7 +42,8 @@ consistent with the project-wide `{{ }}` placeholder convention.
 | --- | --- |
 | `TemplateEngine` | Pebble engine wrapper — singleton `PebbleEngine` with caching, no auto-escaping |
 | `CodeGenerator` | Generates code files from `DesignModel`, preferring `DesignCodeTemplate` + `DesignFieldCodeMapping`; preview/download can target one language or package all configured languages |
-| `MySQLDDL` | DDL generator that prefers `DesignSqlTemplate` + `DesignFieldDbMapping` and falls back to classpath SQL templates |
+| `DdlDialectRegistry` | Resolves the active Pebble DDL renderer by `DatabaseType` |
+| `MySqlDdlDialect` / `PostgreSqlDdlDialect` | DDL generators that prefer `DesignSqlTemplate` + `DesignFieldDbMapping` and fall back to classpath SQL templates |
 | `DesignGenerationMetadataResolver` | Central resolver for DB-managed templates/mappings/defaults with graceful fallback |
 | `DdlContextBuilder` | Builds template-friendly DDL context objects from `DesignModel`, `DesignField`, and `DesignModelIndex` |
 | `VersionDdl` / `VersionDdlImpl` | Converts `List<ModelChangesDTO>` to `DdlTemplateContext`, then renders combined DDL string (table + index) |
@@ -84,6 +86,7 @@ Current MySQL template behavior:
 - `DropTable.peb` renders a single deleted model with `model.tableName`
 - `AlterTable.peb` handles table rename, table comment change, and field `create/delete/update/rename`
 - `AlterIndex.peb` handles index `create/delete/update/rename`
+- String literals (descriptions, comments) are escaped via the `| sqlLiteral` Pebble filter to defend against single quotes
 - Field rename is rendered as `DROP COLUMN oldColumnName` + `ADD COLUMN columnName ...`
 - Index rename is rendered as `DROP INDEX oldIndexName` + `ADD INDEX indexName ...`
 - Pure deleted indexes also generate SQL
@@ -105,6 +108,35 @@ Pebble SQL templates can be stored in the database and customized per applicatio
 - **metadata-starter**: provides runtime metadata model management and upgrade API.
 - **es-starter**: provides Elasticsearch changelog storage for version control change tracking.
 - Database contains the studio metadata tables (see Data Model below).
+
+## Remote Deployment Configuration
+- `DesignAppEnv.upgradeEndpoint` must point to the target runtime base URL. The studio appends `/metadata/upgrade` and `/metadata/exportRuntimeMetadata` automatically.
+- The studio application must set `system.public-access-url`. Remote deployment derives the runtime callback URL as `<system.public-access-url>/DesignDeployment/callback`; without it, dispatch fails before the request is sent.
+- Call `POST /DesignAppEnv/issueKey?id=` before the first remote deploy, then paste the returned public key into the paired runtime's `system.runtime-public-key`. The runtime only registers the metadata signature verification filter when that property is non-blank.
+- Outbound studio -> runtime HTTP uses the Resilience4j client name `studio-remote`; runtime -> studio callback uses `metadata-callback`. If you do not define explicit YAML for those instances, the registry defaults still apply.
+
+Minimal example:
+```yaml
+# studio
+system:
+  public-access-url: https://studio.example.com
+
+resilience4j:
+  retry:
+    instances:
+      studio-remote:
+        max-attempts: 3
+  circuitbreaker:
+    instances:
+      studio-remote:
+        sliding-window-size: 20
+```
+
+```yaml
+# target runtime
+system:
+  runtime-public-key: <paste-issued-public-key>
+```
 
 ## Data Model
 
@@ -144,7 +176,7 @@ Environment snapshot relationship:
 - `importFromRuntime` / `applyDrift` also write a snapshot row after overwriting design-time with runtime state. The synthetic `DesignAppVersion` id doubles as the `deploymentId` slot (globally unique via CosID), so these rows coexist with deployment snapshots without collision.
 
 ### Current Runtime Sync Coverage
-The current version-control and deployment pipeline only upgrades the following design-time models to runtime metadata:
+The current version-control and deployment pipeline upgrades the following design-time models to runtime metadata:
 - `DesignModel` -> `SysModel`
 - `DesignModelTrans` -> `SysModelTrans`
 - `DesignField` -> `SysField`
@@ -154,10 +186,10 @@ The current version-control and deployment pipeline only upgrades the following 
 - `DesignOptionSetTrans` -> `SysOptionSetTrans`
 - `DesignOptionItem` -> `SysOptionItem`
 - `DesignOptionItemTrans` -> `SysOptionItemTrans`
+- `DesignView` -> `SysView`
+- `DesignNavigation` -> `SysNavigation`
 
-The following design-time entities currently have CRUD support in `studio-starter`, but are not included in the release pipeline:
-- `DesignView`
-- `DesignNavigation`
+Runtime-only companion models are still outside the deployment stream. For example, `SysViewDefault` remains user-personal runtime state rather than design-time metadata.
 
 Runtime export (`/metadata/exportRuntimeMetadata`) is app-scoped: the studio passes the env's `appId`, and the runtime filters by the `appId` column for main models or joins through the parent row for translation models (`*Trans`). A single runtime hosting multiple apps will never leak sibling-app rows into drift comparison or import.
 
@@ -214,6 +246,10 @@ Notes:
    - Auto-freezes versions after successful PROD deployment
    - For new environments (no `currentVersionId`), all released versions up to the target are merged
 2. **Retry**: `POST /DesignDeployment/retry?id=`
+3. **Cancel stuck deployment**: `POST /DesignDeployment/cancel?id=`
+   - Only valid for `PENDING` / `DEPLOYING`
+   - Marks the record `ROLLED_BACK` and releases the env mutex
+   - Does **not** undo runtime DDL or data changes that may already have been applied
 
 Notes:
 - Every deploy is async end-to-end — `deployToEnv` returns the deployment id once the record is persisted, and completion is reported later by the target runtime's webhook at `POST /DesignDeployment/callback`.
@@ -257,7 +293,9 @@ Notes:
 ### Deployment
 | Endpoint | Description |
 | --- | --- |
-| `POST /DesignDeployment/retry?id=` | Retry a failed deployment |
+| `POST /DesignDeployment/retry?id=` | Retry a failed deployment by creating a new Deployment with the same parameters |
+| `POST /DesignDeployment/cancel?id=` | Cancel a stuck deployment (PENDING/DEPLOYING) and release the env mutex. No automatic rollback — runtime changes already applied stay applied |
+| `POST /DesignDeployment/callback` | Webhook endpoint — the runtime POSTs here with the SUCCESS/FAILURE payload once an async upgrade completes. Header `X-Softa-Callback-Token` must match the pending deployment |
 
 ### Environment
 | Endpoint                                            | Description |
@@ -311,12 +349,10 @@ Deployment selects the versions to merge from the app's released stream:
 ## Current Gaps
 
 ### Highest-Priority Fixes
-1. **Bring `DesignView` / `DesignNavigation` into the release pipeline**
-   - These entities have design-time CRUD, and runtime counterparts already exist, but they are not part of `VERSION_CONTROL_MODELS`. This is the highest-value functional gap because design changes cannot be promoted through environments today.
-2. **Close the deployment contract gaps**
-   - `README` previously mentioned rollback, and `DesignDeploymentStatus` includes `ROLLED_BACK`, but no automatic rollback service exists — `cancelDeployment` only unlocks the env for the next attempt.
-3. **Clean up reserved or partially wired environment/config fields**
-   - `DesignAppEnv.protectedEnv`, `active`, `clientId`, and `autoUpgrade` are not currently enforced in deployment flow.
+1. **Close the deployment contract gaps**
+   - `DesignDeploymentStatus` includes `ROLLED_BACK`, but no automatic rollback service exists — `cancelDeployment` only unlocks the env for the next attempt.
+2. **Clean up reserved or partially wired environment/config fields**
+   - `DesignAppEnv.protectedEnv`, `active`, and `autoUpgrade` are not currently enforced in deployment flow.
 
 ### Additional Notes
 - `DesignView.defaultView` is currently only a design-time flag. Runtime personal default views are managed by `SysViewDefault`.
@@ -324,6 +360,23 @@ Deployment selects the versions to merge from the app's released stream:
 - Some metadata fields are consumed outside `studio-starter`, mainly by `softa-orm` and `metadata-starter`. For example, `displayName`, `searchName`, `activeControl`, `multiTenant`, `versionLock`, `relatedField`, `joinLeft`, `joinRight`, `cascadedField`, `translatable`, `encrypted`, and `maskingType` do take effect at runtime.
 
 ## Status Enums
+
+### DesignAppStatus
+`Active` / `Maintenance` / `Deprecated`
+- `Active → Maintenance`: `enterMaintenance`
+- `Active → Deprecated`: `deprecate`
+- `Maintenance → Active`: `activate`
+
+### DesignPortfolioStatus
+`Active` / `Archived`
+- `Active → Archived`: `archive`
+- `Archived → Active`: `activate`
+
+### DesignAppEnvStatus
+`Stable` / `Deploying`
+- Per-environment deployment mutex via conditional update (compare-and-set on `envStatus`)
+- `Stable → Deploying`: acquired when a deployment starts
+- `Deploying → Stable`: released when deployment finishes (success, failure, or cancel)
 
 ### DesignAppVersionStatus
 `DRAFT` ⇄ `SEALED` → `FROZEN`
@@ -346,6 +399,11 @@ Deployment selects the versions to merge from the app's released stream:
 
 ### DesignDeploymentStatus
 `PENDING` → `DEPLOYING` → `SUCCESS` / `FAILURE` / `ROLLED_BACK`
+
+### DesignDriftCheckStatus
+`Success` / `Failure`
+- `Success`: drift check completed — `driftContent` reflects the actual runtime state
+- `Failure`: drift check failed (e.g. remote env unreachable) — previous drift content is kept as-is
 
 ### DesignAppEnvType
 `DEV`, `TEST`, `UAT`, `PROD`

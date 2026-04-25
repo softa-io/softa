@@ -156,7 +156,7 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
         update.setEnvStatus(DesignAppEnvStatus.DEPLOYING);
         Integer affected = appEnvService.updateByFilter(casFilter, update);
         Assert.isTrue(affected != null && affected == 1,
-                "Env {0} is currently DEPLOYING or missing — a concurrent deployment is in progress. Retry later.",
+                "Env {0} is currently Deploying or Importing. Retry later.",
                 targetEnv.getId());
         targetEnv.setEnvStatus(DesignAppEnvStatus.DEPLOYING);
     }

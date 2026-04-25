@@ -19,7 +19,7 @@ import io.softa.framework.base.constant.TimeConstant;
 public abstract class DateUtils {
 
     /**
-     * Get current UTC instant.
+     * Get the current UTC instant.
      */
     public static Instant getInstantNow() {
         return Instant.now();
@@ -43,7 +43,7 @@ public abstract class DateUtils {
     }
 
     /**
-     * Get current date in string format with the specified zone.
+     * Get the current date in string format with the specified zone.
      * @return datetime string
      */
     public static String  getCurrentLocalDateString(String zoneId) {
@@ -51,7 +51,7 @@ public abstract class DateUtils {
     }
 
     /**
-     * Get current date in string format with the system default zone.
+     * Get the current date in string format with the system default zone.
      * @return datetime string
      */
     public static String getCurrentSimpleDateString() {
@@ -59,7 +59,7 @@ public abstract class DateUtils {
     }
 
     /**
-     * Get current time in string format with the specified zone.
+     * Get the current time in string format with the specified zone.
      * @return datetime string
      */
     public static String getCurrentLocalTimeString(String zoneId) {
@@ -67,28 +67,28 @@ public abstract class DateUtils {
     }
 
     /**
-     * Get current year with the specified zone.
+     * Get the current year with the specified zone.
      */
     public static Integer getCurrentYear(String zoneId) {
         return getZonedDateTimeNow(zoneId).getYear();
     }
 
     /**
-     * Get current month with the specified zone.
+     * Get the current month with the specified zone.
      */
     public static Integer getCurrentMonth(String zoneId) {
         return getZonedDateTimeNow(zoneId).getMonthValue();
     }
 
     /**
-     * Get current local day with the specified zone.
+     * Get the current local day with the specified zone.
      */
     public static Integer getCurrentDay(String zoneId) {
         return getZonedDateTimeNow(zoneId).getDayOfMonth();
     }
 
     /**
-     * Get current hour with the specified zone.
+     * Get the current hour with the specified zone.
      */
     public static long getCurrentSeconds() {
         return Instant.now().getEpochSecond();
@@ -124,7 +124,7 @@ public abstract class DateUtils {
     }
 
     /**
-     * String date to specified type date object
+     * String date to a specified type date object
      * @param value date string
      * @param dateType date object type
      * @return date object

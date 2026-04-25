@@ -446,7 +446,7 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      * @return the number of rows affected
      */
     @Override
-    public Integer updateByFilter(Filters filters, T object) {
+    public int updateByFilter(Filters filters, T object) {
         Map<String, Object> value = BeanTool.objectToMap(object, true);
         return modelService.updateByFilter(modelName, filters, value);
     }

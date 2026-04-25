@@ -10,6 +10,7 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.security.EncryptUtils;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
@@ -444,7 +445,17 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
             }
             filterUnit.setOperator(operator);
             filterUnit.setValue(value);
+        } else {
+            formatFilterUnitValue(filterUnit);
         }
+    }
+
+    private void formatFilterUnitValue(FilterUnit filterUnit) {
+        Object obj = filterUnit.getValue();
+        if (obj instanceof Enum<?> enumValue) {
+            obj = JsonUtils.getMapper().convertValue(enumValue, String.class);
+        }
+        filterUnit.setValue(obj);
     }
 
     private record ResolvedTupleField(String fieldAlias, MetaField metaField) {}

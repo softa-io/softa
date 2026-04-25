@@ -20,6 +20,8 @@ public enum DesignAppEnvStatus {
     STABLE("Stable", "Stable"),
     /** A deployment is currently running against this env. */
     DEPLOYING("Deploying", "Deploying"),
+
+    IMPORTING("Importing", "Importing from runtime")
     ;
 
     @JsonValue

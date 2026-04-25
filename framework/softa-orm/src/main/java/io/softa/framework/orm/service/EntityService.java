@@ -291,7 +291,7 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      * @param object the object containing the updated values
      * @return the number of rows affected
      */
-    Integer updateByFilter(Filters filters, T object);
+    int updateByFilter(Filters filters, T object);
 
     /**
      * Deletes an entity by its ID.

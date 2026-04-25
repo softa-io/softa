@@ -306,7 +306,7 @@ public interface ModelService<K extends Serializable> {
      * @param value a map of field-value pairs to update
      * @return the number of rows affected
      */
-    Integer updateByFilter(String modelName, Filters filters, Map<String, Object> value);
+    int updateByFilter(String modelName, Filters filters, Map<String, Object> value);
 
     /**
      * Deletes a single row by its ID.

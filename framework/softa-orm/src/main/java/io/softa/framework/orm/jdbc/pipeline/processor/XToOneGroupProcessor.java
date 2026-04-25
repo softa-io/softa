@@ -19,6 +19,7 @@ import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.utils.ReflectTool;
@@ -127,6 +128,13 @@ public class XToOneGroupProcessor extends BaseProcessor {
         if (!CollectionUtils.isEmpty(relatedIds)) {
             // Query related model rows using filter: ["id", "IN", relatedIds]
             Filters filters = Filters.of(ModelConstant.ID, Operator.IN, relatedIds);
+            MetaModel relatedMetaModel = ModelManager.getModel(metaField.getRelatedModel());
+            if (relatedMetaModel.isActiveControl()) {
+                filters.in(ModelConstant.ACTIVE_CONTROL_FIELD, List.of(true, false));
+            }
+            if (relatedMetaModel.isSoftDelete()) {
+                filters.in(ModelConstant.SOFT_DELETED_FIELD, List.of(true, false));
+            }
             FlexQuery relatedFlexQuery = new FlexQuery(this.expandFields, filters);
             if (flexQuery != null) {
                 relatedFlexQuery.setConvertType(flexQuery.getConvertType());
