@@ -25,7 +25,7 @@ class Ed25519RequestSignerTest {
     void attachedHeadersVerifyAgainstStandaloneEd25519() throws Exception {
         KeyPair kp = Ed25519Keys.generate();
         MockClientHttpRequest request = new MockClientHttpRequest(
-                HttpMethod.POST, URI.create("https://runtime.example/metadata/upgrade"));
+                HttpMethod.POST, URI.create("https://runtime.example/upgrade/upgradeMetadata"));
         byte[] body = "{\"ping\":1}".getBytes(StandardCharsets.UTF_8);
 
         Ed25519Signer.attachHttpRequest(request, body, kp.getPrivate());
@@ -46,7 +46,7 @@ class Ed25519RequestSignerTest {
     void consecutiveAttachesRebuildFreshTimestampAndNonce() throws Exception {
         KeyPair kp = Ed25519Keys.generate();
         MockClientHttpRequest request = new MockClientHttpRequest(
-                HttpMethod.POST, URI.create("https://runtime.example/metadata/upgrade"));
+                HttpMethod.POST, URI.create("https://runtime.example/upgrade/upgradeMetadata"));
         byte[] body = new byte[]{1, 2, 3};
 
         Ed25519Signer.attachHttpRequest(request, body, kp.getPrivate());

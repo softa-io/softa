@@ -275,7 +275,7 @@ public class BeanTool {
      * @return bean object
      * @param <T> the bean object type
      */
-    public static <T> T mapToObject(@NotNull Map<String, Object> row, Class<T> entityClass) {
+    public static <T> T mapToObject(Map<String, Object> row, Class<T> entityClass) {
         return mapToObject(row, entityClass, true);
     }
 
@@ -287,7 +287,10 @@ public class BeanTool {
      * @return bean object
      * @param <T> the bean object type
      */
-    public static <T> T mapToObject(@NotNull Map<String, Object> row, Class<T> entityClass, boolean ignoreNotExist) {
+    public static <T> T mapToObject(Map<String, Object> row, Class<T> entityClass, boolean ignoreNotExist) {
+        if (row == null) {
+            return null;
+        }
         T bean;
         try {
             bean = entityClass.getDeclaredConstructor().newInstance();

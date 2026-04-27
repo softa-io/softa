@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class CanonicalRequestTest {
 
-    private static final URI URI_BASIC = URI.create("https://runtime.example.com/metadata/upgrade");
-    private static final URI URI_WITH_QUERY = URI.create("https://runtime.example.com/metadata/upgrade?modelName=sys_model");
+    private static final URI URI_BASIC = URI.create("https://runtime.example.com/upgrade/upgradeMetadata");
+    private static final URI URI_WITH_QUERY = URI.create("https://runtime.example.com/upgrade/upgradeMetadata?modelName=sys_model");
 
     @Test
     void layoutIsDeterministicNewlineSeparated() {
@@ -26,7 +26,7 @@ class CanonicalRequestTest {
         assertEquals("1700000000000", lines[1]);
         assertEquals("nonce-abc", lines[2]);
         assertEquals("POST", lines[3]);
-        assertEquals("/metadata/upgrade", lines[4]);
+        assertEquals("/upgrade/upgradeMetadata", lines[4]);
         // SHA-256 of "{}" is lowercase hex of 64 chars.
         assertEquals(64, lines[5].length());
         assertTrue(lines[5].matches("[0-9a-f]{64}"));

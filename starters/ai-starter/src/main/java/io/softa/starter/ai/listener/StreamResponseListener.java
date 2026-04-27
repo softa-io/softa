@@ -61,7 +61,7 @@ public class StreamResponseListener extends EventSourceListener {
                 // Send stream end message to client
                 sseEmitter.send(AiConstant.STREAM_END_MESSAGE);
             } catch (IOException e) {
-                log.warn("Failed to send stream end message to client: {}", e.getMessage());
+                log.warn("Failed to send stream end message to client: {}", e.getMessage(), e);
                 // Continue to execute the subsequent logic
             }
             // Finish the stream and send the merged message to the listener callback method.

@@ -50,7 +50,7 @@ public class ContextScopeFilter implements Filter {
                 runInScope(userContext, request, response, chain);
             } catch (UserNotFoundException e) {
                 // Must-login endpoint but no user => legacy behavior: USER_NOT_FOUND JSON
-                log.info("User context resolution failed: {}", e.getMessage());
+                log.warn("UserNotFoundException: {}", e.getMessage());
                 this.userNotFound(httpRes, e.getMessage());
             } catch (BaseException e) {
                 log.error("Failed to build user context", e);
@@ -59,8 +59,11 @@ public class ContextScopeFilter implements Filter {
         } else if (IdentifyType.ANONYMOUS.equals(identifyRequired)) {
             Context anonymousContext = contextBuilder.buildAnonymousContext(httpReq);
             runInScope(anonymousContext, request, response, chain);
+        } else if (IdentifyType.INTERNAL.equals(identifyRequired) || IdentifyType.OPERATION.equals(identifyRequired)) {
+            Context serviceContext = contextBuilder.buildServiceContext(httpReq);
+            runInScope(serviceContext, request, response, chain);
         } else {
-            // IdentifyType.NONE, skip context binding
+            // IdentifyType.NONE / OPENAPI, skip context binding
             chain.doFilter(request, response);
         }
     }

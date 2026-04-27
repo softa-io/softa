@@ -1,15 +1,20 @@
 package io.softa.framework.base.config;
 
+import java.net.URI;
 import java.util.List;
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.constraints.AssertTrue;
 import lombok.Data;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.StringUtils;
+import org.springframework.validation.annotation.Validated;
 
 @Data
 @Configuration
 @ConfigurationProperties(prefix = "system")
+@Validated
 public class SystemConfig {
 
     private String name;
@@ -87,4 +92,22 @@ public class SystemConfig {
         return host + path;
     }
 
+    @AssertTrue(message = "system.public-access-url must be an absolute http(s) base URL without context path, e.g. http://localhost:8080")
+    public boolean isPublicAccessUrlValid() {
+        if (!StringUtils.hasText(publicAccessUrl)) {
+            return true; // 在 base 模块里先保持可选
+        }
+        try {
+            URI uri = URI.create(publicAccessUrl);
+            String scheme = uri.getScheme();
+            String path = uri.getPath();
+            return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    && StringUtils.hasText(uri.getHost())
+                    && uri.getQuery() == null
+                    && uri.getFragment() == null
+                    && (path == null || path.isBlank() || "/".equals(path));
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
 }

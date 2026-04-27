@@ -110,6 +110,30 @@ public class ContextBuilder {
     }
 
     /**
+     * Build a context for service-to-service calls that authenticate via request
+     * signing rather than a logged-in user (e.g. studio → runtime metadata upgrade).
+     * No user identity is bound; tenant filtering is bypassed via {@code crossTenant}
+     * because the calling service may target tenants the request itself didn't name.
+     * TraceId/correlationId/language/debug are still propagated so the downstream
+     * handler keeps the same observability surface as a normal request.
+     */
+    public Context buildServiceContext(HttpServletRequest request) {
+        String traceId = request.getHeader(BaseConstant.X_B3_TRACEID);
+        Context context = new Context(traceId);
+        Language language = this.getCurrentLanguage(request, null);
+        context.setLanguage(language);
+        String timezone = request.getHeader("X-Timezone");
+        if (StringUtils.isNotBlank(timezone)) {
+            context.setTimezone(Timezone.of(timezone));
+        }
+        context.setCorrelationId(request.getHeader(BaseConstant.X_CORRELATION_ID));
+        context.setCrossTenant(true);
+        context.setSkipPermissionCheck(true);
+        this.setDebugModeFromRequest(request, context);
+        return context;
+    }
+
+    /**
      * Setup context for anonymous users or requests that do not require permission check.
      * Extract language from request headers or query params, and timezone from customized request headers.
      *

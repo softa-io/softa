@@ -331,7 +331,6 @@ CREATE TABLE sys_model_index(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)   DEFAULT 0 COMMENT 'APP ID' ,
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Index Title' ,
-    code VARCHAR(64)   DEFAULT '' COMMENT 'Index Code' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
     model_id BIGINT(32) NOT NULL  DEFAULT 0 COMMENT 'Model ID' ,
     index_name VARCHAR(64)   DEFAULT '' COMMENT 'Index Name' ,

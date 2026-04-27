@@ -1,6 +1,5 @@
 package io.softa.framework.base.utils;
 
-import io.softa.framework.base.exception.JSONException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -10,6 +9,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+
+import io.softa.framework.base.exception.JSONException;
 
 /**
  * JSON Object Mapper
@@ -39,7 +40,9 @@ public class JsonUtils {
      * @return JSON String
      */
     public static String objectToString(Object object) {
-        if (object instanceof String str) {
+        if (object == null) {
+            return null;
+        } else if (object instanceof String str) {
             return str;
         }
         try {
@@ -56,7 +59,7 @@ public class JsonUtils {
      * @return object instance
      */
     public static <T> T stringToObject(String json, Class<T> tClass) {
-        if (json == null) {
+        if (json == null || json.isBlank()) {
             return null;
         } else if (tClass == String.class) {
             return Cast.of(json);
@@ -75,8 +78,19 @@ public class JsonUtils {
      * @return Map or List object
      */
     public static <T> T stringToObject(String json, TypeReference<T> valueTypeRef) {
-        if (json == null) {
-            return null;
+        return stringToObject(json, valueTypeRef, null);
+    }
+
+    /**
+     * String to Map or List Object
+     * @param json JSON string
+     * @param valueTypeRef: such as `new TypeReference<List<Object>>() {}` or `new TypeReference<Map<String, Object>>() {}`
+     * @param defaultValue default value when JSON is null or blank
+     * @return Map or List object
+     */
+    public static <T> T stringToObject(String json, TypeReference<T> valueTypeRef, T defaultValue) {
+        if (json == null || json.isBlank()) {
+            return defaultValue;
         } else if (valueTypeRef.getType().equals(String.class)) {
             return Cast.of(json);
         }
@@ -94,7 +108,7 @@ public class JsonUtils {
      * @return object instance
      */
     public static <T> T stringToObject(String json, JavaType javaType) {
-        if (json == null) {
+        if (json == null || json.isBlank()) {
             return null;
         } else if (javaType.getRawClass() == String.class) {
             return Cast.of(json);

@@ -5,5 +5,6 @@ public enum IdentifyType {
     OPENAPI,
     ANONYMOUS,
     INTERNAL,
+    OPERATION,
     NONE
 }
