@@ -33,6 +33,8 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.web.signature.Ed25519Keys;
 import io.softa.starter.metadata.constant.MetadataConstant;
+import io.softa.starter.studio.release.dto.DriftEnvelopeDTO;
+import io.softa.starter.studio.release.dto.DriftReportMapper;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
@@ -41,6 +43,7 @@ import io.softa.starter.studio.release.entity.DesignAppEnvSnapshot;
 import io.softa.starter.studio.release.entity.DesignAppVersion;
 import io.softa.starter.studio.release.enums.DesignAppEnvStatus;
 import io.softa.starter.studio.release.enums.DesignAppVersionStatus;
+import io.softa.starter.studio.release.enums.DesignAppVersionType;
 import io.softa.starter.studio.release.enums.DesignDriftCheckStatus;
 import io.softa.starter.studio.release.service.DesignAppEnvDriftService;
 import io.softa.starter.studio.release.service.DesignAppEnvService;
@@ -169,6 +172,28 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
                 .orElseGet(List::of);
     }
 
+    @Override
+    public DriftEnvelopeDTO getDriftEnvelope(Long envId) {
+        Assert.notNull(envId, "envId must not be null");
+        return findDriftByEnvId(envId)
+                .map(this::toEnvelope)
+                .orElseGet(() -> DriftEnvelopeDTO.builder().envId(envId).build());
+    }
+
+    private DriftEnvelopeDTO toEnvelope(DesignAppEnvDrift row) {
+        List<ModelChangesDTO> drift = row.getDriftContent() == null
+                ? List.of()
+                : JsonUtils.jsonNodeToObject(row.getDriftContent(), new TypeReference<>() {});
+        return DriftEnvelopeDTO.builder()
+                .envId(row.getEnvId())
+                .checkStatus(row.getCheckStatus())
+                .errorMessage(row.getErrorMessage())
+                .lastCheckedTime(row.getLastCheckedTime())
+                .hasDrift(Boolean.TRUE.equals(row.getHasDrift()))
+                .reports(DriftReportMapper.toReport(drift))
+                .build();
+    }
+
     /**
      * Issue a new Ed25519 keypair for the env.
      * <p>
@@ -239,7 +264,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
             writeImportedSnapshot(appEnv, synthetic.getId(), baseline, drift);
             clearDriftCache(appEnv);
         } finally {
-            releaseEnvLock(envId);
+            releaseEnvLock(appEnv);
         }
     }
 
@@ -249,23 +274,16 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
      * in flight — import and deploy cannot be concurrent on the same env.
      */
     private void acquireEnvLock(DesignAppEnv appEnv) {
-        Filters casFilter = new Filters()
-                .eq(DesignAppEnv::getId, appEnv.getId())
-                .eq(DesignAppEnv::getEnvStatus, DesignAppEnvStatus.STABLE);
-        DesignAppEnv update = new DesignAppEnv();
-        update.setEnvStatus(DesignAppEnvStatus.IMPORTING);
-        int affected = this.updateByFilter(casFilter, update);
-        Assert.isTrue(affected == 1,
+        Assert.isEqual(appEnv.getEnvStatus(), DesignAppEnvStatus.STABLE,
                 "Env {0} is currently Deploying or Importing. Retry later.",
-                appEnv.getId());
+                appEnv.getName());
         appEnv.setEnvStatus(DesignAppEnvStatus.IMPORTING);
+        this.updateOne(appEnv);
     }
 
-    private void releaseEnvLock(Long envId) {
-        Filters filter = new Filters().eq(DesignAppEnv::getId, envId);
-        DesignAppEnv update = new DesignAppEnv();
-        update.setEnvStatus(DesignAppEnvStatus.STABLE);
-        this.updateByFilter(filter, update);
+    private void releaseEnvLock(DesignAppEnv appEnv) {
+        appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
+        this.updateOne(appEnv);
     }
 
     /**
@@ -355,6 +373,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
         version.setAppId(appEnv.getAppId());
         version.setName("imported-from-runtime-" + now.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         version.setStatus(DesignAppVersionStatus.FROZEN);
+        version.setVersionType(DesignAppVersionType.NORMAL);
         version.setSealedTime(now);
         version.setFrozenTime(now);
         version.setVersionedContent(JsonUtils.objectToJsonNode(List.<ModelChangesDTO>of()));
@@ -443,6 +462,14 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
      * Recompute the drift for this env and upsert the cached {@link DesignAppEnvDrift}
      * row. Runtime data is fetched in parallel across version-controlled models to keep
      * the overall latency close to the slowest single RPC rather than the sum.
+     * <p>
+     * When no snapshot exists yet (env has never been deployed) the diff runs against
+     * an empty baseline. Every runtime row then surfaces as a {@code deletedRow}
+     * (runtime-only), which is exactly what {@code importFromRuntime} → {@code applyDrift}
+     * needs to seed a fresh studio app from a runtime that already owns authoritative
+     * metadata. Earlier this path short-circuited to {@code List.of()} which broke
+     * first-time import — see {@code applyDrift}'s baseline {@code orElseGet(LinkedHashMap::new)}
+     * for the symmetric handling on the apply side.
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -450,23 +477,17 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
         DesignAppEnv appEnv = this.getById(envId)
                 .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
 
-        DesignAppEnvSnapshot snapshot = findLatestSnapshotByEnvId(envId).orElse(null);
-        if (snapshot == null) {
-            // No deployment has happened yet — nothing to diff against. Record this so the
-            // UI can distinguish "never deployed" from "deployed, no drift".
-            upsertDriftRecord(appEnv, DesignDriftCheckStatus.SUCCESS, List.of(),
-                    "No snapshot — env has never been deployed.");
-            return;
-        }
-
-        Map<String, List<Map<String, Object>>> snapshotData = JsonUtils.jsonNodeToObject(
-                snapshot.getSnapshot(), new TypeReference<>() {});
+        Map<String, List<Map<String, Object>>> snapshotData = findLatestSnapshotByEnvId(envId)
+                .map(DesignAppEnvSnapshot::getSnapshot)
+                .<Map<String, List<Map<String, Object>>>>map(node ->
+                        JsonUtils.jsonNodeToObject(node, new TypeReference<>() {}))
+                .orElseGet(LinkedHashMap::new);
 
         try {
             List<ModelChangesDTO> drift = computeDriftInParallel(appEnv, snapshotData);
             upsertDriftRecord(appEnv, DesignDriftCheckStatus.SUCCESS, drift, null);
         } catch (RuntimeException e) {
-            log.warn("Drift check failed for env {}: {}", envId, e.getMessage());
+            log.error("Drift check failed for env {}: {}", envId, e.getMessage(), e);
             // Preserve the previous driftContent — we couldn't prove drift is gone,
             // and we don't want to silently "clear" it on a transient error.
             List<ModelChangesDTO> previous = compareDesignWithRuntime(envId);
@@ -546,7 +567,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
         driftService.createOrUpdate(List.of(record), List.of(
                 DesignAppEnvDrift::getAppId,
                 DesignAppEnvDrift::getEnvId
-        ));
+        ), false);
     }
 
     private Optional<DesignAppEnvDrift> findDriftByEnvId(Long envId) {
@@ -614,6 +635,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
     private Optional<DesignAppEnvSnapshot> findLatestSnapshotByEnvId(Long envId) {
         Filters filters = new Filters().eq(DesignAppEnvSnapshot::getEnvId, envId);
         FlexQuery query = new FlexQuery(filters, Orders.ofDesc(ModelConstant.ID));
+        query.setLimitSize(1);
         return snapshotService.searchOne(query);
     }
 
@@ -756,8 +778,6 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
         RowChangeDTO dto = new RowChangeDTO(modelName, extractRowId(row));
         dto.setAccessType(accessType);
         dto.setCurrentData(new HashMap<>(row));
-        dto.setLastChangedById((Long) row.get(ModelConstant.UPDATED_ID));
-        dto.setLastChangedBy((String) row.get(ModelConstant.UPDATED_BY));
         dto.setLastChangedTime(DateUtils.dateTimeToString(row.get(ModelConstant.UPDATED_TIME)));
         return dto;
     }

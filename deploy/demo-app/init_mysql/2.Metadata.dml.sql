@@ -1808,7 +1808,7 @@ DELETE FROM sys_field WHERE model_name = 'DesignModel';
 
 -- Insert model metadata
 INSERT INTO sys_model(label_name, model_name, table_name, description, default_order, display_name, search_name, timeline, id_strategy, soft_delete, soft_delete_field, active_control, multi_tenant, version_lock, data_source, service_name, business_key, partition_field) 
-    VALUES('Design Model', 'DesignModel', 'design_model', '', 'modelName', 'modelName,labelName', '', false, 'DistributedLong', false,  '', false, false, false, '', '', 'modelName', '');
+    VALUES('Design Model', 'DesignModel', 'design_model', '', 'modelName', 'modelName,labelName', 'modelName,labelName', false, 'DistributedLong', false,  '', false, false, false, '', '', 'modelName', '');
 
 -- Insert field metadata
 INSERT INTO sys_field(label_name, field_name, column_name, model_name, description, field_type, option_set_code, related_model, related_field, join_model, join_left, join_right, cascaded_field, filters, default_value, length, scale, required, readonly, translatable, non_copyable, unsearchable, computed, expression, dynamic, encrypted, masking_type, widget_type)

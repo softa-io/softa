@@ -69,6 +69,9 @@ public class DesignWorkItemServiceImpl extends EntityServiceImpl<DesignWorkItem,
                         || workItem.getStatus() == DesignWorkItemStatus.DEFERRED,
                 "Only IN_PROGRESS, DONE, or DEFERRED WorkItems can be cancelled! Current status: {0}",
                 workItem.getStatus());
+        Assert.isTrue(workItem.getVersionId() == null,
+                "WorkItem {0} belongs to version {1} — remove it from the version before cancelling!",
+                id, workItem.getVersionId());
         workItem.setStatus(DesignWorkItemStatus.CANCELLED);
         this.updateOne(workItem);
     }
@@ -100,6 +103,9 @@ public class DesignWorkItemServiceImpl extends EntityServiceImpl<DesignWorkItem,
                         || workItem.getStatus() == DesignWorkItemStatus.DEFERRED,
                 "Only DONE, CANCELLED, or DEFERRED WorkItems can be reopened! Current status: {0}",
                 workItem.getStatus());
+        Assert.isTrue(workItem.getVersionId() == null,
+                "WorkItem {0} belongs to version {1} — remove it from the version before reopening!",
+                id, workItem.getVersionId());
         workItem.setClosedTime(null);
         workItem.setStatus(DesignWorkItemStatus.IN_PROGRESS);
         this.updateOne(workItem, false);

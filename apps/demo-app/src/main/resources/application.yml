@@ -60,6 +60,7 @@ logging:
   level:
     root: info
     org.apache.fontbox.ttf.CmapSubtable: error
+    org.springframework.jdbc.core.JdbcTemplate: info
 
 springdoc:
   writer-with-order-by-keys: true

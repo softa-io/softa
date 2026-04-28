@@ -58,6 +58,43 @@ class PebbleSqlTemplateWhitespaceTest {
     }
 
     @Test
+    void mysqlAlterTableDescriptionOnlyKeepsSemicolonAttached() {
+        // Regression: when only descriptionChanged is true and all field lists are empty,
+        // the trailing ';' must be on the same line as the COMMENT clause.
+        ModelDdlCtx model = baseModel("user_role", "User Role", "id", false);
+        model.setDescriptionChanged(true);
+
+        String sql = render("templates/sql/mysql/AlterTable.peb", model);
+
+        assertEquals("""
+                /* Alter table for model: User Role */
+                /* Review for large tables: MySQL ALTER TABLE may rewrite the table and lock it.
+                   Prefer `ALGORITHM=INPLACE, LOCK=NONE` or an online DDL tool when applicable. */
+                ALTER TABLE user_role COMMENT 'User Role';
+                """.stripTrailing(), sql.stripTrailing());
+    }
+
+    @Test
+    void mysqlAlterTableTrailingSemicolonAttachesWhenLastNonEmptyLoopIsNotRenamed() {
+        // Regression: when the last non-empty field loop is not renamedFields,
+        // ';' must still be attached to the last clause (not on its own line).
+        ModelDdlCtx model = baseModel("dept_info2", "Dept", "id", false);
+        model.getDeletedFields().add(field("alias", "VARCHAR", "VARCHAR(64)", false, false, null, ""));
+        model.getUpdatedFields().add(field("dept_rank", "VARCHAR", "VARCHAR(64)", false, false, null, ""));
+
+        String sql = render("templates/sql/mysql/AlterTable.peb", model);
+
+        assertEquals("""
+                /* Alter table for model: Dept */
+                /* Review for large tables: MySQL ALTER TABLE may rewrite the table and lock it.
+                   Prefer `ALGORITHM=INPLACE, LOCK=NONE` or an online DDL tool when applicable. */
+                ALTER TABLE dept_info2
+                    DROP COLUMN alias,
+                    MODIFY COLUMN dept_rank VARCHAR(64) COMMENT '';
+                """.stripTrailing(), sql.stripTrailing());
+    }
+
+    @Test
     void mysqlAlterIndexSeparatesStatementsWithNewlines() {
         ModelDdlCtx model = baseModel("orders", "Order", "id", false);
         model.getDeletedIndexes().add(index("idx_old", false, "old_col"));

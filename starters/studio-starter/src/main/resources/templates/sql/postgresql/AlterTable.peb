@@ -56,7 +56,6 @@ COMMENT ON COLUMN {{ tableName }}.{{ field.columnName }} IS '{{ field.descriptio
 {% endmacro %}
 {% if model.renamed or model.hasAlterTableChanges %}
 /* Alter table for model: {{ model.labelName }} */
-/* Review for large tables: PostgreSQL ALTER TABLE may take an ACCESS EXCLUSIVE lock. */
 {% endif %}
 {% if model.renamed %}
 ALTER TABLE {{ model.oldTableName }} RENAME TO {{ model.tableName }};

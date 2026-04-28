@@ -37,7 +37,7 @@ public abstract class ESServiceImpl<T> implements ESService<T> {
     private Class<T> entityClass;
 
     @Autowired
-    private ElasticsearchOperations esOperations;
+    protected ElasticsearchOperations esOperations;
 
     /** Get entity class **/
     @SuppressWarnings("unchecked")
@@ -67,7 +67,25 @@ public abstract class ESServiceImpl<T> implements ESService<T> {
      * @param page      paging object
      * @return a page of indexed data
      */
+    @Override
     public Page<T> searchPage(Filters filters, Orders orders, Page<T> page) {
+        return searchPage(getEntityClass(), filters, orders, page);
+    }
+
+    /**
+     * Execute the paged ES query against an arbitrary target document class.
+     * Allows subclasses to query a storage-shaped DTO (e.g. with JSON-string
+     * payload fields) and map back to the public entity afterwards.
+     *
+     * @param targetClass document class to deserialize hits into
+     * @param filters     filter conditions
+     * @param orders      sort rules
+     * @param page        paging object — populated with totalCount and rows
+     * @param <U>         target document type
+     * @return the same {@code page}, with hits and total count filled in
+     */
+    @Override
+    public <U> Page<U> searchPage(Class<U> targetClass, Filters filters, Orders orders, Page<U> page) {
         Criteria criteria = this.convertFilters(filters);
         Query query = new CriteriaQuery(criteria);
         // ES offset is started from 0, so the calculation is '(page - 1) * pageSize'
@@ -85,13 +103,12 @@ public abstract class ESServiceImpl<T> implements ESService<T> {
         // Set trackTotalHits
         query.setTrackTotalHits(true);
         // Execute query
-        SearchHits<T> searchHits = esOperations.search(query, getEntityClass(), IndexCoordinates.of(getIndexName()));
-        List<T> entityList = searchHits.getSearchHits().stream().map(SearchHit::getContent).toList();
+        SearchHits<U> searchHits = esOperations.search(query, targetClass, IndexCoordinates.of(getIndexName()));
+        List<U> entityList = searchHits.getSearchHits().stream().map(SearchHit::getContent).toList();
         page.setTotalCount(searchHits.getTotalHits());
         page.setRows(entityList);
         return page;
     }
-
 
     /**
      * Convert Filters to ES query criteria

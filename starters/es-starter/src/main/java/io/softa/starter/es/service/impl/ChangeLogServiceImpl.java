@@ -20,6 +20,7 @@ import io.softa.framework.orm.jdbc.pipeline.DataPipelineProxy;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
+import io.softa.starter.es.document.ChangeLogDocument;
 import io.softa.starter.es.service.ChangeLogService;
 
 import static io.softa.framework.orm.constant.ModelConstant.SLICE_ID;
@@ -48,6 +49,21 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
     /** ES service implementation class must specify the index name by implementing this method */
     public String getIndexName() {
         return changeLogIndexName;
+    }
+
+    /**
+     * ChangeLog is persisted in ES as {@link ChangeLogDocument} (the two payload
+     * maps are flattened to JSON strings on the wire), so query through the
+     * document class and translate the page back before returning.
+     */
+    @Override
+    public Page<ChangeLog> searchPage(Filters filters, Orders orders, Page<ChangeLog> page) {
+        Page<ChangeLogDocument> docPage = new Page<>(
+                page.getPageNumber(), page.getPageSize(), page.isCursorPage(), page.isCount());
+        super.searchPage(ChangeLogDocument.class, filters, orders, docPage);
+        page.setTotalCount(docPage.getTotalCount());
+        page.setRows(docPage.getRows().stream().map(ChangeLogDocument::toChangeLog).toList());
+        return page;
     }
 
     /**
@@ -161,7 +177,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
         // Default sort by changedTime in reverse order
         Orders orders = Orders.DESC.equals(order) ? Orders.ofDesc(ChangeLog::getChangedTime) : Orders.ofAsc(ChangeLog::getChangedTime);
         // Query the change log of the specified filters and rowId
-        Filters filters = new Filters().eq(ChangeLog::getModel, model).eq(ChangeLog::getRowId, pKey);
+        Filters filters = new Filters().eq(ChangeLog::getModel, model).eq(ChangeLog::getRowId, pKey.toString());
         if (!includeCreation) {
             // When not including the initial creation record, only match UPDATE and DELETE records
             filters.in(ChangeLog::getAccessType, Arrays.asList(UPDATE, DELETE));

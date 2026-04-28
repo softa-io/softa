@@ -7,7 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Envelope for the {@code /metadata/upgrade} endpoint.
+ * Envelope for the {@code /upgrade/upgradeMetadata} endpoint.
  * <p>
  * The runtime validates the envelope synchronously, stashes the callback coordinates,
  * returns 202 immediately, and applies the packages on a background virtual thread.

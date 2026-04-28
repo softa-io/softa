@@ -7,8 +7,6 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.Base64;
-import java.util.List;
-import java.util.Optional;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
@@ -20,9 +18,6 @@ import org.jspecify.annotations.NonNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.method.HandlerMethod;
-import org.springframework.web.servlet.HandlerExecutionChain;
-import org.springframework.web.servlet.HandlerMapping;
 
 import io.softa.framework.base.exception.SignatureException;
 import io.softa.framework.web.signature.Ed25519Signer;
@@ -34,10 +29,10 @@ import io.softa.framework.web.signature.support.CanonicalRequest;
  * convention (the canonical form + three header names owned by
  * {@code softa-web}).
  * <p>
- * Annotation-scoped: the filter resolves the incoming request to a
- * {@link HandlerMethod} and only enforces verification when the handler
- * (or its declaring class) carries {@link io.softa.framework.web.signature.RequireSignature}. Non-signed
- * endpoints on the same service pass through untouched.
+ * Path-scoped: registered against the signed URL prefix in
+ * {@link SignatureConfig}. Every request routed through this filter is
+ * verified unconditionally — the URL pattern is the contract, there is no
+ * per-handler opt-out.
  * <p>
  * The filter authenticates request <em>origin</em> — it proves the request
  * was signed by the configured signer, that the body wasn't tampered with,
@@ -54,24 +49,15 @@ import io.softa.framework.web.signature.support.CanonicalRequest;
 public class SignatureVerificationFilter extends OncePerRequestFilter {
 
     private final PublicKey publicKey;
-    private final List<HandlerMapping> handlerMappings;
 
-    public SignatureVerificationFilter(PublicKey publicKey, List<HandlerMapping> handlerMappings) {
+    public SignatureVerificationFilter(PublicKey publicKey) {
         this.publicKey = publicKey;
-        this.handlerMappings = handlerMappings;
     }
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain chain) throws IOException, jakarta.servlet.ServletException {
-        // Resolve the handler first so unsigned endpoints within this filter's URL
-        // pattern don't pay the body-buffering cost. Only the signed endpoints end
-        // up reading the full body into memory for hashing.
-        if (!requiresSignature(request)) {
-            chain.doFilter(request, response);
-            return;
-        }
         CachedBodyRequest cached = new CachedBodyRequest(request);
         try {
             verify(cached);
@@ -82,23 +68,6 @@ public class SignatureVerificationFilter extends OncePerRequestFilter {
             return;
         }
         chain.doFilter(cached, response);
-    }
-
-    private boolean requiresSignature(HttpServletRequest request) {
-        try {
-            for (HandlerMapping mapping : handlerMappings) {
-                HandlerExecutionChain hc = mapping.getHandler(request);
-                if (hc == null) continue;
-                Object handler = hc.getHandler();
-                if (handler instanceof HandlerMethod hm) {
-                    return hm.hasMethodAnnotation(io.softa.framework.web.signature.RequireSignature.class)
-                            || hm.getBeanType().isAnnotationPresent(io.softa.framework.web.signature.RequireSignature.class);
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Handler resolution failed while checking signature requirement", e);
-        }
-        return false;
     }
 
     private void verify(CachedBodyRequest request) {
@@ -177,11 +146,5 @@ public class SignatureVerificationFilter extends OncePerRequestFilter {
         public BufferedReader getReader() {
             return new BufferedReader(new InputStreamReader(getInputStream(), StandardCharsets.UTF_8));
         }
-    }
-
-    /** Expose so tests / helpers can peek at the resolved body. */
-    @SuppressWarnings("unused")
-    private static Optional<byte[]> bodyOf(HttpServletRequest request) {
-        return request instanceof CachedBodyRequest cbr ? Optional.of(cbr.getBody()) : Optional.empty();
     }
 }

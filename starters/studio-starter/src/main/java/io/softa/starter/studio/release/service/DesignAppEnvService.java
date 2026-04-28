@@ -3,6 +3,7 @@ package io.softa.starter.studio.release.service;
 import java.util.List;
 
 import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.studio.release.dto.DriftEnvelopeDTO;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 
@@ -37,6 +38,23 @@ public interface DesignAppEnvService extends EntityService<DesignAppEnv, Long> {
      * @return List of model changes representing drift between snapshot and runtime
      */
     List<ModelChangesDTO> compareDesignWithRuntime(Long envId);
+
+    /**
+     * Drift-oriented view of {@link #compareDesignWithRuntime(Long)} for UI consumption,
+     * wrapped with the cache metadata (lastCheckedTime / checkStatus / errorMessage) so
+     * the frontend can render a freshness hint without a second round-trip.
+     * <p>
+     * Reshapes the deploy-direction graph returned by {@link #compareDesignWithRuntime(Long)}
+     * into rows that carry {@code expected} (snapshot) and {@code actual} (runtime) sides
+     * directly, tagged with a {@code DriftKind} read from the operator's perspective
+     * (RUNTIME_ADDED / RUNTIME_DELETED / RUNTIME_MODIFIED). The deploy-direction view is
+     * still served to the internal apply path; this method exists so the read API does
+     * not leak that orientation to clients.
+     *
+     * @param envId Environment ID
+     * @return drift envelope; {@code reports} is empty when no drift / never checked
+     */
+    DriftEnvelopeDTO getDriftEnvelope(Long envId);
 
     /**
      * Recompute the drift between the design-time snapshot and the runtime metadata

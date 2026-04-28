@@ -70,7 +70,16 @@ public final class VersionMerger {
                 }
                 switch (row.getAccessType()) {
                     case CREATE -> dto.addCreatedRow(row);
-                    case UPDATE -> dto.addUpdatedRow(row);
+                    case UPDATE -> {
+                        // Skip UPDATE rows that net out to no change after the per-row cleanup
+                        // (e.g. UPDATE+UPDATE with full revert, or DELETE+CREATE with identical content)
+                        boolean noBefore = row.getDataBeforeChange() == null || row.getDataBeforeChange().isEmpty();
+                        boolean noAfter = row.getDataAfterChange() == null || row.getDataAfterChange().isEmpty();
+                        if (noBefore && noAfter) {
+                            continue;
+                        }
+                        dto.addUpdatedRow(row);
+                    }
                     case DELETE -> dto.addDeletedRow(row);
                 }
             }
@@ -130,12 +139,22 @@ public final class VersionMerger {
         } else if (existingType == AccessType.UPDATE && laterType == AccessType.UPDATE) {
             // UPDATE + UPDATE = UPDATE with merged changes
             existing.setCurrentData(laterRow.getCurrentData());
-            // dataBeforeChange: keep the earliest "before" (existing already has it)
+            // dataBeforeChange: existing keeps its value for overlapping keys (earliest "before"
+            // wins); fill in keys that only the later version touched
+            if (laterRow.getDataBeforeChange() != null) {
+                laterRow.getDataBeforeChange().forEach(existing.getDataBeforeChange()::putIfAbsent);
+            }
             // dataAfterChange: later version wins for overlapping fields
             existing.mergeDataAfterChange(laterRow.getDataAfterChange());
             existing.setLastChangedById(laterRow.getLastChangedById());
             existing.setLastChangedBy(laterRow.getLastChangedBy());
             existing.setLastChangedTime(laterRow.getLastChangedTime());
+            // Drop fields that net-out to no change across versions (e.g. V1 sets A→B and V2
+            // sets B→A) and trim dataBeforeChange to the actually-changed keys
+            Map<String, Object> before = existing.getDataBeforeChange();
+            Map<String, Object> after = existing.getDataAfterChange();
+            after.entrySet().removeIf(e -> Objects.equals(e.getValue(), before.get(e.getKey())));
+            before.keySet().retainAll(after.keySet());
         } else if (existingType == AccessType.UPDATE && laterType == AccessType.DELETE) {
             // UPDATE + DELETE = DELETE, but preserve original dataBeforeChange
             existing.setAccessType(AccessType.DELETE);
@@ -145,15 +164,29 @@ public final class VersionMerger {
             existing.setLastChangedBy(laterRow.getLastChangedBy());
             existing.setLastChangedTime(laterRow.getLastChangedTime());
         } else if (existingType == AccessType.DELETE && laterType == AccessType.CREATE) {
-            // DELETE + CREATE = UPDATE (row was deleted then re-created, net effect is update)
+            // DELETE + CREATE = UPDATE: row was deleted then re-created with the same id.
+            // existing.currentData carries the pre-deletion snapshot — capture it as the
+            // "before" state before we overwrite currentData with the new row content.
+            Map<String, Object> beforeSnapshot = existing.getCurrentData() != null
+                    ? new HashMap<>(existing.getCurrentData())
+                    : new HashMap<>();
+            Map<String, Object> afterSnapshot = laterRow.getCurrentData() != null
+                    ? new HashMap<>(laterRow.getCurrentData())
+                    : new HashMap<>();
+
             existing.setAccessType(AccessType.UPDATE);
-            existing.setCurrentData(laterRow.getCurrentData());
-            // dataBeforeChange: the DELETE's currentData was the state before deletion
-            // dataAfterChange: the CREATE's currentData is the new state
-            existing.setDataAfterChange(new HashMap<>(laterRow.getCurrentData()));
+            existing.setCurrentData(afterSnapshot);
+            existing.setDataBeforeChange(beforeSnapshot);
+            existing.setDataAfterChange(new HashMap<>(afterSnapshot));
             existing.setLastChangedById(laterRow.getLastChangedById());
             existing.setLastChangedBy(laterRow.getLastChangedBy());
             existing.setLastChangedTime(laterRow.getLastChangedTime());
+
+            // Drop fields where pre-deletion and re-created values happen to coincide
+            Map<String, Object> before = existing.getDataBeforeChange();
+            Map<String, Object> after = existing.getDataAfterChange();
+            after.entrySet().removeIf(e -> Objects.equals(e.getValue(), before.get(e.getKey())));
+            before.keySet().retainAll(after.keySet());
         } else {
             // Unexpected combination (e.g., CREATE+CREATE, DELETE+DELETE, DELETE+UPDATE)
             // Treat as override — later version wins entirely

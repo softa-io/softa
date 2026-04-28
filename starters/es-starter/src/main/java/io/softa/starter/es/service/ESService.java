@@ -20,4 +20,5 @@ public interface ESService<T> {
      */
     Page<T> searchPage(Filters filters, Orders orders, Page<T> page);
 
+    <U> Page<U> searchPage(Class<U> targetClass, Filters filters, Orders orders, Page<U> page);
 }

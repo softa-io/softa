@@ -1,4 +1,4 @@
-PUT /dev_local_changelog
+PUT /dev_demo_change_log
 {
     "mappings": {
         "dynamic": "false",
@@ -22,12 +22,14 @@ PUT /dev_local_changelog
                 "type": "keyword"
             },
             "dataBeforeChange": {
-                "type": "object",
-                "enabled": false
+                "type": "keyword",
+                "index": false,
+                "doc_values": false
             },
             "dataAfterChange": {
-                "type": "object",
-                "enabled": false
+                "type": "keyword",
+                "index": false,
+                "doc_values": false
             },
             "tenantId": {
                 "type": "keyword"

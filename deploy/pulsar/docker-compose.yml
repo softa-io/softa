@@ -6,7 +6,7 @@ networks:
 services:
   # Start zookeeper
   zookeeper:
-    image: apachepulsar/pulsar:4.1.3
+    image: apachepulsar/pulsar:4.2.0
     container_name: zookeeper
     restart: on-failure
     networks:
@@ -33,7 +33,7 @@ services:
   pulsar-init:
     container_name: pulsar-init
     hostname: pulsar-init
-    image: apachepulsar/pulsar:4.1.3
+    image: apachepulsar/pulsar:4.2.0
     networks:
       - shared-net
     command:
@@ -52,7 +52,7 @@ services:
 
   # Start bookie
   bookie:
-    image: apachepulsar/pulsar:4.1.3
+    image: apachepulsar/pulsar:4.2.0
     container_name: bookie
     restart: on-failure
     networks:
@@ -83,7 +83,7 @@ services:
 
   # Start broker
   broker:
-    image: apachepulsar/pulsar:4.1.3
+    image: apachepulsar/pulsar:4.2.0
     container_name: broker
     hostname: broker
     restart: on-failure
@@ -97,7 +97,7 @@ services:
       - managedLedgerDefaultWriteQuorum=1
       - managedLedgerDefaultAckQuorum=1
       - advertisedAddress=broker
-      - advertisedListeners=external:pulsar://broker:6650,external:pulsar://localhost:6650
+      - advertisedListeners=external:pulsar://localhost:6650
       - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
     depends_on:
       zookeeper:

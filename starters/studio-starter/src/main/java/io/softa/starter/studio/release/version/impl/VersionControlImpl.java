@@ -1,6 +1,5 @@
 package io.softa.starter.studio.release.version.impl;
 
-import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,8 +44,7 @@ public class VersionControlImpl implements VersionControl {
             return List.of();
         }
         List<String> versionedModels = new ArrayList<>(MetadataConstant.VERSION_CONTROL_MODELS.keySet());
-        List<ChangeLog> allChangeLogs = changeLogService.searchByCorrelationIds(
-                versionedModels, toCorrelationIds(workItemIds));
+        List<ChangeLog> allChangeLogs = changeLogService.searchByCorrelationIds(versionedModels, toCorrelationIds(workItemIds));
         if (allChangeLogs.isEmpty()) {
             return List.of();
         }
@@ -74,13 +72,13 @@ public class VersionControlImpl implements VersionControl {
         }
 
         // Group changelogs by rowId, preserving insertion order (changedTime ASC from ES)
-        Map<Serializable, List<ChangeLog>> logsByRow = allChangeLogs.stream()
-                .collect(Collectors.groupingBy(ChangeLog::getRowId, LinkedHashMap::new, Collectors.toList()));
+        Map<Long, List<ChangeLog>> logsByRow = allChangeLogs.stream()
+                .collect(Collectors.groupingBy(changeLog -> Long.parseLong(changeLog.getRowId()), LinkedHashMap::new, Collectors.toList()));
 
         // Only rows that existed before this WorkItem set still need a DB lookup.
         // CREATE rows are reconstructed strictly from changelog history.
-        Set<Serializable> rowIdsNeedingDbLookup = new HashSet<>();
-        for (Map.Entry<Serializable, List<ChangeLog>> entry : logsByRow.entrySet()) {
+        Set<Long> rowIdsNeedingDbLookup = new HashSet<>();
+        for (Map.Entry<Long, List<ChangeLog>> entry : logsByRow.entrySet()) {
             List<ChangeLog> rowLogs = entry.getValue();
             AccessType firstType = rowLogs.getFirst().getAccessType();
             AccessType lastType = rowLogs.getLast().getAccessType();
@@ -90,15 +88,15 @@ public class VersionControlImpl implements VersionControl {
         }
 
         // Fetch the current DB state for surviving rows that pre-existed this WorkItem set.
-        Map<Serializable, Map<String, Object>> currentDataMap = new HashMap<>();
+        Map<Long, Map<String, Object>> currentDataMap = new HashMap<>();
         if (!rowIdsNeedingDbLookup.isEmpty()) {
             List<Map<String, Object>> dbRows = getCurrentDataByIds(versionedModel, rowIdsNeedingDbLookup);
-            dbRows.forEach(row -> currentDataMap.put((Serializable) row.get(ModelConstant.ID), row));
+            dbRows.forEach(row -> currentDataMap.put((Long) row.get(ModelConstant.ID), row));
         }
 
         ModelChangesDTO modelChangesDTO = new ModelChangesDTO(versionedModel);
-        for (Map.Entry<Serializable, List<ChangeLog>> entry : logsByRow.entrySet()) {
-            Serializable rowId = entry.getKey();
+        for (Map.Entry<Long, List<ChangeLog>> entry : logsByRow.entrySet()) {
+            Long rowId = entry.getKey();
             List<ChangeLog> logs = entry.getValue();
             AccessType firstType = logs.getFirst().getAccessType();
             AccessType lastType = logs.getLast().getAccessType();
@@ -110,7 +108,7 @@ public class VersionControlImpl implements VersionControl {
                 // Row existed before this WorkItem set and was deleted.
                 // Use the DELETE log's dataBeforeChange as the final row state.
                 ChangeLog deleteLog = logs.getLast();
-                RowChangeDTO rowChangeDTO = new RowChangeDTO(versionedModel, (Long) rowId);
+                RowChangeDTO rowChangeDTO = new RowChangeDTO(versionedModel, rowId);
                 rowChangeDTO.setAccessType(AccessType.DELETE);
                 rowChangeDTO.setCurrentData(deleteLog.getDataBeforeChange() == null
                         ? new HashMap<>()
@@ -150,7 +148,7 @@ public class VersionControlImpl implements VersionControl {
      * @return list of current row data maps
      */
     private List<Map<String, Object>> getCurrentDataByIds(String versionedModel,
-            Collection<Serializable> rowIds) {
+            Collection<Long> rowIds) {
         Filters filters = new Filters().in(ModelConstant.ID, rowIds);
         if (ModelManager.isSoftDeleted(versionedModel)) {
             String softDeleteField = ModelManager.getSoftDeleteField(versionedModel);
@@ -179,7 +177,7 @@ public class VersionControlImpl implements VersionControl {
                 currentData.putAll(changeLog.getDataAfterChange());
             }
         }
-        RowChangeDTO rowChangeDTO = new RowChangeDTO(createLog.getModel(), (Long) createLog.getRowId());
+        RowChangeDTO rowChangeDTO = new RowChangeDTO(createLog.getModel(), Long.parseLong(createLog.getRowId()));
         rowChangeDTO.setAccessType(AccessType.CREATE);
         rowChangeDTO.setCurrentData(new HashMap<>(currentData));
         rowChangeDTO.setDataAfterChange(new HashMap<>(currentData));
@@ -198,7 +196,7 @@ public class VersionControlImpl implements VersionControl {
      */
     private static RowChangeDTO mergeUpdatedToRowChangeDTO(List<ChangeLog> changeLogs, Map<String, Object> currentData) {
         ChangeLog lastLog = changeLogs.getLast();
-        RowChangeDTO rowChangeDTO = new RowChangeDTO(lastLog.getModel(), (Long) lastLog.getRowId());
+        RowChangeDTO rowChangeDTO = new RowChangeDTO(lastLog.getModel(), Long.parseLong(lastLog.getRowId()));
         rowChangeDTO.setAccessType(UPDATE);
         rowChangeDTO.setCurrentData(new HashMap<>(currentData));
         rowChangeDTO.setLastChangedById(lastLog.getChangedById());
@@ -213,6 +211,13 @@ public class VersionControlImpl implements VersionControl {
         for (ChangeLog changeLog : changeLogs) {
             rowChangeDTO.mergeDataAfterChange(changeLog.getDataAfterChange());
         }
+        // Drop fields that net-out to no change (e.g. A→B→A) and trim dataBeforeChange
+        // to the actually-changed keys, since the producer stores it as a full original
+        // row snapshot while dataAfterChange only carries written fields.
+        Map<String, Object> before = rowChangeDTO.getDataBeforeChange();
+        Map<String, Object> after = rowChangeDTO.getDataAfterChange();
+        after.entrySet().removeIf(e -> Objects.equals(e.getValue(), before.get(e.getKey())));
+        before.keySet().retainAll(after.keySet());
         return rowChangeDTO;
     }
 

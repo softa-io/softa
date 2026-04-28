@@ -1,6 +1,5 @@
 package io.softa.starter.studio.release.controller;
 
-import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -10,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.studio.release.dto.ModelChangesDTO;
+import io.softa.starter.studio.release.dto.DriftEnvelopeDTO;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 import io.softa.starter.studio.release.event.DesignAppEnvDriftRefreshEvent;
 import io.softa.starter.studio.release.service.DesignAppEnvService;
@@ -29,15 +28,19 @@ public class DesignAppEnvController extends EntityController<DesignAppEnvService
     /**
      * Compare the design-time snapshot with the actual runtime metadata for the given environment.
      * Detects drift caused by direct SQL changes, unsynced runtime modifications, etc.
+     * <p>
+     * Returns a drift-oriented view where each row carries {@code expected} (snapshot) and
+     * {@code actual} (runtime) sides directly with a {@link io.softa.starter.studio.release.enums.DriftKind}
+     * label, instead of the deploy-direction {@code RowChangeDTO} graph used internally.
      *
      * @param id Environment ID
-     * @return List of model changes representing the drift between snapshot and runtime
+     * @return drift grouped by model
      */
     @Operation(description = "Compare design-time snapshot with runtime metadata for an environment.")
     @GetMapping(value = "/compareDesignWithRuntime")
     @Parameter(name = "id", description = "Environment ID")
-    public ApiResponse<List<ModelChangesDTO>> compareDesignWithRuntime(@RequestParam Long id) {
-        return ApiResponse.success(service.compareDesignWithRuntime(id));
+    public ApiResponse<DriftEnvelopeDTO> compareDesignWithRuntime(@RequestParam Long id) {
+        return ApiResponse.success(service.getDriftEnvelope(id));
     }
 
     /**

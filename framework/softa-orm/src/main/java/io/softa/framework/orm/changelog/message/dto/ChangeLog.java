@@ -1,6 +1,5 @@
 package io.softa.framework.orm.changelog.message.dto;
 
-import java.io.Serializable;
 import java.util.Map;
 import lombok.Data;
 
@@ -22,7 +21,7 @@ public class ChangeLog {
     private String correlationId;
 
     private String model;
-    private Serializable rowId;
+    private String rowId;
     private AccessType accessType;
 
     private Map<String, Object> dataBeforeChange;

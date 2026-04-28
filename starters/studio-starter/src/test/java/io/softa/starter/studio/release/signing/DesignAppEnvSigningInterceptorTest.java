@@ -38,7 +38,7 @@ class DesignAppEnvSigningInterceptorTest {
         DesignAppEnvSigningInterceptor interceptor = new DesignAppEnvSigningInterceptor(modelService);
 
         MockClientHttpRequest request = new MockClientHttpRequest(
-                HttpMethod.POST, URI.create("https://runtime.example/metadata/upgrade"));
+                HttpMethod.POST, URI.create("https://runtime.example/upgrade/upgradeMetadata"));
         request.getHeaders().set(DesignAppEnvSigningInterceptor.ENV_ID_HEADER, "7");
         byte[] body = "{\"ping\":1}".getBytes(StandardCharsets.UTF_8);
 
@@ -83,7 +83,7 @@ class DesignAppEnvSigningInterceptorTest {
         DesignAppEnvSigningInterceptor interceptor = new DesignAppEnvSigningInterceptor(modelService);
 
         MockClientHttpRequest request = new MockClientHttpRequest(
-                HttpMethod.POST, URI.create("https://runtime.example/metadata/upgrade"));
+                HttpMethod.POST, URI.create("https://runtime.example/upgrade/upgradeMetadata"));
         request.getHeaders().set(DesignAppEnvSigningInterceptor.ENV_ID_HEADER, "9");
 
         assertThrows(SignatureException.class,
@@ -99,7 +99,7 @@ class DesignAppEnvSigningInterceptorTest {
         DesignAppEnvSigningInterceptor interceptor = new DesignAppEnvSigningInterceptor(modelService);
 
         MockClientHttpRequest request = new MockClientHttpRequest(
-                HttpMethod.POST, URI.create("https://runtime.example/metadata/upgrade"));
+                HttpMethod.POST, URI.create("https://runtime.example/upgrade/upgradeMetadata"));
         request.getHeaders().set(DesignAppEnvSigningInterceptor.ENV_ID_HEADER, "11");
 
         assertThrows(SignatureException.class,
@@ -113,7 +113,7 @@ class DesignAppEnvSigningInterceptorTest {
         DesignAppEnvSigningInterceptor interceptor = new DesignAppEnvSigningInterceptor(modelService);
 
         MockClientHttpRequest request = new MockClientHttpRequest(
-                HttpMethod.POST, URI.create("https://runtime.example/metadata/upgrade"));
+                HttpMethod.POST, URI.create("https://runtime.example/upgrade/upgradeMetadata"));
         request.getHeaders().set(DesignAppEnvSigningInterceptor.ENV_ID_HEADER, "not-a-number");
 
         assertThrows(SignatureException.class,

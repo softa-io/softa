@@ -20,9 +20,7 @@ import io.softa.starter.studio.release.version.impl.VersionControlImpl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class VersionControlImplTest {
@@ -161,7 +159,7 @@ class VersionControlImplTest {
     private ChangeLog deleteLog(String model, Long rowId, Map<String, Object> dataBeforeChange) {
         ChangeLog changeLog = new ChangeLog();
         changeLog.setModel(model);
-        changeLog.setRowId(rowId);
+        changeLog.setRowId(String.valueOf(rowId));
         changeLog.setAccessType(AccessType.DELETE);
         changeLog.setDataBeforeChange(dataBeforeChange);
         changeLog.setChangedById(1L);
@@ -173,7 +171,7 @@ class VersionControlImplTest {
     private ChangeLog createLog(String model, Long rowId, Map<String, Object> dataAfterChange) {
         ChangeLog changeLog = new ChangeLog();
         changeLog.setModel(model);
-        changeLog.setRowId(rowId);
+        changeLog.setRowId(String.valueOf(rowId));
         changeLog.setAccessType(AccessType.CREATE);
         changeLog.setDataAfterChange(dataAfterChange);
         changeLog.setChangedById(1L);
@@ -191,7 +189,7 @@ class VersionControlImplTest {
                                 Map<String, Object> dataAfterChange) {
         ChangeLog changeLog = new ChangeLog();
         changeLog.setModel(model);
-        changeLog.setRowId(rowId);
+        changeLog.setRowId(String.valueOf(rowId));
         changeLog.setAccessType(AccessType.UPDATE);
         changeLog.setDataBeforeChange(dataBeforeChange);
         changeLog.setDataAfterChange(dataAfterChange);

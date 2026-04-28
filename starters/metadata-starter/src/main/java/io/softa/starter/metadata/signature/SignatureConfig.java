@@ -1,25 +1,26 @@
 package io.softa.starter.metadata.signature;
 
 import java.security.PublicKey;
-import java.util.List;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.HandlerMapping;
 
 import io.softa.framework.web.signature.Ed25519Keys;
+
+import static io.softa.starter.metadata.constant.MetadataConstant.SIGNED_URL_PATTERN;
 
 /**
  * {@link SignatureVerificationFilter} is registered iff
  * {@code system.runtime-public-key} is set, so services that never
  * receive signed requests don't carry a stray filter.
  * <p>
- * The filter is scoped to {@code /metadata/*} via {@link FilterRegistrationBean}
- * so requests to other paths bypass it entirely — handler resolution and body
- * buffering are only ever paid on metadata API calls.
+ * The filter is scoped to SIGNED_URL_PATTERN via
+ * {@link FilterRegistrationBean} and unconditionally verifies every request
+ * routed through it. The path prefix is the contract: anything mapped under
+ * it is signed; anything not under it is not. There is no per-handler
+ * override.
  */
 @Configuration
 public class SignatureConfig {
@@ -29,13 +30,11 @@ public class SignatureConfig {
 
     @Bean
     @ConditionalOnExpression("!'${system.runtime-public-key:}'.isBlank()")
-    public FilterRegistrationBean<SignatureVerificationFilter> signatureVerificationFilter(
-            ObjectProvider<List<HandlerMapping>> handlerMappings) {
+    public FilterRegistrationBean<SignatureVerificationFilter> signatureVerificationFilter() {
         PublicKey decoded = Ed25519Keys.decodePublicKey(runtimePublicKey);
-        SignatureVerificationFilter filter = new SignatureVerificationFilter(
-                decoded, handlerMappings.getIfAvailable(List::of));
+        SignatureVerificationFilter filter = new SignatureVerificationFilter(decoded);
         FilterRegistrationBean<SignatureVerificationFilter> registration = new FilterRegistrationBean<>(filter);
-        registration.addUrlPatterns("/metadata/*");
+        registration.addUrlPatterns(SIGNED_URL_PATTERN);
         return registration;
     }
 }

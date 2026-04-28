@@ -110,7 +110,7 @@ Pebble SQL templates can be stored in the database and customized per applicatio
 - Database contains the studio metadata tables (see Data Model below).
 
 ## Remote Deployment Configuration
-- `DesignAppEnv.upgradeEndpoint` must point to the target runtime base URL. The studio appends `/metadata/upgrade` and `/metadata/exportRuntimeMetadata` automatically.
+- `DesignAppEnv.upgradeEndpoint` must point to the target runtime base URL. The studio appends `/upgrade/upgradeMetadata` and `/upgrade/exportRuntimeMetadata` automatically.
 - The studio application must set `system.public-access-url`. Remote deployment derives the runtime callback URL as `<system.public-access-url>/DesignDeployment/callback`; without it, dispatch fails before the request is sent.
 - Call `POST /DesignAppEnv/issueKey?id=` before the first remote deploy, then paste the returned public key into the paired runtime's `system.runtime-public-key`. The runtime only registers the metadata signature verification filter when that property is non-blank.
 - Outbound studio -> runtime HTTP uses the Resilience4j client name `studio-remote`; runtime -> studio callback uses `metadata-callback`. If you do not define explicit YAML for those instances, the registry defaults still apply.
@@ -191,7 +191,7 @@ The current version-control and deployment pipeline upgrades the following desig
 
 Runtime-only companion models are still outside the deployment stream. For example, `SysViewDefault` remains user-personal runtime state rather than design-time metadata.
 
-Runtime export (`/metadata/exportRuntimeMetadata`) is app-scoped: the studio passes the env's `appId`, and the runtime filters by the `appId` column for main models or joins through the parent row for translation models (`*Trans`). A single runtime hosting multiple apps will never leak sibling-app rows into drift comparison or import.
+Runtime export (`/upgrade/exportRuntimeMetadata`) is app-scoped: the studio passes the env's `appId`, and the runtime filters by the `appId` column for main models or joins through the parent row for translation models (`*Trans`). A single runtime hosting multiple apps will never leak sibling-app rows into drift comparison or import.
 
 ## DDL Storage Design
 
@@ -275,9 +275,9 @@ Notes:
 | `GET /DesignWorkItem/previewDDL?id=` | Preview DDL SQL from WorkItem changes (copy to DB client) |
 | `POST /DesignWorkItem/addToVersion` | Add a DONE WorkItem to a DRAFT Version. Body: `{ "workItemId": ..., "versionId": ... }` |
 | `POST /DesignWorkItem/removeFromVersion?id=` | Remove a WorkItem from its current DRAFT Version |
-| `POST /DesignWorkItem/cancelWorkItem?id=` | Cancel the work item |
+| `POST /DesignWorkItem/cancelWorkItem?id=` | Cancel the work item. Must not belong to a Version — call `removeFromVersion` first |
 | `POST /DesignWorkItem/deferWorkItem?id=` | Defer the work item |
-| `POST /DesignWorkItem/reopenWorkItem?id=` | Reopen a completed/cancelled/deferred work item |
+| `POST /DesignWorkItem/reopenWorkItem?id=` | Reopen a completed/cancelled/deferred work item. Must not belong to a Version — call `removeFromVersion` first |
 
 ### Version Lifecycle
 | Endpoint | Description |
@@ -392,9 +392,9 @@ Deployment selects the versions to merge from the app's released stream:
 ### DesignWorkItemStatus
 `IN_PROGRESS` → `DONE` → `CLOSED`
 - `IN_PROGRESS -> DONE`: `doneWorkItem`
-- `IN_PROGRESS / DONE / DEFERRED -> CANCELLED`: `cancelWorkItem`
+- `IN_PROGRESS / DONE / DEFERRED -> CANCELLED`: `cancelWorkItem` — requires `versionId == null` (not bound to any Version)
 - `IN_PROGRESS -> DEFERRED`: `deferWorkItem`
-- `DONE / CANCELLED / DEFERRED -> IN_PROGRESS`: `reopenWorkItem`
+- `DONE / CANCELLED / DEFERRED -> IN_PROGRESS`: `reopenWorkItem` — requires `versionId == null` (not bound to any Version)
 - `DONE -> CLOSED`: set automatically when a deployment finishes successfully
 
 ### DesignDeploymentStatus

@@ -260,27 +260,24 @@ public class MetadataServiceImpl implements MetadataService {
      * instead of issuing a query that the filter layer would reject for being empty.
      */
     private Filters buildAppScopedFilter(String modelName, Long appId) {
-        if (ModelManager.existField(modelName, "appId")) {
+        if (!modelName.endsWith(ModelConstant.MODEL_TRANS_SUFFIX)) {
+            Assert.isTrue(ModelManager.existField(modelName, "appId"),
+                    "Runtime model {0} has no appId column and is not a translation model; cannot scope by app.",
+                    modelName);
             return new Filters().eq("appId", appId);
+        } else {
+            String businessModel = modelName.substring(0, modelName.length() - ModelConstant.MODEL_TRANS_SUFFIX.length());
+            Assert.isTrue(ModelManager.existField(businessModel, "appId"),
+                    "Business model {0} must carry appId to scope its translations.", businessModel);
+            FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID), new Filters().eq("appId", appId));
+            List<Map<String, Object>> rows = modelService.searchList(businessModel, flexQuery);
+            List<Serializable> businessIds = rows.stream()
+                    .map(row -> (Serializable) row.get(ModelConstant.ID))
+                    .toList();
+            if (businessIds.isEmpty()) {
+                return null;
+            }
+            return new Filters().in("rowId", businessIds);
         }
-        Assert.isTrue(modelName.endsWith(ModelConstant.MODEL_TRANS_SUFFIX),
-                "Runtime model {0} has no appId column and is not a translation model; cannot scope by app.",
-                modelName);
-        String parentModel = modelName.substring(0, modelName.length() - ModelConstant.MODEL_TRANS_SUFFIX.length());
-        List<Serializable> parentIds = this.findAppScopedIds(parentModel, appId);
-        if (parentIds.isEmpty()) {
-            return null;
-        }
-        return new Filters().in("rowId", parentIds);
-    }
-
-    private List<Serializable> findAppScopedIds(String modelName, Long appId) {
-        Assert.isTrue(ModelManager.existField(modelName, "appId"),
-                "Parent model {0} must carry appId to scope its translations.", modelName);
-        FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID), new Filters().eq("appId", appId));
-        List<Map<String, Object>> rows = modelService.searchList(modelName, flexQuery);
-        return rows.stream()
-                .map(row -> (Serializable) row.get(ModelConstant.ID))
-                .toList();
     }
 }

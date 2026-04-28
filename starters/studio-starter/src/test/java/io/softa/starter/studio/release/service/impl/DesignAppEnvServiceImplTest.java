@@ -14,7 +14,6 @@ import tools.jackson.core.type.TypeReference;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.service.ModelService;
@@ -24,6 +23,7 @@ import io.softa.starter.studio.release.entity.DesignAppEnv;
 import io.softa.starter.studio.release.entity.DesignAppEnvDrift;
 import io.softa.starter.studio.release.entity.DesignAppEnvSnapshot;
 import io.softa.starter.studio.release.entity.DesignAppVersion;
+import io.softa.starter.studio.release.enums.DesignAppEnvStatus;
 import io.softa.starter.studio.release.enums.DesignAppEnvType;
 import io.softa.starter.studio.release.enums.DesignAppVersionStatus;
 import io.softa.starter.studio.release.enums.DesignDriftCheckStatus;
@@ -235,6 +235,61 @@ class DesignAppEnvServiceImplTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void refreshDriftTreatsMissingSnapshotAsEmptyBaselineSoFirstImportSeesRuntimeRows() {
+        // Regression: when an env has never been deployed (no snapshot row), refreshDrift
+        // used to short-circuit and write an empty drift, which broke the importFromRuntime
+        // first-time path. It must instead diff against an empty baseline so every runtime
+        // row appears as a deletedRow (runtime-only), giving applyDrift something to invert
+        // back onto the design side.
+        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
+        DesignAppEnvSnapshotService snapshotService = mock(DesignAppEnvSnapshotService.class);
+        DesignAppEnvDriftService driftService = mock(DesignAppEnvDriftService.class);
+        RemoteApiClient remoteApiClient = mock(RemoteApiClient.class);
+        ReflectionTestUtils.setField(service, "snapshotService", snapshotService);
+        ReflectionTestUtils.setField(service, "driftService", driftService);
+        ReflectionTestUtils.setField(service, "remoteApiClient", remoteApiClient);
+
+        DesignAppEnv appEnv = new DesignAppEnv();
+        appEnv.setId(3L);
+        appEnv.setAppId(100L);
+        appEnv.setEnvType(DesignAppEnvType.DEV);
+        doReturn(Optional.of(appEnv)).when(service).getById(3L);
+
+        when(snapshotService.searchOne(any(FlexQuery.class))).thenReturn(Optional.empty());
+        when(remoteApiClient.fetchRuntimeMetadata(any(), Mockito.anyString())).thenReturn(List.of());
+        when(remoteApiClient.fetchRuntimeMetadata(any(), eq("SysField"))).thenReturn(List.of(Map.of(
+                ModelConstant.ID, 42L,
+                "modelName", "Account",
+                "fieldName", "name",
+                "columnName", "name")));
+
+        Set<String> compareFields = Set.of("modelName", "fieldName", "columnName");
+        doReturn(compareFields).when(service).getComparableFields(Mockito.anyString(), Mockito.anyString());
+
+        service.refreshDrift(3L);
+
+        ArgumentCaptor<List<DesignAppEnvDrift>> captor = ArgumentCaptor.forClass(List.class);
+        verify(driftService).createOrUpdate(captor.capture(), anyList());
+        DesignAppEnvDrift persisted = captor.getValue().getFirst();
+        assertEquals(DesignDriftCheckStatus.SUCCESS, persisted.getCheckStatus());
+        assertTrue(persisted.getHasDrift(),
+                "Empty snapshot vs non-empty runtime must register as drift, not as 'no drift'");
+
+        List<ModelChangesDTO> storedDrift = JsonUtils.jsonNodeToObject(
+                persisted.getDriftContent(), new TypeReference<>() {});
+        assertEquals(1, storedDrift.size());
+        ModelChangesDTO diff = storedDrift.getFirst();
+        assertTrue(diff.getCreatedRows().isEmpty());
+        assertTrue(diff.getUpdatedRows().isEmpty());
+        assertEquals(1, diff.getDeletedRows().size(),
+                "Runtime row absent from snapshot must surface as a deletedRow so applyDrift can CREATE it on design.");
+        RowChangeDTO runtimeRow = diff.getDeletedRows().getFirst();
+        assertEquals(42L, runtimeRow.getRowId());
+        assertEquals("name", runtimeRow.getCurrentData().get("fieldName"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void applyDriftIsNoOpWhenDriftIsEmpty() {
         DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
         DesignAppEnvSnapshotService snapshotService = mock(DesignAppEnvSnapshotService.class);
@@ -250,14 +305,16 @@ class DesignAppEnvServiceImplTest {
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(1L);
         appEnv.setAppId(100L);
+        appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(Filters.class), any(DesignAppEnv.class));
+        doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         doReturn(List.<ModelChangesDTO>of()).when(service).compareDesignWithRuntime(1L);
 
         service.applyDrift(1L, true);
 
-        // Mutex acquired and released, but no design writes, no version, no snapshot, no clear.
-        verify(service, times(2)).updateByFilter(any(Filters.class), any(DesignAppEnv.class));
+        // Mutex acquired (STABLE → IMPORTING) and released (IMPORTING → STABLE) via two updateOne calls;
+        // no design writes, no version, no snapshot, no drift clear.
+        verify(service, times(2)).updateOne(any(DesignAppEnv.class));
         verify(modelService, never()).createList(Mockito.anyString(), Mockito.anyList());
         verify(modelService, never()).updateList(Mockito.anyString(), Mockito.anyList());
         verify(modelService, never()).deleteByIds(Mockito.anyString(), Mockito.anyList());
@@ -284,8 +341,8 @@ class DesignAppEnvServiceImplTest {
         appEnv.setId(1L);
         appEnv.setAppId(100L);
         appEnv.setEnvType(DesignAppEnvType.DEV);
+        appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(Filters.class), any(DesignAppEnv.class));
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         when(appVersionService.createOne(any(DesignAppVersion.class))).thenReturn(9001L);
 
@@ -382,8 +439,9 @@ class DesignAppEnvServiceImplTest {
                 cleared.getDriftContent(), new TypeReference<>() {});
         assertTrue(clearedContent.isEmpty());
 
-        // Mutex acquired + released — both calls count against updateByFilter.
-        verify(service, times(2)).updateByFilter(any(Filters.class), any(DesignAppEnv.class));
+        // Mutex acquired + released via two updateOne calls (STABLE → IMPORTING → STABLE),
+        // plus the env update that propagates currentVersionId — three total.
+        verify(service, times(3)).updateOne(any(DesignAppEnv.class));
         verify(service, never()).refreshDrift(1L);
     }
 
@@ -404,8 +462,9 @@ class DesignAppEnvServiceImplTest {
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(7L);
         appEnv.setAppId(100L);
+        appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(7L);
-        doReturn(1).when(service).updateByFilter(any(Filters.class), any(DesignAppEnv.class));
+        doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         // Skip the real refreshDrift — its behaviour is covered by dedicated tests.
         Mockito.doNothing().when(service).refreshDrift(7L);
         // After the refresh, report no drift so applyDrift short-circuits before the writes.

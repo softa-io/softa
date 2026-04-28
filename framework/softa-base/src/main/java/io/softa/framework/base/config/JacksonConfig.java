@@ -5,6 +5,8 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -61,5 +63,27 @@ public class JacksonConfig {
             // Ignore unknown properties during deserialization
             builder.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         };
+    }
+
+    // ===== Jackson 2 Compatibility =====
+    /**
+     * Register the LocalDate and LocalDateTime serialization and deserialization formats
+     * @return ObjectMapper
+     */
+    @Bean
+    public ObjectMapper objectMapper() {
+        JavaTimeModule javaTimeModule = new JavaTimeModule();
+        javaTimeModule.addSerializer(LocalDateTime.class, new com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer(TimeConstant.DATETIME_FORMATTER));
+        javaTimeModule.addDeserializer(LocalDateTime.class, new com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer(TimeConstant.DATETIME_FORMATTER));
+        javaTimeModule.addSerializer(LocalDate.class, new com.fasterxml.jackson.datatype.jsr310.ser.LocalDateSerializer(TimeConstant.DATE_FORMATTER));
+        javaTimeModule.addDeserializer(LocalDate.class, new com.fasterxml.jackson.datatype.jsr310.deser.LocalDateDeserializer(TimeConstant.DATE_FORMATTER));
+        javaTimeModule.addSerializer(LocalTime.class, new com.fasterxml.jackson.datatype.jsr310.ser.LocalTimeSerializer(TimeConstant.TIME_FORMATTER));
+        javaTimeModule.addDeserializer(LocalTime.class, new com.fasterxml.jackson.datatype.jsr310.deser.LocalTimeDeserializer(TimeConstant.TIME_FORMATTER));
+        // Create a new ObjectMapper
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(javaTimeModule);
+        // Ignore unknown properties
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return objectMapper;
     }
 }

@@ -79,4 +79,7 @@ public class DesignAppEnv extends AuditableModel {
 
     @Schema(description = "Deleted")
     private Boolean deleted;
+
+    @Schema(description = "Version for optimistic locking")
+    private Integer version;
 }

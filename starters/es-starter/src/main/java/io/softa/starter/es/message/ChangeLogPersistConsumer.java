@@ -19,6 +19,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.changelog.message.dto.ChangeLog;
 import io.softa.framework.orm.changelog.message.dto.ChangeLogMessage;
+import io.softa.starter.es.document.ChangeLogDocument;
 
 /**
  * ChangeLog persist consumer
@@ -50,13 +51,14 @@ public class ChangeLogPersistConsumer {
     public void persistChangeLogToESDirectly(ChangeLogMessage changeLogMessage) {
         Context ctx = changeLogMessage.getContext();
         ContextHolder.runWith(ctx, () -> {
-            // Build document list
+            // Build document list — flatten Map payload fields to JSON strings on the wire
             List<IndexQuery> indexQueries = new ArrayList<>();
             for (ChangeLog changeLog : changeLogMessage.getChangeLogs()) {
+                ChangeLogDocument doc = ChangeLogDocument.fromChangeLog(changeLog);
                 IndexQuery indexQuery = new IndexQueryBuilder()
                         .withIndex(index)
                         .withId(UUID.randomUUID().toString())
-                        .withObject(changeLog)
+                        .withObject(doc)
                         .build();
                 indexQueries.add(indexQuery);
             }
