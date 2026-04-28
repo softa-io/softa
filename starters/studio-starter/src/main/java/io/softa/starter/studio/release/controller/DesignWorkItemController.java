@@ -1,6 +1,5 @@
 package io.softa.starter.studio.release.controller;
 
-import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -8,9 +7,9 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.WorkItemVersionDTO;
 import io.softa.starter.studio.release.entity.DesignWorkItem;
+import io.softa.starter.studio.release.preview.PreviewTreeDTO;
 import io.softa.starter.studio.release.service.DesignWorkItemService;
 
 /**
@@ -36,15 +35,17 @@ public class DesignWorkItemController extends EntityController<DesignWorkItemSer
     }
 
     /**
-     * Preview all metadata changes accumulated under this WorkItem.
+     * Preview all metadata changes accumulated under this WorkItem,
+     * grouped under DesignModel / DesignOptionSet / DesignNavigation roots.
      *
      * @param id WorkItem ID
-     * @return list of model-level change summaries
+     * @return preview tree
      */
-    @Operation(description = "Preview all metadata changes accumulated under this WorkItem.")
+    @Operation(description = "Preview all metadata changes accumulated under this WorkItem, "
+            + "grouped under DesignModel / DesignOptionSet / DesignNavigation roots.")
     @GetMapping(value = "/previewChanges")
     @Parameter(name = "id", description = "WorkItem ID")
-    public ApiResponse<List<ModelChangesDTO>> previewChanges(@RequestParam Long id) {
+    public ApiResponse<PreviewTreeDTO> previewChanges(@RequestParam Long id) {
         return ApiResponse.success(service.previewWorkItemChanges(id));
     }
 

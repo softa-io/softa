@@ -19,6 +19,8 @@ import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.entity.*;
 import io.softa.starter.studio.release.enums.DesignAppVersionStatus;
+import io.softa.starter.studio.release.preview.PreviewAssembler;
+import io.softa.starter.studio.release.preview.PreviewTreeDTO;
 import io.softa.starter.studio.release.service.*;
 import io.softa.starter.studio.release.version.VersionControl;
 import io.softa.starter.studio.release.version.VersionDdl;
@@ -38,6 +40,9 @@ public class DesignAppVersionServiceImpl extends EntityServiceImpl<DesignAppVers
 
     @Autowired
     private VersionDdl versionDdl;
+
+    @Autowired
+    private PreviewAssembler previewAssembler;
 
     @Autowired
     private DesignDeploymentVersionService deploymentVersionService;
@@ -142,13 +147,23 @@ public class DesignAppVersionServiceImpl extends EntityServiceImpl<DesignAppVers
     }
 
     /**
-     * Preview the merged content of the version without modifying its status.
+     * Preview the merged content of the version without modifying its status,
+     * assembled into a tree rooted at {@code DesignModel} / {@code DesignOptionSet} /
+     * {@code DesignNavigation}.
      *
      * @param id Version ID
-     * @return list of model-level change summaries
+     * @return preview tree
      */
     @Override
-    public List<ModelChangesDTO> previewVersion(Long id) {
+    public PreviewTreeDTO previewVersion(Long id) {
+        return previewAssembler.assemble(collectVersionChanges(id));
+    }
+
+    /**
+     * Aggregate the live flat changes for a DRAFT version's selected WorkItems.
+     * Used by the preview tree assembler and by DDL generation.
+     */
+    private List<ModelChangesDTO> collectVersionChanges(Long id) {
         DesignAppVersion appVersion = this.getById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Version does not exist! {0}", id));
         Assert.notNull(appVersion.getAppId(), "Version {0} has no appId set!", id);
@@ -182,7 +197,7 @@ public class DesignAppVersionServiceImpl extends EntityServiceImpl<DesignAppVers
                     new tools.jackson.core.type.TypeReference<>() {});
         } else {
             // DRAFT — aggregate live change data from WorkItems
-            changes = previewVersion(id);
+            changes = collectVersionChanges(id);
         }
         DatabaseType databaseType = appService.getFieldValue(appVersion.getAppId(), DesignApp::getDatabaseType);
         return versionDdl.generateDDL(databaseType, changes);

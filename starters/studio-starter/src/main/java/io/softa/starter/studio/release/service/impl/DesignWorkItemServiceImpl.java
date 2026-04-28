@@ -16,6 +16,8 @@ import io.softa.starter.studio.release.entity.DesignAppVersion;
 import io.softa.starter.studio.release.entity.DesignWorkItem;
 import io.softa.starter.studio.release.enums.DesignAppVersionStatus;
 import io.softa.starter.studio.release.enums.DesignWorkItemStatus;
+import io.softa.starter.studio.release.preview.PreviewAssembler;
+import io.softa.starter.studio.release.preview.PreviewTreeDTO;
 import io.softa.starter.studio.release.service.DesignAppService;
 import io.softa.starter.studio.release.service.DesignAppVersionService;
 import io.softa.starter.studio.release.service.DesignWorkItemService;
@@ -33,6 +35,9 @@ public class DesignWorkItemServiceImpl extends EntityServiceImpl<DesignWorkItem,
 
     @Autowired
     private VersionDdl versionDdl;
+
+    @Autowired
+    private PreviewAssembler previewAssembler;
 
     @Autowired
     @Lazy
@@ -112,17 +117,25 @@ public class DesignWorkItemServiceImpl extends EntityServiceImpl<DesignWorkItem,
     }
 
     /**
-     * Preview all metadata changes accumulated under this WorkItem,
-     * queried from ES by correlationId.
+     * Preview all metadata changes accumulated under this WorkItem (queried from ES by
+     * correlationId), assembled into a tree rooted at {@code DesignModel} /
+     * {@code DesignOptionSet} / {@code DesignNavigation}.
      */
     @Override
-    public List<ModelChangesDTO> previewWorkItemChanges(Long id) {
+    public PreviewTreeDTO previewWorkItemChanges(Long id) {
+        return previewAssembler.assemble(collectWorkItemChanges(id));
+    }
+
+    /**
+     * Aggregate the live flat changes for a single WorkItem.
+     * Used by the preview tree assembler and by DDL generation.
+     */
+    private List<ModelChangesDTO> collectWorkItemChanges(Long id) {
         DesignWorkItem workItem = this.getById(id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkItem does not exist! {0}", id));
         Assert.notNull(workItem.getAppId(), "WorkItem {0} has no appId set!", id);
 
-        List<Long> workItemIds = List.of(id);
-        return versionControl.collectModelChanges(workItemIds);
+        return versionControl.collectModelChanges(List.of(id));
     }
 
     /**
@@ -132,7 +145,7 @@ public class DesignWorkItemServiceImpl extends EntityServiceImpl<DesignWorkItem,
     public String previewWorkItemDDL(Long id) {
         DesignWorkItem workItem = this.getById(id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkItem does not exist! {0}", id));
-        List<ModelChangesDTO> changes = previewWorkItemChanges(id);
+        List<ModelChangesDTO> changes = collectWorkItemChanges(id);
         return versionDdl.generateDDL(appService.getFieldValue(workItem.getAppId(), DesignApp::getDatabaseType), changes);
     }
 

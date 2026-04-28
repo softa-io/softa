@@ -3,8 +3,8 @@ package io.softa.starter.studio.release.service;
 import java.util.List;
 
 import io.softa.framework.orm.service.EntityService;
-import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.entity.DesignAppVersion;
+import io.softa.starter.studio.release.preview.PreviewTreeDTO;
 
 /**
  * DesignAppVersion Model Service Interface
@@ -50,12 +50,14 @@ public interface DesignAppVersionService extends EntityService<DesignAppVersion,
     void freezeVersion(Long id);
 
     /**
-     * Preview the merged content of the version without modifying its status.
+     * Preview the merged content of the version without modifying its status,
+     * grouped under {@code DesignModel} / {@code DesignOptionSet} / {@code DesignNavigation}
+     * roots so the UI can render the three tabs directly.
      *
      * @param id Version ID
-     * @return list of model-level change summaries
+     * @return preview tree
      */
-    List<ModelChangesDTO> previewVersion(Long id);
+    PreviewTreeDTO previewVersion(Long id);
 
     /**
      * Preview the DDL SQL generated from the version's change data.

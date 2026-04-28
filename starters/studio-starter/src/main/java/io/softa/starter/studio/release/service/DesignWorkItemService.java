@@ -1,10 +1,8 @@
 package io.softa.starter.studio.release.service;
 
-import java.util.List;
-
 import io.softa.framework.orm.service.EntityService;
-import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.entity.DesignWorkItem;
+import io.softa.starter.studio.release.preview.PreviewTreeDTO;
 
 /**
  * DesignWorkItem Model Service Interface
@@ -20,13 +18,14 @@ public interface DesignWorkItemService extends EntityService<DesignWorkItem, Lon
     void doneWorkItem(Long id);
 
     /**
-     * Preview all metadata changes accumulated under this WorkItem,
-     * queried from ES by correlationId.
+     * Preview all metadata changes accumulated under this WorkItem (queried from ES by
+     * correlationId), grouped under {@code DesignModel} / {@code DesignOptionSet} /
+     * {@code DesignNavigation} roots so the UI can render the three tabs directly.
      *
      * @param id WorkItem ID
-     * @return list of model-level change summaries
+     * @return preview tree
      */
-    List<ModelChangesDTO> previewWorkItemChanges(Long id);
+    PreviewTreeDTO previewWorkItemChanges(Long id);
 
     /**
      * Preview the DDL SQL generated from the metadata changes of this WorkItem.

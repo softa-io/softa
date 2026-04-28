@@ -1,6 +1,5 @@
 package io.softa.starter.studio.release.controller;
 
-import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -8,9 +7,9 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.VersionDeployDTO;
 import io.softa.starter.studio.release.entity.DesignAppVersion;
+import io.softa.starter.studio.release.preview.PreviewTreeDTO;
 import io.softa.starter.studio.release.service.DesignAppVersionService;
 
 /**
@@ -79,15 +78,17 @@ public class DesignAppVersionController extends EntityController<DesignAppVersio
     }
 
     /**
-     * Preview the merged content of the version without modifying its status.
+     * Preview the merged content of the version without modifying its status,
+     * grouped under DesignModel / DesignOptionSet / DesignNavigation roots.
      *
      * @param id Version ID
-     * @return list of model-level change summaries
+     * @return preview tree
      */
-    @Operation(description = "Preview the merged content of the version without modifying its status.")
+    @Operation(description = "Preview the merged content of the version without modifying its status, "
+            + "grouped under DesignModel / DesignOptionSet / DesignNavigation roots.")
     @GetMapping(value = "/previewVersion")
     @Parameter(name = "id", description = "Version ID")
-    public ApiResponse<List<ModelChangesDTO>> previewVersion(@RequestParam Long id) {
+    public ApiResponse<PreviewTreeDTO> previewVersion(@RequestParam Long id) {
         return ApiResponse.success(service.previewVersion(id));
     }
 
