@@ -40,7 +40,7 @@ public class OrderByBuilder extends BaseBuilder implements SqlClauseBuilder {
      */
     public void handleOrderBy() {
         Orders orders = flexQuery.getOrders();
-        if (orders == null) {
+        if (orders == null && !flexQuery.isAggregate()) {
             // When `orders` in flexQuery is empty, using the `defaultOrder` configuration of model.
             Orders defaultOrder = ModelManager.getModel(mainModelName).getDefaultOrder();
             if (defaultOrder != null && !defaultOrder.isEmpty()) {

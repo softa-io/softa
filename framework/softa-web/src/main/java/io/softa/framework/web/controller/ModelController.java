@@ -587,12 +587,13 @@ public class ModelController<K extends Serializable> {
     @PostMapping(value = "/count")
     @Operation(description = "Returns a count or group counting based on the specified `filter`, `groupBy`, and `orders`.")
     @DataMask
-    public ApiResponse<Object> count(@PathVariable String modelName,
-                                     @RequestBody(required = false) CountParams countParams) {
+    public ApiResponse<CountResult> count(@PathVariable String modelName,
+                                          @RequestBody(required = false) CountParams countParams) {
         if (countParams == null) {
             countParams = new CountParams();
         }
         ContextHolder.getContext().setEffectiveDate(countParams.getEffectiveDate());
+        CountResult result = new CountResult();
         List<String> groupBy = countParams.getGroupBy();
         if (!CollectionUtils.isEmpty(groupBy)) {
             Assert.allNotBlank(groupBy, "`groupBy` cannot contain empty value: {0}", groupBy);
@@ -600,10 +601,11 @@ public class ModelController<K extends Serializable> {
             flexQuery.setFields(new HashSet<>(groupBy));
             flexQuery.setGroupBy(groupBy);
             flexQuery.setConvertType(ConvertType.TYPE_CAST);
-            return ApiResponse.success(modelService.searchList(modelName, flexQuery));
+            result.setGroups(modelService.searchList(modelName, flexQuery));
         } else {
-            return ApiResponse.success(modelService.count(modelName, countParams.getFilters()));
+            result.setTotal(modelService.count(modelName, countParams.getFilters()));
         }
+        return ApiResponse.success(result);
     }
 
 

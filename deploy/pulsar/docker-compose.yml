@@ -8,6 +8,10 @@ services:
   zookeeper:
     image: apachepulsar/pulsar:4.2.0
     container_name: zookeeper
+    cpus: "0.50"
+    mem_limit: 768m
+    memswap_limit: 768m
+    pids_limit: 256
     restart: on-failure
     networks:
       - shared-net
@@ -54,6 +58,10 @@ services:
   bookie:
     image: apachepulsar/pulsar:4.2.0
     container_name: bookie
+    cpus: "1.00"
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    pids_limit: 512
     restart: on-failure
     networks:
       - shared-net
@@ -64,7 +72,7 @@ services:
       # otherwise every time we run docker compose up or down we fail to start due to Cookie
       # See: https://github.com/apache/bookkeeper/blob/405e72acf42bb1104296447ea8840d805094c787/bookkeeper-server/src/main/java/org/apache/bookkeeper/bookie/Cookie.java#L57-68
       - advertisedAddress=bookie
-      - BOOKIE_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
+      - BOOKIE_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=384m
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -86,6 +94,10 @@ services:
     image: apachepulsar/pulsar:4.2.0
     container_name: broker
     hostname: broker
+    cpus: "1.25"
+    mem_limit: 1792m
+    memswap_limit: 1792m
+    pids_limit: 512
     restart: on-failure
     networks:
       - shared-net
@@ -98,7 +110,7 @@ services:
       - managedLedgerDefaultAckQuorum=1
       - advertisedAddress=broker
       - advertisedListeners=external:pulsar://localhost:6650
-      - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
+      - PULSAR_MEM=-Xms768m -Xmx768m -XX:MaxDirectMemorySize=384m
     depends_on:
       zookeeper:
         condition: service_healthy
