@@ -35,7 +35,9 @@ public class MetaOptionItem implements Serializable {
 
     private String parentItemCode;
 
-    private String itemColor;
+    private String itemTone;
+
+    private String itemIcon;
 
     private String description;
 

@@ -6,7 +6,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.framework.orm.enums.OptionItemColor;
+import io.softa.framework.orm.enums.OptionItemIcon;
+import io.softa.framework.orm.enums.OptionItemTone;
 
 /**
  * DesignOptionItem Model
@@ -46,8 +47,11 @@ public class DesignOptionItem extends AuditableModel {
     @Schema(description = "Parent Item Code")
     private String parentItemCode;
 
-    @Schema(description = "Item Color")
-    private OptionItemColor itemColor;
+    @Schema(description = "Item Tone")
+    private OptionItemTone itemTone;
+
+    @Schema(description = "Item Icon")
+    private OptionItemIcon itemIcon;
 
     @Schema(description = "Description")
     private String description;

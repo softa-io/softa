@@ -46,7 +46,8 @@ When option values are expanded or returned as references, they use `OptionRefer
 Fields:
 - `itemCode`: option item code.
 - `itemName`: option item display name.
-- `itemColor`: optional color string.
+- `itemTone`: optional semantic tone (e.g. `success`, `warning`, `error`, `info`, `neutral`).
+- `itemIcon`: optional icon code (e.g. `check`, `x`, `ban`, `alert`, `pause`, `info`, `eye`, `loader`, `clock`, `pending`, `undo`, `lock`).
 
 ### Notes
 - `OptionManager` throws if `optionSetCode` does not exist in cache. Validate with
@@ -139,7 +140,7 @@ Unless stated otherwise, the descriptions below refer to service-level `FlexQuer
 | `ORIGINAL` | Raw stored item code. | Raw stored string (comma-separated). |
 | `TYPE_CAST` | Item code string. | `List<String>` of item codes. |
 | `DISPLAY` | Item display name. | Comma-joined display names (string). |
-| `REFERENCE` | `OptionReference` (`itemCode`, `itemName`, `itemColor`). | `List<OptionReference>`. |
+| `REFERENCE` | `OptionReference` (`itemCode`, `itemName`, `itemTone`, `itemIcon`). | `List<OptionReference>`. |
 
 ### ManyToOne / OneToOne
 1. No SubQuery:
@@ -236,13 +237,13 @@ By default, ModelController uses `ConvertType.REFERENCE`.
 Default API return (`REFERENCE`):
 1. `Option` -> `OptionReference` object:
 ```json
-{ "itemCode": "ACTIVE", "itemName": "Active", "itemColor": "green" }
+{ "itemCode": "Active", "itemName": "Active", "itemTone": "success", "itemIcon": "check" }
 ```
 2. `MultiOption` -> `List<OptionReference>`:
 ```json
 [
-  { "itemCode": "A", "itemName": "Tag A", "itemColor": "" },
-  { "itemCode": "B", "itemName": "Tag B", "itemColor": "" }
+  { "itemCode": "A", "itemName": "Tag A", "itemTone": "", "itemIcon": "" },
+  { "itemCode": "B", "itemName": "Tag B", "itemTone": "", "itemIcon": "" }
 ]
 ```
 

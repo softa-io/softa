@@ -1,11 +1,13 @@
 package io.softa.starter.metadata.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
+import java.io.Serial;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.OptionItemIcon;
+import io.softa.framework.orm.enums.OptionItemTone;
 
 /**
  * SysOptionItem Model
@@ -42,8 +44,11 @@ public class SysOptionItem extends AuditableModel {
     @Schema(description = "Parent Item Code")
     private String parentItemCode;
 
-    @Schema(description = "Item Color")
-    private String itemColor;
+    @Schema(description = "Item Tone")
+    private OptionItemTone itemTone;
+
+    @Schema(description = "Item Icon")
+    private OptionItemIcon itemIcon;
 
     @Schema(description = "Description")
     private String description;

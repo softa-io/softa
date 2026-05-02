@@ -64,7 +64,8 @@ public class OptionExpandProcessor extends BaseProcessor {
             return ConvertType.REFERENCE.equals(convertType) ?
                     OptionReference.of(itemCode, itemCode) : itemCode;
         } else if (ConvertType.REFERENCE.equals(convertType)) {
-            return OptionReference.of(itemCode, metaOptionItem.getItemName(), metaOptionItem.getItemColor());
+            return OptionReference.of(itemCode, metaOptionItem.getItemName(),
+                    metaOptionItem.getItemTone(), metaOptionItem.getItemIcon());
         } else if (ConvertType.DISPLAY.equals(convertType)) {
             return metaOptionItem.getItemName();
         }

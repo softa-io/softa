@@ -8,7 +8,7 @@ import java.io.Serializable;
 
 /**
  * Option reference object.
- * Used to reference the option item code, name, and color.
+ * Used to reference the option item code, name, tone, and icon.
  */
 @Data
 @Schema(name = "OptionReference")
@@ -23,8 +23,11 @@ public class OptionReference implements Serializable  {
     @Schema(description = "Option Item Name")
     private String itemName;
 
-    @Schema(description = "Option Item Color")
-    private String itemColor;
+    @Schema(description = "Option Item Tone")
+    private String itemTone;
+
+    @Schema(description = "Option Item Icon")
+    private String itemIcon;
 
     /**
      * Create an OptionReference object.
@@ -45,12 +48,14 @@ public class OptionReference implements Serializable  {
      *
      * @param itemCode Option item code
      * @param itemName Option item name
-     * @param itemColor Option item color
+     * @param itemTone Option item tone
+     * @param itemIcon Option item icon
      * @return OptionReference object
      */
-    static public OptionReference of(String itemCode, String itemName, String itemColor) {
+    static public OptionReference of(String itemCode, String itemName, String itemTone, String itemIcon) {
         OptionReference optionReference = OptionReference.of(itemCode, itemName);
-        optionReference.setItemColor(itemColor);
+        optionReference.setItemTone(itemTone);
+        optionReference.setItemIcon(itemIcon);
         return optionReference;
     }
 }
