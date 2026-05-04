@@ -6,7 +6,7 @@ networks:
 services:
   # Start zookeeper
   zookeeper:
-    image: apachepulsar/pulsar:4.2.0
+    image: apachepulsar/pulsar:4.2.1
     container_name: zookeeper
     cpus: "0.50"
     mem_limit: 768m
@@ -20,6 +20,9 @@ services:
     environment:
       - metadataStoreUrl=zk:zookeeper:2181
       - PULSAR_MEM=-Xms256m -Xmx256m -XX:MaxDirectMemorySize=256m
+      - PULSAR_GC=${PULSAR_GC:--XX:+UseZGC -XX:+ZGenerational -XX:+PerfDisableSharedMem -XX:+AlwaysPreTouch}
+      - PULSAR_LOG_LEVEL=${PULSAR_LOG_LEVEL:-warn}
+      - PULSAR_LOG_ROOT_LEVEL=${PULSAR_LOG_ROOT_LEVEL:-warn}
     command:
       - bash
       - -c
@@ -37,9 +40,13 @@ services:
   pulsar-init:
     container_name: pulsar-init
     hostname: pulsar-init
-    image: apachepulsar/pulsar:4.2.0
+    image: apachepulsar/pulsar:4.2.1
     networks:
       - shared-net
+    environment:
+      - PULSAR_GC=${PULSAR_GC:--XX:+UseZGC -XX:+ZGenerational -XX:+PerfDisableSharedMem -XX:+AlwaysPreTouch}
+      - PULSAR_LOG_LEVEL=${PULSAR_LOG_LEVEL:-warn}
+      - PULSAR_LOG_ROOT_LEVEL=${PULSAR_LOG_ROOT_LEVEL:-warn}
     command:
       - bash
       - -c
@@ -56,7 +63,7 @@ services:
 
   # Start bookie
   bookie:
-    image: apachepulsar/pulsar:4.2.0
+    image: apachepulsar/pulsar:4.2.1
     container_name: bookie
     cpus: "1.00"
     mem_limit: 1536m
@@ -73,6 +80,9 @@ services:
       # See: https://github.com/apache/bookkeeper/blob/405e72acf42bb1104296447ea8840d805094c787/bookkeeper-server/src/main/java/org/apache/bookkeeper/bookie/Cookie.java#L57-68
       - advertisedAddress=bookie
       - BOOKIE_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=384m
+      - BOOKIE_GC=${BOOKIE_GC:--XX:+UseZGC -XX:+ZGenerational -XX:+PerfDisableSharedMem -XX:+AlwaysPreTouch}
+      - PULSAR_LOG_LEVEL=${PULSAR_LOG_LEVEL:-warn}
+      - PULSAR_LOG_ROOT_LEVEL=${PULSAR_LOG_ROOT_LEVEL:-warn}
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -82,16 +92,10 @@ services:
     volumes:
       - ~/data/pulsar/bookkeeper:/pulsar/data/bookkeeper
     command: bash -c "bin/apply-config-from-env.py conf/bookkeeper.conf && exec bin/pulsar bookie"
-    healthcheck:
-      test: ["CMD-SHELL", "bin/bookkeeper shell whatisinstanceid >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
 
   # Start broker
   broker:
-    image: apachepulsar/pulsar:4.2.0
+    image: apachepulsar/pulsar:4.2.1
     container_name: broker
     hostname: broker
     cpus: "1.25"
@@ -111,6 +115,9 @@ services:
       - advertisedAddress=broker
       - advertisedListeners=external:pulsar://localhost:6650
       - PULSAR_MEM=-Xms768m -Xmx768m -XX:MaxDirectMemorySize=384m
+      - PULSAR_GC=${PULSAR_GC:--XX:+UseZGC -XX:+ZGenerational -XX:+PerfDisableSharedMem -XX:+AlwaysPreTouch}
+      - PULSAR_LOG_LEVEL=${PULSAR_LOG_LEVEL:-warn}
+      - PULSAR_LOG_ROOT_LEVEL=${PULSAR_LOG_ROOT_LEVEL:-warn}
     depends_on:
       zookeeper:
         condition: service_healthy
