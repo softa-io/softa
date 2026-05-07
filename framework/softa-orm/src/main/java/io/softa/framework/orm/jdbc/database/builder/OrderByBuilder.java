@@ -52,7 +52,8 @@ public class OrderByBuilder extends BaseBuilder implements SqlClauseBuilder {
         }
         if (orders != null) {
             for (List<String> order : orders.getOrderList()) {
-                // Support for cascade fields, such as deptId.managerId.name
+                // Support cascade fields (e.g. deptId.managerId.name) and dynamic cascaded
+                // field aliases declared on the model (auto-expanded by parseLogicField).
                 String aliasField = this.parseLogicField(order.get(0), false);
                 sqlWrapper.orderBy(aliasField, order.get(1));
             }

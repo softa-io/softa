@@ -572,6 +572,27 @@ public class ModelManager {
     }
 
     /**
+     * Check if the fields can be referenced in GROUP BY / SPLIT BY contexts.
+     * Allowed: stored fields and dynamic cascaded fields (the latter expand to a stored
+     * column on the related model via LEFT JOIN at SQL build time).
+     * Rejected: dynamic computed fields, OneToMany/ManyToMany, and any other dynamic types.
+     *
+     * @param modelName model name
+     * @param fields field name list
+     */
+    public static void validateGroupableFields(String modelName, List<String> fields) {
+        Set<String> invalidFields = fields.stream()
+                .filter(f -> {
+                    MetaField mf = getModelField(modelName, f);
+                    return mf.isDynamic() && !mf.isDynamicCascadedField();
+                })
+                .collect(Collectors.toSet());
+        Assert.isTrue(CollectionUtils.isEmpty(invalidFields),
+                "Fields {1} of model {0} cannot be used in GROUP BY: only stored fields or dynamic cascaded fields are allowed!",
+                modelName, invalidFields);
+    }
+
+    /**
      * Verify and update the `readonly` attribute of the field.
      * The `readonly` attribute is automatically set for the following fields:
      *     1. Fields in the `AUDIT_FIELDS` list, including audit fields, `version`, `sliceId`, `tenantId`.

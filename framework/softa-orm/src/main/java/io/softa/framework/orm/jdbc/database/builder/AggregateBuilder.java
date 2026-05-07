@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.constant.BaseConstant;
@@ -44,8 +43,9 @@ public class AggregateBuilder extends BaseBuilder implements SqlClauseBuilder {
         List<String> sqlGroupByFields = new ArrayList<>(flexQuery.getGroupBy());
         sqlGroupByFields.addAll(flexQuery.getSplitBy());
         if (!CollectionUtils.isEmpty(sqlGroupByFields)) {
-            // Grouping by current model fields, which can only be stored fields
-            ModelManager.validateStoredFields(this.mainModelName, sqlGroupByFields);
+            // Grouping by current model fields: stored fields or dynamic cascaded fields
+            // (the latter expand to `tN.column` via LEFT JOIN inside parseStoredFields).
+            ModelManager.validateGroupableFields(this.mainModelName, sqlGroupByFields);
             // Add grouping fields to the select condition and extract the numeric field set
             this.handleGroupByFields(flexQuery, sqlGroupByFields);
             sqlWrapper.groupBy(this.parseStoredFields(sqlGroupByFields, false));
@@ -75,14 +75,30 @@ public class AggregateBuilder extends BaseBuilder implements SqlClauseBuilder {
         flexQuery.setFields(selectFields);
         // Add select fields to groupBy fields to incompatible with `sql_mode = only_full_group_by`
         selectFields.stream().filter(f -> !sqlGroupByFields.contains(f)).forEach(sqlGroupByFields::add);
-        // Reassign selectFields, only select non-numeric, stored fields of the current model,
-        // excluding cascaded fields, non-stored fields,
-        // numeric fields that are excluded will be aggregated by `sum()`,
-        // and other fields will be filled in the return value format.
-        List<String> storedFields = selectFields.stream()
-                .filter(f -> ModelManager.existField(mainModelName, f) && ModelManager.isStored(mainModelName, f))
-                .collect(Collectors.toList());
+        // Reassign selectFields. Two tracks:
+        //   - Stored fields → `t.col` (alias matches column name, no AS needed).
+        //   - Dynamic cascaded fields → `tN.col AS alias` (must keep the user-declared alias
+        //     so the result map carries the alias instead of the underlying column name).
+        // Numeric stored fields excluded above will be aggregated by `sum()`;
+        // other dynamic fields (computed, xToMany, ...) are filled in the return value format.
+        List<String> storedFields = new ArrayList<>();
+        List<String> cascadedAliasFields = new ArrayList<>();
+        selectFields.forEach(f -> {
+            if (!ModelManager.existField(mainModelName, f)) {
+                return;
+            }
+            MetaField mf = ModelManager.getModelField(mainModelName, f);
+            if (!mf.isDynamic()) {
+                storedFields.add(f);
+            } else if (mf.isDynamicCascadedField()) {
+                cascadedAliasFields.add(f);
+            }
+        });
         sqlWrapper.select(this.parseStoredFields(storedFields, true));
+        cascadedAliasFields.forEach(f -> {
+            // parseLogicField goes through BaseBuilder's dynamic-cascaded rewrite → returns `tN.column`
+            sqlWrapper.select(this.parseLogicField(f, true) + " AS " + f);
+        });
         // Numeric fields, automatically add `sum(t.field) as field`, the alias here cannot add table alias
         if (!CollectionUtils.isEmpty(numericFields)) {
             numericFields.forEach(field -> {
