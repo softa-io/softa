@@ -19,7 +19,7 @@ import io.softa.framework.web.signature.SignatureConstant;
 import io.softa.framework.web.signature.support.CanonicalRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Server-side filter tests — proves the filter rejects stale, tampered,
@@ -52,7 +52,7 @@ class SignatureVerificationFilterTest {
         filter.doFilter(request, response, chain);
 
         assertEquals(200, response.getStatus());
-        assertTrue(chain.getRequest() != null, "downstream handler must have been invoked");
+        assertNotNull(chain.getRequest(), "downstream handler must have been invoked");
     }
 
     @Test
@@ -76,13 +76,13 @@ class SignatureVerificationFilterTest {
         long ts = System.currentTimeMillis();
         String nonce = UUID.randomUUID().toString();
 
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/upgrade/upgradeMetadata");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/upgrade/runtime/upgradeMetadata");
         request.setServerName("runtime.example");
         request.setScheme("https");
         request.setServerPort(443);
         request.setContent(body);
         byte[] canonical = CanonicalRequest.build("POST",
-                java.net.URI.create("https://runtime.example/upgrade/upgradeMetadata"), body, ts, nonce);
+                java.net.URI.create("https://runtime.example/upgrade/runtime/upgradeMetadata"), body, ts, nonce);
         request.addHeader(SignatureConstant.TIMESTAMP, Long.toString(ts));
         request.addHeader(SignatureConstant.NONCE, nonce);
         request.addHeader(SignatureConstant.SIGNATURE, sign(foreign.getPrivate(), canonical));
@@ -110,7 +110,7 @@ class SignatureVerificationFilterTest {
     void requestMissingSignatureHeadersIsRejected() throws Exception {
         // Path-scoped filter has no pass-through: a request that lands on the
         // signed prefix without headers must be rejected, not silently forwarded.
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/upgrade/upgradeMetadata");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/upgrade/runtime/upgradeMetadata");
         request.setServerName("runtime.example");
         request.setScheme("https");
         request.setServerPort(443);
@@ -124,14 +124,14 @@ class SignatureVerificationFilterTest {
     // ------------- helpers -------------
 
     private MockHttpServletRequest signedRequest(byte[] body, long timestamp, String nonce) throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/upgrade/upgradeMetadata");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/upgrade/runtime/upgradeMetadata");
         request.setServerName("runtime.example");
         request.setScheme("https");
         request.setServerPort(443);
         request.setContent(body);
 
         byte[] canonical = CanonicalRequest.build("POST",
-                java.net.URI.create("https://runtime.example/upgrade/upgradeMetadata"),
+                java.net.URI.create("https://runtime.example/upgrade/runtime/upgradeMetadata"),
                 body, timestamp, nonce);
         String signature = sign(keyPair.getPrivate(), canonical);
 

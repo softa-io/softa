@@ -27,6 +27,13 @@ public class MetadataUpgradeRequest implements Serializable {
     private List<MetadataUpgradePackage> packages;
 
     /**
+     * Studio-side env id the upgrade is being dispatched against. Stored on the
+     * runtime's {@code MetadataUpgradeHistory} row for audit / cross-correlation; not
+     * used to route the upgrade itself.
+     */
+    private Long envId;
+
+    /**
      * Absolute URL the runtime must POST the completion callback to.
      * The host/path is caller-defined — the runtime does not infer it from its own
      * configuration — so that studio → runtime reachability and runtime → studio

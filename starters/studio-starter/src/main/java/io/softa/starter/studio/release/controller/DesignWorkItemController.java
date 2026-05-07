@@ -101,8 +101,9 @@ public class DesignWorkItemController extends EntityController<DesignWorkItemSer
      */
     @Operation(description = "Add a DONE WorkItem to a DRAFT Version.")
     @PostMapping(value = "/addToVersion")
-    public ApiResponse<Boolean> addToVersion(@RequestBody WorkItemVersionDTO workItemVersionDTO) {
-        service.addToVersion(workItemVersionDTO.getWorkItemId(), workItemVersionDTO.getVersionId());
+    @Parameter(name = "id", description = "WorkItem ID")
+    public ApiResponse<Boolean> addToVersion(@RequestParam Long id, @RequestBody WorkItemVersionDTO dto) {
+        service.addToVersion(id, dto.getVersionId());
         return ApiResponse.success(true);
     }
 

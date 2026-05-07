@@ -28,7 +28,7 @@ public class IdentityResolver {
     private static final List<String> OPENAPI_PATHS = List.of("/openapi/**");
     private static final List<String> INTERNAL_PATHS = List.of("/internal/**");
 
-    // /upgrade/** is studio→runtime, signature-authenticated; see SignatureConfig.
+    // /upgrade/runtime/** is studio→runtime, signature-authenticated; see SignatureConfig.
     private static final List<String> OPERATION_PATHS = List.of("/upgrade/**");
 
     private static final PathPatternParser PARSER = new PathPatternParser();

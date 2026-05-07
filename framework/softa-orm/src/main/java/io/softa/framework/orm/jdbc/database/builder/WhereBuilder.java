@@ -454,6 +454,13 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
         Object obj = filterUnit.getValue();
         if (obj instanceof Enum<?> enumValue) {
             obj = JsonUtils.getMapper().convertValue(enumValue, String.class);
+        } else if (obj instanceof Collection<?> collectionValue) {
+            obj = collectionValue.stream().map(v -> {
+                if (v instanceof Enum<?> vEnum) {
+                    return JsonUtils.getMapper().convertValue(vEnum, String.class);
+                }
+                return v;
+            }).collect(Collectors.toList());
         }
         filterUnit.setValue(obj);
     }

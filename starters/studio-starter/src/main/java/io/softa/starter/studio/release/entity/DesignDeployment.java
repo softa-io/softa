@@ -89,7 +89,7 @@ public class DesignDeployment extends AuditableModel {
     private LocalDateTime callbackReceivedAt;
 
     @Schema(description = "Operator")
-    private String operatorId;
+    private Long operatorId;
 
     @Schema(description = "Error Message")
     private String errorMessage;

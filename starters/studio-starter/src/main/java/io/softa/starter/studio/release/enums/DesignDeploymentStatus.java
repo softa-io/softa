@@ -16,7 +16,8 @@ public enum DesignDeploymentStatus {
     DEPLOYING("Deploying", "Deploying"),
     SUCCESS("Success", "Success"),
     FAILURE("Failure", "Failure"),
-    ROLLED_BACK("RolledBack", "Rolled Back"),
+    CANCELED("Canceled", "Canceled"),
+    Rolled_Back("Rolled Back", "Rolled Back"),
     ;
 
     @JsonValue

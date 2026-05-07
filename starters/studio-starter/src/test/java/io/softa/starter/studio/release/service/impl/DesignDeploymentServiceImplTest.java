@@ -38,7 +38,7 @@ class DesignDeploymentServiceImplTest {
 
         MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
         payload.setStatus("SUCCESS");
-        payload.setDurationMillis(1200L);
+        payload.setDurationTime(1.2);
 
         s.service.handleUpgradeCallback(s.token, payload);
 
@@ -62,7 +62,7 @@ class DesignDeploymentServiceImplTest {
         MetadataUpgradeCallback payload = new MetadataUpgradeCallback();
         payload.setStatus("FAILURE");
         payload.setErrorMessage("DDL apply failed");
-        payload.setDurationMillis(400L);
+        payload.setDurationTime(0.4);
 
         s.service.handleUpgradeCallback(s.token, payload);
 

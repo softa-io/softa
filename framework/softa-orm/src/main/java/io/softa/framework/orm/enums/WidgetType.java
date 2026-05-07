@@ -52,6 +52,7 @@ public enum WidgetType {
     MM_DD("MM-dd", "Month-Day picker"),
     HH_MM("HH:mm", "Hour-Minute picker"),
     HH_MM_SS("HH:mm:ss", "Time picker"),
+    RELATIVE("Relative", "Relative time"),
 
     // Tree structure, such as org structure, category, etc.
     SELECT_TREE("SelectTree", "Tree Select"),

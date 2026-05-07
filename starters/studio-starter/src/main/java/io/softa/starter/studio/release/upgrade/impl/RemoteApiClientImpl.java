@@ -16,9 +16,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.URLUtils;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.constant.MetadataConstant;
+import io.softa.starter.metadata.dto.MetadataUpgradeHistoryDTO;
 import io.softa.starter.metadata.dto.MetadataUpgradePackage;
 import io.softa.starter.metadata.dto.MetadataUpgradeRequest;
 import io.softa.starter.studio.release.config.StudioRemoteClientConfig;
@@ -81,6 +83,7 @@ public class RemoteApiClientImpl implements RemoteApiClient {
                               String callbackToken) {
         MetadataUpgradeRequest envelope = new MetadataUpgradeRequest();
         envelope.setPackages(modelPackages);
+        envelope.setEnvId(appEnv.getId());
         envelope.setCallbackUrl(callbackUrl);
         envelope.setCallbackToken(callbackToken);
 
@@ -103,6 +106,41 @@ public class RemoteApiClientImpl implements RemoteApiClient {
         // send nothing at all. We only fail if a non-success code was wrapped.
         Assert.isTrue(apiResponse == null || ResponseCode.SUCCESS.getCode().equals(apiResponse.getCode()),
                 "Remote upgrade dispatch rejected: URI={0}, response={1}", uri, apiResponse);
+    }
+
+    @Override
+    public MetadataUpgradeHistoryDTO fetchUpgradeStatus(DesignAppEnv appEnv, String callbackToken) {
+        Assert.notBlank(callbackToken, "callbackToken is required.");
+        URI uri = UriComponentsBuilder
+                .fromUriString(URLUtils.buildUrl(appEnv.getUpgradeEndpoint(),
+                        MetadataConstant.METADATA_UPGRADE_STATUS_API))
+                .queryParam("callbackToken", callbackToken)
+                .build()
+                .toUri();
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        ResponseEntity<ApiResponse<Object>> responseEntity = restClient.get()
+                .uri(uri)
+                .headers(headers -> populateHeaders(headers, appEnv.getId(), idempotencyKey))
+                .retrieve()
+                .toEntity(API_RESPONSE_TYPE);
+
+        HttpStatusCode status = responseEntity.getStatusCode();
+        ApiResponse<Object> apiResponse = responseEntity.getBody();
+        Assert.isTrue(HttpStatus.OK.equals(status), "Upgrade status fetch returned non-200 status: URI={0}, status={1}, body={2}",
+                uri, status, apiResponse);
+        Assert.notNull(apiResponse, "Upgrade status fetch returned empty body: URI={0}, status={1}", uri, status);
+        Assert.isTrue(ResponseCode.SUCCESS.getCode().equals(apiResponse.getCode()),
+                "Upgrade status fetch failed: URI={0}, response={1}", uri, apiResponse);
+        Object data = apiResponse.getData();
+        if (data == null) {
+            return null;
+        }
+        // Re-bind the loosely-typed JSON tree to the strongly-typed DTO. The wire DTO
+        // lives in metadata-starter and is shared with the runtime, so this is a
+        // value-equivalent conversion, not a remap.
+        return JsonUtils.jsonNodeToObject(JsonUtils.objectToJsonNode(data),
+                MetadataUpgradeHistoryDTO.class);
     }
 
     @Override

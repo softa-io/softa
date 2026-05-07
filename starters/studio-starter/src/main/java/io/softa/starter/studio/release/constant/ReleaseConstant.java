@@ -7,9 +7,6 @@ import java.time.Duration;
  */
 public interface ReleaseConstant {
 
-    /** Server-relative callback path — single source of truth for runtime → studio webhooks. */
-    String CALLBACK_PATH = "/DesignDeployment/callback";
-
     /**
      * How long a newly-minted callback token is valid for. A callback arriving after
      * the expiry is rejected even if the token matches — bounds the exposure window

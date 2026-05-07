@@ -79,10 +79,6 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('ViewType','Calendar','Calendar',5,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('ViewType','Dashboard','Dashboard',6,'','','','');
 
--- Option Set: OptionItemColor (removed; cleanup retained for one release)
-DELETE FROM sys_option_set WHERE option_set_code='OptionItemColor';
-DELETE FROM sys_option_item WHERE option_set_code='OptionItemColor';
-
 -- Option Set: OptionItemTone
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='OptionItemTone';
@@ -259,3 +255,14 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('Timezone','UTC-06:00','UTC-06:00 (Chicago, CST)',7,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('Timezone','UTC-05:00','UTC-05:00 (New York, EST)',8,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('Timezone','UTC-04:00','UTC-04:00 (Halifax, AST)',9,'','','','');
+
+-- Option Set: MetadataUpgradeStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='MetadataUpgradeStatus';
+DELETE FROM sys_option_item WHERE option_set_code='MetadataUpgradeStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('MetadataUpgradeStatus','Metadata Upgrade Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('MetadataUpgradeStatus','Running','Running',1,'','','','Upgrade is being applied on the runtime');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('MetadataUpgradeStatus','Success','Success',2,'','','','Upgrade applied and metadata reloaded');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('MetadataUpgradeStatus','Failure','Failure',3,'','','','Upgrade failed; partial apply may remain in place');

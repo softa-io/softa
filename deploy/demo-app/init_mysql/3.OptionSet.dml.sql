@@ -119,10 +119,6 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('ImportRule','CreateOrUpdate','Create or Update',2,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('ImportRule','OnlyCreate','Only Create',3,'','','','');
 
--- Option Set: OptionItemColor (removed; cleanup retained for one release)
-DELETE FROM sys_option_set WHERE option_set_code='OptionItemColor';
-DELETE FROM sys_option_item WHERE option_set_code='OptionItemColor';
-
 -- Option Set: OptionItemTone
 -- Clean up historical data
 DELETE FROM sys_option_set WHERE option_set_code='OptionItemTone';
@@ -303,7 +299,8 @@ INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('DesignDeploymentStatus','Deploying','Deploying',2,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('DesignDeploymentStatus','Success','Success',3,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('DesignDeploymentStatus','Failure','Failure',4,'','','','');
-INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('DesignDeploymentStatus','RolledBack','Rolled Back',5,'','','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('DesignDeploymentStatus','Canceled','Canceled',5,'','','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('DesignDeploymentStatus','RolledBack','Rolled Back',6,'','','','');
 
 -- Option Set: DesignCodeLang
 -- Clean up historical data
@@ -817,3 +814,14 @@ INSERT INTO sys_option_set(option_set_code,name,description) VALUES('SigningDocu
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('SigningDocumentStatus','Pending','Pending',1,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('SigningDocumentStatus','InProgress','In Progress',2,'','','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('SigningDocumentStatus','Completed','Completed',3,'','','','');
+
+-- Option Set: MetadataUpgradeStatus
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='MetadataUpgradeStatus';
+DELETE FROM sys_option_item WHERE option_set_code='MetadataUpgradeStatus';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('MetadataUpgradeStatus','Metadata Upgrade Status','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('MetadataUpgradeStatus','Running','Running',1,'','','','Upgrade is being applied on the runtime');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('MetadataUpgradeStatus','Success','Success',2,'','','','Upgrade applied and metadata reloaded');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_tone,item_icon,description) VALUES('MetadataUpgradeStatus','Failure','Failure',3,'','','','Upgrade failed; partial apply may remain in place');

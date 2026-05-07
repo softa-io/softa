@@ -29,6 +29,6 @@ public class MetadataUpgradeCallback implements Serializable {
     /** First-line failure reason when {@code status == FAILURE}; null otherwise. */
     private String errorMessage;
 
-    /** Upgrade wall-clock duration measured on the runtime side, in milliseconds. */
-    private Long durationMillis;
+    /** Upgrade wall-clock duration measured on the runtime side, in seconds. */
+    private Double durationTime;
 }

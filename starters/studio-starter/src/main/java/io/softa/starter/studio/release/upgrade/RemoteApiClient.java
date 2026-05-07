@@ -3,6 +3,7 @@ package io.softa.starter.studio.release.upgrade;
 import java.util.List;
 import java.util.Map;
 
+import io.softa.starter.metadata.dto.MetadataUpgradeHistoryDTO;
 import io.softa.starter.metadata.dto.MetadataUpgradePackage;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 
@@ -39,4 +40,15 @@ public interface RemoteApiClient {
      * @return list of runtime row data
      */
     List<Map<String, Object>> fetchRuntimeMetadata(DesignAppEnv appEnv, String runtimeModelName);
+
+    /**
+     * Pull the persisted upgrade outcome for a previously dispatched envelope from the
+     * remote runtime. Used by the studio to reconcile a deployment that is stuck in
+     * {@code DEPLOYING} because the push callback was lost.
+     *
+     * @param appEnv        target environment (supplies endpoint + signing key)
+     * @param callbackToken token from the originating envelope
+     * @return outcome row, or {@code null} when the runtime has no record for the token
+     */
+    MetadataUpgradeHistoryDTO fetchUpgradeStatus(DesignAppEnv appEnv, String callbackToken);
 }

@@ -12,8 +12,11 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.metadata.dto.MetadataUpgradeHistoryDTO;
 import io.softa.starter.metadata.dto.MetadataUpgradeRequest;
+import io.softa.starter.metadata.entity.MetadataUpgradeHistory;
 import io.softa.starter.metadata.service.MetadataService;
+import io.softa.starter.metadata.service.MetadataUpgradeHistoryService;
 import io.softa.starter.metadata.upgrade.MetadataUpgradeWorker;
 
 /**
@@ -29,7 +32,7 @@ import io.softa.starter.metadata.upgrade.MetadataUpgradeWorker;
  */
 @Tag(name = "Metadata upgrade API")
 @RestController
-@RequestMapping("/upgrade")
+@RequestMapping("/upgrade/runtime")
 public class UpgradeController {
 
     @Autowired
@@ -37,6 +40,9 @@ public class UpgradeController {
 
     @Autowired
     private MetadataUpgradeWorker upgradeWorker;
+
+    @Autowired
+    private MetadataUpgradeHistoryService upgradeHistoryService;
 
     /**
      * Accept a metadata upgrade envelope from the studio and dispatch it asynchronously.
@@ -81,6 +87,26 @@ public class UpgradeController {
         Assert.notBlank(modelName, "Model name cannot be empty.");
         Assert.notNull(appId, "App id cannot be null.");
         return ApiResponse.success(metadataService.exportRuntimeMetadata(modelName, appId));
+    }
+
+    /**
+     * Query the persisted outcome of a previously dispatched upgrade by its callback
+     * token. Returns {@code null} data when no such row exists (the dispatch never
+     * reached this runtime, or the runtime DB lost it).
+     * <p>
+     * This endpoint is the fallback the studio uses when the push callback was lost
+     * (network failure, studio restart, runtime crash before send). The history row
+     * is the source of truth for upgrade outcomes.
+     */
+    @Operation(summary = "queryUpgradeStatus",
+            description = "Query the persisted outcome of a dispatched upgrade by callback token")
+    @GetMapping("/upgradeStatus")
+    public ApiResponse<MetadataUpgradeHistoryDTO> queryUpgradeStatus(
+            @Parameter(description = "Callback token from the originating upgrade envelope", required = true)
+            @RequestParam String callbackToken) {
+        Assert.notBlank(callbackToken, "callbackToken is required.");
+        MetadataUpgradeHistory history = upgradeHistoryService.findByToken(callbackToken);
+        return ApiResponse.success(MetadataUpgradeHistoryDTO.from(history));
     }
 
 }

@@ -2,15 +2,17 @@ package io.softa.starter.studio.release.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.studio.release.entity.DesignApp;
 import io.softa.starter.studio.release.enums.DesignAppStatus;
 import io.softa.starter.studio.release.service.DesignAppService;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * DesignApp Model Controller
@@ -29,7 +31,7 @@ public class DesignAppController extends EntityController<DesignAppService, Desi
     @Operation(description = "Activate the App.")
     @PostMapping(value = "/activate")
     @Parameter(name = "id", description = "App ID")
-    public ApiResponse<Boolean> activate(Long id) {
+    public ApiResponse<Boolean> activate(@RequestParam Long id) {
         return transitionStatus(id, DesignAppStatus.ACTIVE);
     }
 
@@ -42,7 +44,7 @@ public class DesignAppController extends EntityController<DesignAppService, Desi
     @Operation(description = "Put the App into maintenance mode.")
     @PostMapping(value = "/enterMaintenance")
     @Parameter(name = "id", description = "App ID")
-    public ApiResponse<Boolean> enterMaintenance(Long id) {
+    public ApiResponse<Boolean> enterMaintenance(@RequestParam Long id) {
         return transitionStatus(id, DesignAppStatus.MAINTENANCE);
     }
 
@@ -55,7 +57,7 @@ public class DesignAppController extends EntityController<DesignAppService, Desi
     @Operation(description = "Deprecate the App.")
     @PostMapping(value = "/deprecate")
     @Parameter(name = "id", description = "App ID")
-    public ApiResponse<Boolean> deprecate(Long id) {
+    public ApiResponse<Boolean> deprecate(@RequestParam Long id) {
         return transitionStatus(id, DesignAppStatus.DEPRECATED);
     }
 

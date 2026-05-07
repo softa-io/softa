@@ -24,8 +24,11 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.metadata.constant.MetadataConstant;
 import io.softa.starter.metadata.dto.MetadataUpgradeCallback;
+import io.softa.starter.metadata.dto.MetadataUpgradeHistoryDTO;
 import io.softa.starter.metadata.dto.MetadataUpgradePackage;
+import io.softa.starter.metadata.enums.MetadataUpgradeStatus;
 import io.softa.starter.studio.release.constant.ReleaseConstant;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.entity.*;
@@ -154,9 +157,8 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
                 .eq(DesignAppEnv::getEnvStatus, DesignAppEnvStatus.STABLE);
         DesignAppEnv update = new DesignAppEnv();
         update.setEnvStatus(DesignAppEnvStatus.DEPLOYING);
-        Integer affected = appEnvService.updateByFilter(casFilter, update);
-        Assert.isTrue(affected != null && affected == 1,
-                "Env {0} is currently Deploying or Importing. Retry later.",
+        int affected = appEnvService.updateByFilter(casFilter, update);
+        Assert.isTrue(affected == 1, "Env {0} is currently Deploying or Importing. Retry later.",
                 targetEnv.getId());
         targetEnv.setEnvStatus(DesignAppEnvStatus.DEPLOYING);
     }
@@ -211,9 +213,8 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
         Assert.isTrue(current == DesignDeploymentStatus.PENDING || current == DesignDeploymentStatus.DEPLOYING,
                 "Only PENDING / DEPLOYING deployments can be cancelled. Current status: {0}", current);
 
-        // Mark rolled back on the record so history reflects the cancellation. The
-        // attached message explicitly documents that no auto-rollback happened.
-        deployment.setDeployStatus(DesignDeploymentStatus.ROLLED_BACK);
+        // Mark rolled back on the record so history reflects the cancellation.
+        deployment.setDeployStatus(DesignDeploymentStatus.CANCELED);
         deployment.setFinishedTime(LocalDateTime.now());
         String cancelNote = "Cancelled by operator at " + LocalDateTime.now()
                 + "; no automatic data/DDL rollback performed — operators must manually revert"
@@ -290,13 +291,63 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
         DesignAppEnv targetEnv = appEnvService.getById(deployment.getEnvId())
                 .orElseThrow(() -> new IllegalArgumentException("Env does not exist! {0}", deployment.getEnvId()));
 
+        applyUpgradeOutcome(deployment, targetEnv,
+                payload.getStatus(), payload.getErrorMessage(), payload.getDurationTime());
+    }
+
+    @Override
+    public void refreshDeploymentStatus(Long deploymentId) {
+        DesignDeployment deployment = this.getById(deploymentId)
+                .orElseThrow(() -> new IllegalArgumentException("Deployment does not exist! {0}", deploymentId));
+        Assert.isEqual(deployment.getDeployStatus(), DesignDeploymentStatus.DEPLOYING,
+                "Refresh only valid in DEPLOYING. Current: {0}", deployment.getDeployStatus());
+        Assert.isTrue(deployment.getCallbackReceivedAt() == null,
+                "Deployment {0} already has a recorded outcome (received at {1}). Refresh is a no-op.",
+                deploymentId, deployment.getCallbackReceivedAt());
+        Assert.notBlank(deployment.getCallbackToken(),
+                "Deployment {0} has no callback token — cannot query runtime status.", deploymentId);
+
+        DesignAppEnv targetEnv = appEnvService.getById(deployment.getEnvId())
+                .orElseThrow(() -> new IllegalArgumentException("Env does not exist! {0}", deployment.getEnvId()));
+
+        MetadataUpgradeHistoryDTO runtimeHistory = remoteApiClient.fetchUpgradeStatus(targetEnv,
+                deployment.getCallbackToken());
+        Assert.notNull(runtimeHistory,
+                "Runtime has no MetadataUpgradeHistory record for deployment {0}. The upgrade either "
+                        + "never started or runtime state was lost — use cancelDeployment to release the env.",
+                deploymentId);
+
+        MetadataUpgradeStatus runtimeStatus = runtimeHistory.getStatus();
+        Assert.notNull(runtimeStatus,
+                "Runtime returned a record without a status for deployment {0}.", deploymentId);
+        Assert.isTrue(runtimeStatus != MetadataUpgradeStatus.RUNNING,
+                "Runtime is still applying the upgrade for deployment {0} (started {1}). "
+                        + "Wait, or use cancelDeployment if it has been hung too long.",
+                deploymentId, runtimeHistory.getStartTime());
+
+        String wireStatus = runtimeStatus == MetadataUpgradeStatus.SUCCESS
+                ? CALLBACK_STATUS_SUCCESS : CALLBACK_STATUS_FAILURE;
+        applyUpgradeOutcome(deployment, targetEnv, wireStatus,
+                runtimeHistory.getErrorMessage(), runtimeHistory.getDurationTime());
+    }
+
+    /**
+     * Apply a {@code SUCCESS} / {@code FAILURE} outcome to a deployment. Shared by the
+     * push callback path and the operator-triggered refresh path. Idempotent — the
+     * {@code callbackReceivedAt} stamp acts as the burn marker, so a callback and a
+     * refresh racing for the same deployment will leave only one outcome applied.
+     */
+    private void applyUpgradeOutcome(DesignDeployment deployment, DesignAppEnv targetEnv,
+                                     String wireStatus, String errorMessage, Double durationTime) {
+        Assert.isTrue(deployment.getCallbackReceivedAt() == null,
+                "Outcome already recorded on deployment {0} at {1}.",
+                deployment.getId(), deployment.getCallbackReceivedAt());
         deployment.setCallbackReceivedAt(LocalDateTime.now());
 
-        if (CALLBACK_STATUS_SUCCESS.equalsIgnoreCase(payload.getStatus())) {
-            markDeploymentSuccess(deployment, targetEnv, deployment.getTargetVersionId(),
-                    payload.getDurationMillis());
+        if (CALLBACK_STATUS_SUCCESS.equalsIgnoreCase(wireStatus)) {
+            markDeploymentSuccess(deployment, targetEnv, deployment.getTargetVersionId(), durationTime);
         } else {
-            markDeploymentFailure(deployment, payload.getErrorMessage(), payload.getDurationMillis());
+            markDeploymentFailure(deployment, errorMessage, durationTime);
         }
         releaseDeploymentLock(targetEnv.getId());
     }
@@ -330,10 +381,10 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
     }
 
     private void markDeploymentSuccess(DesignDeployment deployment, DesignAppEnv targetEnv,
-                                       Long targetVersionId, Long durationMillis) {
+                                       Long targetVersionId, Double durationTime) {
         deployment.setDeployStatus(DesignDeploymentStatus.SUCCESS);
-        if (durationMillis != null) {
-            deployment.setDeployDuration(durationMillis / 1000.0);
+        if (durationTime != null) {
+            deployment.setDeployDuration(durationTime);
         }
         deployment.setFinishedTime(LocalDateTime.now());
         this.updateOne(deployment);
@@ -351,11 +402,11 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
                 new DesignDeploymentSnapshotEvent(targetEnv.getId(), deployment.getId(), List.copyOf(mergedChanges)));
     }
 
-    private void markDeploymentFailure(DesignDeployment deployment, String errorMessage, Long durationMillis) {
+    private void markDeploymentFailure(DesignDeployment deployment, String errorMessage, Double durationTime) {
         try {
             deployment.setDeployStatus(DesignDeploymentStatus.FAILURE);
-            if (durationMillis != null) {
-                deployment.setDeployDuration(durationMillis / 1000.0);
+            if (durationTime != null) {
+                deployment.setDeployDuration(durationTime);
             }
             deployment.setFinishedTime(LocalDateTime.now());
             deployment.setErrorMessage(errorMessage);
@@ -385,7 +436,7 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
         Assert.isTrue(StringUtils.hasText(base),
                 "system.public-access-url must be set before remote deployments can dispatch.");
         return UriComponentsBuilder.fromUriString(base)
-                .path(ReleaseConstant.CALLBACK_PATH)
+                .path(MetadataConstant.CALLBACK_PATH)
                 .build().toUriString();
     }
 
@@ -491,7 +542,7 @@ public class DesignDeploymentServiceImpl extends EntityServiceImpl<DesignDeploym
         deployment.setCallbackToken(UUID.randomUUID().toString().replace("-", ""));
         deployment.setCallbackTokenExpireAt(LocalDateTime.now().plus(ReleaseConstant.CALLBACK_TOKEN_TTL));
         if (ContextHolder.getContext().getUserId() != null) {
-            deployment.setOperatorId(String.valueOf(ContextHolder.getContext().getUserId()));
+            deployment.setOperatorId(ContextHolder.getContext().getUserId());
         }
         return this.createOneAndFetch(deployment);
     }

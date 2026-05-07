@@ -3,6 +3,7 @@ package io.softa.starter.metadata.service.impl;
 import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,10 +17,12 @@ import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.metadata.constant.MetadataConstant;
 import io.softa.starter.metadata.controller.dto.MetaFieldDTO;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
@@ -32,6 +35,7 @@ import io.softa.starter.metadata.service.MetadataService;
 /**
  * Metadata upgrade service implementation.
  */
+@Slf4j
 @Service
 public class MetadataServiceImpl implements MetadataService {
 
@@ -127,11 +131,7 @@ public class MetadataServiceImpl implements MetadataService {
         if (!CollectionUtils.isEmpty(createRows)) {
             this.validateBatchSize(createRows.size());
             this.validateInsertIdEnabled();
-            List<Serializable> requestedIds = this.extractIds(createRows, modelName, "create");
-            List<Serializable> createdIds = Cast.of(modelService.createList(modelName, createRows));
-            Assert.isEqual(createdIds, requestedIds,
-                    "When creating metadata of model {0}, the created ids must match the requested ids. requested={1}, actual={2}",
-                    modelName, requestedIds, createdIds);
+            modelService.createList(modelName, createRows);
         }
     }
 
@@ -144,10 +144,9 @@ public class MetadataServiceImpl implements MetadataService {
     private void updateById(String modelName, List<Map<String, Object>> updateRows) {
         if (!CollectionUtils.isEmpty(updateRows)) {
             this.validateBatchSize(updateRows.size());
-            List<Serializable> ids = this.extractIds(updateRows, modelName, "update");
-            this.assertRowsExist(modelName, ids, "update");
-            boolean updated = modelService.updateList(modelName, updateRows);
-            Assert.isTrue(updated, "Failed to update metadata of model {0}. ids={1}", modelName, ids);
+            List<Long> ids = this.extractIds(updateRows, modelName, AccessType.UPDATE);
+            this.lowMissedRowIds(modelName, ids, AccessType.UPDATE);
+            modelService.updateList(modelName, updateRows);
         }
     }
 
@@ -157,13 +156,12 @@ public class MetadataServiceImpl implements MetadataService {
      * @param modelName The name of the model
      * @param ids The list of codes for the data to be deleted
      */
-    private void deleteByIds(String modelName, List<? extends Serializable> ids) {
+    private void deleteByIds(String modelName, List<Long> ids) {
         if (!CollectionUtils.isEmpty(ids)) {
             this.validateBatchSize(ids.size());
-            List<Serializable> requestedIds = new ArrayList<>(ids);
-            this.assertRowsExist(modelName, requestedIds, "delete");
-            boolean deleted = modelService.deleteByIds(modelName, Cast.of(ids));
-            Assert.isTrue(deleted, "Failed to delete metadata of model {0}. ids={1}", modelName, requestedIds);
+            List<Long> requestedIds = new ArrayList<>(ids);
+            this.lowMissedRowIds(modelName, requestedIds, AccessType.DELETE);
+            modelService.deleteByIds(modelName, Cast.of(ids));
         }
     }
 
@@ -173,29 +171,30 @@ public class MetadataServiceImpl implements MetadataService {
                 "system.enableInsertId must be enabled when upgrading runtime metadata.");
     }
 
-    private List<Serializable> extractIds(List<Map<String, Object>> rows, String modelName, String operation) {
-        List<Serializable> ids = new ArrayList<>(rows.size());
+    private List<Long> extractIds(List<Map<String, Object>> rows, String modelName, AccessType operation) {
+        List<Long> ids = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
             Object id = row.get(ModelConstant.ID);
             Assert.notNull(id, "When {0} metadata of model {1}, each row must contain id. {2}",
                     operation, modelName, row);
-            ids.add((Serializable) id);
+            ids.add(IdUtils.convertIdToLong(id));
         }
         return ids;
     }
 
-    private void assertRowsExist(String modelName, List<? extends Serializable> ids, String operation) {
-        Set<Serializable> distinctIds = new LinkedHashSet<>(ids);
+    private void lowMissedRowIds(String modelName, List<Long> ids, AccessType operation) {
+        Set<Long> distinctIds = new LinkedHashSet<>(ids);
         FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID), new Filters().in(ModelConstant.ID, distinctIds));
         List<Map<String, Object>> existingRows = modelService.searchList(modelName, flexQuery);
-        Set<Serializable> existingIds = existingRows.stream()
-                .map(row -> (Serializable) row.get(ModelConstant.ID))
+        Set<Long> existingIds = existingRows.stream()
+                .map(row -> (Long) row.get(ModelConstant.ID))
                 .collect(Collectors.toSet());
-        List<Serializable> missingIds = distinctIds.stream()
+        List<Long> missingIds = distinctIds.stream()
                 .filter(id -> !existingIds.contains(id))
                 .toList();
-        Assert.isTrue(missingIds.isEmpty(), "Cannot {0} metadata of model {1}. Missing ids: {2}",
-                operation, modelName, missingIds);
+        if (!missingIds.isEmpty()) {
+            log.error("Missing ids {} for operation {}", missingIds, operation);
+        }
     }
 
     /**

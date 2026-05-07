@@ -23,15 +23,15 @@ public class DesignAppVersionController extends EntityController<DesignAppVersio
     /**
      * Deploy the version to an environment.
      *
-     * @param versionDeployDTO deployment request
+     * @param id Version ID
+     * @param dto deployment request
      * @return deployment ID
      */
     @PostMapping(value = "/deployToEnv")
     @Operation(description = "Deploy a sealed/frozen Version to an Environment.")
-    public ApiResponse<Long> deployToEnv(@RequestBody VersionDeployDTO versionDeployDTO) {
-        return ApiResponse.success(service.deployToEnv(
-                versionDeployDTO.getVersionId(),
-                versionDeployDTO.getEnvId()));
+    @Parameter(name = "id", description = "Version ID")
+    public ApiResponse<Long> deployToEnv(@RequestParam Long id, @RequestBody VersionDeployDTO dto) {
+        return ApiResponse.success(service.deployToEnv(id, dto.getEnvId()));
     }
 
     /**

@@ -111,4 +111,31 @@ public interface DesignDeploymentService extends EntityService<DesignDeployment,
      */
     void handleUpgradeCallback(String callbackToken, MetadataUpgradeCallback payload);
 
+    /**
+     * Reconcile a deployment that is stuck in {@code DEPLOYING} by pulling its
+     * persisted outcome from the remote runtime's
+     * {@code GET /upgrade/runtime/upgradeStatus} endpoint.
+     * <p>
+     * The runtime writes every upgrade's outcome to its {@code MetadataUpgradeHistory}
+     * table before sending the push callback. When the callback is lost (network
+     * blip, studio restart, runtime crash before send), this fallback path lets an
+     * operator converge the deployment without re-running the upgrade.
+     * <p>
+     * Outcome mapping:
+     * <ul>
+     *   <li>{@code SUCCESS} / {@code FAILURE} on the runtime → applies the same state
+     *       transition the push callback would have applied. Idempotent against a
+     *       late-arriving callback because the outcome write checks
+     *       {@link DesignDeployment#getCallbackReceivedAt()}.</li>
+     *   <li>{@code RUNNING} on the runtime → upgrade still in flight; throws an
+     *       {@code IllegalStateException} so the operator waits or escalates to
+     *       {@link #cancelDeployment}.</li>
+     *   <li>No record on the runtime → upgrade never started or runtime DB lost it;
+     *       throws {@code IllegalStateException} pointing at {@link #cancelDeployment}.</li>
+     * </ul>
+     *
+     * @param deploymentId Deployment ID
+     */
+    void refreshDeploymentStatus(Long deploymentId);
+
 }
