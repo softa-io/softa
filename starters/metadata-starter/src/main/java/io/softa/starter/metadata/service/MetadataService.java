@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
+import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsResponse;
 import io.softa.starter.metadata.dto.MetadataUpgradePackage;
 
 /**
@@ -18,6 +19,20 @@ public interface MetadataService {
      * @return metaModelDTO object
      */
     MetaModelDTO getMetaModelDTO(String modelName);
+
+    /**
+     * Resolve cascaded field paths from {@code rootModel} in a single round-trip.
+     * Returns the metaModel closure of related models reachable from successful
+     * paths (excluding the root, which the caller already has) plus per-path
+     * leaf metaField. A single invalid path does not fail the request: the
+     * corresponding entry in {@code resolutions} carries {@code ok = false} and
+     * an error code; other paths are unaffected.
+     *
+     * @param rootModel root model name; must exist in the metadata registry
+     * @param paths     dot-separated cascaded paths
+     * @return closure + per-path resolutions
+     */
+    ResolveCascadedPathsResponse resolveCascadedPaths(String rootModel, List<String> paths);
 
     /**
      * Upgrades the metadata of multiple models, all within a single transaction

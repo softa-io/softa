@@ -958,31 +958,26 @@ public class ModelManager {
     /**
      * Get the last field object of the custom cascaded field.
      * Take `field1.field2.field3` as an example, get the `field3` MetaField object.
+     * <p>
+     * Implemented on top of {@link CascadeFieldWalker}; preserves the historical
+     * "last field must be stored" check at this call site.
      *
      * @param modelName the main model name
      * @param fullFieldName custom cascaded field name like `field1.field2.field3`
      * @return last field object
      */
     public static MetaField getLastFieldOfCascaded(String modelName, String fullFieldName) {
-        String[] fieldsArray = StringUtils.split(fullFieldName, ".");
-        Assert.isTrue(fieldsArray.length - 1 <  BaseConstant.CASCADE_LEVEL,
-                "Custom cascaded field {0} cannot exceed the max cascaded levels of {1}!",
-                fullFieldName, BaseConstant.CASCADE_LEVEL);
-        MetaField metaField = null;
-        for (int i = 0; i < fieldsArray.length; i ++) {
-            metaField = getModelField(modelName, fieldsArray[i]);
-            if (i < fieldsArray.length - 1) {
-                Assert.isTrue(FieldType.TO_ONE_TYPES.contains(metaField.getFieldType()),
-                        "The field {0} in custom cascaded field {1} must be ManyToOne/OneToOne field!",
-                        metaField.getFieldName(), fullFieldName);
-            } else {
-                Assert.notTrue(metaField.isDynamic(),
-                        "The last field {0} in custom cascaded field {1} must be a stored field in model {2}!",
-                        metaField.getFieldName(), fullFieldName, metaField.getModelName());
-            }
-            modelName = metaField.getRelatedModel();
+        CascadeFieldWalker.Result result = CascadeFieldWalker.walk(
+                modelName, fullFieldName, BaseConstant.CASCADE_LEVEL, CascadeFieldWalker.Visitor.NOOP);
+        if (result instanceof CascadeFieldWalker.Result.Failure failure) {
+            throw new IllegalArgumentException(
+                    "Custom cascaded field {0} is invalid: {1}", fullFieldName, failure.message());
         }
-        return metaField;
+        MetaField leaf = ((CascadeFieldWalker.Result.Ok) result).leaf();
+        Assert.notTrue(leaf.isDynamic(),
+                "The last field {0} in custom cascaded field {1} must be a stored field in model {2}!",
+                leaf.getFieldName(), fullFieldName, leaf.getModelName());
+        return leaf;
     }
 
     /**

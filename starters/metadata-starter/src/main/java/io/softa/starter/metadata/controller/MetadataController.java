@@ -6,12 +6,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
+import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsRequest;
+import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsResponse;
 import io.softa.starter.metadata.service.MetadataService;
 
 /**
@@ -49,6 +52,24 @@ public class MetadataController {
     public ApiResponse<Boolean> reloadMetadata() {
         metadataService.reloadMetadata();
         return ApiResponse.success(true);
+    }
+
+    /**
+     * Resolve a batch of cascaded field paths from a root model in a single round-trip.
+     * Per-path failures are isolated and reported inside {@code resolutions[]}; only
+     * request-level failures (missing root, empty paths, missing read permission)
+     * map to non-200 responses via the standard envelope.
+     */
+    @PostMapping("/resolveCascadedPaths")
+    @Operation(summary = "resolveCascadedPaths",
+            description = "Resolve cascaded field paths from a root model in one round-trip")
+    public ApiResponse<ResolveCascadedPathsResponse> resolveCascadedPaths(
+            @RequestBody ResolveCascadedPathsRequest request) {
+        Assert.notNull(request, "Request body cannot be null.");
+        Assert.notBlank(request.getRootModel(), "rootModel cannot be empty.");
+        Assert.notEmpty(request.getPaths(), "paths cannot be empty.");
+        return ApiResponse.success(
+                metadataService.resolveCascadedPaths(request.getRootModel(), request.getPaths()));
     }
 
 }

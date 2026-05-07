@@ -18,14 +18,16 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.meta.CascadeFieldWalker;
 import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.metadata.constant.MetadataConstant;
-import io.softa.starter.metadata.controller.dto.MetaFieldDTO;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
+import io.softa.starter.metadata.controller.dto.PathResolution;
+import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsResponse;
 import io.softa.starter.metadata.dto.MetadataUpgradePackage;
 import io.softa.starter.metadata.message.InnerBroadcastProducer;
 import io.softa.starter.metadata.message.dto.InnerBroadcastMessage;
@@ -45,37 +47,8 @@ public class MetadataServiceImpl implements MetadataService {
     @Autowired
     private InnerBroadcastProducer innerBroadcastProducer;
 
-    private MetaFieldDTO convertMetaFieldToDTO(MetaField metaField) {
-        MetaFieldDTO fieldDTO = new MetaFieldDTO();
-        fieldDTO.setLabelName(metaField.getLabelName());
-        fieldDTO.setFieldName(metaField.getFieldName());
-        fieldDTO.setModelName(metaField.getModelName());
-        fieldDTO.setFieldType(metaField.getFieldType());
-        fieldDTO.setDescription(metaField.getDescription());
-        fieldDTO.setRequired(metaField.isRequired());
-        fieldDTO.setLength(metaField.getLength());
-        fieldDTO.setScale(metaField.getScale());
-        fieldDTO.setDefaultValue(metaField.getDefaultValueObject());
-        fieldDTO.setReadonly(metaField.isReadonly());
-        fieldDTO.setHidden(metaField.isHidden());
-        fieldDTO.setTranslatable(metaField.isTranslatable());
-        fieldDTO.setNonCopyable(metaField.isNonCopyable());
-        fieldDTO.setUnsearchable(metaField.isUnsearchable());
-        fieldDTO.setComputed(metaField.isComputed());
-        fieldDTO.setDynamic(metaField.isDynamic());
-        fieldDTO.setEncrypted(metaField.isEncrypted());
-        fieldDTO.setOptionSetCode(metaField.getOptionSetCode());
-        fieldDTO.setRelatedModel(metaField.getRelatedModel());
-        fieldDTO.setRelatedField(metaField.getRelatedField());
-        fieldDTO.setJoinModel(metaField.getJoinModel());
-        fieldDTO.setJoinLeft(metaField.getJoinLeft());
-        fieldDTO.setJoinRight(metaField.getJoinRight());
-        fieldDTO.setCascadedField(metaField.getCascadedField());
-        fieldDTO.setFilters(metaField.getFilters());
-        fieldDTO.setMaskingType(metaField.getMaskingType());
-        fieldDTO.setWidgetType(metaField.getWidgetType());
-        return fieldDTO;
-    }
+    @Autowired
+    private PermissionService permissionService;
 
     /**
      * Get the MetaModelDTO object by modelName
@@ -85,21 +58,67 @@ public class MetadataServiceImpl implements MetadataService {
      */
     @Override
     public MetaModelDTO getMetaModelDTO(String modelName) {
-        MetaModel metaModel = ModelManager.getModel(modelName);
-        MetaModelDTO metaModelDTO = new MetaModelDTO();
-        metaModelDTO.setLabelName(metaModel.getLabelName());
-        metaModelDTO.setModelName(metaModel.getModelName());
-        metaModelDTO.setDescription(metaModel.getDescription());
-        metaModelDTO.setDisplayName(metaModel.getDisplayName());
-        metaModelDTO.setSearchName(metaModel.getSearchName());
-        metaModelDTO.setDefaultOrder(metaModel.getDefaultOrder());
-        metaModelDTO.setTimeline(metaModel.isTimeline());
-        // Get the fields of the model and convert them to DTOs
-        List<MetaField> metaFields = ModelManager.getModelFields(modelName);
-        Map<String, MetaFieldDTO> fieldDTOMap = metaFields.stream().
-                collect(Collectors.toMap(MetaField::getFieldName, this::convertMetaFieldToDTO));
-        metaModelDTO.setModelFields(fieldDTOMap);
-        return metaModelDTO;
+        return MetadataDtoMapper.toModelDTO(modelName);
+    }
+
+    /**
+     * Resolve cascaded field paths from {@code rootModel} in one round-trip.
+     * <p>
+     * Failure isolation: each path walks independently via {@link CascadeFieldWalker}
+     * with a local closure / access-fields collector; the local state is merged into
+     * the request-wide state only when the walk succeeds, so a failed path can never
+     * pollute the {@code metaModels} closure or the permission-check input.
+     * <p>
+     * Permission is enforced at request level: any forbidden model/field on the
+     * union of successful paths raises a {@code PermissionException} (HTTP 403).
+     */
+    @Override
+    public ResolveCascadedPathsResponse resolveCascadedPaths(String rootModel, List<String> paths) {
+        Assert.notBlank(rootModel, "rootModel cannot be empty.");
+        Assert.notEmpty(paths, "paths cannot be empty.");
+        ModelManager.validateModel(rootModel);
+
+        // Closure holds only the related models reachable from successful paths;
+        // the root is excluded because the caller necessarily already has it
+        // (the page is rendering against rootModel).
+        LinkedHashSet<String> closure = new LinkedHashSet<>();
+        Map<String, Set<String>> accessFields = new HashMap<>();
+        List<PathResolution> resolutions = new ArrayList<>(paths.size());
+
+        for (String path : paths) {
+            LinkedHashSet<String> localClosure = new LinkedHashSet<>();
+            Map<String, Set<String>> localAccess = new HashMap<>();
+            CascadeFieldWalker.Visitor collector = new CascadeFieldWalker.Visitor() {
+                @Override
+                public void onSegment(int index, String currentModel, MetaField field) {
+                    localAccess.computeIfAbsent(currentModel, k -> new HashSet<>())
+                            .add(field.getFieldName());
+                }
+                @Override
+                public void onAdvance(int index, MetaField field, String nextModel) {
+                    localClosure.add(nextModel);
+                }
+            };
+
+            CascadeFieldWalker.Result result = CascadeFieldWalker.walk(rootModel, path, collector);
+            if (result instanceof CascadeFieldWalker.Result.Ok(MetaField leaf)) {
+                closure.addAll(localClosure);
+                localAccess.forEach((model, fields) ->
+                        accessFields.computeIfAbsent(model, k -> new HashSet<>()).addAll(fields));
+                resolutions.add(PathResolution.success(path, MetadataDtoMapper.toFieldDTO(leaf)));
+            } else {
+                CascadeFieldWalker.Result.Failure f = (CascadeFieldWalker.Result.Failure) result;
+                resolutions.add(PathResolution.failure(path, f.kind(), f.errorAt(), f.message()));
+            }
+        }
+
+        // Request-level permission check on the union of successful paths.
+        permissionService.checkModelCascadeFieldsAccess(rootModel, accessFields, AccessType.READ);
+
+        List<MetaModelDTO> metaModels = closure.stream()
+                .map(MetadataDtoMapper::toModelDTO)
+                .collect(Collectors.toList());
+        return new ResolveCascadedPathsResponse(metaModels, resolutions);
     }
 
     /**
