@@ -20,6 +20,12 @@
             <version>${project.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>reference-data-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- JWT for Apple and Google ID token validation -->
         <dependency>
             <groupId>com.nimbusds</groupId>
