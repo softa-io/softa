@@ -763,6 +763,21 @@ public class ModelManager {
     }
 
     /**
+     * Get the MetaField by model name and field name, returning null when either
+     * the model is not registered or the field does not exist.
+     * Useful for callers that need to opportunistically look up a field without
+     * tripping the strict {@link #validateModelField} guard.
+     *
+     * @param modelName model name
+     * @param fieldName field name
+     * @return MetaField, or null if not found
+     */
+    public static MetaField getModelFieldOrNull(String modelName, String fieldName) {
+        Map<String, MetaField> fields = modelFields().get(modelName);
+        return fields == null ? null : fields.get(fieldName);
+    }
+
+    /**
      * Get the column name by model name and field name.
      *
      * @param modelName model name

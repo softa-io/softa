@@ -1,0 +1,19 @@
+{
+  "_doc": "Default sys_sequence rows shipped by metadata-starter. Apps copy this file (or its merged form) and run via `POST /api/SysPreData/loadPreTenantData` for each tenant. The framework's loadPreTenantData uses each row's `id` as the preId tracking key (sys_pre_data) — keep it equal to `code` to make matching trivial.",
+  "_warning": "loadPreTenantData has create-or-update semantics: if a tenant already has a row with the same preId, running this again will OVERWRITE the admin's edits. Run only for first-time tenant onboarding (or new code rollout where the row does not yet exist).",
+  "_convention": "code must match `<ModelName>.<fieldName>` for SequenceProcessor auto-fill to activate. Other names are valid but will not trigger automatic field population.",
+  "_example_only_remove_or_replace_in_real_deployments": [
+    {
+      "id": "Employee.code",
+      "code": "Employee.code",
+      "template": "EMP-{seq:5}",
+      "startValue": 1,
+      "incrementStep": 1,
+      "currentValue": 0,
+      "resetCadence": "NONE",
+      "mode": "NO_GAP",
+      "description": "Employee code"
+    }
+  ],
+  "SysSequence": []
+}

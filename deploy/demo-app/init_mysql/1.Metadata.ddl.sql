@@ -1515,3 +1515,26 @@ CREATE TABLE tenant_config(
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Tenant Config';
+
+CREATE TABLE sys_sequence(
+                             id BIGINT(32) NOT NULL   COMMENT 'ID' ,
+                             tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
+                             code VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'Sequence Code;e.g. "Employee.code"' ,
+                             template VARCHAR(64)    COMMENT 'Template;Format template, e.g. EMP-{yyyy}-{seq:5}' ,
+                             start_value BIGINT(32)    COMMENT 'Start Value;First number after each reset (default 1)' ,
+                             increment_step TINYINT(4)    COMMENT 'Increment Step;Step size' ,
+                             current_value BIGINT(32)    COMMENT 'Current Value;Last allocated value; next = current_value + step' ,
+                             reset_cadence VARCHAR(64)    COMMENT 'Reset Cadence' ,
+                             last_reset_key VARCHAR(32)    COMMENT 'Last Reset Key' ,
+                             mode VARCHAR(64)    COMMENT 'Mode' ,
+                             description VARCHAR(128)    COMMENT 'Description' ,
+                             created_id BIGINT(32)    COMMENT 'Created ID' ,
+                             created_time DATETIME    COMMENT 'Created Time' ,
+                             created_by VARCHAR(64)    COMMENT 'Created By' ,
+                             updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+                             updated_time DATETIME    COMMENT 'Updated Time' ,
+                             updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+                             PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Sys Sequence';
+
+ALTER TABLE sys_sequence ADD INDEX idx_tenant_code (tenant_id,code);

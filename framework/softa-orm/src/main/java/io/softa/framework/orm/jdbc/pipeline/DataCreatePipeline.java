@@ -80,6 +80,11 @@ public class DataCreatePipeline extends DataPipeline {
     public FieldProcessorChain buildFieldProcessorChain() {
         FieldProcessorFactoryChain factoryChain = FieldProcessorFactoryChain.of(modelName, accessType)
                 .addFactory(new XToOneGroupProcessorFactory())
+                // Sequence auto-fill runs before NormalProcessorFactory so that a successfully
+                // allocated sequence value pre-empts any static `defaultValue` handling.
+                // Active only when AccessType=CREATE + sequence-starter present + the field
+                // is marked `autoSequence` in metadata.
+                .addFactory(new SequenceProcessorFactory())
                 .addFactory(new NormalProcessorFactory())
                 .addFactory(new ComputeProcessorFactory())
                 .addFactory(new TypeCastProcessorFactory())

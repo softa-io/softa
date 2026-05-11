@@ -800,3 +800,26 @@ INSERT INTO sys_option_set(option_set_code,name,description) VALUES('SigningDocu
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningDocumentStatus','Pending','Pending',1,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningDocumentStatus','InProgress','In Progress',2,'','','');
 INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SigningDocumentStatus','Completed','Completed',3,'','','');
+
+-- Option Set: ResetCadence
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='ResetCadence';
+DELETE FROM sys_option_item WHERE option_set_code='ResetCadence';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('ResetCadence','Reset Cadence','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ResetCadence','Yearly','Yearly',0,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ResetCadence','Monthly','Monthly',0,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ResetCadence','Daily','Daily',0,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('ResetCadence','None','None',0,'','','');
+
+-- Option Set: SequenceMode
+-- Clean up historical data
+DELETE FROM sys_option_set WHERE option_set_code='SequenceMode';
+DELETE FROM sys_option_item WHERE option_set_code='SequenceMode';
+-- Insert option set
+INSERT INTO sys_option_set(option_set_code,name,description) VALUES('SequenceMode','Sequence Mode','');
+-- Insert option set items
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SequenceMode','NoGap','No Gap',0,'','','');
+INSERT INTO sys_option_item(option_set_code,item_code,item_name,sequence,parent_item_code,item_color,description) VALUES('SequenceMode','AllowGap','Allow Gap',0,'','','');
+

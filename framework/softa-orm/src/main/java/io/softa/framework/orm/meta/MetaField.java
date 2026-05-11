@@ -97,6 +97,14 @@ public class MetaField implements Serializable {
 
     private boolean encrypted;
 
+    /**
+     * Whether this field is auto-filled from a sequence on INSERT.
+     * Populated at startup by SequenceFieldRegistryInitializer based on sys_sequence rows
+     * whose code matches "{modelName}.{fieldName}". Read-only after init.
+     * Not persisted to sys_field; runtime-only flag.
+     */
+    private boolean autoSequence;
+
     private MaskingType maskingType;
 
     private WidgetType widgetType;
