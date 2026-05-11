@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.sequence.enums;
+package io.softa.starter.metadata.enums;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;

@@ -1,12 +1,12 @@
-package io.softa.starter.metadata.sequence.controller;
+package io.softa.starter.metadata.controller;
 
 import java.util.List;
 
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.web.controller.EntityController;
-import io.softa.starter.metadata.sequence.entity.SysSequence;
-import io.softa.starter.metadata.sequence.service.SysSequenceService;
+import io.softa.starter.metadata.entity.SysSequence;
+import io.softa.starter.metadata.service.SysSequenceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.PostMapping;

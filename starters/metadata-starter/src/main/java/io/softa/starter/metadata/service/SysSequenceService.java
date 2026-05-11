@@ -1,7 +1,7 @@
-package io.softa.starter.metadata.sequence.service;
+package io.softa.starter.metadata.service;
 
 import io.softa.framework.orm.service.EntityService;
-import io.softa.starter.metadata.sequence.entity.SysSequence;
+import io.softa.starter.metadata.entity.SysSequence;
 
 /**
  * Generic CRUD for {@link SysSequence} rows. Driven by ORM metadata —

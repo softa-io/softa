@@ -3,6 +3,8 @@ package io.softa.starter.metadata.sequence.enums;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 
+import io.softa.starter.metadata.enums.ResetCadence;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ResetCadenceTest {

@@ -1,9 +1,9 @@
-package io.softa.starter.metadata.sequence.entity;
+package io.softa.starter.metadata.entity;
 
 import java.io.Serial;
 import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.metadata.sequence.enums.ResetCadence;
-import io.softa.starter.metadata.sequence.enums.SequenceMode;
+import io.softa.starter.metadata.enums.ResetCadence;
+import io.softa.starter.metadata.enums.SequenceMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;

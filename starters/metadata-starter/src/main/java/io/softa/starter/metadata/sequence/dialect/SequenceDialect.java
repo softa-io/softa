@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.sequence.service.dialect;
+package io.softa.starter.metadata.sequence.dialect;
 
 import io.softa.framework.orm.jdbc.database.SqlParams;
 

@@ -10,7 +10,9 @@ import io.softa.framework.orm.jdbc.JdbcProxy;
 import io.softa.framework.orm.jdbc.database.SqlParams;
 import io.softa.framework.orm.sequence.SequenceService;
 import io.softa.framework.orm.sequence.exception.SequenceCrossTenantException;
-import io.softa.starter.metadata.sequence.service.SequenceConfigCache;
+import io.softa.starter.metadata.service.SysSequenceService;
+import io.softa.starter.metadata.service.impl.SequenceServiceImpl;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -36,9 +38,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <li>{@code LAST_INSERT_ID()} returns the freshly-written value on the
  *       same Spring-bound connection, both inside and outside a nested
  *       transaction.</li>
- *   <li>{@link SequenceConfigCache} is evicted by the
- *       {@code SysSequenceChangeListener} after the surrounding business
- *       transaction commits.</li>
+ *   <li>The {@link SysSequenceService} per-(tenant, code) config cache is
+ *       evicted by the {@code SysSequenceChangeListener} after the
+ *       surrounding business transaction commits.</li>
  *   <li>Cross-tenant context rejects {@code next} / {@code peek}.</li>
  * </ol>
  *
@@ -57,7 +59,7 @@ class SequenceServiceIT {
     private static final String CODE_ALLOW_GAP = "Audit.eventNo";
 
     @Autowired private SequenceService sequenceService;
-    @Autowired private SequenceConfigCache configCache;
+    @Autowired private SysSequenceService sysSequenceService;
     @Autowired private JdbcProxy jdbcProxy;
     @Autowired private PlatformTransactionManager txManager;
 
@@ -73,8 +75,8 @@ class SequenceServiceIT {
         ContextHolder.runWith(baseContext, () -> {
             resetCounter(CODE_NO_GAP, "EMP-{seq:5}", "NO_GAP");
             resetCounter(CODE_ALLOW_GAP, "AUD-{seq:6}", "ALLOW_GAP");
-            configCache.evict(CODE_NO_GAP);
-            configCache.evict(CODE_ALLOW_GAP);
+            sysSequenceService.evictConfigCache(TENANT_ID, CODE_NO_GAP);
+            sysSequenceService.evictConfigCache(TENANT_ID, CODE_ALLOW_GAP);
         });
     }
 

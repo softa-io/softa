@@ -1,7 +1,9 @@
-package io.softa.starter.metadata.sequence.service.dialect;
+package io.softa.starter.metadata.sequence.dialect;
 
 import io.softa.framework.orm.jdbc.JdbcProxy;
 import io.softa.framework.orm.jdbc.database.SqlParams;
+import io.softa.starter.metadata.entity.SysSequence;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -18,7 +20,7 @@ import org.springframework.stereotype.Component;
  * <p>The {@code tenant_id} predicate in the WHERE clauses is intentionally
  * redundant: the row is already uniquely identified by {@code id}, but the
  * extra check provides a defensive guard against cross-tenant writes if a
- * stale cached {@link io.softa.starter.metadata.sequence.entity.SysSequence}
+ * stale cached {@link SysSequence}
  * id ever leaks across tenants.
  */
 @Component

@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.sequence.service.impl;
+package io.softa.starter.metadata.service.impl;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -15,8 +15,8 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.sequence.exception.SequenceNotFoundException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.starter.metadata.sequence.entity.SysSequence;
-import io.softa.starter.metadata.sequence.service.SysSequenceService;
+import io.softa.starter.metadata.entity.SysSequence;
+import io.softa.starter.metadata.service.SysSequenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

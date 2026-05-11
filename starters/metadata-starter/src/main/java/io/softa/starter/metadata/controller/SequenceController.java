@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.sequence.controller;
+package io.softa.starter.metadata.controller;
 
 import java.util.List;
 

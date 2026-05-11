@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.sequence.service.impl;
+package io.softa.starter.metadata.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -15,12 +15,12 @@ import io.softa.framework.orm.sequence.SequenceService;
 import io.softa.framework.orm.sequence.exception.SequenceCrossTenantException;
 import io.softa.framework.orm.sequence.exception.SequenceNotFoundException;
 import io.softa.framework.orm.sequence.exception.SequenceTimeoutException;
-import io.softa.starter.metadata.sequence.entity.SysSequence;
-import io.softa.starter.metadata.sequence.enums.SequenceMode;
-import io.softa.starter.metadata.sequence.service.dialect.SequenceDialect;
-import io.softa.starter.metadata.sequence.service.dialect.SequenceDialectFactory;
-import io.softa.starter.metadata.sequence.service.SysSequenceService;
-import io.softa.starter.metadata.sequence.service.TemplateRenderer;
+import io.softa.starter.metadata.entity.SysSequence;
+import io.softa.starter.metadata.enums.SequenceMode;
+import io.softa.starter.metadata.sequence.dialect.SequenceDialect;
+import io.softa.starter.metadata.sequence.dialect.SequenceDialectFactory;
+import io.softa.starter.metadata.service.SysSequenceService;
+import io.softa.starter.metadata.sequence.TemplateRenderer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,7 +69,7 @@ public class SequenceServiceImpl implements SequenceService {
 
     @Override
     public String next(String code) {
-        return dispatch(code, 1).get(0);
+        return dispatch(code, 1).getFirst();
     }
 
     @Override

@@ -2,6 +2,8 @@ package io.softa.starter.metadata.sequence.service;
 
 import java.time.LocalDateTime;
 import io.softa.framework.orm.sequence.exception.SequenceTemplateException;
+import io.softa.starter.metadata.sequence.TemplateRenderer;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

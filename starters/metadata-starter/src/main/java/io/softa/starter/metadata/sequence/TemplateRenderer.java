@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.sequence.service;
+package io.softa.starter.metadata.sequence;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
