@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -16,6 +17,8 @@ import io.softa.framework.orm.sequence.exception.SequenceNotFoundException;
 import io.softa.framework.orm.sequence.exception.SequenceTimeoutException;
 import io.softa.starter.metadata.sequence.entity.SysSequence;
 import io.softa.starter.metadata.sequence.enums.SequenceMode;
+import io.softa.starter.metadata.sequence.service.dialect.SequenceDialect;
+import io.softa.starter.metadata.sequence.service.dialect.SequenceDialectFactory;
 import io.softa.starter.metadata.sequence.service.SysSequenceService;
 import io.softa.starter.metadata.sequence.service.TemplateRenderer;
 import lombok.RequiredArgsConstructor;
@@ -29,10 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.Assert;
 
 /**
- * Default {@link SequenceService} implementation backed by MySQL's
- * {@code LAST_INSERT_ID(expr)} idiom: a single {@code UPDATE} writes the
- * new {@code current_value} and stashes it in the session register, then
- * {@code SELECT LAST_INSERT_ID()} reads it back on the same connection.
+ * Default {@link SequenceService} implementation.
  *
  * <p>The class dispatches by {@link SysSequence#getMode()} into two
  * proxy-routed methods:
@@ -47,8 +47,8 @@ import org.springframework.util.Assert;
  * is mandatory: a direct {@code this.allocate...} call would bypass the
  * AOP advice and silently disable the propagation annotation.
  *
- * <p>Both single and batch paths share the same dispatcher and SQL skeleton.
- * Batch SQL allocates the entire range under one row-lock acquisition.
+ * <p>Both single and batch paths share the same dispatcher and defer SQL
+ * details to database-specific sequence dialects.
  */
 @Service
 @Slf4j
@@ -57,37 +57,10 @@ public class SequenceServiceImpl implements SequenceService {
 
     private static final String MODEL_NAME = "SysSequence";
 
-    private static final String SQL_SINGLE = """
-            UPDATE sys_sequence
-            SET current_value = LAST_INSERT_ID(
-                    CASE
-                        WHEN last_reset_key <=> ? THEN current_value + ?
-                        ELSE ?
-                    END
-                ),
-                last_reset_key = ?,
-                updated_time = CURRENT_TIMESTAMP
-            WHERE tenant_id = ? AND code = ?
-            """;
-
-    private static final String SQL_BATCH = """
-            UPDATE sys_sequence
-            SET current_value = LAST_INSERT_ID(
-                    CASE
-                        WHEN last_reset_key <=> ? THEN current_value + ? * ?
-                        ELSE ? + (? - 1) * ?
-                    END
-                ),
-                last_reset_key = ?,
-                updated_time = CURRENT_TIMESTAMP
-            WHERE tenant_id = ? AND code = ?
-            """;
-
-    private static final String SQL_LAST_INSERT_ID = "SELECT LAST_INSERT_ID()";
-
     private final JdbcProxy jdbcProxy;
     private final SysSequenceService sysSequenceService;
     private final TemplateRenderer templateRenderer;
+    private final SequenceDialectFactory sequenceDialectFactory;
 
     /** Self-proxy for transactional dispatch; must be lazy to break the cycle. */
     @Autowired
@@ -159,12 +132,18 @@ public class SequenceServiceImpl implements SequenceService {
 
     private List<String> doAllocate(String code, SysSequence cfg, int count) {
         Long tenantId = ContextHolder.getContext().getTenantId();
+        if (SystemConfig.env.isEnableMultiTenancy() && tenantId == null) {
+            throw new IllegalStateException(
+                    "tenantId is required for sequence allocation when multi-tenancy is enabled, code=" + code);
+        }
         long step = cfg.getIncrementStep();
         long startValue = cfg.getStartValue();
         LocalDateTime now = LocalDateTime.now();
         String currentKey = cfg.getResetCadence().computeKey(now);
+        SequenceDialect sequenceDialect = sequenceDialectFactory.getCurrentDialect();
 
-        SqlParams sqlParams = buildAllocateSql(currentKey, step, startValue, count, tenantId, code);
+        SqlParams sqlParams = sequenceDialect.buildAllocateSql(
+                currentKey, step, startValue, count, cfg.getId(), tenantId);
 
         int rows;
         try {
@@ -178,8 +157,7 @@ public class SequenceServiceImpl implements SequenceService {
             throw new SequenceNotFoundException(code);
         }
 
-        Long endValue = (Long) jdbcProxy.queryForObject(
-                MODEL_NAME, new SqlParams(SQL_LAST_INSERT_ID), Long.class);
+        Long endValue = sequenceDialect.fetchEndValue(MODEL_NAME, cfg.getId(), tenantId);
         if (endValue == null) {
             throw new SequenceNotFoundException(code);
         }
@@ -192,32 +170,6 @@ public class SequenceServiceImpl implements SequenceService {
             result.add(templateRenderer.render(template, n, now, code));
         }
         return result;
-    }
-
-    private SqlParams buildAllocateSql(String currentKey, long step, long startValue,
-                                       int count, Long tenantId, String code) {
-        SqlParams sqlParams;
-        if (count == 1) {
-            sqlParams = new SqlParams(SQL_SINGLE);
-            sqlParams.addArgValue(currentKey);
-            sqlParams.addArgValue(step);
-            sqlParams.addArgValue(startValue);
-            sqlParams.addArgValue(currentKey);
-            sqlParams.addArgValue(tenantId);
-            sqlParams.addArgValue(code);
-        } else {
-            sqlParams = new SqlParams(SQL_BATCH);
-            sqlParams.addArgValue(currentKey);
-            sqlParams.addArgValue(step);
-            sqlParams.addArgValue(count);
-            sqlParams.addArgValue(startValue);
-            sqlParams.addArgValue(count);
-            sqlParams.addArgValue(step);
-            sqlParams.addArgValue(currentKey);
-            sqlParams.addArgValue(tenantId);
-            sqlParams.addArgValue(code);
-        }
-        return sqlParams;
     }
 
     private void rejectCrossTenant(String code) {

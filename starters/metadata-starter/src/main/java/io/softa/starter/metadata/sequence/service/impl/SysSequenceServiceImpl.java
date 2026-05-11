@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 import io.softa.framework.base.constant.RedisConstant;
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -147,7 +148,10 @@ public class SysSequenceServiceImpl extends EntityServiceImpl<SysSequence, Long>
 
     @Override
     public void evictConfigCache(Long tenantId, String code) {
-        if (tenantId == null || code == null || code.isBlank()) {
+        if (code == null || code.isBlank()) {
+            return;
+        }
+        if (SystemConfig.env.isEnableMultiTenancy() && tenantId == null) {
             return;
         }
         cacheService.clear(cacheKey(tenantId, code.trim()));
@@ -173,7 +177,10 @@ public class SysSequenceServiceImpl extends EntityServiceImpl<SysSequence, Long>
     }
 
     private static String cacheKeyOf(SysSequence row) {
-        if (row == null || row.getTenantId() == null || row.getCode() == null) {
+        if (row == null || row.getCode() == null) {
+            return null;
+        }
+        if (SystemConfig.env.isEnableMultiTenancy() && row.getTenantId() == null) {
             return null;
         }
         String code = row.getCode().trim();
@@ -184,6 +191,8 @@ public class SysSequenceServiceImpl extends EntityServiceImpl<SysSequence, Long>
     }
 
     private static String cacheKey(Long tenantId, String code) {
-        return RedisConstant.SEQUENCE_CONFIG + tenantId + ":" + code;
+        return RedisConstant.SEQUENCE_CONFIG
+                + (SystemConfig.env.isEnableMultiTenancy() ? tenantId + ":" : "")
+                + code;
     }
 }
