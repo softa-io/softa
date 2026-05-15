@@ -172,6 +172,23 @@ class ComputeUtilsTest {
         Assertions.assertFalse(ComputeUtils.validateExpression(formula));
     }
 
+    /**
+     * `ChronoUnit.X` is parsed by Aviator as variable `ChronoUnit` with property `X`.
+     * Since the framework injects `ChronoUnit` into env at runtime via ChronoUnitUtils,
+     * those names must be excluded from the dependent-field list returned by getVariables —
+     * otherwise metadata field-validation will reject expressions like
+     * `between(ChronoUnit.YEARS, originalHireDate, LocalDate.now())`.
+     */
+    @Test
+    void getVariablesExcludesChronoUnitNamespace() {
+        String formula = "between(ChronoUnit.YEARS, hireDate, LocalDate.now())"
+                + " + between(ChronoUnit.MONTHS, hireDate, LocalDate.now())";
+        List<String> variables = ComputeUtils.getVariables(formula);
+        Assertions.assertFalse(variables.stream().anyMatch(v -> v.startsWith("ChronoUnit")),
+                "ChronoUnit.* must not appear in variables: " + variables);
+        Assertions.assertTrue(variables.contains("hireDate"));
+    }
+
     @Test
     void stringInterpolation() {
         Map<String, Object> env = new HashMap<>();

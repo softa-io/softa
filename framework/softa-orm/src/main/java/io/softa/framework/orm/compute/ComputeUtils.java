@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -248,12 +249,17 @@ public abstract class ComputeUtils {
     }
 
     /**
-     * Get the variable list of the expression
+     * Get the top-level variable list of the expression. Framework-injected env namespaces
+     * (currently {@code ChronoUnit}, see {@link ChronoUnitUtils#CHRONO_UNIT_ENV}) are filtered
+     * out so that callers like metadata field-validation only see real model-field references.
+     *
      * @param expression expression
-     * @return variable list
+     * @return top-level variable name list
      */
     public static List<String> getVariables(String expression) {
-        return compile(expression).getVariableFullNames();
+        List<String> variables = new ArrayList<>(compile(expression).getVariableNames());
+        variables.removeAll(ChronoUnitUtils.CHRONO_UNIT_ENV.keySet());
+        return variables;
     }
 
     /**

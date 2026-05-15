@@ -1092,8 +1092,10 @@ public class ModelManager {
     }
 
     public static Optional<MetaField> getFieldByColumnName(String modelName, String columnName) {
+        // Read-time derived fields (dynamic cascaded / computed) have no physical column;
+        // their column_name may be null or blank, which must not match against any ResultSet column.
         return modelFields().get(modelName).values().stream()
-                .filter(f -> f.getColumnName().equals(columnName))
+                .filter(f -> columnName != null && columnName.equals(f.getColumnName()))
                 .findFirst();
     }
 
