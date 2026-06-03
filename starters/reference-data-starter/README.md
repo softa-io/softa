@@ -11,6 +11,27 @@ All rows are **platform-scoped, read-only, and shared across tenants**. There
 is no tenant-level override; reference data is the same physical row for
 every tenant in the deployment.
 
+## Metadata ownership
+
+The 4 entities (`CountryRegion` / `Currency` / `CountrySubdivision` /
+`LanguageProfile`) and the `Continent` enum are all annotated with `@Model` /
+`@Field` / `@OptionSet` / `@OptionItem` (see
+[`framework/softa-orm`](../../framework/softa-orm/README.md#metadata-annotations)).
+`MetadataAnnotationScanner` writes their `sys_*` rows with
+`ownership = 'PLATFORM_MAINTAINED'`, so:
+
+- Tenants **cannot** modify model / field structure via Studio Open API.
+- Tenants **may** add custom fields (TENANT-owned) onto these models for
+  per-tenant extensions.
+- Schema drift between the annotations and `sys_*` triggers a startup WARN
+  (production) or an automatic ALTER (dev-mode).
+
+The framework `Language` enum (which lives in `softa-base` and cannot carry
+`@OptionSet`) is the one exception — its `sys_option_set` row is intended
+to be DML-seeded as `ownership = 'PLATFORM_DEFAULT'` so the scanner won't
+try to manage it. Tenants typically extend by adding `TENANT`-owned overlay
+items rather than modifying the seeded row directly.
+
 ## Dependency
 
 ```xml

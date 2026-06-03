@@ -13,7 +13,7 @@
 
 CREATE TABLE IF NOT EXISTS country_region
 (
-    id               BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
+    id               BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
     code             VARCHAR(2)   NOT NULL COMMENT 'ISO 3166-1 alpha-2 (CN/US/TW/...); natural key',
     name             VARCHAR(100) NOT NULL COMMENT 'ISO 3166-1 English short name',
     alpha3_code      VARCHAR(3)   NOT NULL COMMENT 'ISO 3166-1 alpha-3 (CHN/USA/TWN)',
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS country_region
 
 CREATE TABLE IF NOT EXISTS currency
 (
-    id             BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
+    id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
     code           VARCHAR(3)   NOT NULL COMMENT 'ISO 4217 alpha-3 (USD/CNY/EUR/...); natural key',
     numeric_code   VARCHAR(3)   NOT NULL COMMENT 'ISO 4217 numeric, 3 digits with leading zero (840/156/048)',
     name           VARCHAR(100) NOT NULL COMMENT 'English name',
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS currency
 
 CREATE TABLE IF NOT EXISTS country_subdivision
 (
-    id           BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
+    id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
     country_code VARCHAR(2)   NOT NULL COMMENT 'ISO 3166-1 alpha-2; concept FK to country_region.code',
     code         VARCHAR(10)  NOT NULL COMMENT 'ISO 3166-2 full code (CN-31 / US-CA / JP-13); natural key',
     name         VARCHAR(100) NOT NULL COMMENT 'English name',

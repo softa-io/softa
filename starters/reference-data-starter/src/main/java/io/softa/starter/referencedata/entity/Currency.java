@@ -1,5 +1,8 @@
 package io.softa.starter.referencedata.entity;
 
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -20,6 +23,13 @@ import java.io.Serial;
 @Data
 @Schema(name = "Currency")
 @EqualsAndHashCode(callSuper = true)
+@Model(
+        label = "Currency",
+        tableName = "currency",
+        businessKey = {"code"},
+        description = "ISO 4217 currency master"
+)
+@Index(indexName = "uk_code", fields = {"code"}, unique = true)
 public class Currency extends AuditableModel {
 
     @Serial
@@ -28,22 +38,24 @@ public class Currency extends AuditableModel {
     @Schema(description = "ID")
     private Long id;
 
-    @Schema(description = "ISO 4217 alpha-3 code (USD/CNY/EUR/...). Natural key.")
+    @Field(label = "ISO 4217 alpha-3", required = true, length = 3,
+            description = "ISO 4217 alpha-3 code (USD/CNY/EUR/...); natural key")
     private String code;
 
-    @Schema(description = "ISO 4217 numeric code, 3 digits with leading zeros preserved as String "
-            + "(840 USD / 156 CNY / 048 BHD).")
+    @Field(label = "Numeric Code", required = true, length = 3,
+            description = "ISO 4217 numeric, 3 digits with leading zero (840/156/048)")
     private String numericCode;
 
-    @Schema(description = "English name, e.g. 'US Dollar'")
+    @Field(label = "Name", required = true, length = 100,
+            description = "English name, e.g. 'US Dollar'")
     private String name;
 
-    @Schema(description = "Unicode display symbol ($ / ¥ / € / ₹ / £ / ...). Some currencies "
-            + "share symbols (US$ and HK$ are both '$'); UI should prefer code disambiguation "
-            + "in mixed contexts.")
+    @Field(label = "Symbol", required = true, length = 10,
+            description = "Unicode display symbol ($ / ¥ / € / ₹ / £ / ...)")
     private String symbol;
 
-    @Schema(description = "ISO 4217 fraction digits — 0 for JPY/KRW, 2 for USD/EUR/CNY, "
-            + "3 for BHD/KWD/IQD. CRITICAL for monetary arithmetic; must match spec exactly.")
+    @Field(label = "Decimal Places", required = true,
+            description = "ISO 4217 fraction digits — 0 for JPY/KRW, 2 for USD/EUR/CNY, "
+                    + "3 for BHD/KWD/IQD. CRITICAL for monetary arithmetic")
     private Integer decimalPlaces;
 }

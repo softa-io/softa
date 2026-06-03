@@ -1,5 +1,8 @@
 package io.softa.starter.referencedata.entity;
 
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -24,6 +27,15 @@ import java.io.Serial;
 @Data
 @Schema(name = "CountrySubdivision")
 @EqualsAndHashCode(callSuper = true)
+@Model(
+        label = "Country Subdivision",
+        tableName = "country_subdivision",
+        businessKey = {"code"},
+        description = "ISO 3166-2 country subdivisions"
+)
+@Index(indexName = "uk_code", fields = {"code"}, unique = true)
+@Index(indexName = "idx_country", fields = {"countryCode"})
+@Index(indexName = "idx_parent", fields = {"parentCode"})
 public class CountrySubdivision extends AuditableModel {
 
     @Serial
@@ -32,20 +44,23 @@ public class CountrySubdivision extends AuditableModel {
     @Schema(description = "ID")
     private Long id;
 
-    @Schema(description = "ISO 3166-1 alpha-2 country code; concept FK to country_region.code")
+    @Field(label = "Country Code", required = true, length = 2,
+            description = "ISO 3166-1 alpha-2 country code; concept FK to country_region.code")
     private String countryCode;
 
-    @Schema(description = "ISO 3166-2 full code (CN-31 / US-CA / JP-13). Natural key.")
+    @Field(label = "Code", required = true, length = 10,
+            description = "ISO 3166-2 full code (CN-31 / US-CA / JP-13); natural key")
     private String code;
 
-    @Schema(description = "English name")
+    @Field(label = "Name", required = true, length = 100,
+            description = "English name")
     private String name;
 
-    @Schema(description = "Parent subdivision code for hierarchical regions; null for top-level "
-            + "(e.g. CN-31 has no parent; a CN city under it would have parentCode = CN-31)")
+    @Field(label = "Parent Code", length = 10,
+            description = "Parent subdivision code for hierarchical regions; null for top-level")
     private String parentCode;
 
-    @Schema(description = "Subdivision type — province / state / prefecture / region / municipality / county. "
-            + "Free-text by convention; UI can use it to pick a localized label.")
+    @Field(label = "Type", length = 20,
+            description = "Subdivision type — province / state / prefecture / region / municipality / county")
     private String type;
 }

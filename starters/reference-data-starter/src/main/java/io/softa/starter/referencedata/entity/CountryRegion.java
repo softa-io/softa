@@ -5,6 +5,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.referencedata.enums.Continent;
 
@@ -27,6 +30,16 @@ import io.softa.starter.referencedata.enums.Continent;
 @Data
 @Schema(name = "CountryRegion")
 @EqualsAndHashCode(callSuper = true)
+@Model(
+        label = "Country / Region",
+        tableName = "country_region",
+        businessKey = {"code"},
+        description = "ISO 3166-1 alpha-2 country/region master"
+)
+@Index(indexName = "uk_code", fields = {"code"}, unique = true)
+@Index(indexName = "idx_continent", fields = {"continent"})
+@Index(indexName = "idx_currency_code", fields = {"currencyCode"})
+@Index(indexName = "idx_eea", fields = {"eea"})
 public class CountryRegion extends AuditableModel {
 
     @Serial
@@ -35,31 +48,35 @@ public class CountryRegion extends AuditableModel {
     @Schema(description = "ID")
     private Long id;
 
-    @Schema(description = "ISO 3166-1 alpha-2 code (CN/US/TW/...). Natural identifier; "
-            + "use this for cross-table FK references and service lookups.")
+    @Field(label = "ISO 3166-1 alpha-2", required = true, length = 2,
+            description = "ISO 3166-1 alpha-2 code (CN/US/TW/...); natural key")
     private String code;
 
-    @Schema(description = "ISO 3166-1 standard English short name")
+    @Field(label = "Name", required = true, length = 100,
+            description = "ISO 3166-1 standard English short name")
     private String name;
 
-    @Schema(description = "ISO 3166-1 alpha-3 code (CHN/USA/TWN). Used by Stripe / SWIFT / "
-            + "some government APIs that prefer 3-letter codes.")
+    @Field(label = "ISO 3166-1 alpha-3", required = true, length = 3,
+            description = "ISO 3166-1 alpha-3 (CHN/USA/TWN); 3-letter code for SWIFT / Stripe")
     private String alpha3Code;
 
-    @Schema(description = "ITU-T E.164 country dial code, digits only (no leading +). "
-            + "Shared by NANP territories (US/CA/JM/... all '1') and Russia/Kazakhstan (both '7').")
+    @Field(label = "Dial Code", required = true, length = 8,
+            description = "ITU-T E.164 country dial code, digits only (no leading +)")
     private String dialCode;
 
-    @Schema(description = "Default ISO 4217 currency alpha-3 code; concept FK to currency.code")
+    @Field(label = "Currency Code", required = true, length = 3,
+            description = "Default ISO 4217 currency alpha-3 code; concept FK to currency.code")
     private String currencyCode;
 
-    @Schema(description = "Continent (7-continent model)")
+    @Field(label = "Continent", required = true,
+            description = "Continent (7-continent model)")
     private Continent continent;
 
-    @Schema(description = "EEA / EU member flag — GDPR territorial scope, VAT reverse charge eligibility")
+    @Field(label = "EEA / EU Member",
+            description = "EEA / EU member flag — GDPR scope, VAT reverse charge eligibility")
     private Boolean eea;
 
-    @Schema(description = "Whether ISO 3166-2 subdivision data exists for this country in "
-            + "country_subdivision. Runtime flag for 'is sub-region selector available?'")
+    @Field(label = "Has Subdivisions",
+            description = "True if country_subdivision rows exist for this country")
     private Boolean hasSubdivisions;
 }

@@ -1,13 +1,15 @@
 package io.softa.starter.referencedata.enums;
 
-import com.fasterxml.jackson.annotation.JsonValue;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import com.fasterxml.jackson.annotation.JsonValue;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+import io.softa.framework.orm.annotation.OptionItem;
+import io.softa.framework.orm.annotation.OptionSet;
 
 /**
  * Continent enumeration — 7-continent model (the most widely-used scheme
@@ -23,23 +25,39 @@ import java.util.stream.Stream;
  * {@code CountryRegion.continent}; there is no realistic "I need continents
  * but not countries" scenario. 7 stable values, no rich data — enum is the
  * right shape (in contrast to country/currency which warrant entities).
+ *
+ * <p>{@code @OptionSet} declares this enum as a metadata-managed option set;
+ * itemCode is derived from the {@code @JsonValue}-annotated {@link #code}
+ * field, matching the persisted string in {@code country_region.continent}.
  */
 @Getter
 @AllArgsConstructor
+@OptionSet(label = "Continent", description = "7-continent model")
 public enum Continent {
-    AS("AS", "Asia"),
-    EU("EU", "Europe"),
-    AF("AF", "Africa"),
-    NA("NA", "North America"),
-    SA("SA", "South America"),
-    OC("OC", "Oceania"),
-    AN("AN", "Antarctica"),
+    @OptionItem(label = "Asia")
+    AS("AS"),
+
+    @OptionItem(label = "Europe")
+    EU("EU"),
+
+    @OptionItem(label = "Africa")
+    AF("AF"),
+
+    @OptionItem(label = "North America")
+    NA("NA"),
+
+    @OptionItem(label = "South America")
+    SA("SA"),
+
+    @OptionItem(label = "Oceania")
+    OC("OC"),
+
+    @OptionItem(label = "Antarctica")
+    AN("AN"),
     ;
 
     @JsonValue
     private final String code;
-
-    private final String name;
 
     private static final Map<String, Continent> CODE_MAP = Stream.of(values())
             .collect(Collectors.toMap(Continent::getCode, Function.identity()));
