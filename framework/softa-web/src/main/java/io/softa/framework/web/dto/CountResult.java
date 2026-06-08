@@ -1,10 +1,9 @@
 package io.softa.framework.web.dto;
 
-import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.Data;
-
 import java.util.List;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
 
 @Data
 @Schema(name = "CountResult", description = "Result of /count API. Either `total` or `groups` is set based on whether `groupBy` is specified in the request.")

@@ -1,24 +1,24 @@
 package io.softa.framework.web.task.handlers;
 
+import java.util.*;
 import com.google.common.collect.Sets;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.annotation.SkipPermissionCheck;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.base.security.EncryptUtils;
-import io.softa.framework.orm.enums.ConvertType;
-import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.base.utils.ListUtils;
-import io.softa.framework.web.task.AsyncTaskHandler;
-import io.softa.framework.web.task.AsyncTaskHandlerList;
-import io.softa.framework.web.task.params.PlaintextToCiphertextParams;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import java.util.*;
+import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.ListUtils;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.web.task.AsyncTaskHandler;
+import io.softa.framework.web.task.AsyncTaskHandlerList;
+import io.softa.framework.web.task.params.PlaintextToCiphertextParams;
 
 import static io.softa.framework.orm.constant.ModelConstant.ID;
 import static io.softa.framework.orm.constant.ModelConstant.SLICE_ID;

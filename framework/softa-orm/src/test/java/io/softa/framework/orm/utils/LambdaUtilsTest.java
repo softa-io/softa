@@ -1,9 +1,10 @@
 package io.softa.framework.orm.utils;
 
-import io.softa.framework.base.utils.LambdaUtils;
-import io.softa.framework.orm.meta.MetaModel;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import io.softa.framework.base.utils.LambdaUtils;
+import io.softa.framework.orm.meta.MetaModel;
 
 class LambdaUtilsTest {
 

@@ -1,12 +1,12 @@
 package io.softa.framework.orm.service;
 
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.entity.TimelineSlice;
-
 import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
+
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.entity.TimelineSlice;
 
 /**
  * Timeline Model Service

@@ -1,11 +1,11 @@
 package io.softa.starter.referencedata.service;
 
+import java.util.List;
+import java.util.Optional;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.referencedata.entity.CountryRegion;
 import io.softa.starter.referencedata.enums.Continent;
-
-import java.util.List;
-import java.util.Optional;
 
 /**
  * CRUD + lookup service for {@link CountryRegion}. {@link #findByCode(String)}

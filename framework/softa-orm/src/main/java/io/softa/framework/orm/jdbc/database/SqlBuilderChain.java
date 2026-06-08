@@ -1,9 +1,9 @@
 package io.softa.framework.orm.jdbc.database;
 
-import io.softa.framework.orm.jdbc.database.builder.SqlClauseBuilder;
-
 import java.util.ArrayList;
 import java.util.List;
+
+import io.softa.framework.orm.jdbc.database.builder.SqlClauseBuilder;
 
 /**
  * SQL Builder Chain

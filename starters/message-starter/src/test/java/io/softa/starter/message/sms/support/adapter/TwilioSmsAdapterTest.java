@@ -1,5 +1,6 @@
 package io.softa.starter.message.sms.support.adapter;
 
+import java.util.Map;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,8 +14,6 @@ import io.softa.starter.message.sms.dto.SmsAdapterRequest;
 import io.softa.starter.message.sms.dto.SmsSendResult;
 import io.softa.starter.message.sms.entity.SmsProviderConfig;
 import io.softa.starter.message.sms.enums.SmsProvider;
-
-import java.util.Map;
 
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;

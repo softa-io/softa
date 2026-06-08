@@ -1,5 +1,10 @@
 package io.softa.starter.referencedata.service.impl;
 
+import java.util.List;
+import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -8,11 +13,6 @@ import io.softa.starter.referencedata.entity.CountryRegion;
 import io.softa.starter.referencedata.enums.Continent;
 import io.softa.starter.referencedata.service.CountryRegionService;
 import io.softa.starter.referencedata.support.CountryRegionCache;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.Optional;
 
 @Service
 public class CountryRegionServiceImpl extends EntityServiceImpl<CountryRegion, Long>

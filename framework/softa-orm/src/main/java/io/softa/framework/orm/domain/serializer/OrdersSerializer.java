@@ -1,10 +1,11 @@
 package io.softa.framework.orm.domain.serializer;
 
-import io.softa.framework.orm.domain.Orders;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.databind.SerializationContext;
 import tools.jackson.databind.ValueSerializer;
+
+import io.softa.framework.orm.domain.Orders;
 
 /**
  * Serialize an Orders object into a JSON string.

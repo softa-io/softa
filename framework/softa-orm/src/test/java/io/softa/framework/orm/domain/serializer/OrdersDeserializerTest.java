@@ -1,10 +1,11 @@
 package io.softa.framework.orm.domain.serializer;
 
-import io.softa.framework.orm.domain.Orders;
-import io.softa.framework.base.utils.JsonUtils;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
+
+import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.domain.Orders;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;

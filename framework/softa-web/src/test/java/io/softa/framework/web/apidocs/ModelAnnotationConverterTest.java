@@ -2,7 +2,6 @@ package io.softa.framework.web.apidocs;
 
 import java.util.Iterator;
 import java.util.List;
-
 import io.swagger.v3.core.converter.AnnotatedType;
 import io.swagger.v3.core.converter.ModelConverter;
 import io.swagger.v3.oas.models.media.ObjectSchema;
@@ -11,7 +10,8 @@ import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.annotation.Model;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ModelAnnotationConverterTest {
 

@@ -1,10 +1,10 @@
 package io.softa.starter.message.mail.service;
 
+import java.util.Optional;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.mail.dto.ConnectivityTestResultDTO;
 import io.softa.starter.message.mail.entity.MailSendServerConfig;
-
-import java.util.Optional;
 
 /**
  * CRUD service for outgoing mail server configurations.

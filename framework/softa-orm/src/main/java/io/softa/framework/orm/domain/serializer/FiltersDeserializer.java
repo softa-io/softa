@@ -1,7 +1,5 @@
 package io.softa.framework.orm.domain.serializer;
 
-import io.softa.framework.base.exception.JSONException;
-import io.softa.framework.orm.domain.Filters;
 import java.util.ArrayList;
 import java.util.List;
 import tools.jackson.core.JacksonException;
@@ -10,6 +8,9 @@ import tools.jackson.core.JsonToken;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.DeserializationContext;
 import tools.jackson.databind.ValueDeserializer;
+
+import io.softa.framework.base.exception.JSONException;
+import io.softa.framework.orm.domain.Filters;
 
 /**
  * Filters deserialization method, reuse of(String), of(List) methods, compatible with strings and List objects.

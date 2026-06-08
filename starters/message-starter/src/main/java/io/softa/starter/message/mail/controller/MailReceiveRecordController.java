@@ -1,10 +1,6 @@
 package io.softa.starter.message.mail.controller;
 
-import io.softa.framework.web.controller.EntityController;
-import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.message.mail.entity.MailReceiveRecord;
-import io.softa.starter.message.mail.service.MailReceiveRecordService;
-import io.softa.starter.message.mail.service.MailReceiveService;
+import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +9,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import io.softa.framework.web.controller.EntityController;
+import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.message.mail.entity.MailReceiveRecord;
+import io.softa.starter.message.mail.service.MailReceiveRecordService;
+import io.softa.starter.message.mail.service.MailReceiveService;
 
 /**
  * REST controller for incoming mail records.

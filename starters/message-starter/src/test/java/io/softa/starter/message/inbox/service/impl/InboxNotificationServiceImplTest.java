@@ -1,18 +1,15 @@
 package io.softa.starter.message.inbox.service.impl;
 
-import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.message.inbox.entity.InboxNotification;
+import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.inbox.entity.InboxNotification;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.*;
 
 class InboxNotificationServiceImplTest {
 

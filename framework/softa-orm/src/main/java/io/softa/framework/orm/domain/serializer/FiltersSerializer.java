@@ -1,10 +1,11 @@
 package io.softa.framework.orm.domain.serializer;
 
-import io.softa.framework.orm.domain.Filters;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.databind.SerializationContext;
 import tools.jackson.databind.ValueSerializer;
+
+import io.softa.framework.orm.domain.Filters;
 
 /**
  * Filters serialization method is the same as toString()

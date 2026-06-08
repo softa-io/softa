@@ -1,13 +1,13 @@
 package io.softa.framework.orm.enums;
 
-import io.softa.framework.base.utils.Assert;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-
 import java.sql.Types;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+import io.softa.framework.base.utils.Assert;
 
 /**
  * Get the SQL type from the name.

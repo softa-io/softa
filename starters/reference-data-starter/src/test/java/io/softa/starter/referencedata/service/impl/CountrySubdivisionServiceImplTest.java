@@ -1,13 +1,13 @@
 package io.softa.starter.referencedata.service.impl;
 
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.starter.referencedata.entity.CountrySubdivision;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-import java.util.Optional;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.starter.referencedata.entity.CountrySubdivision;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;

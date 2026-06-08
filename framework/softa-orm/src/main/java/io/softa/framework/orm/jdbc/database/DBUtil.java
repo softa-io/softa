@@ -1,5 +1,9 @@
 package io.softa.framework.orm.jdbc.database;
 
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.ConfigurationException;
@@ -7,9 +11,6 @@ import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.datasource.DataSourceConfig;
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.jdbc.database.dialect.*;
-import jakarta.annotation.PostConstruct;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 /**
  * Database utility class

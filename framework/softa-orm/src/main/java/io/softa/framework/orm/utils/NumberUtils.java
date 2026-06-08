@@ -1,13 +1,13 @@
 package io.softa.framework.orm.utils;
 
-import io.softa.framework.orm.enums.ValueType;
-import lombok.extern.slf4j.Slf4j;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+
+import io.softa.framework.orm.enums.ValueType;
 
 /**
  * Number utility class

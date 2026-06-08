@@ -9,14 +9,14 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
+import io.softa.starter.metadata.ddl.dialect.DdlDialectRegistry;
 import io.softa.starter.studio.dto.ModelCodeDTO;
 import io.softa.starter.studio.meta.entity.DesignModel;
 import io.softa.starter.studio.meta.service.DesignModelService;
 import io.softa.starter.studio.release.entity.DesignApp;
 import io.softa.starter.studio.release.service.DesignAppService;
 import io.softa.starter.studio.template.ddl.context.DdlContextBuilder;
-import io.softa.starter.studio.template.ddl.context.ModelDdlCtx;
-import io.softa.starter.studio.template.ddl.dialect.DdlDialectRegistry;
 import io.softa.starter.studio.template.enums.DesignCodeLang;
 import io.softa.starter.studio.template.generator.CodeGenerator;
 

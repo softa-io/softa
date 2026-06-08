@@ -1,15 +1,17 @@
 package io.softa.framework.web.filter.context;
 
-import io.softa.framework.base.config.SystemConfig;
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.constant.BaseConstant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 
-import static org.junit.jupiter.api.Assertions.*;
+import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.context.Context;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ContextBuilderTest {
 

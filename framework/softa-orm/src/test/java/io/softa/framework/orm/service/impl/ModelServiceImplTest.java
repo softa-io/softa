@@ -1,10 +1,9 @@
 package io.softa.framework.orm.service.impl;
 
-import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.meta.ModelManager;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -12,14 +11,13 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 

@@ -8,13 +8,14 @@ import jakarta.validation.constraints.NotNull;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.orm.enums.DatabaseType;
+import io.softa.starter.metadata.ddl.context.*;
+import io.softa.starter.metadata.ddl.dialect.DdlDialect;
+import io.softa.starter.metadata.ddl.dialect.DdlDialectRegistry;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
 import io.softa.starter.studio.release.version.VersionDdl;
 import io.softa.starter.studio.release.version.VersionDdlResult;
-import io.softa.starter.studio.template.ddl.context.*;
-import io.softa.starter.studio.template.ddl.dialect.DdlDialect;
-import io.softa.starter.studio.template.ddl.dialect.DdlDialectRegistry;
+import io.softa.starter.studio.template.ddl.context.DdlContextBuilder;
 
 /**
  * VersionDdl implementation.

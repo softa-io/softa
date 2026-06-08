@@ -12,15 +12,9 @@ import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsRequest;
 import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsResponse;
 import io.softa.starter.metadata.service.MetadataService;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Pure-JUnit unit tests for {@link MetadataController}. Validates the

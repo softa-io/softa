@@ -1,24 +1,9 @@
 package io.softa.framework.orm.domain;
 
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.annotation.JsonDeserialize;
-import tools.jackson.databind.annotation.JsonSerialize;
-import io.softa.framework.base.constant.StringConstant;
-import io.softa.framework.base.enums.Operator;
-import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.JsonUtils;
-import io.softa.framework.base.utils.SFunction;
-import io.softa.framework.orm.domain.antlr.FilterExprVisitorImpl;
-import io.softa.framework.orm.domain.antlr.gen.FilterExprLexer;
-import io.softa.framework.orm.domain.antlr.gen.FilterExprParser;
-import io.softa.framework.orm.domain.serializer.FiltersDeserializer;
-import io.softa.framework.orm.domain.serializer.FiltersSerializer;
-import io.softa.framework.orm.enums.FilterType;
-import io.softa.framework.orm.enums.LogicOperator;
-import io.softa.framework.orm.utils.BeanTool;
-import io.softa.framework.base.utils.LambdaUtils;
-import io.softa.framework.base.utils.ListUtils;
+import java.io.Serial;
+import java.io.Serializable;
+import java.util.*;
+import java.util.stream.Collectors;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -28,11 +13,22 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.annotation.JsonDeserialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 
-import java.io.Serial;
-import java.io.Serializable;
-import java.util.*;
-import java.util.stream.Collectors;
+import io.softa.framework.base.constant.StringConstant;
+import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.*;
+import io.softa.framework.orm.domain.antlr.FilterExprVisitorImpl;
+import io.softa.framework.orm.domain.antlr.gen.FilterExprLexer;
+import io.softa.framework.orm.domain.antlr.gen.FilterExprParser;
+import io.softa.framework.orm.domain.serializer.FiltersDeserializer;
+import io.softa.framework.orm.domain.serializer.FiltersSerializer;
+import io.softa.framework.orm.enums.FilterType;
+import io.softa.framework.orm.enums.LogicOperator;
+import io.softa.framework.orm.utils.BeanTool;
 
 import static io.softa.framework.orm.enums.FilterType.EMPTY;
 

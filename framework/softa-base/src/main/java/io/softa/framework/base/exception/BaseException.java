@@ -1,11 +1,12 @@
 package io.softa.framework.base.exception;
 
-import io.softa.framework.base.enums.ResponseCode;
-import io.softa.framework.base.i18n.I18n;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import org.slf4j.event.Level;
+
+import io.softa.framework.base.enums.ResponseCode;
+import io.softa.framework.base.i18n.I18n;
 
 @Data
 @NoArgsConstructor

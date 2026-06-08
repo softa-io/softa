@@ -1,12 +1,12 @@
 package io.softa.framework.web.service.impl;
 
-import io.softa.framework.orm.service.CacheService;
-import io.softa.framework.web.service.TokenService;
+import java.util.UUID;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.UUID;
+import io.softa.framework.orm.service.CacheService;
+import io.softa.framework.web.service.TokenService;
 
 /**
  * Token service implementation

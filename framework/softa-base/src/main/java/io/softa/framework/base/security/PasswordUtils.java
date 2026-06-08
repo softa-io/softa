@@ -1,10 +1,10 @@
 package io.softa.framework.base.security;
 
-import io.softa.framework.base.exception.SystemException;
-
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+
+import io.softa.framework.base.exception.SystemException;
 
 public class PasswordUtils {
 

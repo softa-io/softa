@@ -1,10 +1,10 @@
 package io.softa.starter.referencedata.service;
 
-import io.softa.framework.orm.service.EntityService;
-import io.softa.starter.referencedata.entity.CountrySubdivision;
-
 import java.util.List;
 import java.util.Optional;
+
+import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.referencedata.entity.CountrySubdivision;
 
 /**
  * CRUD + lookup service for {@link CountrySubdivision}. Interface is in

@@ -1,14 +1,15 @@
 package io.softa.framework.orm.domain.serializer;
 
-import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.domain.AggFunctions;
-import io.softa.framework.orm.enums.AggFunctionType;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.databind.DeserializationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ValueDeserializer;
+
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.domain.AggFunctions;
+import io.softa.framework.orm.enums.AggFunctionType;
 
 /**
  * Deserialize a string list into an AggFunctions object.

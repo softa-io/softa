@@ -1,9 +1,8 @@
 package io.softa.framework.orm.entity;
 
-import lombok.Data;
-
 import java.io.Serializable;
 import java.time.LocalDate;
+import lombok.Data;
 
 /**
  * The minimal attributes of timeline model slice.

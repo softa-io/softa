@@ -1,10 +1,9 @@
 package io.softa.framework.web.dto;
 
+import java.util.Set;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
-
-import java.util.Set;
 
 /**
  * Simple DTO of a modelName and multiple fieldNames

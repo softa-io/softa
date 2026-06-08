@@ -1,11 +1,11 @@
 package io.softa.framework.orm.jdbc.pipeline.chain;
 
-import io.softa.framework.orm.jdbc.pipeline.processor.FieldProcessor;
-import lombok.Getter;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import lombok.Getter;
+
+import io.softa.framework.orm.jdbc.pipeline.processor.FieldProcessor;
 
 /**
  * Field processor chain, process field data according to the chain of responsibility

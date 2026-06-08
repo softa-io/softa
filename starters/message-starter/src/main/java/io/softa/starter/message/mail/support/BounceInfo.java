@@ -1,8 +1,7 @@
 package io.softa.starter.message.mail.support;
 
-import lombok.Data;
-
 import java.util.List;
+import lombok.Data;
 
 /**
  * Structured bounce/rejection data extracted from a DSN or bounce email.

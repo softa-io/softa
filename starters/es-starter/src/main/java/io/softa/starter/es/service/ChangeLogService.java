@@ -1,11 +1,11 @@
 package io.softa.starter.es.service;
 
+import java.io.Serializable;
+import java.util.List;
+
 import io.softa.framework.orm.changelog.message.dto.ChangeLog;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
-
-import java.io.Serializable;
-import java.util.List;
 
 /**
  * ChangeLog service interface

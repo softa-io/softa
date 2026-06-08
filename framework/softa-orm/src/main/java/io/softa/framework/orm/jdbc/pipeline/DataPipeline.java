@@ -1,14 +1,14 @@
 package io.softa.framework.orm.jdbc.pipeline;
 
-import io.softa.framework.orm.jdbc.pipeline.chain.FieldProcessorChain;
-import lombok.Getter;
-
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import lombok.Getter;
+
+import io.softa.framework.orm.jdbc.pipeline.chain.FieldProcessorChain;
 
 /**
  * The abstract class DataPipeline for processing model data.

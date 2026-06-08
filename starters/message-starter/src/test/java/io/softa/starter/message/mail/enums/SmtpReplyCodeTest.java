@@ -1,9 +1,8 @@
 package io.softa.starter.message.mail.enums;
 
+import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.Optional;
 
 class SmtpReplyCodeTest {
 

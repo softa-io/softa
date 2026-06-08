@@ -1,10 +1,9 @@
 package io.softa.starter.message.mail.enums;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-
 import java.util.Arrays;
 import java.util.Optional;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 
 /**
  * Standard SMTP reply codes relevant to bounce/rejection detection (RFC 5321).

@@ -1,9 +1,6 @@
 package io.softa.framework.orm.aspect;
 
-import io.softa.framework.orm.annotation.WriteOperation;
-import io.softa.framework.orm.datasource.DataSourceConfig;
-import io.softa.framework.orm.datasource.DataSourceHolder;
-import io.softa.framework.orm.datasource.ReadonlyDataSourceHolder;
+import java.lang.reflect.Method;
 import org.apache.commons.lang3.StringUtils;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -16,7 +13,10 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.lang.reflect.Method;
+import io.softa.framework.orm.annotation.WriteOperation;
+import io.softa.framework.orm.datasource.DataSourceConfig;
+import io.softa.framework.orm.datasource.DataSourceHolder;
+import io.softa.framework.orm.datasource.ReadonlyDataSourceHolder;
 
 
 /**

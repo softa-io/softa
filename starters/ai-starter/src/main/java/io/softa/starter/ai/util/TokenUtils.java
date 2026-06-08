@@ -1,14 +1,14 @@
 package io.softa.starter.ai.util;
 
-import com.knuddels.jtokkit.Encodings;
-import com.knuddels.jtokkit.api.Encoding;
-import com.knuddels.jtokkit.api.EncodingRegistry;
-import io.softa.framework.base.utils.Assert;
-import lombok.extern.slf4j.Slf4j;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import com.knuddels.jtokkit.Encodings;
+import com.knuddels.jtokkit.api.Encoding;
+import com.knuddels.jtokkit.api.EncodingRegistry;
+import lombok.extern.slf4j.Slf4j;
+
+import io.softa.framework.base.utils.Assert;
 
 /**
  * OpenAI Token Utils

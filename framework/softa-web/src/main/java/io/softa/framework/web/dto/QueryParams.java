@@ -1,15 +1,15 @@
 package io.softa.framework.web.dto;
 
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.orm.domain.*;
-import io.softa.framework.orm.enums.ConvertType;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import org.springframework.util.CollectionUtils;
 
-import java.time.LocalDate;
-import java.util.List;
-import java.util.Map;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.domain.*;
+import io.softa.framework.orm.enums.ConvertType;
 
 /**
  * General query parameters object specifically designed for API request parameter transmission.

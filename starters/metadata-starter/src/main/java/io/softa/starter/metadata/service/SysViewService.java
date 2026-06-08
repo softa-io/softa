@@ -1,9 +1,9 @@
 package io.softa.starter.metadata.service;
 
+import java.util.List;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.metadata.entity.SysView;
-
-import java.util.List;
 
 /**
  * SysView Model Service Interface

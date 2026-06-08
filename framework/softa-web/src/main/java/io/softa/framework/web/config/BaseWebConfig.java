@@ -1,6 +1,5 @@
 package io.softa.framework.web.config;
 
-import io.softa.framework.base.constant.TimeConstant;
 import jakarta.annotation.Nonnull;
 import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Configuration;
@@ -10,6 +9,8 @@ import org.springframework.validation.Validator;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import io.softa.framework.base.constant.TimeConstant;
 
 /**
  * Base Web Config

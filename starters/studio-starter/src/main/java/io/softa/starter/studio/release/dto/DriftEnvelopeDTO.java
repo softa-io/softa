@@ -3,13 +3,13 @@ package io.softa.starter.studio.release.dto;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-
-import io.softa.starter.studio.release.enums.DesignDriftCheckStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import io.softa.starter.studio.release.enums.DesignDriftCheckStatus;
 
 /**
  * Envelope wrapping a drift report with the cache-side metadata (check status, error,

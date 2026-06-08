@@ -1,13 +1,13 @@
 package io.softa.framework.orm.domain.antlr;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.antlr.gen.FilterExprBaseVisitor;
 import io.softa.framework.orm.domain.antlr.gen.FilterExprParser;
 import io.softa.framework.orm.enums.LogicOperator;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class FilterExprVisitorImpl extends FilterExprBaseVisitor<Filters> {
     @Override

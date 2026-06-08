@@ -1,9 +1,8 @@
 package io.softa.framework.orm.service;
 
-import tools.jackson.core.type.TypeReference;
-
 import java.util.List;
 import java.util.Map;
+import tools.jackson.core.type.TypeReference;
 
 /**
  * Cache service

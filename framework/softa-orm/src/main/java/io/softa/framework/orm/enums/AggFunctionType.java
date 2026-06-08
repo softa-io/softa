@@ -1,14 +1,14 @@
 package io.softa.framework.orm.enums;
 
+import java.util.Set;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.collect.ImmutableMap;
-import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.MapUtils;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import java.util.Set;
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.MapUtils;
 
 /**
  * Aggregation function types.

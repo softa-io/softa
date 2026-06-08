@@ -15,9 +15,7 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.enums.FieldType;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 @Slf4j
 class ModelManagerTest {

@@ -1,15 +1,15 @@
 package io.softa.framework.orm.domain;
 
-import io.softa.framework.orm.enums.ValueType;
-import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.base.utils.ListUtils;
-import io.softa.framework.orm.utils.NumberUtils;
+import java.util.*;
+import java.util.stream.Collectors;
 import lombok.Data;
 import org.springframework.util.CollectionUtils;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import io.softa.framework.base.utils.ListUtils;
+import io.softa.framework.orm.enums.ValueType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.utils.NumberUtils;
 
 
 /**

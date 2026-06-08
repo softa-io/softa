@@ -1,11 +1,11 @@
 package io.softa.framework.web.dto;
 
-import io.softa.framework.orm.domain.AggFunctions;
-import io.softa.framework.orm.domain.Filters;
+import java.time.LocalDate;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import java.time.LocalDate;
+import io.softa.framework.orm.domain.AggFunctions;
+import io.softa.framework.orm.domain.Filters;
 
 /**
  * Simple aggregation query params object, support filters and aggregation functions.

@@ -1,9 +1,10 @@
 package io.softa.starter.metadata.message.dto;
 
-import io.softa.framework.base.context.Context;
-import io.softa.starter.metadata.message.enums.InnerBroadcastType;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import io.softa.framework.base.context.Context;
+import io.softa.starter.metadata.message.enums.InnerBroadcastType;
 
 /**
  * Inner broadcast message

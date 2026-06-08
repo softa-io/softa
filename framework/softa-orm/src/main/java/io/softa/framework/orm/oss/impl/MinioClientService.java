@@ -3,10 +3,10 @@ package io.softa.framework.orm.oss.impl;
 import java.io.InputStream;
 import java.util.Map;
 import io.minio.*;
+import io.minio.Http.Method;
 import io.minio.errors.InternalException;
 import io.minio.errors.MinioException;
 import io.minio.errors.ServerException;
-import io.minio.Http.Method;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 

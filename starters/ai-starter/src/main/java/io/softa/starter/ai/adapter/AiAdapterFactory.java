@@ -1,11 +1,11 @@
 package io.softa.starter.ai.adapter;
 
-import io.softa.starter.ai.enums.AiModelProvider;
-import io.softa.framework.base.utils.SpringContextUtils;
-import org.springframework.stereotype.Component;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.stereotype.Component;
+
+import io.softa.framework.base.utils.SpringContextUtils;
+import io.softa.starter.ai.enums.AiModelProvider;
 
 /**
  * AI Adapter Factory

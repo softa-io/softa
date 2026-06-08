@@ -1,9 +1,9 @@
 package io.softa.starter.metadata.service;
 
-import io.softa.starter.metadata.entity.SysConfig;
-import io.softa.framework.orm.service.EntityService;
-
 import java.util.Optional;
+
+import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.metadata.entity.SysConfig;
 
 /**
  * SysConfig Model Service Interface

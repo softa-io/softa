@@ -1,7 +1,7 @@
 package io.softa.starter.cron.service;
 
-import io.softa.starter.cron.entity.SysCronLog;
 import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.cron.entity.SysCronLog;
 
 /**
  * SysCronLog Model Service Interface

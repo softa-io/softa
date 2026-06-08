@@ -1,16 +1,17 @@
 package io.softa.framework.base.config;
 
-import io.softa.framework.base.context.ContextHolder;
-import jakarta.annotation.PreDestroy;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskDecorator;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
+
+import io.softa.framework.base.context.ContextHolder;
 
 /**
  * Async configuration using virtual thread for global async task executor

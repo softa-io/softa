@@ -1,9 +1,5 @@
 package io.softa.starter.message.inbox.controller;
 
-import io.softa.framework.web.controller.EntityController;
-import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.message.inbox.entity.InboxNotification;
-import io.softa.starter.message.inbox.service.InboxNotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +7,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import io.softa.framework.web.controller.EntityController;
+import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.message.inbox.entity.InboxNotification;
+import io.softa.starter.message.inbox.service.InboxNotificationService;
 
 /**
  * REST controller for inbox notifications.

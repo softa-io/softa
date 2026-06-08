@@ -1,5 +1,10 @@
 package io.softa.framework.orm.jdbc.database.builder;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
@@ -9,11 +14,6 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.jdbc.database.SqlWrapper;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
-import org.apache.commons.lang3.StringUtils;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Base Builder

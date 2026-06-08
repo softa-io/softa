@@ -1,10 +1,8 @@
 package io.softa.framework.orm.aspect;
 
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.Cast;
-import io.softa.framework.orm.datasource.DataSourceConfig;
-import io.softa.framework.orm.jdbc.database.SqlParams;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -13,9 +11,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StopWatch;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.Cast;
+import io.softa.framework.orm.datasource.DataSourceConfig;
+import io.softa.framework.orm.jdbc.database.SqlParams;
 
 /**
  * Print the SQL log aspect according to debug mode.

@@ -1,8 +1,8 @@
 package io.softa.framework.orm.annotation;
 
-import io.softa.framework.base.enums.SystemUser;
-
 import java.lang.annotation.*;
+
+import io.softa.framework.base.enums.SystemUser;
 
 /**
  * Switch current user to the specified system level user, in order to access the system resources.

@@ -1,13 +1,13 @@
 package io.softa.framework.orm.jdbc;
 
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Page;
-import io.softa.framework.orm.enums.ConvertType;
-
 import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Page;
+import io.softa.framework.orm.enums.ConvertType;
 
 /**
  * A JDBC-based service interface providing operations for batch inserts, queries,

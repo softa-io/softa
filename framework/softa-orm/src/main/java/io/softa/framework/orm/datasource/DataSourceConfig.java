@@ -1,11 +1,5 @@
 package io.softa.framework.orm.datasource;
 
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.enums.DatabaseType;
-import io.softa.framework.orm.enums.DynamicDataSourceMode;
-import io.softa.framework.orm.jdbc.database.DBUtil;
-import io.softa.framework.orm.jdbc.database.dialect.DialectInterface;
-import io.softa.framework.orm.meta.ModelManager;
 import java.util.HashMap;
 import java.util.Map;
 import javax.sql.DataSource;
@@ -21,6 +15,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.enums.DatabaseType;
+import io.softa.framework.orm.enums.DynamicDataSourceMode;
+import io.softa.framework.orm.jdbc.database.DBUtil;
+import io.softa.framework.orm.jdbc.database.dialect.DialectInterface;
+import io.softa.framework.orm.meta.ModelManager;
 
 /**
  * Data source configuration

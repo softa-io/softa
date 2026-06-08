@@ -1,12 +1,11 @@
 package io.softa.starter.message.mail.enums;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 
 /**
  * Enhanced Mail Status Codes (RFC 3463).

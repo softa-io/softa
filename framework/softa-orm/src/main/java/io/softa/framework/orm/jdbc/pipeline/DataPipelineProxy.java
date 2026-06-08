@@ -1,12 +1,12 @@
 package io.softa.framework.orm.jdbc.pipeline;
 
-import io.softa.framework.orm.annotation.SkipPermissionCheck;
-import io.softa.framework.orm.domain.FlexQuery;
+import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import java.util.List;
-import java.util.Map;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
+import io.softa.framework.orm.domain.FlexQuery;
 
 /**
  * Data Pipeline Proxy for processing model data in AOP.

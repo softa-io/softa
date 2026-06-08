@@ -1,7 +1,7 @@
 package io.softa.starter.studio.meta.service;
 
-import io.softa.starter.studio.meta.entity.DesignOptionItem;
 import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.studio.meta.entity.DesignOptionItem;
 
 /**
  * DesignOptionItem Model Service Interface

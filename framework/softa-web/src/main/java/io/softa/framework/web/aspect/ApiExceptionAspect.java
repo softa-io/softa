@@ -1,6 +1,7 @@
 package io.softa.framework.web.aspect;
 
-import io.softa.framework.base.utils.JsonUtils;
+import java.io.InputStream;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.Signature;
@@ -11,8 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.InputStreamSource;
 import org.springframework.stereotype.Component;
 
-import jakarta.servlet.http.HttpServletRequest;
-import java.io.InputStream;
+import io.softa.framework.base.utils.JsonUtils;
 
 /**
  * Collect API info when an exception occurs, including the URL, the parameters, and the Request Body.

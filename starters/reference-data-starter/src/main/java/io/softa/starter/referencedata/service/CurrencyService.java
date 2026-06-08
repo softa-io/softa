@@ -1,9 +1,9 @@
 package io.softa.starter.referencedata.service;
 
+import java.util.Optional;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.referencedata.entity.Currency;
-
-import java.util.Optional;
 
 /**
  * CRUD + lookup service for {@link Currency}. {@link #findByCode(String)}

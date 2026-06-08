@@ -1,13 +1,13 @@
 package io.softa.framework.web.dto;
 
-import io.softa.framework.orm.domain.SubQuery;
-import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.Data;
-
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import io.softa.framework.orm.domain.SubQuery;
 
 /**
  * GetByIdsParams for /getByIds API.

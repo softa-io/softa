@@ -1,12 +1,12 @@
 package io.softa.starter.referencedata.support;
 
-import io.softa.framework.orm.service.CacheService;
-import io.softa.starter.referencedata.entity.CountryRegion;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.function.Supplier;
+import io.softa.framework.orm.service.CacheService;
+import io.softa.starter.referencedata.entity.CountryRegion;
 
 /**
  * Read-through cache for {@link CountryRegion} lookups. Mirrors

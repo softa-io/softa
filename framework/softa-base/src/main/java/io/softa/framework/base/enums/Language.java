@@ -1,14 +1,15 @@
 package io.softa.framework.base.enums;
 
-import com.fasterxml.jackson.annotation.JsonValue;
-import io.softa.framework.base.utils.Assert;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+
+import io.softa.framework.base.utils.Assert;
 
 /**
  * Language enum, encoding in ISO 639-1 format, using `-` as separator.

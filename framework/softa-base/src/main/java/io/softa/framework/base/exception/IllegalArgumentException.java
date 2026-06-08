@@ -1,8 +1,9 @@
 package io.softa.framework.base.exception;
 
-import io.softa.framework.base.enums.ResponseCode;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+
+import io.softa.framework.base.enums.ResponseCode;
 
 /**
  * Bad request exception, used for invalid input data.

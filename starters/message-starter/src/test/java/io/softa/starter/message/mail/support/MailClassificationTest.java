@@ -1,10 +1,10 @@
 package io.softa.starter.message.mail.support;
 
-import io.softa.starter.message.mail.enums.ReceivedMailType;
+import java.util.List;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
+import io.softa.starter.message.mail.enums.ReceivedMailType;
 
 class MailClassificationTest {
 

@@ -1,9 +1,8 @@
 package io.softa.framework.web.task.params;
 
-import lombok.Data;
-
 import java.io.Serializable;
 import java.util.Set;
+import lombok.Data;
 
 /**
  */

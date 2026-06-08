@@ -1,14 +1,14 @@
 package io.softa.framework.orm.domain;
 
-import tools.jackson.core.type.TypeReference;
-import io.softa.framework.base.utils.JsonUtils;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
+import tools.jackson.core.type.TypeReference;
 
-import java.util.List;
-import java.util.concurrent.TimeUnit;
+import io.softa.framework.base.utils.JsonUtils;
 
 @State(Scope.Thread)
 public class FiltersParserBenchmarkTest {

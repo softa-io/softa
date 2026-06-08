@@ -1,8 +1,8 @@
 package io.softa.framework.orm.annotation;
 
-import io.softa.framework.base.enums.SystemRole;
-
 import java.lang.annotation.*;
+
+import io.softa.framework.base.enums.SystemRole;
 
 /**
  * Annotation to specify the system role required to access the method.

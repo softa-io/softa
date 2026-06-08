@@ -1,13 +1,13 @@
 package io.softa.starter.message.inbox.service.impl;
 
+import java.time.LocalDateTime;
+import org.springframework.stereotype.Service;
+
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.message.inbox.entity.InboxNotification;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
-import org.springframework.stereotype.Service;
-
-import java.time.LocalDateTime;
 
 /**
  * Implementation of {@link InboxNotificationService}.

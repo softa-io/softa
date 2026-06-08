@@ -1,24 +1,18 @@
 package io.softa.starter.referencedata.service.impl;
 
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.starter.referencedata.entity.Currency;
-import io.softa.starter.referencedata.support.CurrencyCache;
+import java.util.Optional;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.Optional;
-import java.util.function.Supplier;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.starter.referencedata.entity.Currency;
+import io.softa.starter.referencedata.support.CurrencyCache;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class CurrencyServiceImplTest {
 

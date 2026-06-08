@@ -1,9 +1,9 @@
 package io.softa.framework.orm.jdbc.database.builder;
 
-import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.jdbc.database.SqlWrapper;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.jdbc.database.DBUtil;
+import io.softa.framework.orm.jdbc.database.SqlWrapper;
 
 /**
  * Page Builder

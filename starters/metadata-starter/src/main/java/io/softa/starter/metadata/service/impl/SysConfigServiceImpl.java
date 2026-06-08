@@ -1,13 +1,13 @@
 package io.softa.starter.metadata.service.impl;
 
+import java.util.Optional;
+import org.springframework.stereotype.Service;
+
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.metadata.entity.SysConfig;
 import io.softa.starter.metadata.service.SysConfigService;
-import org.springframework.stereotype.Service;
-
-import java.util.Optional;
 
 /**
  * SysConfig Model Service Implementation

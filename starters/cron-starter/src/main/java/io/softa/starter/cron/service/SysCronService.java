@@ -1,9 +1,9 @@
 package io.softa.starter.cron.service;
 
+import java.util.List;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.cron.entity.SysCron;
-
-import java.util.List;
 
 /**
  * SysCron Model Service Interface

@@ -1,17 +1,17 @@
 package io.softa.framework.orm.domain;
 
-import tools.jackson.databind.annotation.JsonDeserialize;
-import io.softa.framework.orm.domain.serializer.AggFunctionsDeserializer;
-import io.softa.framework.orm.enums.AggFunctionType;
-import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import tools.jackson.databind.annotation.JsonDeserialize;
+
+import io.softa.framework.orm.domain.serializer.AggFunctionsDeserializer;
+import io.softa.framework.orm.enums.AggFunctionType;
 
 /**
  * Aggregation functions query object.

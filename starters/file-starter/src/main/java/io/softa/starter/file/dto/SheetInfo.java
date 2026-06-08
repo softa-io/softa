@@ -1,7 +1,8 @@
 package io.softa.starter.file.dto;
 
-import io.softa.framework.orm.domain.FlexQuery;
 import lombok.Data;
+
+import io.softa.framework.orm.domain.FlexQuery;
 
 /**
  * The DTO of Excel sheet info.

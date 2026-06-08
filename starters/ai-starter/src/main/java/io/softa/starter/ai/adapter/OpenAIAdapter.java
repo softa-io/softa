@@ -1,20 +1,20 @@
 package io.softa.starter.ai.adapter;
 
+import java.net.Proxy;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import com.plexpt.chatgpt.ChatGPT;
 import com.plexpt.chatgpt.ChatGPTStream;
 import com.plexpt.chatgpt.entity.chat.ChatCompletion;
 import com.plexpt.chatgpt.entity.chat.ChatCompletionResponse;
 import com.plexpt.chatgpt.util.Proxys;
-import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.starter.ai.listener.StreamResponseListener;
-import io.softa.framework.base.utils.Assert;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.net.Proxy;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.starter.ai.listener.StreamResponseListener;
 
 /**
  * OpenAI Adapter

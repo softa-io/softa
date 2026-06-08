@@ -1,12 +1,12 @@
 package io.softa.framework.base.enums;
 
-import com.fasterxml.jackson.annotation.JsonValue;
-import com.google.common.collect.Sets;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import com.fasterxml.jackson.annotation.JsonValue;
+import com.google.common.collect.Sets;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 

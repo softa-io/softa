@@ -3,21 +3,15 @@ package io.softa.framework.web.controller;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-
+import io.swagger.v3.oas.annotations.Hidden;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.enums.SystemRole;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.RequireRole;
-import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.orm.service.CacheService;
-import io.swagger.v3.oas.annotations.Hidden;
+import io.softa.framework.web.response.ApiResponse;
 
 @Hidden
 @RestController

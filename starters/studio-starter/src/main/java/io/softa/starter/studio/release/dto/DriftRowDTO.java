@@ -2,13 +2,13 @@ package io.softa.starter.studio.release.dto;
 
 import java.util.Map;
 import java.util.Set;
-
-import io.softa.starter.studio.release.enums.DriftKind;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import io.softa.starter.studio.release.enums.DriftKind;
 
 /**
  * Drift-oriented view of a single row-level discrepancy, served by the read-only drift

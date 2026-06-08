@@ -1,12 +1,11 @@
 package io.softa.framework.orm.jdbc.database;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * SQL operation parameters, including SQL statement and parameter value list

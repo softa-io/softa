@@ -1,9 +1,10 @@
 package io.softa.framework.web.response;
 
-import io.softa.framework.base.enums.ResponseCode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import io.softa.framework.base.enums.ResponseCode;
 
 /**
  * API response body:

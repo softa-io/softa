@@ -1,11 +1,11 @@
 package io.softa.framework.web.dto;
 
-import io.softa.framework.orm.domain.Filters;
+import java.time.LocalDate;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import java.time.LocalDate;
-import java.util.Map;
+import io.softa.framework.orm.domain.Filters;
 
 /**
  * BulkUpdateParams for /updateByFilter API.

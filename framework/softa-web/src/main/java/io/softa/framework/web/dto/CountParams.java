@@ -1,12 +1,12 @@
 package io.softa.framework.web.dto;
 
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.Orders;
+import java.time.LocalDate;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import java.time.LocalDate;
-import java.util.List;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.Orders;
 
 /**
  * CountParams for /count API.

@@ -1,9 +1,10 @@
 package io.softa.framework.orm.enums;
 
-import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.exception.IllegalArgumentException;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+
+import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.Assert;
 
 /**
  * Logic operator: AND, OR

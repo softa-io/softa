@@ -1,10 +1,10 @@
 package io.softa.framework.orm.changelog.message.dto;
 
-import io.softa.framework.base.context.Context;
+import java.util.List;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
+import io.softa.framework.base.context.Context;
 
 /**
  * ChangeLog Message DTO

@@ -1,7 +1,7 @@
 package io.softa.starter.studio.meta.service;
 
-import io.softa.starter.studio.meta.entity.DesignNavigation;
 import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.studio.meta.entity.DesignNavigation;
 
 /**
  * DesignNavigation Model Service Interface

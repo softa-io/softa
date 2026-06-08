@@ -1,9 +1,9 @@
 package io.softa.starter.cron.message.dto;
 
-import io.softa.framework.base.context.Context;
+import java.time.LocalDateTime;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import io.softa.framework.base.context.Context;
 
 /**
  * Cron task message.

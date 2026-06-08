@@ -1,10 +1,9 @@
 package io.softa.starter.studio.release.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.util.ArrayList;
 import java.util.List;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * DTO for changed rows of a model

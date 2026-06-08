@@ -1,10 +1,10 @@
 package io.softa.framework.orm.jdbc.database.dialect;
 
-import io.softa.framework.base.enums.Operator;
-import io.softa.framework.base.utils.Assert;
-
 import java.util.EnumMap;
 import java.util.Map;
+
+import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.utils.Assert;
 
 /**
  * PostgreSQL Dialect

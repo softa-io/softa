@@ -1,10 +1,9 @@
 package io.softa.starter.file.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.util.List;
 import java.util.Map;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * The DTO of import data.
