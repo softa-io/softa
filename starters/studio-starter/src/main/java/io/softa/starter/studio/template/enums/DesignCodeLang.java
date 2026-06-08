@@ -5,23 +5,26 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.orm.annotation.OptionItem;
+import io.softa.framework.orm.annotation.OptionSet;
 
 @Getter
 @AllArgsConstructor
+@OptionSet(label = "Design Code Lang")
 public enum DesignCodeLang {
-    JAVA("Java", "Java", ".java"),
-    RUST("Rust", "Rust", ".rs"),
-    GOLANG("Golang", "Golang", ".go"),
-    TYPESCRIPT("TypeScript", "TypeScript", ".ts"),
-    PYTHON("Python", "Python", ".py"),
-    CSHARP("Csharp", "C#", ".cs"),
-    RUBY("Ruby", "Ruby", ".rb"),
+    JAVA("Java", ".java"),
+    RUST("Rust", ".rs"),
+    GOLANG("Golang", ".go"),
+    @OptionItem(label = "TypeScript")
+    TYPESCRIPT("TypeScript", ".ts"),
+    PYTHON("Python", ".py"),
+    @OptionItem(label = "C#")
+    CSHARP("Csharp", ".cs"),
+    RUBY("Ruby", ".rb"),
     ;
 
     @JsonValue
     private final String code;
-
-    private final String description;
 
     private final String fileExtension;
 

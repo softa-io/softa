@@ -1,10 +1,10 @@
 package io.softa.starter.studio.release.enums;
 
 import com.fasterxml.jackson.annotation.JsonValue;
-import io.softa.framework.orm.annotation.OptionItem;
-import io.softa.framework.orm.annotation.OptionSet;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+
+import io.softa.framework.orm.annotation.OptionSet;
 
 /**
  * Deployment lifecycle status.
@@ -15,18 +15,12 @@ import lombok.Getter;
 @AllArgsConstructor
 @OptionSet(label = "Design Release Deployment Status")
 public enum DesignDeploymentStatus {
-    @OptionItem(label = "Pending")
     PENDING("Pending"),
-    @OptionItem(label = "Deploying")
     DEPLOYING("Deploying"),
-    @OptionItem(label = "Success")
     SUCCESS("Success"),
-    @OptionItem(label = "Failure")
     FAILURE("Failure"),
-    @OptionItem(label = "Canceled")
     CANCELED("Canceled"),
-    @OptionItem(label = "Rolled Back")
-    Rolled_Back("Rolled Back"),
+    ROLLED_BACK("Rolled Back"),
     ;
 
     @JsonValue

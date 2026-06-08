@@ -39,13 +39,10 @@ import io.softa.framework.orm.dto.DTOFieldObject;
 @OptionSet(label = "Field Type")
 public enum FieldType {
     // String, including long text
-    @OptionItem(label = "String")
     STRING("String", String.class, Types.VARCHAR),
 
     // Numeric
-    @OptionItem(label = "Integer")
     INTEGER("Integer", Integer.class, Types.INTEGER),
-    @OptionItem(label = "Long")
     LONG("Long", Long.class, Types.BIGINT),
     @OptionItem(label = "Decimal")
     DOUBLE("Double", Double.class, Types.DOUBLE),
@@ -57,11 +54,8 @@ public enum FieldType {
     BOOLEAN("Boolean", Boolean.class, Types.BOOLEAN),
 
     // time
-    @OptionItem(label = "Date")
     DATE("Date", LocalDate.class, Types.DATE),
-    @OptionItem(label = "DateTime")
     DATE_TIME("DateTime", LocalDateTime.class, Types.TIMESTAMP),
-    @OptionItem(label = "Time")
     TIME("Time", LocalTime.class, Types.TIME),
 
     // OptionList, MultiOption, MultiString, JSON, Filters, Orders
@@ -73,9 +67,7 @@ public enum FieldType {
     MULTI_STRING("MultiString", List.class, Types.VARCHAR),
     @OptionItem(label = "JSON")
     JSON("JSON", JsonNode.class, Types.LONGVARCHAR),
-    @OptionItem(label = "Filters")
     FILTERS("Filters", Filters.class, Types.VARCHAR),
-    @OptionItem(label = "Orders")
     ORDERS("Orders", Orders.class, Types.VARCHAR),
 
     // DTO store the json string of DTO object, which is an implementation of DTOFieldObject interface
@@ -83,7 +75,6 @@ public enum FieldType {
     DTO("DTO", DTOFieldObject.class, Types.LONGVARCHAR),
 
     // File and MultiFile store the ids of FileRecord model
-    @OptionItem(label = "File")
     FILE("File", Long.class, Types.VARCHAR),
     @OptionItem(label = "MultiFile")
     MULTI_FILE("MultiFile", List.class, Types.VARCHAR),

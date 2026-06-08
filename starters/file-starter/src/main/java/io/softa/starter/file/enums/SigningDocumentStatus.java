@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import io.softa.framework.orm.annotation.OptionItem;
 import io.softa.framework.orm.annotation.OptionSet;
 
 /**
@@ -14,11 +13,8 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "Signing Document Status")
 public enum SigningDocumentStatus {
-    @OptionItem(label = "Pending")
     PENDING("Pending"),
-    @OptionItem(label = "In Progress")
     IN_PROGRESS("InProgress"),
-    @OptionItem(label = "Completed")
     COMPLETED("Completed"),
     ;
 

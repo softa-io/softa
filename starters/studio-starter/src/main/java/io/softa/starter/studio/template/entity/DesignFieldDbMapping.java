@@ -1,41 +1,47 @@
 package io.softa.starter.studio.template.entity;
 
 import java.io.Serial;
-import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IdStrategy;
 
 /**
  * DesignFieldDbMapping Model
  * Mapping between the FieldType and the column type of the database.
  */
 @Data
-@Schema(name = "DesignFieldDbMapping")
 @EqualsAndHashCode(callSuper = true)
+@Model(
+        label = "Design Field DB Mapping",
+        description = "Mapping between the FieldType and the column type of the database.",
+        idStrategy = IdStrategy.DISTRIBUTED_LONG
+)
 public class DesignFieldDbMapping extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Database Type")
+    @Field(label = "Database Type", required = true)
     private DatabaseType databaseType;
 
-    @Schema(description = "Field Type")
+    @Field(label = "Field Type", required = true)
     private FieldType fieldType;
 
-    @Schema(description = "Column Type")
+    @Field(label = "Column Type", required = true, length = 64)
     private String columnType;
 
-    @Schema(description = "Description")
+    @Field(label = "Description", length = 256)
     private String description;
 
-    @Schema(description = "Deleted")
+    @Field(label = "Deleted")
     private Boolean deleted;
 }

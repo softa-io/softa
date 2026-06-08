@@ -18,13 +18,10 @@ public enum PaymentMethod {
     WE_CHAT("WeChat"),
     @OptionItem(label = "Alipay")
     ALI_PAY("AliPay"),
-    @OptionItem(label = "Stripe")
     STRIPE("Stripe"),
     @OptionItem(label = "PayPal")
     PAY_PAL("PayPal"),
-    @OptionItem(label = "Apple Pay")
     APPLE_PAY("ApplePay"),
-    @OptionItem(label = "Offline Payment")
     OFFLINE_PAYMENT("OfflinePayment"),
     ;
 

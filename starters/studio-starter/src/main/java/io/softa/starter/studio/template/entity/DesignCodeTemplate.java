@@ -1,10 +1,12 @@
 package io.softa.starter.studio.template.entity;
 
 import java.io.Serial;
-import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.studio.template.enums.DesignCodeLang;
 
@@ -12,34 +14,34 @@ import io.softa.starter.studio.template.enums.DesignCodeLang;
  * DesignCodeTemplate Model
  */
 @Data
-@Schema(name = "DesignCodeTemplate")
+@Model(label = "Design Code Template", idStrategy = IdStrategy.DISTRIBUTED_LONG)
 @EqualsAndHashCode(callSuper = true)
 public class DesignCodeTemplate extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Code Language")
+    @Field(label = "Code Lang")
     private DesignCodeLang codeLang;
 
-    @Schema(description = "Sequence")
+    @Field(label = "Sequence")
     private Integer sequence;
 
-    @Schema(description = "Sub Directory")
+    @Field(label = "Sub Directory", length = 64)
     private String subDirectory;
 
-    @Schema(description = "File Name Placeholder")
+    @Field(label = "File Name", length = 64)
     private String fileName;
 
-    @Schema(description = "Template Content")
+    @Field(label = "Template Content", length = 20000)
     private String templateContent;
 
-    @Schema(description = "Description")
+    @Field(label = "Description", length = 256)
     private String description;
 
-    @Schema(description = "Deleted")
+    @Field(label = "Deleted")
     private Boolean deleted;
 }

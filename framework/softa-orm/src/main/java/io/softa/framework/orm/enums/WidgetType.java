@@ -22,33 +22,22 @@ public enum WidgetType {
     // String
     @OptionItem(label = "URL")
     URL("URL"),
-    @OptionItem(label = "Phone")
     PHONE("Phone"),
-    @OptionItem(label = "Email")
     EMAIL("Email"),
-    @OptionItem(label = "Text")
     TEXT("Text"),
-    @OptionItem(label = "Rich Text")
     RICH_TEXT("RichText"),
-    @OptionItem(label = "Template Editor")
     TEMPLATE_EDITOR("TemplateEditor"),
-    @OptionItem(label = "Markdown")
     MARKDOWN("Markdown"),
-    @OptionItem(label = "Code")
     CODE("Code"),
     @OptionItem(label = "Color picker")
     COLOR("Color"),
 
     // Numeric
-    @OptionItem(label = "Monetary")
     MONETARY("Monetary"),
-    @OptionItem(label = "Percentage")
     PERCENTAGE("Percentage"),
-    @OptionItem(label = "Slider")
     SLIDER("Slider"),
 
     // Option fields
-    @OptionItem(label = "Radio")
     RADIO("Radio"),
     // Boolean, MultiOption fields
     @OptionItem(label = "CheckBox")
@@ -85,10 +74,8 @@ public enum WidgetType {
     SELECT_TREE("SelectTree"),
 
     // JSON tree to display JSON values in the tree view
-    @OptionItem(label = "Json Tree")
     JSON_TREE("JsonTree"),
 
-    @OptionItem(label = "Tag List")
     TAG_LIST("TagList"),
 
     @OptionItem(label = "Cron expression editor")

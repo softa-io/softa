@@ -14,15 +14,12 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "Payment Status")
 public enum PaymentStatus {
-    @OptionItem(label = "Unpaid")
     UNPAID("Unpaid"),
-    @OptionItem(label = "Paid")
     PAID("Paid"),
     @OptionItem(label = "Payment Failed")
     FAILED("Failed"),
     @OptionItem(label = "Payment Canceled")
     CANCELED("Canceled"),
-    @OptionItem(label = "Refunded")
     REFUNDED("Refunded"),
     ;
 

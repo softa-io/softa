@@ -22,13 +22,13 @@ import lombok.Getter;
 @OptionSet(label = "Design App Env Status")
 public enum DesignAppEnvStatus {
     /** No deployment in progress — ready to accept a new deployment. */
-    @OptionItem(label = "Stable", description = "Stable")
+    @OptionItem(description = "Stable")
     STABLE("Stable"),
     /** A deployment is currently running against this env. */
-    @OptionItem(label = "Deploying", description = "Deploying")
+    @OptionItem(description = "Deploying")
     DEPLOYING("Deploying"),
 
-    @OptionItem(label = "Importing", description = "Importing from runtime")
+    @OptionItem(description = "Importing from runtime")
     IMPORTING("Importing")
     ;
 

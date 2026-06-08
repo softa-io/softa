@@ -14,13 +14,10 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "Login Device Type")
 public enum LoginDeviceType {
-    @OptionItem(label = "Web Browser")
     WEB_BROWSER("WebBrowser"),
-    @OptionItem(label = "Mobile App")
     MOBILE_APP("MobileApp"),
     @OptionItem(label = "Desktop APP")
     DESKTOP_APP("DesktopAPP"),
-    @OptionItem(label = "Mini Program")
     MINI_PROGRAM("MiniProgram"),
     ;
 

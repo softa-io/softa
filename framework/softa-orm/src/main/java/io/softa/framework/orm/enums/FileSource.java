@@ -10,9 +10,7 @@ import lombok.Getter;
 @AllArgsConstructor
 @OptionSet(label = "File Source")
 public enum FileSource {
-    @OptionItem(label = "Download")
     DOWNLOAD("Download"),
-    @OptionItem(label = "Upload")
     UPLOAD("Upload"),
     @OptionItem(label = "URL")
     URL("URL"),

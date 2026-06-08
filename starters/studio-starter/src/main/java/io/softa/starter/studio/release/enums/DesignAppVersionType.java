@@ -10,9 +10,9 @@ import lombok.Getter;
 @AllArgsConstructor
 @OptionSet(label = "Design App Version Type")
 public enum DesignAppVersionType {
-    @OptionItem(label = "Normal", description = "Normal planned release")
+    @OptionItem(description = "Normal planned release")
     NORMAL("Normal"),
-    @OptionItem(label = "Hotfix", description = "Emergency hotfix release")
+    @OptionItem(description = "Emergency hotfix release")
     HOTFIX("Hotfix"),
     ;
 

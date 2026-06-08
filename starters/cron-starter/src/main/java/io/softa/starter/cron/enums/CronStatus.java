@@ -14,21 +14,21 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "Cron Status")
 public enum CronStatus {
-    @OptionItem(label = "Scheduled", description = "Scheduled for a specified time.")
-    Scheduled("Scheduled"),
-    @OptionItem(label = "Running", description = "Currently executing.")
+    @OptionItem(description = "Scheduled for a specified time.")
+    SCHEDULED("Scheduled"),
+    @OptionItem(description = "Currently executing.")
     RUNNING("Running"),
-    @OptionItem(label = "Completed", description = "Finished successfully.")
+    @OptionItem(description = "Finished successfully.")
     COMPLETED("Completed"),
-    @OptionItem(label = "Paused", description = "Temporarily paused.")
+    @OptionItem(description = "Temporarily paused.")
     PAUSED("Paused"),
-    @OptionItem(label = "Cancelled", description = "Cancelled before completion.")
+    @OptionItem(description = "Cancelled before completion.")
     CANCELLED("Cancelled"),
-    @OptionItem(label = "Skipped", description = "Skipped due to unmet execution conditions.")
+    @OptionItem(description = "Skipped due to unmet execution conditions.")
     SKIPPED("Skipped"),
-    @OptionItem(label = "Timeout", description = "Interrupted by execution timeout.")
+    @OptionItem(description = "Interrupted by execution timeout.")
     TIMEOUT("Timeout"),
-    @OptionItem(label = "Failed", description = "Execution failed.")
+    @OptionItem(description = "Execution failed.")
     FAILED("Failed");
 
     @JsonValue

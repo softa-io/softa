@@ -9,7 +9,6 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.annotation.OptionItem;
 import io.softa.framework.orm.annotation.OptionSet;
 
 /**
@@ -19,17 +18,11 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "View Type")
 public enum ViewType {
-    @OptionItem(label = "Table")
     TABLE("Table"),
-    @OptionItem(label = "Form")
     FORM("Form"),
-    @OptionItem(label = "Card")
     CARD("Card"),
-    @OptionItem(label = "Kanban")
     KANBAN("Kanban"),
-    @OptionItem(label = "Calendar")
     CALENDAR("Calendar"),
-    @OptionItem(label = "Dashboard")
     DASHBOARD("Dashboard"),
     ;
 

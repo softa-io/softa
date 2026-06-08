@@ -1,39 +1,44 @@
 package io.softa.starter.studio.template.entity;
 
 import java.io.Serial;
-import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IdStrategy;
 
 /**
  * DesignFieldTypeDefault Model
  */
 @Data
-@Schema(name = "DesignFieldTypeDefault")
 @EqualsAndHashCode(callSuper = true)
+@Model(
+        label = "Design Field Type Default",
+        idStrategy = IdStrategy.DISTRIBUTED_LONG
+)
 public class DesignFieldTypeDefault extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Field Type")
+    @Field(label = "Field Type", required = true)
     private FieldType fieldType;
 
-    @Schema(description = "Default Value")
+    @Field(label = "Default Value", length = 64)
     private String defaultValue;
 
-    @Schema(description = "Length")
+    @Field(label = "Length")
     private Integer length;
 
-    @Schema(description = "Scale")
+    @Field(label = "Scale")
     private Integer scale;
 
-    @Schema(description = "Deleted")
+    @Field(label = "Deleted")
     private Boolean deleted;
 }

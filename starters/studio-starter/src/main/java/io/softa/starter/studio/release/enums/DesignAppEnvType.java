@@ -10,13 +10,10 @@ import lombok.Getter;
 @AllArgsConstructor
 @OptionSet(label = "Design App Env Type")
 public enum DesignAppEnvType {
-    @OptionItem(label = "Dev")
     DEV("Dev"),
-    @OptionItem(label = "Test")
     TEST("Test"),
     @OptionItem(label = "UAT")
     UAT("UAT"),
-    @OptionItem(label = "Prod")
     PROD("Prod");
 
     @JsonValue

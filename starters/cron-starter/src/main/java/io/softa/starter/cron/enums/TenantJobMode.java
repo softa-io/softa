@@ -14,9 +14,9 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "Tenant Job Mode")
 public enum TenantJobMode {
-    @OptionItem(label = "Per Tenant", description = "Execute once per active tenant, each with its own tenant context")
+    @OptionItem(description = "Execute once per active tenant, each with its own tenant context")
     PER_TENANT("PerTenant"),
-    @OptionItem(label = "Cross Tenant", description = "Skip tenant isolation, operate across all tenants")
+    @OptionItem(description = "Skip tenant isolation, operate across all tenants")
     CROSS_TENANT("CrossTenant");
 
     @JsonValue

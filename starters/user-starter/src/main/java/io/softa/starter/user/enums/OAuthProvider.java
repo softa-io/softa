@@ -14,13 +14,10 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "OAuth Provider")
 public enum OAuthProvider {
-    @OptionItem(label = "Apple")
     APPLE("Apple"),
-    @OptionItem(label = "Google")
     GOOGLE("Google"),
     @OptionItem(label = "TikTok")
     TIKTOK("TikTok"),
-    @OptionItem(label = "X")
     X("X"),
     @OptionItem(label = "LinkedIn")
     LINKED_IN("LinkedIn");

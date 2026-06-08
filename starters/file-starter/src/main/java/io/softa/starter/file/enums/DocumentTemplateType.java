@@ -14,11 +14,11 @@ import io.softa.framework.orm.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet(label = "Document Template Type")
 public enum DocumentTemplateType {
-    @OptionItem(label = "Rich Text", description = "Online Rich Text Editor")
+    @OptionItem(description = "Online Rich Text Editor")
     RICH_TEXT("RichText"),
-    @OptionItem(label = "Word", description = "Upload a Word template")
+    @OptionItem(description = "Upload a Word template")
     WORD("Word"),
-    @OptionItem(label = "PDF", description = "Upload a PDF template")
+    @OptionItem(description = "Upload a PDF template")
     PDF("PDF"),
     ;
 

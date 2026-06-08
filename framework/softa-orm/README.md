@@ -36,6 +36,7 @@ by `metadata-starter`, and (for packages in `scanner-scope`) applies the matchin
 @Index(fields = {"status", "createdTime"})
 public class Customer extends AuditableModel {
 
+    @Field(label = "ID")
     private Long id;
 
     @Field(label = "Customer Code", required = true, length = 32)
@@ -47,8 +48,8 @@ public class Customer extends AuditableModel {
 
 @OptionSet(label = "Customer Tier")
 public enum CustomerTier {
-    @OptionItem(label = "VIP Gold") GOLD("g"),
-    @OptionItem(label = "Silver")   SILVER("s");
+    @OptionItem(label = "VIP Gold") GOLD("g"),   // explicit: "VIP Gold" ≠ humanize("GOLD")
+    SILVER("s");                                 // bare: label defaults to humanize("SILVER") = "Silver"
 
     @JsonValue private final String code;       // itemCode = @JsonValue
     CustomerTier(String code) { this.code = code; }
@@ -154,7 +155,7 @@ extends `AuditableModel`.
 |---|---|---|---|---|
 | (`@JsonValue` field value on enum) | — | — | `itemCode` | fallback to `enum.name()` when no `@JsonValue` |
 | (enclosing enum simple name) | — | — | `optionSetCode` | inferred |
-| `label` | String | `""` | `label` | empty → humanized enum constant name (`MULTI_FILE`→"Multi File") |
+| `label` | String | `""` | `label` | defaults to humanized constant name (`MULTI_FILE`→"Multi File"); declare explicitly to customize. Omit when it equals the humanized name (and omit the whole `@OptionItem` if nothing else remains) |
 | `description` | String | `""` | `description` | |
 | `sequence` | int | `-1` | `sequence` | `-1` → use `ordinal() + 1` |
 | `parentItemCode` | String | `""` | `parentItemCode` | hierarchy |
@@ -529,19 +530,19 @@ Example timeline slices (same logical department `id`):
 #### 1) Model Definition
 ```java
 @Data
-@Schema(name = "ProductPrice")
 @EqualsAndHashCode(callSuper = true)
+@Model(label = "Product Price", timeline = true)
 public class ProductPrice extends TimelineModel {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "Business ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Product ID")
+    @Field(label = "Product ID")
     private Long productId;
 
-    @Schema(description = "Price")
+    @Field(label = "Price", length = 18, scale = 2)
     private BigDecimal price;
 }
 ```
