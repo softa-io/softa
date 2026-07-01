@@ -16,8 +16,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.web.response.ApiResponse;
@@ -26,8 +24,6 @@ import io.softa.starter.user.dto.NavConfigOptions.SfsRef;
 import io.softa.starter.user.enums.ScopeType;
 import io.softa.starter.user.filter.SensitiveFieldSetCache;
 import io.softa.starter.user.scope.ScopeApplicabilityResolver;
-import io.softa.starter.user.service.GrantCeilingValidator;
-import io.softa.starter.user.service.GrantCeilingValidator.EditorGrants;
 import io.softa.starter.user.service.NavigationModelResolver;
 
 /**
@@ -52,6 +48,13 @@ import io.softa.starter.user.service.NavigationModelResolver;
  *
  * <p>Per-request cost is constant — a few HashMap lookups regardless of
  * total SFS / model count.
+ *
+ * <h3>Grant ceiling</h3>
+ * Current policy: only super-admin can hit this endpoint (Layer A gate on
+ * {@code /admin/*} wizard endpoints). Every caller here therefore sees the
+ * full option set for each nav — no per-editor filtering. If non-super-admin
+ * role editing is reintroduced, restore {@code GrantCeilingValidator} to
+ * trim scope / SFS / nav options per editor's own grants (Known-Issues C3).
  */
 @Slf4j
 @Tag(name = "Admin Navigation Config Options")
@@ -63,7 +66,6 @@ public class NavigationConfigOptionsController {
     private final NavigationModelResolver navResolver;
     private final ScopeApplicabilityResolver scopeApplicability;
     private final SensitiveFieldSetCache sfsCache;
-    private final GrantCeilingValidator ceilingValidator;
 
     @GetMapping("/navigationConfigOptions")
     @Operation(summary = "Wizard stage 3 data — per-navigation scope + sensitive field set + filter field options")
@@ -72,18 +74,12 @@ public class NavigationConfigOptionsController {
         if (navigationIds == null || navigationIds.isEmpty()) {
             return ApiResponse.success(Map.of());
         }
-        // Grant-ceiling snapshot for the editor (Known-Issues C3) — computed
-        // once per request, threaded through every buildOne so we don't
-        // re-enrich per nav. Super-admin snapshot short-circuits every
-        // filter to "pass through" — same shape as pre-C3 behaviour.
-        Context ctx = ContextHolder.getContext();
-        EditorGrants editor = ceilingValidator.snapshot(ctx.getTenantId(), ctx.getUserId());
         // Dedup + preserve caller order — FE sends ids in render order; map
         // iteration mirrors that, which keeps wire-output stable for diffs.
         List<String> ordered = navigationIds.stream().distinct().toList();
         Map<String, NavConfigOptions> out = new LinkedHashMap<>();
         for (String navId : ordered) {
-            out.put(navId, buildOne(navId, editor));
+            out.put(navId, buildOne(navId));
         }
         return ApiResponse.success(out);
     }
@@ -91,15 +87,8 @@ public class NavigationConfigOptionsController {
     /**
      * Resolve a single nav. Returns null for GROUP / pure-container MENU
      * (no primary model) — FE renders the row collapsed in that case.
-     * Also returns null when editor lacks access to this nav — the wizard
-     * shouldn't reveal options for navigations the editor can't grant
-     * (Known-Issues C3: info-leak of nav existence).
      */
-    private NavConfigOptions buildOne(String navId, EditorGrants editor) {
-        // C3 grant ceiling — editor without this nav sees nothing.
-        if (!ceilingValidator.canGrantNavigation(editor, navId)) {
-            return null;
-        }
+    private NavConfigOptions buildOne(String navId) {
         String model = navResolver.resolvePrimaryModel(navId);
         if (model == null || !ModelManager.existModel(model)) {
             return null;
@@ -107,10 +96,8 @@ public class NavigationConfigOptionsController {
         MetaModel meta = ModelManager.getModel(model);
         String label = meta != null && meta.getLabelName() != null ? meta.getLabelName() : model;
 
-        // Applicable scope types = model-column-shape-derived ∩ editor-can-grant.
-        // Super-admin sees full applicable set (canGrantScope short-circuits).
+        // Applicable scope types = model-column-shape-derived.
         List<String> scopes = scopeApplicability.applicableFor(model).stream()
-                .filter(st -> ceilingValidator.canGrantScope(editor, model, st))
                 .map(ScopeType::name)
                 .sorted()
                 .toList();
@@ -119,20 +106,15 @@ public class NavigationConfigOptionsController {
         // attached (SFS.attachedTo contains nav.model). Dedup by setId so a
         // SFS that accidentally points its attachedTo at its own model
         // shows up only once. All data comes from the in-memory cache.
-        // C3 grant ceiling — hide SFS the editor can't grant (info-leak
-        // defence: Alice without bank-account SFS shouldn't even learn
-        // that "bank-account" is a category on this deployment).
         Set<String> seen = new HashSet<>();
         List<SfsRef> sfs = new ArrayList<>();
         for (String setId : sfsCache.setIdsOwnedBy(model)) {
             if (!seen.add(setId)) continue;
-            if (!ceilingValidator.canGrantSensitiveFieldSet(editor, model, setId)) continue;
             String name = sfsCache.nameOf(setId);
             sfs.add(new SfsRef(setId, name != null ? name : setId));
         }
         for (String setId : sfsCache.setIdsAttachedTo(model)) {
             if (!seen.add(setId)) continue;
-            if (!ceilingValidator.canGrantSensitiveFieldSet(editor, model, setId)) continue;
             String name = sfsCache.nameOf(setId);
             sfs.add(new SfsRef(setId, name != null ? name : setId));
         }

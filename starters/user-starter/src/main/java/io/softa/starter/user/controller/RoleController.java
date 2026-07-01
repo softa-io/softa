@@ -18,8 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
 import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.JsonNode;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.WizardSaveDTO;
@@ -28,8 +26,6 @@ import io.softa.starter.user.entity.RoleNavigation;
 import io.softa.starter.user.entity.UserRoleRel;
 import io.softa.starter.user.enums.RoleSource;
 import io.softa.starter.user.service.DynamicRoleSyncJob;
-import io.softa.starter.user.service.GrantCeilingValidator;
-import io.softa.starter.user.service.GrantCeilingValidator.EditorGrants;
 import io.softa.starter.user.service.RoleNavigationService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.service.RoleService;
@@ -51,12 +47,6 @@ public class RoleController {
     private final RoleNavigationService roleNavigationService;
     private final UserRoleRelService userRoleRelService;
     private final DynamicRoleSyncJob dynamicRoleSyncJob;
-    /** Enforces Known-Issues C3 grant ceiling: caller can only grant
-     *  permissions / SFS / scope / navigations they themselves already
-     *  hold. Skipped for super-admin. Consulted before the wipe-and-rewrite
-     *  of role_navigation rows so we reject the whole request rather than
-     *  losing state to a partial write. */
-    private final GrantCeilingValidator grantCeilingValidator;
     /** Used for explicit-null column updates that bypass the entity-based
      *  {@code ignoreNull=true} semantics (e.g. wizard "Clear" on
      *  dynamicFilter). The map-based updateOne writes whatever keys are
@@ -67,9 +57,6 @@ public class RoleController {
     @Transactional
     @Operation(summary = "Wizard create — insert Role + role_navigation + user_role rows (Manual + Dynamic) in one transaction; returns new role id")
     public ApiResponse<Long> createWithWizard(@RequestBody @Valid WizardSaveDTO body) {
-        // C3 grant ceiling — reject payloads that overreach the editor's
-        // own permissions/SFS/scope/nav grants. Runs before any DB write.
-        validateGrantCeiling(body);
         Role role = parseRole(body.roleUpdate());
         role.setId(null);
         Long newId = roleService.createOne(role);
@@ -86,10 +73,6 @@ public class RoleController {
     @Transactional
     @Operation(summary = "Wizard update — refresh Role basics, rewrite role_navigation rows and user_role rows (Manual + Dynamic) in one transaction")
     public ApiResponse<Void> saveWizard(@PathVariable Long id, @RequestBody @Valid WizardSaveDTO body) {
-        // C3 grant ceiling — reject overreach before wipe-and-rewrite
-        // (otherwise a rejected payload could still delete the current
-        // role_navigation rows via the wipe step).
-        validateGrantCeiling(body);
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         roleService.updateOne(role, true);
@@ -123,30 +106,6 @@ public class RoleController {
         writeManualUserRoleRels(id, body.userIds());
         dynamicRoleSyncJob.syncRole(role.getTenantId(), id);
         return ApiResponse.success();
-    }
-
-    /**
-     * Iterates the wizard's {@code roleNavigations} array and delegates
-     * each row to {@link GrantCeilingValidator#validateRoleNavigationRow}.
-     * Throws on the first ceiling breach — the transaction rolls back
-     * before any DB write, so a rejected wizard save leaves existing
-     * role_navigation rows intact (does not accidentally wipe them via
-     * the wipe-and-rewrite pattern in {@link #saveWizard}).
-     *
-     * <p>Skipped entirely for super-admin (via {@link EditorGrants#isSuperAdmin}).
-     * Missing/empty {@code roleNavigations} is treated as a no-op — the
-     * caller intends to configure the role's nav grants elsewhere, or
-     * this is a Role-only edit.
-     */
-    private void validateGrantCeiling(WizardSaveDTO body) {
-        JsonNode navs = body.roleNavigations();
-        if (navs == null || !navs.isArray() || navs.isEmpty()) return;
-        Context ctx = ContextHolder.getContext();
-        EditorGrants editor = grantCeilingValidator.snapshot(ctx.getTenantId(), ctx.getUserId());
-        if (editor.isSuperAdmin()) return;
-        for (JsonNode row : navs) {
-            grantCeilingValidator.validateRoleNavigationRow(editor, row);
-        }
     }
 
     /** True when {@code payload} contains {@code field} as a JSON null
