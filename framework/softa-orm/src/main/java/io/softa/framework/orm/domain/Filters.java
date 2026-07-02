@@ -194,6 +194,23 @@ public class Filters implements Serializable {
      * scope compilation when every rule degrades (missing principal state,
      * misconfigured contributor, etc.) so callers signal "no rows visible"
      * without hitting the database.
+     *
+     * <h3>Load-bearing — DO NOT REMOVE</h3>
+     * This is the fail-closed half of row-level data scope (permissions R5).
+     * It exists precisely because the alternative — a bare {@code new Filters()}
+     * (FilterType.EMPTY) — is silently DROPPED by {@code combine} /
+     * {@code WhereBuilder}, so an EMPTY "no rows" filter collapses to "no WHERE"
+     * = the whole (tenant) table. That is the C1 full-table-leak bug this
+     * sentinel closes: NEVER survives combine and forces 0 rows.
+     *
+     * <p>Its main runtime trigger is NOT "the admin configured no scope for
+     * this model" — it is a DYNAMIC scope degrading (SELF / DIRECT_REPORTS /
+     * DEPT_SUBTREE / MANAGED_DEPARTMENTS / LEGAL_ENTITY when the caller has no
+     * linked employee context: pure users, pre-hires, service accounts), plus
+     * the {@code PermissionServiceImpl.appendScopeAccessFilters} catch-all
+     * (any exception → NEVER). Those paths MUST return zero rows, never all
+     * rows — so this cannot be replaced by the wizard defaulting models to ALL,
+     * nor by any UI-side change. Removing it re-opens C1.
      */
     public static Filters never() {
         Filters filters = new Filters();
