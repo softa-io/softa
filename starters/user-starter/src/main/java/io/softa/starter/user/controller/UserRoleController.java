@@ -15,11 +15,13 @@ import lombok.RequiredArgsConstructor;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.BulkAddRequest;
 import io.softa.starter.user.dto.BulkAddResult;
+import io.softa.starter.user.dto.BulkRevokeRequest;
 import io.softa.starter.user.dto.RoleUsersDTO;
 import io.softa.starter.user.dto.UserRolePair;
 import io.softa.starter.user.dto.UserRolesDTO;
 import io.softa.starter.user.enums.RoleSource;
 import io.softa.starter.user.service.BulkUserRoleService;
+import io.softa.starter.user.service.UserRoleRelService;
 
 /**
  * Bulk user-role assignment endpoints — backs the three Wizard entry points:
@@ -38,12 +40,24 @@ import io.softa.starter.user.service.BulkUserRoleService;
 public class UserRoleController {
 
     private final BulkUserRoleService bulkUserRoleService;
+    private final UserRoleRelService userRoleRelService;
 
     @PostMapping("/user-role/bulk")
     @Operation(summary = "Bulk assign (M users × N roles) — entry C")
     public ApiResponse<BulkAddResult> bulkAdd(@RequestBody @Valid BulkAddRequest body) {
         RoleSource source = body.source() == null ? RoleSource.MANUAL : body.source();
         return ApiResponse.success(bulkUserRoleService.bulkAdd(body.pairs(), source));
+    }
+
+    @PostMapping("/user-role/bulk-revoke")
+    @Operation(summary = "Bulk revoke user_role_rel rows by id — routed through the typed service "
+            + "so it enforces the system-role last-holder guard and evicts affected users' cached permissions")
+    public ApiResponse<Void> bulkRevoke(@RequestBody @Valid BulkRevokeRequest body) {
+        // Delegates to the typed UserRoleRelService (NOT generic /UserRoleRel/deleteByIds):
+        // deleteByIds snapshots affected userIds, runs guardSystemRoleHolderRemoval,
+        // then publishes UserRoleRelChangedEvent for AFTER_COMMIT cache eviction.
+        userRoleRelService.deleteByIds(body.relIds());
+        return ApiResponse.success();
     }
 
     @PostMapping("/role/{roleId}/users/bulk")
