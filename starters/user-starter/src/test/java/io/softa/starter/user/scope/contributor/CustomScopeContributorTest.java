@@ -141,6 +141,40 @@ class CustomScopeContributorTest {
     }
 
     @Test
+    void compile_orComposite_lowercaseOrToken_stillDropsFailedDisjunct() {
+        // Same as above but the OR token is spelled " or " — a legal DSL
+        // spelling accepted by Filters.of. It must be recognised as a
+        // disjunction, so the surviving branch is kept rather than the whole
+        // composite collapsing to fail-closed (zero rows) — see isOrToken().
+        ArrayNode expr = JSON.arrayNode();
+        ArrayNode left = JSON.arrayNode();
+        left.add("createdId").add("=").add("$principal.userId");
+        ArrayNode right = JSON.arrayNode();
+        right.add("assigneeId").add("=").add("$principal.nullref");
+        expr.add(left).add(" or ").add(right);
+
+        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
+
+        assertThat(Filters.isEmpty(out)).isFalse();
+        assertThat(Filters.isNever(out)).isFalse();
+    }
+
+    @Test
+    void compile_leafValueLiterallyOr_preservedNotSplitAsDisjunction() {
+        // A leaf tuple whose index-2 VALUE is the literal string "OR" (e.g. the
+        // Oregon state code) must be kept as data, NOT mistaken for a logic
+        // separator — otherwise the leaf is shredded into a malformed filter.
+        // Regression guard for isLeafTuple().
+        ArrayNode expr = JSON.arrayNode();
+        expr.add("state").add("=").add("OR");
+
+        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
+
+        assertThat(Filters.isEmpty(out)).isFalse();
+        assertThat(Filters.isNever(out)).isFalse();
+    }
+
+    @Test
     void compile_orComposite_allDisjunctsFail_degradesToEmpty() {
         // Both disjuncts reference unavailable refs → whole rule degrades.
         ArrayNode expr = JSON.arrayNode();

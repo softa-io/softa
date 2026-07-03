@@ -13,6 +13,8 @@ import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.enums.Operator;
+import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
@@ -146,7 +148,10 @@ public class CustomScopeContributor implements ScopeContributor {
             return JsonNodeFactory.instance.textNode(resolved.toString());
         }
         if (node.isArray()) {
-            if (containsTopLevelOr(node)) {
+            // A leaf tuple [field, op, value] is NOT a logic composite — its
+            // index-2 VALUE may legitimately equal "OR"/"or" and must not be
+            // mistaken for a disjunction separator (which would shred the leaf).
+            if (!isLeafTuple(node) && containsTopLevelOr(node)) {
                 return substituteOrComposite(node, principal);
             }
             ArrayNode arr = JsonNodeFactory.instance.arrayNode(node.size());
@@ -170,16 +175,45 @@ public class CustomScopeContributor implements ScopeContributor {
     }
 
     /** True iff {@code arr} has a direct {@code "OR"} string child.
-     *  Case-sensitive, matches the framework's filter DSL convention.
      *  {@code "AND"} at the top level is treated as a strict AND-composite
      *  by the caller (any child failure invalidates the whole array). */
     private static boolean containsTopLevelOr(JsonNode arr) {
         for (JsonNode child : arr) {
-            if (child != null && child.isString() && LOGIC_OR.equals(child.asString())) {
+            if (isOrToken(child)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** True iff the node is the DSL OR logic token. Matched case-insensitively
+     *  and trimmed to mirror {@code LogicOperator.of} and the downstream
+     *  {@code Filters.of} parser — otherwise a legally-spelled {@code "or"} /
+     *  {@code " OR "} disjunction would be mistaken for a plain AND child and
+     *  silently collapse the whole composite to fail-closed (zero rows) when a
+     *  {@code $principal} ref is unresolvable, contradicting the class-level
+     *  Failure-semantics contract. */
+    private static boolean isOrToken(JsonNode child) {
+        return child != null && child.isString() && LOGIC_OR.equalsIgnoreCase(child.asString().trim());
+    }
+
+    /** True iff {@code arr} is a query leaf tuple {@code [field, op, value]} —
+     *  exactly {@link FilterUnit#UNIT_LENGTH} elements with a recognised query
+     *  {@link Operator} at index 1. Mirrors {@code Filters.parseQueryOperator}
+     *  so the OR-composite scan never treats a leaf's index-2 VALUE (which may
+     *  be the literal string "OR"/"or") as a logic separator. */
+    private static boolean isLeafTuple(JsonNode arr) {
+        if (arr.size() != FilterUnit.UNIT_LENGTH) return false;
+        JsonNode op = arr.get(1);
+        if (op == null || !op.isString()) return false;
+        try {
+            // Operator.of throws the framework's IllegalArgumentException (not
+            // java.lang's) for a non-operator string — mirror Filters.parseQueryOperator.
+            Operator.of(op.asString().trim());
+            return true;
+        } catch (io.softa.framework.base.exception.IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     /**
@@ -196,7 +230,7 @@ public class CustomScopeContributor implements ScopeContributor {
         List<JsonNode> disjuncts = new ArrayList<>();
         List<JsonNode> currentDisjunct = new ArrayList<>();
         for (JsonNode child : arr) {
-            if (child != null && child.isString() && LOGIC_OR.equals(child.asString())) {
+            if (isOrToken(child)) {
                 disjuncts.add(collapseDisjunct(currentDisjunct));
                 currentDisjunct = new ArrayList<>();
             } else {
