@@ -1,6 +1,8 @@
 package io.softa.starter.user.filter;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
@@ -12,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.SystemRole;
 import io.softa.framework.base.exception.ConfigurationException;
 import io.softa.framework.base.exception.PermissionException;
 import io.softa.starter.user.dto.PermissionInfo;
@@ -93,6 +96,13 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // circuits the whole check chain (A/B/C/D layers all consult the
         // same {@code pi.roleCodes} set, so the behaviour is uniform).
         PermissionInfo pi = permissionInfoEnricher.enrich(ctx.getTenantId(), ctx.getUserId());
+        // Bridge the resolved role codes into the framework-layer Context so
+        // framework aspects (e.g. @RequireRole) can gate on system roles
+        // without depending on the user-starter permission model. Done for
+        // EVERY authenticated request that reaches a permission check — i.e.
+        // NOT for public / authenticated-bypass endpoints, which return above
+        // before this runs, so @RequireRole on a whitelisted path fails closed.
+        bridgeRoleCodesToContext(ctx, pi);
         if (PermissionInfo.isSuperAdmin(pi)) return true;
 
         // EndpointIndex.lookup returns every permission id that lists this
@@ -118,6 +128,27 @@ public class PermissionInterceptor implements HandlerInterceptor {
             throw new PermissionException("Missing permission for " + method + " " + uri);
         }
         return true;
+    }
+
+    /**
+     * Copy the resolved role codes onto the framework-layer
+     * {@link io.softa.framework.base.context.PermissionInfo} carried by the
+     * Context, so framework aspects can evaluate {@code @RequireRole} without
+     * importing the user-starter permission model (the Context field is the
+     * decoupling SPI). Super-admin is expanded to hold every {@link SystemRole}
+     * code — god-mode already short-circuits every other layer, so a
+     * system-role gate must not be stricter for it.
+     */
+    private void bridgeRoleCodesToContext(Context ctx, PermissionInfo pi) {
+        Set<String> codes = new HashSet<>();
+        if (pi != null && pi.getRoleCodes() != null) codes.addAll(pi.getRoleCodes());
+        if (PermissionInfo.isSuperAdmin(pi)) {
+            for (SystemRole r : SystemRole.values()) codes.add(r.getCode());
+        }
+        io.softa.framework.base.context.PermissionInfo base =
+                new io.softa.framework.base.context.PermissionInfo();
+        base.setRoleCodes(codes);
+        ctx.setPermissionInfo(base);
     }
 
     private boolean isPublic(String uri) {

@@ -1,7 +1,12 @@
 package io.softa.framework.orm.aspect;
 
+import java.util.Set;
+
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.PermissionInfo;
+import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.orm.annotation.RequireRole;
 import io.softa.framework.orm.annotation.SwitchUser;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -64,14 +69,35 @@ public class PermissionAspect {
     }
 
     /**
-     * RequireRole annotation aspect.
-     * Check if the current user has the specified role permission.
+     * {@link RequireRole} annotation aspect — verify the caller holds the
+     * required system role BEFORE running the annotated (privileged) method.
+     *
+     * <h3>Fail-closed contract</h3>
+     * The caller's role codes are read from the framework-layer
+     * {@link Context#getPermissionInfo()}. The consuming application's request
+     * pipeline is responsible for populating that set (the framework stays
+     * decoupled from any concrete Role / PermissionInfo model — this field is
+     * the SPI). When the set is absent or lacks the required role code we
+     * DENY: a {@code null} set means either the app wired no role provider or
+     * the endpoint was whitelisted upstream (public / authenticated-bypass) —
+     * both must not grant a system-role-gated method.
+     *
+     * <p>{@code skipPermissionCheck} is enabled ONLY after the role is
+     * verified — never before — so the bypass can't leak to an unauthorized
+     * caller (previously the advice skipped enforcement unconditionally
+     * without ever checking the role).
      */
-    @Around("@annotation(io.softa.framework.orm.annotation.RequireRole)")
-    public Object requireRole(ProceedingJoinPoint joinPoint) throws Throwable {
+    @Around("@annotation(requireRole)")
+    public Object requireRole(ProceedingJoinPoint joinPoint, RequireRole requireRole) throws Throwable {
         Context context = ContextHolder.getContext();
-        // TODO: User role check, if the user does not have the specified role, throw an exception.
-        // Skip permission check after role check.
+        PermissionInfo permissionInfo = context == null ? null : context.getPermissionInfo();
+        Set<String> roleCodes = permissionInfo == null ? null : permissionInfo.getRoleCodes();
+        String requiredCode = requireRole.value().getCode();
+        if (roleCodes == null || !roleCodes.contains(requiredCode)) {
+            throw new PermissionException("Requires system role: " + requireRole.value().getName());
+        }
+        // Role verified — this is a system-level operation, so downstream
+        // scope / SFS / write guards are intentionally bypassed.
         boolean previousIgnoreValue = context.isSkipPermissionCheck();
         try {
             context.setSkipPermissionCheck(true);
