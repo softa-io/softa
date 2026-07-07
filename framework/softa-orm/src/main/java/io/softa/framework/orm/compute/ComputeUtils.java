@@ -34,33 +34,54 @@ public abstract class ComputeUtils {
 
     private ComputeUtils() {}
 
-    private static final AviatorEvaluatorInstance ENGINE = AviatorEvaluator.newInstance();
+    private static final AviatorEvaluatorInstance ENGINE = newSandboxedInstance();
 
-    static {
+    /**
+     * Creates a fresh {@link AviatorEvaluatorInstance} configured with the framework's
+     * safety baseline (decimal-only DECIMAL64 arithmetic, compilation cache, property
+     * syntax sugar, safe sandbox feature set, loop cap, class whitelist and the standard
+     * date/string function imports) — the exact configuration of the shared engine
+     * behind this utility class.
+     *
+     * <p>Domain modules (e.g. payroll) that need their OWN evaluator instance — typically
+     * to register domain functions via {@code addFunction} without polluting the shared
+     * framework engine — should build it through this factory so the safety baseline is
+     * inherited (and follows framework upgrades) instead of being copied.
+     *
+     * @return a new sandbox-configured evaluator instance, owned by the caller
+     */
+    public static AviatorEvaluatorInstance newSandboxedInstance() {
+        AviatorEvaluatorInstance engine = AviatorEvaluator.newInstance();
+        configureSandbox(engine);
+        return engine;
+    }
+
+    /** Applies the framework safety baseline to the given engine instance. */
+    private static void configureSandbox(AviatorEvaluatorInstance engine) {
         // Enable compilation cache mode by default
-        ENGINE.setCachedExpressionByDefault(true);
+        engine.setCachedExpressionByDefault(true);
         // Forbid calling methods through reflection, equivalent to closing custom functions
-        ENGINE.setFunctionMissing(null);
+        engine.setFunctionMissing(null);
         // Enable variable syntax sugar, access object data through a.b.c cascade
-        ENGINE.setOption(Options.ENABLE_PROPERTY_SYNTAX_SUGAR, true);
+        engine.setOption(Options.ENABLE_PROPERTY_SYNTAX_SUGAR, true);
         // Forbid modifying env to avoid polluting the original data
-        ENGINE.setOption(Options.USE_USER_ENV_AS_TOP_ENV_DIRECTLY, false);
+        engine.setOption(Options.USE_USER_ENV_AS_TOP_ENV_DIRECTLY, false);
         // Auto convert float numbers and integer numbers to Decimal.
-        ENGINE.setOption(Options.ALWAYS_PARSE_FLOATING_POINT_NUMBER_INTO_DECIMAL, true);
-        ENGINE.setOption(Options.ALWAYS_PARSE_INTEGRAL_NUMBER_INTO_DECIMAL, true);
+        engine.setOption(Options.ALWAYS_PARSE_FLOATING_POINT_NUMBER_INTO_DECIMAL, true);
+        engine.setOption(Options.ALWAYS_PARSE_INTEGRAL_NUMBER_INTO_DECIMAL, true);
         /*
           Keep 16 decimal places of precision during the calculation process,
           note that DECIMAL64 uses HALF_EVEN, which is the banker's rounding method.
          */
-        ENGINE.setOption(Options.MATH_CONTEXT, MathContext.DECIMAL64);
+        engine.setOption(Options.MATH_CONTEXT, MathContext.DECIMAL64);
         // Forbid infinite loop, set the maximum number of loops to 100,000
-        ENGINE.setOption(Options.MAX_LOOP_COUNT, 100000);
+        engine.setOption(Options.MAX_LOOP_COUNT, 100000);
         /*
           Safe sandbox mode settings:
           Enable features: Assignment, Return, If, Loop, Braces code block, Lambda function
           Disable features: custom function, internal system variables, Module, Exception handling, New, Import, Static field, Static method
          */
-        ENGINE.setOption(Options.FEATURE_SET, Feature.asSet(
+        engine.setOption(Options.FEATURE_SET, Feature.asSet(
                 Feature.Assignment,
                 Feature.Return,
                 Feature.If,
@@ -72,15 +93,15 @@ public abstract class ComputeUtils {
         // Forbid instantiating class objects in expressions
         HashSet<Object> enableClasses = new HashSet<>();
         enableClasses.add(ChronoUnit.class);
-        ENGINE.setOption(Options.ALLOWED_CLASS_SET, enableClasses);
+        engine.setOption(Options.ALLOWED_CLASS_SET, enableClasses);
         // Import static methods of LocalDate, LocalDateTime, DateTimeFormatter, StringTools, Toolkit
         try {
-            ENGINE.importFunctions(LocalDate.class);
-            ENGINE.importFunctions(LocalDateTime.class);
-            ENGINE.importFunctions(DateTimeFormatter.class);
-            ENGINE.importFunctions(ChronoUnit.class);
-            ENGINE.importFunctions(StringTools.class);
-            ENGINE.importFunctions(CronUtils.class);
+            engine.importFunctions(LocalDate.class);
+            engine.importFunctions(LocalDateTime.class);
+            engine.importFunctions(DateTimeFormatter.class);
+            engine.importFunctions(ChronoUnit.class);
+            engine.importFunctions(StringTools.class);
+            engine.importFunctions(CronUtils.class);
         } catch (IllegalAccessException | NoSuchMethodException e) {
             throw new IllegalArgumentException(e.getMessage());
         }
