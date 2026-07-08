@@ -88,5 +88,6 @@ public interface ModelConstant {
             .add("SysOptionSetTrans")
             .add("SysOptionItem")
             .add("SysOptionItemTrans")
+            .add("SysModelIndex")
             .build();
 }
