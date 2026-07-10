@@ -78,11 +78,11 @@ class PermissionInfoEnricherCompositionTest {
         RequestContextHolder.resetRequestAttributes();
     }
 
-    private PermissionInfoEnricher enricher(List<PrincipalEnrichmentContributor> contributors) {
+    private PermissionInfoEnricher enricher() {
         PermissionInfoEnricher e = new PermissionInfoEnricher(
                 roleService, userRoleRelService, roleNavigationService,
                 roleDataScopeService, roleSensitiveFieldSetService,
-                navResolver, sfsCache, contributors, cacheService);
+                navResolver, sfsCache, cacheService);
         ReflectionTestUtils.invokeMethod(e, "initAncestorIndex");
         return e;
     }
@@ -172,7 +172,7 @@ class PermissionInfoEnricherCompositionTest {
         dataScope(100L, "Employee", ScopeType.SELF);
         dataScope(100L, "Employee", ScopeType.CREATED_BY_SELF);
 
-        PermissionInfo pi = enricher(List.of()).enrich(10L, 42L);
+        PermissionInfo pi = enricher().enrich(10L, 42L);
         Map<String, List<ScopeRule>> map = pi.getModelScopeMap();
         assertThat(map).containsOnlyKeys("Employee");
         assertThat(map.get("Employee")).hasSize(2)
@@ -186,7 +186,7 @@ class PermissionInfoEnricherCompositionTest {
         dataScope(100L, "Employee", ScopeType.SELF);
         dataScope(100L, "LeaveRequest", ScopeType.CREATED_BY_SELF);
 
-        Map<String, List<ScopeRule>> map = enricher(List.of()).enrich(10L, 42L).getModelScopeMap();
+        Map<String, List<ScopeRule>> map = enricher().enrich(10L, 42L).getModelScopeMap();
         assertThat(map.keySet()).containsExactlyInAnyOrder("Employee", "LeaveRequest");
         assertThat(map.get("Employee")).extracting(ScopeRule::getScopeType).containsExactly(ScopeType.SELF);
         assertThat(map.get("LeaveRequest")).extracting(ScopeRule::getScopeType).containsExactly(ScopeType.CREATED_BY_SELF);
@@ -199,7 +199,7 @@ class PermissionInfoEnricherCompositionTest {
         primeUserWithRoles(42L, 100L);
         dataScope(100L, "", ScopeType.ALL);
 
-        PermissionInfo pi = enricher(List.of()).enrich(10L, 42L);
+        PermissionInfo pi = enricher().enrich(10L, 42L);
         assertThat(pi.getModelScopeMap()).isEmpty();
     }
 
@@ -214,7 +214,7 @@ class PermissionInfoEnricherCompositionTest {
         when(sfsCache.modelOf("bank")).thenReturn("EmpBankAccount");
         sfsGrant(100L, "comp", "bank");
 
-        Map<String, Set<String>> map = enricher(List.of()).enrich(10L, 42L)
+        Map<String, Set<String>> map = enricher().enrich(10L, 42L)
                 .getModelSensitiveFieldSetsMap();
         assertThat(map.get("Employee")).containsExactly("comp");
         assertThat(map.get("EmpBankAccount")).containsExactly("bank");
@@ -228,7 +228,7 @@ class PermissionInfoEnricherCompositionTest {
         when(sfsCache.modelOf("ghost")).thenReturn(null);
         sfsGrant(100L, "comp", "ghost");
 
-        Map<String, Set<String>> map = enricher(List.of()).enrich(10L, 42L)
+        Map<String, Set<String>> map = enricher().enrich(10L, 42L)
                 .getModelSensitiveFieldSetsMap();
         assertThat(map.get("Employee")).containsExactly("comp");
         assertThat(map).doesNotContainKey("ghost");
@@ -244,54 +244,8 @@ class PermissionInfoEnricherCompositionTest {
                 grant(100L, "hr.employee", null, null, List.of("employee.view")),
                 grant(200L, "hr.employee", null, null, List.of("employee.create", "employee.view"))));
 
-        assertThat(enricher(List.of()).enrich(10L, 42L).getPermissions())
+        assertThat(enricher().enrich(10L, 42L).getPermissions())
                 .containsExactlyInAnyOrder("employee.view", "employee.create");
-    }
-
-    // ─── PrincipalEnrichmentContributor SPI ───
-
-    @Test
-    void principalEnrichmentContributor_populatesExtension() {
-        primeUserWithRoles(42L);
-        when(roleNavigationService.searchList(any(FlexQuery.class))).thenReturn(List.of());
-        PrincipalEnrichmentContributor c = new PrincipalEnrichmentContributor() {
-            @Override public String key() { return "employee"; }
-            @Override public Object loadFor(Long userId, Long tenantId) {
-                return Map.of("id", 555L, "name", "alice");
-            }
-        };
-        PermissionInfo pi = enricher(List.of(c)).enrich(10L, 42L);
-        assertThat(pi.getPrincipal().getExtensions()).containsKey("employee");
-    }
-
-    @Test
-    void principalEnrichmentContributor_nullReturn_extensionSlotAbsent() {
-        primeUserWithRoles(42L);
-        when(roleNavigationService.searchList(any(FlexQuery.class))).thenReturn(List.of());
-        PrincipalEnrichmentContributor c = new PrincipalEnrichmentContributor() {
-            @Override public String key() { return "employee"; }
-            @Override public Object loadFor(Long userId, Long tenantId) { return null; }
-        };
-        PermissionInfo pi = enricher(List.of(c)).enrich(10L, 42L);
-        assertThat(pi.getPrincipal().getExtensions()).doesNotContainKey("employee");
-    }
-
-    @Test
-    void principalEnrichmentContributor_throws_warnAndContinue() {
-        primeUserWithRoles(42L);
-        when(roleNavigationService.searchList(any(FlexQuery.class))).thenReturn(List.of());
-        PrincipalEnrichmentContributor good = new PrincipalEnrichmentContributor() {
-            @Override public String key() { return "employee"; }
-            @Override public Object loadFor(Long userId, Long tenantId) { return "OK"; }
-        };
-        PrincipalEnrichmentContributor bad = new PrincipalEnrichmentContributor() {
-            @Override public String key() { return "broken"; }
-            @Override public Object loadFor(Long userId, Long tenantId) { throw new RuntimeException("boom"); }
-        };
-        PermissionInfo pi = enricher(List.of(bad, good)).enrich(10L, 42L);
-        // Good contributor still ran despite bad one throwing.
-        assertThat(pi.getPrincipal().getExtensions()).containsEntry("employee", "OK");
-        assertThat(pi.getPrincipal().getExtensions()).doesNotContainKey("broken");
     }
 
     // ─── ancestor expansion edge cases ───
@@ -310,7 +264,7 @@ class PermissionInfoEnricherCompositionTest {
                 grant(100L, "a", null, null, null)));
 
         // Should complete without hanging or throwing.
-        PermissionInfo pi = enricher(List.of()).enrich(10L, 42L);
+        PermissionInfo pi = enricher().enrich(10L, 42L);
         assertThat(pi.getNavigations()).contains("a");
     }
 
@@ -328,7 +282,7 @@ class PermissionInfoEnricherCompositionTest {
         when(roleNavigationService.searchList(any(FlexQuery.class))).thenReturn(List.of(
                 grant(100L, "n39", null, null, null)));
 
-        PermissionInfo pi = enricher(List.of()).enrich(10L, 42L);
+        PermissionInfo pi = enricher().enrich(10L, 42L);
         // Depth cap = 32 ancestors (walk breaks after 32 hops) + leaf itself.
         assertThat(pi.getNavigations()).contains("n39");
         // The very top of the chain (n0) is beyond the depth cap → excluded.
@@ -363,7 +317,7 @@ class PermissionInfoEnricherCompositionTest {
         when(roleNavigationService.searchList(any(FlexQuery.class))).thenReturn(List.of(
                 grant(100L, "hr.employee", null, null, List.of("employee.view"))));
 
-        PermissionInfo pi = enricher(List.of()).enrich(10L, 42L);
+        PermissionInfo pi = enricher().enrich(10L, 42L);
         // Only role 100's grants surface.
         assertThat(pi.getPermissions()).containsExactly("employee.view");
     }
@@ -371,12 +325,11 @@ class PermissionInfoEnricherCompositionTest {
     // ─── empty snapshot when user has no active roles ───
 
     @Test
-    void noActiveRoles_returnsEmptyGrantsSnapshotWithPrincipal() {
+    void noActiveRoles_returnsEmptyGrantsSnapshot() {
         when(userRoleRelService.searchList(any(FlexQuery.class))).thenReturn(List.of());
         when(roleService.searchList(any(FlexQuery.class))).thenReturn(List.of());
 
-        PermissionInfo pi = enricher(List.of()).enrich(10L, 42L);
-        assertThat(pi.getPrincipal().getUserId()).isEqualTo(42L);
+        PermissionInfo pi = enricher().enrich(10L, 42L);
         assertThat(pi.getPermissions()).isNullOrEmpty();
         assertThat(pi.getNavigations()).isNullOrEmpty();
         assertThat(pi.getModelScopeMap()).isNullOrEmpty();

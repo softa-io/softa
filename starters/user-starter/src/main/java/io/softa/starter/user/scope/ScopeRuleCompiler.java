@@ -11,8 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.user.dto.PermissionInfo;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
 import io.softa.starter.user.enums.ScopeType;
 
@@ -98,16 +96,15 @@ public final class ScopeRuleCompiler {
      *   <li>otherwise — OR-merged Filters expression.</li>
      * </ul>
      */
-    public Filters compile(List<ScopeRule> rules, PermissionInfo pi, String modelName) {
+    public Filters compile(List<ScopeRule> rules, String modelName) {
         if (rules == null || rules.isEmpty()) return matchNone();
         for (ScopeRule r : rules) {
             if (r.getScopeType() == ScopeType.ALL) return null;
         }
-        Principal principal = pi == null ? null : pi.getPrincipal();
 
         Filters out = null;
         for (ScopeRule rule : rules) {
-            Filters one = compileOne(rule, principal, modelName);
+            Filters one = compileOne(rule, modelName);
             if (one == null) continue;
             if (Filters.isEmpty(one)) continue;
             out = (out == null) ? one : out.or(one);
@@ -115,7 +112,7 @@ public final class ScopeRuleCompiler {
         return out == null ? matchNone() : out;
     }
 
-    private Filters compileOne(ScopeRule rule, Principal principal, String modelName) {
+    private Filters compileOne(ScopeRule rule, String modelName) {
         if (rule == null || rule.getScopeType() == null) return emptyFilter();
         ScopeType type = rule.getScopeType();
         if (type == ScopeType.ALL) return null;
@@ -131,7 +128,7 @@ public final class ScopeRuleCompiler {
             return emptyFilter();
         }
         try {
-            return contributor.compile(rule, principal, modelName);
+            return contributor.compile(rule, modelName);
         } catch (IllegalStateException ise) {
             // Contributors throw IllegalStateException for config errors
             // (e.g. DepartmentCascadePathResolver returning empty for a model

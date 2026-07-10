@@ -28,7 +28,7 @@ public class MeController {
     private final PermissionInfoEnricher permissionInfoEnricher;
 
     @GetMapping("/uiContext")
-    @Operation(summary = "Get the current user's UI context (navigations, permissions, principal, sensitive field sets)")
+    @Operation(summary = "Get the current user's UI context (navigations, permissions, sensitive field sets)")
     public ApiResponse<PermissionInfo> uiContext() {
         Context ctx = ContextHolder.getContext();
         PermissionInfo info = permissionInfoEnricher.enrich(ctx.getTenantId(), ctx.getUserId());

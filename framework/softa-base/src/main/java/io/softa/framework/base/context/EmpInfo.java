@@ -9,9 +9,8 @@ import lombok.Data;
  * Basic info of the current user.
  *
  * <p>Populated per-request by a {@code ContextEnricher} bean (e.g. zingkey-hcm's
- * {@code HrContextEnricher}) into {@link Context#empInfo}, plus stored on
- * {@code Principal.extensions["employee"]} for permission scope evaluation —
- * a single source of truth that serves both:
+ * {@code EmployeeContextEnricher}) into {@link Context#empInfo} — a single
+ * source of truth that serves:
  * <ul>
  *   <li><b>Framework SQL macro substitution</b> — {@code FilterUnitParser}
  *       reads {@code empId / deptId / positionId / companyId} when expanding
@@ -20,9 +19,9 @@ import lombok.Data;
  *       {@code name / email / phone / *Name} directly via
  *       {@code ContextHolder.getContext().getEmpInfo()}.</li>
  *   <li><b>HR scope contributors</b> — read {@code empId / deptId / companyId /
- *       managedDeptIds} from {@code Principal.extensions["employee"]} to compile
- *       SELF / DIRECT_REPORTS / DEPT_SUBTREE / MANAGED_DEPARTMENTS / LEGAL_ENTITY
- *       filters.</li>
+ *       managedDeptIds} from {@code ContextHolder.getContext().getEmpInfo()} to
+ *       compile SELF / DIRECT_REPORTS / DEPT_SUBTREE / MANAGED_DEPARTMENTS /
+ *       LEGAL_ENTITY filters.</li>
  * </ul>
  */
 @Data

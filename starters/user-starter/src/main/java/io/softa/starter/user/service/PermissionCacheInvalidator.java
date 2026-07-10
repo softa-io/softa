@@ -10,7 +10,7 @@ import java.util.Set;
  *       users whose role set changed</li>
  *   <li>{@code RoleNavigationChangedEvent} → {@link #evictByRole} for the
  *       role whose nav / permission / scope grants changed</li>
- *   <li>Domain events that shift {@code Principal.extensions} → business
+ *   <li>Domain events that shift a user's cached domain context → business
  *       modules subscribe to their own events and call {@link #evictOne}
  *       directly (the framework knows no such events)</li>
  * </ul>

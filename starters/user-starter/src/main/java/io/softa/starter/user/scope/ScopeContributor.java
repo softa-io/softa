@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Set;
 
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
 import io.softa.starter.user.enums.ScopeType;
 
@@ -103,16 +102,16 @@ public interface ScopeContributor {
      * fail-closed for this rule — the caller still OR-merges with other
      * rules, but this one contributes "no rows" rather than "every row".
      *
-     * <p>The {@code principal} carries userId, tenantId, roles, and the
-     * domain-specific extension map ({@link Principal#getExtensions()}).
-     * Domain-specific contributors should read their own extension by the
-     * key their matching {@code PrincipalEnrichmentContributor} wrote —
-     * the generic compiler doesn't pre-resolve domain context for you.
+     * <p>Contributors that need the caller's identity read it straight from
+     * {@code ContextHolder.getContext()} — {@code getUserId()} for the user
+     * id, {@code getEmpInfo()} for the per-request HR context (populated by
+     * the app's {@code ContextEnricher}). The compiler no longer threads a
+     * {@code Principal} through; env placeholders inside a CUSTOM filter are
+     * resolved later by {@code FilterUnitParser} at SQL-build time.
      *
      * <p>The {@code modelName} is the queried model in PascalCase.
      * Contributors use this to pick the right anchor column when a model
-     * deviates
-     * from the default convention.
+     * deviates from the default convention.
      */
-    Filters compile(ScopeRule rule, Principal principal, String modelName);
+    Filters compile(ScopeRule rule, String modelName);
 }

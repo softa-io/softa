@@ -8,8 +8,6 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.node.JsonNodeFactory;
 
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.user.dto.PermissionInfo;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
 import io.softa.starter.user.enums.ScopeType;
 
@@ -32,7 +30,7 @@ class ScopeRuleCompilerTest {
         @Override public ScopeType scopeType() { return type; }
         @Override public List<String> applicableFields() { return List.of(); }
         @Override public boolean isApplicableTo(String model, Set<String> fields) { return true; }
-        @Override public Filters compile(ScopeRule r, Principal p, String m) {
+        @Override public Filters compile(ScopeRule r, String m) {
             calls++;
             return output;
         }
@@ -62,14 +60,14 @@ class ScopeRuleCompilerTest {
     @Test
     void compile_nullRules_returnsNever() {
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of());
-        Filters out = compiler.compile(null, samplePi(), "Employee");
+        Filters out = compiler.compile(null, "Employee");
         assertThat(java.util.Objects.equals(out, ScopeRuleCompiler.matchNone())).isTrue();
     }
 
     @Test
     void compile_emptyRules_returnsNever() {
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of());
-        Filters out = compiler.compile(List.of(), samplePi(), "Employee");
+        Filters out = compiler.compile(List.of(), "Employee");
         assertThat(java.util.Objects.equals(out, ScopeRuleCompiler.matchNone())).isTrue();
     }
 
@@ -94,7 +92,7 @@ class ScopeRuleCompilerTest {
     void compile_anyAllRule_returnsNull_meaningNoRestriction() {
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of());
         List<ScopeRule> rules = List.of(rule(ScopeType.ALL));
-        Filters out = compiler.compile(rules, samplePi(), "Employee");
+        Filters out = compiler.compile(rules, "Employee");
         assertThat(out).isNull();
     }
 
@@ -105,7 +103,7 @@ class ScopeRuleCompilerTest {
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of(self));
         // ALL wins even if a narrower rule is present alongside it.
         List<ScopeRule> rules = List.of(rule(ScopeType.SELF), rule(ScopeType.ALL));
-        Filters out = compiler.compile(rules, samplePi(), "Employee");
+        Filters out = compiler.compile(rules, "Employee");
         assertThat(out).isNull();
         assertThat(self.calls).isZero();
     }
@@ -115,7 +113,7 @@ class ScopeRuleCompilerTest {
         // No contributor registered for SELF → rule degrades → all-degraded
         // means the compile output is Filters.never().
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of());
-        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), samplePi(), "Employee");
+        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), "Employee");
         assertThat(java.util.Objects.equals(out, ScopeRuleCompiler.matchNone())).isTrue();
     }
 
@@ -125,7 +123,7 @@ class ScopeRuleCompilerTest {
         StubContributor self = new StubContributor(ScopeType.SELF, produced);
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of(self));
 
-        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), samplePi(), "Employee");
+        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), "Employee");
 
         assertThat(out).isNotNull();
         assertThat(java.util.Objects.equals(out, ScopeRuleCompiler.matchNone())).isFalse();
@@ -143,7 +141,7 @@ class ScopeRuleCompilerTest {
 
         Filters out = compiler.compile(
                 List.of(rule(ScopeType.SELF), rule(ScopeType.CREATED_BY_SELF)),
-                samplePi(), "Employee");
+                "Employee");
 
         assertThat(out).isNotNull();
         assertThat(java.util.Objects.equals(out, ScopeRuleCompiler.matchNone())).isFalse();
@@ -157,14 +155,14 @@ class ScopeRuleCompilerTest {
             @Override public ScopeType scopeType() { return ScopeType.SELF; }
             @Override public List<String> applicableFields() { return List.of(); }
             @Override public boolean isApplicableTo(String m, Set<String> f) { return true; }
-            @Override public Filters compile(ScopeRule r, Principal p, String m) {
+            @Override public Filters compile(ScopeRule r, String m) {
                 throw new RuntimeException("boom");
             }
         };
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of(throwing));
 
         // The one rule degrades → compile output collapses to Filters.never().
-        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), samplePi(), "Employee");
+        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), "Employee");
         assertThat(java.util.Objects.equals(out, ScopeRuleCompiler.matchNone())).isTrue();
     }
 
@@ -174,14 +172,14 @@ class ScopeRuleCompilerTest {
             @Override public ScopeType scopeType() { return ScopeType.DEPT_SUBTREE; }
             @Override public List<String> applicableFields() { return List.of(); }
             @Override public boolean isApplicableTo(String m, Set<String> f) { return true; }
-            @Override public Filters compile(ScopeRule r, Principal p, String m) {
+            @Override public Filters compile(ScopeRule r, String m) {
                 throw new IllegalStateException("config invariant broken");
             }
         };
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicabilityAllowingAll(), List.of(throwing));
 
         assertThatThrownBy(() -> compiler.compile(
-                List.of(rule(ScopeType.DEPT_SUBTREE)), samplePi(), "Employee"))
+                List.of(rule(ScopeType.DEPT_SUBTREE)), "Employee"))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -195,7 +193,7 @@ class ScopeRuleCompilerTest {
                 Filters.of("id", io.softa.framework.base.enums.Operator.EQUAL, 1L));
         ScopeRuleCompiler compiler = new ScopeRuleCompiler(applicability, List.of(self));
 
-        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), samplePi(), "Employee");
+        Filters out = compiler.compile(List.of(rule(ScopeType.SELF)), "Employee");
 
         assertThat(java.util.Objects.equals(out, ScopeRuleCompiler.matchNone())).isTrue();
         assertThat(self.calls).isZero();
@@ -205,10 +203,5 @@ class ScopeRuleCompilerTest {
 
     private static ScopeRule rule(ScopeType type) {
         return new ScopeRule(type, JsonNodeFactory.instance.nullNode());
-    }
-
-    private static PermissionInfo samplePi() {
-        Principal p = Principal.builder().userId(42L).build();
-        return PermissionInfo.builder().principal(p).build();
     }
 }

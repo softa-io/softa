@@ -12,7 +12,6 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.PermissionInfo;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.filter.SensitiveFieldSetCache;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,7 +48,7 @@ class PermissionInfoEnricherTest {
         enricher = new PermissionInfoEnricher(
                 roleService, userRoleRelService, roleNavigationService,
                 roleDataScopeService, roleSensitiveFieldSetService,
-                navResolver, sfsCache, List.of(), cacheService);
+                navResolver, sfsCache, cacheService);
         RequestContextHolder.resetRequestAttributes();
     }
 
@@ -80,7 +79,6 @@ class PermissionInfoEnricherTest {
     void enrich_requestScopedHit_returnsStashedInstanceWithoutRedis() {
         String key = PermissionInfoEnricher.cacheKey(10L, 42L);
         PermissionInfo stashed = PermissionInfo.builder()
-                .principal(Principal.builder().userId(42L).build())
                 .roleCodes(java.util.Set.of("HR"))
                 .build();
 
@@ -101,7 +99,6 @@ class PermissionInfoEnricherTest {
     void enrich_redisHit_stashesIntoRequestAndReturns() {
         String key = PermissionInfoEnricher.cacheKey(10L, 42L);
         PermissionInfo fromRedis = PermissionInfo.builder()
-                .principal(Principal.builder().userId(42L).build())
                 .roleCodes(java.util.Set.of("SUPER_ADMIN"))
                 .build();
 
@@ -127,7 +124,6 @@ class PermissionInfoEnricherTest {
         PermissionInfo out = enricher.enrich(10L, 42L);
         // No throw; DB load produced a fresh (empty-grant) PermissionInfo.
         assertThat(out).isNotNull();
-        assertThat(out.getPrincipal().getUserId()).isEqualTo(42L);
     }
 
     // ─── SUPER_ADMIN short-circuit inside DB load ───

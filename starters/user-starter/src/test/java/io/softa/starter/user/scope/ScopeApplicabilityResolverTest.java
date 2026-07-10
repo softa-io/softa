@@ -10,7 +10,6 @@ import org.mockito.Mockito;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
 import io.softa.starter.user.enums.ScopeType;
 
@@ -29,7 +28,7 @@ class ScopeApplicabilityResolverTest {
         }
         @Override public ScopeType scopeType() { return type; }
         @Override public List<String> applicableFields() { return anchors; }
-        @Override public Filters compile(ScopeRule r, Principal p, String m) { return new Filters(); }
+        @Override public Filters compile(ScopeRule r, String m) { return new Filters(); }
     }
 
     /** Contributor that overrides isApplicableTo to be universal — like
@@ -40,7 +39,7 @@ class ScopeApplicabilityResolverTest {
         @Override public ScopeType scopeType() { return type; }
         @Override public List<String> applicableFields() { return List.of(); }
         @Override public boolean isApplicableTo(String m, Set<String> f) { return true; }
-        @Override public Filters compile(ScopeRule r, Principal p, String m) { return new Filters(); }
+        @Override public Filters compile(ScopeRule r, String m) { return new Filters(); }
     }
 
     private static MetaField field(String name) {

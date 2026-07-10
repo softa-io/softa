@@ -1,49 +1,35 @@
 package io.softa.starter.user.scope.contributor;
 
-import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
 import io.softa.starter.user.enums.ScopeType;
-import io.softa.starter.user.scope.PrincipalRefResolver;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/**
+ * CUSTOM scope contributor — post-refactor it is a pure deserializer:
+ * {@code Filters.of(rule.getScopeExpr().toString())} with fail-closed
+ * handling of bad input. It no longer performs any {@code $principal.xxx}
+ * substitution (that concept is gone) and env placeholders in leaf VALUES
+ * (USER_ID / USER_DEPT_ID / …) are left untouched — they are resolved later
+ * by FilterUnitParser at SQL-build time, not here.
+ */
 class CustomScopeContributorTest {
 
     private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
 
-    /** Test resolver — advertises "employeeId" + "departmentId" and returns
-     *  fixed values so we can assert on the substituted output. */
-    static class FixtureResolver implements PrincipalRefResolver {
-        private final Set<String> keys;
-        FixtureResolver(String... keys) { this.keys = Set.of(keys); }
-        @Override public Set<String> refKeys() { return keys; }
-        @Override public Object resolve(String key, Principal p) {
-            if ("employeeId".equals(key)) return 555L;
-            if ("departmentId".equals(key)) return "dept-1";
-            if ("nullref".equals(key)) return null;   // simulate missing value
-            return null;
-        }
-    }
-
     private CustomScopeContributor contributor;
-    private Principal principal;
 
     @BeforeEach
     void setUp() {
-        contributor = new CustomScopeContributor(List.of(
-                new FixtureResolver("employeeId", "departmentId", "nullref")));
-        principal = Principal.builder().userId(42L).displayName("alice").build();
+        contributor = new CustomScopeContributor();
     }
 
     @Test
@@ -56,160 +42,72 @@ class CustomScopeContributorTest {
         assertThat(contributor.isApplicableTo("AnyModel", Set.of())).isTrue();
     }
 
-    @Test
-    void duplicateRefKeyClaims_throw() {
-        assertThatThrownBy(() -> new CustomScopeContributor(List.of(
-                new FixtureResolver("employeeId"),
-                new FixtureResolver("employeeId"))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("employeeId");
-    }
+    // ─── fail-closed inputs ───
 
     @Test
     void compile_nullExpr_returnsEmpty() {
-        ScopeRule rule = new ScopeRule(ScopeType.CUSTOM, null);
-        Filters out = contributor.compile(rule, principal, "AnyModel");
+        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, null), "AnyModel");
+        assertThat(Filters.isEmpty(out)).isTrue();
+    }
+
+    @Test
+    void compile_nonArrayExpr_returnsEmpty() {
+        // A scalar (non-array) scopeExpr can't be a Filters tuple array.
+        Filters out = contributor.compile(
+                new ScopeRule(ScopeType.CUSTOM, JSON.textNode("not-an-array")), "AnyModel");
         assertThat(Filters.isEmpty(out)).isTrue();
     }
 
     @Test
     void compile_emptyArrayExpr_returnsEmpty() {
-        ScopeRule rule = new ScopeRule(ScopeType.CUSTOM, JSON.arrayNode());
-        Filters out = contributor.compile(rule, principal, "AnyModel");
+        Filters out = contributor.compile(
+                new ScopeRule(ScopeType.CUSTOM, JSON.arrayNode()), "AnyModel");
         assertThat(Filters.isEmpty(out)).isTrue();
     }
 
     @Test
-    void compile_userIdRef_substitutedFromPrincipal() {
+    void compile_unparseableExpr_returnsEmpty() {
+        // Leaf-shaped tuple with an unknown operator — Filters.of throws while
+        // parsing; the contributor catches and fails closed.
+        ArrayNode leaf = JSON.arrayNode();
+        leaf.add("status").add("NOTANOP").add("Active");
         ArrayNode expr = JSON.arrayNode();
-        expr.add("createdId").add("=").add("$principal.userId");
+        expr.add(leaf);
 
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
-        assertThat(Filters.isEmpty(out)).isFalse();
-        assertThat(java.util.Objects.equals(out, io.softa.starter.user.scope.ScopeRuleCompiler.matchNone())).isFalse();
-    }
-
-    @Test
-    void compile_resolverRef_substitutedFromResolver() {
-        ArrayNode expr = JSON.arrayNode();
-        expr.add("employeeId").add("=").add("$principal.employeeId");
-
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
-        assertThat(Filters.isEmpty(out)).isFalse();
-    }
-
-    @Test
-    void compile_unknownRefInLeaf_degradesToEmpty() {
-        // "$principal.doesNotExist" — no resolver claims it, so the whole
-        // leaf tuple fails and the rule degrades to Filters.EMPTY.
-        ArrayNode expr = JSON.arrayNode();
-        expr.add("assigneeId").add("=").add("$principal.doesNotExist");
-
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
+        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), "AnyModel");
         assertThat(Filters.isEmpty(out)).isTrue();
     }
 
-    @Test
-    void compile_nullResolverValue_degradesToEmpty() {
-        // Resolver claims "nullref" but returns null (value missing).
-        ArrayNode expr = JSON.arrayNode();
-        expr.add("f").add("=").add("$principal.nullref");
-
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
-        assertThat(Filters.isEmpty(out)).isTrue();
-    }
+    // ─── happy path: pure deserialization, no substitution ───
 
     @Test
-    void compile_orComposite_dropsFailedDisjunctKeepsSurvivor() {
-        // [ [createdId,=,$principal.userId]  OR  [assigneeId,=,$principal.nullref] ]
-        // The OR-second disjunct fails; the first should survive.
+    void compile_literalFilterArray_roundTrips() {
+        // [["status","=","Active"]] deserializes straight through Filters.of and
+        // is returned unchanged — same shape as parsing the JSON directly.
+        ArrayNode leaf = JSON.arrayNode();
+        leaf.add("status").add("=").add("Active");
         ArrayNode expr = JSON.arrayNode();
-        ArrayNode left = JSON.arrayNode();
-        left.add("createdId").add("=").add("$principal.userId");
-        ArrayNode right = JSON.arrayNode();
-        right.add("assigneeId").add("=").add("$principal.nullref");
-        expr.add(left).add("OR").add(right);
+        expr.add(leaf);
 
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
+        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), "AnyModel");
 
         assertThat(Filters.isEmpty(out)).isFalse();
-        assertThat(java.util.Objects.equals(out, io.softa.starter.user.scope.ScopeRuleCompiler.matchNone())).isFalse();
+        assertThat(out).isEqualTo(Filters.of("[[\"status\",\"=\",\"Active\"]]"));
     }
 
     @Test
-    void compile_orComposite_lowercaseOrToken_stillDropsFailedDisjunct() {
-        // Same as above but the OR token is spelled " or " — a legal DSL
-        // spelling accepted by Filters.of. It must be recognised as a
-        // disjunction, so the surviving branch is kept rather than the whole
-        // composite collapsing to fail-closed (zero rows) — see isOrToken().
+    void compile_envParamValue_returnedAsIs() {
+        // An env-placeholder VALUE (USER_DEPT_ID) is NOT substituted here — that
+        // is FilterUnitParser's job at SQL-build time. This contributor just
+        // round-trips the authored array; the placeholder survives as data.
+        ArrayNode leaf = JSON.arrayNode();
+        leaf.add("departmentId").add("=").add("USER_DEPT_ID");
         ArrayNode expr = JSON.arrayNode();
-        ArrayNode left = JSON.arrayNode();
-        left.add("createdId").add("=").add("$principal.userId");
-        ArrayNode right = JSON.arrayNode();
-        right.add("assigneeId").add("=").add("$principal.nullref");
-        expr.add(left).add(" or ").add(right);
+        expr.add(leaf);
 
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
+        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), "AnyModel");
 
         assertThat(Filters.isEmpty(out)).isFalse();
-        assertThat(java.util.Objects.equals(out, io.softa.starter.user.scope.ScopeRuleCompiler.matchNone())).isFalse();
-    }
-
-    @Test
-    void compile_leafValueLiterallyOr_preservedNotSplitAsDisjunction() {
-        // A leaf tuple whose index-2 VALUE is the literal string "OR" (e.g. the
-        // Oregon state code) must be kept as data, NOT mistaken for a logic
-        // separator — otherwise the leaf is shredded into a malformed filter.
-        // Regression guard for isLeafTuple().
-        ArrayNode expr = JSON.arrayNode();
-        expr.add("state").add("=").add("OR");
-
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
-        assertThat(Filters.isEmpty(out)).isFalse();
-        assertThat(java.util.Objects.equals(out, io.softa.starter.user.scope.ScopeRuleCompiler.matchNone())).isFalse();
-    }
-
-    @Test
-    void compile_orComposite_allDisjunctsFail_degradesToEmpty() {
-        // Both disjuncts reference unavailable refs → whole rule degrades.
-        ArrayNode expr = JSON.arrayNode();
-        ArrayNode left = JSON.arrayNode();
-        left.add("f1").add("=").add("$principal.unknown");
-        ArrayNode right = JSON.arrayNode();
-        right.add("f2").add("=").add("$principal.nullref");
-        expr.add(left).add("OR").add(right);
-
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
-        assertThat(Filters.isEmpty(out)).isTrue();
-    }
-
-    @Test
-    void compile_nonRefStringLiteral_passesThroughUnchanged() {
-        ArrayNode expr = JSON.arrayNode();
-        expr.add("status").add("=").add("ACTIVE");
-
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
-        assertThat(Filters.isEmpty(out)).isFalse();
-    }
-
-    @Test
-    void compile_numericRef_serializedAsNumberNode() {
-        // userId is Long — the substitute path emits a JSON number, not a string.
-        // Downstream Filters parser then binds to the integer operand correctly.
-        ArrayNode expr = JSON.arrayNode();
-        expr.add("createdId").add("=").add("$principal.userId");
-
-        Filters out = contributor.compile(new ScopeRule(ScopeType.CUSTOM, expr), principal, "AnyModel");
-
-        // Cannot easily peek into Filters internals; assert no degrade.
-        assertThat(Filters.isEmpty(out)).isFalse();
-        assertThat(java.util.Objects.equals(out, io.softa.starter.user.scope.ScopeRuleCompiler.matchNone())).isFalse();
+        assertThat(out).isEqualTo(Filters.of("[[\"departmentId\",\"=\",\"USER_DEPT_ID\"]]"));
     }
 }

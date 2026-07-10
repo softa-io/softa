@@ -5,9 +5,10 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
 import io.softa.starter.user.enums.ScopeType;
 
@@ -46,27 +47,31 @@ class CreatedBySelfScopeContributorTest {
     }
 
     @Test
-    void compile_nullPrincipal_returnsEmpty() {
-        Filters out = contributor.compile(rule(), null, "AnyModel");
+    void compile_noContextBound_returnsEmpty() {
+        // No context bound to this thread → ContextHolder.getContext() yields a
+        // fresh Context whose userId is null → the contributor fails closed.
+        Filters out = contributor.compile(rule(), "AnyModel");
         assertThat(Filters.isEmpty(out)).isTrue();
     }
 
     @Test
-    void compile_nullUserId_returnsEmpty() {
-        Filters out = contributor.compile(rule(), Principal.builder().build(), "AnyModel");
+    void compile_nullUserIdInContext_returnsEmpty() {
+        // A bound context with no userId set (null) → fail-closed empty filter.
+        Context ctx = new Context();   // userId defaults to null
+        Filters out = ContextHolder.callWith(ctx, () -> contributor.compile(rule(), "AnyModel"));
         assertThat(Filters.isEmpty(out)).isTrue();
     }
 
     @Test
     void compile_userIdPresent_producesCreatedIdEqualsFilter() {
-        Principal p = Principal.builder().userId(42L).build();
-        Filters out = contributor.compile(rule(), p, "AnyModel");
+        // userId is read from ContextHolder.getContext(), not from a Principal.
+        Filters out = ContextHolder.callWith(ctx(42L),
+                () -> contributor.compile(rule(), "AnyModel"));
 
         assertThat(Filters.isEmpty(out)).isFalse();
         assertThat(java.util.Objects.equals(out, io.softa.starter.user.scope.ScopeRuleCompiler.matchNone())).isFalse();
         // Verify the anchor field is createdId — string form contains it.
-        String s = out.toString();
-        assertThat(s).contains("createdId");
+        assertThat(out.toString()).contains("createdId");
     }
 
     @Test
@@ -76,15 +81,21 @@ class CreatedBySelfScopeContributorTest {
         // same.
         ScopeRule r = new ScopeRule(ScopeType.CREATED_BY_SELF,
                 tools.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("ignored", "value"));
-        Principal p = Principal.builder().userId(7L).build();
-        Filters out = contributor.compile(r, p, "AnyModel");
+        Filters out = ContextHolder.callWith(ctx(7L),
+                () -> contributor.compile(r, "AnyModel"));
         assertThat(Filters.isEmpty(out)).isFalse();
         assertThat(out.toString()).contains("createdId");
     }
 
-    // ─── helper ───
+    // ─── helpers ───
 
     private static ScopeRule rule() {
         return new ScopeRule(ScopeType.CREATED_BY_SELF, null);
+    }
+
+    private static Context ctx(Long userId) {
+        Context c = new Context();
+        c.setUserId(userId);
+        return c;
     }
 }

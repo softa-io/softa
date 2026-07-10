@@ -25,7 +25,6 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.PermissionInfo;
-import io.softa.starter.user.dto.Principal;
 import io.softa.starter.user.dto.ScopeRule;
 import io.softa.starter.user.entity.Navigation;
 import io.softa.starter.user.entity.Role;
@@ -65,12 +64,6 @@ import io.softa.starter.user.util.JsonArrayUtils;
  *
  * <h3>DB load chain</h3>
  * <ol>
- *   <li>Principal — userId + domain-specific extensions populated by every
- *       registered {@link PrincipalEnrichmentContributor} bean (each writes
- *       to its own slot in {@code principal.extensions[contributor.key()]});
- *       no contributors → Principal carries only generic identity, and any
- *       ScopeContributor that depends on a missing extension degrades
- *       fail-closed at compile time.</li>
  *   <li>Roles — user_role_rel → active role rows (inactive roles
  *       intentionally skipped per design §3.5: flipping active=false is
  *       the supported way to revoke every grant tied to that role
@@ -121,11 +114,6 @@ public class PermissionInfoEnricher {
     private final RoleSensitiveFieldSetService roleSensitiveFieldSetService;
     private final NavigationModelResolver navigationModelResolver;
     private final SensitiveFieldSetCache sensitiveFieldSetCache;
-    /** Pluggable per-domain enricher beans. Each contributor writes its
-     *  result into {@code principal.extensions[contributor.key()]}. List
-     *  is empty when no domain module registers a contributor — Principal
-     *  then carries only generic identity. */
-    private final List<PrincipalEnrichmentContributor> enrichmentContributors;
 
     // Cache layer.
     private final CacheService cacheService;
@@ -138,7 +126,6 @@ public class PermissionInfoEnricher {
             RoleSensitiveFieldSetService roleSensitiveFieldSetService,
             NavigationModelResolver navigationModelResolver,
             SensitiveFieldSetCache sensitiveFieldSetCache,
-            List<PrincipalEnrichmentContributor> enrichmentContributors,
             CacheService cacheService) {
         this.roleService = roleService;
         this.userRoleRelService = userRoleRelService;
@@ -147,7 +134,6 @@ public class PermissionInfoEnricher {
         this.roleSensitiveFieldSetService = roleSensitiveFieldSetService;
         this.navigationModelResolver = navigationModelResolver;
         this.sensitiveFieldSetCache = sensitiveFieldSetCache;
-        this.enrichmentContributors = enrichmentContributors;
         this.cacheService = cacheService;
     }
 
@@ -231,45 +217,28 @@ public class PermissionInfoEnricher {
     // ─────────────────────── DB load ───────────────────────
 
     private PermissionInfo loadFromDb(Long tenantId, Long userId) {
-        // 1. Principal — userId + domain extensions (loaded via the
-        //    PrincipalEnrichmentContributor SPI). Each contributor stores
-        //    its result under its own key in principal.extensions. List
-        //    may be empty when no domain module registers a contributor;
-        //    Principal then carries only generic identity.
-        Principal principal = new Principal();
-        principal.setUserId(userId);
-        for (PrincipalEnrichmentContributor contributor : enrichmentContributors) {
-            try {
-                Object value = contributor.loadFor(userId, tenantId);
-                if (value != null) principal.putExtension(contributor.key(), value);
-            } catch (Throwable t) {
-                log.warn("PrincipalEnrichmentContributor[{}] failed for user {}; skipping slot",
-                        contributor.key(), userId, t);
-            }
-        }
-
-        // 2. Roles
+        // 1. Roles
         List<Role> activeRoles = loadActiveRolesFor(userId);
         Set<String> roleCodes = activeRoles.stream()
                 .map(Role::getCode)
                 .filter(c -> c != null && !c.isEmpty())
                 .collect(Collectors.toSet());
 
-        // 3. SUPER_ADMIN short-circuit — uses the same empty-grants
+        // 2. SUPER_ADMIN short-circuit — uses the same empty-grants
         //    snapshot as "no active roles" below; SUPER_ADMIN is identified
         //    purely by roleCodes downstream, no other field marks it.
         if (roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN)) {
             log.debug("PermissionInfo bypass — user {} (tenant {}) is SUPER_ADMIN", userId, tenantId);
-            return emptyGrantsSnapshot(principal, roleCodes);
+            return emptyGrantsSnapshot(roleCodes);
         }
 
-        // 4. Grants
+        // 3. Grants
         if (activeRoles.isEmpty()) {
-            return emptyGrantsSnapshot(principal, roleCodes);
+            return emptyGrantsSnapshot(roleCodes);
         }
         List<Long> roleIds = activeRoles.stream().map(Role::getId).toList();
 
-        // 4a. Navigation + permission grants (role_navigation). Menu access +
+        // 3a. Navigation + permission grants (role_navigation). Menu access +
         //     button permissions only — scope/SFS moved to their own tables.
         //     permissionIds JSON can hold strings or numeric ids in historical
         //     seeds — coerceNumeric=true keeps the old parser's behaviour.
@@ -284,7 +253,7 @@ public class PermissionInfoEnricher {
             permissions.addAll(JsonArrayUtils.toStringList(rn.getPermissionIds(), true));
         }
 
-        // 4b. Row-scope grants (role_data_scope), keyed directly by model —
+        // 3b. Row-scope grants (role_data_scope), keyed directly by model —
         //     no nav→model resolution needed anymore. When multiple of the
         //     user's roles contribute rules for the same model they OR-combine
         //     (addAll); the per-role OR-union across navs is already
@@ -302,7 +271,7 @@ public class PermissionInfoEnricher {
             }
         }
 
-        // 4c. Sensitive-field-set grants (role_sensitive_field_set). Each
+        // 3c. Sensitive-field-set grants (role_sensitive_field_set). Each
         //     granted setId routes into modelSensitiveFieldSetsMap keyed by
         //     the SFS's CANONICAL model (SensitiveFieldSetCache.modelOf) — so
         //     a child/sub-object SFS (e.g. EmpBankAccount surfaced under
@@ -322,12 +291,11 @@ public class PermissionInfoEnricher {
             modelSensitiveFieldSetsMap.computeIfAbsent(sfsModel, k -> new HashSet<>()).add(sid);
         }
 
-        // 5. Ancestor expansion — a granted child implies its container is
+        // 4. Ancestor expansion — a granted child implies its container is
         //    visible in the sidebar.
         Set<String> expandedNavigations = expandAncestors(navigations);
 
         PermissionInfo info = new PermissionInfo();
-        info.setPrincipal(principal);
         info.setRoleCodes(roleCodes);
         info.setNavigations(expandedNavigations);
         info.setPermissions(permissions);
@@ -454,9 +422,8 @@ public class PermissionInfoEnricher {
      * {@code roleCodes}; downstream layers do not infer it from any
      * other field.
      */
-    private static PermissionInfo emptyGrantsSnapshot(Principal principal, Set<String> roleCodes) {
+    private static PermissionInfo emptyGrantsSnapshot(Set<String> roleCodes) {
         PermissionInfo info = new PermissionInfo();
-        info.setPrincipal(principal);
         info.setRoleCodes(roleCodes);
         info.setNavigations(Collections.emptySet());
         info.setPermissions(Collections.emptySet());

@@ -321,7 +321,7 @@ public final class PermissionFlowFixture {
         // caller hasn't supplied their own list.
         if (scopeContributors.isEmpty()) {
             scopeContributors.add(new CreatedBySelfScopeContributor());
-            scopeContributors.add(new CustomScopeContributor(List.of()));
+            scopeContributors.add(new CustomScopeContributor());
         }
         applicability = new ScopeApplicabilityResolver(scopeContributors);
         scopeCompiler = new ScopeRuleCompiler(applicability, scopeContributors);
@@ -329,7 +329,7 @@ public final class PermissionFlowFixture {
         enricher = new PermissionInfoEnricher(
                 roleService, userRoleRelService, roleNavigationService,
                 roleDataScopeService, roleSensitiveFieldSetService,
-                navResolver, sfsCache, List.of(), cacheService);
+                navResolver, sfsCache, cacheService);
         ReflectionTestUtils.invokeMethod(enricher, "initAncestorIndex");
     }
 

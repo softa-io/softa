@@ -27,9 +27,6 @@ import io.softa.starter.user.constant.RoleConstant;
 @Schema(description = "User permission snapshot (runtime cache)")
 public class PermissionInfo {
 
-    @Schema(description = "Caller principal — userId + displayName + domain-specific extensions (e.g. extensions.employee on HCM deployments)")
-    private Principal principal;
-
     @Schema(description = "Role codes the user holds (display only; auth decisions use permissions / nav sets)")
     private Set<String> roleCodes;
 

@@ -1,7 +1,5 @@
 package io.softa.starter.user.dto;
 
-import java.util.Iterator;
-import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -38,40 +36,5 @@ public class ScopeRule {
     public JsonNode scopeExprField(String fieldName) {
         if (scopeExpr == null || !scopeExpr.isObject()) return null;
         return scopeExpr.get(fieldName);
-    }
-
-    /**
-     * Extract all $principal.xxx field references inside this rule's scopeExpr.
-     * Returns an empty list when scopeExpr is null or contains no refs.
-     * Used by SCOPE_REQUIREMENTS analysis (CUSTOM static vs dynamic classification).
-     */
-    public List<String> extractPrincipalRefs() {
-        if (scopeExpr == null) return List.of();
-        java.util.List<String> refs = new java.util.ArrayList<>();
-        walkValueNodes(scopeExpr, value -> {
-            if (value.isString()) {
-                String s = value.asString();
-                if (s.startsWith("$principal.")) {
-                    refs.add(s.substring("$principal.".length()));
-                }
-            }
-        });
-        return refs;
-    }
-
-    private static void walkValueNodes(JsonNode node, java.util.function.Consumer<JsonNode> visitor) {
-        if (node == null) return;
-        if (node.isValueNode()) {
-            visitor.accept(node);
-            return;
-        }
-        if (node.isArray()) {
-            for (JsonNode child : node) walkValueNodes(child, visitor);
-            return;
-        }
-        if (node.isObject()) {
-            Iterator<String> names = node.propertyNames().iterator();
-            while (names.hasNext()) walkValueNodes(node.get(names.next()), visitor);
-        }
     }
 }
