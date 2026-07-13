@@ -135,6 +135,8 @@ mq:
 
 ### Message-starter properties
 
+Bound under `softa.message` from `MessageProperties`, `RetryProperties`, and DLQ `@Value` keys:
+
 ```yml
 softa:
   message:
@@ -158,6 +160,23 @@ softa:
       max-redeliver: 5              # broker nacks before dead-lettering
       alert:
         recipients: ops@example.com # comma-separated; empty = no alert mail
+    mail:
+      debug: false                  # Jakarta Mail protocol debug — never enable in prod (leaks AUTH)
+      fetch:
+        batch-limit: 100            # max messages per cron tick per (config, folder)
+        lease-timeout: 1h           # abandoned IMAP watermark lease takeover
+        max-message-size: 100MB     # RFC822 size cap; oversize → envelope-only + BodyTooLarge
+        max-attachment-size: 20MB   # per-part cap; oversize parts skipped
+        archive-eml: false          # opt-in raw EML archive via FileService
+        max-mime-depth: 10          # MIME zip-bomb guard
+        max-mime-parts: 100         # attachment-storm guard
+      transport:
+        connection-timeout: 5s      # SMTP/IMAP/POP3 connect timeout
+        read-timeout: 30s           # SMTP/IMAP/POP3 read timeout
+    sms:
+      transport:
+        connection-timeout: 5s      # HTTPS RestClient connect timeout
+        read-timeout: 30s           # HTTPS RestClient read timeout
 ```
 
 ### Mail authentication
@@ -708,6 +727,21 @@ they stay `UNKNOWN` unless your application feeds provider delivery receipts
 - `flow-starter` pushes notifications during approval or review steps
 
 ### Inbox Notifications
+
+Self-service endpoints for the signed-in user (always scoped to
+`ContextHolder.getContext().getUserId()`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/InboxNotification/myCountUnread` | Unread badge count |
+| GET | `/InboxNotification/myRecent?limit=` | Recent list (max 50) |
+| POST | `/InboxNotification/myMarkAsRead?id=` | Mark one owned row read |
+| POST | `/InboxNotification/myMarkAllAsRead` | Mark all owned rows read |
+
+Grant the FE `my-inbox` custom permission (or whitelist these paths under
+`permission.authenticated-bypass-patterns`) so every employee can use the
+header bell without Message-module admin rights.
+
 
 Use `MessageService` to submit read-only notifications. Query/read operations
 remain on `InboxNotificationService` because they are not message submission:
