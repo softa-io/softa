@@ -366,7 +366,7 @@ Rules:
 When an entity model is owned by a different app (e.g. `Order` lives in the
 `payments` app but is read from this app), the framework redirects ORM calls for
 that model over HTTP to the owning app. Routing is automatic and keyed on the
-model's `appCode` (ADR-0015, projected from `sys_model.app_code`): when a model's
+model's `appCode` (projected from `sys_model.app_code`): when a model's
 `appCode` differs from this runtime's `system.app-code`, the call is routed to
 the owning app; otherwise it runs locally. There is no per-model routing flag to
 set. Your code keeps calling `JdbcService` as if the model were local.
@@ -378,7 +378,7 @@ plain `RestClient`.
 ### Quick start
 
 1. Nothing to annotate — a model's owning app is its `appCode`, stamped
-   server-side (ADR-0015). The caller only needs to know which apps it routes to.
+   server-side. The caller only needs to know which apps it routes to.
 
 2. Configure the **caller's** `application.yml`, keyed by the **owning app's
    `appCode`** (its `system.app-code`):

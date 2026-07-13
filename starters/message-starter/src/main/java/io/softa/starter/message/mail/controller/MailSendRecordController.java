@@ -10,7 +10,7 @@ import io.softa.starter.message.mail.service.MailSendRecordService;
 
 /**
  * REST controller for outgoing mail records (read-only audit log).
- * Records are created automatically by MailSendService and must not be created via API.
+ * Records are created automatically by MessageService and must not be created via API.
  */
 @Tag(name = "MailSendRecord")
 @RestController

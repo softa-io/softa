@@ -2,7 +2,8 @@ package io.softa.starter.message.dlq.message;
 
 import io.softa.starter.message.dlq.entity.DeadLetterMessage;
 import io.softa.starter.message.dlq.service.DeadLetterMessageService;
-import io.softa.starter.message.mail.service.MailSendService;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
 import org.apache.pulsar.client.api.Message;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,8 +16,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -29,14 +28,14 @@ class DeadLetterConsumerTest {
     private DeadLetterConsumer consumer;
     private ObjectMapper mapper;
     private DeadLetterMessageService dlqService;
-    private MailSendService mailSendService;
+    private MessageService messageService;
 
     @BeforeEach
     void setUp() {
         mapper = new ObjectMapper();
         dlqService = mock(DeadLetterMessageService.class);
-        mailSendService = mock(MailSendService.class);
-        consumer = new DeadLetterConsumer(mapper, dlqService, mailSendService);
+        messageService = mock(MessageService.class);
+        consumer = new DeadLetterConsumer(mapper, dlqService, messageService);
 
         // createOneAndFetch returns the same record back with an id stamped (mimic ORM behaviour).
         when(dlqService.createOneAndFetch(any(DeadLetterMessage.class))).thenAnswer(inv -> {
@@ -79,12 +78,10 @@ class DeadLetterConsumerTest {
         JsonNode payload = saved.getPayload();
         Assertions.assertEquals("bar", payload.get("foo").asString());
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<String>> recipientsCaptor = ArgumentCaptor.forClass(List.class);
-        ArgumentCaptor<String> subjectCaptor = ArgumentCaptor.forClass(String.class);
-        verify(mailSendService, times(1)).sendText(recipientsCaptor.capture(), subjectCaptor.capture(), anyString());
-        Assertions.assertEquals(List.of("ops@example.com"), recipientsCaptor.getValue());
-        Assertions.assertTrue(subjectCaptor.getValue().contains("hcm-overtime-event-topic"));
+        ArgumentCaptor<SendMailDTO> mailCaptor = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService, times(1)).sendMail(mailCaptor.capture());
+        Assertions.assertEquals(List.of("ops@example.com"), mailCaptor.getValue().getTo());
+        Assertions.assertTrue(mailCaptor.getValue().getSubject().contains("hcm-overtime-event-topic"));
     }
 
     @Test
@@ -110,7 +107,7 @@ class DeadLetterConsumerTest {
         // valueToTree wraps the raw String into a string-type JsonNode preserving its content.
         Assertions.assertEquals(brokenJson, saved.getPayload().asString());
 
-        verify(mailSendService, never()).sendText(anyList(), anyString(), anyString());
+        verify(messageService, never()).sendMail(any(SendMailDTO.class));
     }
 
     @Test
@@ -184,7 +181,7 @@ class DeadLetterConsumerTest {
         Assertions.assertDoesNotThrow(() -> consumer.onDeadLetter(msg));
 
         // Mail is gated on a successful archive — when archive fails, no mail goes out.
-        verify(mailSendService, never()).sendText(anyList(), anyString(), anyString());
+        verify(messageService, never()).sendMail(any(SendMailDTO.class));
     }
 
     @Test
@@ -192,7 +189,7 @@ class DeadLetterConsumerTest {
         // Mail send failure is independently swallowed — archival is the source of truth.
         ReflectionTestUtils.setField(consumer, "alertRecipientsRaw", "ops@example.com");
         doThrow(new RuntimeException("SMTP down"))
-                .when(mailSendService).sendText(anyList(), anyString(), anyString());
+                .when(messageService).sendMail(any(SendMailDTO.class));
         Message<String> msg = mockPulsarMessage(
                 "{\"tenantId\":1,\"eventType\":\"X\",\"eventId\":42,\"payload\":{}}",
                 "hcm-overtime-event-topic",
@@ -216,10 +213,9 @@ class DeadLetterConsumerTest {
 
         consumer.onDeadLetter(msg);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<String>> recipientsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(mailSendService, times(1)).sendText(recipientsCaptor.capture(), anyString(), anyString());
-        Assertions.assertEquals(List.of("a@x.com", "b@y.com", "c@z.com"), recipientsCaptor.getValue());
+        ArgumentCaptor<SendMailDTO> mailCaptor = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService, times(1)).sendMail(mailCaptor.capture());
+        Assertions.assertEquals(List.of("a@x.com", "b@y.com", "c@z.com"), mailCaptor.getValue().getTo());
     }
 
 }

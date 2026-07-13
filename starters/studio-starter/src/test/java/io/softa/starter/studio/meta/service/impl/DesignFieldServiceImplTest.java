@@ -16,8 +16,8 @@ import org.mockito.Mockito;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.WidgetType;
 import io.softa.starter.studio.meta.entity.DesignField;
-import io.softa.starter.studio.template.entity.DesignFieldDomain;
-import io.softa.starter.studio.template.service.DesignFieldDomainService;
+import io.softa.starter.studio.meta.entity.DesignFieldDomain;
+import io.softa.starter.studio.meta.service.DesignFieldDomainService;
 
 /**
  * {@code applyDomain} fills a field's type + defaults from a {@code DesignFieldDomain} as

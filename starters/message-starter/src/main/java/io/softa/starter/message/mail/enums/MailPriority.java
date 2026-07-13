@@ -1,6 +1,11 @@
 package io.softa.starter.message.mail.enums;
 
 import com.fasterxml.jackson.annotation.JsonValue;
+import io.softa.framework.base.annotation.OptionSet;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -16,6 +21,7 @@ import lombok.Getter;
  */
 @Getter
 @AllArgsConstructor
+@OptionSet
 public enum MailPriority {
 
     HIGH("High", "1", "High", "High"),
@@ -33,4 +39,17 @@ public enum MailPriority {
 
     /** Value for the {@code X-MSMail-Priority} header (High/Normal/Low). */
     private final String xMsMailPriority;
+
+    private static final Map<String, MailPriority> CODE_MAP = Stream.of(values())
+            .collect(Collectors.toMap(MailPriority::getCode, Function.identity()));
+
+    /**
+     * Resolve a {@link MailPriority} from its persisted {@code code} value.
+     * Returns {@code null} when the input is null or doesn't match any known
+     * value, so legacy/external rows degrade gracefully instead of throwing.
+     */
+    public static MailPriority of(String code) {
+        if (code == null) return null;
+        return CODE_MAP.get(code);
+    }
 }

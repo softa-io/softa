@@ -61,8 +61,4 @@ public class DriftRowDTO {
 
     @Schema(description = "Field names that diverge — populated only for RUNTIME_MODIFIED")
     private Set<String> changedFields;
-
-    @Schema(description = "ISO datetime carried by whichever side owns the row "
-            + "(design for RUNTIME_DELETED/MODIFIED, runtime for RUNTIME_ADDED)")
-    private String lastChangedTime;
 }

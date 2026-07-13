@@ -2,9 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Where to put new docs / ADRs**: see [`docs/README.md`](docs/README.md) for
-> the documentation conventions (ADR layout, topic subdirectories, templates,
-> anti-patterns).
+> **Where to put new docs**: see [`docs/README.md`](docs/README.md) for the
+> documentation conventions. Rationale lives inline where the rule is stated
+> (module READMEs, this file, `docs/ai/`); there is no ADR archive — decision
+> history is git history, and undecided questions live in
 
 ## Project Overview
 
@@ -60,7 +61,7 @@ softa-parent (root pom.xml)
 │   ├── file-starter             # File management
 │   ├── message-starter          # SMS / Mail + Pulsar MQ producers/consumers
 │   ├── reference-data-starter   # ISO 3166-1 countries, ISO 4217 currencies, ISO 3166-2 subdivisions
-│   ├── studio-starter           # UI/DDL code generation via Pebble templates
+│   ├── studio-starter           # Metadata control plane: cross-env governance + DDL rendering (Pebble)
 │   ├── user-starter             # User management
 │   └── tenant-starter           # Multi-tenancy
 └── apps/               # Example applications
@@ -72,12 +73,12 @@ Dependency direction: `framework` → `starters` → `apps`. Each starter declar
 
 ## Key Architectural Concepts
 
-**Metadata-driven**: Entities and their fields are described in metadata rather than hard-coded schemas. The `metadata-starter` handles this; `studio-starter` uses Pebble templates to generate DDL and code from metadata.
+**Metadata-driven**: Entities and their fields are described in metadata rather than hard-coded schemas. The `metadata-starter` handles this; `studio-starter` uses Pebble templates to generate DDL from metadata (business code is not generated — the runtime is annotation/scanner-driven).
 
 **Global Placeholder Syntax**: `{{ expr }}` is used uniformly across all runtime and build-time contexts:
 - Runtime: `PlaceholderUtils` / `TemplateEngine` (softa-base)
 - Expressions: AviatorScript 5.4.3 (metadata-starter computed fields)
-- Code/DDL generation: Pebble Template Engine (studio-starter)
+- DDL generation: Pebble Template Engine (studio-starter)
 
 **Flow Engine**: `flow-starter` provides a node-based workflow system. Flows are defined in JSON and executed by the `FlowEngine`, which supports conditional logic, parallel execution, and integration with other starters (e.g. database operations, messaging).
 
@@ -85,15 +86,14 @@ Dependency direction: `framework` → `starters` → `apps`. Each starter declar
 
 ## Metadata Governance (Annotation-Driven)
 
-Per ADR-0006/0007/0008 (in `docs/adr/metadata/`), platform-level
+Platform-level
 metadata is declared via Java annotations on entity classes. The
 `MetadataAnnotationScanner` (in `metadata-starter`) reconciles annotations
 with `sys_*` rows at boot for the packages named in `scanner-scope`,
 auto-applying the corresponding DDL changes. Platform **no-code** definitions
 live in the same `sys_*` tables, authored in the Studio `design_*` workspace
 and applied via the signed deployment envelope; both lanes reconcile the same
-rows by business key. Per-tenant metadata customization is **not supported**
-(ADR-0013).
+rows by business key. Per-tenant metadata customization is **not supported**.
 
 ### The 5 annotations
 
@@ -116,7 +116,7 @@ rows by business key. Per-tenant metadata customization is **not supported**
     storageType = StorageType.RDBMS,
     softDelete = false, activeControl = false, timeline = false,
     versionLock = false,
-    copyable = true                             // default true; false = copy APIs reject + UI hides Duplicate (runtime/log models, ADR-0016)
+    copyable = true                             // default true; false = copy APIs reject + UI hides Duplicate (runtime/log models)
 )
 @Index(fields = {"status", "createdTime"})            // @Repeatable; index names are GLOBALLY unique (≤60 chars, boot-enforced)
 @Index(indexName = "uk_customer_email", fields = {"email"}, unique = true,
@@ -144,7 +144,7 @@ public enum CustomerTier {
   `enum→OPTION`, `List<enum>→MULTI_OPTION`, `@Model POJO→MANY_TO_ONE`, etc.)
 - `OPTION` / `MULTI_OPTION` **cannot be written explicitly** — only inferred
   from `enum` / `List<enum>` Java types
-- **Code-as-id for rich reference masters** (ADR-0024, supersedes 0017): a TO_ONE
+- **Code-as-id for rich reference masters**: a TO_ONE
   relation (`MANY_TO_ONE` / `ONE_TO_ONE`) joins on the related model's **id only** —
   `relatedField` is always `id` (leave it unset; a non-id value is **rejected at boot**).
   To store a portable business code in the FK, make the related master **code-as-id**:
@@ -177,20 +177,22 @@ public enum CustomerTier {
   `@Field(fieldType=…)` on `id` is rejected (type follows the Java field). Audit
   (`AuditableModel`) and timeline (`TimelineModel`) fields carry `@Field` on the base
   class → inherited by every model (scanner walks the superclass chain), so subclasses
-  don't repeat them. (See ADR-0010)
+  don't repeat them.
 - Entity classes do **not** use `@Schema` — `@Model` / `@Field` are the single metadata
   source and OpenAPI is generated from them (match `SysModel`).
-- `onDelete` (ADR-0022, relational FK only): app-level delete strategy on a `MANY_TO_ONE` /
+- `onDelete` (relational FK only): app-level delete strategy on a `MANY_TO_ONE` /
   `ONE_TO_ONE` — `RESTRICT` (block) / `CASCADE` (delete referrers) / `SET_NULL` (null the FK,
   hard-delete only); unset = KEEP (default, do nothing). Declared on the **FK** (single source of
   truth), never on `ONE_TO_MANY` (a parent→children cascade is `CASCADE` on the child's back-ref FK).
   Enforced in `ModelServiceImpl.deleteByIds`; no physical DB FK. Boot-rejected: `onDelete` on a
-  non-TO_ONE field, `SET_NULL` on a `required` FK, a timeline target, a **cyclic / self-referential
+  non-TO_ONE field, `SET_NULL` on a `required` FK, a **cyclic / self-referential
   `CASCADE`** (delete such hierarchies in app code), a **`CASCADE` chain deeper than `MAX_CASCADE_DEPTH`
   models** (bounds recursion; the error names the full chain), a **`CASCADE` from a soft-delete parent to a
   hard-delete child** (a recoverable parent must not irreversibly delete children — make the child
   soft-delete too, or use RESTRICT/SET_NULL), or a **`CASCADE` from a shared (non-multi-tenant) parent
-  to a multi-tenant child** (one delete would cascade across all tenants — use RESTRICT). Runtime guard:
+  to a multi-tenant child** (one delete would cascade across all tenants — use RESTRICT). A **timeline**
+  target is allowed: the strategy fires on **entity deletion** (`deleteByIds` = all slices of the logical
+  id); slice-level `deleteBySliceId` keeps the entity alive and does not trigger it. Runtime guard:
   a `CASCADE`/`SET_NULL` affecting more than `MAX_BATCH_SIZE` referrers per level is rejected (accidental
   high-fanout), and large deletes are chunked to `DEFAULT_BATCH_SIZE` to bound statement size.
 
@@ -246,10 +248,10 @@ A **narrow scope on a shared dev database** lets each developer reconcile only
 their own packages without clobbering others' rows —
 out-of-scope rows are never read, written, or deleted. Caveats (not solved by
 scoping): scope is per-package not per-class, the baseline is the shared live
-`sys_*`, and physical-table collisions remain — see ADR-0008.
+`sys_*`, and physical-table collisions remain.
 
-**Renames: declare the `renamedFrom` attribute** (ADR-0025, supersedes ADR-0014's
-standalone `@RenamedFrom` annotation, now retired). The scanner's set-based diff is
+**Renames: declare the `renamedFrom` attribute** (the earlier
+standalone `@RenamedFrom` annotation is retired). The scanner's set-based diff is
 keyed by `fieldName` / `modelName` / `itemCode`, so an *undeclared* rename still
 looks like "drop old + add new" → auto-adds the new column, warn-only on dropping
 the old = **silent data divorce**. Declaring `@Field(renamedFrom = "oldName")` /
@@ -289,7 +291,7 @@ is retained but **unused**, reserved for future business-data scenarios;
 nothing reads or writes it. Per-tenant metadata is out of scope — revisiting
 it requires a new ADR plus a tenant dimension on the `sys_*` unique keys.
 
-**App identity (ADR-0015)**: every runtime declares `system.app-code` in
+**App identity**: every runtime declares `system.app-code` in
 `application.yml` (mandatory when metadata-starter is active; fail-fast at
 boot). The swept `sys_*` tables carry `app_code` (replacing the old numeric
 `app_id`, migration V8) — stamped **server-side** on every write path (scanner,
@@ -325,10 +327,9 @@ were planned but removed. AI agents use `Read` / `Edit` / `Write` directly
 
 ### Key reference documents
 
-- [ADR-0006](docs/adr/metadata/0006-layered-annotation-and-customization.md) — layered model + annotation property reference
-- [ADR-0007](docs/adr/metadata/0007-ai-agent-tooling-and-lane-contract.md) — AI tool family + lane contract
-- [ADR-0008](docs/adr/metadata/0008-module-structure-and-scanner-foundation.md) — module structure + scanner/checker + DDL policy
-- [IMPLEMENTATION_PLAN.md](docs/adr/metadata/IMPLEMENTATION_PLAN.md) — current implementation state
+- [starters/metadata-starter/README.md](starters/metadata-starter/README.md) — annotation API, scanner-scope behavior matrix, `renamedFrom`, DDL auto-execute policy
+- [framework/softa-orm/README.md](framework/softa-orm/README.md) — full `@Model` / `@Field` / `@Index` property reference
+- [starters/studio-starter/README.md](starters/studio-starter/README.md) — metadata control plane: publish / merge / drift / import, connectors, `DesignAggregate`
 
 ## Coding Conventions
 

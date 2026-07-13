@@ -3,9 +3,7 @@ package io.softa.starter.message.sms.support.adapter;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
@@ -44,40 +42,23 @@ public class CmSmsAdapter extends AbstractSmsProviderAdapter {
     }
 
     @Override
-    protected SmsSendResult doSend(SmsProviderConfig config, SmsAdapterRequest request) throws Exception {
-        String baseUrl = StringUtils.hasText(config.getApiEndpoint())
-                ? config.getApiEndpoint() : DEFAULT_API_ENDPOINT;
-        String url = baseUrl + "/v1.0/message";
+    protected SmsSendResult doSend(SmsProviderConfig config, SmsAdapterRequest request) {
+        String url = resolveBaseUrl(config, DEFAULT_API_ENDPOINT) + "/v1.0/message";
 
         Map<String, Object> requestBody = Map.of(
                 "messages", Map.of(
-                        "authentication", Map.of(
-                                "producttoken", config.getApiKey()
-                        ),
-                        "msg", List.of(
-                                Map.of(
-                                        "from", resolveSender(config),
-                                        "to", List.of(Map.of("number", request.getPhoneNumber())),
-                                        "body", Map.of("content", request.getContent())
-                                )
-                        )
+                        "authentication", Map.of("producttoken", config.getApiKey()),
+                        "msg", List.of(Map.of(
+                                "from", resolveSender(config),
+                                "to", List.of(Map.of("number", request.getPhoneNumber())),
+                                "body", Map.of("content", request.getContent())
+                        ))
                 )
         );
 
-        String jsonBody = JsonUtils.objectToString(requestBody);
-
-        String response = restClient.post()
-                .uri(url)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(jsonBody)
-                .retrieve()
-                .body(String.class);
-
-        if (!StringUtils.hasText(response)) {
-            return SmsSendResult.success(null);
-        }
-
-        JsonNode json = JsonUtils.stringToObject(response, JsonNode.class);
+        // CM authenticates via the in-body producttoken (no auth header). A blank/empty
+        // body parses to NullNode → neither error key present → treated as accepted.
+        JsonNode json = postJson(url, JsonUtils.objectToString(requestBody));
         if (json.has("details") || json.has("messages")) {
             String errorMsg = json.has("details")
                     ? json.path("details").asString("CM send failed")
@@ -89,15 +70,8 @@ public class CmSmsAdapter extends AbstractSmsProviderAdapter {
 
     @Override
     protected SmsSendResult handleHttpError(RestClientResponseException e) {
-        try {
-            JsonNode errorJson = JsonUtils.stringToObject(e.getResponseBodyAsString(), JsonNode.class);
-            if (errorJson.has("details")) {
-                return SmsSendResult.failure(null,
-                        errorJson.path("details").asString("CM API error"));
-            }
-        } catch (Exception parseEx) {
-            // fall through to default
-        }
-        return super.handleHttpError(e);
+        return parseErrorBody(e, err -> err.has("details")
+                ? SmsSendResult.failure(null, err.path("details").asString("CM API error"))
+                : defaultHttpError(e));
     }
 }

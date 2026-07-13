@@ -56,14 +56,14 @@ class SmsAdapterFactoryTest {
 
     @Test
     void factoryHandlesSingleAdapter() {
-        SmsProviderAdapter customAdapter = createAdapter(SmsProvider.CUSTOM);
-        SmsAdapterFactory factory = new SmsAdapterFactory(List.of(customAdapter));
+        SmsProviderAdapter sinchAdapter = createAdapter(SmsProvider.SINCH);
+        SmsAdapterFactory factory = new SmsAdapterFactory(List.of(sinchAdapter));
 
-        Assertions.assertSame(customAdapter, factory.getAdapter(SmsProvider.CUSTOM));
+        Assertions.assertSame(sinchAdapter, factory.getAdapter(SmsProvider.SINCH));
     }
 
     @Test
-    void factoryRegistersAllEightAdapters() {
+    void factoryRegistersEveryProvider() {
         // Create one adapter per SmsProvider enum value
         List<SmsProviderAdapter> adapters = Arrays.stream(SmsProvider.values())
                 .map(this::createAdapter)
@@ -71,7 +71,7 @@ class SmsAdapterFactoryTest {
 
         SmsAdapterFactory factory = new SmsAdapterFactory(adapters);
 
-        // Verify all 8 providers are registered and return the correct adapter
+        // Verify every provider is registered and returns the correct adapter
         for (SmsProvider provider : SmsProvider.values()) {
             SmsProviderAdapter adapter = factory.getAdapter(provider);
             Assertions.assertNotNull(adapter, "Adapter should be registered for " + provider);
@@ -81,7 +81,7 @@ class SmsAdapterFactoryTest {
     }
 
     @Test
-    void factoryRegistersAllEightAdaptersExplicitly() {
+    void factoryRegistersEveryProviderExplicitly() {
         SmsProviderAdapter twilio = createAdapter(SmsProvider.TWILIO);
         SmsProviderAdapter infobip = createAdapter(SmsProvider.INFOBIP);
         SmsProviderAdapter bird = createAdapter(SmsProvider.BIRD);
@@ -89,10 +89,9 @@ class SmsAdapterFactoryTest {
         SmsProviderAdapter sinch = createAdapter(SmsProvider.SINCH);
         SmsProviderAdapter aliyun = createAdapter(SmsProvider.ALIYUN);
         SmsProviderAdapter tencent = createAdapter(SmsProvider.TENCENT);
-        SmsProviderAdapter custom = createAdapter(SmsProvider.CUSTOM);
 
         SmsAdapterFactory factory = new SmsAdapterFactory(
-                List.of(twilio, infobip, bird, cm, sinch, aliyun, tencent, custom));
+                List.of(twilio, infobip, bird, cm, sinch, aliyun, tencent));
 
         Assertions.assertSame(twilio, factory.getAdapter(SmsProvider.TWILIO));
         Assertions.assertSame(infobip, factory.getAdapter(SmsProvider.INFOBIP));
@@ -101,6 +100,5 @@ class SmsAdapterFactoryTest {
         Assertions.assertSame(sinch, factory.getAdapter(SmsProvider.SINCH));
         Assertions.assertSame(aliyun, factory.getAdapter(SmsProvider.ALIYUN));
         Assertions.assertSame(tencent, factory.getAdapter(SmsProvider.TENCENT));
-        Assertions.assertSame(custom, factory.getAdapter(SmsProvider.CUSTOM));
     }
 }

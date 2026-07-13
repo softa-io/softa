@@ -4,6 +4,7 @@ import static io.softa.starter.studio.release.desired.DesignEnvRowOps.ID;
 import static io.softa.starter.studio.release.desired.DesignEnvRowOps.prepareClone;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,14 +13,8 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.orm.service.ModelService;
-import io.softa.starter.metadata.dto.MetaTable;
-import io.softa.starter.studio.meta.entity.DesignField;
-import io.softa.starter.studio.meta.entity.DesignModel;
-import io.softa.starter.studio.meta.entity.DesignModelIndex;
-import io.softa.starter.studio.meta.entity.DesignOptionItem;
-import io.softa.starter.studio.meta.entity.DesignOptionSet;
+import io.softa.starter.studio.release.dto.DesignAggregate;
 import io.softa.starter.studio.release.dto.DesignMetaTables;
-import io.softa.starter.studio.release.dto.MetaKeys;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
 
@@ -28,17 +23,18 @@ import io.softa.starter.studio.release.dto.RowChangeDTO;
  * (TARGET) of the same app — a single-direction, overwrite-style converge by <b>business key</b> (no
  * three-way merge). Both sides are loaded via {@link DesignEnvSource}; the
  * {@link DesignAggregateDiffer#diff business-key-keyed diff} classifies each aggregate row;
- * this writer applies the result onto the target env's {@code design_*} rows. Locate / re-parent all go
- * through the shared {@link DesignEnvRowOps} primitives (business key → surrogate id; no id threaded
- * across envs) — the same primitives the runtime→design {@link DesignDriftImporter} uses.
+ * this writer applies the result onto the target env's {@code design_*} rows. Per-table topology
+ * (business key, parent FK, rename bridge, order) comes from the {@link DesignAggregate} descriptor;
+ * locate / re-parent go through the shared {@link DesignEnvRowOps} primitives (business key → surrogate
+ * id; no id threaded across envs) — the same primitives the runtime→design {@link DesignDriftImporter}
+ * uses.
  *
  * <p>Per the diff:
  * <ul>
  *   <li><b>CREATE</b> (business key only in source) — clone the source row into the target env: drop its
  *       surrogate id (a fresh one is minted), stamp {@code envId = target}, copy the business-key
- *       columns verbatim, and remap the parent FK ({@code modelId} / {@code optionSetId}) onto the
- *       target parent with the <i>same parent business key</i> (existing in target, or just created
- *       here);</li>
+ *       columns verbatim, and remap the parent FK onto the target parent with the <i>same parent
+ *       business key</i> (existing in target, or just created here);</li>
  *   <li><b>UPDATE</b> (business key in both, business attrs differ) — update the matched target row
  *       <i>in place</i> (its surrogate id / env untouched) with the changed business values. A field /
  *       optionItem rename is bridged by {@code renamedFrom} (the diff carries the prior business key),
@@ -59,28 +55,6 @@ import io.softa.starter.studio.release.dto.RowChangeDTO;
  */
 @Component
 public class DesignEnvMerger {
-
-    private static final String MODEL = DesignModel.class.getSimpleName();
-    private static final String FIELD = DesignField.class.getSimpleName();
-    private static final String INDEX = DesignModelIndex.class.getSimpleName();
-    private static final String OPTION_SET = DesignOptionSet.class.getSimpleName();
-    private static final String OPTION_ITEM = DesignOptionItem.class.getSimpleName();
-
-    // Business-key columns used for selective-merge filtering, parent-FK re-parent and rename bridging
-    // (the compare/locate keys themselves come from DesignEnvRowOps.BIZ_KEY_ATTRS — the single source).
-    private static final String MODEL_NAME = MetaKeys.MODEL_NAME;
-    private static final String OPTION_SET_CODE = MetaKeys.OPTION_SET_CODE;
-    private static final String FIELD_NAME = MetaKeys.FIELD_NAME;
-    private static final String ITEM_CODE = MetaKeys.ITEM_CODE;
-
-    // Per-table business keys — the env-scoped locate / re-parent keys (envId is the load scope, not part
-    // of the key). renameKeyAttr (the old-key fallback column) is field / optionItem only — model /
-    // optionSet / index don't bridge a rename here.
-    private static final List<String> MODEL_KEY = DesignEnvRowOps.BIZ_KEY_ATTRS.get(MODEL);
-    private static final List<String> FIELD_KEY = DesignEnvRowOps.BIZ_KEY_ATTRS.get(FIELD);
-    private static final List<String> INDEX_KEY = DesignEnvRowOps.BIZ_KEY_ATTRS.get(INDEX);
-    private static final List<String> OPTION_SET_KEY = DesignEnvRowOps.BIZ_KEY_ATTRS.get(OPTION_SET);
-    private static final List<String> ITEM_KEY = DesignEnvRowOps.BIZ_KEY_ATTRS.get(OPTION_ITEM);
 
     private final ModelService<Long> modelService;
     private final DesignEnvSource envSource;
@@ -120,65 +94,70 @@ public class DesignEnvMerger {
 
         // Index the TARGET env's rows by their per-env business key → surrogate id. All
         // locate (update/delete) and parent re-parent resolve through these — no surrogate id is
-        // threaded through the diff. The model / optionSet maps double as the parent-FK remap
-        // for children and absorb parents created during this merge.
-        Map<String, Long> modelTargetId = DesignEnvRowOps.indexByKey(target.models(), MODEL_KEY);
-        Map<String, Long> setTargetId = DesignEnvRowOps.indexByKey(target.optionSets(), OPTION_SET_KEY);
-        Map<String, Long> fieldTargetId = DesignEnvRowOps.indexByKey(target.fields(), FIELD_KEY);
-        Map<String, Long> indexTargetId = DesignEnvRowOps.indexByKey(target.indexes(), INDEX_KEY);
-        Map<String, Long> itemTargetId = DesignEnvRowOps.indexByKey(target.items(), ITEM_KEY);
+        // threaded through the diff. A root's map doubles as the parent-FK remap for its children
+        // and absorbs parents created during this merge.
+        Map<DesignAggregate, Map<String, Long>> targetIds = new EnumMap<>(DesignAggregate.class);
+        for (DesignAggregate aggregate : DesignAggregate.values()) {
+            targetIds.put(aggregate,
+                    DesignEnvRowOps.indexByKey(target.rows(aggregate), aggregate.bizKeyAttrs()));
+        }
 
         int created = 0;
         int updated = 0;
         int deleted = 0;
 
         // 1. Parents first (create then update), so children can resolve their target parent id.
-        created += createParents(MODEL, byModel.get(MODEL), targetEnvId, modelTargetId, MODEL_NAME);
-        created += createParents(OPTION_SET, byModel.get(OPTION_SET), targetEnvId, setTargetId, OPTION_SET_CODE);
-        updated += updateRows(MODEL, byModel.get(MODEL), modelTargetId, MODEL_KEY, null);
-        updated += updateRows(OPTION_SET, byModel.get(OPTION_SET), setTargetId, OPTION_SET_KEY, null);
+        for (DesignAggregate aggregate : DesignAggregate.values()) {
+            if (aggregate.parent() == null) {
+                created += createRows(aggregate, byModel.get(aggregate.designName()), targetEnvId, targetIds);
+            }
+        }
+        for (DesignAggregate aggregate : DesignAggregate.values()) {
+            if (aggregate.parent() == null) {
+                updated += updateRows(aggregate, byModel.get(aggregate.designName()), targetIds.get(aggregate));
+            }
+        }
 
         // 2. Children (create with parent-FK remap by business key, then update).
-        created += createChildren(FIELD, byModel.get(FIELD), targetEnvId,
-                DesignEnvRowOps.MODEL_ID, MODEL_NAME, modelTargetId);
-        created += createChildren(INDEX, byModel.get(INDEX), targetEnvId,
-                DesignEnvRowOps.MODEL_ID, MODEL_NAME, modelTargetId);
-        created += createChildren(OPTION_ITEM, byModel.get(OPTION_ITEM), targetEnvId,
-                DesignEnvRowOps.OPTION_SET_ID, OPTION_SET_CODE, setTargetId);
-        updated += updateRows(FIELD, byModel.get(FIELD), fieldTargetId, FIELD_KEY, FIELD_NAME);
-        updated += updateRows(INDEX, byModel.get(INDEX), indexTargetId, INDEX_KEY, null);
-        updated += updateRows(OPTION_ITEM, byModel.get(OPTION_ITEM), itemTargetId, ITEM_KEY, ITEM_CODE);
+        for (DesignAggregate aggregate : DesignAggregate.values()) {
+            if (aggregate.parent() != null) {
+                created += createRows(aggregate, byModel.get(aggregate.designName()), targetEnvId, targetIds);
+            }
+        }
+        for (DesignAggregate aggregate : DesignAggregate.values()) {
+            if (aggregate.parent() != null) {
+                updated += updateRows(aggregate, byModel.get(aggregate.designName()), targetIds.get(aggregate));
+            }
+        }
 
         // 3. Deletes: children before parents.
-        deleted += deleteRows(FIELD, byModel.get(FIELD), fieldTargetId, FIELD_KEY);
-        deleted += deleteRows(INDEX, byModel.get(INDEX), indexTargetId, INDEX_KEY);
-        deleted += deleteRows(OPTION_ITEM, byModel.get(OPTION_ITEM), itemTargetId, ITEM_KEY);
-        deleted += deleteRows(MODEL, byModel.get(MODEL), modelTargetId, MODEL_KEY);
-        deleted += deleteRows(OPTION_SET, byModel.get(OPTION_SET), setTargetId, OPTION_SET_KEY);
+        for (DesignAggregate aggregate : DesignAggregate.deleteOrder()) {
+            deleted += deleteRows(aggregate, byModel.get(aggregate.designName()), targetIds.get(aggregate));
+        }
 
         return new MergeResult(created, updated, deleted, changes);
     }
 
-    /** Create each source-only parent into the target env; record its business key → new target id for children. */
-    private int createParents(String model, ModelChangesDTO dto, Long targetEnvId,
-                              Map<String, Long> targetIdByCode, String codeAttr) {
+    /**
+     * Create each source-only row into the target env. A root records its business key → new target id
+     * (for its children's FK remap); a child is re-pointed at the target-env parent owning the same
+     * parent business code before insert.
+     */
+    private int createRows(DesignAggregate aggregate, ModelChangesDTO dto, Long targetEnvId,
+                           Map<DesignAggregate, Map<String, Long>> targetIds) {
         if (dto == null) {
             return 0;
         }
-        int n = 0;
-        for (RowChangeDTO change : dto.getCreatedRows()) {
-            Long newId = modelService.createOne(model, prepareClone(change.getFullRow(), targetEnvId));
-            targetIdByCode.put(str(change.getFullRow().get(codeAttr)), newId);
-            n++;
-        }
-        return n;
-    }
-
-    /** Create each source-only child into the target env, re-pointing its parent FK by parent business key. */
-    private int createChildren(String model, ModelChangesDTO dto, Long targetEnvId, String parentFk,
-                               String parentCodeAttr, Map<String, Long> parentTargetIdByCode) {
-        if (dto == null) {
-            return 0;
+        if (aggregate.parent() == null) {
+            int n = 0;
+            String codeAttr = aggregate.bizKeyAttrs().getFirst();
+            for (RowChangeDTO change : dto.getCreatedRows()) {
+                Long newId = modelService.createOne(aggregate.designName(),
+                        prepareClone(change.getFullRow(), targetEnvId));
+                targetIds.get(aggregate).put(str(change.getFullRow().get(codeAttr)), newId);
+                n++;
+            }
+            return n;
         }
         List<Map<String, Object>> clones = new ArrayList<>();
         for (RowChangeDTO change : dto.getCreatedRows()) {
@@ -188,9 +167,10 @@ public class DesignEnvMerger {
             return 0;
         }
         // The source child carries its parent's business code (denormalized) — re-point its FK at the
-        // target-env parent that owns that code (modelId / optionSetId are per-env, never carried across).
-        DesignEnvRowOps.relinkChildFk(clones, parentFk, parentCodeAttr, parentTargetIdByCode);
-        modelService.createList(model, clones);
+        // target-env parent that owns that code (the surrogate FK is per-env, never carried across).
+        DesignEnvRowOps.relinkChildFk(clones, aggregate.parentFkAttr(), aggregate.parentCodeAttr(),
+                targetIds.get(aggregate.parent()));
+        modelService.createList(aggregate.designName(), clones);
         return clones.size();
     }
 
@@ -199,11 +179,12 @@ public class DesignEnvMerger {
      * surrogate id). A field / optionItem rename (the source row carries the new key +
      * {@code renamedFrom}) is located by the OLD key the target still holds. env / surrogate id stay.
      */
-    private int updateRows(String model, ModelChangesDTO dto, Map<String, Long> targetIdByKey,
-                           List<String> keyAttrs, String renameKeyAttr) {
+    private int updateRows(DesignAggregate aggregate, ModelChangesDTO dto, Map<String, Long> targetIdByKey) {
         if (dto == null) {
             return 0;
         }
+        List<String> keyAttrs = aggregate.bizKeyAttrs();
+        String renameKeyAttr = aggregate.renameBridgeAttr();
         int n = 0;
         for (RowChangeDTO change : dto.getUpdatedRows()) {
             Long targetId = targetIdByKey.get(DesignEnvRowOps.bizKey(keyAttrs, change.getFullRow()));
@@ -220,20 +201,20 @@ public class DesignEnvMerger {
                 update.put(key, change.getFullRow().get(key));
             }
             update.put(ID, targetId);
-            modelService.updateOne(model, update);
+            modelService.updateOne(aggregate.designName(), update);
             n++;
         }
         return n;
     }
 
     /** Delete each target-only row, located by its per-env business key. */
-    private int deleteRows(String model, ModelChangesDTO dto, Map<String, Long> targetIdByKey, List<String> keyAttrs) {
+    private int deleteRows(DesignAggregate aggregate, ModelChangesDTO dto, Map<String, Long> targetIdByKey) {
         if (dto == null) {
             return 0;
         }
         List<Long> ids = new ArrayList<>();
         for (RowChangeDTO change : dto.getDeletedRows()) {
-            Long targetId = targetIdByKey.get(DesignEnvRowOps.bizKey(keyAttrs, change.getFullRow()));
+            Long targetId = targetIdByKey.get(DesignEnvRowOps.bizKey(aggregate.bizKeyAttrs(), change.getFullRow()));
             if (targetId != null) {
                 ids.add(targetId);
             }
@@ -241,7 +222,7 @@ public class DesignEnvMerger {
         if (ids.isEmpty()) {
             return 0;
         }
-        modelService.deleteByIds(model, ids);
+        modelService.deleteByIds(aggregate.designName(), ids);
         return ids.size();
     }
 
@@ -257,11 +238,12 @@ public class DesignEnvMerger {
         Set<String> selectedSets = selection.optionSetCodes() == null ? Set.of() : selection.optionSetCodes();
         List<RowChangeDTO> kept = new ArrayList<>();
         for (RowChangeDTO change : changes) {
-            MetaTable table = change.getTable();
-            boolean keep = (table == MetaTable.MODEL || table == MetaTable.FIELD || table == MetaTable.INDEX)
-                    ? selectedModels.contains(str(change.getFullRow().get(MODEL_NAME)))
-                    : selectedSets.contains(str(change.getFullRow().get(OPTION_SET_CODE)));
-            if (keep) {
+            DesignAggregate aggregate = DesignAggregate.of(change.getTable());
+            DesignAggregate root = aggregate.parent() == null ? aggregate : aggregate.parent();
+            String rootCodeAttr = aggregate.parent() == null
+                    ? aggregate.bizKeyAttrs().getFirst() : aggregate.parentCodeAttr();
+            Set<String> selected = root == DesignAggregate.MODEL ? selectedModels : selectedSets;
+            if (selected.contains(str(change.getFullRow().get(rootCodeAttr)))) {
                 kept.add(change);
             }
         }

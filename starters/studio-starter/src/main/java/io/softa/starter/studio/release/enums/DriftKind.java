@@ -15,15 +15,13 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum DriftKind {
     /** Runtime carries a row the design does not — typically a direct insert on runtime. */
-    RUNTIME_ADDED("RuntimeAdded", "Runtime has an extra row missing from the design"),
+    RUNTIME_ADDED("RuntimeAdded"),
     /** The design expects a row the runtime no longer has — typically a hard-delete on runtime. */
-    RUNTIME_DELETED("RuntimeDeleted", "Design expects a row the runtime no longer has"),
+    RUNTIME_DELETED("RuntimeDeleted"),
     /** Same row id on both sides but one or more business fields diverged. */
-    RUNTIME_MODIFIED("RuntimeModified", "Field values on runtime diverged from the design"),
+    RUNTIME_MODIFIED("RuntimeModified"),
     ;
 
     @JsonValue
     private final String value;
-
-    private final String description;
 }

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.metadata.ddl.ReferenceColumnResolver;
 import io.softa.starter.metadata.ddl.context.ReferencedColumn;
 import io.softa.starter.studio.meta.entity.DesignField;
@@ -47,21 +48,21 @@ public class DesignFieldRelationStamper {
         if (idValue != null && !touchesRelation) {
             return;
         }
-        DesignField existing = idValue != null ? fieldService.getById(asLong(idValue)).orElse(null) : null;
+        DesignField existing = idValue != null ? fieldService.getById(IdUtils.convertIdToLong(idValue)).orElse(null) : null;
 
         FieldType fieldType = resolveFieldType(row.get("fieldType"), existing);
         String relatedModel = resolveString(row, "relatedModel", existing == null ? null : existing.getRelatedModel());
         String relatedField = resolveString(row, "relatedField", existing == null ? null : existing.getRelatedField());
         String fieldName = resolveString(row, "fieldName", existing == null ? null : existing.getFieldName());
         Long appId = row.get("appId") != null
-                ? asLong(row.get("appId")) : (existing == null ? null : existing.getAppId());
+                ? IdUtils.convertIdToLong(row.get("appId")) : (existing == null ? null : existing.getAppId());
         // design_field is per-env (businessKey {envId, modelName, fieldName}), so the
         // referenced column must be looked up within THIS env — an appId-only lookup matches the same
         // (modelName, fieldName) in every env and makes searchOne throw once a second env exists (the
         // standard dev→staging clone). On create the envId is already stamped onto the row by
         // DesignWriteStamper.stampCreate; on update it is carried by the persisted `existing`.
         Long envId = row.get("envId") != null
-                ? asLong(row.get("envId")) : (existing == null ? null : existing.getEnvId());
+                ? IdUtils.convertIdToLong(row.get("envId")) : (existing == null ? null : existing.getEnvId());
 
         ReferencedColumn referenced = (appId == null || envId == null) ? null
                 : ReferenceColumnResolver.resolveReferenced(
@@ -107,15 +108,5 @@ public class DesignFieldRelationStamper {
             return value == null ? null : String.valueOf(value);
         }
         return fallback;
-    }
-
-    private static Long asLong(Object value) {
-        if (value instanceof Long longValue) {
-            return longValue;
-        }
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        return Long.valueOf(String.valueOf(value));
     }
 }

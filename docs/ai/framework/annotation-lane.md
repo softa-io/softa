@@ -148,5 +148,11 @@ Surface these to a human rather than quietly applying:
 - Removing/renaming a column that Studio no-code definitions reference.
 - A Java field type the inference table doesn't cover (raw `Map`, custom value type).
 
-See [ADR-0010](../../adr/metadata/0010-structural-fields-as-managed-metadata.md)
-for the structural-fields (id / audit / timeline) rules.
+Scanner lifecycle invariant: the scanner runs **once at boot** (a `MetadataInitializer`
+executed before `ModelManager.init()`). The runtime metadata reload paths — inner-broadcast
+consumer and the reload cron — only re-read `sys_*` into caches and **deliberately never re-run
+the scanner**, so a cache reload can never re-trigger `ALTER TABLE` at runtime.
+
+Structural-fields (id / audit / timeline) rules: `id` is always the managed PK,
+and audit/timeline fields carry `@Field` on the base class (`AuditableModel` /
+`TimelineModel`) — see the "Key inference rules" in [`CLAUDE.md`](../../../CLAUDE.md).

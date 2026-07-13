@@ -3,8 +3,8 @@ package io.softa.starter.message.mail.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import io.softa.framework.base.enums.Language;
 import io.softa.starter.message.mail.entity.MailTemplate;
+import io.softa.starter.message.mail.enums.MailPriority;
 
 /**
  * Summary DTO for available mail templates.
@@ -20,7 +20,6 @@ public class MailTemplateSummaryDTO {
         dto.setCode(template.getCode());
         dto.setName(template.getName());
         dto.setDescription(template.getDescription());
-        dto.setLanguage(template.getLanguage());
         dto.setSubject(template.getSubject());
         dto.setDefaultPriority(template.getDefaultPriority());
         return dto;
@@ -38,12 +37,9 @@ public class MailTemplateSummaryDTO {
     @Schema(description = "Description")
     private String description;
 
-    @Schema(description = "Language tag (e.g. en-US, zh-CN, default)")
-    private Language language;
-
     @Schema(description = "Subject template (may contain {{ variable }} placeholders)")
     private String subject;
 
-    @Schema(description = "Default priority: High / Normal / Low")
-    private String defaultPriority;
+    @Schema(description = "Default priority: HIGH / NORMAL / LOW")
+    private MailPriority defaultPriority;
 }

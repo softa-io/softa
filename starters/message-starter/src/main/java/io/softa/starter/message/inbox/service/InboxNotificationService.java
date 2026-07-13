@@ -6,7 +6,8 @@ import io.softa.starter.message.inbox.entity.InboxNotification;
 /**
  * CRUD service for {@link InboxNotification}.
  * <p>
- * Low-level service — prefer {@link InboxService} for application use.
+ * Low-level persistence/query service — prefer
+ * {@link io.softa.starter.message.service.MessageService} for submissions.
  */
 public interface InboxNotificationService extends EntityService<InboxNotification, Long> {
 

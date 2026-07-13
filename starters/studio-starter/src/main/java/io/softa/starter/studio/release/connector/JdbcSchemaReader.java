@@ -47,8 +47,18 @@ public class JdbcSchemaReader {
             String schema = connection.getSchema();
             List<Map<String, Object>> models = new ArrayList<>();
             List<Map<String, Object>> fields = new ArrayList<>();
+            // modelName is derived (PascalCase of the camelCased table), so distinct tables can collapse to
+            // one key (e.g. `foo_bar` and `fooBar` both → `FooBar`). Fail loud rather than silently merge
+            // their columns into one model / overwrite on import.
+            Map<String, String> tableByModelName = new HashMap<>();
             for (String table : tableNames(meta, catalog, schema)) {
                 String modelName = StringUtils.capitalize(StringTools.toCamelCase(table));
+                String priorTable = tableByModelName.putIfAbsent(modelName, table);
+                if (priorTable != null) {
+                    throw new ExternalException(
+                            "JDBC reverse: tables {0} and {1} both map to model name {2}; "
+                                    + "rename one before importing this schema.", priorTable, table, modelName);
+                }
                 Map<String, Object> model = new HashMap<>();
                 model.put("modelName", modelName);
                 model.put("tableName", table);

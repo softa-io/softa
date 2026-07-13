@@ -1,10 +1,9 @@
 package io.softa.starter.message.mail.dto;
 
+import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
-
-import java.util.Map;
 
 /**
  * Request DTO for previewing a rendered mail template.
@@ -27,6 +26,10 @@ public class MailTemplatePreviewDTO {
     @Schema(description = "Rendered subject line")
     private String renderedSubject;
 
-    @Schema(description = "Rendered HTML body")
-    private String renderedBody;
+    @Schema(description = "Rendered HTML body; null when the template has no HTML body (PLAIN-mode templates).")
+    private String renderedBodyHtml;
+
+    @Schema(description = "Rendered plain-text body; null when the template has no plain-text body "
+            + "(HTML / HTML_WITH_DERIVED_PLAIN templates).")
+    private String renderedBodyText;
 }

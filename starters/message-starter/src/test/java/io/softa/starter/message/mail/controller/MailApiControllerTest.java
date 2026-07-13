@@ -9,7 +9,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import io.softa.framework.base.enums.Language;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.web.response.ApiResponse;
@@ -17,14 +16,16 @@ import io.softa.starter.message.mail.dto.MailSendStatusDTO;
 import io.softa.starter.message.mail.dto.MailSenderSummaryDTO;
 import io.softa.starter.message.mail.dto.MailTemplatePreviewDTO;
 import io.softa.starter.message.mail.dto.MailTemplateSummaryDTO;
+import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.entity.MailSendServerConfig;
 import io.softa.starter.message.mail.entity.MailTemplate;
+import io.softa.starter.message.mail.enums.MailPriority;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
-import io.softa.starter.message.mail.service.MailSendService;
 import io.softa.starter.message.mail.service.MailTemplateService;
+import io.softa.starter.message.service.MessageService;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -32,7 +33,7 @@ import static org.mockito.Mockito.*;
 class MailApiControllerTest {
 
     private MailApiController controller;
-    private MailSendService mailSendService;
+    private MessageService messageService;
     private MailSendRecordService sendRecordService;
     private MailSendServerConfigService sendConfigService;
     private MailTemplateService templateService;
@@ -40,12 +41,12 @@ class MailApiControllerTest {
     @BeforeEach
     void setUp() {
         controller = new MailApiController();
-        mailSendService = mock(MailSendService.class);
+        messageService = mock(MessageService.class);
         sendRecordService = mock(MailSendRecordService.class);
         sendConfigService = mock(MailSendServerConfigService.class);
         templateService = mock(MailTemplateService.class);
 
-        ReflectionTestUtils.setField(controller, "mailSendService", mailSendService);
+        ReflectionTestUtils.setField(controller, "messageService", messageService);
         ReflectionTestUtils.setField(controller, "sendRecordService", sendRecordService);
         ReflectionTestUtils.setField(controller, "sendConfigService", sendConfigService);
         ReflectionTestUtils.setField(controller, "templateService", templateService);
@@ -58,7 +59,7 @@ class MailApiControllerTest {
         MailSendRecord record = new MailSendRecord();
         record.setId(1L);
         record.setSubject("Test");
-        record.setToAddresses("[\"user@example.com\"]");
+        record.setToAddresses(List.of("user@example.com"));
         record.setStatus(MailSendStatus.SENT);
         record.setRetryCount(0);
         record.setSentAt(LocalDateTime.of(2026, 4, 10, 10, 0));
@@ -137,9 +138,8 @@ class MailApiControllerTest {
         template.setCode("USER_WELCOME");
         template.setName("Welcome Email");
         template.setDescription("Sent to new users");
-        template.setLanguage(Language.EN_US);
         template.setSubject("Welcome, {{ name }}!");
-        template.setDefaultPriority("Normal");
+        template.setDefaultPriority(MailPriority.NORMAL);
 
         when(templateService.searchList(any(Filters.class))).thenReturn(List.of(template));
 
@@ -150,7 +150,6 @@ class MailApiControllerTest {
         MailTemplateSummaryDTO dto = response.getData().getFirst();
         Assertions.assertEquals("USER_WELCOME", dto.getCode());
         Assertions.assertEquals("Welcome Email", dto.getName());
-        Assertions.assertEquals("en-US", dto.getLanguage().getCode());
     }
 
     // ========== Template Preview ==========
@@ -160,11 +159,12 @@ class MailApiControllerTest {
         MailTemplate template = new MailTemplate();
         template.setCode("WELCOME");
         template.setSubject("Hello, {{ name }}!");
-        template.setBody("<p>Welcome {{ name }}!</p>");
+        template.setBodyHtml("<p>Welcome {{ name }}!</p>");
 
         when(templateService.resolve("WELCOME")).thenReturn(template);
         when(templateService.renderSubject(any(), any())).thenReturn("Hello, Alice!");
-        when(templateService.renderBody(any(), any())).thenReturn("<p>Welcome Alice!</p>");
+        when(templateService.renderBodyHtml(any(), any())).thenReturn("<p>Welcome Alice!</p>");
+        when(templateService.renderBodyText(any(), any())).thenReturn(null);
 
         MailTemplatePreviewDTO request = new MailTemplatePreviewDTO();
         request.setCode("WELCOME");
@@ -173,7 +173,8 @@ class MailApiControllerTest {
         ApiResponse<MailTemplatePreviewDTO> response = controller.previewTemplate(request);
         Assertions.assertNotNull(response.getData());
         Assertions.assertEquals("Hello, Alice!", response.getData().getRenderedSubject());
-        Assertions.assertEquals("<p>Welcome Alice!</p>", response.getData().getRenderedBody());
+        Assertions.assertEquals("<p>Welcome Alice!</p>", response.getData().getRenderedBodyHtml());
+        Assertions.assertNull(response.getData().getRenderedBodyText());
     }
 
     @Test
@@ -183,7 +184,8 @@ class MailApiControllerTest {
 
         when(templateService.resolve("SIMPLE")).thenReturn(template);
         when(templateService.renderSubject(any(), any())).thenReturn("Subject");
-        when(templateService.renderBody(any(), any())).thenReturn("Body");
+        when(templateService.renderBodyHtml(any(), any())).thenReturn("Body");
+        when(templateService.renderBodyText(any(), any())).thenReturn(null);
 
         MailTemplatePreviewDTO request = new MailTemplatePreviewDTO();
         request.setCode("SIMPLE");
@@ -194,22 +196,15 @@ class MailApiControllerTest {
         Assertions.assertEquals("Subject", response.getData().getRenderedSubject());
     }
 
-    // ========== Send by Template ==========
-
     @Test
-    void sendByTemplateCallsService() {
-        controller.sendByTemplate("WELCOME", List.of("user@example.com"),
-                Map.of("name", "Bob"));
+    void sendAndBatchDelegateToMessageService() {
+        SendMailDTO first = new SendMailDTO();
+        SendMailDTO second = new SendMailDTO();
 
-        verify(mailSendService).sendByTemplate("WELCOME", List.of("user@example.com"),
-                Map.of("name", "Bob"));
-    }
+        controller.send(first);
+        controller.sendBatch(List.of(first, second));
 
-    @Test
-    void sendByTemplateHandlesNullVariables() {
-        controller.sendByTemplate("SIMPLE", List.of("user@example.com"), null);
-
-        verify(mailSendService).sendByTemplate("SIMPLE", List.of("user@example.com"),
-                java.util.Collections.emptyMap());
+        verify(messageService).sendMail(first);
+        verify(messageService).sendMailBatch(List.of(first, second));
     }
 }

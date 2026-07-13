@@ -9,21 +9,17 @@ import io.softa.starter.message.mail.entity.MailTemplate;
 /**
  * CRUD and resolution service for {@link MailTemplate}.
  * <p>
- * Template resolution follows a four-level fallback so that platform-defined templates
- * serve as defaults and tenants can override them per language:
+ * Template resolution prefers a tenant template, falling back to the
+ * platform-defined default:
  * <pre>
- *   tenant + current language
- *       → tenant + "default"
- *           → platform + current language
- *               → platform + "default"
- *                   → BusinessException
+ *   tenant template → platform template (tenant_id = 0) → BusinessException
  * </pre>
  */
 public interface MailTemplateService extends EntityService<MailTemplate, Long> {
 
     /**
-     * Resolve the best matching template for {@code code} given the current tenant
-     * and the language from {@code ContextHolder}.
+     * Resolve the matching template for {@code code} in the current tenant,
+     * falling back to the platform template.
      *
      * @param code template code, e.g. {@code "USER_WELCOME"}
      * @return the resolved template
@@ -32,17 +28,14 @@ public interface MailTemplateService extends EntityService<MailTemplate, Long> {
     MailTemplate resolve(String code);
 
     /**
-     * Query platform-level (tenant_id = 0) templates, bypassing tenant isolation.
-     * Tries {@code language} first, then falls back to {@code "default"}.
-     * <p>
-     * Annotated with {@code @CrossTenant} in the implementation so that ORM tenant
-     * filters are suppressed for the duration of the call.
+     * Query the platform-level (tenant_id = 0) template, bypassing tenant
+     * isolation. Annotated with {@code @CrossTenant} in the implementation so
+     * that ORM tenant filters are suppressed for the duration of the call.
      *
-     * @param code     template code
-     * @param language BCP 47 language tag to try first
+     * @param code template code
      * @return the platform template if found
      */
-    Optional<MailTemplate> findPlatformByCode(String code, String language);
+    Optional<MailTemplate> findPlatformByCode(String code);
 
     /**
      * Render the subject of {@code template} by substituting {@code variables}
@@ -51,9 +44,16 @@ public interface MailTemplateService extends EntityService<MailTemplate, Long> {
     String renderSubject(MailTemplate template, Map<String, Object> variables);
 
     /**
-     * Render the body of {@code template} by substituting {@code variables}
-     * into {@code {{ key }}} placeholders.
-     * HTML bodies are rendered via Pebble; Text bodies via simple substitution.
+     * Render the HTML body of {@code template} by substituting {@code variables}
+     * into {@code {{ key }}} placeholders. Returns {@code null} when the template
+     * has no HTML body (PLAIN-mode templates).
      */
-    String renderBody(MailTemplate template, Map<String, Object> variables);
+    String renderBodyHtml(MailTemplate template, Map<String, Object> variables);
+
+    /**
+     * Render the plain-text body of {@code template} by substituting {@code variables}
+     * into {@code {{ key }}} placeholders. Returns {@code null} when the template
+     * has no plain-text body (HTML-only / HTML_WITH_DERIVED_PLAIN templates).
+     */
+    String renderBodyText(MailTemplate template, Map<String, Object> variables);
 }

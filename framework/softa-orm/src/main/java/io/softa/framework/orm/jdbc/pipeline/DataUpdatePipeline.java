@@ -24,6 +24,7 @@ import io.softa.framework.orm.jdbc.pipeline.processor.OneToManyProcessor;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.utils.VersionLockUtils;
 
 /**
  * Data processing pipeline for model data UPDATE, completing the inspection and conversion of model input data.
@@ -225,9 +226,8 @@ public class DataUpdatePipeline extends DataPipeline {
                                     Provided value: {0}, database value: {1}, the two are not equal.""",
                                     newValue, oldValue);
                         } else {
-                            // Increment version by 1. But when constructing the where condition, it will be -1.
-                            Integer newVersion =  (Integer) oldValue + 1;
-                            differRow.put(field, newVersion);
+                            // Increment version by 1. When constructing the WHERE condition, it will be decremented.
+                            differRow.put(field, VersionLockUtils.increment(oldValue));
                             originalRow.put(field, oldValue);
                         }
                     } else if (isValueModified) {

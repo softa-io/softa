@@ -1,9 +1,11 @@
 package io.softa.starter.message.dlq.message;
 
 import io.softa.starter.message.dlq.entity.DeadLetterMessage;
+import io.softa.starter.message.dlq.enums.DeadLetterSource;
 import io.softa.starter.message.dlq.enums.DeadLetterStatus;
 import io.softa.starter.message.dlq.service.DeadLetterMessageService;
-import io.softa.starter.message.mail.service.MailSendService;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.Message;
@@ -45,7 +47,7 @@ public class DeadLetterConsumer {
 
     private final ObjectMapper mapper;
     private final DeadLetterMessageService dlqService;
-    private final MailSendService mailSendService;
+    private final MessageService messageService;
 
     /** Comma-separated recipient list from {@code softa.message.dlq.alert.recipients}. Empty = no mail. */
     @Value("${softa.message.dlq.alert.recipients:}")
@@ -87,6 +89,7 @@ public class DeadLetterConsumer {
             JsonNode payload = root.has("payload") ? root.get("payload") : root;
 
             DeadLetterMessage record = DeadLetterMessage.builder()
+                    .source(DeadLetterSource.BROKER_POISON)
                     .sourceTenantId(sourceTenantId)
                     .originalTopic(originalTopic)
                     .dlqTopic(dlqTopic)
@@ -138,7 +141,11 @@ public class DeadLetterConsumer {
                     record.getEventType(),
                     record.getEventId(),
                     record.getSourceTenantId());
-            mailSendService.sendText(recipients, subject, body);
+            SendMailDTO message = new SendMailDTO();
+            message.setTo(recipients);
+            message.setSubject(subject);
+            message.setTextBody(body);
+            messageService.sendMail(message);
         } catch (Exception mailEx) {
             log.error("DLQ alert mail send failed (archive succeeded). recordId={}", record.getId(), mailEx);
         }

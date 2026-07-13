@@ -11,6 +11,7 @@ import org.mockito.Mockito;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.jdbc.JdbcService;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -107,7 +108,37 @@ class ModelManagerCopyableTest {
     }
 
     private static MetaModel timelineModel() {
-        return model("CopyTimeline", "copy_timeline", true, true);
+        MetaModel metaModel = model("CopyTimeline", "copy_timeline", true, true);
+        // Timeline models require an app-generated logical id (boot-guarded): the
+        // auto-increment lands on the physical sliceId, not the shared `id` column.
+        metaModel.setIdStrategy(IdStrategy.DISTRIBUTED_LONG);
+        return metaModel;
+    }
+
+    @Test
+    void timelineModelWithDbAutoIdIsRejectedAtInit() throws Exception {
+        Object goodSnapshot = snapshotField().get(null);
+        try {
+            // DB_AUTO_ID (the null-default) cannot fill the shared logical `id` column.
+            MetaModel badTimeline = model("BadTimeline", "bad_timeline", true, true);
+            JdbcService<?> jdbcService = Mockito.mock(JdbcService.class);
+            Mockito.when(jdbcService.selectMetaEntityList("SysModel", MetaModel.class, null))
+                    .thenReturn(new ArrayList<>(List.of(badTimeline)));
+            Mockito.when(jdbcService.selectMetaEntityList("SysField", MetaField.class, null))
+                    .thenReturn(new ArrayList<>(List.of(
+                            field("BadTimeline", "id", "id", FieldType.LONG),
+                            field("BadTimeline", "sliceId", "slice_id", FieldType.LONG),
+                            field("BadTimeline", "effectiveStartDate", "effective_start_date", FieldType.DATE),
+                            field("BadTimeline", "effectiveEndDate", "effective_end_date", FieldType.DATE))));
+            ModelManager modelManager = new ModelManager();
+            Field jdbc = ModelManager.class.getDeclaredField("jdbcService");
+            jdbc.setAccessible(true);
+            jdbc.set(modelManager, jdbcService);
+            RuntimeException e = assertThrows(RuntimeException.class, modelManager::init);
+            assertTrue(e.getMessage().contains("app-generated logical id"));
+        } finally {
+            snapshotField().set(null, goodSnapshot);
+        }
     }
 
     private static MetaField field(String modelName, String fieldName, String columnName, FieldType type) {

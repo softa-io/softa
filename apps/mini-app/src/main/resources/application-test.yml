@@ -38,7 +38,8 @@ rpc:
   access-key: 123456
   secret-key: 123456
   services:
-    mini-dev:
-      api-url: http://localhost:81/api/mini
+    # Key = the target app's appCode (its system.app-code).
+    demo-app:
+      api-url: http://localhost:80/api/demo
       api-key: 123456
       api-secret: 123456

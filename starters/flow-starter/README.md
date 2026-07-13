@@ -1,382 +1,425 @@
 # Flow Starter
 
-## 1. Flow Concept
-Flow is a more generalized concept for business processes.
+`flow-starter` is Softa's metadata-driven flow engine starter. It covers:
 
-Relationship:
-Flow > BP = Workflow > BPMN
+- design-time graph documents for a visual editor
+- compile-time validation and transformation into runtime bundles
+- published bundle revisions by `designId`
+- runtime execution for process, validation, and compute flows
+- persistent projections for instances, approval tasks, approval records, delegations, CC rules, and trigger events
+- optional Pulsar-based trigger and async-task integration
 
-Expression Engine is mainly used to solve data computation problems, implementing a calculation engine such as
-QLExpress. BPMN scenarios are better suited to workflow or rule engines like Flowable. For example, Flowable
-integrates JUEL to support simple expression parsing. DMN rule engines are better for true/false decision scenarios,
-for example, the sequenceFlow routing conditions in BP. Drools focuses more on rule configuration and management.
+This README documents the current backend contract implemented in this module.
 
-Example scenarios:
-- Import: better suited to BPMN. Each action is a data update node; actions have an order but can be processed
-  asynchronously.
-- Approval: BPMN + DMN. BPMN handles the approval process and path. DMN handles complex approval routing. DQL
-  solves complex approver queries.
+## Current Model
 
-## 2. Flow Design
-Flow Starter provides event-driven process definition and execution.
+### Design, Publish, Runtime
 
-Supported flow types:
-- automated flow, cron flow, form flow, validation flow, onchange event flow, AI Agent flow
+| Layer | Main types | Notes |
+|---|---|---|
+| Design time | `DesignFlowDefinition`, `FlowGraphDocument`, `FlowGraphNode`, `FlowGraphEdge` | Editor-facing graph DTOs |
+| Publish time | `FlowCompiler`, `CompiledFlowDefinition`, `FlowPublishService` | Compile, validate, publish revisions, rollback |
+| Runtime | `FlowRuntimeEngine`, `FlowExecutionState` | Execute published bundles, suspend/resume, persist projections |
 
-Supported node types:
-- create data, update data, delete data, query data, compute data, decision gateway, generate report, query AI,
-  send message
-- validate data, WebHook, async task, subflow
+### Flow Identity And Revisions
 
-Supported event types:
-- create, update, delete, changed (create/update/delete), onchange, API, cron, subflow, message
-- button events can be implemented via API events
+- `FlowDesign` is the draft working copy.
+- `FlowBundle` is the compiled published snapshot.
+- Published revisions are keyed by `designId`, not by `flowCode`.
+- `FlowStartRequest` resolves bundles in this order:
+  1. `bundleId` — pin to an exact published revision
+  2. `designId` — start the current active revision
+- To start a specific historical revision, look up its `bundleId` via the revisions listing endpoint and pass that as `bundleId`.
+- `FlowBundle.designJson` keeps the design snapshot used at publish time so the editor can restore a historical canvas.
 
-Supports synchronous and asynchronous flows, and flow versioning.
+### Flow Scenarios
 
-## 3. Supported Scenarios
-1. Batch import validation flows and post-import business processing flows
-2. Data validation is synchronous; other business processing is asynchronous
-3. Messages and emails are produced by message nodes in the flow (for example, onboarding email)
-4. Business process configuration and cron tasks
+The module now uses a single `FlowScenario` enum instead of the old `FlowKind + FlowPurpose` split.
 
-## Overview
-Flow Starter provides a configurable flow engine for Softa. Flows are defined by FlowConfig, FlowTrigger, FlowNode, and
-FlowEdge records. A flow can be triggered by ChangeLog events (create/update/delete), API events, cron events, or
-subflow calls. Flow execution supports synchronous validation (before transaction commit) and asynchronous processing
-(via MQ).
+| Scenario | Meaning |
+|---|---|
+| `PROCESS` | Stateful runtime flow with persisted instances; covers both approval-style and automation-style flows |
+| `VALIDATION` | Stateless synchronous validation flow — evaluated transiently: no instance row, no trace, no event log |
+| `COMPUTE` | Stateless synchronous compute/onchange flow — evaluated transiently, same zero-footprint rules |
 
-## Dependency
-```xml
-<dependency>
-  <groupId>io.softa</groupId>
-  <artifactId>flow-starter</artifactId>
-  <version>${softa.version}</version>
-</dependency>
-```
+The scenario decides the execution strategy: `PROCESS` flows go through `FlowRuntimeEngine.start`
+(persisted, resumable); `VALIDATION` / `COMPUTE` flows go through `evaluate` — the same traversal
+with zero flow footprint. Business writes made by task nodes still join the caller's transaction,
+so a failed evaluation rolls them back.
 
-## Requirements
-- Database contains flow metadata tables: FlowConfig, FlowTrigger, FlowNode, FlowEdge, FlowStage,
-  FlowEvent, FlowInstance, FlowDebugHistory.
-- Pulsar is required for async flow events and async task execution.
-- ChangeLog and Cron integration are optional. Enable if you use those trigger sources.
+### Node Types
 
-## Configuration
-### Enable flow
-```yml
-enable:
-  flow: true
-```
+Current `FlowNodeType` values:
 
-### MQ topics
-```yml
-mq:
-  topics:
-    change-log:
-      topic: dev_demo_change_log
-      flow-sub: dev_demo_change_log_flow_sub
-    cron-task:
-      topic: dev_demo_cron_task
-      flow-sub: dev_demo_cron_task_flow_sub
-    flow-async-task:
-      topic: dev_demo_flow_async_task
-      sub: dev_demo_flow_async_task_sub
-    flow-event:
-      topic: dev_demo_flow_event
-      sub: dev_demo_flow_event_sub
-```
+- Control: `Start`, `End`, `Timer`
+- Routing: `InclusiveGateway`, `ParallelFork`, `ParallelJoin`
+- Human: `Approval`, `HumanTask`*
+- Task: `Script`, `CreateRecord`, `GetRecord`, `UpdateRecord`, `DeleteRecord`, `QueryRecords`, `ValidateData`, `Transform`, `CallService`, `CallWebhook`, `SendEmail`, `SendSms`, `SendInboxNotification`, `QueryAI`, `AsyncTask`, `GenerateFile`
+- Subflow: `Subflow`
+- Data: `ForEach`*, `ReturnValue`
 
-## Key Concepts
-- FlowConfig: the flow definition. Key fields include name, flowType, sync, rollbackOnFail, debugMode, active.
-- FlowTrigger: defines the event that triggers a flow, including eventType, sourceModel, sourceFields,
-  triggerCondition, and cronId.
-- FlowNode: the execution unit. Each node has nodeType, nodeParams, nodeCondition, and optional exceptionPolicy.
-- FlowEdge: edge between nodes (mainly for layout/visualization).
-- FlowStage: optional grouping for nodes.
+\* `HumanTask` and `ForEach` are defined but **not yet runtime-supported**: they are omitted
+from the node palette and rejected at compile time (`UNSUPPORTED_NODE_TYPE`), so a flow
+containing them cannot publish.
 
-## Execution Model
-Trigger sources:
-- ChangeLog events: generated by ORM change log. Synchronous flows run BEFORE_COMMIT for validation; async flows
-  are sent to MQ.
-- API events: POST /automation/apiEvent triggers by TriggerEventDTO.
-- Cron events: consumed from cron-task MQ and routed by cronId.
-- Subflow events: TriggerSubflow node calls another flow by triggerId.
+Node-behavior invariants:
 
-Trigger conditions:
-- FlowTrigger.triggerCondition is evaluated against the triggerParams map.
-  For ChangeLog events, triggerParams is dataAfterChange for CREATE/UPDATE and dataBeforeChange for DELETE.
-  For API events, triggerParams is TriggerEventDTO.eventParams.
-- For UPDATE events, sourceFields is used to filter triggers. If sourceFields is empty, any update matches.
+- **`Subflow` is synchronous-only**: the orchestrator fails the parent if a child
+  enters a waiting state (`WAITING_APPROVAL` / `TIMER` / `ASYNC`), and recursive
+  subflow invocation is rejected. Model human steps in the parent flow, not a child.
+- **`ParallelFork` branches execute serially** (deterministic order), not
+  wall-clock-parallel — the gateway models routing topology, not concurrency.
 
-Sync vs async:
-- FlowConfig.sync = true: executes in-process. If rollbackOnFail = true, the flow is wrapped in a transaction.
-- FlowConfig.sync = false: FlowEventMessage is sent to MQ and executed by FlowEventConsumer.
+### Runtime Statuses
 
-Important behavior notes:
-- FlowManager loads all FlowTrigger and FlowConfig records once at startup and caches them in memory.
-  Updating flow metadata requires a restart or a manual reload.
-- Validation flows run BEFORE_COMMIT. Avoid mutating data inside these flows.
-- FlowConstant.EXCLUDE_TRIGGER_MODELS excludes FlowInstance and FlowEvent from triggering flows to avoid loops.
+Defined `FlowExecutionStatus` values:
 
-## Context and Expressions
-The flow engine passes a NodeContext across nodes. It includes:
-- FlowEnv variables: NOW, TODAY, YESTERDAY.
-- TriggerParams: the row data that triggered the flow.
-- SourceRowId: the id of the triggering record.
+- `Pending`
+- `Running`
+- `Waiting` — parked on one or more waits (a pending approval and/or timer / async callback). The
+  specific reasons live in the instance's pending-approval list and wait-token list, so a single
+  status covers parallel branches suspended for different reasons at once.
+- `Rejected`
+- `Returned`
+- `Withdrawn`
+- `Cancelled`
+- `Completed`
+- `Failed`
 
-Variable and expression syntax:
-- Variables: #{var}. Supports map access: #{TriggerParams.status}.
-- Expressions: ${...} for computed values in templates.
-- Filters also allow reserved field references: @{fieldName}.
+## API Overview
 
-Node results:
-- Many nodes store their output in NodeContext using the node id as the key.
-  Use #{<nodeId>} or #{<nodeId>.field} in templates and filters.
+Host applications embedding the engine in-process should integrate through the
+`FlowClient` facade (`io.softa.starter.flow.api`) rather than looping back over
+REST — actor / initiator / tenant identity is always resolved server-side from the
+context, never passed as call parameters. See
+[docs/integration-guide.md](docs/integration-guide.md).
 
-Node exception policy:
-- FlowNode.exceptionPolicy supports NodeExceptionPolicy to handle node result exceptions.
-  It can detect empty/false results and emit signals such as EndFlow or ThrowException.
+### Design APIs (flow editor)
 
-## Node Types (Implemented)
-- ValidateData: validate with expression, throws BusinessException on failure.
-- GetData: query data; supports single/multi row, field value(s), exists, count.
-- ComputeData: compute expression result.
-- CreateData, UpdateData, DeleteData: CRUD operations based on templates and filters.
-- ExtractTransform: extract a field from a collection into a Set.
-- Condition: evaluate a condition and emit an exception signal.
-- TriggerSubflow: trigger another flow by triggerId.
-- AsyncTask: send an async task message to MQ.
-- QueryAi: query AI and store the reply content.
-- ReturnData: set the flow return payload.
+Base path: `/flow/designs` — the dedicated surface for the graphical editor
+(full contract in [`docs/frontend-editor-api.md`](docs/frontend-editor-api.md)).
+The generic model API at `/FlowDesign/**` remains available as the platform
+data plane and is intentionally not intercepted.
 
-## Node Types (Stubs / No-Op)
-These nodes have empty processors and should be implemented to be useful:
-- BranchGateway
-- LoopByDataset
-- LoopByPage
-- TransferStage
-- GenerateReport
-- SendMessage
-- WebHook
-- ApprovalNode
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/flow/designs` | Create a draft |
+| `GET` | `/flow/designs?keyword=&scenario=&pageNumber=&pageSize=` | Paged draft list (canvas excluded) |
+| `GET` | `/flow/designs/{id}` | Load one draft (canvas + optimistic-lock version) |
+| `POST` | `/flow/designs/{id}/save` | Auto-save the canvas; stale versions are rejected |
+| `POST` | `/flow/designs/{id}/delete` | Delete a draft if it has never been published |
+| `POST` | `/flow/designs/{id}/duplicate` | Copy a draft under a fresh flow code |
+| `POST` | `/flow/designs/validate` | Validate the posted document; diagnostics returned as a success payload |
+| `POST` | `/flow/designs/{id}/publish` | Publish the saved draft as a new active revision |
+| `POST` | `/flow/designs/{id}/restore?bundleId=` | Restore the draft canvas from a historical bundle snapshot |
+| `GET` | `/flow/designs/{id}/status` | Publish status: revision badge + dirty flag |
+| `GET` | `/flow/designs/{id}/availableVariables?nodeId=` | Variables visible to a node (expression autocomplete) |
+| `POST` | `/flow/designs/{id}/debugRun` | Compile and run the current draft as a debug bundle (not a sandbox) |
+| `GET` | `/flow/designs/{id}/debugRuns` | Debug-run history, newest first |
 
-Note: FlowNodeService contains loop iteration logic for LoopByDataset and LoopByPage, but the starter does not
-provide NodeProcessor implementations for them. Add custom processors to make them executable.
+### Bundle APIs (published revisions)
 
-## 4. Flow Key Elements
-The following parameters are aligned with the current code. Field values support:
-- constants
-- variables `#{var}`, including map access `#{TriggerParams.status}`
-- expressions `${...}`
-- reserved field names `@{fieldName}` in Filters
+Base path: `/flow/bundles`
 
-NodeGetDataType options:
-- MultiRows, SingleRow, OneFieldValue, OneFieldValues, Exist, Count
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/flow/bundles?designId=` | Revision list of one design (or every design's active bundle without `designId`) |
+| `GET` | `/flow/bundles/{bundleId}?include=design` | One revision's summary, optionally with the canvas-complete design snapshot |
+| `POST` | `/flow/bundles/{bundleId}/activate` | Make this revision the design's effective one (rollback = roll-forward) |
 
-ValueType options:
-- String, Integer, Long, Double, BigDecimal, Boolean, Date, DateTime, Time
+### Node Descriptor APIs
 
-| Node Type | Params Object | Param | Required | Description |
-| --- | --- | --- | --- | --- |
-| Compute Data | `ComputeDataParams` | `expression` | Required | Computation expression, multi-line text |
-|  |  | `valueType` | Required | Result value type, `ValueType` |
-| Create Data | `CreateDataParams` | `modelName` | Required | Model name to create |
-|  |  | `rowTemplate` | Required | Data template; values support constants, `#{}`, `${}` |
-| Delete Data | `DeleteDataParams` | `modelName` | Required | Model name to delete |
-|  |  | `pkVariable` | Either | PK variable name, single/multi `#{var}` |
-|  |  | `filters` |  | Composite filters; values support constants, `#{}`, `${}`, `@{}` |
-| Get Data | `GetDataParams` | `modelName` | Required | Model name to query |
-|  |  | `getDataType` | Required | Return type, `NodeGetDataType` |
-|  |  | `fields` |  | Field list; empty defaults to id only |
-|  |  | `filters` |  | Composite filters; values support constants, `#{}`, `${}`, `@{}` |
-|  |  | `orders` |  | Order conditions, Orders array |
-|  |  | `acrossTimeline` |  | Whether to query across timeline |
-|  |  | `limitSize` |  | Max rows, up to 10000 |
-| Update Data | `UpdateDataParams` | `modelName` | Required | Model name to update |
-|  |  | `pkVariable` | Either | PK variable name, single/multi `#{var}` |
-|  |  | `filters` |  | Composite filters; values support constants, `#{}`, `${}`, `@{}` |
-|  |  | `rowTemplate` | Required | Data template; values support constants, `#{}`, `${}` |
-| Validate Data | `ValidateDataParams` | `expression` | Required | Validation expression, multi-line text |
-|  |  | `exceptionMsg` | Required | Exception message on failure, supports `#{}` |
-| Async Task | `AsyncTaskParams` | `asyncTaskHandlerCode` | Required | Async task handler |
-|  |  | `dataTemplate` |  | Task params template; values support constants, `#{}`, `${}` |
-| Extract Transform | `ExtractTransformParams` | `collectionVariable` | Required | Collection variable, `#{var}` |
-|  |  | `itemKey` | Required | Field name to extract |
-| Return Data | `ReturnDataParams` | `dataTemplate` | Required | Return data template; values support constants, `#{}`, `${}` |
-| Condition | `ConditionParams` | `passCondition` | Required | Condition expression |
-|  |  | `exceptionSignal` | Required | `NodeExceptionSignal` |
-|  |  | `exceptionMessage` |  | Exception message, supports `#{}` |
-| Branch Gateway | `BranchGatewayParams` | `serialGateway` |  | Serial gateway flag, default parallel |
-| Query AI | `QueryAiParams` | `robotId` | Required |  |
-|  |  | `conversationId` | Required |  |
-|  |  | `queryContent` | Required | Supports `#{}` interpolation |
-| Trigger Subflow | `TriggerSubflowParams` | `subflowTriggerId` | Required | Subflow trigger ID |
-|  |  | `dataTemplate` |  | Subflow params template |
-| WebHook | `WebHookParams` |  |  | No params yet |
-| Generate Report | `GenerateReportParams` |  |  | No params yet |
-| Send Message | `SendMessageParams` | `message` | Required | Message content |
-|  |  | `recipient` | Required | Recipient |
-|  |  | `sender` | Required | Sender |
-| Transfer Stage | `TransferStageParams` |  |  | No params yet |
+Base path: `/flow/nodeDescriptors`
 
-## REST APIs
-- POST /automation/apiEvent
-- POST /automation/onchange (currently returns empty Map)
-- POST /automation/simulateEvent (non-prod only)
-- GET /FlowConfig/getByModel
-- GET /FlowConfig/getFlowById
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/flow/nodeDescriptors` | List all node descriptors for the editor palette |
+| `GET` | `/flow/nodeDescriptors?scenario=PROCESS` | Filter descriptors by `FlowScenario` |
 
-Entity CRUD endpoints are also available for FlowConfig, FlowTrigger, FlowNode, FlowEdge, FlowStage,
-FlowInstance, FlowEvent, and FlowDebugHistory via EntityController.
+### Runtime APIs
 
-## Examples
-API event request body:
+Base path: `/flow/runtime`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/flow/runtime/instances/start` | Start a flow instance |
+| `POST` | `/flow/runtime/instances/debug` | Start and return the resolved bundle snapshot plus runtime state |
+| `GET` | `/flow/runtime/instances/{instanceId}?includeTrace=` | Get one runtime instance (trace excluded by default) |
+| `GET` | `/flow/runtime/instances/{instanceId}/overlay` | Per-node run state for canvas painting |
+| `GET` | `/flow/runtime/instances/{instanceId}/trace?sinceSequence=` | Incremental trace rows for polling |
+| `POST` | `/flow/runtime/instances/search` | Paged instance summaries (filters: flowCode/designId/status/initiator/model/row) |
+| `POST` | `/flow/runtime/instances/approve` | Approve a pending approval |
+| `POST` | `/flow/runtime/instances/reject` | Reject a pending approval |
+| `POST` | `/flow/runtime/instances/transfer` | Transfer a pending approval task |
+| `POST` | `/flow/runtime/instances/delegate` | Delegate a pending approval task |
+| `POST` | `/flow/runtime/instances/add-sign-before` | Insert a prerequisite signer |
+| `POST` | `/flow/runtime/instances/add-sign-after` | Insert a follow-up signer |
+| `POST` | `/flow/runtime/instances/cc` | Send a CC notification |
+| `POST` | `/flow/runtime/instances/cc/read` | Mark a CC as read |
+| `POST` | `/flow/runtime/instances/return` | Return a pending approval |
+| `POST` | `/flow/runtime/instances/resubmit` | Resubmit a returned instance |
+| `POST` | `/flow/runtime/instances/withdraw` | Withdraw a flow instance |
+| `POST` | `/flow/runtime/instances/urge` | Urge pending approvers |
+| `POST` | `/flow/runtime/instances/comment` | Add a comment audit entry |
+| `GET` | `/flow/runtime/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
+| `POST` | `/flow/runtime/trigger` | Fire a trigger event and start matching flows |
+| `POST` | `/flow/runtime/onchange` | Run `COMPUTE` flows transiently and return variable diffs |
+| `POST` | `/flow/runtime/validate` | Run `VALIDATION` flows transiently against candidate row data; returns each flow's declared outputs keyed by flow code |
+
+Engine-internal resume callbacks live on `/internal/flow/runtime/instances/{resumeAsync|resumeTimer}`
+(INTERNAL identity scope) — they are not part of the user-facing surface.
+
+`actorId` / `initiatorId` / `tenantId` are **never** sent by clients: every action
+request stamps them server-side from the login context (`@JsonProperty(READ_ONLY)`),
+and all query endpoints resolve the current actor from the context.
+
+## Approval Projection APIs
+
+### Approval Tasks
+
+Base path: `/flow/approvalTasks`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/flow/approvalTasks/pending` | Pending tasks for the current actor (paged: returns `Page`) |
+| `GET` | `/flow/approvalTasks/completed` | Completed tasks for the current actor (paged) |
+| `GET` | `/flow/approvalTasks/cc` | CC tasks for the current actor (paged; `read=` filters unread/read) |
+| `GET` | `/flow/approvalTasks/inbox` | Unified inbox view |
+| `GET` | `/flow/approvalTasks/instance/{instanceId}` | All tasks for one runtime instance |
+
+### Approval Records
+
+Base path: `/flow/approvalRecords`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/flow/approvalRecords/instance/{instanceId}` | Approval history by runtime instance |
+| `GET` | `/flow/approvalRecords/history` | Actor-scoped approval history |
+| `GET` | `/flow/approvalRecords/cc/sent` | Sender-side CC history |
+
+### CC Config
+
+Base path: `/flow/ccConfigs`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/flow/ccConfigs` | Create a CC rule |
+| `GET` | `/flow/ccConfigs?flowCode=` | List CC rules by `flowCode` |
+| `POST` | `/flow/ccConfigs/{id}/deactivate` | Deactivate a CC rule |
+
+### Delegation
+
+Base path: `/flow/delegations`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/flow/delegations` | Create a delegation rule |
+| `GET` | `/flow/delegations/my?delegatorId=` | Delegations created by one delegator |
+| `GET` | `/flow/delegations/to-me?delegateId=` | Active delegations assigned to one delegate |
+| `POST` | `/flow/delegations/{id}/cancel` | Cancel a delegation rule |
+
+### Event Logs
+
+Base path: `/flow/events`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/flow/events?flowCode=&sourceModel=&sourceRowId=&instanceId=&success=&pageNumber=&pageSize=` | Paged event log, newest first (filters combine with AND; list rows exclude the parameters payload) |
+
+## Approval Model
+
+### Approval And Reject Thresholds
+
+- Approval modes: `ANY_ONE`, `UNANIMOUS`, `MIN_COUNT`, `PERCENTAGE`
+- Reject modes: `ANY_ONE`, `UNANIMOUS`, `MIN_COUNT`, `PERCENTAGE`
+- One actor can only cast one effective vote per cycle.
+- Compile-time validators reject impossible threshold combinations.
+
+### Approver Resolution
+
+Approval nodes support:
+
+- static approvers via `config.approvers`
+- dynamic approvers via `config.approverSource`
+- empty-approver strategies via `config.emptyApproverStrategy`
+
+Supported dynamic source types in the current default resolution path:
+
+- `VariableList`
+- `Expression`
+- `InitiatorManager`
+- `Role`
+
+Important integration note:
+
+- `OrganizationService` is defined as an SPI (`MetadataOrganizationService` is the default when wired). The default resolver path also supports variable-based sources via `ApproverResolutionService`.
+- If you need real org-tree lookup, provide a custom `OrganizationService` bean or populate resolution variables such as `initiatorManagerId` and `roleApprovers` before the flow reaches the approval node.
+
+Approver dedup: the default policy is **`GLOBAL`** — a user who already approved an
+earlier node is auto-passed on later nodes (recorded as `AUTO_APPROVE`). Residual
+risk: a mid-flow form edit is still auto-endorsed by that earlier approval; set the
+policy to `CONTIGUOUS` or `NONE` on flows where a re-look matters.
+
+### Additional Approval Actions
+
+- transfer
+- delegate
+- add-sign-before
+- add-sign-after
+- cc
+- read-cc
+- return
+- resubmit
+- withdraw
+- urge
+- comment
+
+### Timeout Handling
+
+Approval timeout strategies:
+
+- `REMIND`
+- `AUTO_APPROVE`
+- `AUTO_REJECT`
+- `ESCALATE`
+
+`ApprovalTimeoutScheduler` handles reminders, auto actions, and escalation against persisted pending approvals.
+
+## Task Execution Model
+
+Executor-backed task nodes use `TaskNodeConfig`. The node **`FlowNodeType`**
+selects the executor — there is no separate `executor` field in config.
+
 ```json
 {
-  "sourceModel": "Order",
-  "sourceRowId": 1001,
-  "triggerId": 2001,
-  "eventParams": {
-    "id": 1001,
-    "status": "PAID",
-    "totalAmount": 199.99,
-    "updatedBy": "system"
-  }
+  "input": {
+    "to": ["{{ applicantEmail }}"],
+    "subject": "Order {{ orderId }} confirmed",
+    "htmlBody": "<h1>Thank you for your order!</h1>"
+  },
+  "outputVariable": "taskResult"
 }
 ```
 
-API event:
-```bash
-curl -X POST http://localhost:8080/automation/apiEvent \
-  -H 'Content-Type: application/json' \
-  -d @- <<'JSON'
-{
-  "sourceModel": "Order",
-  "sourceRowId": 1001,
-  "triggerId": 2001,
-  "eventParams": {
-    "id": 1001,
-    "status": "PAID",
-    "totalAmount": 199.99,
-    "updatedBy": "system"
-  }
-}
-JSON
-```
+- `input` supports `{{ expr }}` interpolation; resolution is owned by the executor
+  (type-aware for data executors, recursive interpolation for free-shape payloads)
+- `options` is executor-specific
+- `outputVariable`, when present, stores the raw executor result under one variable name
 
-Simulate flow event request body (non-prod only):
-```json
-{
-  "flowId": 3001,
-  "flowNodeId": null,
-  "rollbackOnFail": true,
-  "triggerId": 2001,
-  "sourceModel": "Order",
-  "sourceRowId": 1001,
-  "triggerParams": {
-    "id": 1001,
-    "status": "PAID",
-    "totalAmount": 199.99
-  }
-}
-```
+Every task node type has a **typed input config DTO** registered in `TaskConfigTypes`:
+the compiler parses `config.input` into the DTO at publish time and rejects missing
+required keys (`MISSING_REQUIRED_INPUT`), so a misconfigured node fails at publish
+instead of mid-execution. `DefaultTaskExecutorRegistry` asserts at boot that every
+registered executor's node type has such an entry.
 
-Simulate flow event (non-prod only):
-```bash
-curl -X POST http://localhost:8080/automation/simulateEvent \
-  -H 'Content-Type: application/json' \
-  -d @- <<'JSON'
-{
-  "flowId": 3001,
-  "flowNodeId": null,
-  "rollbackOnFail": true,
-  "triggerId": 2001,
-  "sourceModel": "Order",
-  "sourceRowId": 1001,
-  "triggerParams": {
-    "id": 1001,
-    "status": "PAID",
-    "totalAmount": 199.99
-  }
-}
-JSON
-```
+### Bundled Task Executors
 
-Node parameters reference (common `nodeParams` templates):
-```json
-{
-  "validateData": {
-    "expression": "TriggerParams.totalAmount > 0",
-    "exceptionMsg": "totalAmount must be greater than 0 for order #{TriggerParams.id}"
-  },
-  "getData": {
-    "modelName": "Order",
-    "getDataType": "MultiRows",
-    "fields": ["id", "status", "totalAmount"],
-    "filters": ["status", "=", "PENDING"],
-    "orders": ["createdTime", "DESC"],
-    "limitSize": 100
-  },
-  "extractTransform": {
-    "collectionVariable": "#{101}",
-    "itemKey": "id"
-  },
-  "computeData": {
-    "expression": "1 + 2",
-    "valueType": "Integer"
-  },
-  "updateData": {
-    "modelName": "Order",
-    "pkVariable": "#{102}",
-    "rowTemplate": {
-      "status": "PROCESSING",
-      "updatedAt": "${NOW}"
-    }
-  },
-  "deleteData": {
-    "modelName": "Order",
-    "filters": ["status", "=", "CANCELLED"]
-  },
-  "condition": {
-    "passCondition": "TriggerParams.status == 'PAID'",
-    "exceptionSignal": "EndFlow",
-    "exceptionMessage": "status is not PAID, flow ended"
-  },
-  "returnData": {
-    "dataTemplate": {
-      "orderId": "#{TriggerParams.id}",
-      "status": "#{TriggerParams.status}"
-    }
-  },
-  "asyncTask": {
-    "asyncTaskHandlerCode": "OrderNotify",
-    "dataTemplate": {
-      "orderId": "#{TriggerParams.id}",
-      "status": "#{TriggerParams.status}"
-    }
-  },
-  "triggerSubflow": {
-    "subflowTriggerId": 4001,
-    "dataTemplate": {
-      "orderId": "#{TriggerParams.id}",
-      "totalAmount": "#{TriggerParams.totalAmount}"
-    }
-  },
-  "loopByDataset": {
-    "dataSetParam": "#{101}",
-    "loopItemNaming": "orderItem"
-  },
-  "loopByPage": {
-    "model": "Order",
-    "fields": ["id", "status"],
-    "filters": ["status", "=", "PENDING"],
-    "pageSize": 50,
-    "pageParamNaming": "pageRows"
-  },
-  "queryAi": {
-    "robotId": 1,
-    "conversationId": 1,
-    "queryContent": "Summarize order #{TriggerParams.id}"
-  }
-}
-```
+| Node type | Executor bean | Notes |
+|---|---|---|
+| `CREATE_RECORD` | `CreateDataTaskExecutor` | Built in |
+| `GET_RECORD` | `GetDataTaskExecutor` | Built in |
+| `UPDATE_RECORD` | `UpdateDataTaskExecutor` | Built in |
+| `DELETE_RECORD` | `DeleteDataTaskExecutor` | Built in |
+| `QUERY_RECORDS` | `QueryRecordsTaskExecutor` | Built in; opt-out via `flow.task.builtin.query-records.enabled=false` to register a custom executor |
+| `VALIDATE_DATA` | `ValidateDataTaskExecutor` | Built in |
+| `TRANSFORM` | `ExtractTransformTaskExecutor` | Built in |
+| `CALL_WEBHOOK` | `WebHookTaskExecutor` | Built in |
+| `CALL_SERVICE` | `CallServiceTaskExecutor` | **Disabled by default**. Opt-in via `flow.task.builtin.call-service.enabled=true`; a non-empty `flow.task.call-service.allow-list` of permitted bean-name prefixes is then mandatory |
+| `SEND_EMAIL` | `SendEmailTaskExecutor` | Registered only when `MessageService` is available |
+| `SEND_SMS` | `SendSmsTaskExecutor` | Registered only when `MessageService` is available |
+| `SEND_INBOX_NOTIFICATION` | `SendInboxNotificationTaskExecutor` | Registered only when `MessageService` is available |
+| `QUERY_AI` | `QueryAiTaskExecutor` | Registered only when `AiRobotService` is available |
+| `ASYNC_TASK` | `AsyncTaskExecutor` | Registered only when `FlowAsyncTaskProducer` is available |
+| `GENERATE_FILE` | `GenerateFileTaskExecutor` | Registered only when `DocumentTemplateService` (file-starter) is available |
+
+Current module notes:
+
+- `CALL_SERVICE` ships a bundled executor but is **disabled by default**: it invokes an arbitrary Spring bean method by name, so it must be explicitly enabled and given a non-empty bean-name allow-list.
+
+## Trigger And Messaging Integration
+
+Supported trigger sources (`TriggerSource` sealed sub-types):
+
+- `EntityChange`
+- `Api`
+- `Cron`
+- `Subflow`
+- `FieldChange` (COMPUTE scenario only)
+
+Pulsar-connected components are conditionally registered:
+
+| Property | Component | Purpose |
+|---|---|---|
+| `mq.topics.flow-event.topic` | `FlowEventProducer`, `FlowEventConsumer` | Async trigger fire and consume |
+| `mq.topics.flow-async-task.topic` | `FlowAsyncTaskProducer`, `FlowAsyncTaskConsumer` | Async task dispatch and callback resume |
+| `mq.topics.change-log.topic` | `ChangeLogFlowConsumer` | Entity change driven flow triggers |
+| `mq.topics.cron-task.topic` | `CronTaskFlowConsumer` | Cron-driven flow triggers |
+| `mq.topics.flow-timer.topic` | `FlowTimerConsumer` | Timer wake-up consume side |
+
+Important timer note:
+
+- The module includes the timer resume consumer.
+- A scheduler or producer that publishes `FlowTimerMessage` still has to be provided by the host application or another integration module.
+
+## Persistence Model
+
+| Entity | Description |
+|---|---|
+| `FlowDesign` | Draft working copy |
+| `FlowBundle` | Published compiled bundle |
+| `FlowInstance` | Persisted runtime instance state (trace and approval history are NOT embedded — see the two dedicated tables) |
+| `FlowExecutionTrace` | Append-only execution trace rows (the in-memory state keeps only the current attempt's delta) |
+| `FlowApprovalTask` | Pending/completed/CC task projections |
+| `FlowApprovalRecord` | Approval action audit ledger — the authoritative approval history, flushed by the instance store in the same transaction as the instance row |
+| `FlowCcConfig` | Automatic CC rules |
+| `FlowDelegation` | Delegation rules |
+| `FlowEvent` | Trigger event logs |
+| `FlowDebugHistory` | Debug snapshots |
+| `FlowFormDefinition` | Form definitions bound to flow nodes |
+| `FlowParallelBranch` | Parallel branch tracking |
+
+Primary storage adapters in this module:
+
+- `OrmFlowBundleRegistry`
+- `OrmFlowInstanceStore`
+
+## Node Descriptor Contract
+
+The editor palette is built from `FlowNodeDescriptor` records exposed through `/flow/nodeDescriptors`.
+
+- structural descriptors come from `BuiltinNodeDescriptorProvider`
+- executor-backed task descriptors come from `TaskExecutorDescriptorProvider`
+- descriptors include label, icon, sort order, config schema, default config, and allowed scenarios
+
+`TaskExecutorDescriptorProvider` only exposes task nodes for executors that are actually registered as Spring beans, so conditional executors such as `QUERY_AI` and `ASYNC_TASK` only appear when their dependencies are present.
+
+## Frontend Graph Compatibility
+
+Design graph DTOs remain aligned with xyflow/react style structures:
+
+| xyflow/react | flow-starter |
+|---|---|
+| `Node.id` | `FlowGraphNode.id` |
+| `Node.type` | `FlowGraphNode.type` |
+| `Node.position` | `FlowGraphNode.position` |
+| `Node.width` / `height` | `FlowGraphNode.width` / `height` |
+| `Node.data` | `FlowGraphNode.data` |
+| `Edge.id` | `FlowGraphEdge.id` |
+| `Edge.source` / `target` | `FlowGraphEdge.source` / `target` |
+| `Edge.sourceHandle` / `targetHandle` | `FlowGraphEdge.sourceHandle` / `targetHandle` |
+| `Edge.type` | `FlowGraphEdge.type` |
+| `Edge.label` | `FlowGraphEdge.label` |
+| `Edge.data` | `FlowGraphEdge.data` |
+| `Viewport {x, y, zoom}` | `FlowGraphViewport {x, y, zoom}` |
+
+## Host Application Integration Checklist
+
+Before enabling `flow-starter` in a real app, verify:
+
+- add `flow-starter` to the application classpath
+- create and expose `FlowDesign` drafts through the generic model APIs
+- provide a real `ApprovalNotificationService` if you need email, SMS, IM, or in-app notifications
+- provide a custom `OrganizationService` or populate approver resolution variables if you need manager/role/department based approvers
+- enable Pulsar topics if using triggers or async tasks
+- provide timer scheduling/publishing if using `TIMER` nodes
+- enable `CALL_SERVICE` explicitly (plus its bean-name allow-list) if flows need to invoke Spring beans; all other task node types ship working executors, conditionally registered on their capability beans

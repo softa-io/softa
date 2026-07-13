@@ -1,11 +1,12 @@
 package io.softa.starter.message.mail.dto;
 
-import io.softa.starter.message.mail.entity.MailSendRecord;
-import io.softa.starter.message.mail.enums.MailSendStatus;
+import java.time.LocalDateTime;
+import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import io.softa.starter.message.mail.entity.MailSendRecord;
+import io.softa.starter.message.mail.enums.MailSendStatus;
 
 /**
  * Response DTO for querying the send status of a mail record.
@@ -36,8 +37,8 @@ public class MailSendStatusDTO {
     @Schema(description = "Email subject")
     private String subject;
 
-    @Schema(description = "To addresses (JSON array)")
-    private String toAddresses;
+    @Schema(description = "To addresses")
+    private List<String> toAddresses;
 
     @Schema(description = "Current send status")
     private MailSendStatus status;

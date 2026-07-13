@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.placeholder.TemplateEngine;
@@ -19,17 +18,11 @@ import io.softa.starter.message.mail.service.MailTemplateService;
 /**
  * Implementation of {@link MailTemplateService}.
  * <p>
- * Template resolution uses a four-level fallback:
- * <ol>
- *   <li>Tenant template matching the request language</li>
- *   <li>Tenant template with language = {@code "default"}</li>
- *   <li>Platform template (tenant_id = 0) matching the request language</li>
- *   <li>Platform template with language = {@code "default"}</li>
- * </ol>
- * Levels 3–4 run inside {@link #findPlatformByCode} which is annotated
- * with {@code @CrossTenant} to bypass ORM tenant isolation. It is called
- * through the Spring proxy via the {@code self} reference to ensure the
- * AOP advice is applied.
+ * Template resolution prefers a tenant template, falling back to the platform
+ * template (tenant_id = 0). The platform lookup runs inside
+ * {@link #findPlatformByCode}, annotated {@code @CrossTenant} to bypass ORM
+ * tenant isolation; it is called through the Spring proxy via the {@code self}
+ * reference to ensure the AOP advice is applied.
  */
 @Service
 public class MailTemplateServiceImpl extends EntityServiceImpl<MailTemplate, Long>
@@ -45,43 +38,23 @@ public class MailTemplateServiceImpl extends EntityServiceImpl<MailTemplate, Lon
 
     @Override
     public MailTemplate resolve(String code) {
-        String lang = ContextHolder.getContext().getLanguage().getCode();
-
-        // 1. Tenant template matching current language
+        // 1. Tenant template (ORM auto-scopes to the current tenant)
         Optional<MailTemplate> result = searchOne(new Filters()
                 .eq(MailTemplate::getCode, code)
-                .eq(MailTemplate::getLanguage, lang)
                 .eq(MailTemplate::getIsEnabled, true));
-        if (result.isPresent()) return result.get();
-
-        // 2. Tenant template with language = "default"
-        result = searchOne(new Filters()
-                .eq(MailTemplate::getCode, code)
-                .eq(MailTemplate::getLanguage, "default")
-                .eq(MailTemplate::getIsEnabled, true));
-        return result.orElseGet(() -> self.findPlatformByCode(code, lang)
+        return result.orElseGet(() -> self.findPlatformByCode(code)
                 .orElseThrow(() -> new BusinessException(
-                        "No mail template found for code ''{0}'' in language ''{1}'' or ''default''.", code, lang)));
+                        "No mail template found for code ''{0}''.", code)));
 
-        // 3 & 4. Platform templates (tenant_id = 0) — cross-tenant via proxy
+        // 2. Platform template (tenant_id = 0) — cross-tenant via proxy
     }
 
     @Override
     @CrossTenant
-    public Optional<MailTemplate> findPlatformByCode(String code, String language) {
-        // 3. Platform template matching requested language
-        Optional<MailTemplate> result = searchOne(new Filters()
-                .eq("tenantId", 0L)
-                .eq(MailTemplate::getCode, code)
-                .eq(MailTemplate::getLanguage, language)
-                .eq(MailTemplate::getIsEnabled, true));
-        if (result.isPresent()) return result;
-
-        // 4. Platform template with language = "default"
+    public Optional<MailTemplate> findPlatformByCode(String code) {
         return searchOne(new Filters()
                 .eq("tenantId", 0L)
                 .eq(MailTemplate::getCode, code)
-                .eq(MailTemplate::getLanguage, "default")
                 .eq(MailTemplate::getIsEnabled, true));
     }
 
@@ -91,7 +64,14 @@ public class MailTemplateServiceImpl extends EntityServiceImpl<MailTemplate, Lon
     }
 
     @Override
-    public String renderBody(MailTemplate template, Map<String, Object> variables) {
-        return TemplateEngine.render(template.getBody(), variables);
+    public String renderBodyHtml(MailTemplate template, Map<String, Object> variables) {
+        return template.getBodyHtml() == null
+                ? null : TemplateEngine.render(template.getBodyHtml(), variables);
+    }
+
+    @Override
+    public String renderBodyText(MailTemplate template, Map<String, Object> variables) {
+        return template.getBodyText() == null
+                ? null : TemplateEngine.render(template.getBodyText(), variables);
     }
 }

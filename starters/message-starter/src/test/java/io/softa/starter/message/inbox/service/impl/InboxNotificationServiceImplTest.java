@@ -4,6 +4,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.message.inbox.entity.InboxNotification;
@@ -72,7 +73,7 @@ class InboxNotificationServiceImplTest {
 
     @Test
     void markAllAsReadPatchSetsIsReadTrueAndReadAt() {
-        var patchCaptor = org.mockito.ArgumentCaptor.forClass(InboxNotification.class);
+        var patchCaptor = ArgumentCaptor.forClass(InboxNotification.class);
         doReturn(0).when(service).updateByFilter(any(Filters.class), patchCaptor.capture());
 
         service.markAllAsRead(42L);

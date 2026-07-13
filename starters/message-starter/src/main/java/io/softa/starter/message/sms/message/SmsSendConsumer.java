@@ -1,18 +1,23 @@
 package io.softa.starter.message.sms.message;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.starter.message.sms.dto.SendSmsDTO;
-import io.softa.starter.message.sms.service.SmsSendService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
+
+import io.softa.starter.message.mq.outbox.OutboxContextSupport;
+import io.softa.starter.message.mq.outbox.OutboxMessage;
+import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
 
 /**
- * Consumes asynchronous SMS-send messages from Pulsar and triggers the actual send.
+ * Consumes SMS delivery messages from Pulsar and drives the delivery processor.
+ * Initial attempts and delayed retries share this topic; retry timing is owned
+ * by the transactional outbox.
+ * <p>
+ * Messages carry only {@code recordId} (plus tenant/trace for context).
+ * Duplicate broker deliveries are safely rejected by the CAS claim in
+ * {@link SmsDeliveryProcessor#process(Long)}.
  * <p>
  * Only activated when {@code mq.topics.sms-send.topic} is configured.
  */
@@ -22,17 +27,15 @@ import org.springframework.util.CollectionUtils;
 public class SmsSendConsumer {
 
     @Autowired
-    private SmsSendService smsSendService;
+    private SmsDeliveryProcessor deliveryProcessor;
 
     @PulsarListener(topics = "${mq.topics.sms-send.topic}",
                     subscriptionName = "${mq.topics.sms-send.sub:sms-send-sub}")
-    public void onSend(SmsSendMessage message) {
-        Context ctx = message.getContext();
-        ContextHolder.runWith(ctx != null ? ctx : new Context(), () -> {
-            SendSmsDTO dto = message.getSendSmsDTO();
-            log.info("Processing async SMS send: batchSize={}",
-                    !CollectionUtils.isEmpty(dto.getItems()) ? dto.getItems().size() : 1);
-            smsSendService.sendNow(dto);
+    public void onSend(OutboxMessage message) {
+        OutboxContextSupport.runWithContext(message, () -> {
+            log.debug("Processing SMS delivery: recordId={} traceId={}",
+                    message.getRecordId(), message.getTraceId());
+            deliveryProcessor.process(message.getRecordId());
         });
     }
 }

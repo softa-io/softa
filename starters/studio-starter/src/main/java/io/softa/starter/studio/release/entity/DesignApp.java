@@ -44,7 +44,4 @@ public class DesignApp extends AuditableModel {
 
     @Field(length = 256)
     private String description;
-
-    @Field
-    private Boolean deleted;
 }

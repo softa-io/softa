@@ -1,5 +1,10 @@
 package io.softa.starter.studio.release.desired;
 
+import static io.softa.starter.studio.release.desired.DesignEnvRowOps.ENV_ID;
+import static io.softa.starter.studio.release.desired.DesignEnvRowOps.ID;
+import static io.softa.starter.studio.release.desired.DesignEnvRowOps.asLong;
+import static io.softa.starter.studio.release.desired.DesignEnvRowOps.prepareClone;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +23,7 @@ import io.softa.starter.studio.meta.entity.DesignModel;
 import io.softa.starter.studio.meta.entity.DesignModelIndex;
 import io.softa.starter.studio.meta.entity.DesignOptionItem;
 import io.softa.starter.studio.meta.entity.DesignOptionSet;
+import io.softa.starter.studio.release.dto.DesignAggregate;
 
 /**
  * Clones one environment's full {@code design_*} aggregate set into another environment
@@ -54,11 +60,11 @@ public class DesignEnvCloner {
     private static final String OPTION_SET = DesignOptionSet.class.getSimpleName();
     private static final String OPTION_ITEM = DesignOptionItem.class.getSimpleName();
 
-    private static final String ID = LambdaUtils.getAttributeName(DesignModel::getId);
+    // ID / ENV_ID are shared via DesignEnvRowOps (static-imported); the child→parent FK attrs come from
+    // the DesignAggregate descriptor. Only APP_ID is Cloner-local.
     private static final String APP_ID = LambdaUtils.getAttributeName(DesignModel::getAppId);
-    private static final String ENV_ID = LambdaUtils.getAttributeName(DesignModel::getEnvId);
-    private static final String MODEL_ID = LambdaUtils.getAttributeName(DesignField::getModelId);
-    private static final String OPTION_SET_ID = LambdaUtils.getAttributeName(DesignOptionItem::getOptionSetId);
+    private static final String MODEL_ID = DesignAggregate.FIELD.parentFkAttr();
+    private static final String OPTION_SET_ID = DesignAggregate.OPTION_ITEM.parentFkAttr();
 
     private final ModelService<Long> modelService;
 
@@ -146,7 +152,8 @@ public class DesignEnvCloner {
     public void replaceEnvDesign(Long envId, DesignRows snapshot) {
         Filters envScope = new Filters().eq(ENV_ID, envId);
         // Delete children before parents.
-        for (String model : List.of(FIELD, INDEX, OPTION_ITEM, MODEL, OPTION_SET)) {
+        for (DesignAggregate aggregate : DesignAggregate.deleteOrder()) {
+            String model = aggregate.designName();
             modelService.deleteByFilters(model, envScope);
         }
         // Re-materialize: fresh ids + remapped FKs + carried business key (flag-independent).
@@ -170,10 +177,6 @@ public class DesignEnvCloner {
         return clones.size();
     }
 
-    private Map<String, Object> prepareClone(Map<String, Object> src, Long targetEnvId) {
-        return DesignEnvRowOps.prepareClone(src, targetEnvId);
-    }
-
     private List<Map<String, Object>> loadByEnv(String modelName, Long appId, Long envId) {
         return modelService.searchList(modelName,
                 new FlexQuery(new Filters().eq(APP_ID, appId).eq(ENV_ID, envId)));
@@ -184,9 +187,5 @@ public class DesignEnvCloner {
                 .filter(r -> r.get(parentFk) != null)
                 .collect(Collectors.groupingBy(r -> asLong(r.get(parentFk)),
                         LinkedHashMap::new, Collectors.toList()));
-    }
-
-    private static Long asLong(Object value) {
-        return DesignEnvRowOps.asLong(value);
     }
 }

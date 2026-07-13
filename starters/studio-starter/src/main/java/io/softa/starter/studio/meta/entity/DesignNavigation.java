@@ -16,7 +16,8 @@ import io.softa.framework.orm.enums.IdStrategy;
 @EqualsAndHashCode(callSuper = true)
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        softDelete = true,
+        // hard delete (no softDelete) so a re-created navigation never collides with a soft-deleted row
+        // that still occupies the {code} business key — consistent with the other design_* models.
         businessKey = {"code"}
 )
 public class DesignNavigation extends AuditableModel {
@@ -50,7 +51,4 @@ public class DesignNavigation extends AuditableModel {
 
     @Field(label = "Default filters", description = "The default filters at the menu level.", length = 256)
     private String filter;
-
-    @Field
-    private Boolean deleted;
 }

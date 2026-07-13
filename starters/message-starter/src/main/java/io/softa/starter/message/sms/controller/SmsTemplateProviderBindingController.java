@@ -11,8 +11,8 @@ import io.softa.starter.message.sms.service.SmsTemplateProviderBindingService;
 /**
  * REST controller for SMS template-provider binding CRUD.
  * <p>
- * Manages the association between SMS templates and provider configs,
- * including failover ordering and provider-specific overrides.
+     * Manages the association between SMS templates and provider configs,
+     * including template-aware selection order and provider-specific overrides.
  */
 @Tag(name = "SmsTemplateProviderBinding")
 @RestController
@@ -20,4 +20,3 @@ import io.softa.starter.message.sms.service.SmsTemplateProviderBindingService;
 public class SmsTemplateProviderBindingController
         extends EntityController<SmsTemplateProviderBindingService, SmsTemplateProviderBinding, Long> {
 }
-

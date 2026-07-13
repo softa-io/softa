@@ -2,9 +2,10 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
-> **Where to put new docs / ADRs**: see [`docs/README.md`](docs/README.md) for
-> the documentation conventions (ADR layout, topic subdirectories, templates,
-> anti-patterns).
+> **Where to put new docs**: see [`docs/README.md`](docs/README.md) for the
+> documentation conventions. Rationale lives inline where the rule is stated
+> (module READMEs, this file, `docs/ai/`); there is no ADR archive — decision
+> history is git history, and undecided questions live in
 
 ## Project Overview
 
@@ -60,7 +61,7 @@ softa-parent (root pom.xml)
 │   ├── file-starter             # File management
 │   ├── message-starter          # SMS / Mail + Pulsar MQ producers/consumers
 │   ├── reference-data-starter   # ISO 3166-1 countries, ISO 4217 currencies, ISO 3166-2 subdivisions
-│   ├── studio-starter           # UI/DDL code generation via Pebble templates
+│   ├── studio-starter           # Metadata control plane: cross-env governance + DDL rendering (Pebble)
 │   ├── user-starter             # User management
 │   └── tenant-starter           # Multi-tenancy
 └── apps/               # Example applications
@@ -72,12 +73,12 @@ Dependency direction: `framework` → `starters` → `apps`. Each starter declar
 
 ## Key Architectural Concepts
 
-**Metadata-driven**: Entities and their fields are described in metadata rather than hard-coded schemas. The `metadata-starter` handles this; `studio-starter` uses Pebble templates to generate DDL and code from metadata.
+**Metadata-driven**: Entities and their fields are described in metadata rather than hard-coded schemas. The `metadata-starter` handles this; `studio-starter` uses Pebble templates to generate DDL from metadata (business code is not generated — the runtime is annotation/scanner-driven).
 
 **Global Placeholder Syntax**: `{{ expr }}` is used uniformly across all runtime and build-time contexts:
 - Runtime: `PlaceholderUtils` / `TemplateEngine` (softa-base)
 - Expressions: AviatorScript 5.4.3 (metadata-starter computed fields)
-- Code/DDL generation: Pebble Template Engine (studio-starter)
+- DDL generation: Pebble Template Engine (studio-starter)
 
 **Flow Engine**: `flow-starter` provides a node-based workflow system. Flows are defined in JSON and executed by the `FlowEngine`, which supports conditional logic, parallel execution, and integration with other starters (e.g. database operations, messaging).
 
@@ -85,7 +86,7 @@ Dependency direction: `framework` → `starters` → `apps`. Each starter declar
 
 ## Metadata Governance (Annotation-Driven)
 
-Per ADR-0006/0007/0008 (in `docs/adr/metadata/`), platform-level
+Platform-level
 metadata is declared via Java annotations on entity classes. The
 `MetadataAnnotationScanner` (in `metadata-starter`) reconciles annotations
 with `sys_*` rows at boot for the packages named in `scanner-scope`,
@@ -107,7 +108,7 @@ represented as separate `sys_*` rows.
     storageType = StorageType.RDBMS,
     softDelete = false, activeControl = false, timeline = false,
     versionLock = false,
-    copyable = true                             // default true; false = copy APIs reject + UI hides Duplicate (runtime/log models, ADR-0016)
+    copyable = true                             // default true; false = copy APIs reject + UI hides Duplicate (runtime/log models)
 )
 @Index(fields = {"status", "createdTime"})            // @Repeatable; index names are GLOBALLY unique (≤60 chars, boot-enforced)
 @Index(indexName = "uk_customer_email", fields = {"email"}, unique = true,
@@ -148,7 +149,7 @@ public enum CustomerTier {
   (`AuditableModel`) and timeline (`TimelineModel`) fields carry `@Field` on the base
   class → inherited by every model (scanner walks the superclass chain), so subclasses
   don't repeat them.
-- `onDelete` (ADR-0022, relational FK only): app-level delete strategy on `MANY_TO_ONE` /
+- `onDelete` (relational FK only): app-level delete strategy on `MANY_TO_ONE` /
   `ONE_TO_ONE` — `RESTRICT` / `CASCADE` / `SET_NULL`; unset = KEEP (default). Declared on the FK,
   never on `ONE_TO_MANY`. No physical DB FK; rejected at boot: cyclic / self-referential `CASCADE`, a
   `CASCADE` chain deeper than `MAX_CASCADE_DEPTH`, a `CASCADE` from a soft-delete parent to a hard-delete
@@ -180,10 +181,10 @@ sub-packages, `io\.acme\.foo` for that package only; a sole entry `"*"` means
 A **narrow scope on a shared dev database** lets each developer reconcile only
 their own packages. Caveats: scope is per-package not per-class, it is not an
 ownership barrier, the baseline is the shared live `sys_*`, app identity is
-still `app_code`, and physical-table collisions remain — see ADR-0008.
+still `app_code`, and physical-table collisions remain.
 
-**Renames: declare the `renamedFrom` attribute** (ADR-0025, supersedes the
-retired standalone `@RenamedFrom` annotation). The scanner's set-based diff is
+**Renames: declare the `renamedFrom` attribute** (the earlier
+standalone `@RenamedFrom` annotation is retired). The scanner's set-based diff is
 keyed by `fieldName` / `modelName` / `itemCode`, so an *undeclared* rename still
 looks like "drop old + add new" → auto-adds the new column, warn-only on dropping
 the old = **silent data divorce**. Declaring `@Field(renamedFrom = "oldName")` /
@@ -240,10 +241,9 @@ were planned but removed. AI agents use `Read` / `Edit` / `Write` directly
 
 ### Key reference documents
 
-- [ADR-0006](docs/adr/metadata/0006-layered-annotation-and-customization.md) — layered model + annotation property reference
-- [ADR-0007](docs/adr/metadata/0007-ai-agent-tooling-and-lane-contract.md) — AI tool family + lane contract
-- [ADR-0008](docs/adr/metadata/0008-module-structure-and-scanner-foundation.md) — module structure + scanner/checker + DDL policy
-- [IMPLEMENTATION_PLAN.md](docs/adr/metadata/IMPLEMENTATION_PLAN.md) — current implementation state
+- [starters/metadata-starter/README.md](starters/metadata-starter/README.md) — annotation API, scanner-scope behavior matrix, `renamedFrom`, DDL auto-execute policy
+- [framework/softa-orm/README.md](framework/softa-orm/README.md) — full `@Model` / `@Field` / `@Index` property reference
+- [starters/studio-starter/README.md](starters/studio-starter/README.md) — metadata control plane: publish / merge / drift / import, connectors, `DesignAggregate`
 
 ## Coding Conventions
 

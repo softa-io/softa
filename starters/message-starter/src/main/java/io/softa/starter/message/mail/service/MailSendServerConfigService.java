@@ -24,6 +24,15 @@ public interface MailSendServerConfigService extends EntityService<MailSendServe
     Optional<MailSendServerConfig> findPlatformDefault();
 
     /**
+     * Load a config by id within the caller's visibility scope: the caller's
+     * own tenant plus the platform tier (tenant_id = 0). Send records
+     * legitimately reference platform-level configs, which the implicit
+     * single-tenant filter would hide — dispatch and retry paths must resolve
+     * ids through this method rather than {@code getById}.
+     */
+    Optional<MailSendServerConfig> findVisibleById(Long id);
+
+    /**
      * Test SMTP connectivity and authentication for the config identified by {@code id}.
      */
     ConnectivityTestResultDTO testConnectivity(Long id);

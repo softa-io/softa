@@ -47,3 +47,23 @@ oss:
 
 rpc:
   enable: true
+
+# ---- message-starter: incoming mail resource limits ----
+# Defense-in-depth gates applied to every email pulled from IMAP/POP3.
+# Hits land on MailReceiveRecord.truncationReason for SecOps triage.
+#softa:
+#  message:
+#    mail:
+#      fetch:
+#        max-message-size: 100MB
+#        max-attachment-size: 20MB
+#        archive-eml: false
+#        max-mime-depth: 10
+#        max-mime-parts: 100
+#      transport:
+#        connection-timeout: 5s
+#        read-timeout: 30s
+#    sms:
+#      transport:
+#        connection-timeout: 5s
+#        read-timeout: 30s

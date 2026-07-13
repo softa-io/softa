@@ -53,6 +53,21 @@ class DesignWriteStamperTest {
     }
 
     @Test
+    @DisplayName("create tolerates string-typed id/appId/envId (JS clients send 64-bit ids as strings) — no ClassCastException")
+    void createToleratesStringIds() {
+        ModelService<Long> ms = mock(ModelService.class);
+        when(ms.searchList(eq("DesignAppEnv"), any(FlexQuery.class))).thenReturn(List.of(row("id", 42L, "appId", APP)));
+        DesignWriteStamper stamper = new DesignWriteStamper(ms);
+        // A browser / JS client commonly serialises 64-bit ids as JSON strings to avoid precision loss.
+        Map<String, Object> row = row("id", "500", "appId", "7", "envId", "42", "modelName", "Customer");
+
+        stamper.stampCreate(row);   // must not throw ClassCastException on the raw string values
+
+        assertEquals("500", row.get("id"), "a present (string) id is retained, not regenerated");
+        assertEquals("42", row.get("envId"), "the client-supplied (string) envId is kept after validation");
+    }
+
+    @Test
     @DisplayName("create rejects a client-supplied envId that does not belong to the row's app")
     void createRejectsCrossAppEnv() {
         ModelService<Long> ms = mock(ModelService.class);

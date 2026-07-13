@@ -21,7 +21,7 @@ public class SmsSendStatusDTO {
         dto.setId(record.getId());
         dto.setProviderType(record.getProviderType());
         dto.setPhoneNumber(record.getPhoneNumber());
-        dto.setContentPreview(record.getContentPreview());
+        dto.setContent(record.getContent());
         dto.setStatus(record.getStatus());
         dto.setRetryCount(record.getRetryCount());
         dto.setErrorMessage(record.getErrorMessage());
@@ -42,8 +42,8 @@ public class SmsSendStatusDTO {
     @Schema(description = "Recipient phone number")
     private String phoneNumber;
 
-    @Schema(description = "Content preview")
-    private String contentPreview;
+    @Schema(description = "Rendered SMS content")
+    private String content;
 
     @Schema(description = "Send status")
     private SmsSendStatus status;

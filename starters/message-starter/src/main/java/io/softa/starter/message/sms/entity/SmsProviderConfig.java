@@ -1,12 +1,15 @@
 package io.softa.starter.message.sms.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.message.sms.enums.SmsProvider;
-import io.swagger.v3.oas.annotations.media.Schema;
+import java.io.Serial;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.message.sms.enums.SmsProvider;
 
 /**
  * SMS provider configuration.
@@ -19,64 +22,77 @@ import java.io.Serial;
  * tenant_id > 0  — tenant-level, ORM auto-fills and isolates.
  */
 @Data
-@Schema(name = "SmsProviderConfig")
+@Model(label = "SMS Provider Config", idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true)
+@Index(indexName = "idx_sms_provider_cfg_default", fields = {"tenantId", "isDefault"})
 @EqualsAndHashCode(callSuper = true)
 public class SmsProviderConfig extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Config name")
+    @Field(label = "Tenant ID",
+            description = "0 = platform-level (shared across tenants); >0 = tenant-level. "
+                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
+    private Long tenantId;
+
+    @Field(label = "Config Name", required = true, length = 100)
     private String name;
 
-    @Schema(description = "Description")
+    @Field(length = 500)
     private String description;
 
-    @Schema(description = "Provider type: Twilio / Infobip / Aliyun / Tencent / Custom")
+    @Field(required = true,
+            description = "Provider type: Twilio / Infobip / Aliyun / Tencent / Custom")
     private SmsProvider providerType;
 
-    @Schema(description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun=accessKeyId)")
+    @Field(label = "API Key", length = 255, copyable = false,
+            description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun=accessKeyId)")
     private String apiKey;
 
-    @Schema(description = "Secondary credential (Twilio=authToken, Infobip=apiSecret, Aliyun=accessKeySecret)")
+    @Field(label = "API Secret", copyable = false,
+            description = "Secondary credential (Twilio=authToken, Infobip=apiSecret, Aliyun=accessKeySecret) — stored encrypted, mark MetaField.encrypted=true")
     private String apiSecret;
 
-    @Schema(description = "Provider API base URL (null = adapter default)")
+    @Field(label = "API Endpoint", length = 500,
+            description = "Provider API base URL (null = adapter default)")
     private String apiEndpoint;
 
-    @Schema(description = "Extra provider identifier (e.g. Twilio Account SID when using API keys)")
+    @Field(label = "Account ID", length = 255,
+            description = "Extra provider identifier (e.g. Twilio Account SID when using API keys)")
     private String accountId;
 
-    @Schema(description = "Provider-specific JSON config (e.g. regionId, appId)")
+    @Field(description = "Provider-specific JSON config (e.g. regionId, appId)")
     private String extConfig;
 
-    @Schema(description = "Sender phone number (E.164 format)")
+    @Field(length = 50,
+            description = "Sender phone number (E.164 format)")
     private String senderNumber;
 
-    @Schema(description = "Alphanumeric sender ID (alternative to phone number)")
+    @Field(label = "Sender ID", length = 50,
+            description = "Alphanumeric sender ID (alternative to phone number)")
     private String senderId;
 
-    @Schema(description = "Max SMS per minute")
+    @Field(description = "Max SMS per minute")
     private Integer rateLimitPerMinute;
 
-    @Schema(description = "Max SMS per day (null = unlimited)")
+    @Field(description = "Max SMS per day (null = unlimited)")
     private Integer dailySendLimit;
 
-    @Schema(description = "Whether this is the default config for this tenant")
+    @Field(description = "Marks this provider as a catchall — included in the SMS dispatcher's "
+                    + "second tier when no enabled sms_provider_region route matches the recipient's country. "
+                    + "Multiple providers may be defaults; they're ordered by priority before one provider is "
+                    + "selected and persisted. Orthogonal to precise region routing — a provider can be both "
+                    + "a TW route (via sms_provider_region) and a catchall (via this flag).")
     private Boolean isDefault;
 
-    @Schema(description = "Whether this config is active")
+    @Field(description = "Whether this config is active")
     private Boolean isEnabled;
 
-    @Schema(description = "Sort order for multiple configs")
-    private Integer sortOrder;
-
-    @Schema(description = "Max retry attempts on send failure (0 = no retry)")
-    private Integer maxRetryCount;
-
-    @Schema(description = "Delay in seconds between retry attempts (default 60)")
-    private Integer retryIntervalSeconds;
+    @Field(description = "Lower = higher priority. Used as selection ordering among "
+                    + "isDefault=true providers in the catchall dispatch tier, and as the list-display "
+                    + "order in admin UIs. Defaults to 100 so new configs sort after explicitly-prioritised ones.")
+    private Integer priority;
 }

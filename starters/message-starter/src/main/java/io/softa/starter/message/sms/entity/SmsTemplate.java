@@ -1,23 +1,23 @@
 package io.softa.starter.message.sms.entity;
 
 import java.io.Serial;
-import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import io.softa.framework.base.enums.Language;
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 
 /**
  * SMS template.
  * <p>
- * Templates are identified by {@code code} and support per-language variants.
- * Resolution priority (from highest to lowest):
+ * Templates are identified by {@code code}. Resolution prefers a tenant
+ * template, falling back to the platform template:
  * <ol>
- *   <li>Tenant template matching current language</li>
- *   <li>Tenant template with language = "default"</li>
- *   <li>Platform template (tenant_id = 0) matching current language</li>
- *   <li>Platform template with language = "default"</li>
+ *   <li>Tenant template for {@code code}</li>
+ *   <li>Platform template (tenant_id = 0) for {@code code}</li>
  * </ol>
  * <p>
  * Content supports {@code {{ variable }}} placeholders rendered by
@@ -27,31 +27,36 @@ import io.softa.framework.orm.entity.AuditableModel;
  * tenant_id > 0  — tenant-level, ORM auto-fills and isolates.
  */
 @Data
-@Schema(name = "SmsTemplate")
+@Model(label = "SMS Template", idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true)
+@Index(indexName = "uk_sms_template_tenant_code", fields = {"tenantId", "code"}, unique = true)
 @EqualsAndHashCode(callSuper = true)
 public class SmsTemplate extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Unique template code used for programmatic lookup, e.g. VERIFY_CODE")
+    @Field(label = "Tenant ID",
+            description = "0 = platform-level (shared across tenants); >0 = tenant-level. "
+                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
+    private Long tenantId;
+
+    @Field(required = true, length = 100,
+            description = "Unique template code used for programmatic lookup, e.g. VERIFY_CODE")
     private String code;
 
-    @Schema(description = "Display name")
+    @Field(required = true, length = 100)
     private String name;
 
-    @Schema(description = "Description")
+    @Field(length = 500)
     private String description;
 
-    @Schema(description = "Language tag, e.g. en-US, zh-CN. Use 'default' as the language-agnostic fallback")
-    private Language language;
-
-    @Schema(description = "SMS body template with {{ variable }} placeholders")
+    @Field(length = 65535,
+            description = "SMS body template with {{ variable }} placeholders")
     private String content;
 
-    @Schema(description = "Whether this template is active")
+    @Field(label = "Enabled", description = "Whether this template is active")
     private Boolean isEnabled;
 }

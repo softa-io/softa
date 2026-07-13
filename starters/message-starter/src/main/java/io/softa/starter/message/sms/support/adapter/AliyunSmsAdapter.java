@@ -100,11 +100,7 @@ public class AliyunSmsAdapter extends AbstractSmsProviderAdapter {
         params.put("Version", "2017-05-25");
 
         if (request.getTemplateVariables() != null && !request.getTemplateVariables().isEmpty()) {
-            try {
-                params.put("TemplateParam", JsonUtils.objectToString(request.getTemplateVariables()));
-            } catch (Exception e) {
-                log.warn("Aliyun SMS: failed to serialize templateVariables: {}", e.getMessage());
-            }
+            params.put("TemplateParam", JsonUtils.objectToString(request.getTemplateVariables()));
         }
 
         String signature = generateSignature(accessKeySecret, params);
@@ -120,8 +116,7 @@ public class AliyunSmsAdapter extends AbstractSmsProviderAdapter {
                     .append(percentEncode(entry.getValue()));
         }
 
-        String baseUrl = StringUtils.hasText(config.getApiEndpoint())
-                ? config.getApiEndpoint() : DEFAULT_API_ENDPOINT;
+        String baseUrl = resolveBaseUrl(config, DEFAULT_API_ENDPOINT);
 
         String response = restClient.post()
                 .uri(baseUrl)
@@ -130,7 +125,7 @@ public class AliyunSmsAdapter extends AbstractSmsProviderAdapter {
                 .retrieve()
                 .body(String.class);
 
-        JsonNode json = JsonUtils.stringToObject(response, JsonNode.class);
+        JsonNode json = parseJson(response);
         String code = json.path("Code").asString("");
         if ("OK".equals(code)) {
             return SmsSendResult.success(json.path("BizId").asString(null));

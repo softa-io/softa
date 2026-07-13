@@ -18,7 +18,7 @@ import io.softa.starter.studio.release.dto.DesignMetaTables;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
 import io.softa.starter.studio.release.dto.RowChangeOp;
-import io.softa.starter.studio.template.TestMetadataResolver;
+import io.softa.starter.studio.release.ddl.TestMetadataResolver;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;

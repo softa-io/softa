@@ -77,7 +77,4 @@ public class DesignActivity extends AuditableModel {
 
     @Field(length = 20000)
     private String errorMessage;
-
-    @Field
-    private Boolean deleted;
 }

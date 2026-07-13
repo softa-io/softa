@@ -1,6 +1,7 @@
 package io.softa.starter.message.inbox.enums;
 
 import com.fasterxml.jackson.annotation.JsonValue;
+import io.softa.framework.base.annotation.OptionSet;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -9,6 +10,7 @@ import lombok.Getter;
  */
 @Getter
 @AllArgsConstructor
+@OptionSet
 public enum NotificationType {
     SYSTEM("System"),
     WORKFLOW("Workflow"),

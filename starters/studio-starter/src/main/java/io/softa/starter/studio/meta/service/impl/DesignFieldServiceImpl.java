@@ -7,8 +7,8 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.studio.meta.entity.DesignField;
 import io.softa.starter.studio.meta.service.DesignFieldService;
-import io.softa.starter.studio.template.entity.DesignFieldDomain;
-import io.softa.starter.studio.template.service.DesignFieldDomainService;
+import io.softa.starter.studio.meta.entity.DesignFieldDomain;
+import io.softa.starter.studio.meta.service.DesignFieldDomainService;
 
 /**
  * DesignField Model Service Implementation.

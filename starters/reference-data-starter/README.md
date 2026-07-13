@@ -19,8 +19,8 @@ the `Continent` enum are annotated with `@Model` / `@Field` / `@OptionSet` /
 [`framework/softa-orm`](../../framework/softa-orm/README.md#metadata-annotations)).
 When this starter's package is in `scanner-scope`, `MetadataAnnotationScanner`
 reconciles them into `sys_*` rows stamped with the runtime's `app_code`
-(ADR-0015). Per-tenant runtime metadata customization is out of scope
-(ADR-0013) — tenants cannot add custom fields onto these models via Studio.
+(`system.app-code`). Per-tenant runtime metadata customization is out of
+scope — tenants cannot add custom fields onto these models via Studio.
 
 Schema drift between the annotations and `sys_*` triggers a startup WARN
 (when this package is out of `scanner-scope`) or an automatic ALTER (when it
@@ -36,7 +36,7 @@ are **not stored** — they derive from the JDK's built-in CLDR data via the
 …); browsers derive the same values from the tag via `Intl.*`. (The former
 `LanguageProfile` entity that stored these per tenant was retired in 2026-06.)
 
-## Code-as-id masters (ADR-0024)
+## Code-as-id masters
 
 `Currency` and `CountryRegion` use **code-as-id** (`IdStrategy.EXTERNAL_ID`):
 the primary key **`id` is the ISO code** (alpha-3 for currency, alpha-2 for

@@ -12,7 +12,7 @@ import io.softa.starter.message.mail.service.MailTemplateService;
  * REST controller for email template management.
  * <p>
  * Provides standard CRUD and search endpoints inherited from {@link EntityController}.
- * Templates support multi-language variants and platform/tenant-level scoping.
+ * Templates support platform/tenant-level scoping.
  */
 @Tag(name = "MailTemplate")
 @RestController

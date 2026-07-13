@@ -9,8 +9,8 @@ import io.softa.starter.metadata.ddl.spi.DdlMetadataResolver;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 import io.softa.starter.studio.release.enums.ConnectorType;
 import io.softa.starter.studio.release.upgrade.RemoteApiClient;
-import io.softa.starter.studio.template.generator.DesignDdlMetadataResolver;
-import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolver;
+import io.softa.starter.studio.release.ddl.DesignDdlMetadataResolver;
+import io.softa.starter.studio.release.ddl.DesignDdlTemplateResolver;
 
 /**
  * Builds the {@link Connector} for a {@link DesignAppEnv}. Selection is data-driven on the
@@ -20,7 +20,7 @@ import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolv
  * <ul>
  *   <li><b>Softa</b> → builtin annotation/runtime defaults, identical to the boot scanner.</li>
  *   <li><b>JDBC</b> → a {@code design_*}-backed resolver adapted from
- *       {@link DesignGenerationMetadataResolver}.</li>
+ *       {@link DesignDdlTemplateResolver}.</li>
  * </ul>
  *
  * <p>The resolver choice is explicit at this boundary; there is no shared Spring
@@ -36,7 +36,7 @@ public class ConnectorFactory {
     private final JdbcSchemaReader jdbcSchemaReader;
 
     public ConnectorFactory(RemoteApiClient remoteApiClient,
-                            DesignGenerationMetadataResolver designResolver,
+                            DesignDdlTemplateResolver designResolver,
                             JdbcDdlExecutor jdbcDdlExecutor,
                             JdbcSchemaReader jdbcSchemaReader) {
         this.remoteApiClient = remoteApiClient;

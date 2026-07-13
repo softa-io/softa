@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +15,7 @@ import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.LambdaUtils;
@@ -24,7 +24,8 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.web.signature.Ed25519Keys;
 import io.softa.starter.metadata.dto.MetaTable;
-import io.softa.starter.studio.meta.entity.*;
+import io.softa.starter.studio.meta.entity.DesignModel;
+import io.softa.starter.studio.release.dto.DesignAggregate;
 import io.softa.starter.studio.release.connector.Connector;
 import io.softa.starter.studio.release.connector.ConnectorFactory;
 import io.softa.starter.studio.release.desired.*;
@@ -66,59 +67,56 @@ import io.softa.starter.studio.release.service.DesignSnapshotService;
 @Service
 public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Long> implements DesignAppEnvService {
 
-    // The five per-env design meta-model names — used to sequence the workspace cascade-delete below.
-    private static final String DESIGN_MODEL = DesignModel.class.getSimpleName();
-    private static final String DESIGN_FIELD = DesignField.class.getSimpleName();
-    private static final String DESIGN_INDEX = DesignModelIndex.class.getSimpleName();
-    private static final String DESIGN_OPTION_SET = DesignOptionSet.class.getSimpleName();
-    private static final String DESIGN_OPTION_ITEM = DesignOptionItem.class.getSimpleName();
     // Env-scope column — the cascade-delete filters an env's design_* rows by it.
     private static final String ENV_ID = LambdaUtils.getAttributeName(DesignModel::getEnvId);
 
     /**
-     * The five per-env {@code design_*} meta-models that make up an env's workspace, in
-     * <b>child→parent</b> order so {@link #deleteByIds} drops children before their parent. This is the
-     * same per-env design set {@link DesignEnvSource} loads and {@link DesignEnvCloner} clones.
+     * The per-env {@code design_*} meta-models that make up an env's workspace, in <b>child→parent</b>
+     * order ({@link DesignAggregate#deleteOrder()}) so {@link #deleteByIds} drops children before their
+     * parent. The same per-env design set {@link DesignEnvSource} loads and {@link DesignEnvCloner} clones.
      */
     private static final List<String> DESIGN_WORKSPACE_MODELS_CHILD_FIRST =
-            List.of(DESIGN_FIELD, DESIGN_INDEX, DESIGN_OPTION_ITEM, DESIGN_MODEL, DESIGN_OPTION_SET);
+            DesignAggregate.deleteOrder().stream().map(DesignAggregate::designName).toList();
 
-    @Lazy
-    @Autowired
-    private DesignAppService appService;
+    private final DesignAppService appService;
+    private final ModelService<Serializable> modelService;
+    private final DesignEnvCloner envCloner;
+    private final DesignEnvSource envSource;
+    private final DesiredStateConverger converger;
+    private final DesiredStateDeployService desiredStateDeployService;
+    private final ConnectorFactory connectorFactory;
+    private final DesignEnvMerger envMerger;
+    private final DesignActivityService activityService;
+    private final DesignSnapshotService snapshotService;
+    private final DesignAggregateDiffer aggregateDiffer;
+    private final DesignDriftImporter driftImporter;
 
-    @Autowired
-    private ModelService<Serializable> modelService;
-
-    @Autowired
-    private DesignEnvCloner envCloner;
-
-    @Autowired
-    private DesignEnvSource envSource;
-
-    @Autowired
-    private DesiredStateConverger converger;
-
-    @Autowired
-    private DesiredStateDeployService desiredStateDeployService;
-
-    @Autowired
-    private ConnectorFactory connectorFactory;
-
-    @Autowired
-    private DesignEnvMerger envMerger;
-
-    @Autowired
-    private DesignActivityService activityService;
-
-    @Autowired
-    private DesignSnapshotService snapshotService;
-
-    @Autowired
-    private DesignAggregateDiffer aggregateDiffer;
-
-    @Autowired
-    private DesignDriftImporter driftImporter;
+    /** Constructor injection; {@code appService} is {@code @Lazy} to break the app↔env service cycle. */
+    public DesignAppEnvServiceImpl(@Lazy DesignAppService appService,
+                                   ModelService<Serializable> modelService,
+                                   DesignEnvCloner envCloner,
+                                   DesignEnvSource envSource,
+                                   DesiredStateConverger converger,
+                                   DesiredStateDeployService desiredStateDeployService,
+                                   ConnectorFactory connectorFactory,
+                                   DesignEnvMerger envMerger,
+                                   DesignActivityService activityService,
+                                   DesignSnapshotService snapshotService,
+                                   DesignAggregateDiffer aggregateDiffer,
+                                   DesignDriftImporter driftImporter) {
+        this.appService = appService;
+        this.modelService = modelService;
+        this.envCloner = envCloner;
+        this.envSource = envSource;
+        this.converger = converger;
+        this.desiredStateDeployService = desiredStateDeployService;
+        this.connectorFactory = connectorFactory;
+        this.envMerger = envMerger;
+        this.activityService = activityService;
+        this.snapshotService = snapshotService;
+        this.aggregateDiffer = aggregateDiffer;
+        this.driftImporter = driftImporter;
+    }
 
     // ----------------------------------------------------------------- delete (env + its design workspace)
 
@@ -280,6 +278,17 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
                 .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
     }
 
+    /** Guard shared by seed / merge: the two envs must be distinct and belong to the same app. */
+    private static void requireDistinctSameApp(DesignAppEnv source, DesignAppEnv target) {
+        if (source.getId().equals(target.getId())) {
+            throw new IllegalArgumentException("Source and target env must differ! {0}", target.getId());
+        }
+        if (!Objects.equals(source.getAppId(), target.getAppId())) {
+            throw new IllegalArgumentException(
+                    "Source env {0} and target env {1} belong to different apps.", source.getId(), target.getId());
+        }
+    }
+
     /**
      * Issue a new Ed25519 keypair for the env.
      * <p>
@@ -291,8 +300,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
     @Override
     @Transactional(rollbackFor = Exception.class)
     public IssuedKey issueKey(Long envId) {
-        DesignAppEnv env = this.getById(envId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
+        DesignAppEnv env = loadEnv(envId);
 
         KeyPair keyPair = Ed25519Keys.generate();
         String encodedPublicKey = Ed25519Keys.encodePublicKey(keyPair.getPublic());
@@ -313,17 +321,9 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int seedFromSource(Long targetEnvId, Long sourceEnvId) {
-        DesignAppEnv target = this.getById(targetEnvId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", targetEnvId));
-        DesignAppEnv source = this.getById(sourceEnvId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", sourceEnvId));
-        if (targetEnvId.equals(sourceEnvId)) {
-            throw new IllegalArgumentException("Source and target env must differ! {0}", targetEnvId);
-        }
-        if (!Objects.equals(target.getAppId(), source.getAppId())) {
-            throw new IllegalArgumentException(
-                    "Source env {0} and target env {1} belong to different apps.", sourceEnvId, targetEnvId);
-        }
+        DesignAppEnv target = loadEnv(targetEnvId);
+        DesignAppEnv source = loadEnv(sourceEnvId);
+        requireDistinctSameApp(source, target);
 
         Long appId = target.getAppId();
         // Idempotent / non-destructive: never clobber an env that already owns design rows.
@@ -348,17 +348,9 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long merge(Long sourceEnvId, Long targetEnvId, MergeSelection selection) {
-        DesignAppEnv source = this.getById(sourceEnvId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", sourceEnvId));
-        DesignAppEnv target = this.getById(targetEnvId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", targetEnvId));
-        if (sourceEnvId.equals(targetEnvId)) {
-            throw new IllegalArgumentException("Source and target env must differ! {0}", targetEnvId);
-        }
-        if (!Objects.equals(source.getAppId(), target.getAppId())) {
-            throw new IllegalArgumentException(
-                    "Source env {0} and target env {1} belong to different apps.", sourceEnvId, targetEnvId);
-        }
+        DesignAppEnv source = loadEnv(sourceEnvId);
+        DesignAppEnv target = loadEnv(targetEnvId);
+        requireDistinctSameApp(source, target);
 
         acquireEnvLock(target, DesignAppEnvStatus.MERGING);
         try {
@@ -404,8 +396,7 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
      */
     @Override
     public void publish(Long envId) {
-        DesignAppEnv env = this.getById(envId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
+        DesignAppEnv env = loadEnv(envId);
         acquireEnvLock(env, DesignAppEnvStatus.DEPLOYING);
         DesignActivity activity = activityService.start(
                 env.getAppId(), env.getId(), DesignActivityKind.PUBLISH, null, operatorId());
@@ -452,10 +443,8 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
                 "Only RUNNING activities can be cancelled! Status: {0}", activity.getStatus());
         activityService.cancel(activityId, "Cancelled by operator; no automatic rollback — revert runtime "
                 + "state manually if partial changes were committed before cancellation.");
-        Filters filter = new Filters().eq(DesignAppEnv::getId, activity.getEnvId());
-        DesignAppEnv update = new DesignAppEnv();
-        update.setEnvStatus(DesignAppEnvStatus.STABLE);
-        this.updateByFilter(filter, update);
+        // Force-release the env mutex back to STABLE (roll-forward escape hatch for a pinned env).
+        releaseEnvLock(loadEnv(activity.getEnvId()));
     }
 
     /**
@@ -590,30 +579,34 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
 
     /**
      * The one per-env mutex acquire ({@code STABLE} → {@code busyStatus}): publish passes {@code DEPLOYING},
-     * import/restore {@code IMPORTING}. Filters on the current {@code STABLE} status and flips it; zero rows
-     * matched (another deploy/import holds it, or the env is gone) → throw, and the operator retries or
-     * cancels the stuck activity.
+     * import/restore {@code IMPORTING}.
      * <p>
-     * <b>Known limitation — not yet a true atomic compare-and-set.</b> {@code updateByFilter} resolves the
-     * matching ids with a (non-locking) read and then updates them by id, so the {@code STABLE} predicate is
-     * checked by that read, not by the write. Two operations that both observe {@code STABLE} before either
-     * commits its busy status can both proceed — the window is widest for the {@code @Transactional} callers
-     * ({@code merge} / {@code applyDrift}), whose status write stays uncommitted for the whole operation.
-     * Integrity is currently backstopped by {@code UNIQUE(env_id, businessKey)} + rollback, not by this
-     * guard; promoting it to a genuine atomic conditional update (or a {@code SELECT … FOR UPDATE} in its own
-     * committed transaction) is tracked as a follow-up.
+     * This is an <b>atomic optimistic compare-and-set</b> on the env's {@code version} ({@code versionLock}):
+     * {@code updateOne} emits a single {@code UPDATE … SET env_status=?, version=version+1 WHERE id=? AND
+     * version=?}, so two operations that both read the same version cannot both win — the loser's update
+     * matches zero rows and {@code updateOne} throws {@link VersionException}, which we translate into a
+     * "busy" refusal. The in-memory {@code envStatus == STABLE} pre-check refuses an env that is already busy
+     * (e.g. a stuck lock) before the CAS is even attempted. The framework bumps {@code version} on success,
+     * mirrored on the in-memory row so the matching {@link #releaseEnvLock} (also {@code versionLock}-guarded)
+     * lines up.
      */
     private void acquireEnvLock(DesignAppEnv appEnv, DesignAppEnvStatus busyStatus) {
-        Filters cas = new Filters()
-                .eq(DesignAppEnv::getId, appEnv.getId())
-                .eq(DesignAppEnv::getEnvStatus, DesignAppEnvStatus.STABLE);
-        DesignAppEnv update = new DesignAppEnv();
-        update.setEnvStatus(busyStatus);
-        Assert.isTrue(this.updateByFilter(cas, update) == 1,
+        Assert.isTrue(appEnv.getEnvStatus() == DesignAppEnvStatus.STABLE,
                 "Env {0} is currently Deploying or Importing. Retry later.", appEnv.getName());
         appEnv.setEnvStatus(busyStatus);
+        boolean won;
+        try {
+            won = this.updateOne(appEnv);
+        } catch (VersionException e) {
+            won = false;
+        }
+        Assert.isTrue(won, "Env {0} is currently Deploying or Importing. Retry later.", appEnv.getName());
+        if (appEnv.getVersion() != null) {
+            appEnv.setVersion(appEnv.getVersion() + 1);
+        }
     }
 
+    /** Release the mutex back to {@code STABLE}. Version-guarded on the acquire-bumped version (single UPDATE). */
     private void releaseEnvLock(DesignAppEnv appEnv) {
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         this.updateOne(appEnv);

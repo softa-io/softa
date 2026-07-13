@@ -33,6 +33,7 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
+import io.softa.framework.orm.utils.VersionLockUtils;
 
 /**
  * JdbcServiceImpl
@@ -262,7 +263,7 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         if (ModelManager.isVersionControl(modelName) && rowMap.containsKey(ModelConstant.VERSION)) {
             // Check the optimistic lock version control
             Object nextVersion = rowMap.get(ModelConstant.VERSION);
-            Integer oldVersion = (Integer) nextVersion - 1;
+            Object oldVersion = VersionLockUtils.decrement(nextVersion);
             sqlParams.setSql(sqlParams.getSql() + " AND version = ?");
             sqlParams.addArgValue(oldVersion);
             int result = jdbcProxy.update(modelName, sqlParams);

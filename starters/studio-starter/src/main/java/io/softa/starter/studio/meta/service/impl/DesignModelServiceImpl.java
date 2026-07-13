@@ -13,7 +13,6 @@ import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
 import io.softa.starter.metadata.ddl.dialect.DdlDialect;
-import io.softa.starter.studio.dto.ModelCodeDTO;
 import io.softa.starter.studio.meta.entity.DesignField;
 import io.softa.starter.studio.meta.entity.DesignModel;
 import io.softa.starter.studio.meta.entity.DesignModelIndex;
@@ -21,13 +20,9 @@ import io.softa.starter.studio.meta.service.DesignFieldService;
 import io.softa.starter.studio.meta.service.DesignModelIndexService;
 import io.softa.starter.studio.meta.service.DesignModelService;
 import io.softa.starter.studio.release.connector.ConnectorFactory;
-import io.softa.starter.studio.release.entity.DesignApp;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
-import io.softa.starter.studio.release.service.DesignAppService;
 import io.softa.starter.studio.release.service.DesignAppEnvService;
-import io.softa.starter.studio.template.ddl.context.DdlContextBuilder;
-import io.softa.starter.studio.template.enums.DesignCodeLang;
-import io.softa.starter.studio.template.generator.CodeGenerator;
+import io.softa.starter.studio.release.ddl.context.DdlContextBuilder;
 
 /**
  * DesignModel Model Service Implementation
@@ -40,12 +35,6 @@ public class DesignModelServiceImpl extends EntityServiceImpl<DesignModel, Long>
 
     @Autowired
     private DesignAppEnvService appEnvService;
-
-    @Autowired
-    private DesignAppService appService;
-
-    @Autowired
-    private CodeGenerator codeGenerator;
 
     @Autowired
     private DesignFieldService fieldService;
@@ -77,44 +66,7 @@ public class DesignModelServiceImpl extends EntityServiceImpl<DesignModel, Long>
                 .orElseThrow(() -> new IllegalArgumentException(
                         "The env {0} of design model {1} does not exist!", designModel.getEnvId(), id));
         DdlDialect dialect = connectorFactory.forEnv(env).dialect();
-        return new StringBuilder()
-                .append(dialect.createTableDDL(model))
-                .append("\n")
-                .toString();
-    }
-
-    /**
-     * Preview the current model code files for the requested language.
-     *
-     * @param id Model ID
-     * @return Generated code files of the current model
-     */
-    @Override
-    public ModelCodeDTO previewCode(Long id, DesignCodeLang codeLang) {
-        List<ModelCodeDTO> modelCodes = previewAllCode(id);
-        if (codeLang != null) {
-            return modelCodes.stream()
-                    .filter(modelCode -> codeLang == modelCode.getCodeLang())
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "The code language {0} is not configured for model id {1}!", codeLang.getCode(), id));
-        }
-        if (modelCodes.size() == 1) {
-            return modelCodes.getFirst();
-        }
-        throw new IllegalArgumentException("Multiple code languages are configured for model id {0}, please specify codeLang!", id);
-    }
-
-    @Override
-    public List<ModelCodeDTO> previewAllCode(Long id) {
-        DesignModel designModel = this.getById(id, new SubQueries().expand(DesignModel::getModelFields))
-                .orElseThrow(() -> new IllegalArgumentException("The designModel id {0} does not exist!", id));
-        if (designModel.getAppId() == null) {
-            throw new IllegalArgumentException("The appId of the model cannot be null!");
-        }
-        DesignApp designApp = appService.getById(designModel.getAppId())
-                .orElseThrow(() -> new IllegalArgumentException("The app id {0} does not exist!", designModel.getAppId()));
-        return codeGenerator.generateAllModelCodes(designApp.getPackageName(), designModel);
+        return dialect.createTableDDL(model) + "\n";
     }
 
     /**

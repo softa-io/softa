@@ -1,59 +1,69 @@
 package io.softa.starter.message.inbox.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.message.inbox.enums.NotificationType;
-import io.swagger.v3.oas.annotations.media.Schema;
+import java.io.Serial;
+import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
-import java.time.LocalDateTime;
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.message.inbox.enums.NotificationType;
 
 /**
  * In-app notification delivered to a specific user.
  * <p>
  * Notifications are read-only informational messages pushed by the system,
  * workflow engine, or manually by other users. They support optional expiry
- * and can carry a reference to the originating object via {@code sourceType}
+ * and can carry a reference to the originating object via {@code sourceModel}
  * and {@code sourceId}.
  * <p>
  * tenant_id = 0 — platform-level notification; tenant_id > 0 — tenant-scoped.
  */
 @Data
-@Schema(name = "InboxNotification")
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, copyable = false, multiTenant = true)
+@Index(indexName = "idx_recipient_read", fields = {"recipientId", "isRead"})
+@Index(indexName = "idx_inbox_notif_tenant", fields = {"tenantId"})
 @EqualsAndHashCode(callSuper = true)
 public class InboxNotification extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Recipient user ID")
+    @Field(label = "Tenant ID",
+            description = "0 = platform-level (shared across tenants); >0 = tenant-level. "
+                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
+    private Long tenantId;
+
+    @Field(label = "Recipient User ID", required = true)
     private Long recipientId;
 
-    @Schema(description = "Notification title")
+    @Field(required = true, length = 200)
     private String title;
 
-    @Schema(description = "Notification body content")
+    @Field(description = "Notification body content")
     private String content;
 
-    @Schema(description = "Source category: System, Workflow, or Manual")
+    @Field(description = "Source category: System, Workflow, or Manual")
     private NotificationType notificationType;
 
-    @Schema(description = "Source object type, e.g. FLOW_INSTANCE, ORDER (nullable)")
-    private String sourceType;
+    @Field(description = "Source metadata model name (matches SysModel.modelName), e.g. FlowInstance (nullable)", length = 50)
+    private String sourceModel;
 
-    @Schema(description = "Source object ID (nullable)")
+    @Field(label = "Source ID", description = "Source object ID (nullable)")
     private Long sourceId;
 
-    @Schema(description = "Whether the recipient has read this notification")
+    @Field(description = "Whether the recipient has read this notification")
     private Boolean isRead;
 
-    @Schema(description = "Timestamp when the notification was read")
+    @Field(description = "Timestamp when the notification was read")
     private LocalDateTime readAt;
 
-    @Schema(description = "Optional expiry time after which the notification is no longer shown")
+    @Field(description = "Optional expiry time after which the notification is no longer shown")
     private LocalDateTime expiredAt;
 }

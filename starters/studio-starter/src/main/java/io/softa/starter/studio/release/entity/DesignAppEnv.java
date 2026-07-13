@@ -22,8 +22,9 @@ import io.softa.starter.studio.release.enums.DesignAppEnvType;
  * <p>
  * Concurrent deployments against the same env are guarded via {@code envStatus}.
  * A deployment may only start when {@code envStatus == STABLE}; it transitions the field to
- * {@code DEPLOYING} for the duration and releases it on completion (success or failure). The guard's
- * atomicity limits are documented on {@code DesignAppEnvServiceImpl.acquireEnvLock}.
+ * {@code DEPLOYING} for the duration and releases it on completion (success or failure). The transition
+ * is an atomic optimistic compare-and-set on {@code version} ({@code versionLock}) — see
+ * {@code DesignAppEnvServiceImpl.acquireEnvLock}.
  * <p>
  * Authentication between Studio and the runtime targeted by this Env uses per-env
  * Ed25519 keypairs. Studio signs outgoing upgrade requests with {@code privateKey};
@@ -33,7 +34,8 @@ import io.softa.starter.studio.release.enums.DesignAppEnvType;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Model(
-        idStrategy = IdStrategy.DISTRIBUTED_LONG
+        idStrategy = IdStrategy.DISTRIBUTED_LONG,
+        versionLock = true
 )
 public class DesignAppEnv extends AuditableModel {
 
@@ -101,6 +103,6 @@ public class DesignAppEnv extends AuditableModel {
     @Field(length = 256)
     private String description;
 
-    @Field
-    private Boolean deleted;
+    @Field(required = true, description = "Optimistic-lock version guarding the env-status mutex.")
+    private Long version;
 }

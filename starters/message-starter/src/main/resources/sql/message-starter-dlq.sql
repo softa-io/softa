@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS dead_letter_message
 (
     id                BIGINT        NOT NULL PRIMARY KEY COMMENT 'ID',
     source_tenant_id  BIGINT                 COMMENT 'Source Tenant Id',
+    source            VARCHAR(20)   NOT NULL DEFAULT 'BrokerPoison' COMMENT 'BrokerPoison (Pulsar DLQ) or SendExhausted (mail/sms retry exhausted)',
     original_topic    VARCHAR(128)  NOT NULL DEFAULT '' COMMENT 'Original Topic',
     dlq_topic         VARCHAR(128)  NOT NULL DEFAULT '' COMMENT 'DLQ Topic',
     subscription_name VARCHAR(128)           COMMENT 'Subscription Name',
@@ -22,5 +23,6 @@ CREATE TABLE IF NOT EXISTS dead_letter_message
     updated_time      DATETIME               COMMENT 'Updated Time',
     updated_by        VARCHAR(64)            COMMENT 'Updated By',
     INDEX idx_status_created (status, created_time),
+    INDEX idx_source_status (source, status),
     INDEX idx_original_topic (original_topic)
 ) COMMENT = 'Dead Letter Message';

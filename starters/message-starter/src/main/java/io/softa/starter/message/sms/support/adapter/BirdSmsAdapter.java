@@ -3,9 +3,7 @@ package io.softa.starter.message.sms.support.adapter;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
@@ -44,30 +42,18 @@ public class BirdSmsAdapter extends AbstractSmsProviderAdapter {
     }
 
     @Override
-    protected SmsSendResult doSend(SmsProviderConfig config, SmsAdapterRequest request) throws Exception {
-        String baseUrl = StringUtils.hasText(config.getApiEndpoint())
-                ? config.getApiEndpoint() : DEFAULT_API_ENDPOINT;
-        String url = baseUrl + "/messages";
-
-        String recipient = stripPlusPrefix(request.getPhoneNumber());
+    protected SmsSendResult doSend(SmsProviderConfig config, SmsAdapterRequest request) {
+        String url = resolveBaseUrl(config, DEFAULT_API_ENDPOINT) + "/messages";
 
         Map<String, Object> requestBody = Map.of(
                 "originator", resolveSender(config),
                 "body", request.getContent(),
-                "recipients", List.of(recipient)
+                "recipients", List.of(stripPlusPrefix(request.getPhoneNumber()))
         );
 
-        String jsonBody = JsonUtils.objectToString(requestBody);
+        JsonNode json = postJson(url, JsonUtils.objectToString(requestBody),
+                h -> h.set("Authorization", "AccessKey " + config.getApiKey()));
 
-        String response = restClient.post()
-                .uri(url)
-                .header("Authorization", "AccessKey " + config.getApiKey())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(jsonBody)
-                .retrieve()
-                .body(String.class);
-
-        JsonNode json = JsonUtils.stringToObject(response, JsonNode.class);
         int totalSent = json.path("recipients").path("totalSentCount").asInt(0);
         if (totalSent > 0) {
             return SmsSendResult.success(json.path("id").asString(null));
@@ -77,17 +63,14 @@ public class BirdSmsAdapter extends AbstractSmsProviderAdapter {
 
     @Override
     protected SmsSendResult handleHttpError(RestClientResponseException e) {
-        try {
-            JsonNode errorJson = JsonUtils.stringToObject(e.getResponseBodyAsString(), JsonNode.class);
-            JsonNode errors = errorJson.path("errors");
+        return parseErrorBody(e, err -> {
+            JsonNode errors = err.path("errors");
             if (errors.isArray() && !errors.isEmpty()) {
                 return SmsSendResult.failure(
                         String.valueOf(errors.get(0).path("code").asInt()),
                         errors.get(0).path("description").asString("Unknown Bird error"));
             }
-        } catch (Exception parseEx) {
-            // fall through to default
-        }
-        return super.handleHttpError(e);
+            return defaultHttpError(e);
+        });
     }
 }

@@ -1,23 +1,35 @@
 package io.softa.starter.message.sms.config;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
+import io.softa.framework.web.resilience.ResilientRestClientBuilder;
+import io.softa.starter.message.config.MessageProperties;
+
 /**
- * Provides a shared {@link RestClient} bean for all SMS adapters.
+ * Provides a shared resilient {@link RestClient} bean for all SMS adapters.
  * <p>
- * Each adapter injects this bean and configures per-request URI, headers,
- * and body via the fluent API. The underlying HTTP client is thread-safe
- * and shared across adapters.
+ * Connect / read timeouts come from {@code softa.message.sms.transport.*}
+ * (see {@link MessageProperties.Transport}). Retry / circuit-breaker policies
+ * come from {@code resilience4j.{retry,circuitbreaker}.instances.sms-provider}.
+ * Per-host CB prevents one flaky gateway (e.g. Twilio outage) from tripping
+ * the breaker for the other adapters that use the same logical instance name.
  */
 @Configuration
 public class SmsRestClientConfig {
 
     @Bean
     @ConditionalOnMissingBean(name = "smsRestClient")
-    public RestClient smsRestClient(RestClient.Builder builder) {
-        return builder.build();
+    public RestClient smsRestClient(ResilientRestClientBuilder builder, MessageProperties properties) {
+        HttpClientSettings settings = HttpClientSettings.defaults()
+                .withConnectTimeout(properties.getSms().getTransport().getConnectionTimeout())
+                .withReadTimeout(properties.getSms().getTransport().getReadTimeout());
+        return builder.name("sms-provider")
+                .httpSettings(settings)
+                .perHostCircuitBreaker()
+                .build();
     }
 }

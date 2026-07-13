@@ -12,7 +12,6 @@ import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -102,20 +101,15 @@ public class TencentCloudSmsAdapter extends AbstractSmsProviderAdapter {
         String authorization = generateAuthorization(secretId, secretKey, SERVICE, host, timestamp, payload);
         String url = "https://" + host + "/";
 
-        String response = restClient.post()
-                .uri(url)
-                .header("Authorization", authorization)
-                .header("X-TC-Action", ACTION)
-                .header("X-TC-Version", API_VERSION)
-                .header("X-TC-Timestamp", timestamp)
-                .header("X-TC-Region", region)
-                .header("Host", host)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(payload)
-                .retrieve()
-                .body(String.class);
-
-        JsonNode json = JsonUtils.stringToObject(response, JsonNode.class);
+        String tcRegion = region;   // effectively-final copy for the header lambda
+        JsonNode json = postJson(url, payload, h -> {
+            h.set("Authorization", authorization);
+            h.set("X-TC-Action", ACTION);
+            h.set("X-TC-Version", API_VERSION);
+            h.set("X-TC-Timestamp", timestamp);
+            h.set("X-TC-Region", tcRegion);
+            h.set("Host", host);
+        });
         JsonNode responseNode = json.path("Response");
 
         JsonNode errorNode = responseNode.path("Error");

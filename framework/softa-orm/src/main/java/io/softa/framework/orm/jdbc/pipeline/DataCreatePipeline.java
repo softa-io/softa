@@ -16,6 +16,7 @@ import io.softa.framework.orm.jdbc.pipeline.chain.FieldProcessorChain;
 import io.softa.framework.orm.jdbc.pipeline.chain.FieldProcessorFactoryChain;
 import io.softa.framework.orm.jdbc.pipeline.factory.*;
 import io.softa.framework.orm.jdbc.pipeline.processor.IdProcessor;
+import io.softa.framework.orm.jdbc.pipeline.processor.TimelineLogicalIdProcessor;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
@@ -57,6 +58,14 @@ public class DataCreatePipeline extends DataPipeline {
             MetaField pkField = ModelManager.getModelPrimaryKeyField(modelName);
             this.processorChain.addProcessor(new IdProcessor(pkField, accessType));
             this.storedFields.add(pkField.getFieldName());
+        }
+        if (ModelManager.isTimelineModel(modelName)) {
+            // The timeline logical id is a stored non-PK column shared by all slices of one
+            // entity: persist it and generate it for first slices (split rows arrive carrying
+            // the entity's existing id). The PK processor above only covers the physical sliceId.
+            MetaField idField = ModelManager.getModelField(modelName, ModelConstant.ID);
+            this.processorChain.addProcessor(new TimelineLogicalIdProcessor(idField, accessType));
+            this.storedFields.add(ModelConstant.ID);
         }
         if (ModelManager.isMultiTenantModel(modelName)) {
             this.storedFields.add(ModelConstant.TENANT_ID);

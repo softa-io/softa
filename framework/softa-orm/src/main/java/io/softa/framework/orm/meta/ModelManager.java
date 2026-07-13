@@ -486,6 +486,11 @@ public class ModelManager {
             Set<String> subFields = new HashSet<>(ModelConstant.TIMELINE_FIELDS);
             subFields.removeAll(currentModelFields);
             Assert.isTrue(subFields.isEmpty(), "Timeline model {0} must contain the required fields {1}!", modelName, subFields);
+            // The auto-increment lands on the physical sliceId, so the shared logical `id`
+            // column must be app-generated for first slices.
+            Assert.notTrue(IdStrategy.DB_AUTO_ID.equals(getIdStrategy(modelName)),
+                    "Timeline model {0} requires an app-generated logical id: use idStrategy = "
+                            + "DISTRIBUTED_LONG / DISTRIBUTED_STRING / EXTERNAL_ID.", modelName);
         }
     }
 
@@ -576,10 +581,9 @@ public class ModelManager {
                 Assert.notTrue(OnDelete.SET_NULL == onDelete && metaField.isRequired(),
                         "{0}:{1} field, onDelete=SET_NULL requires a nullable FK (required=false)!",
                         metaField.getModelName(), metaField.getFieldName());
-                Assert.notTrue(isTimelineModel(relatedModel),
-                        "{0}:{1} field, onDelete cannot target timeline model `{2}` "
-                                + "(per-slice delete bypasses the delete path)!",
-                        metaField.getModelName(), metaField.getFieldName(), relatedModel);
+                // Timeline targets are allowed: onDelete fires on entity deletion (deleteByIds =
+                // all slices of the logical id); slice-level deleteBySliceId keeps the entity
+                // alive and deliberately does not trigger it.
                 Assert.notTrue(OnDelete.CASCADE == onDelete && isSoftDeleted(relatedModel)
                                 && !isSoftDeleted(metaField.getModelName()),
                         "{0}:{1} field, onDelete=CASCADE from soft-delete `{2}` to hard-delete `{0}` is not "

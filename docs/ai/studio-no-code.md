@@ -7,7 +7,7 @@ Studio's design workspace instead of in Java source. This is the **Studio channe
 counterpart to the [annotation lane](authoring/entities.md) (`@Model` / `@Field` in
 Java).
 
-> **Scope (ADR-0013):** per-tenant metadata customization is **out of scope** — there is
+> **Scope:** per-tenant metadata customization is **out of scope** — there is
 > no per-tenant overlay/merge model. A no-code definition is a *whole* definition (a
 > model / field / option-set / view that simply has no Java source), applied
 > **platform-wide for the app**, not a per-tenant patch layered on another row.
@@ -16,13 +16,13 @@ Java).
 
 - **Authoring surface:** Studio's `Design*Controller` REST endpoints. You make HTTP
   calls; you never edit Java, YAML, or commit to git.
-- **Storage:** rows in the Studio **per-env `design_*` workspace** (ADR-0019 — each
+- **Storage:** rows in the Studio **per-env `design_*` workspace** (each
   environment owns a full design set, identified by its **business key** scoped to the
-  env: `UNIQUE(env_id, modelName/optionSetCode/…)`; ADR-0025 — no `logicalId`).
+  env: `UNIQUE(env_id, modelName/optionSetCode/…)`; no `logicalId`).
 - **Runtime effect:** a definition reaches the runtime `sys_*` catalog only when the env
   is **published** (`POST /DesignAppEnv/publish`) through a signed deployment envelope.
-  Publish converges that env's runtime to its design (ADR-0020).
-- **Identity / scope:** everything is scoped by the app's `app_code` (ADR-0015), stamped
+  Publish converges that env's runtime to its design.
+- **Identity / scope:** everything is scoped by the app's `app_code`, stamped
   server-side. There is no `tenantId` and **no `ownership` column** on current
   `sys_*` / `design_*` catalogs.
 
@@ -54,7 +54,7 @@ is the runtime authority — but code-owned definitions still belong in Java.
 - Edit a no-code definition's attributes (`label`, `length`, `required`, `fieldType`, …).
 - **Rename** a no-code **field** by updating the **same row**: the rename API captures the
   prior name into `renamedFrom` (single-step), so publish emits an in-place `CHANGE COLUMN`,
-  never drop+add (ADR-0025). Do **not** delete-and-recreate to rename. (Renaming a **model /
+  never drop+add. Do **not** delete-and-recreate to rename. (Renaming a **model /
   option-set** — which has children — is not auto-bridged in studio: it is a drop+add gated by
   `autoExecuteDDL`, or a manual `RENAME TABLE` migration.)
 - **Delete** a no-code model / option-set — its children (fields/indexes, items)
@@ -63,7 +63,7 @@ is the runtime authority — but code-owned definitions still belong in Java.
   **business key**).
 
 ### ❌ CANNOT
-- Per-tenant customization (out of scope, ADR-0013).
+- Per-tenant customization (out of scope).
 - Edit Java / `@Model` / `@Field` / enum `@OptionItem` (annotation lane).
 - Set `appCode` / `envId` in a request body — the server stamps per-env identity.
   `envId` is **set-once**: an update that sends it has it stripped.
@@ -92,7 +92,7 @@ All extend `AbstractDesignWriteController`, exposing per entity:
 ### Release / deploy
 | Endpoint | Purpose |
 |---|---|
-| `POST /DesignAppEnv/publish?id=<envId>` | converge this env's runtime to its design (ADR-0020 incremental publish) |
+| `POST /DesignAppEnv/publish?id=<envId>` | converge this env's runtime to its design (incremental publish) |
 | `GET /DesignAppEnv/compareDesignWithRuntime` · `POST /DesignAppEnv/refreshDrift` | drift check (design vs runtime) |
 | `POST /DesignAppEnv/applyDrift` · `/importFromRuntime` | import runtime state back into the env's design |
 | `POST /DesignAppEnv/seedFromSource` | seed / merge one env's design from another (by **business key**) |
@@ -101,27 +101,27 @@ All extend `AbstractDesignWriteController`, exposing per entity:
 > The version / work-item controllers some older drafts referenced
 > (`DesignAppVersionController`, `DesignWorkItemController`,
 > `DesignDeploymentVersionController`) were **removed** — the version system is retired
-> (ADR-0019 Phase 5). An env's live design *is* the deployable content; there are no
+> (per-env design). An env's live design *is* the deployable content; there are no
 > version freezes.
 
 ### Template layer — NOT no-code metadata
 `/DesignSqlTemplate`, `/DesignCodeTemplate`, `/DesignField{Db,Code}Mapping`,
-`/DesignFieldDomain` (named reusable field domains, ADR-0021 P4; renamed from
+`/DesignFieldDomain` (named reusable field domains; renamed from
 `DesignFieldTypeDefault`) configure the platform's code/DDL generation — platform-wide
 engineering config, normally changed via the annotation lane, not here.
 
-## The publish contract (ADR-0020)
+## The publish contract
 
 `publish(envId)` diffs the env's `design_*` rows against its runtime `sys_*` catalog
 with the single `DesignAggregateDiffer` (keyed by **business key**, with a single-step
-`renamedFrom` bridge for renames; ADR-0025 — no logicalId) and ships an **incremental**
+`renamedFrom` bridge for renames; no logicalId) and ships an **incremental**
 `MetadataChangeSet` — per-row `UPSERT` / `DELETE`, plus rename-aware DDL — **not** whole
 aggregates. What this means for you:
 
 - A **field rename** is an `UPDATE` located by the prior business key (`renamedFrom`) →
   `CHANGE COLUMN`, data preserved. (Rename by delete+create would drop the column's
   data — don't.)
-- **DDL runs before rows** (ADR-0012); a structure-only change still ships its DDL.
+- **DDL runs before rows**; a structure-only change still ships its DDL.
 - The apply is **idempotent** (UPSERT / DELETE located by business key) — a retried
   publish is safe.
 - The runtime row is located by its **business key** (`findByBusinessKey`); a renamed
@@ -183,7 +183,7 @@ After each no-code change:
 
 1. **Design row exists & is stamped** — search the `Design*` endpoint (or query
    `design_*`): `env_id` set, business key present
-   (`modelName` / `optionSetCode` / …; ADR-0025 — there is no `logical_id` column).
+   (`modelName` / `optionSetCode` / …; there is no `logical_id` column).
 2. **Publish the env**, then confirm the `sys_*` row has the correct `app_code` and
    business key.
 3. **Restart the host app** (when `scanner-scope` is non-empty) — in-scope annotation
@@ -208,8 +208,7 @@ After each no-code change:
 5. **Editing the wrong env.** A write targets one env's workspace. Publish the env you
    edited; to propagate to other envs use `seedFromSource` / merge (which re-keys children
    by **business key**) — do not re-hand-edit each env.
-6. **Per-tenant requests.** Out of scope — a per-tenant ask is a product / ADR question,
-   not a no-code write.
+6. **Per-tenant requests.** Out of scope — a per-tenant ask is a product decision, not a no-code write.
 7. **Referencing retired `ownership` / `STUDIO_MANAGED` / `PLATFORM_MAINTAINED`.** The
    catalog is scoped by `app_code` + business key only.
 

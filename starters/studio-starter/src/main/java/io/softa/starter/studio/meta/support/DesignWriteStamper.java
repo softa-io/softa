@@ -11,6 +11,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IDGenerator;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 
 /**
@@ -52,11 +53,11 @@ public class DesignWriteStamper {
         if (row == null) {
             return;
         }
-        if (asLong(row.get(ID)) == null) {
+        if (IdUtils.convertIdToLong(row.get(ID)) == null) {
             row.put(ID, IDGenerator.generateLongId());
         }
-        Long appId = asLong(row.get(APP_ID));
-        Long envId = asLong(row.get(ENV_ID));
+        Long appId = IdUtils.convertIdToLong(row.get(APP_ID));
+        Long envId = IdUtils.convertIdToLong(row.get(ENV_ID));
         if (envId == null) {
             row.put(ENV_ID, resolveDefaultEnvId(appId));
         } else {
@@ -86,7 +87,7 @@ public class DesignWriteStamper {
                 .searchList(DesignAppEnv.class.getSimpleName(),
                         new FlexQuery(new Filters().eq(APP_ID, appId).eq("active", true)))
                 .stream()
-                .map(env -> asLong(env.get(ID)))
+                .map(env -> IdUtils.convertIdToLong(env.get(ID)))
                 .filter(Objects::nonNull)
                 .min(Comparator.naturalOrder())
                 .orElse(null);
@@ -102,9 +103,5 @@ public class DesignWriteStamper {
                         new FlexQuery(new Filters().eq(ID, envId).eq(APP_ID, appId)))
                 .isEmpty();
         Assert.isTrue(belongs, "Env {0} does not belong to app {1} — cross-app design write rejected.", envId, appId);
-    }
-
-    private static Long asLong(Object value) {
-        return value == null ? null : ((Number) value).longValue();
     }
 }

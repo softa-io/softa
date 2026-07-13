@@ -16,7 +16,7 @@ import io.softa.starter.metadata.ddl.dialect.DdlDialect;
 import io.softa.starter.metadata.ddl.dialect.MySqlDdlDialect;
 import io.softa.starter.studio.release.ddl.impl.MetadataChangeDdlRendererImpl;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
-import io.softa.starter.studio.template.TestMetadataResolver;
+import io.softa.starter.studio.release.ddl.TestMetadataResolver;
 
 /**
  * The load-bearing contract (map risk R3): the design↔design diff's output, fed straight

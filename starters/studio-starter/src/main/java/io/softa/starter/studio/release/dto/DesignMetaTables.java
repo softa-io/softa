@@ -1,16 +1,13 @@
 package io.softa.starter.studio.release.dto;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import io.softa.starter.metadata.dto.MetaTable;
-import io.softa.starter.studio.meta.entity.DesignField;
-import io.softa.starter.studio.meta.entity.DesignModel;
-import io.softa.starter.studio.meta.entity.DesignModelIndex;
-import io.softa.starter.studio.meta.entity.DesignOptionItem;
-import io.softa.starter.studio.meta.entity.DesignOptionSet;
 
 /**
  * The 1:1 correspondence between a studio {@code design_*} meta-table and its typed {@link MetaTable},
@@ -24,12 +21,9 @@ import io.softa.starter.studio.meta.entity.DesignOptionSet;
  */
 public final class DesignMetaTables {
 
-    private static final Map<String, MetaTable> BY_DESIGN = Map.of(
-            DesignModel.class.getSimpleName(), MetaTable.MODEL,
-            DesignField.class.getSimpleName(), MetaTable.FIELD,
-            DesignModelIndex.class.getSimpleName(), MetaTable.INDEX,
-            DesignOptionSet.class.getSimpleName(), MetaTable.OPTION_SET,
-            DesignOptionItem.class.getSimpleName(), MetaTable.OPTION_ITEM);
+    // Derived from the DesignAggregate descriptor — the single source of the design↔MetaTable pairing.
+    private static final Map<String, MetaTable> BY_DESIGN = Arrays.stream(DesignAggregate.values())
+            .collect(Collectors.toUnmodifiableMap(DesignAggregate::designName, DesignAggregate::table));
 
     private static final Map<MetaTable, String> DESIGN_BY_TABLE = new EnumMap<>(MetaTable.class);
     static {

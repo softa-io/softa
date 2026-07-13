@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
@@ -16,16 +17,10 @@ import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.LambdaUtils;
-import io.softa.starter.metadata.checksum.AggregateChecksum;
 import io.softa.starter.metadata.dto.MetaTable;
 import io.softa.starter.metadata.entity.SysField;
-import io.softa.starter.studio.meta.entity.DesignField;
-import io.softa.starter.studio.meta.entity.DesignModel;
-import io.softa.starter.studio.meta.entity.DesignModelIndex;
-import io.softa.starter.studio.meta.entity.DesignOptionItem;
-import io.softa.starter.studio.meta.entity.DesignOptionSet;
+import io.softa.starter.studio.release.dto.DesignAggregate;
 import io.softa.starter.studio.release.dto.DesignMetaTables;
-import io.softa.starter.studio.release.dto.MetaKeys;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
 import io.softa.starter.studio.release.dto.RowChangeOp;
 
@@ -54,9 +49,9 @@ import io.softa.starter.studio.release.dto.RowChangeOp;
  * <p>Output is a flat {@code List<RowChangeDTO>} (each row self-describing via {@code table} + {@code op})
  * that {@link DesiredStateDeployService} (rows) and {@code MetadataChangeDdlRenderer} (DDL) consume directly —
  * regrouped per table on demand via {@link io.softa.starter.studio.release.dto.DesignMetaTables#group}.
- * "Changed" is decided on the same allow-lists the checksum hashes
- * ({@link AggregateChecksum#MODEL_ATTRS} etc.). Both sides are normalized through one JSON round-trip
- * first (enum⇄code, Integer⇄Long). Pure / stateless.
+ * "Changed" is decided on the same allow-lists the checksum hashes; the per-table wiring (keys, rename
+ * bridge, compared attrs, parent link) is the {@link DesignAggregate} descriptor. Both sides are
+ * normalized through one JSON round-trip first (enum⇄code, Integer⇄Long). Pure / stateless.
  */
 @Component
 public class DesignAggregateDiffer {
@@ -67,54 +62,46 @@ public class DesignAggregateDiffer {
     /** The single immediately-prior business-key name carried from the design row. */
     private static final String RENAMED_FROM = LambdaUtils.getAttributeName(SysField::getRenamedFrom);
 
-    // Business-key columns the differ pairs rows by — derived once in MetaKeys via the Sys* getters (method
-    // refs, so a rename breaks compilation, not silently mis-keys — same source the checksum/select siblings
-    // use). MODEL_NAME / OPTION_SET_CODE are shared with AggregateChecksumDiff (the parent-link key).
-    private static final String MODEL_NAME = AggregateChecksumDiff.MODEL_NAME;
-    private static final String OPTION_SET_CODE = AggregateChecksumDiff.OPTION_SET_CODE;
-    private static final String FIELD_NAME = MetaKeys.FIELD_NAME;
-    private static final String INDEX_NAME = MetaKeys.INDEX_NAME;
-    private static final String ITEM_CODE = MetaKeys.ITEM_CODE;
-
     /**
      * Diff DESIRED against OBSERVED (business key first, {@code renamedFrom} bridge second).
      * DESIRED is the env's design; OBSERVED is its runtime catalog (publish) or another env's design (merge).
+     * <p>
+     * Per-table wiring — business key, rename-bridge column (field / optionItem only; a parent rename is
+     * never bridged), compared attrs and the parent link — comes from the {@link DesignAggregate}
+     * descriptor. Children are diffed only when their parent business-key is present on their OWN side (an
+     * orphan — a child whose parent row is absent, e.g. left behind by a non-cascading model delete — is
+     * excluded). This (a) keeps the differ's row-set identical to the checksum gate's aggregate view
+     * (AggregateChecksumIndex only hashes children of an existing parent), so the R5 gate stays sound
+     * (inSync ⇒ this diff is empty), and (b) never publishes a child for a non-existent model — which
+     * would create a runtime orphan. modelName / optionSetCode are NOT NULL on the design rows.
      */
     public List<RowChangeDTO> diff(DesignRows desired,
                                    DesignRows observed) {
         List<RowChangeDTO> out = new ArrayList<>();
-        // renameKeyCol = null for model / optionSet (studio does NOT bridge a parent rename
-        // by renamedFrom — without the parent→child cascade, bridging would RENAME the table then leave the
-        // children to ADD/DROP COLUMN against it = undeployable). So a studio model/optionSet rename matches
-        // by business key only → drop+add (DROP gate) / manual migration. Only field / optionItem (single-row,
-        // no children) bridge by renamedFrom.
-        diffTable(out, DesignModel.class.getSimpleName(), desired.models(), observed.models(),
-                AggregateChecksum.MODEL_ATTRS, DesignAggregateDiffer::modelKey, null);
-        // Children are diffed only when their parent business-key is present on their OWN side (an orphan
-        // — a child whose parent row is absent, e.g. left behind by a non-cascading model delete — is
-        // excluded). This (a) keeps the differ's row-set identical to the checksum gate's aggregate view
-        // (AggregateChecksumIndex only hashes children of an existing parent), so the R5 gate stays sound
-        // (inSync ⇒ this diff is empty), and (b) never publishes a child for a non-existent model — which
-        // would create a runtime orphan. modelName / optionSetCode are NOT NULL on the design rows.
-        Set<String> desiredModels = parentKeys(desired.models(), DesignAggregateDiffer::modelKey);
-        Set<String> observedModels = parentKeys(observed.models(), DesignAggregateDiffer::modelKey);
-        Set<String> desiredSets = parentKeys(desired.optionSets(), DesignAggregateDiffer::optionSetKey);
-        Set<String> observedSets = parentKeys(observed.optionSets(), DesignAggregateDiffer::optionSetKey);
-        diffTable(out, DesignField.class.getSimpleName(),
-                ownedBy(desired.fields(), MODEL_NAME, desiredModels),
-                ownedBy(observed.fields(), MODEL_NAME, observedModels),
-                AggregateChecksum.FIELD_ATTRS, DesignAggregateDiffer::fieldKey, FIELD_NAME);
-        diffTable(out, DesignModelIndex.class.getSimpleName(),
-                ownedBy(desired.indexes(), MODEL_NAME, desiredModels),
-                ownedBy(observed.indexes(), MODEL_NAME, observedModels),
-                AggregateChecksum.INDEX_ATTRS, DesignAggregateDiffer::indexKey, null);
-        diffTable(out, DesignOptionSet.class.getSimpleName(), desired.optionSets(), observed.optionSets(),
-                AggregateChecksum.OPTION_SET_ATTRS, DesignAggregateDiffer::optionSetKey, null);   // rule: studio does not bridge an optionSet rename (it has children)
-        diffTable(out, DesignOptionItem.class.getSimpleName(),
-                ownedBy(desired.items(), OPTION_SET_CODE, desiredSets),
-                ownedBy(observed.items(), OPTION_SET_CODE, observedSets),
-                AggregateChecksum.OPTION_ITEM_ATTRS, DesignAggregateDiffer::optionItemKey, ITEM_CODE);
+        for (DesignAggregate aggregate : DesignAggregate.values()) {
+            List<Map<String, Object>> desiredRows = desired.rows(aggregate);
+            List<Map<String, Object>> observedRows = observed.rows(aggregate);
+            DesignAggregate parent = aggregate.parent();
+            if (parent != null) {
+                desiredRows = ownedBy(desiredRows, aggregate.parentCodeAttr(),
+                        parentKeys(desired.rows(parent), bizKeyOf(parent)));
+                observedRows = ownedBy(observedRows, aggregate.parentCodeAttr(),
+                        parentKeys(observed.rows(parent), bizKeyOf(parent)));
+            }
+            diffTable(out, aggregate.designName(), desiredRows, observedRows,
+                    aggregate.checksumAttrs(), bizKeyOf(aggregate), aggregate.renameBridgeAttr());
+        }
         return out;
+    }
+
+    /** One aggregate's composite business-key function ({@code "."}-joined, single-attr keys unjoined). */
+    private static Function<Map<String, Object>, String> bizKeyOf(DesignAggregate aggregate) {
+        List<String> attrs = aggregate.bizKeyAttrs();
+        if (attrs.size() == 1) {
+            String only = attrs.getFirst();
+            return row -> str(row.get(only));
+        }
+        return row -> attrs.stream().map(attr -> str(row.get(attr))).collect(Collectors.joining("."));
     }
 
     /** The set of parent business keys present in a root row-list (e.g. every {@code modelName}). */
@@ -246,28 +233,6 @@ public class DesignAggregateDiffer {
         Map<String, Object> swapped = new HashMap<>(row);
         swapped.put(renameKeyCol, renamedFrom);
         return bizKey.apply(swapped);
-    }
-
-    // ----------------------------------------------------------------- per-meta-table business keys
-
-    private static String modelKey(Map<String, Object> r) {
-        return str(r.get(MODEL_NAME));
-    }
-
-    private static String fieldKey(Map<String, Object> r) {
-        return str(r.get(MODEL_NAME)) + "." + str(r.get(FIELD_NAME));
-    }
-
-    private static String indexKey(Map<String, Object> r) {
-        return str(r.get(MODEL_NAME)) + "." + str(r.get(INDEX_NAME));
-    }
-
-    private static String optionSetKey(Map<String, Object> r) {
-        return str(r.get(OPTION_SET_CODE));
-    }
-
-    private static String optionItemKey(Map<String, Object> r) {
-        return str(r.get(OPTION_SET_CODE)) + "." + str(r.get(ITEM_CODE));
     }
 
     // ----------------------------------------------------------------- row-change builders

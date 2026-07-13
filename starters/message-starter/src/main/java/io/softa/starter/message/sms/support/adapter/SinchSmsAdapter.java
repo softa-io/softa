@@ -3,7 +3,6 @@ package io.softa.starter.message.sms.support.adapter;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -46,8 +45,8 @@ public class SinchSmsAdapter extends AbstractSmsProviderAdapter {
     }
 
     @Override
-    protected SmsSendResult doSend(SmsProviderConfig config, SmsAdapterRequest request) throws Exception {
-        String url = resolveBaseUrl(config) + "/batches";
+    protected SmsSendResult doSend(SmsProviderConfig config, SmsAdapterRequest request) {
+        String url = resolveSinchBaseUrl(config) + "/batches";
 
         Map<String, Object> requestBody = Map.of(
                 "from", resolveSender(config),
@@ -55,31 +54,17 @@ public class SinchSmsAdapter extends AbstractSmsProviderAdapter {
                 "body", request.getContent()
         );
 
-        String jsonBody = JsonUtils.objectToString(requestBody);
-
-        String response = restClient.post()
-                .uri(url)
-                .header("Authorization", "Bearer " + config.getApiKey())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(jsonBody)
-                .retrieve()
-                .body(String.class);
-
-        JsonNode json = JsonUtils.stringToObject(response, JsonNode.class);
+        JsonNode json = postJson(url, JsonUtils.objectToString(requestBody),
+                h -> h.set("Authorization", "Bearer " + config.getApiKey()));
         return SmsSendResult.success(json.path("id").asString(null));
     }
 
     @Override
     protected SmsSendResult handleHttpError(RestClientResponseException e) {
-        try {
-            JsonNode errorJson = JsonUtils.stringToObject(e.getResponseBodyAsString(), JsonNode.class);
-            String errorText = errorJson.has("text")
-                    ? errorJson.path("text").asString(null)
-                    : errorJson.path("message").asString("Unknown Sinch error");
-            return SmsSendResult.failure(errorJson.path("code").asString(null), errorText);
-        } catch (Exception parseEx) {
-            return super.handleHttpError(e);
-        }
+        return parseErrorBody(e, err -> SmsSendResult.failure(
+                err.path("code").asString(null),
+                err.has("text") ? err.path("text").asString(null)
+                                : err.path("message").asString("Unknown Sinch error")));
     }
 
     /**
@@ -88,7 +73,7 @@ public class SinchSmsAdapter extends AbstractSmsProviderAdapter {
      * If {@code apiEndpoint} is set, it is used as-is. Otherwise the URL is constructed
      * from the region (defaulting to {@code "us"}) and the service plan ID ({@code accountId}).
      */
-    private String resolveBaseUrl(SmsProviderConfig config) {
+    private String resolveSinchBaseUrl(SmsProviderConfig config) {
         if (StringUtils.hasText(config.getApiEndpoint())) {
             return config.getApiEndpoint();
         }

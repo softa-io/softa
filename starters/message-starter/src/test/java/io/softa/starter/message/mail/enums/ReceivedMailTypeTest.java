@@ -21,15 +21,6 @@ class ReceivedMailTypeTest {
     }
 
     @Test
-    void allValuesHaveDescription() {
-        for (ReceivedMailType type : ReceivedMailType.values()) {
-            Assertions.assertNotNull(type.getDescription());
-            Assertions.assertFalse(type.getDescription().isEmpty(),
-                    type.name() + " should have a non-empty description");
-        }
-    }
-
-    @Test
     void allValuesHaveDistinctCodes() {
         ReceivedMailType[] types = ReceivedMailType.values();
         for (int i = 0; i < types.length; i++) {
@@ -41,7 +32,12 @@ class ReceivedMailTypeTest {
     }
 
     @Test
-    void exactlyThreeValues() {
-        Assertions.assertEquals(3, ReceivedMailType.values().length);
+    void exactlySixValues() {
+        // NORMAL, READ_RECEIPT, BOUNCE, AUTO_REPLY, CALENDAR_INVITE, UNKNOWN.
+        // Mutually-exclusive content types only — orthogonal properties
+        // (mailing-list, encrypted, spam) are boolean flags on
+        // MailReceiveRecord, not enum values. New mutually-exclusive content
+        // types should be added here AND wired into MailClassifier rules.
+        Assertions.assertEquals(6, ReceivedMailType.values().length);
     }
 }

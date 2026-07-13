@@ -1,8 +1,6 @@
 package io.softa.starter.message.sms.controller;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -15,8 +13,8 @@ import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.message.sms.dto.SmsSendStatusDTO;
 import io.softa.starter.message.sms.dto.SmsTemplateSummaryDTO;
 import io.softa.starter.message.sms.entity.SmsTemplate;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
-import io.softa.starter.message.sms.service.SmsSendService;
 import io.softa.starter.message.sms.service.SmsTemplateService;
 
 /**
@@ -35,7 +33,7 @@ import io.softa.starter.message.sms.service.SmsTemplateService;
 public class SmsApiController {
 
     @Autowired
-    private SmsSendService smsSendService;
+    private MessageService messageService;
 
     @Autowired
     private SmsSendRecordService sendRecordService;
@@ -49,43 +47,21 @@ public class SmsApiController {
 
     /**
      * Send an SMS with full control over all parameters.
-     */
-    @Operation(summary = "Send an SMS synchronously")
-    @PostMapping("/sendNow")
-    public ApiResponse<Void> sendNow(@RequestBody @Valid SendSmsDTO dto) {
-        smsSendService.sendNow(dto);
-        return ApiResponse.success(null);
-    }
-
-    /**
-     * Send an SMS asynchronously via message queue.
-     * <p>
-     * The request is published to the Pulsar SMS-send topic for background processing.
-     * If Pulsar is not available, it falls back to an {@code @Async} thread pool.
-     */
-    @Operation(summary = "Send an SMS asynchronously (via message queue)")
-    @PostMapping("/sendAsync")
-    public ApiResponse<Void> sendAsync(@RequestBody @Valid SendSmsDTO dto) {
-        smsSendService.sendAsync(dto);
-        return ApiResponse.success(null);
-    }
-
-    /**
-     * Send an SMS using a pre-defined template.
      *
-     * @param code         the template code (e.g. "VERIFY_CODE")
-     * @param phoneNumbers recipient phone number(s)
-     * @param variables    template placeholder variables
+     * @return the created {@code SmsSendRecord} id.
      */
-    @Operation(summary = "Send an SMS using a template")
-    @PostMapping("/sendByTemplate")
-    public ApiResponse<Void> sendByTemplate(
-            @RequestParam String code,
-            @RequestParam List<String> phoneNumbers,
-            @RequestBody(required = false) Map<String, Object> variables) {
-        smsSendService.sendByTemplate(code, phoneNumbers,
-                variables != null ? variables : Collections.emptyMap());
-        return ApiResponse.success(null);
+    @Operation(summary = "Send an SMS")
+    @PostMapping("/send")
+    public ApiResponse<Long> send(@RequestBody @Valid SendSmsDTO dto) {
+        return ApiResponse.success(messageService.sendSms(dto));
+    }
+
+    /** Submit independent SMS messages as one atomic batch. */
+    @Operation(summary = "Send an SMS batch")
+    @PostMapping("/sendBatch")
+    public ApiResponse<List<Long>> sendBatch(
+            @RequestBody List<@Valid SendSmsDTO> messages) {
+        return ApiResponse.success(messageService.sendSmsBatch(messages));
     }
 
     // -------------------------------------------------

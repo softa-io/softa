@@ -2,6 +2,7 @@ package io.softa.starter.studio.release.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.exception.ExternalException;
 import io.softa.starter.studio.release.desired.DesignRows;
 
 /**
@@ -84,5 +86,19 @@ class JdbcSchemaReaderTest {
         assertTrue(rows.optionSets().isEmpty());
         assertTrue(rows.items().isEmpty());
         assertNotNull(rows.indexes());
+    }
+
+    @Test
+    @DisplayName("two tables that reverse to the same modelName fail loud (no silent merge)")
+    void collidingModelNamesFailLoud() throws SQLException {
+        String url = "jdbc:h2:mem:p34_collision;DB_CLOSE_DELAY=-1";
+        try (Connection c = DriverManager.getConnection(url, "sa", "");
+             Statement st = c.createStatement()) {
+            // Both `customer_order` and `customerOrder` derive the same modelName `CustomerOrder`.
+            st.execute("CREATE TABLE \"customer_order\" (\"id\" BIGINT PRIMARY KEY)");
+            st.execute("CREATE TABLE \"customerOrder\" (\"id\" BIGINT PRIMARY KEY)");
+        }
+        ExternalException ex = assertThrows(ExternalException.class, () -> reader.read(url, "sa", ""));
+        assertTrue(ex.getMessage().contains("CustomerOrder"), ex.getMessage());
     }
 }

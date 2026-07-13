@@ -18,9 +18,22 @@
             <artifactId>softa-web</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Reference data: CountryRegion / Currency / CountrySubdivision.
+             SMS provider country routing depends on country_region rows + dial_code denorm. -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>reference-data-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <!-- E.164 phone number parsing for SMS country-based routing. -->
+        <dependency>
+            <groupId>com.googlecode.libphonenumber</groupId>
+            <artifactId>libphonenumber</artifactId>
+            <version>9.0.30</version>
         </dependency>
         <!-- Optional: scheduled mail fetching requires cron-starter on classpath -->
         <dependency>
@@ -28,6 +41,13 @@
             <artifactId>cron-starter</artifactId>
             <version>${project.version}</version>
             <optional>true</optional>
+        </dependency>
+        <!-- Embedded SMTP server for SmtpMailTransport wire tests (test only). -->
+        <dependency>
+            <groupId>com.icegreen</groupId>
+            <artifactId>greenmail</artifactId>
+            <version>2.1.3</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

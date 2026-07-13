@@ -3,7 +3,6 @@ package io.softa.starter.message.sms.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import io.softa.framework.base.enums.Language;
 import io.softa.starter.message.sms.entity.SmsTemplate;
 
 /**
@@ -19,7 +18,6 @@ public class SmsTemplateSummaryDTO {
         dto.setCode(template.getCode());
         dto.setName(template.getName());
         dto.setDescription(template.getDescription());
-        dto.setLanguage(template.getLanguage());
         String content = template.getContent();
         dto.setContentPreview(content != null && content.length() > 100
                 ? content.substring(0, 100) : content);
@@ -37,9 +35,6 @@ public class SmsTemplateSummaryDTO {
 
     @Schema(description = "Description")
     private String description;
-
-    @Schema(description = "Language tag")
-    private Language language;
 
     @Schema(description = "Content preview (first 100 characters)")
     private String contentPreview;

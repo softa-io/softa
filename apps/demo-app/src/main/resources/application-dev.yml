@@ -18,8 +18,8 @@ system:
   #   - empty  : manage nothing; the read-only drift checker runs instead.
   #   - subset : e.g. ["io\\.softa\\.starter\\.referencedata.*"] to reconcile
   #              only that package's models — use a narrow scope on a SHARED dev
-  #              database so developers don't clobber each other's
-  #              PLATFORM_MAINTAINED rows.
+  #              database so developers don't clobber each other's sys_* rows for
+  #              the same app_code.
   # NEVER set a non-empty scanner-scope on a production runtime.
   metadata:
     scanner-scope:

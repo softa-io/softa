@@ -309,6 +309,30 @@ hand-written migration instead.
 ### Add an index
 See `@Index` in §2. `fields` are Java field names; restart to apply.
 
+### Define a timeline (effective-dated) model
+For data queried "as of a date" (org charts, rate tables, salary profile items — contiguous
+versions, never edited in place). Extend `TimelineModel` (brings `sliceId` + the effective
+dates), set `timeline = true`, and **always** declare both of these:
+
+```java
+@Model(label = "Rate Table", businessKey = {"code"}, timeline = true,
+        idStrategy = IdStrategy.DISTRIBUTED_LONG)   // REQUIRED: DB_AUTO_ID is boot-rejected —
+                                                    // the auto-increment lands on sliceId, so the
+                                                    // shared logical `id` must be app-generated
+@Index(indexName = "uk_rate_table_timeline",        // explicit name: the default concatenation
+        fields = {"id", "effectiveStartDate", "effectiveEndDate"}, unique = true)
+public class RateTable extends TimelineModel { ... }
+```
+
+The unique index is the standard timeline pattern — it covers the as-of read and turns a
+concurrent same-start write race into a loud unique violation. Rules of thumb: other models
+reference a timeline model by its logical `id` (resolved as-of `Context.effectiveDate`) or pin
+one version via `sliceId`; a declarative reference-by-code to a timeline model is not supported
+(`code` repeats per slice) — use a runtime "`code` + effective date" query instead. Reads default
+to the current effective date; use `FlexQuery.acrossTimelineData()` (or filter on the effective
+dates yourself) for history. `deleteById` removes the whole entity (all slices, fires `onDelete`);
+`deleteBySliceId` removes one version (never fires `onDelete`).
+
 ---
 
 ## 6. Check your change

@@ -1,6 +1,7 @@
 package io.softa.starter.studio.release.upgrade.impl;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -10,10 +11,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import io.softa.framework.base.enums.ResponseCode;
+import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.URLUtils;
@@ -120,6 +123,14 @@ public class RemoteApiClientImpl implements RemoteApiClient {
                 .headers(headers -> populateHeaders(headers, appEnv.getId(), idempotencyKey))
                 .body(body == null ? "" : body)
                 .retrieve()
+                // Without this, retrieve() rethrows a 4xx/5xx as an opaque HttpClientErrorException with no
+                // URI/body context — and the common failure mode (401 bad signature, 403 appCode mismatch)
+                // would bypass the annotated asserts below. Surface the runtime's error body + target here.
+                .onStatus(HttpStatusCode::isError, (request, response) -> {
+                    throw new IllegalArgumentException("Remote API call failed: URI={0}, status={1}, body={2}",
+                            uri, response.getStatusCode(),
+                            StreamUtils.copyToString(response.getBody(), StandardCharsets.UTF_8));
+                })
                 .toEntity(API_RESPONSE_TYPE);
 
         HttpStatusCode status = responseEntity.getStatusCode();

@@ -61,6 +61,7 @@ public final class MetadataDtoMapper {
         dto.setSearchName(metaModel.getSearchName());
         dto.setDefaultOrder(metaModel.getDefaultOrder());
         dto.setTimeline(metaModel.isTimeline());
+        dto.setVersionLock(metaModel.isVersionLock());
         dto.setCopyable(metaModel.isCopyable());
         List<MetaField> fields = ModelManager.getModelFields(modelName);
         Map<String, MetaFieldDTO> fieldMap = fields.stream()

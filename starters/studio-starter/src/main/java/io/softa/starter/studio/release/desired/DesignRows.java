@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.softa.starter.studio.release.dto.DesignAggregate;
+
 /**
  * A metadata catalog as camelCase attribute maps, one list per meta-table (model / field / index /
  * option-set / option-item). The shared shape on both sides of a converge: {@link DesignEnvSource}
@@ -20,6 +22,17 @@ public record DesignRows(List<Map<String, Object>> models,
     /** An empty catalog — the observed side when nothing needs fetching (a pure create). */
     public static DesignRows empty() {
         return new DesignRows(List.of(), List.of(), List.of(), List.of(), List.of());
+    }
+
+    /** The row list of one swept meta-table, addressed by its {@link DesignAggregate} descriptor. */
+    public List<Map<String, Object>> rows(DesignAggregate aggregate) {
+        return switch (aggregate) {
+            case MODEL -> models();
+            case OPTION_SET -> optionSets();
+            case FIELD -> fields();
+            case INDEX -> indexes();
+            case OPTION_ITEM -> items();
+        };
     }
 
     /**

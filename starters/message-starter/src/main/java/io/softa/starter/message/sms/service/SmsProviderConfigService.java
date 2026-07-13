@@ -1,9 +1,10 @@
 package io.softa.starter.message.sms.service;
 
+import java.util.List;
+import java.util.Optional;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.sms.entity.SmsProviderConfig;
-
-import java.util.Optional;
 
 /**
  * CRUD service for SMS provider configurations.
@@ -11,14 +12,20 @@ import java.util.Optional;
 public interface SmsProviderConfigService extends EntityService<SmsProviderConfig, Long> {
 
     /**
-     * Find the current tenant's default enabled SMS provider config.
-     * ORM automatically applies {@code WHERE tenant_id = currentTenantId}.
+     * Enabled configs marked {@code isDefault=true}, ordered by
+     * {@code priority} asc, within the caller's visibility scope (own tenant
+     * plus platform tier). Used by {@code SmsProviderDispatcher} as the
+     * catchall tier when no {@code sms_provider_region} row matches the
+     * recipient's country. Empty when no default is marked.
      */
-    Optional<SmsProviderConfig> findTenantDefault();
+    List<SmsProviderConfig> findEnabledDefaults();
 
     /**
-     * Find the platform-level default SMS provider config (tenant_id = 0).
-     * Uses {@code @CrossTenant} to bypass ORM tenant filtering.
+     * Load a config by id within the caller's visibility scope: the caller's
+     * own tenant plus the platform tier (tenant_id = 0). Send records
+     * legitimately reference platform-level configs, which the implicit
+     * single-tenant filter would hide — dispatch and retry paths must resolve
+     * ids through this method rather than {@code getById}.
      */
-    Optional<SmsProviderConfig> findPlatformDefault();
+    Optional<SmsProviderConfig> findVisibleById(Long id);
 }

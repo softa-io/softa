@@ -11,7 +11,7 @@ import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 import io.softa.starter.studio.release.enums.ConnectorType;
 import io.softa.starter.studio.release.upgrade.RemoteApiClient;
-import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolver;
+import io.softa.starter.studio.release.ddl.DesignDdlTemplateResolver;
 
 /**
  * {@link ConnectorFactory}: connectorType is data-driven (null ⇒ SOFTA). A SOFTA env
@@ -23,7 +23,7 @@ import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolv
 class ConnectorFactoryTest {
 
     private final ConnectorFactory factory = new ConnectorFactory(
-            mock(RemoteApiClient.class), mock(DesignGenerationMetadataResolver.class),
+            mock(RemoteApiClient.class), mock(DesignDdlTemplateResolver.class),
             new JdbcDdlExecutor(), mock(JdbcSchemaReader.class));
 
     @Test

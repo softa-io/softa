@@ -34,8 +34,9 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
-import io.softa.framework.orm.service.TimelineService;
 import io.softa.framework.orm.service.relation.RelationDeleteHandler;
+import io.softa.framework.orm.service.versioning.VersioningStrategy;
+import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
 
@@ -57,7 +58,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     private PermissionService permissionService;
 
     @Autowired
-    private TimelineService timelineService;
+    private VersioningStrategyResolver versioning;
 
     @Autowired
     private RelationDeleteHandler relationDeleteHandler;
@@ -126,12 +127,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // Extracts a set of assigned fields for checking field-level permissions
         Set<String> assignedFields = new HashSet<>();
         rows.forEach(row -> assignedFields.addAll(row.keySet()));
-        // The ids can only be extracted after jdbcService is called
-        if (ModelManager.isTimelineModel(modelName)) {
-            rows = timelineService.createSlices(modelName, rows);
-        } else {
-            rows = jdbcService.insertList(modelName, rows);
-        }
+        // The ids can only be extracted after the write is executed
+        rows = versioning.of(modelName).create(modelName, rows);
         List<Serializable> ids = rows.stream()
                 .map(row -> (Serializable) row.get(ModelConstant.ID))
                 .collect(Collectors.toList());
@@ -331,14 +328,20 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * @return data list
      */
     private List<Map<String, Object>> getRowsWithoutPermissionCheck(String modelName, List<K> ids, List<String> fields, ConvertType convertType) {
-        if (ModelManager.isTimelineModel(modelName)) {
-            // Append timeline filters
-            Filters filters = timelineService.appendTimelineFilters(modelName, new Filters().in(ModelConstant.ID, ids));
-            FlexQuery flexQuery = new FlexQuery(fields, filters);
-            flexQuery.setConvertType(convertType);
-            return jdbcService.selectByFilter(modelName, flexQuery);
-        }
-        return jdbcService.selectByIds(modelName, ids, fields, convertType);
+        return versioning.of(modelName).fetchByIds(modelName, ids, fields, convertType);
+    }
+
+    /**
+     * Single exits applying the versioning read scope (the timeline effective-date clamp;
+     * a no-op for regular models). Every new Filters- or FlexQuery-shaped read path MUST
+     * route through one of these before handing the query to jdbcService.
+     */
+    private Filters scopedRead(String modelName, Filters filters) {
+        return versioning.of(modelName).scopeRead(modelName, filters);
+    }
+
+    private Filters scopedRead(String modelName, FlexQuery flexQuery) {
+        return versioning.of(modelName).scopeRead(modelName, flexQuery);
     }
 
     /**
@@ -550,8 +553,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public List<K> getIds(String modelName, Filters filters) {
-        // Append timeline filtersAppend timeline filters
-        filters = timelineService.appendTimelineFilters(modelName, filters);
+        // Apply the versioning read scope (timeline clamp)
+        filters = this.scopedRead(modelName, filters);
         // Append permission data range filters
         filters = permissionService.appendScopeAccessFilters(modelName, filters);
         FlexQuery flexQuery = new FlexQuery(filters);
@@ -560,7 +563,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
 
     @Override
     public List<K> getIds(String modelName, Filters filters, int limitSize) {
-        filters = timelineService.appendTimelineFilters(modelName, filters);
+        filters = this.scopedRead(modelName, filters);
         filters = permissionService.appendScopeAccessFilters(modelName, filters);
         FlexQuery flexQuery = new FlexQuery(filters);
         flexQuery.setLimitSize(limitSize);   // LIMIT applied by SqlBuilderFactory.buildSelectSql
@@ -619,8 +622,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public <EK extends Serializable> List<EK> getRelatedIds(String modelName, Filters filters, String fieldName) {
-        // Append timeline filtersAppend timeline filters
-        filters = timelineService.appendTimelineFilters(modelName, filters);
+        // Apply the versioning read scope (timeline clamp)
+        filters = this.scopedRead(modelName, filters);
         // Append permission data range filters
         filters = permissionService.appendScopeAccessFilters(modelName, filters);
         FlexQuery flexQuery = new FlexQuery(filters);
@@ -716,14 +719,12 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         Set<String> toUpdateFields = new HashSet<>();
         List<Map<String, Object>> toUpdateRows = new ArrayList<>();
         String pkField = ModelManager.getModelPrimaryKey(modelName);
-        List<Serializable> pks = new ArrayList<>();
         rows.forEach(row -> {
             Set<String> rowFields = new HashSet<>(row.keySet());
             rowFields.retainAll(updatableFields);
             IdUtils.formatMapId(modelName, row);
             Serializable pk = (Serializable) row.get(pkField);
             Assert.notNull(pk, "When updating model {0}, the primary key {1} cannot be null! {2}", modelName, pkField, row);
-            pks.add(pk);
             if (rowFields.isEmpty()) {
                 log.warn("Missing business fields when updating model {} data! {}, automatically ignored.", modelName, row);
                 return;
@@ -737,25 +738,12 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             return false;
         }
         this.checkTenantId(modelName, rows);
-        Integer updateCount;
-        if (ModelManager.isTimelineModel(modelName)) {
-            FlexQuery flexQuery = new FlexQuery(Arrays.asList(ModelConstant.ID, ModelConstant.SLICE_ID), new Filters().in(ModelConstant.SLICE_ID, pks));
-            List<Map<String, Object>> sliceList = jdbcService.selectByFilter(modelName, flexQuery);
-            Map<Serializable, Serializable> sliceMap = sliceList.stream()
-                    .collect(Collectors.toMap(row -> (Serializable) row.get(ModelConstant.SLICE_ID), row -> (Serializable) row.get(ModelConstant.ID)));
-            // Fill timeline model business primary key `id`. The input id parameter is not reliable.
-            rows.forEach(row -> {
-                Serializable sliceId = (Serializable) row.get(ModelConstant.SLICE_ID);
-                Assert.isTrue(sliceMap.containsKey(sliceId),
-                        "The timeline model {0} does not have data for sliceId {1}!", modelName, sliceId);
-                row.put(ModelConstant.ID, sliceMap.get(sliceId));
-            });
-            permissionService.checkIdsFieldsAccess(modelName, sliceMap.values(), toUpdateFields, AccessType.UPDATE);
-            updateCount = timelineService.updateSlices(modelName, rows);
-        } else {
-            permissionService.checkIdsFieldsAccess(modelName, pks, toUpdateFields, AccessType.UPDATE);
-            updateCount = jdbcService.updateList(modelName, rows, toUpdateFields);
-        }
+        VersioningStrategy strategy = versioning.of(modelName);
+        // Timeline models remap sliceId to the trusted logical id (backfilling row ids);
+        // identity models use the rows' own ids.
+        Collection<Serializable> targetIds = strategy.resolveTargetIds(modelName, rows);
+        permissionService.checkIdsFieldsAccess(modelName, targetIds, toUpdateFields, AccessType.UPDATE);
+        Integer updateCount = strategy.update(modelName, rows, toUpdateFields);
         return updateCount > 0;
     }
 
@@ -872,11 +860,11 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean deleteBySliceId(String modelName, Serializable sliceId) {
-        Assert.isTrue(ModelManager.isTimelineModel(modelName),
-                "Model {0} is not a timeline model, and cannot delete slice.", modelName);
-        TimelineSlice timelineSlice = timelineService.getTimelineSlice(modelName, sliceId);
+        VersioningStrategy strategy = versioning.of(modelName);
+        // Rejects non-timeline models (no version slices to delete).
+        TimelineSlice timelineSlice = strategy.versionSlice(modelName, sliceId);
         permissionService.checkIdsAccess(modelName, Collections.singletonList(timelineSlice.getId()), AccessType.DELETE);
-        return timelineService.deleteSlice(modelName, timelineSlice);
+        return strategy.deleteVersion(modelName, timelineSlice);
     }
 
     /**
@@ -923,7 +911,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // CASCADE graph acyclic at boot (cyclic / self-referential CASCADE is rejected), so the recursion
         // is bounded; a diamond re-converging on an already-deleted row no-ops here (selectByIds empty /
         // soft-delete idempotency above).
-        relationDeleteHandler.handle(modelName, deletableIds);
+        // Timeline rows repeat the logical id once per slice — the inbound-FK strategy is per entity.
+        relationDeleteHandler.handle(modelName, deletableIds.stream().distinct().toList());
         return jdbcService.deleteByIds(modelName, Cast.of(deletableIds), deletableRows);
     }
 
@@ -1101,8 +1090,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         }
         // Check model and field level permissions
         permissionService.checkModelFieldsAccess(modelName, flexQuery.getFields(), AccessType.READ);
-        // Append timeline filters
-        Filters filters = timelineService.appendTimelineFilters(modelName, flexQuery);
+        // Apply the versioning read scope (timeline clamp)
+        Filters filters = this.scopedRead(modelName, flexQuery);
         // Append permission data range filters
         filters = permissionService.appendScopeAccessFilters(modelName, filters);
         flexQuery.setFilters(filters);
@@ -1177,8 +1166,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         }
         // Check model and field level permissions
         permissionService.checkModelFieldsAccess(modelName, flexQuery.getFields(), AccessType.READ);
-        // Append timeline filters
-        Filters filters = timelineService.appendTimelineFilters(modelName, flexQuery);
+        // Apply the versioning read scope (timeline clamp)
+        Filters filters = this.scopedRead(modelName, flexQuery);
         // Append permission data range filters
         filters = permissionService.appendScopeAccessFilters(modelName, filters);
         flexQuery.setFilters(filters);
@@ -1249,8 +1238,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public long count(String modelName, Filters filters) {
-        // Append timeline filters
-        filters = timelineService.appendTimelineFilters(modelName, filters);
+        // Apply the versioning read scope (timeline clamp)
+        filters = this.scopedRead(modelName, filters);
         // Append permission data range filters
         filters = permissionService.appendScopeAccessFilters(modelName, filters);
         return jdbcService.count(modelName, new FlexQuery(filters));

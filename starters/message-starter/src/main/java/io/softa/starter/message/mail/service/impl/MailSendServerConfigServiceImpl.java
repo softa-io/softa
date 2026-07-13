@@ -17,7 +17,9 @@ import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.message.mail.dto.ConnectivityTestResultDTO;
 import io.softa.starter.message.mail.entity.MailSendServerConfig;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
-import io.softa.starter.message.mail.support.MailSenderFactory;
+import io.softa.starter.message.mail.smtp.SmtpMailTransport;
+import io.softa.starter.message.mail.support.MailConfigCache;
+import io.softa.starter.message.shared.TenantScopes;
 
 /**
  * Implementation of {@link MailSendServerConfigService}.
@@ -28,7 +30,10 @@ public class MailSendServerConfigServiceImpl extends EntityServiceImpl<MailSendS
         implements MailSendServerConfigService {
 
     @Autowired
-    private MailSenderFactory senderFactory;
+    private SmtpMailTransport smtpMailTransport;
+
+    @Autowired
+    private MailConfigCache configCache;
 
     @Override
     public Optional<MailSendServerConfig> findTenantDefault() {
@@ -36,9 +41,17 @@ public class MailSendServerConfigServiceImpl extends EntityServiceImpl<MailSendS
                 .eq(MailSendServerConfig::getIsDefault, true)
                 .eq(MailSendServerConfig::getIsEnabled, true);
         FlexQuery flexQuery = new FlexQuery(filters,
-                Orders.ofAsc(MailSendServerConfig::getSortOrder));
+                Orders.ofAsc(MailSendServerConfig::getSequence));
         List<MailSendServerConfig> results = this.searchList(flexQuery);
         return results.isEmpty() ? Optional.empty() : Optional.of(results.getFirst());
+    }
+
+    @Override
+    @CrossTenant
+    public Optional<MailSendServerConfig> findVisibleById(Long id) {
+        return searchOne(new Filters()
+                .eq(MailSendServerConfig::getId, id)
+                .in(MailSendServerConfig::getTenantId, TenantScopes.currentPlusPlatform()));
     }
 
     @Override
@@ -49,7 +62,7 @@ public class MailSendServerConfigServiceImpl extends EntityServiceImpl<MailSendS
                 .eq(MailSendServerConfig::getIsDefault, true)
                 .eq(MailSendServerConfig::getIsEnabled, true);
         FlexQuery flexQuery = new FlexQuery(filters,
-                Orders.ofAsc(MailSendServerConfig::getSortOrder));
+                Orders.ofAsc(MailSendServerConfig::getSequence));
         List<MailSendServerConfig> results = this.searchList(flexQuery);
         return results.isEmpty() ? Optional.empty() : Optional.of(results.getFirst());
     }
@@ -58,7 +71,8 @@ public class MailSendServerConfigServiceImpl extends EntityServiceImpl<MailSendS
     public boolean updateOne(MailSendServerConfig entity) {
         boolean result = super.updateOne(entity);
         if (result) {
-            senderFactory.evict(entity.getId());
+            // SmtpMailTransport is now stateless — only the Redis config cache needs eviction.
+            configCache.evictById(entity.getId());
         }
         return result;
     }
@@ -67,7 +81,7 @@ public class MailSendServerConfigServiceImpl extends EntityServiceImpl<MailSendS
     public boolean deleteById(Long id) {
         boolean result = super.deleteById(id);
         if (result) {
-            senderFactory.evict(id);
+            configCache.evictById(id);
         }
         return result;
     }
@@ -85,7 +99,7 @@ public class MailSendServerConfigServiceImpl extends EntityServiceImpl<MailSendS
         ConnectivityTestResultDTO result = new ConnectivityTestResultDTO();
         long start = System.currentTimeMillis();
         try {
-            JavaMailSenderImpl sender = senderFactory.getSender(config);
+            JavaMailSenderImpl sender = smtpMailTransport.buildSender(config);
             sender.testConnection();
             result.setSuccess(true);
             result.setServerGreeting("SMTP connection successful to " + config.getHost() + ":" + config.getPort());

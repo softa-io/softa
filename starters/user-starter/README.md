@@ -18,7 +18,7 @@ auditing, and configurable password/session policies.
 Depends on `softa-web` and `reference-data-starter`. Auto-configured by
 `io.softa.starter.user.UserAutoConfiguration` (component-scans the module — no
 enabling flag). Sessions require Redis; password-reset emails require a
-`MailSendService` (message-starter).
+`MessageService` (message-starter).
 
 ## Entities
 

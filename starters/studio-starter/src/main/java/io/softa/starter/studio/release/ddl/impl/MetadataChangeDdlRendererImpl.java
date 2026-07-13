@@ -13,7 +13,7 @@ import io.softa.starter.studio.release.ddl.MetadataChangeDdlRenderer;
 import io.softa.starter.studio.release.dto.DesignMetaTables;
 import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
-import io.softa.starter.studio.template.ddl.context.DdlContextBuilder;
+import io.softa.starter.studio.release.ddl.context.DdlContextBuilder;
 
 /**
  * {@link MetadataChangeDdlRenderer} implementation.
@@ -62,35 +62,23 @@ public class MetadataChangeDdlRendererImpl implements MetadataChangeDdlRenderer 
     private DdlTemplateContext buildTemplateContext(ModelChangesDTO modelChanges, ModelChangesDTO fieldChanges,
                                                     ModelChangesDTO indexChanges) {
         ModelDdlAccumulator accumulator = new ModelDdlAccumulator();
-        extractCreatedModels(modelChanges, accumulator);
-        extractDeletedModels(modelChanges, accumulator);
-        extractUpdatedModels(modelChanges, accumulator);
+        applyModelChanges(modelChanges, accumulator);
         applyFieldChanges(fieldChanges, accumulator);
         applyIndexChanges(indexChanges, accumulator);
         return accumulator.toTemplateContext();
     }
 
-    private void extractCreatedModels(ModelChangesDTO modelChanges, ModelDdlAccumulator accumulator) {
+    private void applyModelChanges(ModelChangesDTO modelChanges, ModelDdlAccumulator accumulator) {
         if (modelChanges == null) {
             return;
         }
+        // Order matters: created + deleted are accumulated before updated, since mergeUpdatedModel
+        // reconciles an update against the models already collected.
         for (RowChangeDTO rowChangeDTO : modelChanges.getCreatedRows()) {
             accumulator.addCreatedModel(DdlContextBuilder.fromModelData(rowChangeDTO.getFullRow()));
         }
-    }
-
-    private void extractDeletedModels(ModelChangesDTO modelChanges, ModelDdlAccumulator accumulator) {
-        if (modelChanges == null) {
-            return;
-        }
         for (RowChangeDTO rowChangeDTO : modelChanges.getDeletedRows()) {
             accumulator.addDeletedModel(DdlContextBuilder.fromModelData(rowChangeDTO.getFullRow()));
-        }
-    }
-
-    private void extractUpdatedModels(ModelChangesDTO modelChanges, ModelDdlAccumulator accumulator) {
-        if (modelChanges == null) {
-            return;
         }
         for (RowChangeDTO rowChangeDTO : modelChanges.getUpdatedRows()) {
             if (Collections.disjoint(MODEL_PROPERTIES, rowChangeDTO.getPreviousValuesForChangedFields().keySet())) {

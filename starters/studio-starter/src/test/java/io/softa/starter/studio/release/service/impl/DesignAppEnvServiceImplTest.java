@@ -15,6 +15,7 @@ import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
@@ -69,21 +70,37 @@ class DesignAppEnvServiceImplTest {
         return new DesiredStateComparator.Result(empty, empty);
     }
 
+    // ------------------------------------------------------------------ fixture
+    // Constructor-injected collaborators — JUnit creates a fresh test instance (and thus fresh mocks)
+    // per test method. The converger is real over a mocked checksum comparator, and the differ / drift
+    // importer are real (pure logic, the importer backed by the same mocked ModelService), matching
+    // production wiring. Raw ModelService on purpose: the generic delete/create APIs accept List<Long>
+    // env ids without inference noise.
+    private final DesignAppService appService = mock(DesignAppService.class);
+    private final ModelService modelService = mock(ModelService.class);
+    private final DesignEnvCloner envCloner = mock(DesignEnvCloner.class);
+    private final DesignEnvSource envSource = mock(DesignEnvSource.class);
+    private final DesiredStateComparator comparator = mock(DesiredStateComparator.class);
+    private final DesiredStateDeployService deployService = mock(DesiredStateDeployService.class);
+    private final ConnectorFactory connectorFactory = mock(ConnectorFactory.class);
+    private final DesignEnvMerger envMerger = mock(DesignEnvMerger.class);
+    private final DesignActivityService activityService = mock(DesignActivityService.class);
+    private final DesignSnapshotService snapshotService = mock(DesignSnapshotService.class);
+
+    /** A spy over a fully constructor-wired service — tests stub the inherited getById/updateOne on the spy. */
+    private DesignAppEnvServiceImpl newService() {
+        return Mockito.spy(new DesignAppEnvServiceImpl(appService, modelService, envCloner, envSource,
+                new DesiredStateConverger(comparator, new DesignAggregateDiffer()),
+                deployService, connectorFactory, envMerger, activityService, snapshotService,
+                new DesignAggregateDiffer(), new DesignDriftImporter(modelService)));
+    }
+
     @Test
     void compareDesignWithRuntimeReturnsUpdateWhenRuntimeColumnDiffers() {
         // Drift computed on demand (no cache). Same business key Account.customerName,
         // differing columnName → UPDATE in the returned diff.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        DesignAppService appService = mock(DesignAppService.class);
-        DesiredStateComparator comparator = mock(DesiredStateComparator.class);
-        ConnectorFactory connectorFactory = mock(ConnectorFactory.class);
+        DesignAppEnvServiceImpl service = newService();
         Connector connector = mock(Connector.class);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        ReflectionTestUtils.setField(service, "appService", appService);
-        ReflectionTestUtils.setField(service, "connectorFactory", connectorFactory);
-        ReflectionTestUtils.setField(service, "converger",
-                new DesiredStateConverger(comparator, new DesignAggregateDiffer()));
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(1L);
@@ -126,17 +143,8 @@ class DesignAppEnvServiceImplTest {
     void getDriftEnvelopeReportsFailureWhenRuntimeUnreachable() {
         // On-demand drift. A runtime-unreachable fetch surfaces as a FAILURE envelope (the UI
         // shows the error) rather than propagating the exception.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        DesignAppService appService = mock(DesignAppService.class);
-        DesiredStateComparator comparator = mock(DesiredStateComparator.class);
-        ConnectorFactory connectorFactory = mock(ConnectorFactory.class);
+        DesignAppEnvServiceImpl service = newService();
         Connector connector = mock(Connector.class);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        ReflectionTestUtils.setField(service, "appService", appService);
-        ReflectionTestUtils.setField(service, "connectorFactory", connectorFactory);
-        ReflectionTestUtils.setField(service, "converger",
-                new DesiredStateConverger(comparator, new DesignAggregateDiffer()));
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(2L);
@@ -162,17 +170,8 @@ class DesignAppEnvServiceImplTest {
     void compareDesignWithRuntimeTreatsEmptyDesignAsRuntimeOnlyRows() {
         // First-import path: the env's design is empty (never published). Every runtime row then
         // surfaces as a deletedRow (runtime-only), giving applyDrift something to invert onto design.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        DesignAppService appService = mock(DesignAppService.class);
-        DesiredStateComparator comparator = mock(DesiredStateComparator.class);
-        ConnectorFactory connectorFactory = mock(ConnectorFactory.class);
+        DesignAppEnvServiceImpl service = newService();
         Connector connector = mock(Connector.class);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        ReflectionTestUtils.setField(service, "appService", appService);
-        ReflectionTestUtils.setField(service, "connectorFactory", connectorFactory);
-        ReflectionTestUtils.setField(service, "converger",
-                new DesiredStateConverger(comparator, new DesignAggregateDiffer()));
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(3L);
@@ -207,18 +206,13 @@ class DesignAppEnvServiceImplTest {
     void publishOrchestratesActivityRecordAndConverge() {
         // publish(envId) now orchestrates inline — CAS-acquire the env mutex, open a PUBLISH
         // DesignActivity, run publishInternal, mark it SUCCESS, release the mutex.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(1L);
         appEnv.setAppId(100L);
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(), any());        // CAS publish lock acquired
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
 
         DesignActivity activity = new DesignActivity();
@@ -235,22 +229,55 @@ class DesignAppEnvServiceImplTest {
 
         service.publish(1L);
 
-        verify(service).updateByFilter(any(), any());
+        verify(service, atLeastOnce()).updateOne(any(DesignAppEnv.class));   // mutex acquire (version CAS)
         verify(activityService).start(eq(100L), eq(1L), eq(DesignActivityKind.PUBLISH), isNull(), any());
         verify(activityService).succeed(eq(77L), any(), any(), eq(99L));
+    }
+
+    @Test
+    void acquireEnvLockRefusesWhenVersionCasIsLost() {
+        // The env-status mutex is an optimistic version CAS: if a concurrent op already bumped the version,
+        // this acquire's updateOne matches 0 rows → VersionException → translated to a "busy" refusal.
+        // The lock is NOT acquired, so no activity is opened and nothing is published.
+        DesignAppEnvServiceImpl service = newService();
+
+        DesignAppEnv appEnv = new DesignAppEnv();
+        appEnv.setId(1L);
+        appEnv.setAppId(100L);
+        appEnv.setName("dev");
+        appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);   // looked free at read time...
+        appEnv.setVersion(5L);
+        doReturn(Optional.of(appEnv)).when(service).getById(1L);
+        // ...but the version was superseded by a racing acquire → the guarded UPDATE throws.
+        doThrow(new VersionException("version superseded")).when(service).updateOne(any(DesignAppEnv.class));
+
+        assertThrows(IllegalArgumentException.class, () -> service.publish(1L));
+        verify(activityService, never()).start(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void acquireEnvLockRefusesWhenEnvAlreadyBusy() {
+        // Pre-check: an env not in STABLE (e.g. a stuck DEPLOYING lock) is refused before the CAS is even
+        // attempted — updateOne is never called.
+        DesignAppEnvServiceImpl service = newService();
+
+        DesignAppEnv appEnv = new DesignAppEnv();
+        appEnv.setId(1L);
+        appEnv.setName("dev");
+        appEnv.setEnvStatus(DesignAppEnvStatus.DEPLOYING);   // already held
+        appEnv.setVersion(5L);
+        doReturn(Optional.of(appEnv)).when(service).getById(1L);
+
+        assertThrows(IllegalArgumentException.class, () -> service.publish(1L));
+        verify(service, never()).updateOne(any(DesignAppEnv.class));
+        verify(activityService, never()).start(any(), any(), any(), any(), any());
     }
 
     @Test
     void restoreOverwritesDesignFromSnapshotThenPublishes() {
         // restore(activityId) replays the activity's captured design onto the env
         // (overwrite under the mutex), then publishes to converge the runtime.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        DesignSnapshotService snapshotService = mock(DesignSnapshotService.class);
-        DesignEnvCloner envCloner = mock(DesignEnvCloner.class);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
-        ReflectionTestUtils.setField(service, "snapshotService", snapshotService);
-        ReflectionTestUtils.setField(service, "envCloner", envCloner);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignActivity activity = new DesignActivity();
         activity.setId(50L);
@@ -273,7 +300,6 @@ class DesignAppEnvServiceImplTest {
         appEnv.setAppId(100L);
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(), any());     // CAS env-lock acquired (STABLE→IMPORTING)
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         doNothing().when(service).publish(1L);
 
@@ -284,17 +310,15 @@ class DesignAppEnvServiceImplTest {
         verify(envCloner).replaceEnvDesign(eq(1L), captor.capture());
         assertEquals(1, captor.getValue().models().size());
         assertEquals("Account", captor.getValue().models().getFirst().get("modelName"));
-        verify(service).updateByFilter(any(), any());                  // mutex acquire (atomic CAS)
-        verify(service).updateOne(any(DesignAppEnv.class));            // mutex release
+        verify(service, atLeastOnce()).updateOne(any(DesignAppEnv.class));   // mutex acquire (version CAS)
+        verify(service, atLeastOnce()).updateOne(any(DesignAppEnv.class));            // mutex release
         // ...then the runtime converged via publish.
         verify(service).publish(1L);
     }
 
     @Test
     void restoreRejectsActivityWithoutSnapshot() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignActivity activity = new DesignActivity();
         activity.setId(60L);
@@ -314,19 +338,8 @@ class DesignAppEnvServiceImplTest {
         // R5, the primary target: when the checksum gate reports the env in sync,
         // publishInternal must NOT run the five-table runtime fan-out, and applyToRuntime is handed an
         // empty change set (ships nothing). Soundness: inSync ⇒ the business-key row diff is empty too.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        DesignAppService appService = mock(DesignAppService.class);
-        DesiredStateComparator comparator = mock(DesiredStateComparator.class);
-        DesiredStateDeployService deployService = mock(DesiredStateDeployService.class);
-        ConnectorFactory connectorFactory = mock(ConnectorFactory.class);
+        DesignAppEnvServiceImpl service = newService();
         Connector connector = mock(Connector.class);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        ReflectionTestUtils.setField(service, "appService", appService);
-        ReflectionTestUtils.setField(service, "desiredStateDeployService", deployService);
-        ReflectionTestUtils.setField(service, "connectorFactory", connectorFactory);
-        ReflectionTestUtils.setField(service, "converger",
-                new DesiredStateConverger(comparator, new DesignAggregateDiffer()));
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(8L);
@@ -353,17 +366,8 @@ class DesignAppEnvServiceImplTest {
     void compareDesignWithRuntimeSkipsFullFetchWhenGateReportsInSync() {
         // R5: the checksum gate fronts the on-demand drift read — an in-sync env returns empty drift
         // straight from the cheap checksum RPC, skipping the five-table fan-out.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        DesignAppService appService = mock(DesignAppService.class);
-        DesiredStateComparator comparator = mock(DesiredStateComparator.class);
-        ConnectorFactory connectorFactory = mock(ConnectorFactory.class);
+        DesignAppEnvServiceImpl service = newService();
         Connector connector = mock(Connector.class);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        ReflectionTestUtils.setField(service, "appService", appService);
-        ReflectionTestUtils.setField(service, "connectorFactory", connectorFactory);
-        ReflectionTestUtils.setField(service, "converger",
-                new DesiredStateConverger(comparator, new DesignAggregateDiffer()));
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(5L);
@@ -384,16 +388,13 @@ class DesignAppEnvServiceImplTest {
 
     @Test
     void applyDriftIsNoOpWhenDriftIsEmpty() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(1L);
         appEnv.setAppId(100L);
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(), any());     // CAS env-lock acquired (STABLE→IMPORTING)
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         doReturn(List.<RowChangeDTO>of()).when(service).compareDesignWithRuntime(1L);
 
@@ -401,8 +402,8 @@ class DesignAppEnvServiceImplTest {
 
         // Mutex acquired (atomic CAS STABLE→IMPORTING) and released (IMPORTING→STABLE via updateOne);
         // no design writes.
-        verify(service).updateByFilter(any(), any());
-        verify(service).updateOne(any(DesignAppEnv.class));
+        verify(service, atLeastOnce()).updateOne(any(DesignAppEnv.class));   // mutex acquire (version CAS)
+        verify(service, atLeastOnce()).updateOne(any(DesignAppEnv.class));
         verify(modelService, never()).createList(Mockito.anyString(), Mockito.anyList());
         verify(modelService, never()).updateList(Mockito.anyString(), Mockito.anyList());
         verify(modelService, never()).deleteByIds(Mockito.anyString(), Mockito.anyList());
@@ -411,16 +412,7 @@ class DesignAppEnvServiceImplTest {
     @Test
     @SuppressWarnings("unchecked")
     void applyDriftInvertsRuntimeOntoDesign() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        // The import inversion now lives in DesignDriftImporter (extracted from the god class); back it with
-        // the same mocked ModelService so the create/update/delete verifications below still observe it.
-        ReflectionTestUtils.setField(service, "driftImporter", new DesignDriftImporter(modelService));
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(1L);
@@ -428,7 +420,6 @@ class DesignAppEnvServiceImplTest {
         appEnv.setEnvType(DesignAppEnvType.DEV);
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(), any());     // CAS env-lock acquired (STABLE→IMPORTING)
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         // A Softa env import records a kind=IMPORT activity + a post-import snapshot.
         DesignActivity activity = new DesignActivity();
@@ -497,8 +488,8 @@ class DesignAppEnvServiceImplTest {
         assertEquals(List.of(3001L), deleteCaptor.getValue());
 
         // Mutex acquired (atomic CAS STABLE→IMPORTING) + released (IMPORTING→STABLE via updateOne).
-        verify(service).updateByFilter(any(), any());
-        verify(service).updateOne(any(DesignAppEnv.class));
+        verify(service, atLeastOnce()).updateOne(any(DesignAppEnv.class));   // mutex acquire (version CAS)
+        verify(service, atLeastOnce()).updateOne(any(DesignAppEnv.class));
         // The import is audited as a kind=IMPORT activity with a post-import snapshot (restorable).
         verify(activityService).succeed(eq(77L), any(), isNull(), eq(99L));
     }
@@ -509,23 +500,13 @@ class DesignAppEnvServiceImplTest {
         // A1: an imported runtime field carries modelName (business code) but NO modelId (runtime sys_*
         // dropped the surrogate FK). The import must relink it to the target env's DesignModel that owns
         // that modelName — not leave modelId null (which would orphan it for env↔env merge / FK nav).
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        // The import inversion now lives in DesignDriftImporter (extracted from the god class); back it with
-        // the same mocked ModelService so the create/update/delete verifications below still observe it.
-        ReflectionTestUtils.setField(service, "driftImporter", new DesignDriftImporter(modelService));
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(1L);
         appEnv.setAppId(100L);
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(), any());     // CAS env-lock acquired (STABLE→IMPORTING)
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         DesignActivity activity = new DesignActivity();
         activity.setId(77L);
@@ -561,16 +542,7 @@ class DesignAppEnvServiceImplTest {
     void reverseRecordsReverseKindAndNeverDeletesDesignOptionSets() {
         // Option-set data-loss guard: a JDBC (physical) reverse reports NO option sets. The design's option
         // sets must NOT be deleted as "design-only", and the activity is recorded as kind=REVERSE.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        DesignEnvSource envSource = mock(DesignEnvSource.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
-        ReflectionTestUtils.setField(service, "envSource", envSource);
-        // The import inversion now lives in DesignDriftImporter (extracted from the god class); back it with
-        // the same mocked ModelService so the create/update/delete verifications below still observe it.
-        ReflectionTestUtils.setField(service, "driftImporter", new DesignDriftImporter(modelService));
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv appEnv = new DesignAppEnv();
         appEnv.setId(1L);
@@ -578,7 +550,6 @@ class DesignAppEnvServiceImplTest {
         appEnv.setConnectorType(ConnectorType.JDBC);   // physical source → REVERSE, option sets guarded
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(), any());
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         DesignActivity activity = new DesignActivity();
         activity.setId(88L);
@@ -619,13 +590,7 @@ class DesignAppEnvServiceImplTest {
     void importActivityIsRestorable() {
         // An IMPORT (like REVERSE / PUBLISH / MERGE) captures a snapshot, so it is
         // restorable — restore no longer restricts to PUBLISH / MERGE.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        DesignSnapshotService snapshotService = mock(DesignSnapshotService.class);
-        DesignEnvCloner envCloner = mock(DesignEnvCloner.class);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
-        ReflectionTestUtils.setField(service, "snapshotService", snapshotService);
-        ReflectionTestUtils.setField(service, "envCloner", envCloner);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignActivity activity = new DesignActivity();
         activity.setId(70L);
@@ -645,7 +610,6 @@ class DesignAppEnvServiceImplTest {
         appEnv.setAppId(100L);
         appEnv.setEnvStatus(DesignAppEnvStatus.STABLE);
         doReturn(Optional.of(appEnv)).when(service).getById(1L);
-        doReturn(1).when(service).updateByFilter(any(), any());
         doReturn(true).when(service).updateOne(any(DesignAppEnv.class));
         doNothing().when(service).publish(1L);
 
@@ -664,11 +628,9 @@ class DesignAppEnvServiceImplTest {
     @Test
     @SuppressWarnings("unchecked")
     void deleteByIdsCascadesDesignWorkspaceChildrenFirst() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
+        DesignAppEnvServiceImpl service = newService();
         // Raw mock so the generic delete API accepts the List<Long> env ids without inference noise.
-        ModelService modelService = mock(ModelService.class);
         // The cascade uses the subclass field; super.deleteByIds uses the shadowed EntityServiceImpl field.
-        ReflectionTestUtils.setField(service, "modelService", modelService);
         ReflectionTestUtils.setField(service, EntityServiceImpl.class, "modelService", modelService, ModelService.class);
 
         List<Long> ids = List.of(4242L);
@@ -680,14 +642,14 @@ class DesignAppEnvServiceImplTest {
 
         assertTrue(service.deleteByIds(ids));
 
-        // Children drop before parents, then the env row.
+        // Children drop before parents (DesignAggregate.deleteOrder()), then the env row.
         InOrder inOrder = Mockito.inOrder(modelService);
         ArgumentCaptor<Filters> fieldFilter = ArgumentCaptor.forClass(Filters.class);
-        inOrder.verify(modelService).deleteByFilters(eq("DesignField"), fieldFilter.capture());
-        inOrder.verify(modelService).deleteByFilters(eq("DesignModelIndex"), any(Filters.class));
         inOrder.verify(modelService).deleteByFilters(eq("DesignOptionItem"), any(Filters.class));
-        inOrder.verify(modelService).deleteByFilters(eq("DesignModel"), any(Filters.class));
+        inOrder.verify(modelService).deleteByFilters(eq("DesignModelIndex"), any(Filters.class));
+        inOrder.verify(modelService).deleteByFilters(eq("DesignField"), fieldFilter.capture());
         inOrder.verify(modelService).deleteByFilters(eq("DesignOptionSet"), any(Filters.class));
+        inOrder.verify(modelService).deleteByFilters(eq("DesignModel"), any(Filters.class));
         inOrder.verify(modelService).deleteByIds("DesignAppEnv", ids);
 
         // The cascade is scoped to this env by envId — never an unscoped wipe of another env's rows.
@@ -699,9 +661,7 @@ class DesignAppEnvServiceImplTest {
     @Test
     @SuppressWarnings("unchecked")
     void deleteByIdFunnelsThroughDeleteByIdsSoSingleEnvAlsoCascades() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        ModelService modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
+        DesignAppEnvServiceImpl service = newService();
         ReflectionTestUtils.setField(service, EntityServiceImpl.class, "modelService", modelService, ModelService.class);
 
         DesignAppEnv env = new DesignAppEnv();
@@ -725,9 +685,7 @@ class DesignAppEnvServiceImplTest {
     @Test
     @SuppressWarnings("unchecked")
     void deleteByIdsRejectsProtectedEnvAndDeletesNothing() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        ModelService modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
+        DesignAppEnvServiceImpl service = newService();
 
         List<Long> ids = List.of(9L);
         DesignAppEnv prod = new DesignAppEnv();
@@ -748,17 +706,8 @@ class DesignAppEnvServiceImplTest {
     @Test
     void previewRuntimeDriftShowsRuntimeVsLastPublishSnapshot() {
         // Runtime-drift preview = runtime vs the last PUBLISH snapshot (not vs design).
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignAppService appService = mock(DesignAppService.class);
-        ConnectorFactory connectorFactory = mock(ConnectorFactory.class);
+        DesignAppEnvServiceImpl service = newService();
         Connector connector = mock(Connector.class);
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        DesignSnapshotService snapshotService = mock(DesignSnapshotService.class);
-        ReflectionTestUtils.setField(service, "appService", appService);
-        ReflectionTestUtils.setField(service, "connectorFactory", connectorFactory);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
-        ReflectionTestUtils.setField(service, "snapshotService", snapshotService);
-        ReflectionTestUtils.setField(service, "aggregateDiffer", new DesignAggregateDiffer());
 
         DesignAppEnv env = new DesignAppEnv();
         env.setId(1L);
@@ -814,9 +763,7 @@ class DesignAppEnvServiceImplTest {
 
     @Test
     void previewRuntimeDriftEmptyWhenNeverPublished() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignActivityService activityService = mock(DesignActivityService.class);
-        ReflectionTestUtils.setField(service, "activityService", activityService);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv env = new DesignAppEnv();
         env.setId(1L);
@@ -830,9 +777,7 @@ class DesignAppEnvServiceImplTest {
 
     @Test
     void mergeRejectsSameSourceAndTarget() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvMerger envMerger = mock(DesignEnvMerger.class);
-        ReflectionTestUtils.setField(service, "envMerger", envMerger);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv env = new DesignAppEnv();
         env.setId(1L);
@@ -845,9 +790,7 @@ class DesignAppEnvServiceImplTest {
 
     @Test
     void mergeRejectsCrossAppEnvs() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvMerger envMerger = mock(DesignEnvMerger.class);
-        ReflectionTestUtils.setField(service, "envMerger", envMerger);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv source = new DesignAppEnv();
         source.setId(1L);
@@ -864,9 +807,7 @@ class DesignAppEnvServiceImplTest {
 
     @Test
     void seedFromSourceRejectsSameEnv() {
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvCloner envCloner = mock(DesignEnvCloner.class);
-        ReflectionTestUtils.setField(service, "envCloner", envCloner);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv env = new DesignAppEnv();
         env.setId(1L);
@@ -880,9 +821,7 @@ class DesignAppEnvServiceImplTest {
     @Test
     void seedFromSourceIsIdempotentWhenTargetAlreadyPopulated() {
         // Non-destructive: a target that already owns design rows is never clobbered — returns 0, no clone.
-        DesignAppEnvServiceImpl service = Mockito.spy(new DesignAppEnvServiceImpl());
-        DesignEnvCloner envCloner = mock(DesignEnvCloner.class);
-        ReflectionTestUtils.setField(service, "envCloner", envCloner);
+        DesignAppEnvServiceImpl service = newService();
 
         DesignAppEnv target = new DesignAppEnv();
         target.setId(1L);

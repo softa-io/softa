@@ -15,10 +15,6 @@ CREATE TABLE IF NOT EXISTS mail_send_server_config
     port                  INT          NOT NULL COMMENT 'SMTP server port',
     ssl_enabled           TINYINT(1)   DEFAULT 0 COMMENT 'Enable SSL/TLS',
     starttls_enabled      TINYINT(1)   DEFAULT 0 COMMENT 'Enable STARTTLS upgrade',
-    connection_timeout_ms INT          DEFAULT 5000 COMMENT 'Connection timeout ms',
-    read_timeout_ms       INT          DEFAULT 30000 COMMENT 'Read timeout ms',
-    max_connections       INT          DEFAULT 10 COMMENT 'Max connections in pool',
-    auth_type             VARCHAR(10)  NOT NULL DEFAULT 'Password' COMMENT 'Password or OAuth2',
     username              VARCHAR(255)          COMMENT 'Auth username',
     password              VARCHAR(500)          COMMENT 'Password',
     from_address          VARCHAR(255)          COMMENT 'Envelope from address',
@@ -26,21 +22,17 @@ CREATE TABLE IF NOT EXISTS mail_send_server_config
     reply_to_address      VARCHAR(255)          COMMENT 'Reply-to address',
     daily_send_limit      INT                   COMMENT 'Max emails per day (null=unlimited)',
     rate_limit_per_minute INT                   COMMENT 'Max emails per minute',
-    read_receipt_enabled   TINYINT(1)   DEFAULT 0 COMMENT 'Request read receipts by default',
-    max_retry_count        INT          DEFAULT 0 COMMENT 'Max retry attempts on send failure (0=no retry)',
-    retry_interval_seconds INT          DEFAULT 60 COMMENT 'Delay in seconds between retry attempts',
-    debug_enabled          TINYINT(1)   DEFAULT 0 COMMENT 'Enable SMTP protocol debug logging',
+    read_receipt_enabled  TINYINT(1)   DEFAULT 0 COMMENT 'Request read receipts by default',
     is_default            TINYINT(1)   DEFAULT 0 COMMENT 'Default sending config for this tenant',
     is_enabled            TINYINT(1)   DEFAULT 1 COMMENT 'Whether this config is active',
-    sort_order            INT          DEFAULT 0 COMMENT 'Sort order for multiple configs',
+    sequence              INT          DEFAULT 0 COMMENT 'Display + processing order (ascending). NOT a failover priority — see entity Javadoc.',
     created_time          DATETIME              COMMENT 'Created time',
     updated_time          DATETIME              COMMENT 'Updated time',
     created_id            BIGINT                COMMENT 'Created by user ID',
     created_by            VARCHAR(100)          COMMENT 'Created by username',
     updated_id            BIGINT                COMMENT 'Updated by user ID',
     updated_by            VARCHAR(100)          COMMENT 'Updated by username',
-    UNIQUE INDEX uk_tenant_default (tenant_id, is_default),
-    INDEX idx_tenant (tenant_id)
+    INDEX idx_mail_send_cfg_default (tenant_id, is_default)
 ) COMMENT = 'Outgoing mail server configuration (SMTP/SMTPS)';
 
 CREATE TABLE IF NOT EXISTS mail_receive_server_config
@@ -53,71 +45,20 @@ CREATE TABLE IF NOT EXISTS mail_receive_server_config
     host                  VARCHAR(255) NOT NULL COMMENT 'Mail server hostname or IP',
     port                  INT          NOT NULL COMMENT 'Mail server port',
     ssl_enabled           TINYINT(1)   DEFAULT 0 COMMENT 'Enable SSL/TLS',
-    connection_timeout_ms INT          DEFAULT 5000 COMMENT 'Connection timeout ms',
-    read_timeout_ms       INT          DEFAULT 30000 COMMENT 'Read timeout ms',
-    max_connections       INT          DEFAULT 10 COMMENT 'Max connections in pool',
-    auth_type             VARCHAR(10)  NOT NULL DEFAULT 'Password' COMMENT 'Password or OAuth2',
     username              VARCHAR(255)          COMMENT 'Auth username',
-    password              VARCHAR(500)          COMMENT 'Password',
-    inbox_folder          VARCHAR(100) DEFAULT 'INBOX' COMMENT 'Folder to poll',
+    password              VARCHAR(255)          COMMENT 'Password',
     fetch_folders         VARCHAR(255) DEFAULT 'INBOX' COMMENT 'Comma-separated list of folders to fetch from',
-    delete_after_fetch    TINYINT(1)   DEFAULT 0 COMMENT 'Delete from server after fetch (POP3 only)',
-    scheduled_fetch_enabled TINYINT(1) DEFAULT 0 COMMENT 'Enable scheduled mail fetching',
-    fetch_cron_expression   VARCHAR(50) DEFAULT NULL COMMENT 'Cron expression for scheduled fetch',
     is_default            TINYINT(1)   DEFAULT 0 COMMENT 'Default receiving config for this tenant',
     is_enabled            TINYINT(1)   DEFAULT 1 COMMENT 'Whether this config is active',
-    sort_order            INT          DEFAULT 0 COMMENT 'Sort order for multiple configs',
+    sequence              INT          DEFAULT 0 COMMENT 'Display + processing order (ascending). NOT a failover priority — see entity Javadoc.',
     created_time          DATETIME              COMMENT 'Created time',
     updated_time          DATETIME              COMMENT 'Updated time',
     created_id            BIGINT                COMMENT 'Created by user ID',
     created_by            VARCHAR(100)          COMMENT 'Created by username',
     updated_id            BIGINT                COMMENT 'Updated by user ID',
     updated_by            VARCHAR(100)          COMMENT 'Updated by username',
-    UNIQUE INDEX uk_tenant_default (tenant_id, is_default),
-    INDEX idx_tenant (tenant_id)
+    INDEX idx_mail_recv_cfg_default (tenant_id, is_default)
 ) COMMENT = 'Incoming mail server configuration (IMAP/IMAPS/POP3/POP3S)';
-
-CREATE TABLE IF NOT EXISTS mail_server_oauth2_config
-(
-    id                     BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
-    tenant_id              BIGINT       NOT NULL DEFAULT 0 COMMENT '0=platform, >0=tenant',
-    server_config_id       BIGINT       NOT NULL COMMENT 'FK → mail_send/receive_server_config.id',
-    server_type            VARCHAR(10)  NOT NULL COMMENT 'Send or Receive (identifies which table)',
-    provider               VARCHAR(20)  NOT NULL COMMENT 'Google / Microsoft / Custom',
-    client_id              VARCHAR(255) NOT NULL COMMENT 'OAuth2 client ID',
-    client_secret          VARCHAR(500) NOT NULL COMMENT 'OAuth2 client secret',
-    azure_tenant_id        VARCHAR(100)          COMMENT 'Azure tenant ID (Microsoft only)',
-    scope                  VARCHAR(500)          COMMENT 'OAuth2 scopes (space-separated)',
-    authorization_endpoint VARCHAR(500)          COMMENT 'Authorization endpoint URL',
-    token_endpoint         VARCHAR(500)          COMMENT 'Token endpoint URL',
-    redirect_uri           VARCHAR(500)          COMMENT 'Redirect URI',
-    created_time           DATETIME              COMMENT 'Created time',
-    updated_time           DATETIME              COMMENT 'Updated time',
-    created_id             BIGINT                COMMENT 'Created by user ID',
-    created_by             VARCHAR(100)          COMMENT 'Created by username',
-    updated_id             BIGINT                COMMENT 'Updated by user ID',
-    updated_by             VARCHAR(100)          COMMENT 'Updated by username',
-    UNIQUE INDEX uk_server (server_config_id, server_type)
-) COMMENT = 'OAuth2 credentials for mail server configs';
-
-CREATE TABLE IF NOT EXISTS mail_server_oauth2_token
-(
-    id                   BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
-    tenant_id            BIGINT       NOT NULL DEFAULT 0 COMMENT '0=platform, >0=tenant',
-    server_config_id     BIGINT       NOT NULL COMMENT 'FK → mail_server_oauth2_config.id',
-    account_identifier   VARCHAR(255) NOT NULL COMMENT 'Email account (usually the email address)',
-    access_token         TEXT                  COMMENT 'Access token',
-    refresh_token        TEXT                  COMMENT 'Refresh token',
-    access_token_expiry  DATETIME              COMMENT 'Access token expiry',
-    refresh_token_expiry DATETIME              COMMENT 'Refresh token expiry',
-    created_time         DATETIME              COMMENT 'Created time',
-    updated_time         DATETIME              COMMENT 'Updated time',
-    created_id           BIGINT                COMMENT 'Created by user ID',
-    created_by           VARCHAR(100)          COMMENT 'Created by username',
-    updated_id           BIGINT                COMMENT 'Updated by user ID',
-    updated_by           VARCHAR(100)          COMMENT 'Updated by username',
-    UNIQUE INDEX uk_account (server_config_id, account_identifier)
-) COMMENT = 'OAuth2 token storage per mail account';
 
 CREATE TABLE IF NOT EXISTS mail_send_record
 (
@@ -125,22 +66,26 @@ CREATE TABLE IF NOT EXISTS mail_send_record
     tenant_id        BIGINT       NOT NULL DEFAULT 0 COMMENT '0=platform, >0=tenant',
     server_config_id BIGINT                COMMENT 'FK → mail_send_server_config.id',
     from_address     VARCHAR(255)          COMMENT 'Sender address',
-    to_addresses     TEXT                  COMMENT 'Recipients (JSON array)',
-    cc_addresses     TEXT                  COMMENT 'CC (JSON array)',
-    bcc_addresses    TEXT                  COMMENT 'BCC (JSON array)',
+    to_addresses     TEXT                  COMMENT 'Recipients (List<String> JSON, ORM-managed)',
+    cc_addresses     TEXT                  COMMENT 'CC (List<String> JSON)',
+    bcc_addresses    TEXT                  COMMENT 'BCC (List<String> JSON)',
     subject          VARCHAR(500)          COMMENT 'Email subject',
-    content_type     VARCHAR(10)  DEFAULT 'HTML' COMMENT 'TEXT or HTML',
-    body_preview     VARCHAR(500)          COMMENT 'First 500 chars of body',
-    body             MEDIUMTEXT            COMMENT 'Full email body for retry fidelity',
-    has_attachments  TINYINT(1)   DEFAULT 0 COMMENT 'Has attachments',
+    body_mode        VARCHAR(32)  NOT NULL DEFAULT 'HTML' COMMENT 'HTML / PLAIN / HTML_WITH_DERIVED_PLAIN / HTML_WITH_AUTHORED_PLAIN',
+    body_html        MEDIUMTEXT            COMMENT 'HTML body verbatim; null for PLAIN mode',
+    body_text        MEDIUMTEXT            COMMENT 'Plain text body verbatim; null for HTML mode',
+    attachments      TEXT                  COMMENT 'Attachment fileIds (List<Long> CSV); ORM resolves to List<FileInfo> at read time. Null/empty when no attachments.',
     read_receipt_requested TINYINT(1) DEFAULT 0 COMMENT 'Whether read receipt was requested',
-    priority         VARCHAR(10)           COMMENT 'Priority: High / Normal / Low',
-    status           VARCHAR(10)  NOT NULL DEFAULT 'Pending' COMMENT 'Pending/Sent/Failed/Retry',
+    priority         VARCHAR(10)           COMMENT 'Priority: HIGH / NORMAL / LOW',
+    reply_to         VARCHAR(255)          COMMENT 'Reply-To address actually used (after dto > template > config fallback); nullable',
+    status           VARCHAR(64)  NOT NULL DEFAULT 'Pending' COMMENT 'Pending/Sending/Sent/Failed/Retry/DeadLetter',
     retry_count      INT          DEFAULT 0 COMMENT 'Number of send attempts',
+    version          BIGINT       NOT NULL DEFAULT 0 COMMENT 'Optimistic-lock version; CAS-incremented on every state transition',
+    next_retry_at    DATETIME              COMMENT 'Earliest time at which the next retry should be attempted',
     read_receipt_received    TINYINT(1)   DEFAULT 0 COMMENT 'Whether read receipt has been received',
     read_receipt_received_at DATETIME              COMMENT 'Timestamp when read receipt was received',
     bounced          TINYINT(1)   DEFAULT 0 COMMENT 'Whether this email bounced',
     bounce_code      VARCHAR(20)           COMMENT 'Bounce code summary, e.g. 550 5.1.1',
+    error_code       VARCHAR(100)          COMMENT 'Provider-specific error code on failure',
     error_message    TEXT                  COMMENT 'Error detail on failure',
     sent_at          DATETIME              COMMENT 'Timestamp accepted by SMTP server',
     message_id       VARCHAR(255)          COMMENT 'SMTP Message-ID header',
@@ -150,12 +95,33 @@ CREATE TABLE IF NOT EXISTS mail_send_record
     created_by       VARCHAR(100)          COMMENT 'Created by username',
     updated_id       BIGINT                COMMENT 'Updated by user ID',
     updated_by       VARCHAR(100)          COMMENT 'Updated by username',
-    INDEX idx_tenant_status (tenant_id, status),
-    INDEX idx_sent_at (sent_at)
+    INDEX idx_mail_send_tenant_status (tenant_id, status),
+    INDEX idx_mail_send_sent_at (sent_at)
 ) COMMENT = 'Outgoing mail audit log';
 
+CREATE TABLE IF NOT EXISTS mail_fetch_imap_watermark
+(
+    id                 BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
+    tenant_id          BIGINT       NOT NULL DEFAULT 0 COMMENT '0=platform, >0=tenant',
+    server_config_id   BIGINT       NOT NULL COMMENT 'FK → mail_receive_server_config.id',
+    folder_name        VARCHAR(100) NOT NULL COMMENT 'IMAP folder name (e.g. INBOX)',
+    uid_validity       BIGINT                COMMENT 'IMAP UIDVALIDITY observed when last_seen_uid was set',
+    last_seen_uid      BIGINT       NOT NULL DEFAULT 0 COMMENT 'Highest IMAP UID processed; next fetch starts at +1',
+    last_fetched_at    DATETIME              COMMENT 'Timestamp of the most recent successful fetch',
+    in_progress_since  DATETIME              COMMENT 'Soft lease: when a worker started fetching; null when idle',
+    version            BIGINT       NOT NULL DEFAULT 0 COMMENT 'Optimistic-lock version for lease-transition CAS',
+    created_time       DATETIME              COMMENT 'Created time',
+    updated_time       DATETIME              COMMENT 'Updated time',
+    created_id         BIGINT                COMMENT 'Created by user ID',
+    created_by         VARCHAR(100)          COMMENT 'Created by username',
+    updated_id         BIGINT                COMMENT 'Updated by user ID',
+    updated_by         VARCHAR(100)          COMMENT 'Updated by username',
+    UNIQUE INDEX uk_config_folder (server_config_id, folder_name),
+    INDEX idx_watermark_tenant (tenant_id)
+) COMMENT = 'Per-(server_config, folder) IMAP UID high-water mark for incremental fetch';
+
 -- ============================================================
--- Inbox: in-app notifications and todo items
+-- Inbox: in-app notifications
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS inbox_notification
@@ -166,7 +132,7 @@ CREATE TABLE IF NOT EXISTS inbox_notification
     title             VARCHAR(200) NOT NULL COMMENT 'Notification title',
     content           TEXT                  COMMENT 'Notification body content',
     notification_type VARCHAR(20)  NOT NULL DEFAULT 'System' COMMENT 'System / Workflow / Manual',
-    source_type       VARCHAR(50)           COMMENT 'Originating object type, e.g. FLOW_INSTANCE (nullable)',
+    source_model      VARCHAR(50)           COMMENT 'Originating metadata model name (matches sys_model.model_name), e.g. FlowInstance (nullable)',
     source_id         BIGINT                COMMENT 'Originating object ID (nullable)',
     is_read           TINYINT(1)   DEFAULT 0 COMMENT 'Whether the recipient has read this notification',
     read_at           DATETIME              COMMENT 'Timestamp when the notification was read',
@@ -178,31 +144,8 @@ CREATE TABLE IF NOT EXISTS inbox_notification
     updated_id        BIGINT                COMMENT 'Updated by user ID',
     updated_by        VARCHAR(100)          COMMENT 'Updated by username',
     INDEX idx_recipient_read (recipient_id, is_read),
-    INDEX idx_tenant (tenant_id)
+    INDEX idx_inbox_notif_tenant (tenant_id)
 ) COMMENT = 'In-app notifications delivered to specific users';
-
-CREATE TABLE IF NOT EXISTS inbox_todo
-(
-    id           BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
-    tenant_id    BIGINT       NOT NULL DEFAULT 0 COMMENT '0=platform, >0=tenant',
-    assignee_id  BIGINT       NOT NULL COMMENT 'Assignee user ID',
-    title        VARCHAR(200) NOT NULL COMMENT 'Todo title',
-    description  TEXT                  COMMENT 'Detailed description of the required action',
-    source_type  VARCHAR(50)           COMMENT 'Originating object type, e.g. FLOW_INSTANCE (nullable)',
-    source_id    BIGINT                COMMENT 'Originating object ID (nullable)',
-    action_url   VARCHAR(500)          COMMENT 'Deep-link URL to the handling page (nullable)',
-    status       VARCHAR(20)  NOT NULL DEFAULT 'Pending' COMMENT 'Pending / Done / Rejected / Expired',
-    due_at       DATETIME              COMMENT 'Optional due date',
-    completed_at DATETIME              COMMENT 'Timestamp when completed or rejected',
-    created_time DATETIME              COMMENT 'Created time',
-    updated_time DATETIME              COMMENT 'Updated time',
-    created_id   BIGINT                COMMENT 'Created by user ID',
-    created_by   VARCHAR(100)          COMMENT 'Created by username',
-    updated_id   BIGINT                COMMENT 'Updated by user ID',
-    updated_by   VARCHAR(100)          COMMENT 'Updated by username',
-    INDEX idx_assignee_status (assignee_id, status),
-    INDEX idx_tenant (tenant_id)
-) COMMENT = 'Actionable todo items assigned to specific users';
 
 CREATE TABLE IF NOT EXISTS mail_template
 (
@@ -211,11 +154,14 @@ CREATE TABLE IF NOT EXISTS mail_template
     code         VARCHAR(100) NOT NULL COMMENT 'Template code for programmatic lookup, e.g. USER_WELCOME',
     name         VARCHAR(100) NOT NULL COMMENT 'Display name',
     description  VARCHAR(500)          COMMENT 'Description',
-    language     VARCHAR(20)  NOT NULL DEFAULT 'default' COMMENT 'BCP-47 language tag (e.g. en-US, zh-CN) or "default" as language-agnostic fallback',
     subject      VARCHAR(500)          COMMENT 'Email subject template with {{ variable }} placeholders',
-    default_priority VARCHAR(10)        COMMENT 'Template default priority (High/Normal/Low)',
-    body         MEDIUMTEXT            COMMENT 'HTML email body template with {{ variable }} placeholders',
-    include_plain_text TINYINT(1) DEFAULT 1 COMMENT 'Whether to also include a plain-text version (auto-stripped from the rendered HTML)',
+    default_priority VARCHAR(10)        COMMENT 'Template default priority (HIGH/NORMAL/LOW)',
+    reply_to     VARCHAR(255)          COMMENT 'Default Reply-To address for this template; nullable',
+    attachments  TEXT                  COMMENT 'Default attachment fileIds (List<Long> CSV); ORM resolves to List<FileInfo> at read time',
+    preferred_server_config_id BIGINT  COMMENT 'Preferred mail send server (FK → mail_send_server_config.id); resolved as dto > template > dispatcher default',
+    body_html    MEDIUMTEXT            COMMENT 'HTML body template with {{ variable }} placeholders',
+    body_text    MEDIUMTEXT            COMMENT 'Plain text body template with {{ variable }} placeholders; required for PLAIN and HTML_WITH_AUTHORED_PLAIN modes',
+    body_mode    VARCHAR(32)  NOT NULL DEFAULT 'HTML_WITH_DERIVED_PLAIN' COMMENT 'HTML / PLAIN / HTML_WITH_DERIVED_PLAIN / HTML_WITH_AUTHORED_PLAIN',
     is_enabled   TINYINT(1)   DEFAULT 1 COMMENT 'Whether this template is active',
     created_time DATETIME              COMMENT 'Created time',
     updated_time DATETIME              COMMENT 'Updated time',
@@ -223,26 +169,28 @@ CREATE TABLE IF NOT EXISTS mail_template
     created_by   VARCHAR(100)          COMMENT 'Created by username',
     updated_id   BIGINT                COMMENT 'Updated by user ID',
     updated_by   VARCHAR(100)          COMMENT 'Updated by username',
-    UNIQUE INDEX uk_tenant_code_lang (tenant_id, code, language),
-    INDEX idx_tenant (tenant_id)
-) COMMENT = 'Email templates with multi-language and platform/tenant-level scoping';
+    UNIQUE INDEX uk_mail_template_tenant_code (tenant_id, code)
+) COMMENT = 'Email templates with platform/tenant-level scoping';
 
 CREATE TABLE IF NOT EXISTS mail_receive_record
 (
     id               BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
     tenant_id        BIGINT       NOT NULL DEFAULT 0 COMMENT '0=platform, >0=tenant',
     server_config_id BIGINT                COMMENT 'FK → mail_receive_server_config.id',
-    message_id       VARCHAR(255)          COMMENT 'IMAP UID / POP3 UIDL from server',
-    mail_type        VARCHAR(20)  DEFAULT 'NORMAL' COMMENT 'Mail type: NORMAL / READ_RECEIPT / BOUNCE',
+    message_id       VARCHAR(255)          COMMENT 'RFC 5322 Message-ID header value (or synthetic SHA-256 fallback when absent); dedup key together with server_config_id',
+    mail_type        VARCHAR(20)  DEFAULT 'Normal' COMMENT 'Primary content type: Normal / ReadReceipt / Bounce / AutoReply / CalendarInvite / Unknown',
+    is_mailing_list  TINYINT(1)   DEFAULT 0 COMMENT 'List-Id / List-Unsubscribe / Precedence:bulk present (orthogonal to mail_type)',
+    is_encrypted     TINYINT(1)   DEFAULT 0 COMMENT 'PGP-MIME or S/MIME enveloped-data envelope (orthogonal to mail_type)',
+    is_spam          TINYINT(1)   DEFAULT 0 COMMENT 'Anti-spam markers present (X-Spam-Flag/X-Spam-Status/Exchange SCL ≥ 5)',
     original_message_id VARCHAR(255)       COMMENT 'Original sent Message-ID (for receipt/bounce linking)',
     from_address     VARCHAR(255)          COMMENT 'Sender address',
-    to_addresses     TEXT                  COMMENT 'Recipients (JSON array)',
-    cc_addresses     TEXT                  COMMENT 'CC (JSON array)',
+    to_addresses     TEXT                  COMMENT 'Recipients (List<String> JSON, ORM-managed)',
+    cc_addresses     TEXT                  COMMENT 'CC (List<String> JSON)',
     subject          VARCHAR(500)          COMMENT 'Email subject',
-    content_type     VARCHAR(10)           COMMENT 'TEXT or HTML',
-    body             MEDIUMTEXT            COMMENT 'Full email body',
-    has_attachments  TINYINT(1)   DEFAULT 0 COMMENT 'Has attachments',
-    attachment_names TEXT                  COMMENT 'Attachment names (JSON array)',
+    body_text        MEDIUMTEXT            COMMENT 'Plain text for preview/search; verbatim when sender shipped text/plain, derived from body_html at write time when HTML-only. Use body_mode to tell which.',
+    body_html        MEDIUMTEXT            COMMENT 'Sender-authored HTML part verbatim; null when the email has no text/html part',
+    body_mode        VARCHAR(20)           COMMENT 'Wire MIME shape captured pre-derivation: HTML / PLAIN / HTML_WITH_PLAIN_ALT; null for pure-attachment emails',
+    attachments      TEXT                  COMMENT 'Attachment fileIds (List<Long> CSV); ORM resolves to List<FileInfo> at read time',
     status           VARCHAR(10)  NOT NULL DEFAULT 'Unread' COMMENT 'Unread/Read/Archived/Deleted',
     received_at      DATETIME              COMMENT 'Original timestamp from mail server',
     fetched_at       DATETIME              COMMENT 'Timestamp when this system fetched the email',
@@ -250,8 +198,9 @@ CREATE TABLE IF NOT EXISTS mail_receive_record
     smtp_reply_code      VARCHAR(10)       COMMENT 'SMTP reply code, e.g. 550',
     enhanced_status_code VARCHAR(20)       COMMENT 'Enhanced status code, e.g. 5.1.1',
     diagnostic_message   TEXT              COMMENT 'Full bounce diagnostic message',
-    failed_recipients    VARCHAR(2000)     COMMENT 'Failed recipients (JSON array)',
+    failed_recipients    TEXT              COMMENT 'Failed recipient addresses (List<String> JSON)',
     eml_file_id          BIGINT            COMMENT 'EML original file ID (file-starter)',
+    truncation_reason    VARCHAR(32)       COMMENT 'BodyTooLarge / AttachmentTooLarge / MimeDepthExceeded / MimePartsExceeded / ParseFailed; null when fully processed',
     created_time     DATETIME              COMMENT 'Created time',
     updated_time     DATETIME              COMMENT 'Updated time',
     created_id       BIGINT                COMMENT 'Created by user ID',
@@ -259,5 +208,40 @@ CREATE TABLE IF NOT EXISTS mail_receive_record
     updated_id       BIGINT                COMMENT 'Updated by user ID',
     updated_by       VARCHAR(100)          COMMENT 'Updated by username',
     UNIQUE INDEX uk_server_msg (server_config_id, message_id),
-    INDEX idx_tenant_status (tenant_id, status)
+    INDEX idx_mail_recv_tenant_status (tenant_id, status)
 ) COMMENT = 'Incoming mail records fetched from IMAP/POP3';
+
+-- ============================================================
+-- Indexes for hot operational queries on mail_send_record.
+-- Kept as standalone CREATE INDEX statements (not inline in the
+-- CREATE TABLE above) so this file can be re-applied to
+-- already-deployed environments via tooling that diffs DDL.
+--
+-- Apply once per environment. MySQL 8.0+ supports online index
+-- creation: rerun with `ALGORITHM=INPLACE, LOCK=NONE` in a
+-- migration script if data already exists.
+--
+-- idx_mail_send_status_updated — ZombieRecordSweeper sweeps every
+--   minute with `WHERE status='Sending' AND updated_time < ?`.
+--   Without this index it degrades to a table scan once the
+--   table grows to seven figures.
+-- idx_mail_send_status_retry   — manual / monitoring queries that
+--   pull stuck rows: `WHERE status IN ('Pending','Retry') AND
+--   next_retry_at <= ?`.
+-- idx_message_id          — bounce + read-receipt linking via
+--   MailSendRecordServiceImpl#findByMessageId; called once per
+--   inbound classified mail. Hot during bounce storms.
+-- ============================================================
+CREATE INDEX idx_mail_send_status_updated ON mail_send_record (status, updated_time);
+CREATE INDEX idx_mail_send_status_retry   ON mail_send_record (status, next_retry_at);
+CREATE INDEX idx_message_id          ON mail_send_record (message_id);
+
+-- ============================================================
+-- Indexes for operational queries on mail_receive_record.
+--
+-- idx_truncation — operations / SecOps surface for "show me all
+--   degraded emails today": `WHERE truncation_reason IS NOT NULL`.
+--   The column is NULL for the overwhelming majority of rows, so
+--   the index stays small and the IS NOT NULL scan is cheap.
+-- ============================================================
+CREATE INDEX idx_truncation ON mail_receive_record (truncation_reason);

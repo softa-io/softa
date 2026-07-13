@@ -6,6 +6,8 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.util.List;
@@ -15,6 +17,7 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -119,6 +122,29 @@ class RemoteApiClientImplTest {
                 .andRespond(withSuccess("{\"code\":401,\"msg\":\"bad signature\"}", MediaType.APPLICATION_JSON));
 
         assertThrows(IllegalArgumentException.class, () -> client.fetchRuntimeChecksums(env(), "demo-app"));
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("an HTTP error status (401 bad signature) surfaces as an annotated failure, not an opaque RestClient exception")
+    void applyChangesThrowsAnnotatedOnHttpErrorStatus() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        RemoteApiClientImpl client = new RemoteApiClientImpl(builder.build());
+
+        // A rejected signature makes the runtime reply HTTP 401 — the common auth-failure mode. Without the
+        // onStatus handler this rethrows as an opaque HttpClientErrorException (no URI/body); the handler
+        // instead throws the framework IllegalArgumentException carrying URI + status + body.
+        server.expect(requestTo(Matchers.containsString("/upgrade/runtime/applyDesiredAggregates")))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":401,\"msg\":\"bad signature\"}"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+                client.applyChanges(env(), "demo-app", new MetadataChangeSet(List.of(), List.of())));
+        assertTrue(ex.getMessage().contains("bad signature"),
+                "the annotated failure should carry the runtime's error body: " + ex.getMessage());
         server.verify();
     }
 }

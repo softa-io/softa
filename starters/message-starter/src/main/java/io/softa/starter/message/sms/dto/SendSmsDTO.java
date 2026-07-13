@@ -1,25 +1,19 @@
 package io.softa.starter.message.sms.dto;
 
-import java.util.List;
 import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
- * Request payload for sending an SMS.
+ * Request payload for one SMS recipient. Independent messages use
+ * {@code MessageService.sendSmsBatch(List)}.
  */
 @Data
 @Schema(name = "SendSmsDTO")
 public class SendSmsDTO {
 
-    private static final int MAX_BATCH_SIZE = 500;
-
     @Schema(description = "Single recipient phone number (E.164 format)")
     private String phoneNumber;
-
-    @Schema(description = "Multiple recipient phone numbers for batch send")
-    private List<String> phoneNumbers;
 
     @Schema(description = "Direct text content (mutually exclusive with templateCode)")
     private String content;
@@ -39,9 +33,4 @@ public class SendSmsDTO {
     @Schema(description = "External template ID override (from template if not set)")
     private String externalTemplateId;
 
-    @Size(max = MAX_BATCH_SIZE)
-    @Schema(description = "Per-recipient differentiated batch items. "
-            + "When set, each item can carry its own content or templateVariables. "
-            + "Mutually exclusive with phoneNumber/phoneNumbers for batch sends.")
-    private List<BatchSmsItemDTO> items;
 }

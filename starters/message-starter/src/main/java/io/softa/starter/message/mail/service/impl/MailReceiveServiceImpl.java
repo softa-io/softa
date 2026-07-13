@@ -1,54 +1,41 @@
 package io.softa.starter.message.mail.service.impl;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 import jakarta.mail.*;
-import jakarta.mail.internet.InternetAddress;
-import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.dto.FileInfo;
-import io.softa.framework.orm.dto.UploadFileDTO;
-import io.softa.framework.orm.enums.FileSource;
-import io.softa.framework.orm.enums.FileType;
-import io.softa.framework.orm.service.FileService;
+import io.softa.starter.message.config.MessageProperties;
+import io.softa.starter.message.mail.entity.MailFetchImapWatermark;
 import io.softa.starter.message.mail.entity.MailReceiveRecord;
 import io.softa.starter.message.mail.entity.MailReceiveServerConfig;
-import io.softa.starter.message.mail.entity.MailSendRecord;
-import io.softa.starter.message.mail.enums.MailReceiveStatus;
-import io.softa.starter.message.mail.enums.MailSendStatus;
-import io.softa.starter.message.mail.enums.ReceivedMailType;
+import io.softa.starter.message.mail.enums.*;
+import io.softa.starter.message.mail.service.MailFetchImapWatermarkService;
 import io.softa.starter.message.mail.service.MailReceiveRecordService;
 import io.softa.starter.message.mail.service.MailReceiveService;
-import io.softa.starter.message.mail.service.MailSendRecordService;
-import io.softa.starter.message.mail.support.BounceInfo;
-import io.softa.starter.message.mail.support.MailClassification;
-import io.softa.starter.message.mail.support.MailClassifier;
+import io.softa.starter.message.mail.support.BounceReceiptLinker;
+import io.softa.starter.message.mail.support.MailMessageParser;
 import io.softa.starter.message.mail.support.MailServerDispatcher;
 
 /**
  * Implementation of {@link MailReceiveService}.
  * <p>
- * Connects to the resolved IMAP/POP3 server, fetches unseen messages,
- * classifies them (normal / read-receipt / bounce) via {@link MailClassifier},
- * persists them as {@link MailReceiveRecord} rows, and updates linked
- * {@link MailSendRecord} on bounce/receipt detection.
+ * Thin protocol-fetch orchestrator: connects to the resolved IMAP/POP3 server,
+ * pulls unseen messages, and for each one delegates the heavy lifting to two
+ * collaborators — {@link MailMessageParser} (MIME → {@link MailReceiveRecord})
+ * and {@link BounceReceiptLinker} (read-receipt / bounce → originating
+ * {@code MailSendRecord}). This class owns only the connect / per-folder fetch
+ * lifecycle (IMAP watermark+lease, POP3 destructive drain), dedup, and persist.
  */
 @Slf4j
 @Service
@@ -61,13 +48,16 @@ public class MailReceiveServiceImpl implements MailReceiveService {
     private MailReceiveRecordService recordService;
 
     @Autowired
-    private MailSendRecordService sendRecordService;
+    private MailMessageParser mailMessageParser;
 
     @Autowired
-    private MailClassifier mailClassifier;
+    private BounceReceiptLinker bounceReceiptLinker;
 
-    @Autowired(required = false)
-    private FileService fileService;
+    @Autowired
+    private MailFetchImapWatermarkService watermarkService;
+
+    @Autowired
+    private MessageProperties messageProperties;
 
     @Override
     public int fetchNewMails() {
@@ -112,8 +102,9 @@ public class MailReceiveServiceImpl implements MailReceiveService {
             Store store = session.getStore(protocol);
 
             try (store) {
-                store.connect(config.getHost(), config.getPort(), config.getUsername(), config.getPassword());
-                // Multi-folder support: parse fetchFolders, default to inboxFolder or "INBOX"
+                store.connect(config.getHost(), config.getPort(),
+                        config.getUsername(), config.getPassword());
+                // Multi-folder support: parse fetchFolders, default to "INBOX"
                 List<String> folderNames = parseFolders(config);
                 for (String folderName : folderNames) {
                     totalFetched += fetchFromFolder(store, folderName, config);
@@ -129,227 +120,209 @@ public class MailReceiveServiceImpl implements MailReceiveService {
     }
 
     private int fetchFromFolder(Store store, String folderName, MailReceiveServerConfig config) {
+        if (config.getProtocol().isImap()) {
+            return fetchFromImapFolder(store, folderName, config);
+        }
+        return fetchFromPop3Folder(store, folderName, config);
+    }
+
+    /**
+     * IMAP path: non-destructive incremental fetch driven by per-(config, folder)
+     * UID watermark. Acquires a soft lease before fetching to prevent two workers
+     * from processing the same (config, folder) under the Shared Pulsar
+     * subscription. UIDVALIDITY change resets the watermark to 0 — duplicate
+     * Message-IDs are still caught by {@link #isDuplicate}.
+     */
+    private int fetchFromImapFolder(Store store, String folderName, MailReceiveServerConfig config) {
+        Optional<MailFetchImapWatermark> leaseOpt = watermarkService.tryAcquireLease(
+                config.getId(), folderName,
+                messageProperties.getMail().getFetch().getLeaseTimeout());
+        if (leaseOpt.isEmpty()) {
+            return 0;
+        }
+        MailFetchImapWatermark watermark = leaseOpt.get();
+        // Lease token: each successful CAS transition we perform bumps it by one.
+        long leaseVersion = watermark.getVersion() != null ? watermark.getVersion() : 0L;
         int fetched = 0;
+        Long maxUidProcessed = null;
+
         try {
             Folder folder = store.getFolder(folderName);
             if (!folder.exists()) {
-                log.debug("Folder '{}' does not exist on server [{}], skipping.", folderName, config.getHost());
+                log.debug("Folder '{}' does not exist on server [{}], skipping.",
+                        folderName, config.getHost());
+                watermarkService.releaseSuccess(watermark.getId(), leaseVersion, null);
                 return 0;
             }
             folder.open(Folder.READ_ONLY);
-
             try {
-                Message[] messages = folder.search(new jakarta.mail.search.FlagTerm(
-                        new Flags(Flags.Flag.SEEN), false));
-                for (Message message : messages) {
-                    try {
-                        MailReceiveRecord record = convertToRecord(message, config, folderName);
-                        // Duplicate check
-                        if (!isDuplicate(record.getMessageId(), config.getId())) {
-                            // Phase-3: Archive EML original before persisting
-                            archiveEml(message, record);
+                UIDFolder uidFolder = (UIDFolder) folder;
+                long currentValidity = uidFolder.getUIDValidity();
+                long startUid;
+                if (watermark.getUidValidity() != null
+                        && watermark.getUidValidity() != currentValidity) {
+                    log.warn("UIDVALIDITY changed for config={} folder={} (was {}, now {}); "
+                                    + "resetting watermark.",
+                            config.getId(), folderName,
+                            watermark.getUidValidity(), currentValidity);
+                    if (!watermarkService.resetForUidValidityChange(
+                            watermark.getId(), leaseVersion, currentValidity)) {
+                        log.warn("Lease superseded during UIDVALIDITY reset for config={} folder={} "
+                                + "— abandoning this fetch", config.getId(), folderName);
+                        return 0;
+                    }
+                    leaseVersion++;
+                    startUid = 1L;
+                } else {
+                    long lastSeen = watermark.getLastSeenUid() == null
+                            ? 0L : watermark.getLastSeenUid();
+                    startUid = lastSeen + 1;
+                }
 
-                            recordService.createOne(record);
-                            fetched++;
+                Message[] all = uidFolder.getMessagesByUID(startUid, UIDFolder.LASTUID);
+                int batchLimit = messageProperties.getMail().getFetch().getBatchLimit();
+                int sliceLength = Math.min(all.length, batchLimit);
+                if (sliceLength > 0) {
+                    Message[] slice = Arrays.copyOfRange(all, 0, sliceLength);
+                    FetchProfile fp = new FetchProfile();
+                    fp.add(FetchProfile.Item.ENVELOPE);
+                    fp.add(UIDFolder.FetchProfileItem.UID);
+                    folder.fetch(slice, fp);
 
-                            // Process bounce/receipt linking
-                            processClassification(record);
+                    List<MailReceiveRecord> classified = new ArrayList<>();
+                    for (Message message : slice) {
+                        long uid = uidFolder.getUID(message);
+                        try {
+                            MailReceiveRecord record = processOne(message, config, folderName);
+                            if (record != null) {
+                                fetched++;
+                                if (StringUtils.hasText(record.getOriginalMessageId())) {
+                                    classified.add(record);
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to process UID {} in folder '{}': {}",
+                                    uid, folderName, e.getMessage(), e);
+                            // Advance past poison UIDs so they don't block future batches.
+                            // Message-ID dedup catches any double-processing on retry.
                         }
-                    } catch (Exception e) {
-                        log.warn("Failed to process message in folder '{}': {}",
-                                folderName, e.getMessage(), e);
+                        if (maxUidProcessed == null || uid > maxUidProcessed) {
+                            maxUidProcessed = uid;
+                        }
+                    }
+                    if (!classified.isEmpty()) {
+                        bounceReceiptLinker.link(classified);
                     }
                 }
             } finally {
                 folder.close(false);
             }
+            watermarkService.releaseSuccess(watermark.getId(), leaseVersion, maxUidProcessed);
         } catch (MessagingException e) {
-            log.warn("Failed to fetch from folder '{}' on [{}]: {}",
+            log.error("Failed to fetch from folder '{}' on [{}]: {}",
+                    folderName, config.getHost(), e.getMessage());
+            watermarkService.releaseFailure(watermark.getId(), leaseVersion, e.getMessage());
+        } catch (RuntimeException e) {
+            watermarkService.releaseFailure(watermark.getId(), leaseVersion, e.getMessage());
+            throw e;
+        }
+        return fetched;
+    }
+
+    /**
+     * POP3 path: protocol semantics are destructive — every successfully
+     * processed message is marked DELETED and removed from the server on
+     * folder close. POP3 has no UID/flag concept comparable to IMAP, so the
+     * watermark / lease mechanism does not apply. Concurrent workers are
+     * naturally bounded by Pulsar message dispatch and Message-ID dedup.
+     */
+    private int fetchFromPop3Folder(Store store, String folderName, MailReceiveServerConfig config) {
+        int fetched = 0;
+        try {
+            Folder folder = store.getFolder(folderName);
+            if (!folder.exists()) {
+                log.debug("Folder '{}' does not exist on server [{}], skipping.",
+                        folderName, config.getHost());
+                return 0;
+            }
+            folder.open(Folder.READ_WRITE);
+            try {
+                int batchLimit = messageProperties.getMail().getFetch().getBatchLimit();
+                Message[] messages = folder.getMessages();
+                List<MailReceiveRecord> classified = new ArrayList<>();
+                int processed = 0;
+                for (Message message : messages) {
+                    if (processed >= batchLimit) break;
+                    processed++;
+                    try {
+                        MailReceiveRecord record = processOne(message, config, folderName);
+                        if (record != null) {
+                            fetched++;
+                            if (StringUtils.hasText(record.getOriginalMessageId())) {
+                                classified.add(record);
+                            }
+                        }
+                        // POP3 protocol = drain. Mark DELETED on success — including
+                        // BodyTooLarge envelope-only persistence — so oversized mails
+                        // don't get re-fetched forever. Expunge happens on close(true).
+                        message.setFlag(Flags.Flag.DELETED, true);
+                    } catch (Exception e) {
+                        log.warn("Failed to process POP3 message in folder '{}': {} — leaving on server for retry",
+                                folderName, e.getMessage(), e);
+                    }
+                }
+                if (!classified.isEmpty()) {
+                    bounceReceiptLinker.link(classified);
+                }
+            } finally {
+                folder.close(true);   // expunge on close → DELETED messages removed
+            }
+        } catch (MessagingException e) {
+            log.warn("Failed to fetch from POP3 folder '{}' on [{}]: {}",
                     folderName, config.getHost(), e.getMessage());
         }
         return fetched;
     }
 
     /**
-     * Parse the folder list from config. Supports:
-     * <ol>
-     *   <li>{@code fetchFolders} if set (comma-separated)</li>
-     *   <li>Legacy {@code inboxFolder} field</li>
-     *   <li>Default: "INBOX"</li>
-     * </ol>
+     * Parse the folder list from {@code fetchFolders} (comma-separated).
+     * Falls back to {@code "INBOX"} if unset, blank, or contains only empty entries.
      */
     private List<String> parseFolders(MailReceiveServerConfig config) {
         if (StringUtils.hasText(config.getFetchFolders())) {
-            return Arrays.stream(config.getFetchFolders().split(","))
+            List<String> folders = Arrays.stream(config.getFetchFolders().split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .toList();
+            if (!folders.isEmpty()) {
+                return folders;
+            }
         }
-        String folder = StringUtils.hasText(config.getInboxFolder())
-                ? config.getInboxFolder() : "INBOX";
-        return List.of(folder);
+        return List.of("INBOX");
     }
 
-    // -------------------------------------------------
-    // Record Conversion with Classification
-    // -------------------------------------------------
-
-    private MailReceiveRecord convertToRecord(Message message, MailReceiveServerConfig config, String folderName)
+    /**
+     * Single-message pipeline shared by IMAP and POP3 paths: parse the message
+     * into a record (via {@link MailMessageParser}), skip duplicates, archive
+     * EML when enabled, and persist.
+     *
+     * @return the persisted record, or {@code null} when this message was a
+     *         duplicate and was skipped.
+     */
+    private MailReceiveRecord processOne(Message message, MailReceiveServerConfig config, String folderName)
             throws MessagingException, IOException {
-        MailReceiveRecord record = new MailReceiveRecord();
-        record.setServerConfigId(config.getId());
-        record.setFolderName(folderName);
-        record.setSubject(message.getSubject());
-        record.setFetchedAt(LocalDateTime.now());
-        record.setStatus(MailReceiveStatus.UNREAD);
-
-        if (message.getSentDate() != null) {
-            record.setReceivedAt(message.getSentDate().toInstant()
-                    .atZone(ZoneId.systemDefault()).toLocalDateTime());
+        MailReceiveRecord record = mailMessageParser.parse(message, config, folderName);
+        if (isDuplicate(record.getMessageId(), config.getId())) {
+            return null;
         }
-
-        // Message-ID header — generate a synthetic dedup key when absent
-        String[] msgIds = message.getHeader("Message-ID");
-        if (msgIds != null && msgIds.length > 0) {
-            record.setMessageId(msgIds[0]);
-        } else {
-            record.setMessageId(syntheticMessageId(message, config.getId(), folderName));
+        // Don't archive truncated records (oversized / MIME-limit) — there's no
+        // faithful body to keep. archiveEml is itself a no-op when disabled.
+        if (record.getTruncationReason() == null) {
+            mailMessageParser.archiveEml(message, record);
         }
-
-        // Addresses
-        record.setFromAddress(extractAddress(message.getFrom()));
-        record.setToAddresses(extractAddresses(message.getRecipients(Message.RecipientType.TO)));
-        record.setCcAddresses(extractAddresses(message.getRecipients(Message.RecipientType.CC)));
-
-        // Body and attachments
-        BodyExtractResult bodyResult = extractBody(message);
-        record.setBody(bodyResult.body);
-        record.setContentType(bodyResult.isHtml ? "HTML" : "TEXT");
-        record.setHasAttachments(!bodyResult.attachmentNames.isEmpty());
-        if (!bodyResult.attachmentNames.isEmpty()) {
-            record.setAttachmentNames("[\"" + String.join("\",\"", bodyResult.attachmentNames) + "\"]");
-        }
-
-        // --- Phase-2: Mail classification ---
-        if (message instanceof MimeMessage mimeMessage) {
-            MailClassification classification = mailClassifier.classify(mimeMessage);
-            record.setMailType(classification.getType().getCode());
-
-            if (classification.getType() != ReceivedMailType.NORMAL) {
-                record.setOriginalMessageId(classification.getOriginalMessageId());
-
-                if (classification.getType() == ReceivedMailType.BOUNCE
-                        && classification.getBounceInfo() != null) {
-                    BounceInfo bi = classification.getBounceInfo();
-                    record.setSmtpReplyCode(bi.getSmtpReplyCode());
-                    record.setEnhancedStatusCode(bi.getEnhancedStatusCode());
-                    record.setDiagnosticMessage(bi.getDiagnosticMessage());
-                    if (!CollectionUtils.isEmpty(bi.getFailedRecipients())) {
-                        record.setFailedRecipients(
-                                "[\"" + String.join("\",\"", bi.getFailedRecipients()) + "\"]");
-                    }
-                }
-            }
-        } else {
-            record.setMailType(ReceivedMailType.NORMAL.getCode());
-        }
-
+        recordService.createOne(record);
         return record;
     }
-
-    // -------------------------------------------------
-    // Bounce / Receipt → Send Record Linking
-    // -------------------------------------------------
-
-    /**
-     * After saving a receive record, update the linked send record if this is
-     * a bounce or read receipt.
-     */
-    private void processClassification(MailReceiveRecord record) {
-        if (!StringUtils.hasText(record.getOriginalMessageId())) return;
-
-        String mailType = record.getMailType();
-        if (ReceivedMailType.READ_RECEIPT.getCode().equals(mailType)) {
-            updateSendRecordForReceipt(record.getOriginalMessageId());
-        } else if (ReceivedMailType.BOUNCE.getCode().equals(mailType)) {
-            updateSendRecordForBounce(record);
-        }
-    }
-
-    private void updateSendRecordForReceipt(String originalMessageId) {
-        sendRecordService.findByMessageId(originalMessageId).ifPresent(sendRecord -> {
-            sendRecord.setReadReceiptReceived(true);
-            sendRecord.setReadReceiptReceivedAt(LocalDateTime.now());
-            sendRecordService.updateOne(sendRecord);
-            log.info("Read receipt received for send record id={}, Message-ID={}",
-                    sendRecord.getId(), originalMessageId);
-        });
-    }
-
-    private void updateSendRecordForBounce(MailReceiveRecord receiveRecord) {
-        sendRecordService.findByMessageId(receiveRecord.getOriginalMessageId()).ifPresent(sendRecord -> {
-            sendRecord.setBounced(true);
-            // Compose bounce code summary, e.g. "550 5.1.1"
-            String bounceCode = StringUtils.hasText(receiveRecord.getSmtpReplyCode())
-                    ? receiveRecord.getSmtpReplyCode() : "";
-            if (StringUtils.hasText(receiveRecord.getEnhancedStatusCode())) {
-                bounceCode = bounceCode.isEmpty()
-                        ? receiveRecord.getEnhancedStatusCode()
-                        : bounceCode + " " + receiveRecord.getEnhancedStatusCode();
-            }
-            if (StringUtils.hasText(bounceCode)) {
-                sendRecord.setBounceCode(bounceCode.trim());
-            }
-            sendRecord.setStatus(MailSendStatus.FAILED);
-            sendRecordService.updateOne(sendRecord);
-            log.info("Bounce detected for send record id={}, code={}, Message-ID={}",
-                    sendRecord.getId(), bounceCode, receiveRecord.getOriginalMessageId());
-        });
-    }
-
-    // -------------------------------------------------
-    // EML Archival (Phase-3)
-    // -------------------------------------------------
-
-    /**
-     * Archive the raw EML content of a message via {@link FileService}.
-     * If file-starter is not on the classpath ({@code fileService == null}),
-     * this method is a no-op.
-     */
-    private void archiveEml(Message message, MailReceiveRecord record) {
-        if (fileService == null) return;
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            message.writeTo(baos);
-            byte[] emlBytes = baos.toByteArray();
-
-            String fileName = StringUtils.hasText(record.getMessageId())
-                    ? record.getMessageId().replaceAll("[<>]", "")
-                    : "mail_" + System.currentTimeMillis();
-
-            UploadFileDTO uploadDTO = new UploadFileDTO();
-            uploadDTO.setModelName("MailReceiveRecord");
-            uploadDTO.setFileName(fileName);
-            uploadDTO.setFileType(FileType.EML);
-            uploadDTO.setFileSize(emlBytes.length / 1024);
-            uploadDTO.setFileSource(FileSource.DOWNLOAD);
-            uploadDTO.setInputStream(new ByteArrayInputStream(emlBytes));
-
-            FileInfo fileInfo = fileService.uploadFromStream(uploadDTO);
-            record.setEmlFileId(fileInfo.getFileId());
-
-            log.debug("Archived EML for Message-ID={}, fileId={}",
-                    record.getMessageId(), fileInfo.getFileId());
-        } catch (Exception e) {
-            log.warn("Failed to archive EML for Message-ID={}: {}",
-                    record.getMessageId(), e.getMessage());
-            // Non-fatal: continue processing even if archival fails
-        }
-    }
-
-    // -------------------------------------------------
-    // Helpers
-    // -------------------------------------------------
 
     private boolean isDuplicate(String messageId, Long serverConfigId) {
         if (!StringUtils.hasText(messageId)) return false;
@@ -359,92 +332,19 @@ public class MailReceiveServiceImpl implements MailReceiveService {
         return recordService.count(filters) > 0;
     }
 
-    /**
-     * Generates a deterministic dedup key for messages that lack a {@code Message-ID} header.
-     * Uses SHA-256 of (serverConfigId + folderName + from + subject + sentDate millis).
-     * Prefixed with {@code "synthetic:"} to distinguish from real Message-IDs.
-     */
-    private String syntheticMessageId(Message message, Long serverConfigId, String folderName)
-            throws MessagingException {
-        String from = message.getFrom() != null && message.getFrom().length > 0
-                ? message.getFrom()[0].toString() : "";
-        String subject = message.getSubject() != null ? message.getSubject() : "";
-        String date = message.getSentDate() != null
-                ? String.valueOf(message.getSentDate().getTime()) : "";
-        String raw = serverConfigId + ":" + folderName + ":" + from + ":" + subject + ":" + date;
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(raw.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(32);
-            for (int i = 0; i < 16; i++) {
-                hex.append(String.format("%02x", hash[i]));
-            }
-            return "synthetic:" + hex;
-        } catch (Exception e) {
-            return "synthetic:" + Math.abs(raw.hashCode());
-        }
-    }
-
-    private String extractAddress(Address[] addresses) {
-        if (addresses == null || addresses.length == 0) return null;
-        return ((InternetAddress) addresses[0]).getAddress();
-    }
-
-    private String extractAddresses(Address[] addresses) {
-        if (addresses == null || addresses.length == 0) return null;
-        List<String> list = new ArrayList<>();
-        for (Address a : addresses) {
-            list.add(((InternetAddress) a).getAddress());
-        }
-        return "[\"" + String.join("\",\"", list) + "\"]";
-    }
-
-    private BodyExtractResult extractBody(Part part) throws MessagingException, IOException {
-        BodyExtractResult result = new BodyExtractResult();
-        if (part.isMimeType("text/plain")) {
-            result.body = (String) part.getContent();
-            result.isHtml = false;
-        } else if (part.isMimeType("text/html")) {
-            result.body = (String) part.getContent();
-            result.isHtml = true;
-        } else if (part.isMimeType("multipart/*")) {
-            Multipart mp = (Multipart) part.getContent();
-            for (int i = 0; i < mp.getCount(); i++) {
-                Part bodyPart = mp.getBodyPart(i);
-                String disposition = bodyPart.getDisposition();
-                if (Part.ATTACHMENT.equalsIgnoreCase(disposition)
-                        || Part.INLINE.equalsIgnoreCase(disposition)) {
-                    if (StringUtils.hasText(bodyPart.getFileName())) {
-                        result.attachmentNames.add(bodyPart.getFileName());
-                    }
-                } else {
-                    BodyExtractResult sub = extractBody(bodyPart);
-                    if (StringUtils.hasText(sub.body)) {
-                        result.body = sub.body;
-                        result.isHtml = sub.isHtml;
-                    }
-                    result.attachmentNames.addAll(sub.attachmentNames);
-                }
-            }
-        }
-        return result;
-    }
-
     private Properties buildSessionProperties(MailReceiveServerConfig config, String protocol) {
         Properties props = new Properties();
         props.put("mail." + protocol + ".host", config.getHost());
         props.put("mail." + protocol + ".port", config.getPort());
         props.put("mail." + protocol + ".ssl.enable", Boolean.TRUE.equals(config.getSslEnabled()));
-        int connTimeout = config.getConnectionTimeoutMs() != null ? config.getConnectionTimeoutMs() : 5000;
-        int readTimeout = config.getReadTimeoutMs() != null ? config.getReadTimeoutMs() : 30000;
-        props.put("mail." + protocol + ".connectiontimeout", connTimeout);
-        props.put("mail." + protocol + ".timeout", readTimeout);
+        // Global transport timeouts; per-config tunability removed (see
+        // MessageProperties.Transport Javadoc).
+        long connTimeoutMs = messageProperties.getMail().getTransport()
+                .getConnectionTimeout().toMillis();
+        long readTimeoutMs = messageProperties.getMail().getTransport()
+                .getReadTimeout().toMillis();
+        props.put("mail." + protocol + ".connectiontimeout", connTimeoutMs);
+        props.put("mail." + protocol + ".timeout", readTimeoutMs);
         return props;
-    }
-
-    private static class BodyExtractResult {
-        String body;
-        boolean isHtml;
-        List<String> attachmentNames = new ArrayList<>();
     }
 }

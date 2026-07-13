@@ -1,16 +1,13 @@
 package io.softa.starter.message.sms.controller;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import io.softa.framework.base.enums.Language;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
@@ -21,8 +18,8 @@ import io.softa.starter.message.sms.entity.SmsTemplate;
 import io.softa.starter.message.sms.enums.SmsDeliveryStatus;
 import io.softa.starter.message.sms.enums.SmsProvider;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
-import io.softa.starter.message.sms.service.SmsSendService;
 import io.softa.starter.message.sms.service.SmsTemplateService;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -31,18 +28,18 @@ import static org.mockito.Mockito.*;
 class SmsApiControllerTest {
 
     private SmsApiController controller;
-    private SmsSendService smsSendService;
+    private MessageService messageService;
     private SmsSendRecordService sendRecordService;
     private SmsTemplateService templateService;
 
     @BeforeEach
     void setUp() {
         controller = new SmsApiController();
-        smsSendService = mock(SmsSendService.class);
+        messageService = mock(MessageService.class);
         sendRecordService = mock(SmsSendRecordService.class);
         templateService = mock(SmsTemplateService.class);
 
-        ReflectionTestUtils.setField(controller, "smsSendService", smsSendService);
+        ReflectionTestUtils.setField(controller, "messageService", messageService);
         ReflectionTestUtils.setField(controller, "sendRecordService", sendRecordService);
         ReflectionTestUtils.setField(controller, "templateService", templateService);
     }
@@ -55,7 +52,7 @@ class SmsApiControllerTest {
         record.setId(1L);
         record.setProviderType(SmsProvider.TWILIO);
         record.setPhoneNumber("+8613800138000");
-        record.setContentPreview("Hello");
+        record.setContent("Hello");
         record.setStatus(SmsSendStatus.SENT);
         record.setRetryCount(0);
         record.setSentAt(LocalDateTime.of(2026, 4, 10, 10, 0));
@@ -118,7 +115,6 @@ class SmsApiControllerTest {
         template.setCode("VERIFY_CODE");
         template.setName("Verification Code");
         template.setDescription("SMS verification code");
-        template.setLanguage(Language.EN_US);
         template.setContent("Your verification code is {{ code }}. Valid for 5 minutes.");
 
         when(templateService.searchList(any(Filters.class))).thenReturn(List.of(template));
@@ -130,7 +126,6 @@ class SmsApiControllerTest {
         SmsTemplateSummaryDTO dto = response.getData().getFirst();
         Assertions.assertEquals("VERIFY_CODE", dto.getCode());
         Assertions.assertEquals("Verification Code", dto.getName());
-        Assertions.assertEquals("en-US", dto.getLanguage().getCode());
     }
 
     @Test
@@ -148,7 +143,6 @@ class SmsApiControllerTest {
         template.setId(1L);
         template.setCode("LONG");
         template.setName("Long Template");
-        template.setLanguage(Language.EN_US);
         template.setContent("A".repeat(200));
 
         when(templateService.searchList(any(Filters.class))).thenReturn(List.of(template));
@@ -157,33 +151,23 @@ class SmsApiControllerTest {
         Assertions.assertEquals(100, response.getData().getFirst().getContentPreview().length());
     }
 
-    // ========== Send by Template ==========
-
     @Test
-    void sendByTemplateCallsService() {
-        controller.sendByTemplate("VERIFY_CODE", List.of("+8613800138000"),
-                Map.of("code", "123456"));
-
-        verify(smsSendService).sendByTemplate("VERIFY_CODE", List.of("+8613800138000"),
-                Map.of("code", "123456"));
-    }
-
-    @Test
-    void sendByTemplateHandlesNullVariables() {
-        controller.sendByTemplate("SIMPLE", List.of("+8613800138000"), null);
-
-        verify(smsSendService).sendByTemplate("SIMPLE", List.of("+8613800138000"),
-                Collections.emptyMap());
-    }
-
-    @Test
-    void sendAsyncDelegatesService() {
+    void sendDelegatesService() {
         SendSmsDTO dto = new SendSmsDTO();
         dto.setPhoneNumber("+8613800138000");
-        dto.setContent("Async test");
+        dto.setContent("Test");
 
-        controller.sendAsync(dto);
+        controller.send(dto);
 
-        verify(smsSendService).sendAsync(dto);
+        verify(messageService).sendSms(dto);
+    }
+
+    @Test
+    void sendBatchDelegatesService() {
+        List<SendSmsDTO> messages = List.of(new SendSmsDTO(), new SendSmsDTO());
+
+        controller.sendBatch(messages);
+
+        verify(messageService).sendSmsBatch(messages);
     }
 }

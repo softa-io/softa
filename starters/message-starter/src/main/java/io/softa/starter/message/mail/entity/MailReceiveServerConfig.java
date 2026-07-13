@@ -1,13 +1,15 @@
 package io.softa.starter.message.mail.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.message.mail.enums.AuthType;
-import io.softa.starter.message.mail.enums.ReceiveProtocol;
-import io.swagger.v3.oas.annotations.media.Schema;
+import java.io.Serial;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.message.mail.enums.ReceiveProtocol;
 
 /**
  * Incoming mail server configuration (IMAP / IMAPS / POP3 / POP3S).
@@ -16,78 +18,66 @@ import java.io.Serial;
  * tenant_id > 0  — tenant-level, tenant_id is auto-filled by the ORM.
  */
 @Data
-@Schema(name = "MailReceiveServerConfig")
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true)
+@Index(indexName = "idx_mail_recv_cfg_default", fields = {"tenantId", "isDefault"})
 @EqualsAndHashCode(callSuper = true)
 public class MailReceiveServerConfig extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Config name")
+    @Field(label = "Tenant ID",
+            description = "0 = platform-level (shared across tenants); >0 = tenant-level. "
+                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
+    private Long tenantId;
+
+    @Field(label = "Config Name", required = true, length = 100)
     private String name;
 
-    @Schema(description = "Description")
+    @Field(length = 500)
     private String description;
 
-    @Schema(description = "Protocol: IMAP, IMAPS, POP3, POP3S")
+    @Field(label = "Receive Protocol", required = true,
+            description = "Receive protocol. "
+                    + "IMAP/IMAPS: non-destructive observation (recommended) — fetched mails stay on server, "
+                    + "incremental fetch tracks IMAP UID per folder. "
+                    + "POP3/POP3S: destructive drain — each fetched message is deleted from the server. "
+                    + "See ReceiveProtocol enum for per-value detail.")
     private ReceiveProtocol protocol;
 
-    @Schema(description = "Mail server host")
+    @Field(label = "Mail Server Host", required = true, length = 255)
     private String host;
 
-    @Schema(description = "Mail server port")
+    @Field(label = "Mail Server Port", required = true)
     private Integer port;
 
-    @Schema(description = "Enable SSL/TLS")
+    @Field(label = "Enable SSL/TLS")
     private Boolean sslEnabled;
 
-    @Schema(description = "Connection timeout in milliseconds")
-    private Integer connectionTimeoutMs;
-
-    @Schema(description = "Read timeout in milliseconds")
-    private Integer readTimeoutMs;
-
-    @Schema(description = "Maximum number of connections in the pool")
-    private Integer maxConnections;
-
-    @Schema(description = "Authentication type: Password or OAuth2")
-    private AuthType authType;
-
-    @Schema(description = "Auth username")
+    @Field(label = "Auth Username", length = 255)
     private String username;
 
-    @Schema(description = "Password")
+    @Field(length = 255)
     private String password;
 
-    @Schema(description = "IMAP folder to poll (default: INBOX)")
-    private String inboxFolder;
-
-    @Schema(description = "Delete message from server after fetching (POP3 only)")
-    private Boolean deleteAfterFetch;
-
-    @Schema(description = "Whether this is the default receiving config for this tenant")
-    private Boolean isDefault;
-
-    @Schema(description = "Whether this config is enabled")
-    private Boolean isEnabled;
-
-    @Schema(description = "Sort order for multiple configs")
-    private Integer sortOrder;
-
-    // ---- Phase-2 addition: multi-folder ----
-
-    @Schema(description = "Comma-separated list of folders to fetch from (default: INBOX). "
-            + "Supports INBOX, Junk, and any custom folder name.")
+    @Field(length = 255,
+            description = "Comma-separated list of folders to fetch from (default: INBOX). "
+                    + "Supports INBOX, Junk, and any custom folder name.")
     private String fetchFolders;
 
-    // ---- Phase-3 additions: scheduled fetch ----
+    @Field(description = "Whether this is the default receiving config for this tenant")
+    private Boolean isDefault;
 
-    @Schema(description = "Whether to enable scheduled mail fetching")
-    private Boolean scheduledFetchEnabled;
+    @Field(description = "Whether this config is enabled")
+    private Boolean isEnabled;
 
-    @Schema(description = "Cron expression for scheduled fetch, e.g. '0 */5 * * * ?'")
-    private String fetchCronExpression;
+    @Field(description = "Polling order for cron-driven fetch + display order in admin UIs. "
+                    + "Ascending — lower = polled first / shown first. NOT a failover priority: "
+                    + "all enabled configs get polled each tick. If receive-side failover semantics "
+                    + "are ever introduced, rename to 'priority' then; current name 'sequence' "
+                    + "honestly reflects the no-failover reality.")
+    private Integer sequence;
 }

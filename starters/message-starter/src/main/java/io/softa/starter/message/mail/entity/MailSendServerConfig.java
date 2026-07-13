@@ -1,13 +1,15 @@
 package io.softa.starter.message.mail.entity;
 
-import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.message.mail.enums.AuthType;
-import io.softa.starter.message.mail.enums.SendProtocol;
-import io.swagger.v3.oas.annotations.media.Schema;
+import java.io.Serial;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.io.Serial;
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.message.mail.enums.SendProtocol;
 
 /**
  * Outgoing mail server configuration (SMTP / SMTPS).
@@ -16,90 +18,91 @@ import java.io.Serial;
  * tenant_id > 0  — tenant-level, tenant_id is auto-filled by the ORM.
  */
 @Data
-@Schema(name = "MailSendServerConfig")
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true)
+@Index(indexName = "idx_mail_send_cfg_default", fields = {"tenantId", "isDefault"})
 @EqualsAndHashCode(callSuper = true)
 public class MailSendServerConfig extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Config name")
+    @Field(label = "Tenant ID",
+            description = "0 = platform-level (shared across tenants); >0 = tenant-level. "
+                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
+    private Long tenantId;
+
+    @Field(label = "Config Name", required = true, length = 100)
     private String name;
 
-    @Schema(description = "Description")
+    @Field(length = 500)
     private String description;
 
-    @Schema(description = "Protocol: SMTP or SMTPS")
+    @Field(label = "Send Protocol", required = true,
+            description = "Protocol: SMTP or SMTPS")
     private SendProtocol protocol;
 
-    @Schema(description = "SMTP server host")
+    @Field(label = "SMTP Server Host", required = true, length = 255)
     private String host;
 
-    @Schema(description = "SMTP server port")
+    @Field(label = "SMTP Server Port", required = true)
     private Integer port;
 
-    @Schema(description = "Enable SSL/TLS")
+    @Field(label = "SSL Enabled",
+            description = "Use implicit TLS / SMTPS — the TLS handshake happens immediately after TCP, "
+                    + "the entire session is encrypted from the first byte. Typical port: 465. "
+                    + "Set this OR starttlsEnabled, not both. "
+                    + "Choose this when the provider's docs say 'SSL/TLS' or list port 465.")
     private Boolean sslEnabled;
 
-    @Schema(description = "Enable STARTTLS")
+    @Field(label = "STARTTLS Enabled",
+            description = "Use STARTTLS / explicit TLS — the connection starts as plaintext SMTP, "
+                    + "then upgrades to TLS via the STARTTLS command. Typical ports: 587 (submission) or 25 (legacy). "
+                    + "Set this OR sslEnabled, not both. "
+                    + "Choose this when the provider's docs say 'STARTTLS' or list port 587.")
     private Boolean starttlsEnabled;
 
-    @Schema(description = "Connection timeout in milliseconds")
-    private Integer connectionTimeoutMs;
-
-    @Schema(description = "Read timeout in milliseconds")
-    private Integer readTimeoutMs;
-
-    @Schema(description = "Maximum number of connections in the pool")
-    private Integer maxConnections;
-
-    @Schema(description = "Authentication type: Password or OAuth2")
-    private AuthType authType;
-
-    @Schema(description = "Auth username")
+    @Field(label = "Auth Username", length = 255)
     private String username;
 
-    @Schema(description = "Password")
+    @Field(length = 500)
     private String password;
 
-    @Schema(description = "From address displayed in outgoing emails")
+    @Field(length = 255,
+            description = "From address displayed in outgoing emails")
     private String fromAddress;
 
-    @Schema(description = "From display name")
+    @Field(length = 100,
+            description = "From display name")
     private String fromName;
 
-    @Schema(description = "Reply-to address")
+    @Field(label = "Reply-To Address", length = 255,
+            description = "Default Reply-To address for emails sent through this server config. "
+                    + "Resolution chain at send time (highest to lowest priority): "
+                    + "SendMailDTO.replyTo > MailTemplate.replyTo > MailSendServerConfig.replyToAddress.")
     private String replyToAddress;
 
-    @Schema(description = "Maximum emails sent per day (null = unlimited)")
+    @Field(description = "Maximum emails sent per day (null = unlimited)")
     private Integer dailySendLimit;
 
-    @Schema(description = "Rate limit: max emails per minute")
+    @Field(description = "Rate limit: max emails per minute")
     private Integer rateLimitPerMinute;
 
-    @Schema(description = "Whether this is the default sending config for this tenant")
+    @Field(description = "Whether this is the default sending config for this tenant")
     private Boolean isDefault;
 
-    @Schema(description = "Whether this config is enabled")
+    @Field(description = "Whether this config is enabled")
     private Boolean isEnabled;
 
-    @Schema(description = "Sort order for multiple configs")
-    private Integer sortOrder;
+    @Field(description = "Tie-break order among multiple isDefault=true configs + display "
+                    + "order in admin UIs. Ascending — lower wins. NOT a failover priority: dispatcher "
+                    + "picks the first matching default and stops; other defaults are never tried as "
+                    + "backup. If send-side failover is ever introduced, rename to 'priority' then.")
+    private Integer sequence;
 
-    // ---- Phase-1 additions: send enhancements ----
-
-    @Schema(description = "Whether to request read receipts by default (Disposition-Notification-To header)")
+    @Field(description = "Whether to request read receipts by default (Disposition-Notification-To header)")
     private Boolean readReceiptEnabled;
 
-    @Schema(description = "Maximum retry attempts on send failure (null or 0 = no retry)")
-    private Integer maxRetryCount;
-
-    @Schema(description = "Delay in seconds between retry attempts (default 60)")
-    private Integer retryIntervalSeconds;
-
-    @Schema(description = "Enable Jakarta Mail debug output (full SMTP protocol logging)")
-    private Boolean debugEnabled;
 }

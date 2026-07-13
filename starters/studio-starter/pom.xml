@@ -20,12 +20,6 @@
             <version>${project.version}</version>
         </dependency>
 
-        <dependency>
-            <groupId>io.softa</groupId>
-            <artifactId>es-starter</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
         <!-- In-memory DB for JdbcDdlExecutor tests (external-JDBC apply). -->
         <dependency>
             <groupId>com.h2database</groupId>

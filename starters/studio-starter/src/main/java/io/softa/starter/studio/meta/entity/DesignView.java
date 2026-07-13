@@ -16,7 +16,9 @@ import io.softa.framework.orm.enums.ViewType;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, softDelete = true,
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG,
+        // hard delete (no softDelete) so a re-created view never collides with a soft-deleted row that
+        // still occupies the {modelName, code} business key — consistent with the other design_* models.
         businessKey = {"modelName", "code"})
 public class DesignView extends AuditableModel {
 
@@ -61,7 +63,4 @@ public class DesignView extends AuditableModel {
 
     @Field
     private Boolean defaultView;
-
-    @Field
-    private Boolean deleted;
 }

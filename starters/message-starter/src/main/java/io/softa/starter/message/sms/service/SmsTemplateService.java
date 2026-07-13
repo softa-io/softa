@@ -9,21 +9,17 @@ import io.softa.starter.message.sms.entity.SmsTemplate;
 /**
  * CRUD and resolution service for {@link SmsTemplate}.
  * <p>
- * Template resolution follows a four-level fallback so that platform-defined templates
- * serve as defaults and tenants can override them per language:
+ * Template resolution prefers a tenant template, falling back to the
+ * platform-defined default:
  * <pre>
- *   tenant + current language
- *       → tenant + "default"
- *           → platform + current language
- *               → platform + "default"
- *                   → BusinessException
+ *   tenant template → platform template (tenant_id = 0) → BusinessException
  * </pre>
  */
 public interface SmsTemplateService extends EntityService<SmsTemplate, Long> {
 
     /**
-     * Resolve the best matching template for {@code code} given the current tenant
-     * and the language from {@code ContextHolder}.
+     * Resolve the matching template for {@code code} in the current tenant,
+     * falling back to the platform template.
      *
      * @param code template code, e.g. {@code "VERIFY_CODE"}
      * @return the resolved template
@@ -32,14 +28,13 @@ public interface SmsTemplateService extends EntityService<SmsTemplate, Long> {
     SmsTemplate resolve(String code);
 
     /**
-     * Query platform-level (tenant_id = 0) templates, bypassing tenant isolation.
-     * Tries {@code language} first, then falls back to {@code "default"}.
+     * Query the platform-level (tenant_id = 0) template, bypassing tenant
+     * isolation.
      *
-     * @param code     template code
-     * @param language BCP 47 language tag to try first
+     * @param code template code
      * @return the platform template if found
      */
-    Optional<SmsTemplate> findPlatformByCode(String code, String language);
+    Optional<SmsTemplate> findPlatformByCode(String code);
 
     /**
      * Render the content of {@code template} by substituting {@code variables}

@@ -5,14 +5,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import io.softa.framework.base.utils.LambdaUtils;
-import io.softa.starter.studio.meta.entity.DesignField;
-import io.softa.starter.studio.meta.entity.DesignModel;
-import io.softa.starter.studio.meta.entity.DesignModelIndex;
-import io.softa.starter.studio.meta.entity.DesignOptionItem;
-import io.softa.starter.studio.meta.entity.DesignOptionSet;
-import io.softa.starter.studio.release.dto.MetaKeys;
-
 /**
  * Shared row primitives for materializing one env's {@code design_*} rows into another env, and for
  * locating / re-parenting them by business key. Used by {@link DesignEnvCloner} (full clone),
@@ -30,27 +22,11 @@ final class DesignEnvRowOps {
     static final String ID = "id";
     static final String ENV_ID = "envId";
 
-    /** Child→parent surrogate FK attrs (per-env identity — re-pointed on import/merge, never carried across). */
-    static final String MODEL_ID = LambdaUtils.getAttributeName(DesignField::getModelId);
-    static final String OPTION_SET_ID = LambdaUtils.getAttributeName(DesignOptionItem::getOptionSetId);
-
     /**
      * Composite-key delimiter — a control char that cannot appear in a business code, so a multi-attr
      * business key is unambiguous.
      */
     static final String KEY_SEP = "\u0001";
-
-    /**
-     * The per-env business-key attrs of each swept design meta-model, keyed by model simple name — the
-     * env-scoped natural identity used to locate / pair a row ({@code envId} is the query scope, so it is
-     * not part of the key string). Single source shared by the merger and the import path.
-     */
-    static final Map<String, List<String>> BIZ_KEY_ATTRS = Map.of(
-            DesignModel.class.getSimpleName(), List.of(MetaKeys.MODEL_NAME),
-            DesignField.class.getSimpleName(), List.of(MetaKeys.MODEL_NAME, MetaKeys.FIELD_NAME),
-            DesignModelIndex.class.getSimpleName(), List.of(MetaKeys.MODEL_NAME, MetaKeys.INDEX_NAME),
-            DesignOptionSet.class.getSimpleName(), List.of(MetaKeys.OPTION_SET_CODE),
-            DesignOptionItem.class.getSimpleName(), List.of(MetaKeys.OPTION_SET_CODE, MetaKeys.ITEM_CODE));
 
     /** Audit columns are re-stamped by the create pipeline; stripped so a clone reads as newly created. */
     private static final List<String> AUDIT_KEYS = List.of(

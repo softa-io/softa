@@ -18,8 +18,8 @@ import io.softa.starter.message.mail.entity.MailSendServerConfig;
 import io.softa.starter.message.mail.entity.MailTemplate;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
-import io.softa.starter.message.mail.service.MailSendService;
 import io.softa.starter.message.mail.service.MailTemplateService;
+import io.softa.starter.message.service.MessageService;
 
 /**
  * External unified mail API for external systems and integrations.
@@ -38,7 +38,7 @@ import io.softa.starter.message.mail.service.MailTemplateService;
 public class MailApiController {
 
     @Autowired
-    private MailSendService mailSendService;
+    private MessageService messageService;
 
     @Autowired
     private MailSendRecordService sendRecordService;
@@ -55,45 +55,21 @@ public class MailApiController {
 
     /**
      * Send an email with full control over all parameters.
-     * <p>
-     * Supports differentiated batch: set {@code items} for per-recipient content.
-     *
      * @param dto the send request
-     * @return success response
+     * @return the created {@code MailSendRecord} id.
      */
-    @Operation(summary = "Send an email synchronously")
-    @PostMapping("/sendNow")
-    public ApiResponse<Long> sendNow(@RequestBody @Valid SendMailDTO dto) {
-        mailSendService.sendNow(dto);
-        return ApiResponse.success(null);
+    @Operation(summary = "Send an email")
+    @PostMapping("/send")
+    public ApiResponse<Long> send(@RequestBody @Valid SendMailDTO dto) {
+        return ApiResponse.success(messageService.sendMail(dto));
     }
 
-    /**
-     * Send an email asynchronously. Returns immediately; delivery happens in the background.
-     */
-    @Operation(summary = "Send an email asynchronously")
-    @PostMapping("/sendAsync")
-    public ApiResponse<Void> sendAsync(@RequestBody @Valid SendMailDTO dto) {
-        mailSendService.sendAsync(dto);
-        return ApiResponse.success(null);
-    }
-
-    /**
-     * Send an email using a pre-defined template.
-     *
-     * @param code      the template code (e.g. "USER_WELCOME")
-     * @param to        recipient address(es), comma-separated
-     * @param variables template placeholder variables
-     */
-    @Operation(summary = "Send an email using a template")
-    @PostMapping("/sendByTemplate")
-    public ApiResponse<Void> sendByTemplate(
-            @RequestParam String code,
-            @RequestParam List<String> to,
-            @RequestBody(required = false) Map<String, Object> variables) {
-        mailSendService.sendByTemplate(code, to,
-                variables != null ? variables : Collections.emptyMap());
-        return ApiResponse.success(null);
+    /** Submit independent emails as one atomic batch. */
+    @Operation(summary = "Send an email batch")
+    @PostMapping("/sendBatch")
+    public ApiResponse<List<Long>> sendBatch(
+            @RequestBody List<@Valid SendMailDTO> messages) {
+        return ApiResponse.success(messageService.sendMailBatch(messages));
     }
 
     // -------------------------------------------------
@@ -124,7 +100,7 @@ public class MailApiController {
     public ApiResponse<List<MailSenderSummaryDTO>> listSenders() {
         FlexQuery flexQuery = new FlexQuery(
                 new Filters().eq(MailSendServerConfig::getIsEnabled, true),
-                Orders.ofAsc(MailSendServerConfig::getSortOrder));
+                Orders.ofAsc(MailSendServerConfig::getSequence));
         List<MailSendServerConfig> configs = sendConfigService.searchList(flexQuery);
         List<MailSenderSummaryDTO> summaries = configs.stream()
                 .map(MailSenderSummaryDTO::from)
@@ -163,7 +139,8 @@ public class MailApiController {
                 ? request.getVariables() : Collections.emptyMap();
 
         request.setRenderedSubject(templateService.renderSubject(template, variables));
-        request.setRenderedBody(templateService.renderBody(template, variables));
+        request.setRenderedBodyHtml(templateService.renderBodyHtml(template, variables));
+        request.setRenderedBodyText(templateService.renderBodyText(template, variables));
         return ApiResponse.success(request);
     }
 

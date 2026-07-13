@@ -1,17 +1,23 @@
 package io.softa.starter.message.mail.message;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.starter.message.mail.dto.SendMailDTO;
-import io.softa.starter.message.mail.service.MailSendService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
 
+import io.softa.starter.message.mail.service.impl.MailDeliveryProcessor;
+import io.softa.starter.message.mq.outbox.OutboxContextSupport;
+import io.softa.starter.message.mq.outbox.OutboxMessage;
+
 /**
- * Consumes asynchronous mail-send messages from Pulsar and triggers the actual send.
+ * Consumes mail delivery messages from Pulsar and drives the delivery processor.
+ * Initial attempts and delayed retries share this topic; retry timing is owned
+ * by the transactional outbox.
+ * <p>
+ * Messages carry only {@code recordId} (plus tenant/trace for context).
+ * Duplicate broker deliveries are safely rejected by the CAS claim in
+ * {@link MailDeliveryProcessor#process(Long)}.
  * <p>
  * Only activated when {@code mq.topics.mail-send.topic} is configured.
  */
@@ -21,17 +27,15 @@ import org.springframework.stereotype.Component;
 public class MailSendConsumer {
 
     @Autowired
-    private MailSendService mailSendService;
+    private MailDeliveryProcessor deliveryProcessor;
 
     @PulsarListener(topics = "${mq.topics.mail-send.topic}",
                     subscriptionName = "${mq.topics.mail-send.sub:mail-send-sub}")
-    public void onSend(MailSendMessage message) {
-        Context ctx = message.getContext();
-        ContextHolder.runWith(ctx != null ? ctx : new Context(), () -> {
-            SendMailDTO dto = message.getSendMailDTO();
-            log.info("Processing async mail send: recipients={}",
-                    dto.getTo() != null ? dto.getTo().size() : 0);
-            mailSendService.sendNow(dto);
+    public void onSend(OutboxMessage message) {
+        OutboxContextSupport.runWithContext(message, () -> {
+            log.debug("Processing mail delivery: recordId={} traceId={}",
+                    message.getRecordId(), message.getTraceId());
+            deliveryProcessor.process(message.getRecordId());
         });
     }
 }

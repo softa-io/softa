@@ -1,14 +1,14 @@
 package io.softa.starter.message.sms.support;
 
-import io.softa.framework.base.exception.BusinessException;
-import io.softa.starter.message.sms.enums.SmsProvider;
-import io.softa.starter.message.sms.support.adapter.SmsProviderAdapter;
-import org.springframework.stereotype.Component;
-
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.stereotype.Component;
+
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.starter.message.sms.enums.SmsProvider;
+import io.softa.starter.message.sms.support.adapter.SmsProviderAdapter;
 
 /**
  * Discovers and dispatches {@link SmsProviderAdapter} beans by provider type.
@@ -16,8 +16,8 @@ import java.util.stream.Collectors;
  * All adapters are auto-discovered via Spring's {@code List<SmsProviderAdapter>} injection
  * and mapped by their {@link SmsProviderAdapter#getProvider()} value at startup.
  * <p>
- * Unlike {@link io.softa.starter.message.mail.support.MailSenderFactory}, adapters are
- * stateless singletons, so no client caching is needed.
+ * Unlike {@link io.softa.starter.message.mail.smtp.SmtpMailTransport}'s SMTP client
+ * cache, adapters are stateless singletons, so no per-config caching is needed.
  */
 @Component
 public class SmsAdapterFactory {

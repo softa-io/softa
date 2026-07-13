@@ -165,7 +165,7 @@ Rationale: additive DDL doesn't lose data; `DROP` operations are destructive
 and may take minutes on large tables. Even in dev, you should consciously
 choose to drop schema.
 
-### Field / model rename — declare `renamedFrom` (ADR-0025)
+### Field / model rename — declare `renamedFrom`
 
 The scanner uses **set-based comparison** keyed by `fieldName` / `modelName` /
 `itemCode`, so an *undeclared* rename looks identical to "drop old + add new":
