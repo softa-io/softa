@@ -161,6 +161,52 @@ class EndpointIndexStandardDerivationTest {
     }
 
     @Test
+    void exportAction_registersSharedAbsoluteEndpoints() {
+        // Export is served by shared file-starter controllers (model in a request
+        // param), so `export` maps to ABSOLUTE endpoints emitted verbatim — NOT
+        // the per-model /<Model>/exportList shape (a phantom endpoint that never
+        // existed and left export uncovered → "Endpoint not registered" 403).
+        Navigation empNav = nav("hr.employee", "Employee");
+        when(navResolver.findNavigation("hr.employee")).thenReturn(empNav);
+
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
+
+            EndpointIndex idx = build(List.of(derivedPerm("employee.export", "hr.employee")));
+
+            assertThat(idx.lookup("/export/dynamicExport", "POST")).containsExactly("employee.export");
+            assertThat(idx.lookup("/export/exportByTemplate", "POST")).containsExactly("employee.export");
+            assertThat(idx.lookup("/ExportTemplate/listByModel", "POST")).containsExactly("employee.export");
+            assertThat(idx.lookup("/ExportHistory/myExportHistory", "POST")).containsExactly("employee.export");
+            // Regression guard: the old phantom per-model endpoint must NOT register.
+            assertThat(idx.lookup("/Employee/exportList", "POST")).isEmpty();
+        }
+    }
+
+    @Test
+    void importAction_registersSharedAbsoluteEndpoints() {
+        Navigation empNav = nav("hr.employee", "Employee");
+        when(navResolver.findNavigation("hr.employee")).thenReturn(empNav);
+
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
+
+            EndpointIndex idx = build(List.of(derivedPerm("employee.import", "hr.employee")));
+
+            assertThat(idx.lookup("/import/dynamicImport", "POST")).containsExactly("employee.import");
+            assertThat(idx.lookup("/import/importByTemplate", "POST")).containsExactly("employee.import");
+            assertThat(idx.lookup("/import/validateImport", "POST")).containsExactly("employee.import");
+            assertThat(idx.lookup("/ImportTemplate/listByModel", "POST")).containsExactly("employee.import");
+            assertThat(idx.lookup("/ImportTemplate/getTemplateFile", "GET")).containsExactly("employee.import");
+            assertThat(idx.lookup("/ImportHistory/myImportHistory", "POST")).containsExactly("employee.import");
+            // Regression guard: the old phantom per-model endpoint must NOT register.
+            assertThat(idx.lookup("/Employee/importList", "POST")).isEmpty();
+        }
+    }
+
+    @Test
     void nonStandardAction_refusesToRegister() {
         // e.g. `employee.confirmation` — not in STANDARD_ACTION_MAP → log ERROR
         // and register nothing so the permission stays visibly inert.

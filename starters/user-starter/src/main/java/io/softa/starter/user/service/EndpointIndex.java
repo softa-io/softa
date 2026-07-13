@@ -79,7 +79,11 @@ public class EndpointIndex {
      *  the verb is required so detail/create/copy can register their GET-only
      *  helpers ({@code getDefaultValues}, {@code getCopyableFields}, unmask)
      *  alongside POST endpoints. One permission can map to multiple URLs when
-     *  the semantic operation has variants. Custom (non-standard) actions fall
+     *  the semantic operation has variants. A suffix beginning with {@code /}
+     *  is an absolute, model-agnostic endpoint — a shared controller whose
+     *  model rides in a request param (e.g. {@code /export/dynamicExport}) —
+     *  emitted verbatim; any other suffix is prefixed with {@code /<Model>/}.
+     *  Custom (non-standard) actions fall
      *  through to {@code "POST <action>"} as the URL. */
 
     /** `view` covers the full read endpoint set — list-style + single-row
@@ -115,8 +119,18 @@ public class EndpointIndex {
                                         "POST onChange/{fieldName}")),
             Map.entry("delete", List.of("POST deleteOne", "POST deleteList",
                                         "POST deleteById", "POST deleteByIds", "POST deleteBySliceId")),
-            Map.entry("export", List.of("POST exportList")),
-            Map.entry("import", List.of("POST importList")),
+            // Export/import are served by shared file-starter controllers whose
+            // model rides in a request param (not the path), so these are
+            // absolute endpoints (leading "/") emitted verbatim — not the
+            // per-model /<Model>/<suffix> shape the CRUD actions use.
+            Map.entry("export", List.of(
+                    "POST /export/dynamicExport", "POST /export/exportByTemplate",
+                    "POST /ExportTemplate/listByModel", "POST /ExportHistory/myExportHistory")),
+            Map.entry("import", List.of(
+                    "POST /import/dynamicImport", "POST /import/importByTemplate",
+                    "POST /import/validateImport",
+                    "POST /ImportTemplate/listByModel", "GET /ImportTemplate/getTemplateFile",
+                    "POST /ImportHistory/myImportHistory")),
             // getCopyableFields backs the copy dialog, so it rides on the copy perm.
             Map.entry("copy",   List.of("POST copy",
                                         "POST copyById", "POST copyByIdAndFetch",
@@ -264,6 +278,20 @@ public class EndpointIndex {
     private static final Set<String> KNOWN_HTTP_VERBS =
             Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS");
 
+    /** Expand a {@code "VERB suffix"} action-map entry into a {@code "VERB uri"}
+     *  index token. A suffix starting with {@code /} is a shared, model-agnostic
+     *  endpoint (model in a request param, e.g. {@code /export/dynamicExport})
+     *  emitted verbatim; otherwise it is a per-model suffix prefixed with
+     *  {@code /<model>/}. */
+    private static String toEndpoint(String entry, String model) {
+        int spaceIdx = entry.indexOf(' ');
+        String verb = entry.substring(0, spaceIdx);
+        String suffix = entry.substring(spaceIdx + 1);
+        return suffix.startsWith("/")
+                ? verb + " " + suffix
+                : verb + " /" + model + "/" + suffix;
+    }
+
     private List<String> deriveStandardEndpoints(Permission p) {
         Navigation nav = navResolver.findNavigation(p.getNavigationId());
         if (nav == null || nav.getModel() == null) return List.of();
@@ -288,10 +316,7 @@ public class EndpointIndex {
         }
         List<String> out = new ArrayList<>(entries.size());
         for (String entry : entries) {
-            int spaceIdx = entry.indexOf(' ');
-            String verb = entry.substring(0, spaceIdx);
-            String suffix = entry.substring(spaceIdx + 1);
-            out.add(verb + " /" + nav.getModel() + "/" + suffix);
+            out.add(toEndpoint(entry, nav.getModel()));
         }
 
         // Lookup auto-derivation — a business permission like Employee.create
@@ -427,10 +452,7 @@ public class EndpointIndex {
         List<String> entries = STANDARD_ACTION_MAP.get(action);
         if (entries == null) return;
         for (String entry : entries) {
-            int spaceIdx = entry.indexOf(' ');
-            String verb = entry.substring(0, spaceIdx);
-            String suffix = entry.substring(spaceIdx + 1);
-            out.add(verb + " /" + model + "/" + suffix);
+            out.add(toEndpoint(entry, model));
         }
     }
 
