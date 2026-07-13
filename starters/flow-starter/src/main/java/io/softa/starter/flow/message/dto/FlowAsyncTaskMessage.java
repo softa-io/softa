@@ -7,16 +7,18 @@ import lombok.NoArgsConstructor;
 import io.softa.framework.base.context.Context;
 
 /**
- * Flow async task message
+ * Message DTO for asynchronous task execution via Pulsar.
  */
 @Data
 @NoArgsConstructor
 public class FlowAsyncTaskMessage {
 
-    private Long flowId;
-    private Long nodeId;
+    private String instanceId;
+    private String flowCode;
+    private String nodeId;
     private String asyncTaskHandlerCode;
     private Map<String, Object> asyncTaskParams;
 
     private Context context;
 }
+

@@ -2,53 +2,77 @@ package io.softa.starter.flow.entity;
 
 import java.io.Serial;
 import java.time.LocalDateTime;
-import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.starter.flow.enums.FlowStatus;
-import io.softa.starter.flow.enums.FlowType;
+import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
- * FlowDebugHistory Model
+ * Persistent debug execution history.
+ * Stores a snapshot of the trigger event and full node trace for
+ * each flow execution when debug mode is enabled.
  */
 @Data
-@Schema(name = "FlowDebugHistory")
+@Model(
+    multiTenant = true,
+    idStrategy = IdStrategy.DISTRIBUTED_LONG,
+    copyable = false
+)
+@Index(fields = {"tenantId", "flowCode"})
+@Index(fields = {"tenantId", "instanceId"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowDebugHistory extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Flow ID")
-    private Long flowId;
+    @Field(label = "Tenant ID", required = true)
+    private Long tenantId;
 
-    @Schema(description = "Flow Type")
-    private FlowType flowType;
+    @Field(length = 100)
+    private String flowCode;
 
-    @Schema(description = "Flow Status")
-    private FlowStatus flowStatus;
+    @Field
+    private Integer flowRevision;
 
-    @Schema(description = "Main Flow ID")
-    private Long mainFlowId;
+    @Field(label = "Instance ID")
+    private String instanceId;
 
-    @Schema(description = "Parent Flow ID")
-    private Long parentFlowId;
+    @Field
+    private FlowExecutionStatus status;
 
-    @Schema(description = "Start Time")
+    @Field(label = "Initiator ID")
+    private String initiatorId;
+
+    @Field(label = "Parent Instance ID")
+    private String parentInstanceId;
+
+    @Field
     private LocalDateTime startTime;
 
-    @Schema(description = "End Time")
+    @Field
     private LocalDateTime endTime;
 
-    @Schema(description = "Event Message")
-    private JsonNode eventMessage;
+    @Field(label = "Duration (ms)")
+    private Long durationMs;
 
-    @Schema(description = "Node Trace")
-    private JsonNode nodeTrace;
+    @Field(length = 100000, description = "Trigger event message (JSON)")
+    private String eventMessage;
+
+    @Field(length = 100000, description = "Full node execution trace (JSON)")
+    private String nodeTrace;
+
+    @Field(length = 100000, description = "Final variables snapshot (JSON)")
+    private String finalVariables;
+
+    @Field(length = 2000, description = "Error message if execution failed")
+    private String errorMessage;
 }

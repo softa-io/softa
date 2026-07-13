@@ -9,7 +9,7 @@
         <version>2.0.3</version>
     </parent>
 
-    <name>Softa File Starter</name>
+    <name>Softa Flow Starter</name>
     <artifactId>flow-starter</artifactId>
 
     <dependencies>
@@ -18,17 +18,28 @@
             <artifactId>softa-web</artifactId>
             <version>${project.version}</version>
         </dependency>
-
-        <dependency>
-            <groupId>io.softa</groupId>
-            <artifactId>ai-starter</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
+        <!-- Optional: cron-starter for CronTaskMessage consumption -->
         <dependency>
             <groupId>io.softa</groupId>
             <artifactId>cron-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Optional: ai-starter for QueryAi task executor -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>ai-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>file-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>message-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 </project>
+
