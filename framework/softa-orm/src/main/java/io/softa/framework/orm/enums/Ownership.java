@@ -1,19 +1,25 @@
 package io.softa.framework.orm.enums;
 
+import io.softa.framework.base.annotation.OptionSet;
+
 /**
  * Data-ownership tier tag — which channel controls a row and how it evolves.
  *
- * <p><b>Currently unused.</b> The metadata catalog ({@code sys_*}) previously
- * carried this tag to partition code-authored rows from Studio no-code rows;
- * that partition has been retired — the annotation and Studio lanes now
- * reconcile the same rows purely by business key (modelName / fieldName /
- * optionSetCode / itemCode + {@code renamedFrom}), so no {@code sys_*} column
- * records ownership.
+ * <p><b>Not yet referenced by any {@code @Field}.</b> The metadata catalog
+ * ({@code sys_*}) previously carried this tag as a <i>column</i> to partition
+ * code-authored rows from Studio no-code rows; that partition has been retired
+ * — the annotation and Studio lanes now reconcile the same rows purely by
+ * business key (modelName / fieldName / optionSetCode / itemCode +
+ * {@code renamedFrom}), so no {@code sys_*} column records ownership.
  *
- * <p>The enum is retained for future business-data scenarios that ship
+ * <p>The enum is published as a metadata {@link OptionSet} (materialized into
+ * {@code sys_option_set} / {@code sys_option_item}, optionSetCode
+ * {@code Ownership}) so future business-data scenarios that ship
  * platform-defaults a tenant may customize (e.g. system roles, workflow
- * templates, email templates, default categories).
+ * templates, email templates, default categories) can reference the tier as an
+ * option field.
  */
+@OptionSet
 public enum Ownership {
 
     /** Platform-version-controlled; materialized from code annotations. */
