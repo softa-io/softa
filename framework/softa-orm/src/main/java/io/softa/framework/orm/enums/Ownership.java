@@ -1,6 +1,9 @@
 package io.softa.framework.orm.enums;
 
+import com.fasterxml.jackson.annotation.JsonValue;
 import io.softa.framework.base.annotation.OptionSet;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 
 /**
  * Data-ownership tier tag — which channel controls a row and how it evolves.
@@ -19,18 +22,23 @@ import io.softa.framework.base.annotation.OptionSet;
  * templates, email templates, default categories) can reference the tier as an
  * option field.
  */
+@Getter
+@AllArgsConstructor
 @OptionSet
 public enum Ownership {
 
     /** Platform-version-controlled; materialized from code annotations. */
-    PLATFORM_MAINTAINED,
+    PLATFORM_MAINTAINED("Platform Maintained"),
 
     /** Platform no-code definition, version-managed by Studio. */
-    STUDIO_MANAGED,
+    STUDIO_MANAGED("Studio Managed"),
 
     /** Platform-provided default that tenants may override. */
-    PLATFORM_DEFAULT,
+    PLATFORM_DEFAULT("Platform Default"),
 
     /** Tenant-owned data. */
-    TENANT
+    TENANT("Tenant");
+
+    @JsonValue
+    private final String code;
 }
