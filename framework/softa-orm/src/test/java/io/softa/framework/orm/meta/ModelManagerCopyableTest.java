@@ -214,11 +214,15 @@ class ModelManagerCopyableTest {
     }
 
     @Test
-    void getModelCopyableFields_timelineKeepsIdDropsSliceId() {
+    void getModelCopyableFields_timelineDropsAllStructuralKeys() {
+        // A copy is a NEW entity: excluding id (as well as sliceId + effective dates) makes
+        // createSlices generate a fresh logical id and a genesis slice at the current date,
+        // instead of grafting a spurious slice onto the source entity's own timeline.
         List<String> copyable = ModelManager.getModelCopyableFields("CopyTimeline");
-        assertTrue(copyable.contains("id"), "timeline slices of the same business entity share id");
+        assertFalse(copyable.contains("id"), "a copy must not carry the source's logical id");
         assertFalse(copyable.contains("sliceId"));
-        assertTrue(copyable.contains("name"));
-        assertTrue(copyable.contains("effectiveStartDate"));
+        assertFalse(copyable.contains("effectiveStartDate"));
+        assertFalse(copyable.contains("effectiveEndDate"));
+        assertTrue(copyable.contains("name"), "business fields stay copyable");
     }
 }

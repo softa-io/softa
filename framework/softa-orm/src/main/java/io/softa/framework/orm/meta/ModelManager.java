@@ -919,10 +919,12 @@ public class ModelManager {
      * <p>Excludes fields marked {@code copyable = false}, audit fields, dynamic fields
      * (OneToMany / ManyToMany / computed / cascaded — they are derived, not stored),
      * OneToOne fields (the related row is owned by the source row; copying the FK
-     * would make two rows share one exclusively-owned related row), and structural
-     * keys: {@code id} / {@code externalId} for regular models; {@code sliceId} for
-     * timeline models ({@code id} is kept since slices of the same business entity
-     * share it).</p>
+     * would make two rows share one exclusively-owned related row), and the identity
+     * keys {@code id} / {@code externalId}. A copy is always a NEW entity, so it must
+     * never carry the source's id. For a timeline model this excludes ALL structural
+     * timeline keys ({@code id} / {@code sliceId} / the effective dates): the copy then
+     * becomes a fresh logical id with a genesis slice at the current date, rather than a
+     * spurious slice grafted onto the source entity's own timeline.</p>
      *
      * @param modelName model name
      * @return copyable fields
@@ -937,7 +939,9 @@ public class ModelManager {
                             || ModelConstant.AUDIT_FIELDS.contains(fieldName)) {
                         return false;
                     } else if (isTimeline) {
-                        return !ModelConstant.SLICE_ID.equals(fieldName);
+                        // Exclude every timeline structural key (id / sliceId / effective dates):
+                        // a copy is a new entity, so createSlices must see no id → fresh id + genesis slice.
+                        return !ModelConstant.TIMELINE_FIELDS.contains(fieldName);
                     } else return !ModelConstant.ID.equals(fieldName) && !ModelConstant.EXTERNAL_ID.equals(fieldName);
                 })
                 .map(MetaField::getFieldName)

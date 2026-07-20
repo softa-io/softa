@@ -608,12 +608,17 @@ Example timeline slices (same logical department `id`):
 - Manual updates to `effectiveEndDate` are not recommended. To create a new slice, use `create` with an existing `id` and a new `effectiveStartDate`.
 - If an upper layer provides a "correct"-style API (update data without creating a new slice), it should locate by `sliceId` (the ORM currently does not provide a dedicated correct API).
 
-#### 2.5 delete APIs
+#### 2.5 delete / copy APIs
 - `deleteById/deleteByIds`: deletes all slices for a business `id` — this is **entity deletion**, and it is
   the point where the inbound-FK delete strategy (`onDelete` RESTRICT / CASCADE / SET_NULL, keyed by the
   logical `id`) fires against referencing models.
 - `deleteBySliceId`: deletes a single slice and automatically corrects adjacent slice ranges. The entity
   survives, so `onDelete` deliberately does **not** fire.
+- `copyById/copyByIds`: copies the **current (as-of) slice** into a **new entity** — the copyable field set
+  excludes every structural timeline key (`id`/`sliceId`/effective dates), so the copy gets a fresh logical
+  `id` and a genesis slice at the current date. It does **not** duplicate the full version history, and does
+  not add a slice to the source entity. (`businessKey` fields are `copyable = false`, so set a new code on
+  the copy.)
 
 #### 2.6 Versioning seam (engine internals)
 - All timeline handling in `ModelServiceImpl` routes through one `VersioningStrategy` seam
