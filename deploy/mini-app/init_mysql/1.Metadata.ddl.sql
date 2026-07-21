@@ -79,6 +79,7 @@ CREATE TABLE sys_field(
     expression TEXT(20000)    COMMENT 'Expression' ,
     dynamic TINYINT(1)   DEFAULT 0 COMMENT 'Dynamic Field' ,
     encrypted TINYINT(1)   DEFAULT 0 COMMENT 'Is Encrypted' ,
+    auto_sequence TINYINT(1)   DEFAULT 0 COMMENT 'Auto Sequence;Auto-fill from a sequence on INSERT when blank' ,
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
     related_field_type VARCHAR(64)    COMMENT 'Resolved physical type of a TO_ONE FK referenced column (system-computed)' ,

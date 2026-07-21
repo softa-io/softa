@@ -55,6 +55,9 @@ class CrossLaneChecksumGoldenTest {
         f.setFieldType(type);
         f.setLength(length);
         f.setRequired(Boolean.TRUE);
+        // Non-null on BOTH sides: absent and null hash identically ('∅'), 
+        // so a fixture that leaves an attr null cannot catch a one-sided attribute addition.
+        f.setAutoSequence(Boolean.TRUE);
         f.setId(100L);
         return f;
     }
@@ -93,6 +96,7 @@ class CrossLaneChecksumGoldenTest {
         f.setFieldType(type);
         f.setLength(length);
         f.setRequired(Boolean.TRUE);
+        f.setAutoSequence(Boolean.TRUE);
         f.setId(55555L);
         f.setAppId(42L);
         f.setModelId(7L);

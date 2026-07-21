@@ -10,8 +10,8 @@
       "startValue": 1,
       "incrementStep": 1,
       "currentValue": 0,
-      "resetCadence": "NONE",
-      "mode": "NO_GAP",
+      "resetCadence": "None",
+      "mode": "NoGap",
       "description": "Employee code"
     }
   ],

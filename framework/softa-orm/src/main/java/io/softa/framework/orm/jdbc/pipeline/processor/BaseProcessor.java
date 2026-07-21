@@ -34,11 +34,16 @@ public abstract class BaseProcessor implements FieldProcessor {
 
     /**
      * The readonly field cannot be assigned a value.
+     * Like computed fields, an autoSequence field is system-written on CREATE:
+     * SequenceProcessor runs earlier in the chain, rejects caller-provided values
+     * on readonly fields itself, then fills the allocated value — which must pass
+     * here. The exemption is CREATE-only so UPDATE keeps rejecting assignment.
      */
     protected void checkReadonly(boolean isContain) {
         if (metaField.isReadonly()
                 && isContain
                 && !metaField.isComputed()
+                && !(metaField.isAutoSequence() && AccessType.CREATE.equals(accessType))
                 && StringUtils.isBlank(metaField.getCascadedField())) {
             throw new IllegalArgumentException("Model field {0}:{1} is a readonly field and cannot be assigned!",
                     metaField.getModelName(), fieldName);

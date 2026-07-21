@@ -129,6 +129,7 @@ value-preserving rename would have carried wrong values.
 | `expression` | String | `""` | `expression` | AviatorScript |
 | `dynamic` | boolean | `false` | `dynamic` | not physically stored |
 | `encrypted` | boolean | `false` | `encrypted` | at-rest encryption |
+| `autoSequence` | boolean | `false` | `auto_sequence` | auto-fill from a sequence on INSERT when blank; STRING only (not `dynamic`/`computed`/id, RDBMS only); pairs with a `sys_sequence` row `"<Model>.<field>"` (missing row = insert fails, fail-closed). `+ readonly` = strict system numbering (caller values rejected); without = caller values trusted (imports). Never carried on copy |
 | `maskingType` | `MaskingType[]` | `{}` | `maskingType` | single element |
 | `defaultValue` | String | `""` | `defaultValue` | |
 | `relatedModel` | `Class<?>` | `Void.class` | `relatedModel` | Class ref (compile-checked), e.g. `Foo.class`; `Void.class` → inferred from POJO type; **required** for `Long` FK. Use `relatedModelName` (String) for cross-module/dynamic models |
@@ -608,12 +609,17 @@ Example timeline slices (same logical department `id`):
 - Manual updates to `effectiveEndDate` are not recommended. To create a new slice, use `create` with an existing `id` and a new `effectiveStartDate`.
 - If an upper layer provides a "correct"-style API (update data without creating a new slice), it should locate by `sliceId` (the ORM currently does not provide a dedicated correct API).
 
-#### 2.5 delete APIs
+#### 2.5 delete / copy APIs
 - `deleteById/deleteByIds`: deletes all slices for a business `id` — this is **entity deletion**, and it is
   the point where the inbound-FK delete strategy (`onDelete` RESTRICT / CASCADE / SET_NULL, keyed by the
   logical `id`) fires against referencing models.
 - `deleteBySliceId`: deletes a single slice and automatically corrects adjacent slice ranges. The entity
   survives, so `onDelete` deliberately does **not** fire.
+- `copyById/copyByIds`: copies the **current (as-of) slice** into a **new entity** — the copyable field set
+  excludes every structural timeline key (`id`/`sliceId`/effective dates), so the copy gets a fresh logical
+  `id` and a genesis slice at the current date. It does **not** duplicate the full version history, and does
+  not add a slice to the source entity. (`businessKey` fields are `copyable = false`, so set a new code on
+  the copy.)
 
 #### 2.6 Versioning seam (engine internals)
 - All timeline handling in `ModelServiceImpl` routes through one `VersioningStrategy` seam

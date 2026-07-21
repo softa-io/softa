@@ -131,6 +131,7 @@ class SysJdbcRoundtripTest {
                   expression TEXT,
                   dynamic TINYINT,
                   encrypted TINYINT,
+                  auto_sequence TINYINT,
                   masking_type VARCHAR(64),
                   widget_type VARCHAR(64),
                   related_field_type VARCHAR(64),

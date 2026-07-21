@@ -14,9 +14,13 @@ import io.softa.framework.orm.sequence.SequenceServiceHolder;
  *   <li>{@code metaField.isAutoSequence() == true} — declared in {@code sys_field}
  *       metadata via the {@code auto_sequence} column (loaded by
  *       {@code ModelManager.init()} just like {@code readonly} / {@code required}).</li>
- *   <li>A {@link SequenceService} is registered in {@link SequenceServiceHolder}
- *       (i.e. a sequence implementation starter is on the classpath).</li>
  * </ul>
+ *
+ * <p>An {@code autoSequence} field with no {@link SequenceService} registered in
+ * {@link SequenceServiceHolder} is a deployment error (the flag is present in the
+ * shared metadata but no sequence implementation starter is on the classpath) and
+ * fails the insert loudly — silently skipping would fill the field with the static
+ * default / blank and violate the "declared means allocated" contract.
  *
  * <p>Designed to be inserted before {@code NormalProcessorFactory} in
  * {@code DataCreatePipeline.buildFieldProcessorChain}, so the sequence-filled
@@ -34,7 +38,10 @@ public class SequenceProcessorFactory implements FieldProcessorFactory {
         }
         SequenceService service = SequenceServiceHolder.get();
         if (service == null) {
-            return null;
+            throw new IllegalStateException(
+                    "Field " + metaField.getModelName() + "." + metaField.getFieldName()
+                            + " is declared autoSequence=true, but no SequenceService implementation"
+                            + " is present — add metadata-starter to the application, or remove the flag.");
         }
         return new SequenceProcessor(metaField, accessType, service);
     }

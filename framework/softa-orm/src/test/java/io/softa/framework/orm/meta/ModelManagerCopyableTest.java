@@ -82,6 +82,7 @@ class ModelManagerCopyableTest {
                 oneToOne("CopyDoc", "profileId", "profile_id", "CopyProfile"),
                 oneToMany("CopyDoc", "lines", "CopyLine", "docId"),
                 dynamicField("CopyDoc", "summary", "summary", FieldType.STRING),
+                autoSequenceField("CopyDoc", "docNo", "doc_no"),
                 // related models
                 field("CopyProfile", "id", "id", FieldType.LONG),
                 field("CopyLine", "id", "id", FieldType.LONG),
@@ -163,6 +164,12 @@ class ModelManagerCopyableTest {
         return metaField;
     }
 
+    private static MetaField autoSequenceField(String modelName, String fieldName, String columnName) {
+        MetaField metaField = field(modelName, fieldName, columnName, FieldType.STRING);
+        metaField.setAutoSequence(true);
+        return metaField;
+    }
+
     private static MetaField oneToOne(String modelName, String fieldName, String columnName, String relatedModel) {
         MetaField metaField = field(modelName, fieldName, columnName, FieldType.ONE_TO_ONE);
         metaField.setRelatedModel(relatedModel);
@@ -203,7 +210,8 @@ class ModelManagerCopyableTest {
         List<String> copyable = ModelManager.getModelCopyableFields("CopyDoc");
         assertEquals(List.of("name"), copyable,
                 "expected: id/externalId/createdTime (structural & audit), code (copyable=false), "
-                        + "profileId (OneToOne), lines (OneToMany/dynamic), summary (dynamic) all excluded");
+                        + "profileId (OneToOne), lines (OneToMany/dynamic), summary (dynamic), "
+                        + "docNo (autoSequence — a copy gets a fresh number on insert) all excluded");
     }
 
     @Test
@@ -214,11 +222,15 @@ class ModelManagerCopyableTest {
     }
 
     @Test
-    void getModelCopyableFields_timelineKeepsIdDropsSliceId() {
+    void getModelCopyableFields_timelineDropsAllStructuralKeys() {
+        // A copy is a NEW entity: excluding id (as well as sliceId + effective dates) makes
+        // createSlices generate a fresh logical id and a genesis slice at the current date,
+        // instead of grafting a spurious slice onto the source entity's own timeline.
         List<String> copyable = ModelManager.getModelCopyableFields("CopyTimeline");
-        assertTrue(copyable.contains("id"), "timeline slices of the same business entity share id");
+        assertFalse(copyable.contains("id"), "a copy must not carry the source's logical id");
         assertFalse(copyable.contains("sliceId"));
-        assertTrue(copyable.contains("name"));
-        assertTrue(copyable.contains("effectiveStartDate"));
+        assertFalse(copyable.contains("effectiveStartDate"));
+        assertFalse(copyable.contains("effectiveEndDate"));
+        assertTrue(copyable.contains("name"), "business fields stay copyable");
     }
 }

@@ -44,14 +44,20 @@ Rules:
 - **Enum values use the `@JsonValue` code**, not the constant name:
   `"continent": "EU"` ✓, `"continent": "EUROPE"` ✗.
 - **`id` is the seed `preId`, always a string.** The loader upserts by
-  `(model, preId)` in `SysPreData`, not by `@Model.businessKey`. For
+  `(model, preId)` **within the loading scope** — system scope for
+  `data-system` files, the loading tenant for `data-tenant` files — in
+  `SysPreData`, not by `@Model.businessKey`. For
   `EXTERNAL_ID` models (code-as-id masters such as `CountryRegion` / `Currency`)
   the same value is also the business row's primary key. For generated-id models
   it is tracking-only: the loader removes it before insert, lets the ID strategy
   create the row id, then records the `preId -> rowId` mapping.
-- **References use seed ids.** For `MANY_TO_ONE` / `ONE_TO_ONE` /
-  `MANY_TO_MANY` fields, put the referenced row's seed `id` (`preId`) in the
-  JSON. The loader resolves it to the actual row id before writing.
+- **References use seed ids, and never cross scopes.** For `MANY_TO_ONE` /
+  `ONE_TO_ONE` / `MANY_TO_MANY` fields, put the referenced row's seed `id`
+  (`preId`) in the JSON. The loader resolves it to the actual row id before
+  writing, strictly within the loading scope: tenant seeds reference only
+  tenant-scoped seeds (same tenant), system seeds only shared-model seeds.
+  A tenant seed referencing a shared model (a currency, a country) is
+  rejected — set such fields at runtime instead.
 - **Required fields**: if `@Field(required = true)` and the row omits it, the load
   fails with a NOT NULL error.
 - **Omit audit fields** (`createdTime`, `createdBy`, `updatedTime`, …) — the
@@ -76,6 +82,11 @@ the UPDATE to the row currently bound to that `preId`.
 
 **Per-tenant defaults** — put them in `data-tenant/` (not `data-system/`); they
 load per tenant via `/SysPreData/loadPreTenantData`, stamping the caller's tenant.
+Each tenant gets its own `preId` bindings, so the same file loads once per tenant
+without touching other tenants' rows. When multi-tenancy is enabled the scopes are
+enforced in both directions: `data-tenant` files may only seed **and reference**
+`multiTenant = true` models, and `data-system` files only shared models — the
+loader rejects a mismatch and rolls the file back.
 
 ---
 
@@ -101,6 +112,12 @@ Then, after deploy, an operator loads the file(s) and checks the row count.
    binding instead of updating the existing one.
 6. **Referencing not-yet-loaded data** — add the referenced rows first.
 7. **Editing JSON without re-validating** — a trailing comma is silent until load time.
+8. **Wrong directory for the model's tenancy** — a `multiTenant = true` model in
+   `data-system/`, or a shared model in `data-tenant/`, is rejected at load time
+   when multi-tenancy is enabled.
+9. **Cross-scope references** — a tenant seed referencing a shared model's seed
+   (or a system seed referencing a multi-tenant model) is rejected; references
+   resolve strictly within the loading scope.
 
 Not for: test fixtures (use `src/test/resources/`), or data that needs
 transformation from an old schema (write a service-layer migration job instead).

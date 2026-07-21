@@ -16,6 +16,7 @@ import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.starter.metadata.entity.*;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -372,6 +373,96 @@ class AnnotationParserTest {
                 () -> parser.parse(List.of(ExplicitMultiOptionIsRejected.class), List.of()));
         assertTrue(ex.getMessage().contains("MULTI_OPTION"));
         assertTrue(ex.getMessage().contains("tiers"));
+    }
+
+    // ------- autoSequence: mapped through, STRING fields only -------------
+
+    @Model
+    @SuppressWarnings("unused")
+    static class AutoSequenceOnStringIsAccepted extends AuditableModel {
+        @Field(autoSequence = true, length = 32)
+        private String code;
+        @Field(length = 128)
+        private String name;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void autoSequence_onStringField_isMappedThrough() {
+        AnnotationScanResult result =
+                parser.parse(List.of(AutoSequenceOnStringIsAccepted.class), List.of());
+        assertEquals(Boolean.TRUE, byFieldName(result.fields(), "code").getAutoSequence());
+        // Un-flagged fields carry an explicit false (not null) so the diff against a DB row's 0/false never reports a phantom modification.
+        assertEquals(Boolean.FALSE, byFieldName(result.fields(), "name").getAutoSequence());
+    }
+
+    @Model
+    @SuppressWarnings("unused")
+    static class AutoSequenceOnLongIsRejected extends AuditableModel {
+        @Field(autoSequence = true)
+        private Long counter;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void autoSequence_onNonStringField_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(AutoSequenceOnLongIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("AutoSequenceOnLongIsRejected.counter"));
+        assertTrue(ex.getMessage().contains("autoSequence = true"));
+        assertTrue(ex.getMessage().contains("STRING"));
+    }
+
+    @Model
+    @SuppressWarnings("unused")
+    static class AutoSequenceOnDynamicIsRejected extends AuditableModel {
+        @Field(autoSequence = true, dynamic = true, length = 32)
+        private String code;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void autoSequence_onDynamicField_isRejectedAtParse() {
+        // A dynamic field is never stored — the allocated number would be silently lost.
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(AutoSequenceOnDynamicIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("AutoSequenceOnDynamicIsRejected.code"));
+        assertTrue(ex.getMessage().contains("dynamic"));
+    }
+
+    @Model
+    @SuppressWarnings("unused")
+    static class AutoSequenceOnComputedIsRejected extends AuditableModel {
+        @Field(autoSequence = true, computed = true, expression = "a + b", length = 32)
+        private String code;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void autoSequence_onComputedField_isRejectedAtParse() {
+        // The compute processor runs after the sequence fill and overwrites the value.
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(AutoSequenceOnComputedIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("AutoSequenceOnComputedIsRejected.code"));
+        assertTrue(ex.getMessage().contains("computed"));
+    }
+
+    @Model(idStrategy = IdStrategy.EXTERNAL_ID)
+    @SuppressWarnings("unused")
+    static class AutoSequenceOnIdIsRejected extends AuditableModel {
+        @Field(autoSequence = true, length = 64)
+        private String id;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void autoSequence_onIdField_isRejectedAtParse() {
+        // Primary-key generation is governed by @Model(idStrategy); the flag would be
+        // silently dropped by buildIdField otherwise.
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(AutoSequenceOnIdIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("AutoSequenceOnIdIsRejected"));
+        assertTrue(ex.getMessage().contains("idStrategy"));
     }
 
     // The forward-inference path (the only valid way to get OPTION/MULTI_OPTION)

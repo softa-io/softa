@@ -94,6 +94,7 @@ CREATE TABLE sys_field(
     expression TEXT(20000)    COMMENT 'Expression' ,
     dynamic TINYINT(1)   DEFAULT 0 COMMENT 'Dynamic Field' ,
     encrypted TINYINT(1)   DEFAULT 0 COMMENT 'Is Encrypted' ,
+    auto_sequence TINYINT(1)   DEFAULT 0 COMMENT 'Auto Sequence;Auto-fill from a sequence on INSERT when blank' ,
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
     related_field_type VARCHAR(64)    COMMENT 'Resolved physical type of a TO_ONE FK referenced column (system-computed)' ,
@@ -820,6 +821,7 @@ CREATE TABLE design_field(
     expression TEXT(20000)    COMMENT 'Expression' ,
     dynamic TINYINT(1)   DEFAULT 0 COMMENT 'Dynamic Field' ,
     encrypted TINYINT(1)   DEFAULT 0 COMMENT 'Is Encrypted' ,
+    auto_sequence TINYINT(1)   DEFAULT 0 COMMENT 'Auto Sequence;Auto-fill from a sequence on INSERT when blank' ,
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
     related_field_type VARCHAR(64)    COMMENT 'Resolved physical type of a TO_ONE FK referenced column (system-computed)' ,
@@ -1410,24 +1412,24 @@ ALTER TABLE design_option_set  ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Rena
 ALTER TABLE design_option_item ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
 
 CREATE TABLE sys_sequence(
-                             id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-                             tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
-                             code VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'Sequence Code;e.g. "Employee.code"' ,
-                             template VARCHAR(64)    COMMENT 'Template;Format template, e.g. EMP-{yyyy}-{seq:5}' ,
-                             start_value BIGINT(32)    COMMENT 'Start Value;First number after each reset (default 1)' ,
-                             increment_step TINYINT(4)    COMMENT 'Increment Step;Step size' ,
-                             current_value BIGINT(32)    COMMENT 'Current Value;Last allocated value; next = current_value + step' ,
-                             reset_cadence VARCHAR(64)    COMMENT 'Reset Cadence' ,
-                             last_reset_key VARCHAR(32)    COMMENT 'Last Reset Key' ,
-                             mode VARCHAR(64)    COMMENT 'Mode' ,
-                             description VARCHAR(128)    COMMENT 'Description' ,
-                             created_id BIGINT(32)    COMMENT 'Created ID' ,
-                             created_time DATETIME    COMMENT 'Created Time' ,
-                             created_by VARCHAR(64)    COMMENT 'Created By' ,
-                             updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-                             updated_time DATETIME    COMMENT 'Updated Time' ,
-                             updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-                             PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Sys Sequence';
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
+    code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Sequence Code;Sequence code, e.g. "Employee.code"' ,
+    template VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Template;Format template, e.g. EMP-{yyyy}-{seq:5}' ,
+    start_value BIGINT(32) NOT NULL   COMMENT 'Start Value;First number after each reset (default 1)' ,
+    increment_step INT(11) NOT NULL   COMMENT 'Increment Step;Step size; v1 enforces 1' ,
+    current_value BIGINT(32) NOT NULL   COMMENT 'Current Value;Last allocated value; next = current_value + step' ,
+    reset_cadence VARCHAR(64) NOT NULL   COMMENT 'Reset Cadence' ,
+    last_reset_key VARCHAR(64)    COMMENT 'Last Reset Key;Period key of the last reset, e.g. "2026" / "2026-04"' ,
+    mode VARCHAR(64) NOT NULL   COMMENT 'Allocation Mode' ,
+    description VARCHAR(256)    COMMENT 'Description' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Sequence';
 
-ALTER TABLE sys_sequence ADD INDEX idx_tenant_code (tenant_id,code);
+ALTER TABLE sys_sequence ADD UNIQUE INDEX uk_sys_sequence_tenant_id_code (tenant_id,code);

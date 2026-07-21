@@ -364,6 +364,8 @@ public final class AnnotationParser {
         f.setColumnName(ModelConstant.ID);
         f.setFieldType(type);
         f.setRequired(true);
+        // Explicit false, like parseField: a null here would diff against the DB row's 0/false and phantom-modify every model's id row on the first boot.
+        f.setAutoSequence(false);
         if (anno != null) {
             f.setDescription(checkedDescription(anno.description(), "field " + modelName + ".id"));
             if (anno.length() > 0) {
@@ -390,6 +392,12 @@ public final class AnnotationParser {
             throw new IllegalStateException(
                     "@Field(fieldType = ...) is not allowed on the id of " + modelName
                             + "; the primary-key type is inferred from the Java field type.");
+        }
+        if (anno != null && anno.autoSequence()) {
+            throw new IllegalStateException(
+                    "@Field(autoSequence = true) is not allowed on the id of " + modelName
+                            + "; primary-key generation is governed by @Model(idStrategy = ...)"
+                            + " and the flag would be silently ignored here.");
         }
         return anno;
     }
@@ -478,6 +486,23 @@ public final class AnnotationParser {
         f.setExpression(blankToNull(anno.expression()));
         f.setDynamic(anno.dynamic());
         f.setEncrypted(anno.encrypted());
+        // The rendered sequence value is a string (e.g. "EMP-00042"), so a non-STRING column would only fail later, at the first blank-code INSERT — reject at scan time instead. 
+        // Set unconditionally (false, not null) so the diff against the DB row's 0/false never reports a phantom modification.
+        if (anno.autoSequence() && resolved.fieldType() != FieldType.STRING) {
+            throw new IllegalStateException(
+                    "@Field(autoSequence = true) on " + modelName + "." + javaField.getName()
+                            + " requires a STRING field (the rendered sequence value is a"
+                            + " string), but the resolved field type is "
+                            + resolved.fieldType() + ".");
+        }
+        if (anno.autoSequence() && (anno.dynamic() || anno.computed())) {
+            throw new IllegalStateException(
+                    "@Field(autoSequence = true) on " + modelName + "." + javaField.getName()
+                            + " cannot be combined with dynamic or computed:"
+                            + " a dynamic field is never stored and a computed field is overwritten by its expression,"
+                            + " so the allocated sequence value would be silently lost.");
+        }
+        f.setAutoSequence(anno.autoSequence());
 
         f.setMaskingType(firstOrNull(anno.maskingType()));
         f.setWidgetType(firstOrNull(anno.widgetType()));

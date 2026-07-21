@@ -234,4 +234,47 @@ class ModelServiceImplTest {
         verifyNoInteractions(handler);
         verify(fixture.jdbc(), never()).deleteByIds(any(), anyList(), anyList());
     }
+
+    // ------------------------------------------------------------------ copy semantics
+    // A copy of a timeline model must become a NEW entity: the copyable set excludes every
+    // timeline structural key, so the row handed to create carries no id/sliceId/effective
+    // dates — createSlices (via the seam) then mints a fresh logical id + a genesis slice,
+    // instead of grafting a slice onto the source entity's own timeline.
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void copyByIdsOnTimelineModelStripsStructuralKeysSoTheCopyIsANewEntity() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.isCopyableModel(SCOPED_MODEL)).thenReturn(true);
+            mm.when(() -> ModelManager.getModelCopyableFields(SCOPED_MODEL))
+                    .thenReturn(List.of("name", "description"));
+
+            ModelServiceImpl<Long> service = Mockito.spy(new ModelServiceImpl<>());
+            // The source read is the as-of slice, carrying identity + structural + business fields.
+            Map<String, Object> sourceSlice = new HashMap<>();
+            sourceSlice.put(ModelConstant.ID, 6L);
+            sourceSlice.put(ModelConstant.SLICE_ID, 3L);
+            sourceSlice.put(ModelConstant.EFFECTIVE_START_DATE, LocalDate.of(2022, 9, 1));
+            sourceSlice.put(ModelConstant.EFFECTIVE_END_DATE, LocalDate.of(9999, 12, 31));
+            sourceSlice.put("code", "D001");
+            sourceSlice.put("name", "R&D");
+            sourceSlice.put("description", "dept");
+            doReturn(new ArrayList<>(List.of(sourceSlice)))
+                    .when(service).getByIds(eq(SCOPED_MODEL), anyList(), isNull());
+            doReturn(List.of(99L)).when(service).createList(eq(SCOPED_MODEL), anyList());
+
+            service.copyByIds(SCOPED_MODEL, List.of(6L));
+
+            ArgumentCaptor<List<Map<String, Object>>> captor = ArgumentCaptor.forClass(List.class);
+            verify(service).createList(eq(SCOPED_MODEL), captor.capture());
+            Map<String, Object> copied = captor.getValue().getFirst();
+            Assertions.assertFalse(copied.containsKey(ModelConstant.ID), "must not carry the source logical id");
+            Assertions.assertFalse(copied.containsKey(ModelConstant.SLICE_ID));
+            Assertions.assertFalse(copied.containsKey(ModelConstant.EFFECTIVE_START_DATE));
+            Assertions.assertFalse(copied.containsKey(ModelConstant.EFFECTIVE_END_DATE));
+            Assertions.assertFalse(copied.containsKey("code"), "businessKey is copyable=false");
+            Assertions.assertEquals("R&D", copied.get("name"), "business fields are carried");
+            Assertions.assertEquals("dept", copied.get("description"));
+        }
+    }
 }

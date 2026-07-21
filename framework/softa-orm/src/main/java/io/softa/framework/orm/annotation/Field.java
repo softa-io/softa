@@ -93,6 +93,16 @@ public @interface Field {
     boolean encrypted() default false;
 
     /**
+     * Auto-fill from a sequence on INSERT when the incoming value is null/blank;
+     * caller-provided values are kept as-is. Pairs with a {@code sys_sequence} row
+     * whose code is {@code "<ModelName>.<fieldName>"} — the rendering template,
+     * reset cadence and allocation mode live on that row, not here. STRING fields
+     * only (the rendered value is a string, e.g. {@code "EMP-00042"}); the scanner
+     * rejects other field types at parse time. See {@code SequenceProcessor}.
+     */
+    boolean autoSequence() default false;
+
+    /**
      * Masking strategy when rendering. Empty array = no masking;
      * single element = explicit masking type.
      */

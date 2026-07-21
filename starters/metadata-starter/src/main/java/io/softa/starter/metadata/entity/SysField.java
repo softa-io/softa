@@ -137,6 +137,11 @@ public class SysField extends AuditableModel {
     @Field(label = "Is Encrypted")
     private Boolean encrypted;
 
+    // Auto-fill from a sequence on INSERT when blank; see SequenceProcessor. Declared
+    // via @Field(autoSequence = true) on the entity and reconciled by the scanner.
+    @Field(label = "Auto Sequence")
+    private Boolean autoSequence;
+
     @Field
     private MaskingType maskingType;
 

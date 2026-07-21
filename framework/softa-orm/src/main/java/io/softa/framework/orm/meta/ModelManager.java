@@ -22,6 +22,7 @@ import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.enums.OnDelete;
+import io.softa.framework.orm.enums.StorageType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.utils.GraphUtils;
 
@@ -251,7 +252,45 @@ public class ModelManager {
             verifyReadonlyAttribute(metaField);
             // Verify and update the `dynamic` attribute of field
             verifyDynamicAttribute(metaField);
+            if (metaField.isAutoSequence()) {
+                verifyAutoSequenceAttribute(metaField);
+            }
         }
+    }
+
+    /**
+     * Verify an `autoSequence` field (auto-filled from a sequence on INSERT).
+     * The annotation parser enforces the same rules at scan time for the annotation
+     * lane; this is the shared gate that also covers the studio no-code lane and
+     * hand-written sys_field rows. Runs after verifyDynamicAttribute so the final
+     * dynamic state is checked.
+     *
+     * @param metaField field metadata object
+     */
+    private static void verifyAutoSequenceAttribute(MetaField metaField) {
+        String model = metaField.getModelName();
+        String field = metaField.getFieldName();
+        Assert.isTrue(FieldType.STRING.equals(metaField.getFieldType()),
+                "Model field {0}:{1} is autoSequence, which requires a STRING field "
+                        + "(the rendered sequence value is a string), but the field type is {2}!",
+                model, field, metaField.getFieldType());
+        Assert.notTrue(metaField.isComputed() || metaField.isDynamic(),
+                "Model field {0}:{1} is autoSequence, which cannot be combined with computed or dynamic: "
+                        + "the allocated sequence value would be silently lost!",
+                model, field);
+        MetaField pkField = getModelPrimaryKeyField(model);
+        Assert.notTrue(ModelConstant.ID.equals(field)
+                        || (pkField != null && field.equals(pkField.getFieldName())),
+                "Model field {0}:{1} is autoSequence, which is not allowed on the primary key: "
+                        + "id generation is governed by the model idStrategy!",
+                model, field);
+        // Unset storageType keeps the annotation default (RDBMS); only an explicit
+        // non-RDBMS storage is rejected — the ES/Doris pipelines never allocate sequences.
+        StorageType storageType = modelMap().get(model).getStorageType();
+        Assert.isTrue(storageType == null || StorageType.RDBMS.equals(storageType),
+                "Model field {0}:{1} is autoSequence, which requires RDBMS storage, "
+                        + "but the model storage type is {2}!",
+                model, field, storageType);
     }
 
     /**
@@ -747,7 +786,9 @@ public class ModelManager {
         String model = metaField.getModelName();
         if (ModelConstant.AUDIT_FIELDS.contains(metaField.getFieldName())) {
             metaField.setReadonly(true);
-        } else if (SystemConfig.env.isEnableMultiTenancy() && ModelConstant.TENANT_ID.equals(metaField.getFieldName())) {
+        } else if (SystemConfig.env.isEnableMultiTenancy()
+                && modelMap().get(model).isMultiTenant()
+                && ModelConstant.TENANT_ID.equals(metaField.getFieldName())) {
             metaField.setReadonly(true);
         } else if (modelMap().get(model).isVersionLock() && ModelConstant.VERSION.equals(metaField.getFieldName())) {
             metaField.setReadonly(true);
@@ -919,10 +960,15 @@ public class ModelManager {
      * <p>Excludes fields marked {@code copyable = false}, audit fields, dynamic fields
      * (OneToMany / ManyToMany / computed / cascaded — they are derived, not stored),
      * OneToOne fields (the related row is owned by the source row; copying the FK
-     * would make two rows share one exclusively-owned related row), and structural
-     * keys: {@code id} / {@code externalId} for regular models; {@code sliceId} for
-     * timeline models ({@code id} is kept since slices of the same business entity
-     * share it).</p>
+     * would make two rows share one exclusively-owned related row), autoSequence
+     * fields (a copy is a new document, so it must get a fresh number — leaving the
+     * field blank lets SequenceProcessor allocate one on insert instead of carrying
+     * the source's), and the identity
+     * keys {@code id} / {@code externalId}. A copy is always a NEW entity, so it must
+     * never carry the source's id. For a timeline model this excludes ALL structural
+     * timeline keys ({@code id} / {@code sliceId} / the effective dates): the copy then
+     * becomes a fresh logical id with a genesis slice at the current date, rather than a
+     * spurious slice grafted onto the source entity's own timeline.</p>
      *
      * @param modelName model name
      * @return copyable fields
@@ -933,11 +979,14 @@ public class ModelManager {
                 .filter(metaField -> {
                     String fieldName = metaField.getFieldName();
                     if (!metaField.isCopyable() || metaField.isDynamic()
+                            || metaField.isAutoSequence()
                             || FieldType.ONE_TO_ONE.equals(metaField.getFieldType())
                             || ModelConstant.AUDIT_FIELDS.contains(fieldName)) {
                         return false;
                     } else if (isTimeline) {
-                        return !ModelConstant.SLICE_ID.equals(fieldName);
+                        // Exclude every timeline structural key (id / sliceId / effective dates):
+                        // a copy is a new entity, so createSlices must see no id → fresh id + genesis slice.
+                        return !ModelConstant.TIMELINE_FIELDS.contains(fieldName);
                     } else return !ModelConstant.ID.equals(fieldName) && !ModelConstant.EXTERNAL_ID.equals(fieldName);
                 })
                 .map(MetaField::getFieldName)

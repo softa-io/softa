@@ -100,6 +100,12 @@ the annotation change** for the cases it can't express:
   plus every business row storing the old code need an explicit `UPDATE`.
 - A **skipped-version / chained** rename (A→B→C where a target env is still on A).
 - A rename **entangled with a data transform** (type change, split/merge column).
+- A rename touching an **`autoSequence` field or its model** — the binding code
+  `"<Model>.<field>"` in the per-tenant `sys_sequence` rows is business data the
+  scanner never rewrites; it WARNs with the exact
+  `UPDATE sys_sequence SET code = '<new>' WHERE code = '<old>';` instead
+  (`SysJdbcWriter` rename advisories). Until that runs, inserts on the renamed
+  field fail with `SequenceNotFoundException` (fail-closed by design).
 
 ```sql
 -- deploy/migrations/mysql/V_N__rename_..._with_data.sql

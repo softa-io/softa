@@ -138,6 +138,11 @@ public class DesignField extends AuditableModel {
     @Field(label = "Is Encrypted")
     private Boolean encrypted;
 
+    // Structural mirror of sys_field.auto_sequence (auto-fill from a sequence on INSERT when blank); 
+    // the cross-lane checksum requires design_* and sys_* to match field-for-field.
+    @Field(label = "Auto Sequence")
+    private Boolean autoSequence;
+
     @Field
     private MaskingType maskingType;
 

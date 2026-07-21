@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.enums;
 
 import com.fasterxml.jackson.annotation.JsonValue;
+import io.softa.framework.base.annotation.OptionSet;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
@@ -26,6 +27,7 @@ import java.time.format.DateTimeFormatter;
  * the enum constant on deserialization.
  */
 @Getter
+@OptionSet
 public enum ResetCadence {
 
     NONE("None", null),

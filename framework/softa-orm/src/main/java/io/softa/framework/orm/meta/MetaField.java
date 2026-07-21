@@ -105,9 +105,12 @@ public class MetaField implements Serializable {
 
     /**
      * Whether this field is auto-filled from a sequence on INSERT.
-     * Populated at startup by SequenceFieldRegistryInitializer based on sys_sequence rows
-     * whose code matches "{modelName}.{fieldName}". Read-only after init.
-     * Not persisted to sys_field; runtime-only flag.
+     * Backed by the {@code sys_field.auto_sequence} column — declared via
+     * {@code @Field(autoSequence = true)} on the entity and reconciled by the
+     * metadata annotation scanner — and loaded here by {@code ModelManager.init()}
+     * like the other flag columns. Consumed by {@code SequenceProcessorFactory};
+     * the allocation itself still keys on the {@code sys_sequence} row named
+     * "{modelName}.{fieldName}".
      */
     private boolean autoSequence;
 

@@ -23,12 +23,15 @@ import org.springframework.web.bind.annotation.RestController;
  * documents the model under a dedicated tag and so request path resolution
  * picks up the {@code @RequestMapping} prefix.
  *
- * <p>v1 admin policy (enforced at config-validation layer, not by removing
- * endpoints): {@code createOne} / {@code deleteById} are forbidden for
- * tenant admins; {@code updateOne} only accepts changes to template /
- * startValue / mode / cadence / description. Tenant bootstrap is done via
- * {@code SysPreDataService.loadPreTenantData} on the JSON files in
- * {@code resources/data-tenant/}.
+ * <p>v1 admin policy — currently a documented convention, <b>not yet
+ * enforced in code</b> (service-layer validation is deferred):
+ * {@code createOne} / {@code deleteById} should not be used by tenant admins;
+ * {@code updateOne} should only change template / startValue / mode / cadence /
+ * description — never {@code code} (orphans the field binding) or
+ * {@code currentValue} / {@code lastResetKey} (corrupts the counter). Tenant
+ * bootstrap is done via {@code SysPreDataService.loadPreTenantData} on the
+ * JSON files in {@code resources/data-tenant/}. The DB-level backstop is the
+ * unique {@code (tenant_id, code)} index.
  */
 @Tag(name = "SysSequence")
 @RestController

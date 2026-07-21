@@ -100,6 +100,7 @@ public final class SysJdbcWriter {
             for (SchemaDiff.Modification<E> mod : d.modified()) {
                 if (mod.kind() == SchemaDiff.Kind.RENAME) {
                     renames.add(renameArgs(t, mod.fromCode(), mod.fromDb()));
+                    warnSequenceCodeOnFieldRename(mod.fromCode(), mod.fromDb());
                 } else {
                     mods.add(updateArgs(t, mod.fromCode()));
                 }
@@ -141,7 +142,68 @@ public final class SysJdbcWriter {
                                 + " WHERE model_name = ?",
                         newName, oldName);
             }
+            warnSequenceCodeOnModelRename(oldName, newName);
         }
+    }
+
+    // ---- sequence-code rename advisories --------------------------------
+
+    /**
+     * A declared rename carries the {@code sys_*} rows, but the auto-fill
+     * binding code {@code "<Model>.<field>"} also lives in the per-tenant
+     * {@code sys_sequence} rows — business data the scanner must not rewrite.
+     * Until the admin runs the surfaced UPDATE, every insert on the renamed
+     * field fails with SequenceNotFoundException (fail-closed by design), so
+     * the advisory prints the exact converging SQL — same posture as the
+     * warn-only DROP hints.
+     */
+    private void warnSequenceCodeOnFieldRename(Object fromCode, Object fromDb) {
+        if (fromCode instanceof SysField newField && fromDb instanceof SysField oldField
+                && Boolean.TRUE.equals(newField.getAutoSequence())) {
+            log.warn("SysJdbcWriter: autoSequence field {}.{} was renamed from `{}` — sys_sequence rows "
+                            + "are tenant data and are NOT auto-updated; converge them with:\n{}",
+                    newField.getModelName(), newField.getFieldName(), oldField.getFieldName(),
+                    fieldRenameSequenceHint(newField, oldField));
+        }
+    }
+
+    /**
+     * Model-rename twin of {@link #warnSequenceCodeOnFieldRename}. Runs after
+     * the child-row cascade (so {@code sys_field.model_name} already carries the
+     * new name) and before the field diffs (so {@code field_name} is still the
+     * pre-rename one — matching the code currently stored in sys_sequence).
+     */
+    private void warnSequenceCodeOnModelRename(String oldModelName, String newModelName) {
+        List<String> sequenceFields = jdbcTemplate.queryForList(
+                "SELECT field_name FROM sys_field WHERE model_name = ? AND auto_sequence = 1",
+                String.class, newModelName);
+        for (String fieldName : sequenceFields) {
+            log.warn("SysJdbcWriter: model {} (renamed from {}) has autoSequence field `{}` — sys_sequence "
+                            + "rows are tenant data and are NOT auto-updated; converge them with:\n{}",
+                    newModelName, oldModelName, fieldName,
+                    modelRenameSequenceHint(oldModelName, newModelName, fieldName));
+        }
+    }
+
+    /**
+     * Old code deliberately uses the NEW model name: when a model rename and a
+     * field rename land in the same boot, the model-level hint (old→new model,
+     * old field name) runs first, so this hint continues from that state.
+     */
+    static String fieldRenameSequenceHint(SysField newField, SysField oldField) {
+        return sequenceCodeUpdateSql(
+                newField.getModelName() + "." + oldField.getFieldName(),
+                newField.getModelName() + "." + newField.getFieldName());
+    }
+
+    static String modelRenameSequenceHint(String oldModelName, String newModelName, String fieldName) {
+        return sequenceCodeUpdateSql(
+                oldModelName + "." + fieldName,
+                newModelName + "." + fieldName);
+    }
+
+    private static String sequenceCodeUpdateSql(String oldCode, String newCode) {
+        return "UPDATE sys_sequence SET code = '" + newCode + "' WHERE code = '" + oldCode + "';";
     }
 
     // ---- SQL + args generated from the descriptor ----------------------
