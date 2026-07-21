@@ -26,9 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Integration tests for {@link SequenceServiceImpl}, covering the gray
- * areas identified in Phase 0 of the design (see
- * {@code corehr/docs/design/sequence-metadata-binding.md}):
+ * Integration tests for {@link SequenceServiceImpl}, covering the
+ * transactional gray areas of the two allocation modes:
  *
  * <ol>
  *   <li>{@code @Transactional(REQUIRES_NEW)} actually commits independently
@@ -46,11 +45,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>Currently {@code @Disabled} because it requires a running MySQL +
  * Redis pair on localhost (per the existing {@code application-test.yml}
- * conventions in apps/demo-app). Run the {@code SysSequence.ddl.sql} +
- * metadata DML against the test database first, then remove
- * {@code @Disabled} and execute via {@code mvn test -Dtest=SequenceServiceIT}.
+ * conventions in apps/demo-app). {@code SysSequence} is annotation-managed
+ * (@Model/@Field), so a scanner-scope boot creates the table and metadata;
+ * seed the two test rows ({@code Employee.code} NO_GAP, {@code Audit.eventNo}
+ * ALLOW_GAP) first, then remove {@code @Disabled} and execute via
+ * {@code mvn test -Dtest=SequenceServiceIT}.
  */
-@Disabled("Requires localhost MySQL + Redis; run SysSequence DDL/DML beforehand")
+@Disabled("Requires localhost MySQL + Redis; seed the two sys_sequence test rows beforehand")
 @SpringBootTest
 class SequenceServiceIT {
 

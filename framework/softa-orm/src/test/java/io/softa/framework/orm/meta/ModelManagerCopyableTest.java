@@ -82,6 +82,7 @@ class ModelManagerCopyableTest {
                 oneToOne("CopyDoc", "profileId", "profile_id", "CopyProfile"),
                 oneToMany("CopyDoc", "lines", "CopyLine", "docId"),
                 dynamicField("CopyDoc", "summary", "summary", FieldType.STRING),
+                autoSequenceField("CopyDoc", "docNo", "doc_no"),
                 // related models
                 field("CopyProfile", "id", "id", FieldType.LONG),
                 field("CopyLine", "id", "id", FieldType.LONG),
@@ -163,6 +164,12 @@ class ModelManagerCopyableTest {
         return metaField;
     }
 
+    private static MetaField autoSequenceField(String modelName, String fieldName, String columnName) {
+        MetaField metaField = field(modelName, fieldName, columnName, FieldType.STRING);
+        metaField.setAutoSequence(true);
+        return metaField;
+    }
+
     private static MetaField oneToOne(String modelName, String fieldName, String columnName, String relatedModel) {
         MetaField metaField = field(modelName, fieldName, columnName, FieldType.ONE_TO_ONE);
         metaField.setRelatedModel(relatedModel);
@@ -203,7 +210,8 @@ class ModelManagerCopyableTest {
         List<String> copyable = ModelManager.getModelCopyableFields("CopyDoc");
         assertEquals(List.of("name"), copyable,
                 "expected: id/externalId/createdTime (structural & audit), code (copyable=false), "
-                        + "profileId (OneToOne), lines (OneToMany/dynamic), summary (dynamic) all excluded");
+                        + "profileId (OneToOne), lines (OneToMany/dynamic), summary (dynamic), "
+                        + "docNo (autoSequence — a copy gets a fresh number on insert) all excluded");
     }
 
     @Test

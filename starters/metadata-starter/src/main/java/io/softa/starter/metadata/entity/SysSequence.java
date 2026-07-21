@@ -1,10 +1,12 @@
 package io.softa.starter.metadata.entity;
 
 import java.io.Serial;
+import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
+import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.metadata.enums.ResetCadence;
 import io.softa.starter.metadata.enums.SequenceMode;
-import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -15,14 +17,14 @@ import lombok.EqualsAndHashCode;
  * {@code io.softa.framework.orm.sequence.SequenceService} (port in softa-orm,
  * implementation in this starter).
  *
- * <p>v1 hard rules (also enforced at config save time):
+ * <p>v1 hard rules (by convention — config-API enforcement is deferred):
  * <ul>
  *   <li>{@code code} matches {@code "<ModelName>.<fieldName>"} for
  *       fields participating in auto-fill (see SequenceProcessor).</li>
  *   <li>{@code incrementStep == 1}.</li>
- *   <li>Admin cannot change {@code code}; cannot create or delete rows via
- *       the API. Use the framework's {@code loadPreTenantData} on JSON
- *       files for tenant bootstrap.</li>
+ *   <li>{@code code} is not changed after creation; rows are provisioned via
+ *       the framework's {@code loadPreTenantData} on JSON files for tenant
+ *       bootstrap, not created ad hoc through the API.</li>
  * </ul>
  *
  * <p>There is no {@code status} column: a row's existence equals "active".
@@ -31,43 +33,55 @@ import lombok.EqualsAndHashCode;
  * needed).
  */
 @Data
-@Schema(name = "SysSequence")
 @EqualsAndHashCode(callSuper = true)
+@Model(
+        label = "System Sequence",
+        businessKey = {"code"},
+        multiTenant = true,
+        copyable = false,
+        description = "Sequence generator configuration and counter"
+)
+@Index(fields = {"tenantId", "code"}, unique = true,
+        message = "A sequence with this code already exists.")
 public class SysSequence extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID")
+    @Field(label = "ID")
     private Long id;
 
-    @Schema(description = "Tenant ID")
+    @Field(label = "Tenant ID")
     private Long tenantId;
 
-    @Schema(description = "Sequence code, e.g. \"Employee.code\"")
+    @Field(label = "Sequence Code", required = true,
+            description = "Sequence code, e.g. \"Employee.code\"")
     private String code;
 
-    @Schema(description = "Format template, e.g. EMP-{yyyy}-{seq:5}")
+    @Field(required = true,
+            description = "Format template, e.g. EMP-{yyyy}-{seq:5}")
     private String template;
 
-    @Schema(description = "First number after each reset (default 1)")
+    @Field(required = true,
+            description = "First number after each reset (default 1)")
     private Long startValue;
 
-    @Schema(description = "Step size; v1 enforces 1")
+    @Field(required = true, description = "Step size; v1 enforces 1")
     private Integer incrementStep;
 
-    @Schema(description = "Last allocated value; next = current_value + step")
+    @Field(required = true,
+            description = "Last allocated value; next = current_value + step")
     private Long currentValue;
 
-    @Schema(description = "Reset cadence")
+    @Field(required = true)
     private ResetCadence resetCadence;
 
-    @Schema(description = "Period key of the last reset, e.g. \"2026\" / \"2026-04\"")
+    @Field(description = "Period key of the last reset, e.g. \"2026\" / \"2026-04\"")
     private String lastResetKey;
 
-    @Schema(description = "Allocation mode")
+    @Field(label = "Allocation Mode", required = true)
     private SequenceMode mode;
 
-    @Schema(description = "Description")
+    @Field(length = 256)
     private String description;
 }

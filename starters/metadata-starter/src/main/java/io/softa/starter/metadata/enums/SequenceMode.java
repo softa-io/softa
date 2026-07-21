@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.enums;
 
 import com.fasterxml.jackson.annotation.JsonValue;
+import io.softa.framework.base.annotation.OptionSet;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -23,6 +24,7 @@ import lombok.Getter;
  */
 @Getter
 @AllArgsConstructor
+@OptionSet
 public enum SequenceMode {
     NO_GAP("NoGap"),
     ALLOW_GAP("AllowGap"),

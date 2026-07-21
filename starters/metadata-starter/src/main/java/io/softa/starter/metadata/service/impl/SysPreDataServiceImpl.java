@@ -1,31 +1,24 @@
 package io.softa.starter.metadata.service.impl;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
-import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.domain.FileObject;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
@@ -38,10 +31,16 @@ import static io.softa.framework.orm.constant.ModelConstant.ID;
 
 /**
  * SysPreData Model Service Implementation
- * Predefined data: model + preId as a unique identifier, used to bind model row ID, thus preId is unique within the model.
- * Among them, ManyToOne and OneToOne fields directly reference preId, ManyToMany fields reference a list of preIds,
- * OneToMany fields support a data list, where the data in the list does not need to declare the main model's preId
- * but must declare the relatedModel's preId.
+ * Predefined data: model + preId as a unique identifier within a loading scope (system, or one
+ * tenant), used to bind model row ID. ManyToOne and OneToOne fields directly reference preId,
+ * ManyToMany fields reference a list of preIds, OneToMany fields support a data list, where the
+ * data in the list does not need to declare the main model's preId but must declare the
+ * relatedModel's preId.
+ * <p>
+ * Scopes never mix: a load writes, looks up, and resolves references strictly within its own
+ * scope. Tenant seeds never reference shared data — cross-scope references are rejected
+ * ({@link #validateReferenceScope}), as are seeds targeting models of the other scope's tenancy
+ * ({@link #validateSeedScope}).
  * <p>
  * File-format concerns (JSON / CSV / XML) are delegated to {@link PreDataFormatParser}; this service owns the
  * predefined-data domain logic only — preId binding, main/sub-model ordering, and create-or-update reconciliation.
@@ -68,10 +67,12 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     @Transactional(rollbackFor = Exception.class)
     public void loadPreSystemData(List<String> fileNames) {
         String dataDir = BaseConstant.PREDEFINED_DATA_SYSTEM_DIR;
-        for (String fileName : fileNames) {
-            FileObject fileObject = FileUtils.getFileObjectByPath(dataDir, fileName);
-            loadFileObject(fileObject);
-        }
+        runAsSystemScope(() -> {
+            for (String fileName : fileNames) {
+                FileObject fileObject = FileUtils.getFileObjectByPath(dataDir, fileName);
+                loadFileObject(fileObject);
+            }
+        });
     }
 
     /**
@@ -86,6 +87,10 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void loadPreTenantData(List<String> fileNames, Long tenantId) {
+        if (SystemConfig.env.isEnableMultiTenancy()) {
+            Assert.notNull(tenantId,
+                    "Loading tenant predefined data requires a tenant id when multi-tenancy is enabled!");
+        }
         String dataDir = BaseConstant.PREDEFINED_DATA_TENANT_DIR;
         Context tenantContext = ContextHolder.cloneContext();
         tenantContext.setTenantId(tenantId);
@@ -109,7 +114,17 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     @Transactional(rollbackFor = Exception.class)
     public void loadPreSystemData(MultipartFile file) {
         FileObject fileObject = FileUtils.getFileObject(file);
-        loadFileObject(fileObject);
+        runAsSystemScope(() -> loadFileObject(fileObject));
+    }
+
+    /**
+     * Run a load at system scope: bindings and seeded rows take tenantId = null regardless
+     * of the caller's ambient tenant, so a tenant-context caller cannot tenant-stamp system seeds.
+     */
+    private void runAsSystemScope(Runnable task) {
+        Context systemContext = ContextHolder.cloneContext();
+        systemContext.setTenantId(null);
+        ContextHolder.runWith(systemContext, task);
     }
 
     /**
@@ -158,6 +173,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param row Predefined data record
      */
     private Serializable handlePredefinedData(String model, Map<String, Object> row) {
+        validateSeedScope(model);
         Map<String, Object> mainRow = new LinkedHashMap<>();
         Map<String, Object> oneToManyMap = new LinkedHashMap<>();
         // Separate OneToMany sub-data from the main-model fields; an ordered map keeps the
@@ -173,6 +189,30 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         Serializable rowId = createOrUpdateData(model, mainRow);
         loadOneToManyRows(model, rowId, oneToManyMap);
         return rowId;
+    }
+
+    /**
+     * A seed row must match the scope it is loaded under when multi-tenancy is enabled:
+     * a system-scope load writing a multi-tenant model would stamp rows with tenantId = null
+     * that no tenant can read, and a tenant-scope load writing a shared model would duplicate
+     * the shared rows once per loading tenant. Both directions fail fast; the surrounding
+     * transaction rolls the whole file back. Checked here so OneToMany sub-model recursion
+     * is covered, not just top-level entries.
+     *
+     * @param model Model name being seeded
+     */
+    private void validateSeedScope(String model) {
+        if (!SystemConfig.env.isEnableMultiTenancy()) {
+            return;
+        }
+        boolean tenantScope = ContextHolder.getContext().getTenantId() != null;
+        boolean tenantModel = ModelManager.getModel(model).isMultiTenant();
+        Assert.notTrue(!tenantScope && tenantModel,
+                "Model {0} is multi-tenant: load its predefined data per tenant via loadPreTenantData, " +
+                "not as system data.", model);
+        Assert.notTrue(tenantScope && !tenantModel,
+                "Model {0} is a shared model: load its predefined data via loadPreSystemData, " +
+                "not as tenant data.", model);
     }
 
     /**
@@ -255,6 +295,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
 
     /**
      * Get the SysPreData object by preID.
+     * Each tenant owns its own binding for a preId, so re-loading the same file under another
+     * tenant creates that tenant's rows instead of touching the first tenant's.
+     *
      * @param model Model name
      * @param row Predefined data record
      * @return SysPreData object
@@ -263,8 +306,29 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         Assert.isTrue(row.containsKey(ID), "Predefined data for model {0} must include the preID: {1}", model, row);
         Object preId = row.get(ID);
         Assert.isTrue(preId instanceof String, "Model {0} predefined data's preId must be of type String: {1}", model, preId);
-        Filters filters = new Filters().eq(SysPreData::getModel, model).eq(SysPreData::getPreId, preId);
-        return this.searchOne(new FlexQuery(filters));
+        Long tenantId = ContextHolder.getContext().getTenantId();
+        return getScopedBindings(model, List.of((String) preId), tenantId).stream().findFirst();
+    }
+
+    /**
+     * Query the bindings of the given preIds within ONE scope: tenantId = T selects a tenant's
+     * bindings, null selects the system bindings (tenant_id IS NULL). The single query primitive
+     * behind the idempotency lookup and the reference resolution — every binding access is
+     * scope-exact.
+     *
+     * @param model Model name
+     * @param preIds Predefined IDs
+     * @param tenantId tenant id of the scope, null for the system scope
+     * @return bindings found in this scope
+     */
+    private List<SysPreData> getScopedBindings(String model, List<String> preIds, Long tenantId) {
+        Filters filters = new Filters().eq(SysPreData::getModel, model).in(SysPreData::getPreId, preIds);
+        if (tenantId == null) {
+            filters.isNotSet(SysPreData::getTenantId);
+        } else {
+            filters.eq(SysPreData::getTenantId, tenantId);
+        }
+        return this.searchList(filters);
     }
 
     /**
@@ -282,14 +346,17 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 continue;
             }
             MetaField metaField = ModelManager.getModelField(model, entry.getKey());
-            if (FieldType.TO_ONE_TYPES.contains(metaField.getFieldType()) &&
-                    !(entry.getValue() instanceof Long || entry.getValue() instanceof Integer)) {
-                Assert.isTrue(entry.getValue() instanceof String,
-                        "Model {0} field {1}:{2} preID must be of type String: {3}",
-                        model, entry.getKey(), metaField.getFieldType().getType(), entry.getValue());
-                Serializable rowId = this.getOriginalRowIdByPreId(metaField.getRelatedModel(), Cast.of(entry.getValue()));
-                entry.setValue(rowId);
+            if (FieldType.TO_ONE_TYPES.contains(metaField.getFieldType())) {
+                validateReferenceScope(model, metaField);
+                if (!(entry.getValue() instanceof Long || entry.getValue() instanceof Integer)) {
+                    Assert.isTrue(entry.getValue() instanceof String,
+                            "Model {0} field {1}:{2} preID must be of type String: {3}",
+                            model, entry.getKey(), metaField.getFieldType().getType(), entry.getValue());
+                    Serializable rowId = this.getOriginalRowIdByPreId(metaField.getRelatedModel(), Cast.of(entry.getValue()));
+                    entry.setValue(rowId);
+                }
             } else if (FieldType.MANY_TO_MANY.equals(metaField.getFieldType())) {
+                validateReferenceScope(model, metaField);
                 Assert.isTrue(entry.getValue() instanceof Collection,
                         "Model {0} predefined data's {1} ManyToMany field value must be a list or empty",
                         model, entry.getKey());
@@ -304,33 +371,55 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     /**
+     * Seed references never cross scopes — the referenced-side mirror of {@link #validateSeedScope}:
+     * when multi-tenancy is enabled, a tenant seed may only reference multi-tenant models (its own
+     * tenant's rows) and a system seed only shared models. Checked on the reference field itself
+     * (covering preId and raw-id values alike), so a violation names the rule instead of failing
+     * later with a misleading "preID does not exist".
+     *
+     * @param model Model name being seeded
+     * @param reference the TO_ONE / MANY_TO_MANY field carrying the reference
+     */
+    private void validateReferenceScope(String model, MetaField reference) {
+        if (!SystemConfig.env.isEnableMultiTenancy()) {
+            return;
+        }
+        boolean tenantScope = ContextHolder.getContext().getTenantId() != null;
+        boolean tenantModel = ModelManager.getModel(reference.getRelatedModel()).isMultiTenant();
+        Assert.isTrue(tenantScope == tenantModel,
+                "Seed data of model {0} references {1} via field {2}, which crosses the loading scope: " +
+                "tenant seeds may only reference multi-tenant models, and system seeds only shared models.",
+                model, reference.getRelatedModel(), reference.getFieldName());
+    }
+
+    /**
      * Get the model row ID bound by preId.
      * @param model Model name
      * @param preId Predefined ID
      * @return Model row ID
      */
     private Serializable getOriginalRowIdByPreId(String model, String preId) {
-        Filters filters = new Filters().eq(SysPreData::getModel, model).eq(SysPreData::getPreId, preId);
-        String rowIdField = LambdaUtils.getAttributeName(SysPreData::getRowId);
-        List<Serializable> rowIds = this.getRelatedIds(filters, rowIdField);
-        Assert.notEmpty(rowIds, "The preID of the predefined data for model {0}: {1} does not exist " +
-                "in the predefined data table and may not have been created yet!", model, preId);
-        return IdUtils.formatId(model, rowIds.getFirst());
+        return getOriginalRowIdsByPreIds(model, List.of(preId)).getFirst();
     }
 
     /**
-     * Get a list of model row IDs bound by preIds.
+     * Get the model row IDs bound by preIds, in the order of the input preIds. Resolution is
+     * scope-exact like every binding lookup — references never cross scopes. Every preId must
+     * resolve; the missing ones are reported together.
+     *
      * @param model Model name
      * @param preIds Predefined IDs
      * @return List of model row IDs
      */
     private List<Serializable> getOriginalRowIdsByPreIds(String model, List<String> preIds) {
-        Filters filters = new Filters().eq(SysPreData::getModel, model).in(SysPreData::getPreId, preIds);
-        String rowIdField = LambdaUtils.getAttributeName(SysPreData::getRowId);
-        List<Serializable> rowIds = this.getRelatedIds(filters, rowIdField);
-        Assert.notEmpty(rowIds, "The preIDs of the predefined data for model {0}: {1} do not exist " +
-                "in the predefined data table and may not have been created yet!", model, preIds);
-        return IdUtils.formatIds(model, rowIds);
+        Long tenantId = ContextHolder.getContext().getTenantId();
+        Map<String, Serializable> resolved = new HashMap<>();
+        getScopedBindings(model, preIds, tenantId).forEach(binding ->
+                resolved.putIfAbsent(binding.getPreId(), IdUtils.formatId(model, binding.getRowId())));
+        List<String> missing = preIds.stream().filter(preId -> !resolved.containsKey(preId)).toList();
+        Assert.isTrue(missing.isEmpty(), "The preIDs of the predefined data for model {0}: {1} do not exist " +
+                "in the predefined data table and may not have been created yet!", model, missing);
+        return preIds.stream().map(resolved::get).toList();
     }
 
     /**
@@ -345,6 +434,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         preData.setModel(model);
         preData.setPreId(preId);
         preData.setRowId(rowId.toString());
+        // Scope stamp from the same context tenant that fillTenantFieldForInsert stamped on the
+        // seeded rows themselves: null = system scope, non-null = that tenant's scope.
+        preData.setTenantId(ContextHolder.getContext().getTenantId());
         this.createOne(preData);
     }
 }

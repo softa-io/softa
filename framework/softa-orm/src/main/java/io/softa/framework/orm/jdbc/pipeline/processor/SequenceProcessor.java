@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 
+import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.sequence.SequenceService;
@@ -19,6 +20,12 @@ import io.softa.framework.orm.sequence.SequenceService;
  *   <li>{@code metaField.isAutoSequence() == true} (binding declared by sys_sequence row)</li>
  *   <li>The corresponding row's value is null/blank (caller-provided values are trusted)</li>
  * </ul>
+ *
+ * <p>Pairing with {@code readonly} switches to strict system numbering: a
+ * caller-provided value is rejected here (readonly's promise, enforced before
+ * the fill), and the filled value passes the downstream readonly check via the
+ * autoSequence exemption in {@code BaseProcessor.checkReadonly}. Without
+ * {@code readonly}, caller values are trusted (import-friendly).
  *
  * <p>The sequence code is reconstructed at construction time from
  * {@code modelName + "." + fieldName} per the v1 naming convention; the actual
@@ -48,12 +55,17 @@ public class SequenceProcessor extends BaseProcessor {
         }
         if (isBlank(row.get(fieldName))) {
             row.put(fieldName, sequenceService.next(code));
+        } else if (metaField.isReadonly()) {
+            throw readonlyViolation();
         }
     }
 
     /**
      * Batch fast-path: collect blank rows, allocate {@code blanks.size()} numbers
-     * with a single {@code nextBatch} call, then assign them in order.
+     * with a single {@code nextBatch} call, then assign them in order. The
+     * readonly gate is one whole-batch check after the partition — a non-blank
+     * row exists iff {@code blanks.size() < rows.size()} — and must precede the
+     * empty-blanks early return (an all-non-blank batch is still a violation).
      */
     @Override
     public void batchProcessInputRows(List<Map<String, Object>> rows) {
@@ -66,11 +78,14 @@ public class SequenceProcessor extends BaseProcessor {
                 blanks.add(row);
             }
         }
+        if (metaField.isReadonly() && blanks.size() < rows.size()) {
+            throw readonlyViolation();
+        }
         if (blanks.isEmpty()) {
             return;
         }
         if (blanks.size() == 1) {
-            blanks.get(0).put(fieldName, sequenceService.next(code));
+            blanks.getFirst().put(fieldName, sequenceService.next(code));
             return;
         }
         List<String> codes = sequenceService.nextBatch(code, blanks.size());
@@ -78,6 +93,16 @@ public class SequenceProcessor extends BaseProcessor {
         for (Map<String, Object> r : blanks) {
             r.put(fieldName, it.next());
         }
+    }
+
+    /**
+     * readonly + autoSequence = strict system numbering: the caller may never
+     * hand-assign the value. Same error as {@code checkReadonly}, raised before
+     * the fill so the readonly promise is kept by the allocator itself.
+     */
+    private IllegalArgumentException readonlyViolation() {
+        return new IllegalArgumentException("Model field {0}:{1} is a readonly field and cannot be assigned!",
+                modelName, fieldName);
     }
 
     private static boolean isBlank(Object v) {

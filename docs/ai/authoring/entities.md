@@ -122,6 +122,7 @@ Annotate **every declared field**. Most-used attributes:
 | `required` | `false` (primitives auto-`true`) | NOT NULL |
 | `readonly` / `unsearchable` | `false` | UI behavior |
 | `copyable` | `true` | `false` = value not carried when a row is duplicated (keys, secrets, runtime state) |
+| `autoSequence` | `false` | auto-fill from a sequence on INSERT when blank (document numbers) — see §5 |
 | `relatedModel` | — | related model **class**, e.g. `relatedModel = Country.class`, for relations |
 | `relatedField` | `""` | one-to-many: the child's FK column. To-one: leave empty (see §5) |
 | `onDelete` | KEEP | what happens to referrers when the target is deleted — see §5 |
@@ -288,6 +289,30 @@ combinations are rejected at boot on purpose — e.g. `SET_NULL` on a `required`
 FK, or a `CASCADE` that could delete recoverable data or fan across tenants. The
 boot error explains which and why.
 
+### Auto-number a field from a sequence (`autoSequence`)
+For business document numbers ("EMP-00042", "SO-2026-00007"):
+
+```java
+@Field(label = "Employee No", autoSequence = true, readonly = true)
+private String employeeNo;
+```
+
+- **STRING fields only** (the rendered number is a string); rejected on `id`,
+  `computed`, `dynamic`, and non-RDBMS models.
+- The number format lives in a **`sys_sequence` row** whose `code` is
+  `"<ModelName>.<fieldName>"` (e.g. `"Employee.employeeNo"`), provisioned per
+  tenant via `loadPreTenantData`. The row holds the template
+  (`EMP-{yyyy}-{seq:5}`), reset cadence, and gap policy. **The row must exist**
+  — an insert with no matching row fails with `SequenceNotFoundException`
+  (fail-closed; there is no silent fallback).
+- **With `readonly = true`** (recommended): strict system numbering — callers
+  can never hand-assign the value. **Without it**: blank values are filled,
+  caller-provided values are trusted (useful for data imports).
+- Pair with a **unique index** on the field if numbers must be unique — the
+  sequence guarantees allocation order, the index guarantees uniqueness.
+- Duplicating a row never copies the number; the copy gets a fresh one on
+  insert.
+
 ### Rename a field or model
 **Declare the rename** with `renamedFrom` — don't just change the name. Without
 it, a rename looks like "drop old + add new", so you'd get a new empty column and
@@ -305,6 +330,12 @@ The framework issues a `CHANGE COLUMN` / `RENAME TABLE` and moves the data in
 place. It's **single-step** — it holds only the immediately-previous name. A
 multi-hop rename (A→B→C where some environment is still on A) needs a
 hand-written migration instead.
+
+Renaming an `autoSequence` field (or its model) has one extra step: the
+binding code `"<Model>.<field>"` stored in the per-tenant `sys_sequence` rows
+does **not** follow automatically. The boot log prints the exact
+`UPDATE sys_sequence SET code = ...` to run; until it runs, inserts on that
+field fail with `SequenceNotFoundException`.
 
 ### Add an index
 See `@Index` in §2. `fields` are Java field names; restart to apply.
