@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
@@ -20,8 +21,11 @@ import io.softa.starter.user.enums.AccountStatus;
 @EqualsAndHashCode(callSuper = true)
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
+        multiTenant = true,
         searchName = {"nickname", "username"}
 )
+@Index(indexName = "uk_user_account_email", fields = {"email"}, unique = true,
+        message = "This email is already registered.")
 public class UserAccount extends AuditableModel {
 
     @Serial

@@ -70,20 +70,24 @@ public class AdminProvisioningService {
         // The inviter is the current (Ops) user — captured before switching into the tenant context.
         Long inviter = ContextHolder.getContext() == null ? null : ContextHolder.getContext().getUserId();
 
-        return inTenantContext(request.getTenantId(), () -> {
-            if (accountService.count(new Filters().eq(UserAccount::getEmail, request.getEmail())) > 0) {
-                throw new BusinessException("Email already exists: " + request.getEmail());
-            }
+        // email is globally unique: check across ALL tenants BEFORE pinning into the target tenant
+        // (getUserByEmail is @CrossTenant). Inside inTenantContext the check would only see the
+        // target tenant and miss an email already taken by another tenant.
+        if (accountService.getUserByEmail(request.getEmail()).isPresent()) {
+            throw new BusinessException("Email already exists: " + request.getEmail());
+        }
 
+        return inTenantContext(request.getTenantId(), () -> {
             // INVITED account (no password) — the admin sets their own password via the invitation.
-            UserInfo user = accountService.registerInvitedUser(request.getEmail(), request.getMobile());
+            // No display name captured at admin-provisioning time → null falls back to the email.
+            UserInfo user = accountService.registerInvitedUser(request.getEmail(), request.getMobile(), null);
 
             Role adminRole = roleService.searchOne(new Filters().eq(Role::getCode, RoleConstant.CODE_TENANT_ADMIN))
                     .orElseThrow(() -> new BusinessException(
                             "TENANT_ADMIN role not seeded for tenant " + request.getTenantId()));
 
             UserRoleRel grant = new UserRoleRel();
-            grant.setTenantId(request.getTenantId());
+            // tenant_id auto-stamped by the framework (UserRoleRel is multiTenant, inside inTenantContext).
             grant.setUserId(user.getUserId());
             grant.setRoleId(adminRole.getId());
             grant.setSource(UserRoleSource.MANUAL);
