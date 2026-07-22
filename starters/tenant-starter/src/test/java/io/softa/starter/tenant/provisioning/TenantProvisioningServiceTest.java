@@ -24,7 +24,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TenantProvisioningService#reconcileScheduledStart} — the inline-edit path's
- * "future start → SCHEDULED" deferral. Dates use ±2-day margins so assertions are timezone-independent.
+ * two-way reconcile: an active sub with a future start → SCHEDULED (defer), and a SCHEDULED sub whose
+ * start has arrived → SUBSCRIBED (activate). Dates use ±2-day margins so assertions are timezone-independent.
  */
 class TenantProvisioningServiceTest {
 
@@ -70,6 +71,28 @@ class TenantProvisioningServiceTest {
         tenantHasSub();
         when(subscriptionService.getById(SUB)).thenReturn(Optional.of(
                 sub(TenantLifecycle.EXPIRED, LocalDate.now().plusDays(2))));
+
+        service.reconcileScheduledStart(TENANT);
+
+        verify(subscriptionService, never()).updateOne(any());
+    }
+
+    @Test
+    void scheduledStartArrived_activatesToSubscribed() {
+        tenantHasSub();
+        when(subscriptionService.getById(SUB)).thenReturn(Optional.of(
+                sub(TenantLifecycle.SCHEDULED, LocalDate.now().minusDays(2))));
+
+        service.reconcileScheduledStart(TENANT);
+
+        verify(subscriptionService).updateOne(argThat(s -> s.getLifecycle() == TenantLifecycle.SUBSCRIBED));
+    }
+
+    @Test
+    void scheduledFutureStart_staysScheduled() {
+        tenantHasSub();
+        when(subscriptionService.getById(SUB)).thenReturn(Optional.of(
+                sub(TenantLifecycle.SCHEDULED, LocalDate.now().plusDays(2))));
 
         service.reconcileScheduledStart(TENANT);
 

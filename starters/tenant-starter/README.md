@@ -84,9 +84,11 @@ tenant-starter needs no user-starter dependency:
   GRACE_PERIOD/EXPIRED are reached only via lapse / the job). Version edits flow
   through the standard Tenant Info form (`POST /TenantInfo/updateOne`, inline `subscriptionId`), which
   the ORM cascade-updates onto `TenantSubscription` and which republishes entitlement — there is no
-  separate plan/lifecycle endpoint. An edit whose `effectiveFrom` is in the future is reconciled to
-  `SCHEDULED` too (`reconcileScheduledStart`), so scheduling a future change works on edit, not only
-  at create.
+  separate plan/lifecycle endpoint. `reconcileScheduledStart` then fixes the lifecycle **both ways**:
+  a future `effectiveFrom` on an active sub parks it as `SCHEDULED`, and bringing a `SCHEDULED` sub's
+  `effectiveFrom` forward to today/past activates it to `SUBSCRIBED` on save (mirroring the job's
+  `activateDue`) — so a start-date change takes effect immediately, not only at create or on the next
+  hourly job run.
 
 ## How isolation works
 

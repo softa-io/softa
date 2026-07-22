@@ -130,12 +130,21 @@ public class TenantProvisioningService {
     }
 
     /**
-     * After an inline version edit ({@code /TenantInfo/updateOne} carrying {@code subscriptionId}):
-     * if the tenant's subscription is active but its {@code effectiveFrom} is still in the future
-     * (tenant-local), park it as {@link TenantLifecycle#SCHEDULED} so the lifecycle job activates it at
-     * the local start date — the same rule as provisioning, so editing a plan with a future start date
-     * <b>defers</b> instead of taking effect immediately. No-op otherwise (typed post-write correction —
-     * the ORM cascade already wrote the edited fields; here we only fix the lifecycle).
+     * Reconcile a subscription's lifecycle against its {@code effectiveFrom} after an inline version edit
+     * ({@code /TenantInfo/updateOne} carrying {@code subscriptionId}) — <b>both directions</b>, so the edit
+     * takes effect on save instead of waiting for the hourly {@code SubscriptionExpiryJob}:
+     * <ul>
+     *   <li><b>Defer</b> — an <em>active</em> sub whose {@code effectiveFrom} is still in the future
+     *       (tenant-local) → {@link TenantLifecycle#SCHEDULED}, the same rule as provisioning
+     *       ({@code buildSubscription}), so pushing a start into the future stops taking effect now.</li>
+     *   <li><b>Activate</b> — a {@link TenantLifecycle#SCHEDULED} sub whose {@code effectiveFrom} has
+     *       arrived (brought forward to today/past, tenant-local) → {@link TenantLifecycle#SUBSCRIBED},
+     *       mirroring {@code SubscriptionExpiryJob.activateDue} (the single source of truth for that
+     *       transition), so bringing a scheduled start forward activates immediately.</li>
+     * </ul>
+     * No-op otherwise (typed post-write correction — the ORM cascade already wrote the edited fields;
+     * here we only fix the lifecycle). The caller publishes {@code TenantEntitlementChangedEvent} right
+     * after, so the reconciled state is applied at once (cache evicted + MQ fan-out).
      */
     public void reconcileScheduledStart(Long tenantId) {
         if (tenantId == null) {
@@ -146,12 +155,19 @@ public class TenantProvisioningService {
             return;
         }
         TenantSubscription sub = subscriptionService.getById(tenant.getSubscriptionId()).orElse(null);
-        if (sub == null || sub.getLifecycle() == null || !sub.getLifecycle().isEntitlementActive()
-                || sub.getEffectiveFrom() == null) {
-            return;   // no sub / not active / open start → nothing to defer
+        if (sub == null || sub.getLifecycle() == null || sub.getEffectiveFrom() == null) {
+            return;   // no sub / open start → nothing to reconcile
         }
-        if (sub.getEffectiveFrom().isAfter(LocalDate.now(Timezone.zoneIdOrUtc(tenant.getDefaultTimezone())))) {
+        boolean startInFuture = sub.getEffectiveFrom()
+                .isAfter(LocalDate.now(Timezone.zoneIdOrUtc(tenant.getDefaultTimezone())));
+        if (sub.getLifecycle().isEntitlementActive() && startInFuture) {
+            // Active but the start is still ahead → defer, exactly like provisioning.
             sub.setLifecycle(TenantLifecycle.SCHEDULED);
+            subscriptionService.updateOne(sub);
+        } else if (sub.getLifecycle() == TenantLifecycle.SCHEDULED && !startInFuture) {
+            // Scheduled and the local start has arrived → activate now, mirroring
+            // SubscriptionExpiryJob.activateDue (SCHEDULED → SUBSCRIBED) so the edit does not wait for cron.
+            sub.setLifecycle(TenantLifecycle.SUBSCRIBED);
             subscriptionService.updateOne(sub);
         }
     }
