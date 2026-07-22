@@ -15,6 +15,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.EntitlementService;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.UiContext;
 import io.softa.starter.user.service.impl.UiContextBuilder;
 import io.softa.starter.user.util.PermissionSnapshotKey;
@@ -66,6 +67,14 @@ public class MeController {
      * {@link EntitlementService} is installed — the frontend then applies no version filtering.
      */
     private void appendEntitlement(UiContext info, Long tenantId) {
+        // Platform SUPER_ADMIN is NOT entitlement-scoped: it operates above any single tenant, so
+        // entitledModules(tenantId) resolves to the Free floor (no paid tenant in context) and the
+        // frontend would wrongly narrow the role wizard / sidebar to Free's modules. Leave entitledModules
+        // unset so the frontend applies NO version filtering (every module visible) — same as the
+        // no-EntitlementService case.
+        if (info.getRoleCodes() != null && info.getRoleCodes().contains(RoleConstant.CODE_SUPER_ADMIN)) {
+            return;
+        }
         EntitlementService entitlementService = entitlementServiceProvider.getIfAvailable();
         if (entitlementService == null) {
             return;
