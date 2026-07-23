@@ -118,8 +118,10 @@ public class StaticSqlBuilder {
         fields.forEach(field -> updateSql.append(ModelManager.getModelField(modelName, field).getColumnName()).append("=?,"));
         // Remove the last character
         updateSql.deleteCharAt(updateSql.length() - 1);
-        // Append the id condition to WHERE clause.
-        updateSql.append(" WHERE ").append(pk).append(" = ?");
+        // Append the pk condition to the WHERE clause — as a COLUMN name, like the SET side
+        // (the pk FIELD name `sliceId` differs from its column `slice_id` on timeline models).
+        String pkColumnName = ModelManager.getModelField(modelName, pk).getColumnName();
+        updateSql.append(" WHERE ").append(pkColumnName).append(" = ?");
         // SQL params object
         SqlParams sqlParams = new SqlParams(updateSql.toString());
         fields.forEach(field -> sqlParams.addArgValue(rowMap.get(field)));

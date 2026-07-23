@@ -350,12 +350,15 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
     }
 
     /**
-     * Deletes multiple rows by their IDs. The {@code rows} parameter can be used
-     * to send a change log or audit trail, if applicable.
+     * Deletes multiple rows by their IDs. The {@code deletableRows} parameter is the
+     * AUTHORITATIVE deletable row set (for a timeline model: every slice of the logical ids):
+     * the soft-delete branch keys its per-row updates off its pk values, and it is also the
+     * change-log payload. The {@code ids} drive the physical-delete branch ({@code WHERE id IN},
+     * which spans all slices of a timeline entity by the shared id column).
      *
      * @param modelName the name of the model
      * @param ids a list of row IDs to delete
-     * @param deletableRows the list of data corresponding to the rows to be deleted
+     * @param deletableRows the authoritative rows to delete (per-slice for timeline models)
      * @return {@code true} if successful; otherwise an exception is thrown
      */
     public boolean deleteByIds(String modelName, List<K> ids, List<Map<String, Object>> deletableRows) {
@@ -363,10 +366,15 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         LocalDateTime deleteTime = LocalDateTime.now();
         if (ModelManager.isSoftDeleted(modelName)) {
             String softDeleteField = ModelManager.getSoftDeleteField(modelName);
-            // Soft delete data, assemble the update data list according to the ids list, and fill in the audit fields.
-            List<Map<String, Object>> rows = ids.stream().map(id -> {
+            // Soft delete: assemble one pk-keyed update row per deletable row (updateOne is the
+            // pk-keyed primitive). Keying by pk — not by the logical ids — is what covers every
+            // slice of a timeline entity (pk = sliceId), mirroring the physical branch below
+            // whose `WHERE id IN` naturally spans all slices; for regular models pk = id and the
+            // behavior is unchanged.
+            String pk = ModelManager.getModelPrimaryKey(modelName);
+            List<Map<String, Object>> rows = deletableRows.stream().map(deletableRow -> {
                 Map<String, Object> row = new HashMap<>();
-                row.put(ModelConstant.ID, id);
+                row.put(pk, deletableRow.get(pk));
                 row.put(softDeleteField, true);
                 // If the model has an active control field, set it to false when soft deleting
                 if (ModelManager.isActiveControl(modelName)) {

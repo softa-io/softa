@@ -4,6 +4,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -328,6 +329,16 @@ public class BeanTool {
             value = JsonUtils.stringToObject(strValue, JsonNode.class);
         } else if (value instanceof JsonNode jsonNode && DTOFieldObject.class.isAssignableFrom(fieldTypeClass)) {
             value = JsonUtils.jsonNodeToObject(jsonNode, fieldTypeClass);
+        } else if (value instanceof JsonNode jsonNode && jsonNode.isArray()
+                && List.class.isAssignableFrom(fieldTypeClass)) {
+            // JSON columns deserialize to JsonNode; a List<X implements DTOFieldObject>
+            // property converts element-wise so entities get typed DTO lists back.
+            Class<?> elementClass = getElementClass(entityClass, fieldName);
+            if (DTOFieldObject.class.isAssignableFrom(elementClass)) {
+                List<Object> items = new ArrayList<>();
+                jsonNode.forEach(node -> items.add(JsonUtils.jsonNodeToObject(node, elementClass)));
+                value = items;
+            }
         } else if (value instanceof List<?> valueList && !valueList.isEmpty()) {
             value = formatListProperty(fieldName, Cast.of(valueList), entityClass);
         } else if (value instanceof Map<?,?> mapValue && AbstractModel.class.isAssignableFrom(fieldTypeClass)) {

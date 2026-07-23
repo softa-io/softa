@@ -134,6 +134,12 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
     public List<Map<String, Object>> createSlices(String modelName, List<Map<String, Object>> rows) {
         LocalDate effectiveDate = ContextHolder.getContext().getEffectiveDate();
         rows.forEach(row -> {
+            // Web rows may carry ISO date strings; the interval math and the TimelineSlice
+            // mapping below require LocalDate — normalize at entry (the same pattern as the
+            // sliceId normalization in updateSlices). The type-cast pipeline only runs later,
+            // at the store step.
+            row.computeIfPresent(ModelConstant.EFFECTIVE_START_DATE, (k, v) -> DateUtils.dateToLocalDate(v));
+            row.computeIfPresent(ModelConstant.EFFECTIVE_END_DATE, (k, v) -> DateUtils.dateToLocalDate(v));
             row.putIfAbsent(ModelConstant.EFFECTIVE_START_DATE, effectiveDate);
             Serializable id = (Serializable) row.get(ModelConstant.ID);
             if (id != null && jdbcService.exist(modelName, id)) {
@@ -261,11 +267,14 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
             // When sliceId is of Integer type, convert it to Long type.
             sliceId = IdUtils.formatId(modelName, ModelConstant.SLICE_ID, sliceId);
             sliceRow.put(ModelConstant.SLICE_ID, sliceId);
+            // Normalize possible ISO date strings from web rows (see createSlices).
+            sliceRow.computeIfPresent(ModelConstant.EFFECTIVE_END_DATE, (k, v) -> DateUtils.dateToLocalDate(v));
             // When `effectiveStartDate` changes, update the `effectiveEndDate` of the affected slice.
             if (sliceRow.containsKey(ModelConstant.EFFECTIVE_START_DATE)) {
                 Object effectiveStartDate = sliceRow.get(ModelConstant.EFFECTIVE_START_DATE);
                 Assert.notTrue(effectiveStartDate == null || effectiveStartDate.equals(""),
                         "`effectiveStartDate` field of timeline model {0} cannot be set to empty! {1}", modelName, sliceRow);
+                sliceRow.put(ModelConstant.EFFECTIVE_START_DATE, DateUtils.dateToLocalDate(effectiveStartDate));
                 this.updateSliceAndCorrectDate(modelName, sliceRow);
             } else {
                 this.updateCurrentSlice(modelName, sliceRow, false);
