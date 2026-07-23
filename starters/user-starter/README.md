@@ -15,9 +15,11 @@ auditing, and configurable password/session policies.
 </dependency>
 ```
 
-Depends on `softa-web` and `reference-data-starter`. Auto-configured by
-`io.softa.starter.user.UserAutoConfiguration` (component-scans the module — no
-enabling flag). Sessions require Redis; password-reset emails require a
+Depends on `softa-web`, `reference-data-starter`, and `cron-starter` (user-starter
+self-consumes the nightly `DynamicRoleSync` cron — dynamic-role membership refresh —
+via `UserMaintenanceCronConsumer`; the job + Role / UserRoleRel entities live here).
+Auto-configured by `io.softa.starter.user.UserAutoConfiguration` (component-scans the
+module — no enabling flag). Sessions require Redis; password-reset emails require a
 `MessageService` (message-starter).
 
 ## Entities

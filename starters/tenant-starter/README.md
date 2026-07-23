@@ -17,7 +17,9 @@ and a separate commerce sub-domain (service catalog, orders, payments).
 ```
 
 Depends on `softa-web`, `reference-data-starter` (for `Currency` / `CountryRegion`
-lookups on `TenantInfo`), and `stripe-java` (payments). Auto-configured by
+lookups on `TenantInfo`), `stripe-java` (payments), and `cron-starter` (tenant-starter
+self-consumes its own maintenance crons — the provisioning-timeout guard + subscription-expiry —
+via `TenantMaintenanceCronConsumer`). Auto-configured by
 `io.softa.starter.tenant.TenantAutoConfiguration` (component-scan). Requires
 Redis for the active-tenant cache.
 
@@ -63,9 +65,11 @@ tenant-starter needs no user-starter dependency:
   passes, each firing at the owning tenant's local midnight (`TenantInfo.defaultTimezone`): **activate**
   a `SCHEDULED` subscription once `effectiveFrom` arrives (→ `SUBSCRIBED`), and **expire** an active one
   once `effectiveTo` passes (→ `EXPIRED`). Each transition fires an entitlement-changed event (evict
-  `entl:` + MQ role-grant cleanup). It is **not** `@Scheduled`; the app drives it via **cron-starter**
-  (an hourly `sys_cron` row `SubscriptionExpiry`, `CrossTenant`), so tenants spanning 24 UTC hours each
-  transition at their own local midnight. `lifecycle` stays the single source of truth the resolver
+  `entl:` + MQ role-grant cleanup). It is **not** `@Scheduled`; **tenant-starter's own
+  `TenantMaintenanceCronConsumer`** drives it off an hourly `sys_cron` row `SubscriptionExpiry`
+  (`CrossTenant`; tenant-starter depends on cron-starter), so tenants spanning 24 UTC hours each
+  transition at their own local midnight. This cron's domain is billing / tenant lifecycle, so its
+  trigger lives here in tenant-starter, not in the HR business module. `lifecycle` stays the single source of truth the resolver
   reads (the job only *sets* it from the dates; no read-time drift). A row's life:
   `SCHEDULED →(effectiveFrom)→ SUBSCRIBED →(effectiveTo)→ EXPIRED`. A third, **non-transitional** pass
   (`remindUpcoming`) fires **expiry reminders**: for an active subscription a configured number of days
@@ -89,6 +93,26 @@ tenant-starter needs no user-starter dependency:
   `effectiveFrom` forward to today/past activates it to `SUBSCRIBED` on save (mirroring the job's
   `activateDue`) — so a start-date change takes effect immediately, not only at create or on the next
   hourly job run.
+
+## Provisioning status (seed orchestration)
+
+A newly provisioned tenant's business data is seeded across modules asynchronously over MQ;
+`provisioningStatus` is a **third, orthogonal axis** on `TenantInfo` (`INITIALIZING` / `READY` /
+`FAILED`), separate from `TenantStatus` (login gate) and `TenantLifecycle` (billing) — observability
+only, it does **not** gate login.
+
+- **`TenantProvisioningStatusService`** — the per-tenant completion latch. Owns `TenantSeedProgress`
+  (`{tenantId, seederKey}`) and folds each seeder's completion (`SeederCompletedMessage` → the
+  `SeederCompletedCoordinator`) into the status: `READY` once `doneKeys ⊇ expected-seeders`
+  (`softa.tenant.provisioning.expected-seeders`). Business-agnostic — it only ever sees opaque
+  `seederKey` strings, never imports a business module.
+- **Dependency gate** — `dependenciesSatisfied(tenantId, dependsOn, justCompletedKey)` = `doneKeys ⊇
+  dependsOn` (set-containment, order-independent), so a downstream seeder can wait on its upstreams.
+- **Timeout guard (authoritative `FAILED` source)** — `failTimedOut()` sweeps tenants stuck in
+  `INITIALIZING` past `readyTimeoutSeconds` (default 600s) → `FAILED` (idempotent, self-heals back to
+  READY if the seed later completes). Triggered by tenant-starter's own `TenantMaintenanceCronConsumer`
+  (`ProvisioningTimeout` sys_cron, shipped in `data-system/SysCron.TenantMaintenance.json`) — softa
+  self-sufficient, no dependency on an app-side DLQ. The same consumer also carries `SubscriptionExpiry`.
 
 ## How isolation works
 
