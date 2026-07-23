@@ -34,8 +34,9 @@ import io.softa.starter.metadata.scanner.diff.SchemaDiff;
  * <ul>
  *   <li>CREATE TABLE / ADD COLUMN / MODIFY COLUMN / CHANGE COLUMN (declared
  *       rename) / RENAME TABLE (declared rename) → execute</li>
- *   <li>DROP TABLE / DROP COLUMN / DROP INDEX → log WARN with copy-paste SQL,
- *       never execute</li>
+ *   <li>DROP TABLE / DROP COLUMN / DROP INDEX → never execute; all warn-only
+ *       units are collected into a single consolidated WARN whose body is one
+ *       copy-paste SQL block (labels ride along as {@code --} comments)</li>
  *   <li>undeclared {@code tableName}-attribute change → warn-only RENAME hint</li>
  * </ul>
  *
@@ -111,14 +112,10 @@ public class DdlOrchestrator {
         List<RenderedDdl> rendered = render(diff, allCodeModels, allCodeFields);
         int executed = 0;
         int skipped = 0;
-        int warned = 0;
+        List<RenderedDdl> deferred = new ArrayList<>();
         for (RenderedDdl ddl : rendered) {
             if (!ddl.autoExecute()) {
-                warned++;
-                log.warn("""
-                        DdlOrchestrator: {} is not auto-executed (data-bearing change, like DROP / RENAME).
-                        To apply manually:
-                            {}""", ddl.label(), ddl.sql());
+                deferred.add(ddl);
                 continue;
             }
             for (String statement : ddl.statements()) {
@@ -129,9 +126,28 @@ public class DdlOrchestrator {
                 }
             }
         }
+        warnDeferred(deferred);
         log.info("DdlOrchestrator: executed {} DDL statement(s), skipped {} already applied; "
                         + "{} drop/rename operation(s) deferred to manual SQL",
-                executed, skipped, warned);
+                executed, skipped, deferred.size());
+    }
+
+    /**
+     * One consolidated WARN for all warn-only units — the body is a single
+     * copy-paste SQL block, each unit's label carried as a {@code --} comment
+     * line so the block stays a valid SQL script.
+     */
+    private void warnDeferred(List<RenderedDdl> deferred) {
+        if (deferred.isEmpty()) {
+            return;
+        }
+        String block = deferred.stream()
+                .map(ddl -> "-- " + ddl.label() + "\n" + ddl.sql())
+                .collect(Collectors.joining("\n\n"));
+        log.warn("""
+                DdlOrchestrator: {} operation(s) not auto-executed (data-bearing changes, like DROP / RENAME).
+                To apply manually:
+                {}""", deferred.size(), block.indent(4).stripTrailing());
     }
 
     /**

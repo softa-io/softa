@@ -19,12 +19,14 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.entity.TimelineSlice;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.relation.RelationDeleteHandler;
+import io.softa.framework.orm.service.versioning.IdentityStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
 
@@ -233,6 +235,67 @@ class ModelServiceImplTest {
         // The entity survives: inbound-FK delete hooks and the physical entity delete never run.
         verifyNoInteractions(handler);
         verify(fixture.jdbc(), never()).deleteByIds(any(), anyList(), anyList());
+    }
+
+    // ------------------------------------------------------------------ addVersion
+
+    @Test
+    void addVersionDelegatesToCreateAndReturnsTheSliceId() {
+        ModelServiceImpl<Serializable> service = Mockito.spy(new ModelServiceImpl<>());
+        VersioningStrategyResolver versioning = Mockito.mock(VersioningStrategyResolver.class);
+        VersioningStrategy strategy = Mockito.mock(VersioningStrategy.class);
+        ReflectionTestUtils.setField(service, "versioning", versioning);
+        when(versioning.of(SCOPED_MODEL)).thenReturn(strategy);
+        Map<String, Object> row = new HashMap<>(Map.of(ModelConstant.ID, 6L, "name", "R&D 2"));
+        Mockito.doAnswer(inv -> {
+            // The create pipeline mints the slice key into the row.
+            List<Map<String, Object>> rows = inv.getArgument(1);
+            rows.getFirst().put(ModelConstant.SLICE_ID, 42L);
+            return List.of(6L);
+        }).when(service).createList(eq(SCOPED_MODEL), anyList());
+
+        java.io.Serializable sliceId = service.addVersion(SCOPED_MODEL, row);
+
+        Assertions.assertEquals(42L, sliceId);
+        verify(strategy).checkVersionCreate(SCOPED_MODEL, row);
+        verify(service).createList(eq(SCOPED_MODEL), anyList());
+    }
+
+    @Test
+    void addVersionOnNonTimelineModelIsRejected() {
+        ModelServiceImpl<Serializable> service = new ModelServiceImpl<>();
+        VersioningStrategyResolver versioning = Mockito.mock(VersioningStrategyResolver.class);
+        ReflectionTestUtils.setField(service, "versioning", versioning);
+        when(versioning.of(SCOPED_MODEL)).thenReturn(new IdentityStrategy<>(null));
+
+        RuntimeException e = Assertions.assertThrows(RuntimeException.class,
+                () -> service.addVersion(SCOPED_MODEL, new HashMap<>(Map.of("name", "x"))));
+        Assertions.assertTrue(e.getMessage().contains("not a timeline model"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void addVersionAndFetchReadsTheVersionRowAcrossTimeline() {
+        ModelServiceImpl<Serializable> service = Mockito.spy(new ModelServiceImpl<>());
+        JdbcService<Serializable> jdbc = Mockito.mock(JdbcService.class);
+        PermissionService permission = Mockito.mock(PermissionService.class);
+        ReflectionTestUtils.setField(service, "jdbcService", jdbc);
+        ReflectionTestUtils.setField(service, "permissionService", permission);
+        when(permission.filterReadableFields(eq(SCOPED_MODEL), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(1));
+        Map<String, Object> versionRow = new HashMap<>(Map.of(ModelConstant.SLICE_ID, 42L, "name", "R&D 2"));
+        when(jdbc.selectByFilter(eq(SCOPED_MODEL), any(FlexQuery.class))).thenReturn(List.of(versionRow));
+        Mockito.doReturn(42L).when(service).addVersion(eq(SCOPED_MODEL), anyMap());
+
+        Map<String, Object> fetched = service.addVersionAndFetch(SCOPED_MODEL, new HashMap<>(), ConvertType.TYPE_CAST);
+
+        Assertions.assertEquals("R&D 2", fetched.get("name"));
+        // The fetch is keyed by the new sliceId and must NOT apply the as-of clamp
+        // (the new version's effective date may not be today).
+        ArgumentCaptor<FlexQuery> query = ArgumentCaptor.forClass(FlexQuery.class);
+        verify(jdbc).selectByFilter(eq(SCOPED_MODEL), query.capture());
+        Assertions.assertTrue(query.getValue().isAcrossTimeline());
+        Assertions.assertTrue(String.valueOf(query.getValue().getFilters()).contains(ModelConstant.SLICE_ID));
     }
 
     // ------------------------------------------------------------------ copy semantics

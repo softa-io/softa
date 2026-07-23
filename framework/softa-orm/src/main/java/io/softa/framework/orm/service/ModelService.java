@@ -340,6 +340,30 @@ public interface ModelService<K extends Serializable> {
     boolean deleteBySliceId(String modelName, Serializable sliceId);
 
     /**
+     * Adds a version (slice) to an EXISTING timeline entity — the explicit form of
+     * "create with an existing id". The row must carry the entity's {@code id};
+     * {@code effectiveStartDate} defaults to the context effective date. Adjacent
+     * slices are split/corrected automatically.
+     *
+     * @param modelName the name of the model
+     * @param row the version data, carrying the existing entity's id
+     * @return the new version's sliceId (the existing sliceId when a same-start slice
+     *         was corrected in place)
+     */
+    Serializable addVersion(String modelName, Map<String, Object> row);
+
+    /**
+     * Adds a version like {@link #addVersion}, then fetches the version row by its
+     * sliceId (across the timeline — the new version's effective date may not be today).
+     *
+     * @param modelName the name of the model
+     * @param row the version data, carrying the existing entity's id
+     * @param convertType the conversion type applied to the result
+     * @return the created/corrected version row, including sliceId and effective dates
+     */
+    Map<String, Object> addVersionAndFetch(String modelName, Map<String, Object> row, ConvertType convertType);
+
+    /**
      * Deletes multiple rows by their IDs.
      *
      * @param modelName the name of the model

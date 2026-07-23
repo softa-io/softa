@@ -868,6 +868,50 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     }
 
     /**
+     * Adds a version (slice) to an EXISTING timeline entity — the explicit form of
+     * "create with an existing id". Runs the full create pipeline (permissions,
+     * processors, interval maintenance).
+     *
+     * @param modelName the name of the model
+     * @param row the version data, carrying the existing entity's id
+     * @return the new version's sliceId (the existing sliceId when a same-start slice
+     *         was corrected in place)
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Serializable addVersion(String modelName, Map<String, Object> row) {
+        Assert.notEmpty(row, "The version data for model {0} cannot be empty!", modelName);
+        // Rejects non-timeline models, a missing id, and an id that matches no entity.
+        versioning.of(modelName).checkVersionCreate(modelName, row);
+        this.createList(modelName, Collections.singletonList(row));
+        return (Serializable) row.get(ModelConstant.SLICE_ID);
+    }
+
+    /**
+     * Adds a version like {@link #addVersion}, then fetches the version row by its sliceId.
+     *
+     * @param modelName the name of the model
+     * @param row the version data, carrying the existing entity's id
+     * @param convertType the conversion type applied to the result
+     * @return the created/corrected version row, including sliceId and effective dates
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> addVersionAndFetch(String modelName, Map<String, Object> row, ConvertType convertType) {
+        Serializable sliceId = this.addVersion(modelName, row);
+        // Fetch by the version's physical key across the timeline — the new version's
+        // effective date may not be today, so the as-of clamp must not apply.
+        List<String> fields = readableFieldsForFetch(modelName);
+        FlexQuery flexQuery = new FlexQuery(fields, new Filters().eq(ModelConstant.SLICE_ID, sliceId)).acrossTimelineData();
+        flexQuery.setConvertType(convertType);
+        List<Map<String, Object>> rows = jdbcService.selectByFilter(modelName, flexQuery);
+        Assert.notEmpty(rows, "Timeline model {0} does not exist data for sliceId={1}.", modelName, sliceId);
+        // Layer C POST — mask blocked-field values on the response.
+        permissionService.maskResponseValue(modelName, rows, AccessType.READ);
+        return rows.getFirst();
+    }
+
+    /**
      * Deletes multiple rows by their IDs.
      *
      * @param modelName the name of the model

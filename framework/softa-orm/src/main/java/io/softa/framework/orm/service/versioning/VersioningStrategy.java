@@ -95,6 +95,19 @@ public interface VersioningStrategy {
     Filters scopeRead(String modelName, FlexQuery flexQuery);
 
     /**
+     * Validate an add-version request: the row must target an EXISTING entity of a
+     * timeline model (its {@code id} present and alive). Identity models have no
+     * versions: rejected.
+     *
+     * @param modelName model name
+     * @param row the version data carrying the existing entity's id
+     */
+    default void checkVersionCreate(String modelName, Map<String, Object> row) {
+        throw new IllegalArgumentException(
+                "Model {0} is not a timeline model, and cannot add a version slice.", modelName);
+    }
+
+    /**
      * Load one version row (slice) by its physical id, for version-level operations.
      * Identity models have no versions: rejected.
      *

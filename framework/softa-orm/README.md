@@ -592,7 +592,9 @@ Example timeline slices (same logical department `id`):
 - Cascaded reads propagate `effectiveDate`.
 - **View a record's version list from the REST API**: `/searchPage` (or `/searchList`) with the row's
   `id` in `filters` and `acrossTimeline: true` returns all slices (each carrying its own `sliceId` and
-  effective range). The `acrossTimeline` flag is the explicit half of the dual trigger, exposed on
+  effective range). Narrow field selections on a timeline model automatically round-trip `sliceId`
+  (like `version` under optimistic locking): version rows stay actionable — correct via `update` /
+  remove via `deleteBySliceId` — without re-querying. The `acrossTimeline` flag is the explicit half of the dual trigger, exposed on
   `QueryParams` / `SearchListParams`; it is not on `SearchNameParams` (a displayName picker wants the
   as-of option, not every version). Example:
   ```jsonc
@@ -603,6 +605,23 @@ Example timeline slices (same logical department `id`):
 #### 2.3 create APIs
 - For `createOne/createList`, if `effectiveStartDate` is empty, it uses the current `effectiveDate`; if `effectiveEndDate` is empty, it is set to `9999-12-31`.
 - If an existing `id` is provided, the system automatically splits or adjusts adjacent slices based on the new `effectiveStartDate`.
+- **The three write intents, made explicit:**
+
+  | Intent | API | Key |
+  |---|---|---|
+  | Create a NEW entity | `create*` **without** `id` | fresh logical `id` + genesis slice |
+  | Add a version to an EXISTING entity | `addVersion` (or `create*` with the existing `id`) | returns the new `sliceId` |
+  | Correct one existing version | `update*` | keyed by `sliceId` (any supplied `id` is overwritten from the DB) |
+
+- `addVersion(modelName, row)` is the explicit add-version entry (REST: `POST /{model}/addVersion`,
+  counterpart of `deleteBySliceId`): the row must carry the existing entity's `id`, and it returns the new
+  version's `sliceId` (when the start date matches an existing slice, that slice is corrected in place and
+  its `sliceId` is returned). `addVersionAndFetch` also returns the full version row, fetched by `sliceId`
+  across the timeline (the new version's effective date may not be today).
+- **Guard**: a `create*` call carrying an `id` that matches **no** entity is rejected for
+  `DISTRIBUTED_LONG/STRING` models — a typo must not silently mint a new entity with a caller-chosen id.
+  Exceptions: `EXTERNAL_ID` models (new entities legitimately arrive with their id) and the
+  `enableInsertId` import mode (preset ids).
 
 #### 2.4 update APIs
 - The current implementation uses `sliceId` as the update primary key. Updating `effectiveStartDate` automatically corrects adjacent slices' `effectiveEndDate`.

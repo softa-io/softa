@@ -60,6 +60,10 @@ public class SelectBuilder extends BaseBuilder implements SqlClauseBuilder {
             if (ModelManager.isVersionControl(mainModelName)) {
                 selectFields.add(ModelConstant.VERSION);
             }
+            // Timeline updates/deletes are keyed by the physical sliceId — round-trip it like `version`.
+            if (ModelManager.isTimelineModel(mainModelName)) {
+                selectFields.add(ModelConstant.SLICE_ID);
+            }
         }
         // When subQuery is specified, append the XToMany relationship fields in subQuery to selectFields.
         if (flexQuery.getSubQueries() != null) {

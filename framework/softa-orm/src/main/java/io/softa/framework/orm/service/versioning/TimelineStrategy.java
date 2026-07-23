@@ -9,14 +9,18 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.entity.TimelineSlice;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.service.TimelineService;
+import io.softa.framework.orm.utils.IdUtils;
 
 /**
  * The {@link VersioningStrategy} for timeline models. The slice interval-maintenance
@@ -87,6 +91,24 @@ public class TimelineStrategy<K extends Serializable> implements VersioningStrat
     @Override
     public Filters scopeRead(String modelName, FlexQuery flexQuery) {
         return timelineService.appendTimelineFilters(modelName, flexQuery);
+    }
+
+    @Override
+    public void checkVersionCreate(String modelName, Map<String, Object> row) {
+        Serializable id = (Serializable) row.get(ModelConstant.ID);
+        Assert.isTrue(IdUtils.validId(id),
+                "addVersion on timeline model {0} requires the existing entity''s `id`. {1}", modelName, row);
+        // Existence is normally enforced downstream by the createSlices guard, riding the exist()
+        // probe it performs anyway to dispatch first-slice vs add-version — probing here too would
+        // be a duplicate read. Only where that guard stays open (EXTERNAL_ID models and the
+        // enableInsertId import mode may legitimately create a first slice with a caller-supplied
+        // id) does addVersion's "existing entity" contract need its own probe.
+        if (IdStrategy.EXTERNAL_ID.equals(ModelManager.getIdStrategy(modelName))
+                || SystemConfig.env.isEnableInsertId()) {
+            Assert.isTrue(jdbcService.exist(modelName, id),
+                    "addVersion on timeline model {0}: id {1} does not exist. To create a new entity, "
+                            + "use `create` without an id.", modelName, id);
+        }
     }
 
     @Override

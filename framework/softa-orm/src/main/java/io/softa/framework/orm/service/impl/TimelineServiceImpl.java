@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
@@ -18,6 +19,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.entity.TimelineSlice;
+import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.TimelineService;
@@ -132,11 +134,29 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
     public List<Map<String, Object>> createSlices(String modelName, List<Map<String, Object>> rows) {
         LocalDate effectiveDate = ContextHolder.getContext().getEffectiveDate();
         rows.forEach(row -> {
+            // Web rows may carry ISO date strings; the interval math and the TimelineSlice
+            // mapping below require LocalDate — normalize at entry (the same pattern as the
+            // sliceId normalization in updateSlices). The type-cast pipeline only runs later,
+            // at the store step.
+            row.computeIfPresent(ModelConstant.EFFECTIVE_START_DATE, (k, v) -> DateUtils.dateToLocalDate(v));
+            row.computeIfPresent(ModelConstant.EFFECTIVE_END_DATE, (k, v) -> DateUtils.dateToLocalDate(v));
             row.putIfAbsent(ModelConstant.EFFECTIVE_START_DATE, effectiveDate);
-            if (row.get(ModelConstant.ID) != null && jdbcService.exist(modelName, (Serializable) row.get(ModelConstant.ID))) {
+            Serializable id = (Serializable) row.get(ModelConstant.ID);
+            if (id != null && jdbcService.exist(modelName, id)) {
                 // id already exists, copy adjacent slice to insert a new one.
                 createSlice(modelName, row);
             } else {
+                // A caller-supplied id that matches no entity is almost certainly a mistake
+                // (a typo silently minting a new entity). Only EXTERNAL_ID models (new entities
+                // legitimately arrive with their id) and the enableInsertId import mode
+                // (preset ids, mirroring IdProcessor's contract) may create a first slice with
+                // a caller-chosen id.
+                Assert.notTrue(id != null
+                                && !IdStrategy.EXTERNAL_ID.equals(ModelManager.getIdStrategy(modelName))
+                                && !SystemConfig.env.isEnableInsertId(),
+                        "Timeline model {0}: id {1} does not exist. Omit `id` to create a new entity, "
+                                + "or use `addVersion` / pass an existing entity''s id to add a version.",
+                        modelName, id);
                 // No id is provided, insert the row data as the first slice.
                 row.put(ModelConstant.EFFECTIVE_END_DATE, ModelConstant.MAX_EFFECTIVE_END_DATE);
                 jdbcService.insertList(modelName, Collections.singletonList(row));
@@ -247,11 +267,14 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
             // When sliceId is of Integer type, convert it to Long type.
             sliceId = IdUtils.formatId(modelName, ModelConstant.SLICE_ID, sliceId);
             sliceRow.put(ModelConstant.SLICE_ID, sliceId);
+            // Normalize possible ISO date strings from web rows (see createSlices).
+            sliceRow.computeIfPresent(ModelConstant.EFFECTIVE_END_DATE, (k, v) -> DateUtils.dateToLocalDate(v));
             // When `effectiveStartDate` changes, update the `effectiveEndDate` of the affected slice.
             if (sliceRow.containsKey(ModelConstant.EFFECTIVE_START_DATE)) {
                 Object effectiveStartDate = sliceRow.get(ModelConstant.EFFECTIVE_START_DATE);
                 Assert.notTrue(effectiveStartDate == null || effectiveStartDate.equals(""),
                         "`effectiveStartDate` field of timeline model {0} cannot be set to empty! {1}", modelName, sliceRow);
+                sliceRow.put(ModelConstant.EFFECTIVE_START_DATE, DateUtils.dateToLocalDate(effectiveStartDate));
                 this.updateSliceAndCorrectDate(modelName, sliceRow);
             } else {
                 this.updateCurrentSlice(modelName, sliceRow, false);
