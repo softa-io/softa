@@ -14,6 +14,7 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.tenant.entity.TenantInfo;
+import io.softa.starter.tenant.enums.TenantProvisioningStatus;
 import io.softa.starter.tenant.enums.TenantStatus;
 
 /**
@@ -69,6 +70,23 @@ public class TenantInfoServiceImpl extends EntityServiceImpl<TenantInfo, Long> i
         // the tenant's users are then forced to re-login on their next request.
         cacheService.clear(RedisConstant.TENANT_INFO + tenantId);
         cacheService.clear(RedisConstant.TENANT_IDS);
+    }
+
+    /**
+     * Write the tenant's {@link TenantProvisioningStatus} (seed-progress axis; separate from operational
+     * status). Idempotent — a no-op when already at the target, so it is safe under MQ redelivery and
+     * concurrent seeders. Evicts the cached TenantInfo so readers see it; login is unaffected (it keys off
+     * {@code status == ACTIVE}, not this axis).
+     */
+    public void markProvisioningStatus(Long tenantId, TenantProvisioningStatus status) {
+        TenantInfo tenant = this.getById(tenantId).orElse(null);
+        Assert.notNull(tenant, "Tenant not found for tenantId: {0}", tenantId);
+        if (status.equals(tenant.getProvisioningStatus())) {
+            return;
+        }
+        tenant.setProvisioningStatus(status);
+        this.updateOne(tenant);
+        cacheService.clear(RedisConstant.TENANT_INFO + tenantId);
     }
 
     /** Cached single-tenant lookup — internal to tenant-starter (not part of the framework SPI). */

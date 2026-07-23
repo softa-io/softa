@@ -24,6 +24,7 @@ import io.softa.starter.tenant.enums.TenantLifecycle;
 import io.softa.starter.tenant.enums.TenantStatus;
 import io.softa.starter.tenant.service.TenantSubscriptionService;
 import io.softa.starter.tenant.service.impl.TenantInfoServiceImpl;
+import io.softa.starter.tenant.service.impl.TenantProvisioningStatusService;
 
 /**
  * Tenant provisioning — a reusable tenant-starter feature. Creates the tenant registry row + its owned
@@ -45,15 +46,18 @@ public class TenantProvisioningService {
     private final TenantSubscriptionService subscriptionService;
     private final ModelService<?> modelService;
     private final ApplicationEventPublisher eventPublisher;
+    private final TenantProvisioningStatusService provisioningStatusService;
 
     public TenantProvisioningService(TenantInfoServiceImpl tenantInfoService,
                                      TenantSubscriptionService subscriptionService,
                                      ModelService<?> modelService,
-                                     ApplicationEventPublisher eventPublisher) {
+                                     ApplicationEventPublisher eventPublisher,
+                                     TenantProvisioningStatusService provisioningStatusService) {
         this.tenantInfoService = tenantInfoService;
         this.subscriptionService = subscriptionService;
         this.modelService = modelService;
         this.eventPublisher = eventPublisher;
+        this.provisioningStatusService = provisioningStatusService;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -81,6 +85,10 @@ public class TenantProvisioningService {
             tenant.setSubscriptionId(subscriptionId);
             return tenantInfoService.createOne(tenant);
         });
+
+        // Mark the initialization axis before broadcasting: no expected seeders (single-tenant / no-MQ)
+        // → READY immediately; otherwise INITIALIZING until the expected seeders report done.
+        provisioningStatusService.beginProvisioning(tenantId);
 
         // Synchronous, same-transaction: app-side listeners (seed per-tenant data, create first admin)
         // run before commit, so any failure there rolls back tenant creation too.

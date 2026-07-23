@@ -14,6 +14,7 @@ import io.softa.starter.tenant.entity.TenantSubscription;
 import io.softa.starter.tenant.enums.TenantLifecycle;
 import io.softa.starter.tenant.service.TenantSubscriptionService;
 import io.softa.starter.tenant.service.impl.TenantInfoServiceImpl;
+import io.softa.starter.tenant.service.impl.TenantProvisioningStatusService;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -41,7 +42,8 @@ class TenantProvisioningServiceTest {
         tenantInfoService = mock(TenantInfoServiceImpl.class);
         subscriptionService = mock(TenantSubscriptionService.class);
         service = new TenantProvisioningService(tenantInfoService, subscriptionService,
-                mock(ModelService.class), mock(ApplicationEventPublisher.class));
+                mock(ModelService.class), mock(ApplicationEventPublisher.class),
+                mock(TenantProvisioningStatusService.class));
     }
 
     @Test

@@ -82,9 +82,16 @@ public class AdminProvisioningService {
             // No display name captured at admin-provisioning time → null falls back to the email.
             UserInfo user = accountService.registerInvitedUser(request.getEmail(), request.getMobile(), null);
 
+            // Readiness gate for createAdmin. TENANT_ADMIN is seeded as part of the tenant's per-tenant
+            // pre-data, which (since mode-2 Step 3) loads asynchronously. Its presence is the *precise*
+            // prerequisite here — createAdmin needs the role, not the whole tenant READY (org masters are
+            // the async AdminEmployeeSeeder's concern, and it self-retries on its own dependency). If the
+            // role isn't seeded yet the tenant is still initializing: fail clearly so the caller retries,
+            // rather than granting an admin with no role.
             Role adminRole = roleService.searchOne(new Filters().eq(Role::getCode, RoleConstant.CODE_TENANT_ADMIN))
                     .orElseThrow(() -> new BusinessException(
-                            "TENANT_ADMIN role not seeded for tenant " + request.getTenantId()));
+                            "TENANT_ADMIN role not yet seeded for tenant " + request.getTenantId()
+                            + " — the tenant is still initializing (per-tenant roles seed asynchronously); retry shortly."));
 
             UserRoleRel grant = new UserRoleRel();
             // tenant_id auto-stamped by the framework (UserRoleRel is multiTenant, inside inTenantContext).
