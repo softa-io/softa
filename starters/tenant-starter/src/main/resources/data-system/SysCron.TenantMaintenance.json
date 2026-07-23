@@ -9,6 +9,16 @@
       "tenantJobMode": "CrossTenant",
       "active": true,
       "description": "Flip tenants stuck in provisioning INITIALIZING past softa.tenant.provisioning.ready-timeout-seconds (default 600s) to FAILED. Consumed by tenant-starter's TenantMaintenanceCronConsumer (CrossTenant; idempotent + self-healing)."
+    },
+    {
+      "id": "SubscriptionExpiry",
+      "name": "SubscriptionExpiry",
+      "cronExpression": "0 20 * * * ?",
+      "cronSemantic": "Every hour at :20",
+      "limitExecution": false,
+      "tenantJobMode": "CrossTenant",
+      "active": true,
+      "description": "Hourly tick. Flips a tenant subscription to EXPIRED once effectiveTo passes in the owning tenant's timezone (local midnight), degrading it to Free. Consumed by tenant-starter's TenantMaintenanceCronConsumer (SubscriptionExpiryJob)."
     }
   ]
 }
