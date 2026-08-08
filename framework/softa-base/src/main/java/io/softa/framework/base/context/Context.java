@@ -82,6 +82,21 @@ public class Context implements Serializable {
      */
     private boolean skipPermissionCheck = false;
 
+    /**
+     * Narrow bypass: skip ONLY row-scope enforcement (scope filters and id-range
+     * checks). Field-level guards — sensitive-field masking and write-payload
+     * checks — stay active, which is what separates this from
+     * {@link #skipPermissionCheck}: that one turns off ALL permission layers.
+     *
+     * <p>Intended pattern (custom-endpoint main-model scope): verify the caller's
+     * data scope on the endpoint's main model FIRST, and only then set this flag
+     * for the rest of the call, so the endpoint's internal cross-model reads and
+     * writes are not silently emptied / blocked by row scope they were never
+     * granted. Enable only AFTER the entry check has passed — never before —
+     * and restore the previous value in a finally block.
+     */
+    private boolean skipDataScope = false;
+
     private boolean skipAutoAudit = false;
 
     /**
