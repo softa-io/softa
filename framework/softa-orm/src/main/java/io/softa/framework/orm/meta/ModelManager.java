@@ -1058,7 +1058,11 @@ public class ModelManager {
      * <p>Excludes fields marked {@code copyable = false}, audit fields, dynamic fields
      * (OneToMany / ManyToMany / computed / cascaded — they are derived, not stored),
      * OneToOne fields (the related row is owned by the source row; copying the FK
-     * would make two rows share one exclusively-owned related row), autoSequence
+     * would make two rows share one exclusively-owned related row), File / MultiFile
+     * fields (same argument: a {@code FileRecord} is claimed by the row that references
+     * it, so copying the id would leave one file owned by two rows and its
+     * {@code rowId} — the basis for authorizing access to it — pointing at only one of
+     * them), autoSequence
      * fields (a copy is a new document, so it must get a fresh number — leaving the
      * field blank lets SequenceProcessor allocate one on insert instead of carrying
      * the source's), and the identity
@@ -1079,6 +1083,8 @@ public class ModelManager {
                     if (!metaField.isCopyable() || metaField.isDynamic()
                             || metaField.isAutoSequence()
                             || FieldType.ONE_TO_ONE.equals(metaField.getFieldType())
+                            || FieldType.FILE.equals(metaField.getFieldType())
+                            || FieldType.MULTI_FILE.equals(metaField.getFieldType())
                             || ModelConstant.AUDIT_FIELDS.contains(fieldName)) {
                         return false;
                     } else if (isTimeline) {

@@ -83,6 +83,8 @@ class ModelManagerCopyableTest {
                 oneToMany("CopyDoc", "lines", "CopyLine", "docId"),
                 dynamicField("CopyDoc", "summary", "summary", FieldType.STRING),
                 autoSequenceField("CopyDoc", "docNo", "doc_no"),
+                field("CopyDoc", "attachment", "attachment", FieldType.FILE),
+                field("CopyDoc", "attachments", "attachments", FieldType.MULTI_FILE),
                 // related models
                 field("CopyProfile", "id", "id", FieldType.LONG),
                 field("CopyLine", "id", "id", FieldType.LONG),
@@ -251,6 +253,19 @@ class ModelManagerCopyableTest {
         List<String> copyable = ModelManager.getModelCopyableFields("CopyLine");
         assertTrue(copyable.contains("docId"), "ManyToOne FK is shared-reference semantics — stays copyable");
         assertFalse(copyable.contains("id"));
+    }
+
+    @Test
+    void getModelCopyableFields_fileFieldsAreExcluded() {
+        List<String> copyable = ModelManager.getModelCopyableFields("CopyDoc");
+        // Same argument as OneToOne: a FileRecord is claimed by the row that references it, and its
+        // rowId is what authorizes reading it. Copying the id would leave one file owned by two rows
+        // with the claim naming only one — so the copy's attachment would be readable through a row
+        // that does not own it, and unreadable through the one that does.
+        assertFalse(copyable.contains("attachment"), "File id must not be carried into a copy");
+        assertFalse(copyable.contains("attachments"), "MultiFile ids must not be carried into a copy");
+        // Guard the negative: the exclusion is by field type, not by a name that happens to match.
+        assertTrue(copyable.contains("name"), "ordinary fields stay copyable");
     }
 
     @Test
