@@ -15,7 +15,7 @@ import io.softa.starter.file.enums.DocumentTemplateType;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model
+@Model(multiTenant = true)
 public class DocumentTemplate extends AuditableModel {
 
     @Serial

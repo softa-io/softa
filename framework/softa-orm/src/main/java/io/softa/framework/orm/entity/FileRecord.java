@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.FileSource;
 import io.softa.framework.orm.enums.FileType;
@@ -17,8 +18,10 @@ import io.softa.framework.orm.enums.IdStrategy;
 @EqualsAndHashCode(callSuper = true)
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
+        multiTenant = true,
         softDelete = true
 )
+@Index(fields = {"tenantId", "modelName", "rowId"})
 public class FileRecord extends AuditableModel {
 
     @Serial
