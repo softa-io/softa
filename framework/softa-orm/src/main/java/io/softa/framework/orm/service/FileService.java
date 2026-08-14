@@ -2,6 +2,7 @@ package io.softa.framework.orm.service;
 
 import java.io.InputStream;
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.web.multipart.MultipartFile;
@@ -96,5 +97,32 @@ public interface FileService {
      * @return fileInfo object with download URL
      */
     List<FileInfo> getRowFiles(String modelName, Serializable rowId);
+
+    /**
+     * Bind uploaded files to the row that now references them.
+     *
+     * <p>A file uploaded from a create form has no row yet — {@code uploadFileToField} accepts a null
+     * {@code rowId} precisely because the record is written afterwards. Nothing used to close that gap,
+     * so the {@code FileRecord} kept {@code rowId = null} forever, and a file could not say which row
+     * owned it. That matters beyond tidiness: access to a file is meant to derive from access to the
+     * row it hangs on, and a file with no row cannot be authorized that way.
+     *
+     * <p>Called by the ORM once the row's id is known, on create and on update alike. Idempotent, and
+     * silent about ids it cannot find — a claim naming a deleted file is not worth failing a business
+     * write over.
+     *
+     * @param claims the bindings to apply; empty is a no-op
+     */
+    void claimFiles(Collection<FileClaim> claims);
+
+    /**
+     * One file's binding to the row and field that reference it.
+     *
+     * @param fileId the file being claimed
+     * @param modelName the model of the owning row
+     * @param rowId the id of the owning row
+     * @param fieldName the field on that row holding this file
+     */
+    record FileClaim(Long fileId, String modelName, String rowId, String fieldName) {}
 
 }

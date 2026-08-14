@@ -3,12 +3,19 @@ package io.softa.framework.orm.service.impl;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import io.softa.framework.base.config.SystemConfig;
@@ -357,5 +364,55 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
                 .eq(FileRecord::getRowId, rowId.toString());
         List<FileRecord> fileRecords = this.searchList(filters);
         return fileRecords.stream().map(this::convertToFileInfo).toList();
+    }
+
+    /**
+     * Bind uploaded files to the row that now references them.
+     *
+     * <p>One read and one write for the whole batch, however many rows were just written: a bulk
+     * create of a hundred rows each carrying an attachment must not become a hundred round trips.
+     *
+     * <p>Claims naming an id that no longer exists are dropped rather than raised. The caller is a
+     * business write that has already succeeded; a file deleted between upload and save is not a
+     * reason to fail it, and the row simply ends up referencing nothing — which the read side
+     * already tolerates.
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void claimFiles(Collection<FileClaim> claims) {
+        if (CollectionUtils.isEmpty(claims)) {
+            return;
+        }
+        Map<Long, FileClaim> claimById = new LinkedHashMap<>();
+        for (FileClaim claim : claims) {
+            if (claim != null && claim.fileId() != null) {
+                claimById.put(claim.fileId(), claim);
+            }
+        }
+        if (claimById.isEmpty()) {
+            return;
+        }
+        List<FileRecord> records = this.getByIds(new ArrayList<>(claimById.keySet()));
+        List<FileRecord> toUpdate = new ArrayList<>(records.size());
+        for (FileRecord record : records) {
+            FileClaim claim = claimById.get(record.getId());
+            if (claim == null || isAlreadyClaimed(record, claim)) {
+                continue;
+            }
+            record.setModelName(claim.modelName());
+            record.setRowId(claim.rowId());
+            record.setFieldName(claim.fieldName());
+            toUpdate.add(record);
+        }
+        if (!toUpdate.isEmpty()) {
+            this.updateList(toUpdate);
+        }
+    }
+
+    /** True when the record already carries exactly this binding — re-saving a row must not churn writes. */
+    private boolean isAlreadyClaimed(FileRecord record, FileClaim claim) {
+        return Objects.equals(record.getModelName(), claim.modelName())
+                && Objects.equals(record.getRowId(), claim.rowId())
+                && Objects.equals(record.getFieldName(), claim.fieldName());
     }
 }

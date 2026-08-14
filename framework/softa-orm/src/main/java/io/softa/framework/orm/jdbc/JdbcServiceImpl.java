@@ -110,6 +110,10 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         // Because its need to get the ids first, and finally process the OneToMany, ManyToMany parameters
         // to create associated table or intermediate table rows.
         pipeline.processXToManyData(rows);
+        // Same reason, for files: an upload from a create form has no row to name yet, so the record it
+        // wrote points at nothing until here. Binding it is what lets access to a file derive from access
+        // to the row that holds it.
+        FileOwnership.claim(modelName, rows);
         return rows;
     }
 
@@ -300,6 +304,9 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         int count = differRows.stream().mapToInt(row -> updateOne(modelName, row)).sum();
         // After updating the main table, update the sub-table to avoid the sub-table cascade field being the old value.
         boolean changed = pipeline.processXToManyData(rows);
+        // Replacing a file swaps in an id whose record still points at nothing, so update claims too —
+        // not only create.
+        FileOwnership.claim(modelName, rows);
         if (count > 0) {
             // Collect changeLogs
             changeLogPublisher.publishUpdateLog(modelName, differRows, originalRowsMap, updatedTime);
