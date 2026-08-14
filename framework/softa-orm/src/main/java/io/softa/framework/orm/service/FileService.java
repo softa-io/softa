@@ -116,6 +116,33 @@ public interface FileService {
     void claimFiles(Collection<FileClaim> claims);
 
     /**
+     * Who owns this file — the row it hangs on, or failing that the user who uploaded it.
+     *
+     * <p>Exists so a caller holding only a file id can authorize the read the way it should be
+     * authorized: against the record the file belongs to. {@link FileInfo} deliberately does not carry
+     * this — it is the response DTO, and ownership is not something every client should receive.
+     *
+     * @param fileId the file to resolve
+     * @return the owner, or empty when no such file exists
+     */
+    Optional<FileOwner> getFileOwner(Long fileId);
+
+    /**
+     * A file's owning row, plus its uploader for the case where no row claims it yet.
+     *
+     * @param modelName the model of the owning row, null while unclaimed
+     * @param rowId the id of the owning row, null while unclaimed
+     * @param uploaderId the user who uploaded it — the only defensible owner of an unclaimed file
+     */
+    record FileOwner(String modelName, String rowId, Long uploaderId) {
+
+        /** Unclaimed: uploaded, not yet referenced by any row. Authorize against the uploader. */
+        public boolean isUnclaimed() {
+            return rowId == null || rowId.isBlank() || modelName == null || modelName.isBlank();
+        }
+    }
+
+    /**
      * One file's binding to the row and field that reference it.
      *
      * @param fileId the file being claimed

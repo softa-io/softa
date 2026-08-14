@@ -24,6 +24,7 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.utils.DateUtils;
 import io.softa.framework.orm.constant.FileConstant;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.domain.FileStream;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.dto.DownloadFileDTO;
@@ -358,7 +359,10 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      */
     @Override
     public List<FileInfo> getRowFiles(String modelName, Serializable rowId) {
-        permissionService.checkIdAccess(modelName, rowId, AccessType.READ);
+        // formatId is not optional: rowId arrives bound from a query string — a String — while the
+        // model's key is typically Long. Unconverted, the id check counts nothing and denies every
+        // caller, which reads as a permission problem and is really a type one.
+        permissionService.checkIdAccess(modelName, IdUtils.formatId(modelName, rowId), AccessType.READ);
         Filters filters = new Filters()
                 .eq(FileRecord::getModelName, modelName)
                 .eq(FileRecord::getRowId, rowId.toString());
@@ -396,7 +400,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         List<FileRecord> toUpdate = new ArrayList<>(records.size());
         for (FileRecord record : records) {
             FileClaim claim = claimById.get(record.getId());
-            if (claim == null || isAlreadyClaimed(record, claim)) {
+            if (claim == null || isAlreadyClaimed(record, claim) || isOwnedByAnotherRow(record, claim)) {
                 continue;
             }
             record.setModelName(claim.modelName());
@@ -407,6 +411,36 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         if (!toUpdate.isEmpty()) {
             this.updateList(toUpdate);
         }
+    }
+
+    @Override
+    public Optional<FileOwner> getFileOwner(Long fileId) {
+        if (fileId == null) {
+            return Optional.empty();
+        }
+        return this.getById(fileId).map(record ->
+                new FileOwner(record.getModelName(), record.getRowId(), record.getCreatedId()));
+    }
+
+    /**
+     * True when this file already belongs to some other row — a claim must never move it.
+     *
+     * <p>Without this, writing someone else's file id into a row you may edit would re-point the file at
+     * your row, and reading your row would then hand you their file: a path that never touches the file
+     * endpoints and so is not covered by any check on them. Refusing to move a claimed file closes it —
+     * the theft needs the file to change hands, and it cannot.
+     *
+     * <p>Left deliberately permissive for a file no row has claimed yet: uploader and saver are not
+     * always the same person (a candidate uploads during pre-boarding, HR saves the record afterwards),
+     * and an unclaimed file is not yet anyone's business data. Its exposure before the claim is bounded
+     * separately, by {@code getByFileId} authorizing an unclaimed file against its uploader.
+     */
+    private boolean isOwnedByAnotherRow(FileRecord record, FileClaim claim) {
+        if (StringUtils.isBlank(record.getRowId()) || StringUtils.isBlank(record.getModelName())) {
+            return false;
+        }
+        return !(Objects.equals(record.getModelName(), claim.modelName())
+                && Objects.equals(record.getRowId(), claim.rowId()));
     }
 
     /** True when the record already carries exactly this binding — re-saving a row must not churn writes. */
