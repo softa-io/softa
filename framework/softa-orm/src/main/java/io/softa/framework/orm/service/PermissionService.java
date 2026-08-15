@@ -80,6 +80,18 @@ public interface PermissionService {
      */
     void checkRouteAccess(String route);
 
+    /**
+     * Whether the data plane does not apply to the current caller — an administrator, or a context
+     * that has already waived checks.
+     *
+     * <p>Exists for the few authorization decisions the framework has to make in its own code rather
+     * than through {@code checkIdAccess}: the file endpoints authorize a file with no owning row
+     * against its uploader, and comparing user ids by hand would deny an administrator, who by
+     * definition bypasses every other data-plane check. Asking here keeps that one invariant in one
+     * place instead of teaching softa-web what an admin role code looks like.
+     */
+    boolean isDataPlaneExempt();
+
     Set<String> getUserBlockedModelFields(String model, AccessType accessType);
 
     /**

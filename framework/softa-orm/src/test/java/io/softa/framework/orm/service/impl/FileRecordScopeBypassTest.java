@@ -1,5 +1,6 @@
 package io.softa.framework.orm.service.impl;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -8,11 +9,13 @@ import org.junit.jupiter.api.Test;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.entity.FileRecord;
+import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.FileService.FileOwner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.spy;
 
@@ -65,5 +68,37 @@ class FileRecordScopeBypassTest {
         ContextHolder.callWith(ctx, () -> service.getFileOwner(1L));
 
         assertTrue(ctx.isSkipPermissionCheck(), "an already-set skip must survive the call");
+    }
+
+    /**
+     * The claim runs inside a business write the caller was already authorized for, and reaches
+     * FileRecord — anchorless, matchNone. Unwaived, getByIds throws and the whole save dies at the
+     * point it binds the attachment, which is how a file field turns an ordinary create into a
+     * permission error for every non-admin.
+     */
+    @Test
+    void claimFilesReadsAndWritesWithScopeWaived() {
+        FileServiceImpl service = spy(new FileServiceImpl());
+        AtomicBoolean skippedDuringRead = new AtomicBoolean(false);
+        AtomicBoolean skippedDuringWrite = new AtomicBoolean(false);
+        FileRecord unclaimed = record();
+        unclaimed.setRowId(null);
+        doAnswer(inv -> {
+            skippedDuringRead.set(ContextHolder.getContext().isSkipPermissionCheck());
+            return List.of(unclaimed);
+        }).when(service).getByIds(anyList());
+        doAnswer(inv -> {
+            skippedDuringWrite.set(ContextHolder.getContext().isSkipPermissionCheck());
+            return true;
+        }).when(service).updateList(anyList());
+
+        Context ctx = new Context();
+        ctx.setSkipPermissionCheck(false);
+        ContextHolder.runWith(ctx, () ->
+                service.claimFiles(List.of(new FileService.FileClaim(1L, "Employee", "100", "attachment"))));
+
+        assertTrue(skippedDuringRead.get(), "the claim's FileRecord read must waive its own scope");
+        assertTrue(skippedDuringWrite.get(), "the claim's FileRecord write must waive its own scope");
+        assertFalse(ctx.isSkipPermissionCheck(), "the waiver must be undone after the claim");
     }
 }

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -375,7 +376,30 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         // The listing itself runs past FileRecord's own scope — otherwise it would come back empty for
         // every non-admin even though the owning row was just authorized above. Tenant isolation stays.
         List<FileRecord> fileRecords = bypassFileRecordScope(() -> this.searchList(filters));
-        return fileRecords.stream().map(this::convertToFileInfo).toList();
+        // Row access is not field access. A file hanging on a field the caller may not read — a bank
+        // account attachment behind a sensitive field set — would otherwise come back in full through
+        // this listing, handing back the document whose field value was masked two layers up. Files
+        // recorded against no field are kept: they belong to the row itself, not to a masked column.
+        return readableFiles(modelName, fileRecords).stream().map(this::convertToFileInfo).toList();
+    }
+
+    /**
+     * The subset of a row's files the caller may actually see.
+     *
+     * <p>Row access is not field access: a file hanging on a field behind a sensitive field set is the
+     * document whose column was masked two layers up, and listing it here would hand back what the mask
+     * withheld. Files recorded against no field are kept — they belong to the row itself, so no field
+     * mask speaks for them.
+     */
+    List<FileRecord> readableFiles(String modelName, List<FileRecord> fileRecords) {
+        Set<String> blocked = permissionService.getUserBlockedModelFields(modelName, AccessType.READ);
+        if (CollectionUtils.isEmpty(blocked)) {
+            return fileRecords;
+        }
+        return fileRecords.stream()
+                .filter(record -> StringUtils.isBlank(record.getFieldName())
+                        || !blocked.contains(record.getFieldName()))
+                .toList();
     }
 
     /**
@@ -404,7 +428,11 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         if (claimById.isEmpty()) {
             return;
         }
-        List<FileRecord> records = this.getByIds(new ArrayList<>(claimById.keySet()));
+        // Read and write past FileRecord's own (anchorless) scope, for the same reason the upload does:
+        // this runs inside a business write the caller was already authorized for, and FileRecord's
+        // matchNone would otherwise throw here — leaving the attachment bound to nothing, or rather
+        // failing the whole save. Tenant isolation is untouched, so a cross-tenant id still finds no row.
+        List<FileRecord> records = bypassFileRecordScope(() -> this.getByIds(new ArrayList<>(claimById.keySet())));
         List<FileRecord> toUpdate = new ArrayList<>(records.size());
         for (FileRecord record : records) {
             FileClaim claim = claimById.get(record.getId());
@@ -417,29 +445,10 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
             toUpdate.add(record);
         }
         if (!toUpdate.isEmpty()) {
-            this.updateList(toUpdate);
+            bypassFileRecordScope(() -> this.updateList(toUpdate));
         }
     }
 
-    /**
-     * Write the FileRecord itself, without asking whether the caller may create FileRecords.
-     *
-     * <p>Nobody grants that permission, and nobody should have to: a file record is bookkeeping for an
-     * action the caller has already been authorized to perform — uploading an attachment to a row they
-     * may edit, downloading an import template, exporting a list. FileRecord carries no anchor of its
-     * own, so an ordinary user with no rule for it fails the row-scope check on insert and every
-     * file-producing feature dies at the last step. Administrators skip that check, which is why this
-     * only ever showed up for ordinary users — and why it reads as "Excel generation failed" rather
-     * than as a permission problem.
-     *
-     * <p>Every value on the record is server-derived (oss key, checksum, size, the model and row it was
-     * uploaded against), so there is no caller-supplied filter or scope here for the skip to widen.
-     * It also does <b>not</b> waive tenant isolation — that is a separate flag — so the tenant stamp on
-     * a multi-tenant FileRecord still applies.
-     *
-     * <p>Set directly rather than through {@code @SkipPermissionCheck}: two of the three callers are
-     * private, and a self-invocation never reaches the aspect.
-     */
     /**
      * Run a FileRecord read or write with FileRecord's own row-scope waived — and only its own.
      *
@@ -470,6 +479,25 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         }
     }
 
+    /**
+     * Write the FileRecord itself, without asking whether the caller may create FileRecords.
+     *
+     * <p>Nobody grants that permission, and nobody should have to: a file record is bookkeeping for an
+     * action the caller has already been authorized to perform — uploading an attachment to a row they
+     * may edit, downloading an import template, exporting a list. FileRecord carries no anchor of its
+     * own, so an ordinary user with no rule for it fails the row-scope check on insert and every
+     * file-producing feature dies at the last step. Administrators skip that check, which is why this
+     * only ever showed up for ordinary users — and why it reads as "Excel generation failed" rather
+     * than as a permission problem.
+     *
+     * <p>Every value on the record is server-derived (oss key, checksum, size, the model and row it was
+     * uploaded against), so there is no caller-supplied filter or scope here for the skip to widen.
+     * It also does <b>not</b> waive tenant isolation — that is a separate flag — so the tenant stamp on
+     * a multi-tenant FileRecord still applies.
+     *
+     * <p>Set directly rather than through {@code @SkipPermissionCheck}: two of the three callers are
+     * private, and a self-invocation never reaches the aspect.
+     */
     private Long persistFileRecord(FileRecord fileRecord) {
         return bypassFileRecordScope(() -> this.createOne(fileRecord));
     }
@@ -501,8 +529,16 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * separately, by {@code getByFileId} authorizing an unclaimed file against its uploader.
      */
     private boolean isOwnedByAnotherRow(FileRecord record, FileClaim claim) {
-        if (StringUtils.isBlank(record.getRowId()) || StringUtils.isBlank(record.getModelName())) {
-            return false;
+        if (StringUtils.isBlank(record.getRowId())) {
+            // Unclaimed, but not therefore free: an upload always records the model it was made
+            // against, even from a create form where no row exists yet. Honouring that keeps a file
+            // someone is about to save onto an Employee from being pulled into a row of some other
+            // model — a claim writes an id into a field the claimer may edit, and nothing else about
+            // that write says whose file it was. Same-model claiming stays open on purpose: uploader
+            // and saver are not always the same person (a candidate uploads during pre-boarding, HR
+            // saves the record), and that case cannot be told apart from theft by identity alone.
+            return StringUtils.isNotBlank(record.getModelName())
+                    && !Objects.equals(record.getModelName(), claim.modelName());
         }
         return !(Objects.equals(record.getModelName(), claim.modelName())
                 && Objects.equals(record.getRowId(), claim.rowId()));

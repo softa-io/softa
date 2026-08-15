@@ -356,6 +356,11 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     @Override
+    public boolean isDataPlaneExempt() {
+        return shouldBypass() || PermissionInfo.isAdmin(currentPi());
+    }
+
+    @Override
     public Set<String> getUserBlockedModelFields(String model, AccessType accessType) {
         if (shouldBypass()) return Set.of();
         PermissionInfo pi = currentPi();

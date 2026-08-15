@@ -116,4 +116,38 @@ class FileClaimOwnershipTest {
         verify(service, never()).updateList(anyList());
         assertTrue(true);
     }
+
+    /**
+     * An unclaimed file still records the model it was uploaded against. A row of a different model
+     * must not be able to pull it in: the claimer only proved they may edit their own row, which says
+     * nothing about a file someone else is midway through saving somewhere else.
+     */
+    @Test
+    void unclaimedFileIsNotPulledAcrossModels() {
+        FileServiceImpl service = serviceWith(record(1L, "Employee", null, null));
+
+        service.claimFiles(List.of(new FileClaim(1L, "Department", "100", "attachment")));
+
+        verify(service, never()).updateList(anyList());
+    }
+
+    /** Same model, no row yet: still open, because uploader and saver are legitimately different people. */
+    @Test
+    void unclaimedFileIsBoundWhenTheModelMatches() {
+        FileServiceImpl service = serviceWith(record(1L, "Employee", null, null));
+
+        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")));
+
+        assertEquals("100", capturedUpdate(service).getFirst().getRowId());
+    }
+
+    /** A file uploaded with no model recorded at all is claimable by anything — nothing to contradict. */
+    @Test
+    void unclaimedFileWithNoModelIsStillClaimable() {
+        FileServiceImpl service = serviceWith(record(1L, null, null, null));
+
+        service.claimFiles(List.of(new FileClaim(1L, "Department", "100", "attachment")));
+
+        assertEquals("Department", capturedUpdate(service).getFirst().getModelName());
+    }
 }

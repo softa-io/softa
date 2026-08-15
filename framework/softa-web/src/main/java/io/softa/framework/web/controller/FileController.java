@@ -67,7 +67,12 @@ public class FileController {
      */
     private void assertCanRead(FileService.FileOwner owner) {
         if (owner.isUnclaimed()) {
-            Long currentUser = ContextHolder.getContext() == null ? null : ContextHolder.getContext().getUserId();
+            // An administrator bypasses every other data-plane check; a hand-written id comparison
+            // would be the one place that denies them, which reads as a bug rather than as a rule.
+            if (permissionService.isDataPlaneExempt()) {
+                return;
+            }
+            Long currentUser = ContextHolder.getContext().getUserId();
             if (currentUser == null || !currentUser.equals(owner.uploaderId())) {
                 throw new PermissionException("This file is not yours to read.");
             }
