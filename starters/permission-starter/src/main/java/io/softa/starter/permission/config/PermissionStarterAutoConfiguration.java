@@ -24,6 +24,7 @@ import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.service.PermissionServiceImpl;
+import io.softa.starter.permission.index.EndpointIndex;
 
 /**
  * Permission enforce starter (2026-07-14 三合一, 2026-07-15 SPI 倒置落地).
@@ -64,8 +65,10 @@ public class PermissionStarterAutoConfiguration {
             ScopeRuleCompiler scopeCompiler,
             @Lazy SensitiveFieldSetCache sfsCache,
             @Lazy ModelService<?> modelService,
-            @Lazy ScopeApplicabilityResolver applicability) {
-        return new PermissionServiceImpl(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability);
+            @Lazy ScopeApplicabilityResolver applicability,
+            @Lazy EndpointIndex endpointIndex) {
+        return new PermissionServiceImpl(snapshotProvider, scopeCompiler, sfsCache, modelService,
+                applicability, endpointIndex);
     }
 
     /**

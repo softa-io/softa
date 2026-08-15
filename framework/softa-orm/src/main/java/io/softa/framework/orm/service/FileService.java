@@ -116,6 +116,21 @@ public interface FileService {
     void claimFiles(Collection<FileClaim> claims);
 
     /**
+     * Bind the files these rows now reference, and release the ones they no longer do.
+     *
+     * <p>{@code slots} names the (model, row, field) triples the write actually carried. A field
+     * present in the write is a complete statement about that field, so a file still claimed by it and
+     * absent from {@code claims} is released back to unclaimed — clearing an attachment used to leave
+     * the record pointing at the row, which kept the file listed by {@link #getRowFiles} and readable
+     * by anyone who could read that row. A field the write never mentioned is not in {@code slots} and
+     * is left untouched, which is what makes a partial update safe.
+     *
+     * @param claims the bindings to apply; may be empty when every carried field was cleared
+     * @param slots the (model, row, field) triples this write spoke for; empty is a no-op
+     */
+    void claimFiles(Collection<FileClaim> claims, Collection<FileSlot> slots);
+
+    /**
      * Who owns this file — the row it hangs on, or failing that the user who uploaded it.
      *
      * <p>Exists so a caller holding only a file id can authorize the read the way it should be
@@ -132,9 +147,11 @@ public interface FileService {
      *
      * @param modelName the model of the owning row, null while unclaimed
      * @param rowId the id of the owning row, null while unclaimed
+     * @param fieldName the field on that row holding this file, null when the file hangs on the row
+     *                  itself rather than on a column
      * @param uploaderId the user who uploaded it — the only defensible owner of an unclaimed file
      */
-    record FileOwner(String modelName, String rowId, Long uploaderId) {
+    record FileOwner(String modelName, String rowId, String fieldName, Long uploaderId) {
 
         /** Unclaimed: uploaded, not yet referenced by any row. Authorize against the uploader. */
         public boolean isUnclaimed() {
@@ -151,5 +168,14 @@ public interface FileService {
      * @param fieldName the field on that row holding this file
      */
     record FileClaim(Long fileId, String modelName, String rowId, String fieldName) {}
+
+    /**
+     * One (model, row, field) triple a write spoke for — the unit a release is scoped to.
+     *
+     * @param modelName the model of the row written
+     * @param rowId the id of the row written
+     * @param fieldName the file field the write carried
+     */
+    record FileSlot(String modelName, String rowId, String fieldName) {}
 
 }

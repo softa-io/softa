@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -310,7 +311,11 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      */
     @Override
     public InputStream downloadStream(Long fileId) {
-        FileRecord fileRecord = this.getById(fileId)
+        // Bypass for the same reason as the other FileRecord reads: this serves export-by-file-template
+        // and document generation, both reached by ordinary users, and FileRecord's matchNone would deny
+        // every one of them. The caller resolved this id from a template or document row it had already
+        // read, so the entitlement was established there; tenant isolation still applies inside.
+        FileRecord fileRecord = bypassFileRecordScope(() -> this.getById(fileId))
                 .orElseThrow(() -> new IllegalArgumentException("FileRecord not found by fileId {0}", fileId));
         return ossClientService.downloadStreamFromOSS(fileRecord.getOssKey(), fileRecord.getFileName());
     }
@@ -351,7 +356,15 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      */
     @Override
     public List<FileInfo> getByFileIds(List<Long> fileIds) {
-        List<FileRecord> fileRecords = this.getByIds(fileIds);
+        // Same bypass as the singular read, and the higher-traffic one: this is what expands a FILE /
+        // MULTI_FILE column into a FileInfo on every row read. Left scoped, FileRecord's matchNone made
+        // getByIds come back short and raise — so a non-admin could not open any record carrying an
+        // attachment, which reads as the record being forbidden rather than the file being unreachable.
+        //
+        // The ids arriving here are already authorized twice over: the row read applied its own scope,
+        // and a column behind a sensitive field set was dropped from the SELECT before this (Layer C
+        // PRE), so a blocked field's id never reaches this call.
+        List<FileRecord> fileRecords = bypassFileRecordScope(() -> this.getByIds(fileIds));
         return fileRecords.stream().map(this::convertToFileInfo).toList();
     }
 
@@ -416,6 +429,13 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void claimFiles(Collection<FileClaim> claims) {
+        claimFiles(claims, List.of());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void claimFiles(Collection<FileClaim> claims, Collection<FileSlot> slots) {
+        releaseVacatedSlots(claims, slots);
         if (CollectionUtils.isEmpty(claims)) {
             return;
         }
@@ -446,6 +466,52 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         }
         if (!toUpdate.isEmpty()) {
             bypassFileRecordScope(() -> this.updateList(toUpdate));
+        }
+    }
+
+    /**
+     * Release the files a write stopped referencing.
+     *
+     * <p>Scoped to the (model, row, field) triples the write actually carried: within one of those, a
+     * record still bound to it whose id is not among the new claims is no longer referenced, so its
+     * binding is cleared. Without this, clearing an attachment left the record pointing at the row —
+     * {@code getRowFiles} kept listing it and everyone who could read the row could still read it,
+     * which is the file surviving its own removal.
+     *
+     * <p>The binding is cleared, not the file: the record goes back to unclaimed rather than being
+     * deleted, so the blob is still there for whoever uploaded it and nothing is destroyed by a save.
+     * Cleaning up genuinely orphaned files is a retention question, not this one.
+     *
+     * <p>One query per write that carried file fields, bounded by the rows written.
+     */
+    private void releaseVacatedSlots(Collection<FileClaim> claims, Collection<FileSlot> slots) {
+        if (CollectionUtils.isEmpty(slots)) {
+            return;
+        }
+        Set<Long> stillClaimed = claims == null ? Set.of()
+                : claims.stream().map(FileClaim::fileId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Filters filters = null;
+        for (FileSlot slot : slots) {
+            Filters one = new Filters()
+                    .eq(FileRecord::getModelName, slot.modelName())
+                    .eq(FileRecord::getRowId, slot.rowId())
+                    .eq(FileRecord::getFieldName, slot.fieldName());
+            filters = filters == null ? one : Filters.or(filters, one);
+        }
+        Filters slotFilters = filters;
+        List<FileRecord> bound = bypassFileRecordScope(() -> this.searchList(slotFilters));
+        List<FileRecord> released = new ArrayList<>();
+        for (FileRecord record : bound) {
+            if (stillClaimed.contains(record.getId())) {
+                continue;
+            }
+            record.setModelName(null);
+            record.setRowId(null);
+            record.setFieldName(null);
+            released.add(record);
+        }
+        if (!released.isEmpty()) {
+            bypassFileRecordScope(() -> this.updateList(released));
         }
     }
 
@@ -512,7 +578,8 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         // before that row is ever known. Tenant isolation still applies, so a cross-tenant file
         // resolves to empty here.
         return bypassFileRecordScope(() -> this.getById(fileId)).map(record ->
-                new FileOwner(record.getModelName(), record.getRowId(), record.getCreatedId()));
+                new FileOwner(record.getModelName(), record.getRowId(), record.getFieldName(),
+                        record.getCreatedId()));
     }
 
     /**

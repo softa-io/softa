@@ -12,7 +12,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.PermissionException;
+import org.apache.commons.lang3.StringUtils;
+
 import io.softa.framework.base.utils.Assert;
+import java.io.Serializable;
+
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.service.FileService;
@@ -80,6 +84,35 @@ public class FileController {
         }
         permissionService.checkIdAccess(owner.modelName(),
                 IdUtils.formatId(owner.modelName(), owner.rowId()), AccessType.READ);
+        // Row access is not field access — the same rule getRowFiles applies to its listing, applied
+        // here too so the two endpoints cannot disagree about one file. A document behind a sensitive
+        // field set is what the mask on that column withheld; handing it over on a direct id lookup
+        // would undo the mask for anyone who learned the id elsewhere. A file recorded against no
+        // field belongs to the row itself, and no field mask speaks for it.
+        if (StringUtils.isNotBlank(owner.fieldName())
+                && permissionService.getUserBlockedModelFields(owner.modelName(), AccessType.READ)
+                        .contains(owner.fieldName())) {
+            throw new PermissionException("This file is behind a field you may not read.");
+        }
+    }
+
+    /**
+     * Authorize attaching a file to an existing row — a change to that row, so it asks what a change
+     * to that row asks.
+     *
+     * <p>Two questions, because one of them cannot answer the other. <b>Which rows</b> is
+     * {@code checkIdAccess}: it resolves to "is this id inside your scope", so it stops someone
+     * attaching to a record they cannot even see. <b>Whether at all</b> is
+     * {@code hasModelActionGrant}: {@code checkIdAccess} reads the same scope whatever access type it
+     * is given, so on its own it lets a read-only caller write to every row they can read — and the
+     * endpoint gate, which would normally have asked, cannot match these URLs and had to whitelist
+     * them instead.
+     */
+    private void assertCanAttach(String modelName, Serializable rowId) {
+        if (!permissionService.hasModelActionGrant(modelName, AccessType.UPDATE)) {
+            throw new PermissionException("You may not attach files to " + modelName + ".");
+        }
+        permissionService.checkIdAccess(modelName, IdUtils.formatId(modelName, rowId), AccessType.UPDATE);
     }
 
     /**
@@ -119,8 +152,7 @@ public class FileController {
         Assert.notBlank(modelName, "modelName cannot be empty.");
         Assert.notNull(rowId, "rowId cannot be null.");
         Assert.notTrue(file.isEmpty(), "The file to upload cannot be empty!");
-        // Attaching a file to a row is a change to that row, so it asks the row's own write check.
-        permissionService.checkIdAccess(modelName, IdUtils.formatId(modelName, rowId), AccessType.UPDATE);
+        assertCanAttach(modelName, rowId);
         return ApiResponse.success(service.uploadFile(modelName, rowId, null, file));
     }
 
@@ -148,7 +180,7 @@ public class FileController {
         Assert.notBlank(modelName, "modelName cannot be empty.");
         Assert.notTrue(file.isEmpty(), "The file to upload cannot be empty!");
         if (rowId != null) {
-            permissionService.checkIdAccess(modelName, IdUtils.formatId(modelName, rowId), AccessType.UPDATE);
+            assertCanAttach(modelName, rowId);
         }
         // A null rowId is the create-form case — the record does not exist yet, so there is no row to
         // check, and no model-level gate to fall back on: creating any model is granted by default here,

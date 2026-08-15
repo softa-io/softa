@@ -92,6 +92,27 @@ public interface PermissionService {
      */
     boolean isDataPlaneExempt();
 
+    /**
+     * Whether the caller holds the permission that a normal request for this model and action would
+     * have been gated by.
+     *
+     * <p>The endpoint gate answers this for every ordinary path, by matching the request URL. The file
+     * endpoints have no URL it can match — the model arrives as a request parameter, so they had to be
+     * whitelisted to be reachable at all — and the row-level check they do instead cannot stand in for
+     * it: {@code checkIdAccess} resolves to "is this row within your READ scope" whatever access type
+     * it is handed, so a read-only caller passes an UPDATE check on any row they can see. Asking this
+     * restores the missing half for those endpoints.
+     *
+     * <p>Answers {@code true} when nothing is registered for the model and action: an unregistered
+     * pair is not a denial, it is a model no permission speaks for, and the whitelist that opened the
+     * endpoint is what governs it then.
+     *
+     * @param model the model being written
+     * @param accessType the operation being performed
+     * @return true when the caller may perform it, or when no permission covers it
+     */
+    boolean hasModelActionGrant(String model, AccessType accessType);
+
     Set<String> getUserBlockedModelFields(String model, AccessType accessType);
 
     /**

@@ -20,6 +20,7 @@ import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
+import io.softa.starter.permission.index.EndpointIndex;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
@@ -79,6 +80,10 @@ public class PermissionServiceImpl implements PermissionService {
      *  config/extension model (only ALL applies) from real business data that
      *  merely has no grant yet. */
     private final ScopeApplicabilityResolver applicability;
+    /** The endpoint gate's own index, asked directly by {@link #hasModelActionGrant} for the endpoints
+     *  it cannot reach by URL. Nullable: a deployment with no index still answers "granted", which is
+     *  what an unregistered pair means anyway. */
+    private final EndpointIndex endpointIndex;
 
     public PermissionServiceImpl(
             PermissionSnapshotProvider snapshotProvider,
@@ -86,11 +91,22 @@ public class PermissionServiceImpl implements PermissionService {
             SensitiveFieldSetCache sfsCache,
             ModelService<?> modelService,
             ScopeApplicabilityResolver applicability) {
+        this(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability, null);
+    }
+
+    public PermissionServiceImpl(
+            PermissionSnapshotProvider snapshotProvider,
+            ScopeRuleCompiler scopeCompiler,
+            SensitiveFieldSetCache sfsCache,
+            ModelService<?> modelService,
+            ScopeApplicabilityResolver applicability,
+            EndpointIndex endpointIndex) {
         this.snapshotProvider = snapshotProvider;
         this.scopeCompiler = scopeCompiler;
         this.sfsCache = sfsCache;
         this.modelService = modelService;
         this.applicability = applicability;
+        this.endpointIndex = endpointIndex;
     }
 
     // ─────────────────────── row-scope ───────────────────────
@@ -359,6 +375,46 @@ public class PermissionServiceImpl implements PermissionService {
     public boolean isDataPlaneExempt() {
         return shouldBypass() || PermissionInfo.isAdmin(currentPi());
     }
+
+    /**
+     * The endpoint gate's question, asked without a URL.
+     *
+     * <p>{@code PermissionInterceptor} resolves a request by matching its URL in {@link EndpointIndex}
+     * and intersecting the candidates with what the caller holds. The file endpoints cannot be matched
+     * that way — their model is a request parameter — so they ask here instead, naming the model and
+     * the action, and the same index answers via the canonical endpoint for that pair.
+     *
+     * <p>Unregistered means granted. A model no permission row covers is not thereby forbidden: the
+     * interceptor would have rejected such a URL outright, and these endpoints are on the whitelist
+     * precisely because that rejection is wrong for them. Denying here instead would break every model
+     * whose CRUD nobody has written a permission for.
+     */
+    @Override
+    public boolean hasModelActionGrant(String model, AccessType accessType) {
+        if (shouldBypass() || endpointIndex == null || model == null || accessType == null) return true;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.isAdmin(pi)) return true;
+        String uri = CANONICAL_ACTION_URI.get(accessType);
+        if (uri == null) return true;
+        Set<String> candidates = endpointIndex.lookup("/" + model + uri, "POST");
+        if (candidates.isEmpty()) return true;
+        Set<String> held = pi == null ? null : pi.getPermissions();
+        if (held == null || held.isEmpty()) return false;
+        for (String candidate : candidates) {
+            if (held.contains(candidate)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * One endpoint per access type, chosen as the one {@code EndpointIndex} always derives for it — the
+     * lookup only needs a URL that resolves to the same permission set, not every URL of that action.
+     */
+    private static final Map<AccessType, String> CANONICAL_ACTION_URI = Map.of(
+            AccessType.CREATE, "/createOne",
+            AccessType.UPDATE, "/updateOne",
+            AccessType.DELETE, "/deleteById",
+            AccessType.READ, "/searchPage");
 
     @Override
     public Set<String> getUserBlockedModelFields(String model, AccessType accessType) {

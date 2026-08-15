@@ -39,6 +39,12 @@ import io.softa.framework.orm.service.FileService;
  * that carries File fields must go through {@code insertList} / {@code updateList} to be bound</b> — or
  * call {@code FileService.claimFiles} itself.
  *
+ * <p>The write also says what a field <em>no longer</em> holds. A field the row carried is a complete
+ * statement about that field, so a file still claimed by it but absent from the new value is released
+ * — otherwise clearing an attachment left the record pointing at the row, which kept it listed by
+ * {@code getRowFiles} and readable by everyone who can read that row. A field the write never mentioned
+ * says nothing and is left alone; that is what keeps a partial update from unclaiming everything.
+ *
  * <p>Copy is deliberately outside all of this: File / MultiFile are non-copyable
  * ({@code ModelManager.getModelCopyableFields}), so a copied row carries no file id to rebind — which is
  * what stops a copy from re-pointing the original's file at itself.
@@ -69,17 +75,25 @@ public class FileOwnership {
             return;
         }
         List<FileService.FileClaim> claims = new ArrayList<>();
+        List<FileService.FileSlot> writtenSlots = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Object rowId = row.get(ModelConstant.ID);
             if (rowId == null) {
                 continue;
             }
             for (MetaField fileField : fileFields) {
+                // Only a field the write actually carried is a statement about that field. A partial
+                // update that never mentions it says nothing, and releasing on absence would strip the
+                // ownership of every file the row still holds.
+                if (!row.containsKey(fileField.getFieldName())) {
+                    continue;
+                }
+                writtenSlots.add(new FileService.FileSlot(modelName, rowId.toString(), fileField.getFieldName()));
                 collectClaims(claims, row, fileField, modelName, rowId.toString());
             }
         }
-        if (!claims.isEmpty()) {
-            SpringContextUtils.getBeanByClass(FileService.class).claimFiles(claims);
+        if (!writtenSlots.isEmpty()) {
+            SpringContextUtils.getBeanByClass(FileService.class).claimFiles(claims, writtenSlots);
         }
     }
 

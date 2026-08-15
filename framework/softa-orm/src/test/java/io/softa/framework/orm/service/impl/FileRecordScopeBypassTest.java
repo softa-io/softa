@@ -71,6 +71,28 @@ class FileRecordScopeBypassTest {
     }
 
     /**
+     * The expansion path — the one every row read with a file column goes through. Unwaived, getByIds
+     * comes back short of FileRecord's matchNone and raises, so a non-admin could not open any record
+     * carrying an attachment: the record looked forbidden because its file was unreachable.
+     */
+    @Test
+    void getByFileIdsReadsWithScopeWaived() {
+        FileServiceImpl service = spy(new FileServiceImpl());
+        AtomicBoolean skippedDuringRead = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            skippedDuringRead.set(ContextHolder.getContext().isSkipPermissionCheck());
+            return List.<FileRecord>of();
+        }).when(service).getByIds(anyList());
+
+        Context ctx = new Context();
+        ctx.setSkipPermissionCheck(false);
+        ContextHolder.runWith(ctx, () -> service.getByFileIds(List.of(1L)));
+
+        assertTrue(skippedDuringRead.get(), "file-field expansion must read past FileRecord's own scope");
+        assertFalse(ctx.isSkipPermissionCheck(), "the waiver must be undone after the read");
+    }
+
+    /**
      * The claim runs inside a business write the caller was already authorized for, and reaches
      * FileRecord — anchorless, matchNone. Unwaived, getByIds throws and the whole save dies at the
      * point it binds the attachment, which is how a file field turns an ordinary create into a
