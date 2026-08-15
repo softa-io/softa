@@ -322,7 +322,10 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      */
     @Override
     public Optional<FileInfo> getByFileId(Long fileId) {
-        Optional<FileRecord> fileRecordOpt = this.getById(fileId);
+        // Read past FileRecord's own (anchorless) scope — the caller is either the controller, which
+        // has already authorized the owning row, or an internal service that resolved this id from a
+        // record it was entitled to. Tenant isolation still applies inside the bypass.
+        Optional<FileRecord> fileRecordOpt = bypassFileRecordScope(() -> this.getById(fileId));
         return fileRecordOpt.map(this::convertToFileInfo);
     }
 
@@ -335,7 +338,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      */
     @Override
     public Optional<FileInfo> getByFileId(Long fileId, int expireSeconds) {
-        Optional<FileRecord> fileRecordOpt = this.getById(fileId);
+        Optional<FileRecord> fileRecordOpt = bypassFileRecordScope(() -> this.getById(fileId));
         return fileRecordOpt.map(record -> this.convertToFileInfo(record, expireSeconds, false));
     }
 
@@ -363,11 +366,15 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         // formatId is not optional: rowId arrives bound from a query string — a String — while the
         // model's key is typically Long. Unconverted, the id check counts nothing and denies every
         // caller, which reads as a permission problem and is really a type one.
+        // The business row is the thing being authorized, so the check is on it — READ access to the
+        // owning row, not to FileRecord. That is the whole authorization for this call.
         permissionService.checkIdAccess(modelName, IdUtils.formatId(modelName, rowId), AccessType.READ);
         Filters filters = new Filters()
                 .eq(FileRecord::getModelName, modelName)
                 .eq(FileRecord::getRowId, rowId.toString());
-        List<FileRecord> fileRecords = this.searchList(filters);
+        // The listing itself runs past FileRecord's own scope — otherwise it would come back empty for
+        // every non-admin even though the owning row was just authorized above. Tenant isolation stays.
+        List<FileRecord> fileRecords = bypassFileRecordScope(() -> this.searchList(filters));
         return fileRecords.stream().map(this::convertToFileInfo).toList();
     }
 
@@ -433,18 +440,38 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * <p>Set directly rather than through {@code @SkipPermissionCheck}: two of the three callers are
      * private, and a self-invocation never reaches the aspect.
      */
-    private Long persistFileRecord(FileRecord fileRecord) {
+    /**
+     * Run a FileRecord read or write with FileRecord's own row-scope waived — and only its own.
+     *
+     * <p>FileRecord is anchorless: no scope rule can name it and no business model references it, so its
+     * row-scope collapses to {@code matchNone()} for any non-admin. That is meaningless for a table
+     * whose access is meant to derive from the row each file hangs on, and left in place it does not
+     * fail safe — it fails <em>shut</em>: {@code getById} on a FileRecord throws for every non-admin
+     * (the id-count comes back short), so an employee cannot read their own attachment and HR cannot
+     * read the employee's. The row that actually governs the file is authorized separately —
+     * {@code assertCanRead} / {@code checkIdAccess} on the owning business row — so waiving FileRecord's
+     * own scope removes an obstacle, not a control.
+     *
+     * <p>This waives <b>only</b> permission scope. Tenant isolation is a separate flag
+     * ({@code WhereBuilder.handleMultiTenant} does not consult it), so a cross-tenant file still
+     * resolves to nothing here — the reason multiTenant on FileRecord is what closes the cross-tenant
+     * read, not this.
+     */
+    private <T> T bypassFileRecordScope(java.util.function.Supplier<T> action) {
         // getContext() never returns null — an unbound thread gets a throwaway Context, and with no
-        // context shouldBypass() already passes the check anyway, so both paths agree and there is
-        // nothing to branch on.
+        // context shouldBypass() already passes anyway, so there is nothing to branch on.
         Context context = ContextHolder.getContext();
         boolean previous = context.isSkipPermissionCheck();
         try {
             context.setSkipPermissionCheck(true);
-            return this.createOne(fileRecord);
+            return action.get();
         } finally {
             context.setSkipPermissionCheck(previous);
         }
+    }
+
+    private Long persistFileRecord(FileRecord fileRecord) {
+        return bypassFileRecordScope(() -> this.createOne(fileRecord));
     }
 
     @Override
@@ -452,7 +479,11 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         if (fileId == null) {
             return Optional.empty();
         }
-        return this.getById(fileId).map(record ->
+        // Bypass FileRecord's own scope: this call exists precisely to find the owning row the READ
+        // should be authorized against, so gating it on FileRecord's (matchNone) scope would throw
+        // before that row is ever known. Tenant isolation still applies, so a cross-tenant file
+        // resolves to empty here.
+        return bypassFileRecordScope(() -> this.getById(fileId)).map(record ->
                 new FileOwner(record.getModelName(), record.getRowId(), record.getCreatedId()));
     }
 
