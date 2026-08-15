@@ -19,6 +19,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.SystemException;
@@ -125,7 +126,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         fileRecord.setFileSize(uploadFileDTO.getFileSize());
         fileRecord.setModelName(uploadFileDTO.getModelName());
         fileRecord.setRowId(uploadFileDTO.getRowId() == null ? null : uploadFileDTO.getRowId().toString());
-        Long id = this.createOne(fileRecord);
+        Long id = this.persistFileRecord(fileRecord);
         fileRecord.setId(id);
         return fileRecord;
     }
@@ -177,7 +178,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         fileRecord.setChecksum(checksum);
         // bytes to KB
         fileRecord.setFileSize((int) file.getSize() / 1024);
-        Long id = this.createOne(fileRecord);
+        Long id = this.persistFileRecord(fileRecord);
         fileRecord.setId(id);
         return fileRecord;
     }
@@ -250,7 +251,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
             fileRecord.setChecksum(checksum);
             fileRecord.setFileSize(fileStream.getFileSize());
 
-            Long id = this.createOne(fileRecord);
+            Long id = this.persistFileRecord(fileRecord);
             fileRecord.setId(id);
 
             return this.convertToFileInfo(fileRecord, expireSeconds, false);
@@ -410,6 +411,39 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         }
         if (!toUpdate.isEmpty()) {
             this.updateList(toUpdate);
+        }
+    }
+
+    /**
+     * Write the FileRecord itself, without asking whether the caller may create FileRecords.
+     *
+     * <p>Nobody grants that permission, and nobody should have to: a file record is bookkeeping for an
+     * action the caller has already been authorized to perform — uploading an attachment to a row they
+     * may edit, downloading an import template, exporting a list. FileRecord carries no anchor of its
+     * own, so an ordinary user with no rule for it fails the row-scope check on insert and every
+     * file-producing feature dies at the last step. Administrators skip that check, which is why this
+     * only ever showed up for ordinary users — and why it reads as "Excel generation failed" rather
+     * than as a permission problem.
+     *
+     * <p>Every value on the record is server-derived (oss key, checksum, size, the model and row it was
+     * uploaded against), so there is no caller-supplied filter or scope here for the skip to widen.
+     * It also does <b>not</b> waive tenant isolation — that is a separate flag — so the tenant stamp on
+     * a multi-tenant FileRecord still applies.
+     *
+     * <p>Set directly rather than through {@code @SkipPermissionCheck}: two of the three callers are
+     * private, and a self-invocation never reaches the aspect.
+     */
+    private Long persistFileRecord(FileRecord fileRecord) {
+        // getContext() never returns null — an unbound thread gets a throwaway Context, and with no
+        // context shouldBypass() already passes the check anyway, so both paths agree and there is
+        // nothing to branch on.
+        Context context = ContextHolder.getContext();
+        boolean previous = context.isSkipPermissionCheck();
+        try {
+            context.setSkipPermissionCheck(true);
+            return this.createOne(fileRecord);
+        } finally {
+            context.setSkipPermissionCheck(previous);
         }
     }
 
