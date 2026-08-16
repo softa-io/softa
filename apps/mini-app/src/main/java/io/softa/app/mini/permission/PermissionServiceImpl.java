@@ -101,6 +101,20 @@ public class PermissionServiceImpl implements PermissionService {
 
     }
 
+    /**
+     * No data plane here to exempt anyone from — nothing masks a field or narrows a row.
+     */
+    @Override
+    public boolean isDataPlaneExempt() {
+        return true;
+    }
+
+    /** No endpoint index to consult, so every model action is granted, as the rest of this class is. */
+    @Override
+    public boolean hasModelActionGrant(String model, AccessType accessType) {
+        return true;
+    }
+
     @Override
     public Set<String> getUserBlockedModelFields(String model, AccessType accessType) {
         return Set.of();
