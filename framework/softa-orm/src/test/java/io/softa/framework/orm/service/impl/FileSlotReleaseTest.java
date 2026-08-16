@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
@@ -50,7 +51,7 @@ class FileSlotReleaseTest {
         doAnswer(inv -> {
             written.set(inv.getArgument(0));
             return true;
-        }).when(service).updateList(anyList());
+        }).when(service).updateList(anyList(), eq(false));
 
         Context ctx = new Context();
         ContextHolder.runWith(ctx, () -> service.claimFiles(
@@ -64,6 +65,26 @@ class FileSlotReleaseTest {
                 "the model it was uploaded against survives — clearing it would make the file "
                         + "claimable by a row of any model, so removing an attachment would widen it");
         assertEquals(7L, released.getId(), "the record itself survives — only its binding is dropped");
+    }
+
+    /**
+     * A release is the writing of nulls, so it has to use the overload that writes them. The
+     * one-argument updateList ignores nulls — it would have issued an update that changed nothing and
+     * left every released file bound to its old row, while every assertion on the object handed to the
+     * write still passed. So the call itself is what gets pinned.
+     */
+    @Test
+    void theReleaseWritesNullsRatherThanIgnoringThem() {
+        FileServiceImpl service = spy(new FileServiceImpl());
+        doReturn(List.of(bound(7L, "attachment"))).when(service).searchList(any(Filters.class));
+        doReturn(true).when(service).updateList(anyList(), eq(false));
+
+        Context ctx = new Context();
+        ContextHolder.runWith(ctx, () -> service.claimFiles(
+                List.of(), List.of(new FileSlot("Employee", "100", "attachment"))));
+
+        verify(service).updateList(anyList(), eq(false));
+        verify(service, never()).updateList(anyList());
     }
 
     /** The file the write still references keeps its binding; nothing is churned. */

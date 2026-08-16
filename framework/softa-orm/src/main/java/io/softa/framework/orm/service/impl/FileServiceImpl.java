@@ -497,15 +497,26 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         }
         Set<Long> stillClaimed = claims == null ? Set.of()
                 : claims.stream().map(FileClaim::fileId).filter(Objects::nonNull).collect(Collectors.toSet());
-        Filters filters = null;
+        // Grouped by (model, field) with the row ids as an IN list, rather than one OR branch per slot:
+        // a bulk write of a thousand rows would otherwise hand the SQL builder a thousand-deep nested
+        // OR tree to walk. One write touches one model and a handful of file fields, so this stays a
+        // couple of clauses whatever the row count.
+        Map<String, List<String>> rowIdsBySlot = new LinkedHashMap<>();
+        Map<String, FileSlot> slotByKey = new LinkedHashMap<>();
         for (FileSlot slot : slots) {
-            Filters one = new Filters()
-                    .eq(FileRecord::getModelName, slot.modelName())
-                    .eq(FileRecord::getRowId, slot.rowId())
-                    .eq(FileRecord::getFieldName, slot.fieldName());
-            filters = filters == null ? one : Filters.or(filters, one);
+            String key = slot.modelName() + '\u0000' + slot.fieldName();
+            slotByKey.putIfAbsent(key, slot);
+            rowIdsBySlot.computeIfAbsent(key, k -> new ArrayList<>()).add(slot.rowId());
         }
-        Filters slotFilters = filters;
+        List<Filters> groups = new ArrayList<>(slotByKey.size());
+        slotByKey.forEach((key, slot) -> groups.add(new Filters()
+                .eq(FileRecord::getModelName, slot.modelName())
+                .eq(FileRecord::getFieldName, slot.fieldName())
+                .in(FileRecord::getRowId, rowIdsBySlot.get(key))));
+        Filters slotFilters = groups.size() == 1
+                ? groups.getFirst()
+                : Filters.or(groups.getFirst(), groups.get(1),
+                        groups.subList(2, groups.size()).toArray(new Filters[0]));
         List<FileRecord> bound = bypassFileRecordScope(() -> this.searchList(slotFilters));
         List<FileRecord> released = new ArrayList<>();
         for (FileRecord record : bound) {
@@ -521,7 +532,11 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
             released.add(record);
         }
         if (!released.isEmpty()) {
-            bypassFileRecordScope(() -> this.updateList(released));
+            // ignoreNull = false, and that is the whole point: a release IS the writing of nulls. The
+            // one-argument updateList drops them ("Null values are ignored"), so it would have issued
+            // an update that changed nothing and left every released file bound to its old row —
+            // passing every test that stubs the write and failing silently in production.
+            bypassFileRecordScope(() -> this.updateList(released, false));
         }
     }
 
