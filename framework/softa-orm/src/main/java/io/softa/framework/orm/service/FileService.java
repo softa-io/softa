@@ -143,6 +143,28 @@ public interface FileService {
     Optional<FileOwner> getFileOwner(Long fileId);
 
     /**
+     * Give a second row its own record of the same stored file.
+     *
+     * <p>For a business flow that copies a row carrying an attachment — pre-boarding becoming an
+     * employee, a record duplicated — where the copy must genuinely hold the document rather than
+     * borrow it. Access to a file derives from the row that claims it, and a claim names one row, so
+     * two rows pointing at one record leaves the copy readable only through the original's
+     * permissions. A record each is what makes each row's own check the answer.
+     *
+     * <p>The stored object is shared, not duplicated: nothing in this framework deletes from object
+     * storage, so a second reference cannot be left dangling by the first going away. Anything that
+     * adds deletion later has to look for other records on the same key first.
+     *
+     * <p><b>Not</b> reachable from a claim. Copying on demand there would turn writing a stranger's
+     * file id into a row you may edit — the theft {@code claimFiles} refuses — into a supported way of
+     * getting a copy of their document. The caller here is code that has already read both sides and
+     * established the copy is legitimate.
+     *
+     * @return the new file id, or empty when the source file does not exist
+     */
+    Optional<Long> copyFileTo(Long fileId, String modelName, Serializable rowId, String fieldName);
+
+    /**
      * A file's owning row, plus its uploader for the case where no row claims it yet.
      *
      * @param modelName the model of the owning row, null while unclaimed

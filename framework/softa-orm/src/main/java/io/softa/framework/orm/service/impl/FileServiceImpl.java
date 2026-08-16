@@ -569,6 +569,30 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<Long> copyFileTo(Long fileId, String modelName, Serializable rowId, String fieldName) {
+        if (fileId == null) {
+            return Optional.empty();
+        }
+        // Read past FileRecord's own scope for the same reason every other read here does: the caller
+        // authorized the two business rows, and FileRecord's matchNone would refuse before we get to
+        // copy anything. Tenant isolation still applies, so a cross-tenant source resolves to empty.
+        return bypassFileRecordScope(() -> this.getById(fileId)).map(source -> {
+            FileRecord copy = new FileRecord();
+            // The stored object is shared — same ossKey, same checksum. Only the ownership differs.
+            copy.setOssKey(source.getOssKey());
+            copy.setFileName(source.getFileName());
+            copy.setFileType(source.getFileType());
+            copy.setChecksum(source.getChecksum());
+            copy.setFileSize(source.getFileSize());
+            copy.setModelName(modelName);
+            copy.setRowId(rowId == null ? null : rowId.toString());
+            copy.setFieldName(fieldName);
+            return persistFileRecord(copy);
+        });
+    }
+
+    @Override
     public Optional<FileOwner> getFileOwner(Long fileId) {
         if (fileId == null) {
             return Optional.empty();
