@@ -59,8 +59,10 @@ class FileSlotReleaseTest {
         assertEquals(1, written.get().size());
         FileRecord released = written.get().getFirst();
         assertNull(released.getRowId(), "the binding is cleared");
-        assertNull(released.getModelName());
         assertNull(released.getFieldName());
+        assertEquals("Employee", released.getModelName(),
+                "the model it was uploaded against survives — clearing it would make the file "
+                        + "claimable by a row of any model, so removing an attachment would widen it");
         assertEquals(7L, released.getId(), "the record itself survives — only its binding is dropped");
     }
 
@@ -86,7 +88,7 @@ class FileSlotReleaseTest {
         FileServiceImpl service = spy(new FileServiceImpl());
 
         Context ctx = new Context();
-        ContextHolder.runWith(ctx, () -> service.claimFiles(List.of()));
+        ContextHolder.runWith(ctx, () -> service.claimFiles(List.of(), List.of()));
 
         verify(service, never()).searchList(any(Filters.class));
         verify(service, never()).updateList(anyList());

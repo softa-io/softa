@@ -56,7 +56,7 @@ class FileClaimOwnershipTest {
     void unclaimedFileIsBoundToTheClaimingRow() {
         FileServiceImpl service = serviceWith(record(1L, "Employee", null, null));
 
-        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")), List.of());
 
         List<FileRecord> updated = capturedUpdate(service);
         assertEquals(1, updated.size());
@@ -70,7 +70,7 @@ class FileClaimOwnershipTest {
     void fileOwnedByAnotherRowIsNotMoved() {
         FileServiceImpl service = serviceWith(record(1L, "Employee", "999", "attachment"));
 
-        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")), List.of());
 
         verify(service, never()).updateList(anyList());
     }
@@ -80,7 +80,7 @@ class FileClaimOwnershipTest {
     void reSavingTheSameBindingWritesNothing() {
         FileServiceImpl service = serviceWith(record(1L, "Employee", "100", "attachment"));
 
-        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")), List.of());
 
         verify(service, never()).updateList(anyList());
     }
@@ -90,7 +90,7 @@ class FileClaimOwnershipTest {
     void fileOwnedByAnotherModelIsNotMoved() {
         FileServiceImpl service = serviceWith(record(1L, "EmpDocument", "100", "attachment"));
 
-        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")), List.of());
 
         verify(service, never()).updateList(anyList());
     }
@@ -100,7 +100,7 @@ class FileClaimOwnershipTest {
     void claimForAMissingFileIsDropped() {
         FileServiceImpl service = serviceWith();
 
-        service.claimFiles(List.of(new FileClaim(404L, "Employee", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(404L, "Employee", "100", "attachment")), List.of());
 
         verify(service, never()).updateList(anyList());
     }
@@ -110,7 +110,7 @@ class FileClaimOwnershipTest {
     void emptyClaimsTouchNothing() {
         FileServiceImpl service = spy(new FileServiceImpl());
 
-        service.claimFiles(List.of());
+        service.claimFiles(List.of(), List.of());
 
         verify(service, never()).getByIds(anyList());
         verify(service, never()).updateList(anyList());
@@ -126,7 +126,7 @@ class FileClaimOwnershipTest {
     void unclaimedFileIsNotPulledAcrossModels() {
         FileServiceImpl service = serviceWith(record(1L, "Employee", null, null));
 
-        service.claimFiles(List.of(new FileClaim(1L, "Department", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(1L, "Department", "100", "attachment")), List.of());
 
         verify(service, never()).updateList(anyList());
     }
@@ -136,7 +136,7 @@ class FileClaimOwnershipTest {
     void unclaimedFileIsBoundWhenTheModelMatches() {
         FileServiceImpl service = serviceWith(record(1L, "Employee", null, null));
 
-        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(1L, "Employee", "100", "attachment")), List.of());
 
         assertEquals("100", capturedUpdate(service).getFirst().getRowId());
     }
@@ -146,7 +146,7 @@ class FileClaimOwnershipTest {
     void unclaimedFileWithNoModelIsStillClaimable() {
         FileServiceImpl service = serviceWith(record(1L, null, null, null));
 
-        service.claimFiles(List.of(new FileClaim(1L, "Department", "100", "attachment")));
+        service.claimFiles(List.of(new FileClaim(1L, "Department", "100", "attachment")), List.of());
 
         assertEquals("Department", capturedUpdate(service).getFirst().getModelName());
     }

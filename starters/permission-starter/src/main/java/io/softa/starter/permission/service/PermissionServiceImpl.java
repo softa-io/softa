@@ -347,6 +347,11 @@ public class PermissionServiceImpl implements PermissionService {
                 // Reading, updating and deleting such a model by id still fail closed. Those touch
                 // rows the caller did not just create, and refusing there costs nothing a caller with
                 // a legitimate path cannot get another way.
+                //
+                // The cost, stated plainly: a standalone business table nothing references and no rule
+                // can name qualifies too, so creating rows in one is bounded by the endpoint gate
+                // alone. That is the layer that authorized the call in the first place; row scope was
+                // never answering for such a model anyway.
                 if (AccessType.CREATE.equals(accessType)) {
                     return;
                 }

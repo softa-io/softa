@@ -99,23 +99,6 @@ public interface FileService {
     List<FileInfo> getRowFiles(String modelName, Serializable rowId);
 
     /**
-     * Bind uploaded files to the row that now references them.
-     *
-     * <p>A file uploaded from a create form has no row yet — {@code uploadFileToField} accepts a null
-     * {@code rowId} precisely because the record is written afterwards. Nothing used to close that gap,
-     * so the {@code FileRecord} kept {@code rowId = null} forever, and a file could not say which row
-     * owned it. That matters beyond tidiness: access to a file is meant to derive from access to the
-     * row it hangs on, and a file with no row cannot be authorized that way.
-     *
-     * <p>Called by the ORM once the row's id is known, on create and on update alike. Idempotent, and
-     * silent about ids it cannot find — a claim naming a deleted file is not worth failing a business
-     * write over.
-     *
-     * @param claims the bindings to apply; empty is a no-op
-     */
-    void claimFiles(Collection<FileClaim> claims);
-
-    /**
      * Bind the files these rows now reference, and release the ones they no longer do.
      *
      * <p>{@code slots} names the (model, row, field) triples the write actually carried. A field
@@ -163,6 +146,19 @@ public interface FileService {
      * @return the new file id, or empty when the source file does not exist
      */
     Optional<Long> copyFileTo(Long fileId, String modelName, Serializable rowId, String fieldName);
+
+    /**
+     * Whether a file filed against {@code fieldName} may be read, given the caller's field mask on the
+     * owning model.
+     *
+     * <p>Row access is not field access: a document behind a sensitive field set is what the mask on
+     * that column withheld. Both the row listing and the by-id lookup have to apply it, and they have
+     * to apply it identically — two endpoints protecting one asset must not disagree about it, which
+     * is why the rule lives here rather than being written out at each of them.
+     *
+     * <p>A file recorded against no field belongs to the row itself, so no field mask speaks for it.
+     */
+    boolean isFileFieldReadable(String modelName, String fieldName);
 
     /**
      * A file's owning row, plus its uploader for the case where no row claims it yet.

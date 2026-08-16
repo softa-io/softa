@@ -89,9 +89,7 @@ public class FileController {
         // field set is what the mask on that column withheld; handing it over on a direct id lookup
         // would undo the mask for anyone who learned the id elsewhere. A file recorded against no
         // field belongs to the row itself, and no field mask speaks for it.
-        if (StringUtils.isNotBlank(owner.fieldName())
-                && permissionService.getUserBlockedModelFields(owner.modelName(), AccessType.READ)
-                        .contains(owner.fieldName())) {
+        if (!service.isFileFieldReadable(owner.modelName(), owner.fieldName())) {
             throw new PermissionException("This file is behind a field you may not read.");
         }
     }

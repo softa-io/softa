@@ -117,7 +117,7 @@ class FileRecordScopeBypassTest {
         Context ctx = new Context();
         ctx.setSkipPermissionCheck(false);
         ContextHolder.runWith(ctx, () ->
-                service.claimFiles(List.of(new FileService.FileClaim(1L, "Employee", "100", "attachment"))));
+                service.claimFiles(List.of(new FileService.FileClaim(1L, "Employee", "100", "attachment")), List.of()));
 
         assertTrue(skippedDuringRead.get(), "the claim's FileRecord read must waive its own scope");
         assertTrue(skippedDuringWrite.get(), "the claim's FileRecord write must waive its own scope");

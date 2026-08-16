@@ -110,6 +110,12 @@ public interface PermissionService {
      * @param model the model being written
      * @param accessType the operation being performed
      * @return true when the caller may perform it, or when no permission covers it
+     *
+     * <p><b>Two defaults point opposite ways, and confusing them is easy.</b> The endpoint gate denies
+     * an unregistered URL — an endpoint nobody wrote a permission for is unreachable. This grants an
+     * unregistered model: a model whose CRUD nobody wrote a permission for is still usable, because
+     * denying would break every such model at once. So a model with no permission item has its
+     * attachments ungated here, and that is the deliberate cost of not breaking the majority.
      */
     boolean hasModelActionGrant(String model, AccessType accessType);
 

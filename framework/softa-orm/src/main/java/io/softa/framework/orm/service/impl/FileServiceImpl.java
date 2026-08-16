@@ -405,14 +405,27 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * mask speaks for them.
      */
     List<FileRecord> readableFiles(String modelName, List<FileRecord> fileRecords) {
-        Set<String> blocked = permissionService.getUserBlockedModelFields(modelName, AccessType.READ);
-        if (CollectionUtils.isEmpty(blocked)) {
-            return fileRecords;
-        }
+        // Asks the single-file rule per record rather than restating it. The two used to be written
+        // out separately and a blank-field guard went missing from one of them, which an immutable
+        // blocked-set turns into a NullPointerException rather than a wrong answer.
         return fileRecords.stream()
-                .filter(record -> StringUtils.isBlank(record.getFieldName())
-                        || !blocked.contains(record.getFieldName()))
+                .filter(record -> isFileFieldReadable(modelName, record.getFieldName()))
                 .toList();
+    }
+
+    /**
+     * Whether a file filed against this field is readable, given what the caller may read of the model.
+     *
+     * <p>The listing and the by-id lookup both have to answer this, and they must answer it the same
+     * way or one endpoint hands over what the other withheld. A file recorded against no field belongs
+     * to the row itself, and no field mask speaks for it.
+     */
+    @Override
+    public boolean isFileFieldReadable(String modelName, String fieldName) {
+        if (StringUtils.isBlank(fieldName)) {
+            return true;
+        }
+        return !permissionService.getUserBlockedModelFields(modelName, AccessType.READ).contains(fieldName);
     }
 
     /**
@@ -426,12 +439,6 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * reason to fail it, and the row simply ends up referencing nothing — which the read side
      * already tolerates.
      */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void claimFiles(Collection<FileClaim> claims) {
-        claimFiles(claims, List.of());
-    }
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void claimFiles(Collection<FileClaim> claims, Collection<FileSlot> slots) {
@@ -505,7 +512,10 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
             if (stillClaimed.contains(record.getId())) {
                 continue;
             }
-            record.setModelName(null);
+            // The binding goes; the model it was uploaded against stays. Clearing that too would make
+            // the file claimable by a row of any model, so removing an attachment would widen its
+            // exposure rather than return it to neutral — the opposite of what a removal means. What
+            // makes it unclaimed is the absent row.
             record.setRowId(null);
             record.setFieldName(null);
             released.add(record);
