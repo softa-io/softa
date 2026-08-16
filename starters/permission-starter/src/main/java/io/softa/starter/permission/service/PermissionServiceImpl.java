@@ -333,6 +333,23 @@ public class PermissionServiceImpl implements PermissionService {
         if (!hasExplicitRules(pi, model) && !hasForwardAnchor(model)) {
             Referencer ref = findReferencer(model, pi);
             if (ref == null) {
+                // Nothing names this model and nothing references it: bookkeeping the runtime writes
+                // as a side effect of work it already authorized — a file record, an import or export
+                // history row, a login entry, a cron log.
+                //
+                // On CREATE the question is unanswerable rather than unanswered. The ids were minted
+                // by this very call, so there is no pre-existing row to expose, and no rule can ever
+                // put them "in scope" — the check cannot pass for any non-admin, ever, which makes it
+                // a wall rather than a control. What authorized the write is the action that caused
+                // it, and that was checked where it happened: the endpoint gate, the owning row for
+                // an attachment, the template for an import.
+                //
+                // Reading, updating and deleting such a model by id still fail closed. Those touch
+                // rows the caller did not just create, and refusing there costs nothing a caller with
+                // a legitimate path cannot get another way.
+                if (AccessType.CREATE.equals(accessType)) {
+                    return;
+                }
                 throw new PermissionException(
                         "Some " + model + " ids are outside your " + accessType + " scope");
             }

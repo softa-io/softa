@@ -12,6 +12,7 @@ import org.mockito.Mockito;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -23,6 +24,7 @@ import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -102,6 +104,14 @@ class AnchorlessChildScopeTest {
         when(f.getRelatedField()).thenReturn(relatedField);
         modelManager.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
         modelManager.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of(f));
+    }
+
+    /** checkIdsAccess under a bound context — without one, shouldBypass() waves everything through. */
+    private void checkIds(String model, AccessType accessType) {
+        Context ctx = new Context();
+        ctx.setTenantId(TENANT);
+        ctx.setUserId(USER);
+        ContextHolder.runWith(ctx, () -> service.checkIdsAccess(model, List.of(1L), accessType));
     }
 
     private Filters scopeOf(String model) {
@@ -230,6 +240,34 @@ class AnchorlessChildScopeTest {
         modelManager.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
 
         assertThat(scopeOf("Orphan")).isEqualTo(matchNoneAnded());
+    }
+
+    // ── bookkeeping the runtime writes for itself ──────────────────────────────────────────
+
+    /**
+     * A model nothing references and no rule can name — a file record, an import history row, a login
+     * entry. On CREATE the ids were minted by this very call, so there is no earlier row to expose and
+     * no rule that could ever put them in scope: the check cannot pass for any non-admin, which makes
+     * it a wall rather than a control. Every file-producing and import feature died on it.
+     */
+    @Test
+    void creatingAnAnchorlessBookkeepingRowIsAllowed() {
+        when(applicability.applicableFor("ImportHistory")).thenReturn(UNIVERSAL_ONLY);
+        modelManager.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+        modelManager.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
+
+        checkIds("ImportHistory", AccessType.CREATE);
+    }
+
+    /** Reading one by id is a different question, and still fails closed. */
+    @Test
+    void readingAnAnchorlessBookkeepingRowStillFailsClosed() {
+        when(applicability.applicableFor("ImportHistory")).thenReturn(UNIVERSAL_ONLY);
+        modelManager.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+        modelManager.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
+
+        assertThatThrownBy(() -> checkIds("ImportHistory", AccessType.READ))
+                .isInstanceOf(io.softa.framework.base.exception.PermissionException.class);
     }
 
     // ── the anchored case is unchanged ─────────────────────────────────────────────────────
