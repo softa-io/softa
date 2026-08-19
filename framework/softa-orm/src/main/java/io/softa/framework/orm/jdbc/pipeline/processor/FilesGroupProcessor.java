@@ -54,22 +54,26 @@ public class FilesGroupProcessor extends BaseProcessor {
         for (MetaField fileField : fileFields) {
             String fieldName = fileField.getFieldName();
             boolean isContain = row.containsKey(fieldName);
-            checkReadonly(isContain);
+            // Against fileField, not the group's first field: the no-argument forms read
+            // BaseProcessor.metaField, which a group processor only ever holds one of.
+            checkReadonly(fileField, isContain);
             Object obj = row.get(fieldName);
-            // Check the required field
-            if (AccessType.CREATE.equals(accessType)) {
-                checkRequired(obj);
-                return;
-            } else if (isContain) {
-                // If the field is set to null, check if it is a required field.
-                checkRequired(obj);
+            // A create asserts every field of the group — the row is complete by definition. An update
+            // asserts only the fields it carries, since one it never mentioned says nothing about itself.
+            if (AccessType.CREATE.equals(accessType) || isContain) {
+                checkRequired(fileField, obj);
+            }
+            if (!isContain) {
+                continue;
             }
             if (FieldType.FILE.equals(fileField.getFieldType())) {
-                obj = IdUtils.convertIdToLong(obj);
-                row.put(fieldName, obj);
+                row.put(fieldName, IdUtils.convertIdToLong(obj));
             } else if (obj instanceof List<?> listValue) {
-                obj = StringUtils.join(listValue, ",");
-                row.put(fieldName, obj);
+                // MULTI_FILE is stored comma-joined, the shape StringProcessor reads back. Handing the
+                // List to JDBC instead lets the driver fall back to Java serialisation and write
+                // 0xACED0005... into a VARCHAR — "Incorrect string value" from MySQL, which reads as a
+                // charset problem and is really a missing conversion.
+                row.put(fieldName, StringUtils.join(listValue, ","));
             }
         }
     }

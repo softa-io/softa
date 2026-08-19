@@ -40,13 +40,25 @@ public abstract class BaseProcessor implements FieldProcessor {
      * here. The exemption is CREATE-only so UPDATE keeps rejecting assignment.
      */
     protected void checkReadonly(boolean isContain) {
-        if (metaField.isReadonly()
+        checkReadonly(metaField, isContain);
+    }
+
+    /**
+     * Same check against a named field, for the group processors.
+     *
+     * <p>A group processor holds several fields but only one {@link #metaField} — the first one it was
+     * constructed with. Calling the no-argument form from inside its loop therefore reads the first
+     * field's flags for every field it visits, so a readonly second field is not protected and the
+     * error message names the wrong column.
+     */
+    protected void checkReadonly(MetaField field, boolean isContain) {
+        if (field.isReadonly()
                 && isContain
-                && !metaField.isComputed()
-                && !(metaField.isAutoSequence() && AccessType.CREATE.equals(accessType))
-                && StringUtils.isBlank(metaField.getCascadedField())) {
+                && !field.isComputed()
+                && !(field.isAutoSequence() && AccessType.CREATE.equals(accessType))
+                && StringUtils.isBlank(field.getCascadedField())) {
             throw new IllegalArgumentException("Model field {0}:{1} is a readonly field and cannot be assigned!",
-                    metaField.getModelName(), fieldName);
+                    field.getModelName(), field.getFieldName());
         }
     }
 
@@ -54,9 +66,14 @@ public abstract class BaseProcessor implements FieldProcessor {
      * The required field cannot be assigned a null value.
      */
     protected void checkRequired(Object value) {
-        if (metaField.isRequired() && value == null) {
+        checkRequired(metaField, value);
+    }
+
+    /** Same check against a named field — see {@link #checkReadonly(MetaField, boolean)} for why. */
+    protected void checkRequired(MetaField field, Object value) {
+        if (field.isRequired() && value == null) {
             throw new IllegalArgumentException("Model field {0}:{1} is a required field and cannot be null!",
-                    metaField.getModelName(), fieldName);
+                    field.getModelName(), field.getFieldName());
         }
     }
 
