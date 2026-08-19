@@ -178,4 +178,27 @@ public interface PermissionService {
     default void checkWritePayload(String model, Map<String, Object> payload) {
         // no-op default
     }
+
+    /**
+     * The endpoint gate's question, asked without a URL.
+     *
+     * <p>{@code PermissionInterceptor} resolves a request by matching its URL against the endpoint
+     * index. The file upload endpoints cannot be matched that way — their model arrives as a request
+     * <em>parameter</em>, so {@code /file/...} resolves to no model — and they are reachable only
+     * because they are whitelisted, which means the gate never runs for them at all. They ask here
+     * instead, naming the model and the action, and the same index answers via the canonical endpoint
+     * for that pair.
+     *
+     * <p><b>Two defaults point opposite ways, and confusing them is easy.</b> The endpoint gate denies
+     * an unregistered URL — an endpoint nobody wrote a permission for is unreachable. This grants an
+     * unregistered model: a model whose CRUD nobody wrote a permission for is still usable, because
+     * denying would break every such model at once. So a model with no permission item has its
+     * attachments ungated here, and that is the deliberate cost of not breaking the majority.
+     *
+     * @param model the model being written
+     * @param accessType the operation being performed
+     * @return true when the caller may perform it, or when no permission covers it
+     */
+    boolean hasModelActionGrant(String model, AccessType accessType);
+
 }

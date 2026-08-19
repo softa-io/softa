@@ -13,6 +13,7 @@ import org.apache.fesod.sheet.write.metadata.WriteSheet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.exception.BaseException;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.dto.UploadFileDTO;
@@ -51,6 +52,12 @@ public class ExcelUploadService {
             }
             excelWriter.finish();
             return this.uploadExcelBytes(modelName, fileName, outputStream.toByteArray());
+        } catch (BaseException e) {
+            // Already carries a diagnosis — a permission refusal, a missing model, a storage failure.
+            // Wrapping it in "error generating Excel with the provided data" blames the data for
+            // something that has nothing to do with it, which is exactly how a denied FileRecord insert
+            // reads as a broken template.
+            throw e;
         } catch (Exception e) {
             throw new BusinessException("Error generating Excel {0} with the provided data.", fileName, e);
         }

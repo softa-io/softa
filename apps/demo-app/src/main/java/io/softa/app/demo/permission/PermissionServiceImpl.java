@@ -117,4 +117,13 @@ public class PermissionServiceImpl implements PermissionService {
     public Filters appendScopeAccessFilters(String model, Filters originalFilters) {
         return originalFilters;
     }
+
+    /**
+     * No endpoint index here, so nothing is registered and nothing is refused — the same answer the
+     * starter gives for a model no permission covers.
+     */
+    @Override
+    public boolean hasModelActionGrant(String model, AccessType accessType) {
+        return true;
+    }
 }

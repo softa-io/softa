@@ -84,6 +84,9 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
     public List<Map<String, Object>> insertList(String modelName, List<Map<String, Object>> rows) {
         LocalDateTime insertTime = LocalDateTime.now();
         DataCreatePipeline pipeline = new DataCreatePipeline(modelName);
+        // Before anything is written: a File field may only name a file this row is entitled to hold.
+        // Read-side expansion trusts the column outright, so this is where that trust is earned.
+        FileOwnership.validate(modelName, rows);
         // Format the data, fill in the audit fields,
         // and fill in the tenantId field according to whether it is a multi-tenant model.
         rows = pipeline.processCreateData(rows, insertTime);
@@ -110,6 +113,10 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         // Because its need to get the ids first, and finally process the OneToMany, ManyToMany parameters
         // to create associated table or intermediate table rows.
         pipeline.processXToManyData(rows);
+        // Same reason, for files: an upload from a create form has no row to name yet, so the record it
+        // wrote points at nothing until here. Binding it is what lets the next write's validate() know
+        // who owns this file — and what lets getRowFiles find it.
+        FileOwnership.claim(modelName, rows);
         return rows;
     }
 
@@ -291,6 +298,9 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
     @SkipPermissionCheck
     public Integer updateList(String modelName, List<Map<String, Object>> rows, Set<String> toUpdateFields) {
         LocalDateTime updatedTime = LocalDateTime.now();
+        // Same guard as create, and it matters as much: replacing an attachment writes a new id into a
+        // column an ordinary user controls.
+        FileOwnership.validate(modelName, rows);
         DataUpdatePipeline pipeline = new DataUpdatePipeline(modelName, toUpdateFields);
         // TODO: Process according to the `enableChangeLog` config, referring the TODO in ChangeLogPublisher.class
         //  if enableChangeLog = false, there is no need to get original data, compare differences and collect changeLogs.
@@ -300,6 +310,9 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         int count = differRows.stream().mapToInt(row -> updateOne(modelName, row)).sum();
         // After updating the main table, update the sub-table to avoid the sub-table cascade field being the old value.
         boolean changed = pipeline.processXToManyData(rows);
+        // Re-bind what the write now references, and release what it stopped referencing — a cleared
+        // attachment must stop being reachable through the row it used to hang on.
+        FileOwnership.claim(modelName, rows);
         if (count > 0) {
             // Collect changeLogs
             changeLogPublisher.publishUpdateLog(modelName, differRows, originalRowsMap, updatedTime);
