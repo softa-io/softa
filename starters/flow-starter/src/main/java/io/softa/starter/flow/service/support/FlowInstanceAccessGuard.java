@@ -12,6 +12,7 @@ import io.softa.framework.base.enums.SystemRole;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
+import io.softa.starter.flow.runtime.store.FlowInstanceStore;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
@@ -43,9 +44,13 @@ public class FlowInstanceAccessGuard {
 
     private final ApprovalAuditReader auditReader;
 
-    public FlowInstanceAccessGuard(FlowInstanceService instanceService, ApprovalAuditReader auditReader) {
+    private final FlowInstanceStore instanceStore;
+
+    public FlowInstanceAccessGuard(FlowInstanceService instanceService, ApprovalAuditReader auditReader,
+                                   FlowInstanceStore instanceStore) {
         this.instanceService = instanceService;
         this.auditReader = auditReader;
+        this.instanceStore = instanceStore;
     }
 
     /**
@@ -60,7 +65,17 @@ public class FlowInstanceAccessGuard {
         if (!StringUtils.hasText(requesterId)) {
             throw new FlowAuthorizationException("Authentication is required to view instance " + instanceId);
         }
-        if (isMonitorAdmin() || participantInResult || isInitiator(instanceId, requesterId)) {
+        if (isMonitorAdmin() || participantInResult) {
+            return;
+        }
+        // The loaded rows can only vouch for actors who already appear in them, and that is not
+        // every legitimate viewer: a pending approver who has not acted yet has no approval-record
+        // row, so a records-derived participantInResult is false for exactly the person whose task
+        // sits in the inbox. Fall back to the full runtime state, whose pending approvals carry the
+        // not-yet-acted actors — the same participant test the state-based overload applies.
+        FlowExecutionState state = instanceStore.get(instanceId).orElse(null);
+        if (state != null
+                && (requesterId.equals(state.getInitiatorId()) || isParticipant(state, requesterId))) {
             return;
         }
         throw new FlowAuthorizationException(

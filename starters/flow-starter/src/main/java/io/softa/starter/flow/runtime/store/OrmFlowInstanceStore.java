@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.starter.flow.entity.FlowExecutionTrace;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -21,6 +22,18 @@ import io.softa.starter.flow.service.FlowInstanceService;
  * <p>Trace entries are persisted separately to {@code flow_execution_trace}
  * via {@link FlowExecutionTraceService} so that long-running flows do not
  * rewrite the entire trace JSON on every save.</p>
+ *
+ * <p><b>Row scope is bypassed on every method here</b> ({@code @SkipPermissionCheck}). This store
+ * is the engine's only access to its own ledger, and the engine acts in whatever request context
+ * happens to be driving it — an approver approving, an initiator withdrawing. No per-row rule can
+ * express "rows of instances the caller participates in" (actor and initiator are plain string
+ * columns, and the approver of a step is neither the row's creator nor its initiator), so a scoped
+ * read here returns zero rows for exactly the callers the engine exists to serve, and a scoped
+ * {@link #save} first fails its lookup ({@code findByInstanceId} → empty) and then attempts a
+ * duplicate insert. What authorizes the caller instead is the layer above: every runtime endpoint
+ * checks {@code FlowInstanceAccessGuard.requireInstanceViewer} or resolves the caller against the
+ * step's pending actors before acting, and those checks — not row visibility — are the
+ * authorization. Tenant isolation is untouched: it rides {@code crossTenant}, not this flag.</p>
  */
 @Primary
 @Component
@@ -39,6 +52,7 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
     }
 
     @Override
+    @SkipPermissionCheck
     public FlowExecutionState save(FlowExecutionState state) {
         FlowInstance existing = instanceService.findByInstanceId(state.getInstanceId()).orElse(null);
         FlowInstance entity = FlowExecutionStateMapper.toEntity(state, existing);
@@ -50,6 +64,7 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
     }
 
     @Override
+    @SkipPermissionCheck
     public Optional<FlowExecutionState> get(String instanceId) {
         // Trace intentionally NOT hydrated: loads must not scale with history length.
         // The state's empty trace is a delta buffer; the mapper marks the sequence
@@ -59,6 +74,7 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
     }
 
     @Override
+    @SkipPermissionCheck
     public Optional<FlowExecutionState> getWithTrace(String instanceId) {
         return instanceService.findByInstanceId(instanceId)
                 .map(entity -> {

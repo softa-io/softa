@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -136,7 +137,17 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return new FlowInboxCountView(pendingApprovals, unreadCc);
     }
 
+    /**
+     * Cross-actor read, exempt from row scope: the view's whole point is showing the initiator
+     * every approver's task, and a per-row rule ({@code actorId = caller}) can only ever surface
+     * the caller's own rows — it would silently shrink this list to one entry. Authorization is
+     * the in-method guard instead: {@code requireInstanceViewer} admits participants and the
+     * initiator and throws for everyone else, and the exemption flag also covers the guard's own
+     * initiator lookup, which a scoped read would otherwise blank for the very caller it exists
+     * to admit.
+     */
     @Override
+    @SkipPermissionCheck
     public List<FlowApprovalTaskView> getTasksByInstanceId(String instanceId, String requesterId) {
         List<FlowApprovalTask> tasks = getTaskEntitiesByInstanceId(instanceId);
         boolean participant = tasks.stream()
@@ -270,6 +281,12 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             target.setStartTime(source.getStartTime());
         }
         target.setEndTime(source.getEndTime());
+        // Write-once: the snapshot is "the form as this approver saw it", so a re-projection must
+        // not refresh it from the (possibly since-edited) business row. Backfill only when absent —
+        // an open task created before its design gained form fields picks the snapshot up here.
+        if (target.getFormSnapshot() == null) {
+            target.setFormSnapshot(source.getFormSnapshot());
+        }
     }
 
     private void closeStaleTask(FlowApprovalTask task, FlowExecutionState state) {
@@ -345,9 +362,16 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
      * rather than on the internal {@code syncFromState}, where a this-call would
      * bypass Spring's transactional proxy. Callers inside the engine already run
      * in {@code FlowRuntimeFacade}'s transaction; this joins it (REQUIRED).
+     *
+     * <p>{@code @SkipPermissionCheck} rides along for the same structural reason and lands on the
+     * same method: {@code flow_approval_task} is engine bookkeeping, so the post-write scope re-read
+     * in {@code ModelServiceImpl} can only fail for a non-admin caller — see
+     * {@code FlowInstanceServiceImpl.saveInstance}. The {@code this.createList} / {@code this.updateList}
+     * inside {@code syncFromState} are self-invocations, so the annotation has to sit out here.
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @SkipPermissionCheck
     public void onStateChanged(FlowExecutionState state) {
         syncFromState(state);
     }
