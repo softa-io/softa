@@ -7,6 +7,7 @@ import java.util.Map;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.IndexType;
 import io.softa.starter.metadata.ddl.context.FieldDdlCtx;
 import io.softa.starter.metadata.ddl.context.IndexDdlCtx;
 import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
@@ -110,6 +111,8 @@ public final class DdlContextBuilder {
             index.setColumns(List.copyOf(designModelIndex.getIndexFields()));
         }
         index.setUnique(Boolean.TRUE.equals(designModelIndex.getUniqueIndex()));
+        index.setIndexType(designModelIndex.getIndexType() == null
+                ? IndexType.BTREE : designModelIndex.getIndexType());
         return index;
     }
 
@@ -118,6 +121,7 @@ public final class DdlContextBuilder {
         index.setIndexName(asString(data.get("indexName")));
         index.setUnique(asBoolean(data.get("uniqueIndex")));
         index.setColumns(asStringList(data.get("indexFields")));
+        index.setIndexType(asIndexType(data.get("indexType")));
         return index;
     }
 
@@ -165,6 +169,25 @@ public final class DdlContextBuilder {
             }
         }
         return null;
+    }
+
+    /**
+     * Row-map value to {@link IndexType}. Falls back to {@link IndexType#BTREE} rather than null:
+     * a design row predating the column, or an unrecognised value, must render the way it always
+     * did rather than blow up in a template.
+     */
+    public static IndexType asIndexType(Object value) {
+        if (value instanceof IndexType indexType) {
+            return indexType;
+        }
+        if (value instanceof String str && !str.isBlank()) {
+            for (IndexType indexType : IndexType.values()) {
+                if (indexType.getCode().equals(str) || indexType.name().equals(str)) {
+                    return indexType;
+                }
+            }
+        }
+        return IndexType.BTREE;
     }
 
     public static FieldType asFieldType(Object value) {

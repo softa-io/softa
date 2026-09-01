@@ -15,6 +15,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IndexType;
 import io.softa.framework.orm.enums.StorageType;
 import io.softa.starter.metadata.ddl.SqlReservedWords;
 import io.softa.starter.metadata.ddl.spi.BuiltinDdlMetadataResolver;
@@ -902,6 +903,12 @@ public final class AnnotationParser {
                     "@Index on " + modelName + " (" + indexName + ") message exceeds "
                             + MESSAGE_MAX + " chars (sys_model_index.message width)");
         }
+        IndexType indexType = firstOrNull(anno.type());
+        if (indexType == IndexType.TRIGRAM && anno.unique()) {
+            throw new IllegalStateException(
+                    "@Index on " + modelName + " (" + indexName + ") is TRIGRAM and unique; "
+                            + "a trigram index is a GIN index and GIN cannot enforce uniqueness");
+        }
 
         SysModelIndex idx = new SysModelIndex();
         idx.setModelName(modelName);
@@ -909,6 +916,7 @@ public final class AnnotationParser {
         idx.setIndexFields(new ArrayList<>(Arrays.asList(fields)));
         idx.setUniqueIndex(anno.unique());
         idx.setMessage(StringUtils.isBlank(anno.message()) ? null : anno.message());
+        idx.setIndexType(indexType);
         return idx;
     }
 

@@ -1,5 +1,6 @@
 package io.softa.starter.studio.release.desired;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -44,10 +45,19 @@ public class DesignEnvSource {
     public DesignRows load(Long appId, Long envId) {
         Assert.notNull(appId, "appId must not be null");
         Assert.notNull(envId, "envId must not be null");
+        List<Map<String, Object>> models = search(DesignModel.class.getSimpleName(), appId, envId);
+        List<Map<String, Object>> fields = search(DesignField.class.getSimpleName(), appId, envId);
+        List<Map<String, Object>> indexes =
+                new ArrayList<>(search(DesignModelIndex.class.getSimpleName(), appId, envId));
+        // Search indexes are derived, never stored: they follow searchName, so persisting them
+        // would make them separately editable and the two would fight. The annotation lane derives
+        // the identical rows at the same point in its own read path — see DesignSearchIndexSpecs
+        // for why a lane that skipped this would delete the other lane's indexes on every deploy.
+        indexes.addAll(DesignSearchIndexSpecs.derive(models, fields, indexes));
         return new DesignRows(
-                search(DesignModel.class.getSimpleName(), appId, envId),
-                search(DesignField.class.getSimpleName(), appId, envId),
-                search(DesignModelIndex.class.getSimpleName(), appId, envId),
+                models,
+                fields,
+                indexes,
                 search(DesignOptionSet.class.getSimpleName(), appId, envId),
                 search(DesignOptionItem.class.getSimpleName(), appId, envId));
     }

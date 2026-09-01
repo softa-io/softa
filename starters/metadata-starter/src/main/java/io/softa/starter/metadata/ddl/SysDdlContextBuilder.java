@@ -7,6 +7,7 @@ import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.IndexType;
 import io.softa.starter.metadata.ddl.context.FieldDdlCtx;
 import io.softa.starter.metadata.ddl.context.IndexDdlCtx;
 import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
@@ -88,6 +89,8 @@ public final class SysDdlContextBuilder {
         IndexDdlCtx ctx = new IndexDdlCtx();
         ctx.setIndexName(idx.getIndexName());
         ctx.setUnique(Boolean.TRUE.equals(idx.getUniqueIndex()));
+        // Null = BTREE: rows written before index_type existed must keep rendering as they did.
+        ctx.setIndexType(idx.getIndexType() == null ? IndexType.BTREE : idx.getIndexType());
         if (idx.getIndexFields() != null) {
             List<String> columns = new ArrayList<>(idx.getIndexFields().size());
             for (String fieldName : idx.getIndexFields()) {

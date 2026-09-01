@@ -9,6 +9,7 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IndexType;
 
 /**
  * SysModelIndex — metadata catalog row describing a model's database index.
@@ -52,6 +53,11 @@ public class SysModelIndex extends AuditableModel {
 
     @Field(label = "Is Unique Index")
     private Boolean uniqueIndex;
+
+    // What the index is for; the dialect turns it into an access method. Nullable = BTREE, so
+    // every row written before this column existed keeps rendering exactly as it did.
+    @Field
+    private IndexType indexType;
 
     // End-user message for a violation of this unique constraint (its own i18n key).
     // Nullable: null = no custom message (generic composed fallback is used).

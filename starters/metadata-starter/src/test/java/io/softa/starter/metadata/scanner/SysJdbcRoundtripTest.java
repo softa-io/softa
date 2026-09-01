@@ -196,6 +196,7 @@ class SysJdbcRoundtripTest {
                   index_name VARCHAR(60),
                   index_fields VARCHAR(255),
                   unique_index TINYINT,
+                  index_type VARCHAR(64),
                   message VARCHAR(256),
                   created_time DATETIME,
                   created_id BIGINT,
