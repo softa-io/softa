@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.utils.LambdaUtils;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -43,7 +44,35 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getCreatedTime),
             LambdaUtils.getAttributeName(FlowInstance::getUpdatedTime));
 
+    /**
+     * Engine bookkeeping write — exempt from the caller's row scope.
+     *
+     * <p>{@code ModelServiceImpl} re-reads every row it just wrote and refuses the write when the
+     * caller cannot see it ({@code checkIdsFieldsAccess}, CREATE after {@code createList} and UPDATE
+     * after {@code updateList}). That question is right for business data and wrong here:
+     * {@code flow_instance} is the engine's own ledger, nobody grants a scope over it, and it carries
+     * no column that could tie a row to the initiator — {@code modelName} / {@code rowId} /
+     * {@code initiatorId} are plain strings, not relations. So {@code findReferencer} finds no owner,
+     * {@code hasForwardAnchor} finds no anchor, and the check fails closed for every non-admin. Tenant
+     * admins never saw it because {@code PermissionInfo.isAdmin} short-circuits ahead of the scope
+     * engine; everyone else could not start a flow at all.
+     *
+     * <p>Annotated HERE, on the proxy-visible interface method, for the same reason the
+     * {@code @Transactional} on {@code FlowApprovalTaskServiceImpl.onStateChanged} sits there: the
+     * {@code this.createOne} / {@code this.updateOne} calls below are self-invocations that Spring's
+     * proxy never intercepts, so the annotation would be silently inert on them. Callers reach this
+     * method from {@code OrmFlowInstanceStore}, a different bean.
+     *
+     * <p>The flag gates row scope and field masking only. Tenant isolation rides {@code crossTenant},
+     * which is untouched, so this cannot widen a write past the caller's own tenant.
+     *
+     * <p><b>Write side only.</b> Reads of the same tables are still row-scoped and still resolve to
+     * {@code matchNone()} for a non-admin — an approval inbox comes back empty rather than refused.
+     * Covering that needs the same treatment on every {@code Flow*} query entry point, or a
+     * model-level exemption; neither is done here.
+     */
     @Override
+    @SkipPermissionCheck
     public FlowInstance saveInstance(FlowInstance instance) {
         if (instance.getId() != null) {
             if (this.updateOne(instance, false)) {

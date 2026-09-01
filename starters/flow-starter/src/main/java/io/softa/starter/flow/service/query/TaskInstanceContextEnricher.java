@@ -7,6 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.service.FlowInstanceService;
@@ -26,6 +27,15 @@ public class TaskInstanceContextEnricher {
         this.instanceService = instanceService;
     }
 
+    /**
+     * Row scope is bypassed here: the batch lookup runs in the approver's request context, and an
+     * approver is not the initiator of the instances behind their tasks — a scoped read returns
+     * zero rows and every view stays title-less, which is exactly the "inbox shows no document
+     * name" symptom. The task views being enriched are already actor-scoped rows the caller is
+     * entitled to; their owning instance's title/model/row-id/status is context of those rows,
+     * not a widening of them.
+     */
+    @SkipPermissionCheck
     public void enrich(List<FlowApprovalTaskView> views) {
         if (views == null || views.isEmpty()) {
             return;

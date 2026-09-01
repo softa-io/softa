@@ -2,6 +2,7 @@ package io.softa.starter.flow.dto;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -107,6 +108,11 @@ public class FlowApprovalTaskView {
 
     @Schema(description = "Urgency marker propagated from urge actions")
     private String urgency;
+
+    @Schema(description = "Business-form snapshot frozen when the task materialized: the node's "
+            + "non-hidden formPermissions fields with the bound row's values at that moment. "
+            + "Null when the node declares no form fields (or the design predates them)")
+    private Map<String, Object> formSnapshot;
 
     @Schema(description = "Title of the owning instance (batch-enriched; null when the instance row is gone)")
     private String instanceTitle;
