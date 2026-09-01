@@ -3,35 +3,47 @@ package io.softa.starter.studio.checksum;
 import java.lang.reflect.Field;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
+import io.softa.framework.orm.enums.IndexType;
 import io.softa.starter.metadata.entity.SysModelIndex;
 import io.softa.starter.studio.meta.entity.DesignModelIndex;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Structural mirror guard for the index {@code message} attribute.
+ * Structural mirror guard for the index attributes that only one lane derives from.
  *
  * <p>{@code INDEX_ATTRS} is derived from {@code SysModelIndex} alone, so a value-only golden
- * fixture is one-directional: if {@code message} were added to {@code DesignModelIndex} but
- * forgotten on {@code SysModelIndex}, the attribute would be projected away on BOTH sides and
- * the cross-lane equality would still pass while studio messages silently never shipped. This
- * test closes both directions by asserting each entity declares a {@code @Field}-annotated
- * {@code message} field of identical Java type.
+ * fixture is one-directional: if an attribute were added to {@code DesignModelIndex} but
+ * forgotten on {@code SysModelIndex}, it would be projected away on BOTH sides and the
+ * cross-lane equality would still pass while the studio value silently never shipped. This
+ * test closes both directions by asserting each entity declares the attribute as a
+ * {@code @Field} of identical Java type.
  */
 class SysDesignIndexMirrorTest {
 
-    @Test
-    void bothLanesDeclareMessageFieldOfSameType() {
-        Field sys = fieldOf(SysModelIndex.class, "message");
-        Field design = fieldOf(DesignModelIndex.class, "message");
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({
+            "message",
+            "indexType",
+    })
+    void bothLanesDeclareAttributeOfSameType(String attribute) {
+        Field sys = fieldOf(SysModelIndex.class, attribute);
+        Field design = fieldOf(DesignModelIndex.class, attribute);
         assertNotNull(sys.getAnnotation(io.softa.framework.orm.annotation.Field.class),
-                "SysModelIndex.message must carry @Field");
+                "SysModelIndex." + attribute + " must carry @Field");
         assertNotNull(design.getAnnotation(io.softa.framework.orm.annotation.Field.class),
-                "DesignModelIndex.message must carry @Field");
+                "DesignModelIndex." + attribute + " must carry @Field");
         assertEquals(sys.getType(), design.getType(),
-                "message field type must match across the runtime and studio lanes");
-        assertEquals(String.class, sys.getType());
+                attribute + " field type must match across the runtime and studio lanes");
+    }
+
+    @Test
+    void mirroredAttributesKeepTheirExpectedTypes() {
+        assertEquals(String.class, fieldOf(SysModelIndex.class, "message").getType());
+        assertEquals(IndexType.class, fieldOf(SysModelIndex.class, "indexType").getType());
     }
 
     private static Field fieldOf(Class<?> type, String name) {

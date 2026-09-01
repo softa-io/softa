@@ -25,6 +25,7 @@ Used index fields:
 - indexName
 - columns
 - unique
+- trigram
 
 Notes:
 - This template renders a newly created table and inline indexes.
@@ -32,6 +33,10 @@ Notes:
   single quotes in descriptions.
 - PostgreSQL indexes are created as separate CREATE INDEX statements (not inline on CREATE TABLE),
   mirroring the AlterIndex template.
+- A trigram index (index.trigram) is emitted as a GIN index over gin_trgm_ops instead of the
+  default B-tree, because PostgreSQL answers the ORM's ILIKE with neither an anchored nor an
+  unanchored B-tree scan. Always single-column: multicolumn GIN would need btree_gin for the
+  scalar columns, which the framework deliberately does not require.
 - FOREIGN KEY constraints are not emitted — referential integrity is enforced at the
   ORM / application layer.
 #}
@@ -56,5 +61,5 @@ COMMENT ON COLUMN {{ model.tableName }}.{{ field.columnName }} IS '{{ field.desc
 {% endif %}
 {% endfor %}
 {% for index in model.createdIndexes %}
-CREATE {% if index.unique %}UNIQUE {% endif %}INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
+CREATE {% if index.unique %}UNIQUE {% endif %}INDEX {{ index.indexName }} ON {{ model.tableName }} {% if index.trigram %}USING gin ({{ index.columns | first }} gin_trgm_ops){% else %}({{ index.columns | join(', ') }}){% endif %};
 {% endfor %}

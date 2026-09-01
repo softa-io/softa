@@ -6,11 +6,13 @@ import org.junit.jupiter.api.Test;
 
 import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IndexType;
 import io.softa.starter.metadata.ddl.context.FieldDdlCtx;
 import io.softa.starter.metadata.ddl.context.IndexDdlCtx;
 import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PebbleSqlTemplateWhitespaceTest {
 
@@ -196,6 +198,56 @@ class PebbleSqlTemplateWhitespaceTest {
                 """.stripTrailing(), sql.stripTrailing());
     }
 
+    @Test
+    void postgresqlAlterIndexRendersTrigramIndexesAsGinOverTrgmOps() {
+        ModelDdlCtx model = baseModel("employee", "Employee", "id", false);
+        model.getCreatedIndexes().add(trigramIndex("idx_employee_full_name_trgm", "full_name"));
+        model.getCreatedIndexes().add(index("idx_employee_tenant_dept", false, "tenant_id", "department_id"));
+        model.getUpdatedIndexes().add(trigramIndex("idx_employee_code_trgm", "code"));
+
+        String sql = render("templates/sql/postgresql/AlterIndex.peb", model);
+
+        assertEquals("""
+                /* Table indexes for model: Employee */
+                CREATE INDEX idx_employee_full_name_trgm ON employee USING gin (full_name gin_trgm_ops);
+                CREATE INDEX idx_employee_tenant_dept ON employee (tenant_id, department_id);
+                DROP INDEX idx_employee_code_trgm;
+                CREATE INDEX idx_employee_code_trgm ON employee USING gin (code gin_trgm_ops);
+                """.stripTrailing(), sql.stripTrailing());
+    }
+
+    @Test
+    void postgresqlCreateTableRendersTrigramIndexesAsGinOverTrgmOps() {
+        ModelDdlCtx model = baseModel("employee", "Employee", "id", false);
+        model.getCreatedFields().add(field("id", "BIGINT", "BIGINT", true, true, null, null));
+        model.getCreatedIndexes().add(trigramIndex("idx_employee_full_name_trgm", "full_name"));
+
+        String sql = render("templates/sql/postgresql/CreateTable.peb", model);
+
+        assertTrue(sql.contains(
+                        "CREATE INDEX idx_employee_full_name_trgm ON employee USING gin (full_name gin_trgm_ops);"),
+                sql);
+    }
+
+    /**
+     * The MySQL contract: an index type MySQL has no answer for renders exactly as a plain one.
+     * Asserted as byte equality rather than by eyeballing the template, because "MySQL rendering is
+     * untouched" is the constraint this whole feature was accepted under.
+     */
+    @Test
+    void mysqlRendersATrigramIndexIdenticallyToAPlainOne() {
+        ModelDdlCtx trigram = baseModel("employee", "Employee", "id", false);
+        trigram.getCreatedIndexes().add(trigramIndex("idx_employee_full_name_trgm", "full_name"));
+
+        ModelDdlCtx btree = baseModel("employee", "Employee", "id", false);
+        btree.getCreatedIndexes().add(index("idx_employee_full_name_trgm", false, "full_name"));
+
+        assertEquals(render("templates/sql/mysql/AlterIndex.peb", btree),
+                render("templates/sql/mysql/AlterIndex.peb", trigram));
+        assertTrue(render("templates/sql/mysql/AlterIndex.peb", trigram)
+                .contains("ADD INDEX idx_employee_full_name_trgm (full_name);"));
+    }
+
     private String render(String templatePath, ModelDdlCtx model) {
         return TemplateEngine.renderFilePath(templatePath, Map.of("model", model));
     }
@@ -251,6 +303,12 @@ class PebbleSqlTemplateWhitespaceTest {
         index.setIndexName(indexName);
         index.setUnique(unique);
         index.setColumns(List.of(columns));
+        return index;
+    }
+
+    private IndexDdlCtx trigramIndex(String indexName, String column) {
+        IndexDdlCtx index = index(indexName, false, column);
+        index.setIndexType(IndexType.TRIGRAM);
         return index;
     }
 

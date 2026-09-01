@@ -1,7 +1,9 @@
 package io.softa.starter.metadata.scanner;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.BeanFactory;
@@ -10,8 +12,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.metadata.config.MetadataProperties;
+import io.softa.starter.metadata.entity.SysModelIndex;
 import io.softa.starter.metadata.scanner.annotation.AnnotationParser;
 import io.softa.starter.metadata.scanner.annotation.AnnotationScanResult;
+import io.softa.starter.metadata.scanner.annotation.SearchIndexSpecs;
+import io.softa.starter.metadata.scanner.annotation.SearchIndexSynthesizer;
 import io.softa.starter.metadata.scanner.checker.MetadataAnnotationChecker;
 import io.softa.starter.metadata.scanner.diff.DiffEngine;
 import io.softa.starter.metadata.scanner.diff.SchemaDiff;
@@ -59,10 +64,36 @@ public class MetadataReadPipeline {
         return support().findOptionSetEnums();
     }
 
-    /** Parse the given models / option-set enums into the from-code state. */
+    /**
+     * Parse the given models / option-set enums into the from-code state, then append the search
+     * indexes derived from {@code @Model(searchName = ...)} — see {@link SearchIndexSynthesizer}.
+     *
+     * <p>The derivation belongs HERE, not in {@link AnnotationParser} and not in the scanner,
+     * because this method is the only seam both {@link MetadataAnnotationScanner} (write lane) and
+     * {@link MetadataAnnotationChecker} (read-only production lane) go through. Deriving on one side
+     * only would make the two lanes' from-code fingerprints disagree, and the checker would then
+     * report permanent drift on every boot. Same reasoning, same layer as
+     * {@code ReferenceColumnResolver.stampSysFields}.
+     *
+     * <p>Because the rows land in the from-code set, they are declared indexes in every downstream
+     * sense: they enter the diff, get written to {@code sys_model_index}, are created by convergence,
+     * and — critically — join {@code DdlOrchestrator}'s declared-name set, so the undeclared-index
+     * DROP never reaps them.
+     */
     public AnnotationScanResult parse(Collection<Class<?>> modelClasses,
                                       Collection<Class<?>> optionSetEnums) {
-        return parser.parse(modelClasses, optionSetEnums);
+        AnnotationScanResult parsed = parser.parse(modelClasses, optionSetEnums);
+        List<SysModelIndex> derived = SearchIndexSynthesizer.derive(
+                SearchIndexSpecs.from(parsed.models(), parsed.fields()),
+                parsed.modelIndexes().stream().map(SysModelIndex::getIndexName).toList());
+        if (derived.isEmpty()) {
+            return parsed;
+        }
+        log.debug("Derived {} search index(es) from @Model(searchName)", derived.size());
+        List<SysModelIndex> indexes = new ArrayList<>(parsed.modelIndexes());
+        indexes.addAll(derived);
+        return new AnnotationScanResult(parsed.models(), parsed.fields(), parsed.optionSets(),
+                parsed.optionItems(), indexes, parsed.renames());
     }
 
     /**

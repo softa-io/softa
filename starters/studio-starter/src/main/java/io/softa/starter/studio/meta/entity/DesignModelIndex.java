@@ -9,6 +9,7 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.IndexType;
 
 /**
  * DesignModelIndex Model
@@ -53,6 +54,11 @@ public class DesignModelIndex extends AuditableModel {
 
     @Field(label = "Is Unique Index")
     private Boolean uniqueIndex;
+
+    // What the index is for; the dialect turns it into an access method (mirror of
+    // SysModelIndex.indexType). Nullable = BTREE.
+    @Field
+    private IndexType indexType;
 
     // End-user message for a violation of this unique constraint (mirror of SysModelIndex.message).
     @Field(length = 256)

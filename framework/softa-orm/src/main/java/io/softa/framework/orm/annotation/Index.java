@@ -2,6 +2,8 @@ package io.softa.framework.orm.annotation;
 
 import java.lang.annotation.*;
 
+import io.softa.framework.orm.enums.IndexType;
+
 /**
  * Declares a database index on the annotated {@link Model} class.
  * <p>
@@ -63,6 +65,24 @@ public @interface Index {
      * Unique constraint. Default false (regular non-unique index).
      */
     boolean unique() default false;
+
+    /**
+     * What the index is for, which decides how each dialect renders it. Unset (the common case)
+     * = {@link IndexType#BTREE}: an ordinary index, rendered exactly as it always was.
+     *
+     * <p>Declared as a zero-length array so "not declared" stays distinguishable from an explicit
+     * {@code BTREE} — same shape as {@link Field#onDelete()}.
+     *
+     * <p><b>You rarely need this.</b> The indexes that back the product's search box are derived
+     * automatically from {@link Model#searchName()} (see {@code SearchIndexSynthesizer}) — that is
+     * the mechanism, and this attribute is the escape hatch for a column the derivation does not
+     * cover. Setting it here also opts the index OUT of that derivation, since a hand-written
+     * declaration on the same single column wins.
+     *
+     * <p>{@link IndexType#TRIGRAM} with {@link #unique()} is rejected at boot: GIN cannot enforce
+     * uniqueness.
+     */
+    IndexType[] type() default {};
 
     /**
      * End-user message shown when <b>this</b> unique constraint is violated.

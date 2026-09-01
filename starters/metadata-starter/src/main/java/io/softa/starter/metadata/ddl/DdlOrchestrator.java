@@ -23,6 +23,7 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.StorageType;
 import io.softa.framework.orm.jdbc.database.DBUtil;
 import io.softa.starter.metadata.ddl.DdlPolicy.ModelOps;
+import io.softa.starter.metadata.ddl.context.IndexDdlCtx;
 import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
 import io.softa.starter.metadata.ddl.dialect.DdlDialect;
 import io.softa.starter.metadata.ddl.introspect.IndexNameCompat;
@@ -120,6 +121,9 @@ public class DdlOrchestrator {
     private final JdbcTemplate jdbcTemplate;
     private final DdlMetadataResolver metadataResolver;
     private final String datasourceUrl;
+
+    /** Probed lazily and at most once: whether PostgreSQL can build a trigram index right now. */
+    private TrigramCapability trigramCapability;
 
     public DdlOrchestrator(JdbcTemplate jdbcTemplate,
                            DdlMetadataResolver metadataResolver,
@@ -754,13 +758,43 @@ public class DdlOrchestrator {
 
     private void renderIndexChange(DdlDialect dialect, ModelDdlCtx ctx, RenderedDdl.Kind kind,
                                    String label, List<RenderedDdl> out) {
-        if (!ctx.isHasIndexChanges()) {
+        if (!ctx.isHasIndexChanges() || skipUnbuildableTrigram(dialect, ctx)) {
             return;
         }
         String sql = dialect.alterIndexDDL(ctx).toString().trim();
         if (!sql.isEmpty()) {
             out.add(RenderedDdl.of(kind, label, sql));
         }
+    }
+
+    /**
+     * Drop a trigram index from the plan when the database cannot build one — see
+     * {@link TrigramCapability} for why that is a skip and not a boot failure.
+     *
+     * <p>Guarding here rather than at each caller is deliberate: every index statement in both
+     * lanes funnels through this method, so one check covers the convergence planner and the
+     * diff planner alike and cannot be forgotten when a third caller appears. Only the CREATE
+     * side is guarded — DROPPING a GIN index needs no extension, and refusing to drop one would
+     * strand it forever.
+     */
+    private boolean skipUnbuildableTrigram(DdlDialect dialect, ModelDdlCtx ctx) {
+        List<IndexDdlCtx> creating = new ArrayList<>(ctx.getCreatedIndexes());
+        creating.addAll(ctx.getUpdatedIndexes());
+        creating.addAll(ctx.getRenamedIndexes());
+        boolean trigram = creating.stream().anyMatch(IndexDdlCtx::isTrigram);
+        if (!trigram || capability(dialect).available()) {
+            return false;
+        }
+        creating.stream().filter(IndexDdlCtx::isTrigram).forEach(
+                index -> capability(dialect).warnUnavailable(index.getIndexName(), ctx.getTableName()));
+        return true;
+    }
+
+    private TrigramCapability capability(DdlDialect dialect) {
+        if (trigramCapability == null) {
+            trigramCapability = new TrigramCapability(jdbcTemplate, dialect.getDatabaseType());
+        }
+        return trigramCapability;
     }
 
     private static void addAllFieldMappings(Map<String, String> target, List<SysField> fields) {

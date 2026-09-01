@@ -16,12 +16,16 @@ Used index fields:
 - oldIndexName
 - columns
 - unique
+- trigram
 
 Notes:
 - updatedIndexes means the index name is unchanged and the latest definition should replace it.
 - renamedIndexes means the index name changed and oldIndexName is available.
 - Current MySQL behavior renders both update and rename as DROP INDEX + ADD INDEX.
 - Pure deleted indexes also generate SQL.
+- A trigram index (index.trigram) becomes a GIN index over gin_trgm_ops rather than the default
+  B-tree — PostgreSQL cannot serve the ORM's ILIKE from a B-tree at all. Always single-column.
+  The RENAME branch is access-method agnostic and needs no such branch.
 #}
 /* Table indexes for model: {{ model.label }} */
 {% for index in model.deletedIndexes -%}
@@ -29,18 +33,18 @@ DROP INDEX {{ index.indexName }};
 {% endfor -%}
 {% for index in model.createdIndexes -%}
 CREATE {% if index.unique %}UNIQUE {% endif -%}
-INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
+INDEX {{ index.indexName }} ON {{ model.tableName }} {% if index.trigram %}USING gin ({{ index.columns | first }} gin_trgm_ops){% else %}({{ index.columns | join(', ') }}){% endif %};
 {% endfor -%}
 {% for index in model.updatedIndexes -%}
 DROP INDEX {{ index.indexName }};
 CREATE {% if index.unique %}UNIQUE {% endif -%}
-INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
+INDEX {{ index.indexName }} ON {{ model.tableName }} {% if index.trigram %}USING gin ({{ index.columns | first }} gin_trgm_ops){% else %}({{ index.columns | join(', ') }}){% endif %};
 {% endfor -%}
 {% for index in model.renamedIndexes -%}
 {% if index.definitionChanged -%}
 DROP INDEX {{ index.oldIndexName }};
 CREATE {% if index.unique %}UNIQUE {% endif -%}
-INDEX {{ index.indexName }} ON {{ model.tableName }} ({{ index.columns | join(', ') }});
+INDEX {{ index.indexName }} ON {{ model.tableName }} {% if index.trigram %}USING gin ({{ index.columns | first }} gin_trgm_ops){% else %}({{ index.columns | join(', ') }}){% endif %};
 {% else -%}
 ALTER INDEX {{ index.oldIndexName }} RENAME TO {{ index.indexName }};
 {% endif -%}

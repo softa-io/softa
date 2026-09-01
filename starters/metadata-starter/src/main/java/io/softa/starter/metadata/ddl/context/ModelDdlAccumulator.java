@@ -105,7 +105,10 @@ public final class ModelDdlAccumulator {
             currentIndex.setOldIndexName(previousIndex.getIndexName());
             currentIndex.setRenamed(true);
             currentIndex.setDefinitionChanged(!Objects.equals(previousIndex.getColumns(), currentIndex.getColumns())
-                    || previousIndex.isUnique() != currentIndex.isUnique());
+                    || previousIndex.isUnique() != currentIndex.isUnique()
+                    // Access method is part of the definition: a BTREE->TRIGRAM flip has to rebuild,
+                    // not just rename. Mirrors DdlPolicy.ddlRelevantIndexChange on the other lane.
+                    || previousIndex.getIndexType() != currentIndex.getIndexType());
             model.getRenamedIndexes().add(currentIndex);
             return;
         }

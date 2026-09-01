@@ -5,6 +5,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.IndexType;
 import io.softa.starter.metadata.entity.SysField;
 import io.softa.starter.metadata.entity.SysModel;
 import io.softa.starter.metadata.entity.SysModelIndex;
@@ -277,13 +278,22 @@ public final class DdlPolicy {
     }
 
     /**
-     * Whether the index delta changes the physical index: its columns or its
-     * uniqueness. {@code message} (violation text) and other row attributes never
-     * justify a rebuild.
+     * Whether the index delta changes the physical index: its columns, its uniqueness, or its
+     * access method. {@code message} (violation text) and other row attributes never justify a
+     * rebuild.
+     *
+     * <p>The index type is compared NORMALIZED. Rows written before {@code index_type} existed read
+     * back null, and treating null as different from {@code BTREE} would rebuild every index in the
+     * catalog on the first boot after the column is added.
      */
     private static boolean ddlRelevantIndexChange(SysModelIndex code, SysModelIndex db) {
         return !Objects.equals(code.getIndexFields(), db.getIndexFields())
-                || isTrue(code.getUniqueIndex()) != isTrue(db.getUniqueIndex());
+                || isTrue(code.getUniqueIndex()) != isTrue(db.getUniqueIndex())
+                || indexType(code) != indexType(db);
+    }
+
+    private static IndexType indexType(SysModelIndex idx) {
+        return idx.getIndexType() == null ? IndexType.BTREE : idx.getIndexType();
     }
 
     private static boolean isTrue(Boolean b) {
