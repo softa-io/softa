@@ -71,6 +71,17 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
     void setActive(Long profileId, boolean active);
 
     /**
+     * The Consultant Profiles list (PRD §2.2), assembled.
+     *
+     * <p>Rows carry the person's name and login identifiers plus the companies whose grant covers
+     * today — none of which a generic model read can produce: the identifiers hang off a satellite
+     * pointing at the profile, and the tenant badges are a calendar question.
+     *
+     * @param search matched against name and email, case-insensitively; blank returns everyone
+     */
+    List<io.softa.starter.user.dto.ConsultantRowDTO> list(String search);
+
+    /**
      * Replace a consultant's grants with exactly this set, minting an account for each company that
      * does not have one yet.
      *

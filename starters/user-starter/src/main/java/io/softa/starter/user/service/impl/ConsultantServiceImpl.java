@@ -59,6 +59,10 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @Autowired
     private io.softa.starter.user.service.UserProfileService profileService;
 
+    /** Optional: the list shows company names; absent tenant-starter → the id alone. */
+    @Autowired(required = false)
+    private io.softa.framework.orm.service.TenantInfoService tenantInfoService;
+
     @Override
     public LocalDate today() {
         return LocalDate.now();
@@ -171,6 +175,41 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 .map(io.softa.starter.user.entity.UserIdentity::getProfileId);
         return byMobile.orElseGet(() -> profileService.createPersonForJoin(
                 email != null && !email.isBlank() ? email : mobile));
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public List<io.softa.starter.user.dto.ConsultantRowDTO> list(String search) {
+        String needle = search == null ? "" : search.trim().toLowerCase();
+        return this.searchList(new Filters()).stream()
+                .map(this::toRow)
+                .filter(row -> needle.isEmpty()
+                        || (row.getUsername() != null && row.getUsername().toLowerCase().contains(needle))
+                        || (row.getEmail() != null && row.getEmail().toLowerCase().contains(needle)))
+                .toList();
+    }
+
+    private io.softa.starter.user.dto.ConsultantRowDTO toRow(ConsultantProfile profile) {
+        io.softa.starter.user.dto.ConsultantRowDTO row = new io.softa.starter.user.dto.ConsultantRowDTO();
+        Long profileId = profile.getProfileId();
+        row.setProfileId(profileId);
+        row.setActive(profile.getActive());
+        profileService.getById(profileId).ifPresent(p -> row.setUsername(p.getFullName()));
+        identityService.findByProfile(profileId).ifPresent(identity -> {
+            row.setEmail(identity.getLoginEmail());
+            row.setMobile(identity.getLoginMobile());
+        });
+        // Live grants only — the badges must agree with the switcher the consultant will see.
+        row.setAuthorizedTenants(enterableTenantIds(profileId).stream().map(tenantId -> {
+            io.softa.starter.user.dto.ConsultantRowDTO.Tenant badge =
+                    new io.softa.starter.user.dto.ConsultantRowDTO.Tenant();
+            badge.setTenantId(tenantId);
+            badge.setTenantName(tenantInfoService == null ? null
+                    : tenantInfoService.getTenantName(tenantId));
+            return badge;
+        }).toList());
+        return row;
     }
 
     @SkipPermissionCheck

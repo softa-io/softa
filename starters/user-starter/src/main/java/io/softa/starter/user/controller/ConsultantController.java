@@ -38,6 +38,21 @@ public class ConsultantController {
     private ConsultantService consultantService;
 
     /**
+     * The Consultant Profiles list (PRD §2.2).
+     *
+     * <p>Assembled rows rather than the generic model surface: the login identifiers live on a
+     * satellite pointing at the profile, so no cascade path reaches them, and Authorized Tenants is
+     * a calendar question — only the grants covering today, which is what keeps this list agreeing
+     * with the switcher each consultant actually sees.
+     */
+    @Operation(summary = "List consultant profiles with their live authorizations")
+    @PostMapping("/list")
+    public ApiResponse<List<io.softa.starter.user.dto.ConsultantRowDTO>> list(
+            @RequestParam(required = false) String search) {
+        return ApiResponse.success(consultantService.list(search));
+    }
+
+    /**
      * Create or update a consultant, grants included.
      *
      * <p>If the email or mobile already belongs to somebody, that person becomes the consultant
