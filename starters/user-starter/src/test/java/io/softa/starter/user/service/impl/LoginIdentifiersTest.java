@@ -131,6 +131,8 @@ class LoginIdentifiersTest {
         VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
         LoginServiceImpl loginService = new LoginServiceImpl();
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(io.softa.starter.user.service.ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "codeGuard", codeGuard);
         when(identityService.findByLoginIdentifier(any())).thenReturn(Optional.empty());

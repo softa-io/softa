@@ -85,6 +85,8 @@ class LoginControllerTenantSwitchTest {
         SystemConfig.env = env;
 
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(io.softa.starter.user.service.ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);

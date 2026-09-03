@@ -76,6 +76,15 @@ public class LoginServiceImpl implements LoginService {
             "Your account is not linked to any company. Please contact your administrator.";
 
     /**
+     * A consultant whose grants have all lapsed (PRD CE2). Distinct from NO_COMPANY_MESSAGE because
+     * the remedy is different and so is the person to ask: nothing is wrong with their account, an
+     * authorization simply ended, and it is the PLATFORM that extends it — telling them to contact
+     * "your administrator" would send them to a tenant that never granted the access.
+     */
+    private static final String CONSULTANT_NO_ACCESS_MESSAGE =
+            "No accessible tenant. Please contact the platform administrator.";
+
+    /**
      * The first wrong password that is answered with a remaining-attempts count (PRD L3). Early
      * guesses get the bare refusal, because a countdown from the first attempt tells whoever is
      * guessing exactly how many tries they have left; the warning appears only once a lock is
@@ -665,6 +674,15 @@ public class LoginServiceImpl implements LoginService {
 
     @Override
     public boolean mustSetPassword(Long profileId) {
+        // Consultants are exempt (PRD C1). An employee is forced to set one because they arrived by
+        // invitation and, without a password, could not come back through the password route at all.
+        // A consultant is created by the platform with no invitation and no welcome mail, and code
+        // login is their intended way in for as long as they like — forcing the step would block a
+        // login on a credential nobody asked them to create. They may still set one from Personal
+        // Settings, which is why this is an exemption from being FORCED, not from having one.
+        if (consultantService.isConsultant(profileId)) {
+            return false;
+        }
         return identityService.findByProfile(profileId)
                 .map(identity -> StringUtils.isBlank(identity.getPassword()))
                 // Unknown person → do not claim they are fine; the caller fails elsewhere.
@@ -713,6 +731,15 @@ public class LoginServiceImpl implements LoginService {
      * login pays nothing for the distinction.
      */
     private BusinessException noCompanyRefusal(Long profileId) {
+        // Asked first: a consultant with no live grant is not an employee with no company, and the
+        // generic wording would send them to a tenant administrator who cannot help. Only when the
+        // person is a consultant AND holds no employment does this apply — someone who is both gets
+        // the employee wording, which is the half they can still act on.
+        if (consultantService.isConsultant(profileId)
+                && accountService.listMembershipsOf(profileId).stream()
+                        .allMatch(account -> Boolean.TRUE.equals(account.getConsultant()))) {
+            return new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
+        }
         boolean invited = accountService.listMembershipsOf(profileId).stream()
                 .anyMatch(account -> account.getStatus() == AccountStatus.PENDING
                         || account.getStatus() == AccountStatus.INVITED);

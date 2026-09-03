@@ -12,6 +12,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
@@ -81,13 +82,34 @@ public class UserRosterScope {
      * Single-tenant deployments are untouched.
      */
     public Filters scopeByTenant(Filters filters) {
+        // Consultant memberships are hidden from every roster read, before anything else narrows.
+        // A tenant does not administer them: they are minted, dated and revoked by the platform, and
+        // a tenant admin who could see one could try to freeze or off-board it, which would leave the
+        // platform's grant saying yes while the membership said no. Applied HERE rather than at each
+        // endpoint because that is the property that matters — a roster query added next year is
+        // covered without its author knowing consultants exist.
+        Filters scoped = hideConsultants(filters);
         if (!SystemConfig.env.isEnableMultiTenancy()) {
-            return filters;   // single-tenant: no tenant dimension
+            return scoped;   // single-tenant: no tenant dimension
         }
         if (!isPlatformSuperAdmin()) {
-            return filters;   // non-super-admin: the ORM already auto-filters reads to the caller's tenant
+            return scoped;   // non-super-admin: the ORM already auto-filters reads to the caller's tenant
         }
-        return scopeToAdminAccounts(filters);
+        return scopeToAdminAccounts(scoped);
+    }
+
+    /**
+     * Exclude consultant memberships from a roster read.
+     *
+     * <p>Matches rows where the flag is false OR unset: every membership that existed before
+     * consultants did carries null there, and a bare {@code eq(false)} would hide the entire
+     * existing roster the moment this shipped.
+     */
+    private Filters hideConsultants(Filters filters) {
+        Filters base = filters == null ? new Filters() : filters;
+        return base.and(Filters.or()
+                .eq(UserAccount::getConsultant, false)
+                .isNotSet(UserAccount::getConsultant));
     }
 
     /**

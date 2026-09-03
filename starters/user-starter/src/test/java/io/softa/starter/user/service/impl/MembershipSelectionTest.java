@@ -49,6 +49,8 @@ class MembershipSelectionTest {
 
     MembershipSelectionTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(io.softa.starter.user.service.ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);

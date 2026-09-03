@@ -29,6 +29,8 @@ class VerificationCodeDeliveryTest {
 
     VerificationCodeDeliveryTest() {
         ReflectionTestUtils.setField(loginService, "eventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(io.softa.starter.user.service.ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "codeGuard", codeGuard);
     }
 

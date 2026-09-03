@@ -60,6 +60,8 @@ class JoinContactSpellingTest {
     JoinContactSpellingTest() {
         ReflectionTestUtils.setField(profileService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(io.softa.starter.user.service.ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "proofGuard", proofGuard);
         doReturn(PROFILE).when(profileService).createOne(any(UserProfile.class));
