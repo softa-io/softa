@@ -49,6 +49,28 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
     boolean isConsultant(Long profileId);
 
     /**
+     * Create or update a consultant from the platform's form, grants included.
+     *
+     * <p>Handles the case the PRD's form does not draw but its §3.2 requires: the email may already
+     * belong to somebody. Login identifiers are globally unique, so that person cannot be given a
+     * second profile — they ARE the consultant, and the grant attaches to the person they already
+     * are. That is what makes "employee of company A, consultant for company B" expressible at all;
+     * two profiles sharing an address could never be shown as one picker.
+     *
+     * @return the consultant's profileId
+     */
+    Long save(io.softa.starter.user.dto.ConsultantProfileDTO form);
+
+    /**
+     * Enable or disable a consultant across every authorized tenant at once.
+     *
+     * <p>Distinct from revoking: the grants stay, so re-enabling restores exactly the access that
+     * was there with each grant's own dates still deciding. The memberships stay too — the tenant's
+     * audit log names them as the actor of what was done while the access lasted.
+     */
+    void setActive(Long profileId, boolean active);
+
+    /**
      * Replace a consultant's grants with exactly this set, minting an account for each company that
      * does not have one yet.
      *

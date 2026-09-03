@@ -53,6 +53,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @Autowired
     private ConsultantAuthorizationService authorizationService;
 
+    @Autowired
+    private io.softa.starter.user.service.UserIdentityService identityService;
+
+    @Autowired
+    private io.softa.starter.user.service.UserProfileService profileService;
+
     @Override
     public LocalDate today() {
         return LocalDate.now();
@@ -106,6 +112,77 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         }
         return authorizationService.searchList(
                 new Filters().eq(ConsultantAuthorization::getProfileId, profileId));
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    @Transactional
+    public Long save(io.softa.starter.user.dto.ConsultantProfileDTO form) {
+        Assert.notNull(form, "A consultant profile is required");
+        String email = form.getEmail() == null ? null : form.getEmail().trim();
+        String mobile = form.getMobile() == null ? null : form.getMobile().trim();
+
+        Long profileId = form.getProfileId() != null ? form.getProfileId() : resolveOrCreatePerson(email, mobile);
+
+        // The consultant record itself: created on first save, and its Enabled/Disabled switch is
+        // whatever the form says. Defaulting to enabled on create — a consultant is made in order
+        // to be used, and an operator who wanted otherwise would have said so.
+        ConsultantProfile profile = findProfile(profileId).orElseGet(() -> {
+            ConsultantProfile fresh = new ConsultantProfile();
+            fresh.setProfileId(profileId);
+            return fresh;
+        });
+        profile.setActive(form.getActive() == null ? Boolean.TRUE : form.getActive());
+        if (profile.getId() == null) {
+            this.createOne(profile);
+        } else {
+            this.updateOne(profile);
+        }
+
+        List<ConsultantAuthorization> grants = (form.getAuthorizations() == null ? List.<io.softa.starter.user.dto.ConsultantProfileDTO.AuthorizationRow>of()
+                : form.getAuthorizations()).stream().map(row -> {
+                    ConsultantAuthorization grant = new ConsultantAuthorization();
+                    grant.setTenantId(row.getTenantId());
+                    grant.setStartDate(row.getStartDate());
+                    grant.setEndDate(row.getEndDate());
+                    return grant;
+                }).toList();
+        replaceAuthorizations(profileId, grants);
+        return profileId;
+    }
+
+    /**
+     * The person behind this email / mobile — the one who already exists, or a new one.
+     *
+     * <p>Reusing an existing person is not a convenience, it is the only correct answer: login
+     * identifiers are globally unique, so a second profile carrying this address cannot be created,
+     * and the person who holds it IS the consultant being described. It is also what lets someone be
+     * an employee at one company and a consultant for another — one person, two kinds of membership,
+     * one picker. Matching on either channel, because the operator may type whichever they know.
+     */
+    private Long resolveOrCreatePerson(String email, String mobile) {
+        Optional<Long> byEmail = identityService.findByLoginIdentifier(email)
+                .map(io.softa.starter.user.entity.UserIdentity::getProfileId);
+        if (byEmail.isPresent()) {
+            return byEmail.get();
+        }
+        Optional<Long> byMobile = identityService.findByLoginIdentifier(mobile)
+                .map(io.softa.starter.user.entity.UserIdentity::getProfileId);
+        return byMobile.orElseGet(() -> profileService.createPersonForJoin(
+                email != null && !email.isBlank() ? email : mobile));
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    @Transactional
+    public void setActive(Long profileId, boolean active) {
+        ConsultantProfile profile = findProfile(profileId)
+                .orElseThrow(() -> new BusinessException("That person is not a consultant."));
+        profile.setActive(active);
+        this.updateOne(profile);
+        log.info("Consultant {} {}.", profileId, active ? "enabled" : "disabled");
     }
 
     @SkipPermissionCheck
