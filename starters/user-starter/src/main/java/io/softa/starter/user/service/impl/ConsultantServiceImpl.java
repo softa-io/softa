@@ -87,6 +87,14 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         if (!isEnabled(profileId)) {
             return false;
         }
+        // The company's own state outranks the grant (PRD CE5). A tenant the platform has frozen or
+        // closed is not open to anyone, and a consultant is the one principal who would otherwise
+        // walk straight in: their data access is unrestricted and their menus come from the plan, so
+        // nothing further down would stop them. Absent tenant-starter there is no such state to
+        // consult, and the grant alone decides.
+        if (tenantInfoService != null && !tenantInfoService.isTenantActive(tenantId)) {
+            return false;
+        }
         return authorizationService.searchOne(new Filters()
                         .eq(ConsultantAuthorization::getProfileId, profileId)
                         .eq(ConsultantAuthorization::getTenantId, tenantId))

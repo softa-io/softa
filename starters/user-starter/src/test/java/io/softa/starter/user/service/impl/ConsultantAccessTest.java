@@ -17,6 +17,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 /**
  * Who may enter a company as a consultant, and when.
@@ -34,11 +35,16 @@ class ConsultantAccessTest {
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final ConsultantAuthorizationService authorizationService =
             mock(ConsultantAuthorizationService.class);
+    private final io.softa.framework.orm.service.TenantInfoService tenantInfoService =
+            mock(io.softa.framework.orm.service.TenantInfoService.class);
     private final ConsultantServiceImpl consultantService = spy(new ConsultantServiceImpl());
 
     ConsultantAccessTest() {
         ReflectionTestUtils.setField(consultantService, "accountService", accountService);
         ReflectionTestUtils.setField(consultantService, "authorizationService", authorizationService);
+        ReflectionTestUtils.setField(consultantService, "tenantInfoService", tenantInfoService);
+        // Companies are open unless a test says otherwise — the existing cases are about grants.
+        when(tenantInfoService.isTenantActive(any())).thenReturn(true);
         todayIs(LocalDate.of(2026, 9, 3));
     }
 
@@ -133,5 +139,28 @@ class ConsultantAccessTest {
         doReturn(Optional.empty()).when(authorizationService).searchOne(any(Filters.class));
 
         assertThat(consultantService.canEnter(PROFILE, 999L)).isFalse();
+    }
+
+    @Test
+    void aFrozenCompanyIsClosedEvenToAConsultantWithALiveGrant() {
+        // PRD CE5. The company's own state outranks the grant, and a consultant is the one
+        // principal who would otherwise walk straight in: their data access is unrestricted and
+        // their menus come from the plan, so nothing further down the stack would stop them.
+        givenConsultant(true);
+        givenGrant(LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
+        when(tenantInfoService.isTenantActive(TENANT)).thenReturn(false);
+
+        assertThat(consultantService.canEnter(PROFILE, TENANT)).isFalse();
+    }
+
+    @Test
+    void withoutATenantDirectoryTheGrantAloneDecides() {
+        // A deployment without tenant-starter has no such state to consult; refusing everyone
+        // because the question cannot be asked would close the door on the whole feature.
+        ReflectionTestUtils.setField(consultantService, "tenantInfoService", null);
+        givenConsultant(true);
+        givenGrant(LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
+
+        assertThat(consultantService.canEnter(PROFILE, TENANT)).isTrue();
     }
 }
