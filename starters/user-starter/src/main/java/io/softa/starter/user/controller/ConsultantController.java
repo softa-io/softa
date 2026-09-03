@@ -80,6 +80,23 @@ public class ConsultantController {
     }
 
     /**
+     * Which of these acting accounts are consultants, for an audit trail's badge (PRD §4.4).
+     *
+     * <p>A separate question rather than a field on the audit record: change logging is generic and
+     * has no business knowing consultants exist. A tenant reading its own log calls this for the
+     * actors on the page.
+     *
+     * <p>Answerable by a tenant even though it may not administer these memberships — attribution
+     * is not administration. Only the flag comes back; the hiding rule protects the name and the
+     * contact details, not the fact that a change had an author.
+     */
+    @Operation(summary = "Flag which acting accounts are consultants, for audit attribution")
+    @PostMapping("/actors")
+    public ApiResponse<java.util.Set<Long>> actors(@RequestBody java.util.List<Long> accountIds) {
+        return ApiResponse.success(consultantService.consultantActors(accountIds));
+    }
+
+    /**
      * Enable or disable a consultant (PRD §2.2 row action).
      *
      * <p>One switch over every company at once, and it leaves the grants alone — so re-enabling

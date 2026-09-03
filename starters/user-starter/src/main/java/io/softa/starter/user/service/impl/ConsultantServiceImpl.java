@@ -2,6 +2,7 @@ package io.softa.starter.user.service.impl;
 
 import java.time.LocalDate;
 import java.util.HashSet;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -196,6 +197,24 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                         || (row.getUsername() != null && row.getUsername().toLowerCase().contains(needle))
                         || (row.getEmail() != null && row.getEmail().toLowerCase().contains(needle)))
                 .toList();
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public Set<Long> consultantActors(Collection<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return Set.of();
+        }
+        // Read straight from the accounts, bypassing the roster scope that hides consultants: the
+        // tenant may not administer these memberships, but it must be able to attribute changes made
+        // to its own data. Only the flag is exposed — no name, no contact, nothing the hiding rule
+        // was protecting.
+        return accountService.searchList(new Filters()
+                        .in(UserAccount::getId, accountIds)
+                        .eq(UserAccount::getConsultant, true)).stream()
+                .map(UserAccount::getId)
+                .collect(Collectors.toSet());
     }
 
     private io.softa.starter.user.dto.ConsultantRowDTO toRow(ConsultantProfile profile) {

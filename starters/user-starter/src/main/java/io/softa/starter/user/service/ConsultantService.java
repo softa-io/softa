@@ -1,6 +1,7 @@
 package io.softa.starter.user.service;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -80,6 +81,23 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
      * @param search matched against name and email, case-insensitively; blank returns everyone
      */
     List<io.softa.starter.user.dto.ConsultantRowDTO> list(String search);
+
+    /**
+     * Which of these acting accounts belong to consultants — for labelling an audit trail (PRD §4.4).
+     *
+     * <p>Asked as its own question rather than carried on the audit record. Change logging is
+     * generic: it captures whoever the actor was for every model, and it has no business knowing
+     * that consultants exist. Answering here keeps that boundary and costs one lookup per page of
+     * a log that is already being read.
+     *
+     * <p>Not subject to the roster's consultant hiding, deliberately. A tenant may not administer a
+     * consultant's membership, but it must be able to see WHO changed its data — hiding the actor
+     * would turn "a consultant edited this" into an unattributed change.
+     *
+     * @param accountIds the actors on the page being rendered
+     * @return the subset that are consultant memberships
+     */
+    Set<Long> consultantActors(Collection<Long> accountIds);
 
     /**
      * Replace a consultant's grants with exactly this set, minting an account for each company that
