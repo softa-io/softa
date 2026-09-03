@@ -86,7 +86,9 @@ class RequirePermissionBypassTest {
     void flagOff_scopePathRunsNormally() {
         PermissionInfo pi = mock(PermissionInfo.class);
         when(snapshotProvider.get(1L, 7L)).thenReturn(pi);
-        when(pi.isAdmin()).thenReturn(true);   // admin → early return, keeps the test off the deep path
+        // The row-scope path now asks hasFullDataAccess (admins OR a consultant), so that is what
+        // has to be stubbed for the early return this test relies on to keep off the deep path.
+        when(pi.hasFullDataAccess()).thenReturn(true);
 
         Filters original = new Filters();
         Filters out = ContextHolder.callWith(ctx(false),

@@ -123,7 +123,7 @@ public class PermissionServiceImpl implements PermissionService {
     public Filters appendScopeAccessFilters(String model, Filters originalFilters) {
         if (shouldBypass()) return originalFilters;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return originalFilters;
+        if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
         // The company grant bounds every multi-company model, on its own axis: which legal entities a
         // role may reach is a property of the role, so it does not ride the per-model rules below and
         // is not waived by an ALL rule on some model. Admins are already past — a tenant admin sees
@@ -231,7 +231,7 @@ public class PermissionServiceImpl implements PermissionService {
     public Collection<String> filterReadableFields(String model, Collection<String> requested, AccessType accessType) {
         if (requested == null || requested.isEmpty() || shouldBypass()) return requested;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return requested;
+        if (PermissionInfo.hasFullDataAccess(pi)) return requested;
         Set<String> blocked = blockedFields(pi, model);
         if (blocked.isEmpty()) return requested;
         List<String> out = new ArrayList<>(requested.size());
@@ -243,7 +243,7 @@ public class PermissionServiceImpl implements PermissionService {
     public <T> T maskResponseValue(String model, T value, AccessType accessType) {
         if (value == null || shouldBypass()) return value;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return value;
+        if (PermissionInfo.hasFullDataAccess(pi)) return value;
         Set<String> blocked = blockedFields(pi, model);
         if (blocked.isEmpty()) return value;
         maskInPlace(value, blocked);
@@ -280,7 +280,7 @@ public class PermissionServiceImpl implements PermissionService {
     public void checkModelFieldsAccess(String model, Collection<String> fields, AccessType accessType) {
         if (fields == null || fields.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return;
+        if (PermissionInfo.hasFullDataAccess(pi)) return;
         Set<String> blocked = blockedFields(pi, model);
         if (blocked.isEmpty()) return;
         for (String f : fields) {
@@ -304,7 +304,7 @@ public class PermissionServiceImpl implements PermissionService {
     public void checkWritePayload(String model, Map<String, Object> payload) {
         if (payload == null || payload.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return;
+        if (PermissionInfo.hasFullDataAccess(pi)) return;
         Set<String> blocked = blockedFields(pi, model);
         if (blocked.isEmpty()) return;
         for (String f : payload.keySet()) {
@@ -361,7 +361,7 @@ public class PermissionServiceImpl implements PermissionService {
                                AccessType accessType) {
         if (ids == null || ids.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return;
+        if (PermissionInfo.hasFullDataAccess(pi)) return;
         // De-duplicated at the entry, because the comparison below is against a COUNT and SQL's IN
         // de-duplicates: deleteByIds(model, [7, 7]) counted 1 against a size of 2 and threw on a
         // legitimate call. RequirePermissionAspect already worked around this by de-duplicating
@@ -444,7 +444,7 @@ public class PermissionServiceImpl implements PermissionService {
     public Set<String> getUserBlockedModelFields(String model, AccessType accessType) {
         if (shouldBypass()) return Set.of();
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return Set.of();
+        if (PermissionInfo.hasFullDataAccess(pi)) return Set.of();
         return blockedFields(pi, model);
     }
 

@@ -75,6 +75,9 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     /** Tenant super-admin — granted every tenant-facing nav (all minus platform prefixes). */
     private static final String TENANT_ADMIN_CODE = "TENANT_ADMIN";
 
+    /** Platform consultant — same entitled menu set as a tenant admin, different data-plane rights. */
+    private static final String CONSULTANT_CODE = "CONSULTANT";
+
     private static final String M_USER_ROLE_REL = "UserRoleRel";
     private static final String M_ROLE = "Role";
     private static final String M_ROLE_NAV = "RoleNavigation";
@@ -315,7 +318,15 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             info.setGrantedCountries(readGrantedCountries(null));
             return info;
         }
-        if (roleCodes.contains(TENANT_ADMIN_CODE)) {
+        if (roleCodes.contains(TENANT_ADMIN_CODE) || roleCodes.contains(CONSULTANT_CODE)) {
+            // A consultant gets the same MENU set a tenant admin does — everything the tenant's
+            // plan entitles, derived here rather than stored as role grants. Stored grants would be
+            // deleted by the entitlement cleanup on a downgrade and never restored, and the
+            // consultant role is not editable or even visible in the tenant's role management, so
+            // nobody could put them back: one downgrade would strip consultants permanently.
+            // Derived, an upgrade takes effect the moment it is bought and a downgrade narrows on
+            // its own. What separates the two principals is the DATA plane, which reads the role
+            // code (PermissionInfo.hasFullDataAccess), not this set.
             return tenantAdminSnapshot(roleCodes, tenantId);
         }
         if (activeRoles.isEmpty()) {
