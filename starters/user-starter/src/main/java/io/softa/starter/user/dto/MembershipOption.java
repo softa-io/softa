@@ -22,9 +22,14 @@ import io.softa.starter.user.enums.AccountStatus;
  *                   a badge, never enforced: PRD §1.5 greys a Locked company, but the picker is
  *                   reached only after authentication, and §1.6 / D5 keep code login open during
  *                   a lock — greying here would refuse a person the code route just admitted.
+ * @param consultant whether this is a CONSULTANT's access rather than an employment. The picker
+ *                   labels it, because the person needs to know which hat they are putting on: an
+ *                   employment persists, a consultancy is a grant with an end date. Only LIVE grants
+ *                   reach here — a lapsed one is absent, not listed-and-greyed like a frozen
+ *                   employment, because it is not access they hold rather than access on hold.
  */
 public record MembershipOption(Long accountId, Long tenantId, String tenantName, AccountStatus status,
-                               boolean locked) {
+                               boolean locked, boolean consultant) {
 
     /**
      * Whether this option can actually be entered.

@@ -60,6 +60,15 @@ public class UserAccount extends AuditableModel {
                     + "deleting a person is not something a tenant-scoped action may do")
     private Long profileId;
 
+    @Field(description = "Whether this membership is a consultant's rather than an employment. "
+            + "Denormalised from ConsultantAuthorization on purpose: the tenant's account list has "
+            + "to hide these rows on every read, and a join back to the platform's consultant "
+            + "records on each of those reads would be both slower and easy to forget in a new "
+            + "query. It also survives what the grant does not — a revoked grant is deleted while "
+            + "the account is kept, and the tenant's audit log still has to name its actor as a "
+            + "consultant. Set when the account is minted; never edited by a tenant")
+    private Boolean consultant;
+
     @Field
     private String nickname;
 

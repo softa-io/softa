@@ -1,0 +1,214 @@
+package io.softa.starter.user.service.impl;
+
+import java.time.LocalDate;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import lombok.extern.slf4j.Slf4j;
+
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.annotation.CrossTenant;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.user.entity.ConsultantAuthorization;
+import io.softa.starter.user.entity.ConsultantProfile;
+import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.enums.AccountStatus;
+import io.softa.starter.user.service.ConsultantService;
+import io.softa.starter.user.service.UserAccountService;
+
+import static io.softa.framework.base.context.ContextUtils.inTenantContext;
+
+/**
+ * Consultants — see {@link ConsultantService} for what they are.
+ *
+ * <p>{@code @CrossTenant} throughout: every question here spans tenants by nature. Who may enter
+ * company B is asked while the caller sits in company A, or in none at all — a tenant-filtered read
+ * would answer "no" for access that exists, which is the failure mode that looks like a permission
+ * bug and is really a scoping one.
+ *
+ * <p>{@code @SkipPermissionCheck} for the same reason it sits on the provisioning paths: these rows
+ * are the platform's, and the tenant-side row scope has no anchor for them — left to it, a
+ * consultant's own grants would fail closed and nobody could enter anywhere.
+ */
+@Slf4j
+@Service
+public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, Long>
+        implements ConsultantService {
+
+    @Autowired
+    private UserAccountService accountService;
+
+    /** Grants are their own model; this service owns both sides of the pair. */
+    @Autowired
+    private ConsultantAuthorizationService authorizationService;
+
+    @Override
+    public LocalDate today() {
+        return LocalDate.now();
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public boolean isConsultant(Long profileId) {
+        return profileId != null && findProfile(profileId).isPresent();
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public boolean canEnter(Long profileId, Long tenantId) {
+        if (profileId == null || tenantId == null) {
+            return false;
+        }
+        // Disabled stops every company at once, without the grants being touched — so the answer is
+        // no here even while the dates still say yes, and re-enabling needs no grant edits.
+        if (!isEnabled(profileId)) {
+            return false;
+        }
+        return authorizationService.searchOne(new Filters()
+                        .eq(ConsultantAuthorization::getProfileId, profileId)
+                        .eq(ConsultantAuthorization::getTenantId, tenantId))
+                .map(this::coversToday)
+                .orElse(false);
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public Set<Long> enterableTenantIds(Long profileId) {
+        if (profileId == null || !isEnabled(profileId)) {
+            return Set.of();
+        }
+        return authorizationsOf(profileId).stream()
+                .filter(this::coversToday)
+                .map(ConsultantAuthorization::getTenantId)
+                .collect(Collectors.toSet());
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public List<ConsultantAuthorization> authorizationsOf(Long profileId) {
+        if (profileId == null) {
+            return List.of();
+        }
+        return authorizationService.searchList(
+                new Filters().eq(ConsultantAuthorization::getProfileId, profileId));
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    @Transactional
+    public void replaceAuthorizations(Long profileId, List<ConsultantAuthorization> wanted) {
+        Assert.notNull(profileId, "profileId is required");
+        List<ConsultantAuthorization> desired = wanted == null ? List.of() : wanted;
+        desired.forEach(ConsultantServiceImpl::validate);
+
+        // One row per company: two grants for the same pair would make "is this live today?"
+        // answerable two ways. Caught here as a message rather than at the unique index, which
+        // would surface as a constraint violation naming a column.
+        Set<Long> seen = new HashSet<>();
+        desired.forEach(a -> {
+            if (!seen.add(a.getTenantId())) {
+                throw new BusinessException("That company is authorized twice — one grant per company.");
+            }
+        });
+
+        Map<Long, ConsultantAuthorization> existing = authorizationsOf(profileId).stream()
+                .collect(Collectors.toMap(ConsultantAuthorization::getTenantId, Function.identity()));
+
+        for (ConsultantAuthorization want : desired) {
+            ConsultantAuthorization have = existing.remove(want.getTenantId());
+            if (have == null) {
+                want.setProfileId(profileId);
+                authorizationService.createOne(want);
+                mintMembership(profileId, want.getTenantId());
+            } else if (!have.getStartDate().equals(want.getStartDate())
+                    || !have.getEndDate().equals(want.getEndDate())) {
+                have.setStartDate(want.getStartDate());
+                have.setEndDate(want.getEndDate());
+                authorizationService.updateOne(have);
+            }
+        }
+
+        // Whatever the form no longer lists is revoked. The grant row goes; the account it minted
+        // stays, because the tenant's audit log names it as the actor of what was done while the
+        // access lasted — deleting it would blank that history.
+        existing.values().forEach(gone -> {
+            authorizationService.deleteById(gone.getId());
+            log.info("Consultant {} authorization for tenant {} revoked; membership kept for audit.",
+                    profileId, gone.getTenantId());
+        });
+    }
+
+    /**
+     * Create this consultant's membership of a company, unless they already hold one.
+     *
+     * <p>Runs inside the target tenant's context so the row lands under it — the same mechanism
+     * admin provisioning uses, and the reason a bare {@code createOne} would not do: tenantId is
+     * stamped from context, not from the object.
+     *
+     * <p>An existing membership blocks rather than converts. A person who is already staff at this
+     * company is a case the PRD declines to define (§0.1), and quietly turning their employment into
+     * a consultancy — or attaching a second one — would decide it by accident.
+     */
+    private void mintMembership(Long profileId, Long tenantId) {
+        Optional<UserAccount> held = accountService.findMembershipInTenant(tenantId, profileId);
+        if (held.isPresent()) {
+            if (Boolean.TRUE.equals(held.get().getConsultant())) {
+                return;   // already a consultant here: the grant was re-added, the account stands
+            }
+            throw new BusinessException("This person already has an account in that company, so "
+                    + "they cannot be authorized as a consultant there.");
+        }
+        inTenantContext(tenantId, () -> {
+            UserAccount account = new UserAccount();
+            account.setProfileId(profileId);
+            account.setConsultant(Boolean.TRUE);
+            // ACTIVE because nothing about the membership itself is pending — there is no invitation
+            // to accept and no password to set for it. Whether it may be ENTERED is the grant's
+            // question, asked live; status is not where a consultant's access is decided.
+            account.setStatus(AccountStatus.ACTIVE);
+            accountService.createOne(account);
+            return null;
+        });
+        log.info("Consultant {} granted access to tenant {} — membership minted.", profileId, tenantId);
+    }
+
+    private boolean isEnabled(Long profileId) {
+        return findProfile(profileId).map(p -> Boolean.TRUE.equals(p.getActive())).orElse(false);
+    }
+
+    private Optional<ConsultantProfile> findProfile(Long profileId) {
+        return this.searchOne(new Filters().eq(ConsultantProfile::getProfileId, profileId));
+    }
+
+    /** Inclusive on both ends — a grant is live on its start day and on its end day. */
+    private boolean coversToday(ConsultantAuthorization a) {
+        LocalDate now = today();
+        return a.getStartDate() != null && a.getEndDate() != null
+                && !now.isBefore(a.getStartDate()) && !now.isAfter(a.getEndDate());
+    }
+
+    private static void validate(ConsultantAuthorization a) {
+        if (a.getTenantId() == null || a.getStartDate() == null || a.getEndDate() == null) {
+            throw new BusinessException("Every authorization needs a tenant, a start date and an end date.");
+        }
+        if (a.getEndDate().isBefore(a.getStartDate())) {
+            throw new BusinessException("An authorization cannot end before it starts.");
+        }
+    }
+}

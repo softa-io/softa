@@ -113,6 +113,10 @@ public class LoginServiceImpl implements LoginService {
     @Autowired
     private VerificationCodeGuard codeGuard;
 
+    /** Consultant access is a grant with dates, not a status — only this can say if it is live. */
+    @Autowired
+    private io.softa.starter.user.service.ConsultantService consultantService;
+
     /** Carries "the code was passed" into the anonymous set-password / confirm steps. */
     @Autowired
     private JoinProofGuard proofGuard;
@@ -679,12 +683,20 @@ public class LoginServiceImpl implements LoginService {
         boolean locked = identityService.findByProfile(profileId)
                 .map(identityService::isPasswordLocked).orElse(false);
         return accountService.listMembershipsOf(profileId).stream()
-                .filter(account -> COUNTED_STATUSES.contains(account.getStatus()))
+                // Two kinds of membership, two rules. An EMPLOYMENT that cannot be entered is still
+                // shown greyed — it is a standing relationship the person can ask about. A lapsed
+                // CONSULTANCY is simply absent: it is not access on hold, it is access they no
+                // longer have, and listing it would invite them to ask a tenant that never granted
+                // it. canEnter answers the whole consultant question at once (is a consultant at
+                // all / not disabled / grant covers today), so nothing here re-derives a third of it.
+                .filter(account -> Boolean.TRUE.equals(account.getConsultant())
+                        ? consultantService.canEnter(profileId, account.getTenantId())
+                        : COUNTED_STATUSES.contains(account.getStatus()))
                 .map(account -> new MembershipOption(
                         account.getId(), account.getTenantId(),
                         tenantInfoService == null ? null
                                 : tenantInfoService.getTenantName(account.getTenantId()),
-                        account.getStatus(), locked))
+                        account.getStatus(), locked, Boolean.TRUE.equals(account.getConsultant())))
                 // Selectable first: the common case is one usable company among some frozen ones,
                 // and making the person hunt for it in a mixed list is a needless step.
                 .sorted(Comparator.comparing(MembershipOption::selectable).reversed())

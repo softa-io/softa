@@ -1,0 +1,74 @@
+package io.softa.starter.user.service;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Set;
+
+import io.softa.framework.orm.service.EntityService;
+import io.softa.starter.user.entity.ConsultantAuthorization;
+import io.softa.starter.user.entity.ConsultantProfile;
+
+/**
+ * Consultants — platform staff who work inside client companies for a bounded period.
+ *
+ * <p>A consultant is not a role a tenant grants; it is a fact the platform records about a person
+ * ({@link ConsultantProfile}) plus a list of companies and dates ({@link ConsultantAuthorization}).
+ * Saving a grant mints the matching {@code UserAccount}; the grant, not the account's status, is
+ * what decides whether it may be entered.
+ *
+ * <p>Everything here is platform-side. A tenant can neither see nor change these records — its
+ * account list hides consultant memberships entirely.
+ */
+public interface ConsultantService extends EntityService<ConsultantProfile, Long> {
+
+    /**
+     * Whether this person may enter this company as a consultant <b>right now</b>.
+     *
+     * <p>The single place the question is answered, because it has three independent ways to be no —
+     * not a consultant, consultant disabled, grant not covering today — and any caller that
+     * re-derived it would eventually check two of the three. Login, the tenant switcher and the
+     * per-request gate all come here.
+     *
+     * <p>Evaluated against the calendar rather than stored state: a grant that ended yesterday stops
+     * admitting today with nothing having run overnight, and extending it takes effect the moment the
+     * date is saved.
+     */
+    boolean canEnter(Long profileId, Long tenantId);
+
+    /**
+     * The companies this consultant may enter today.
+     *
+     * <p>Only live grants — an expired or not-yet-started one is absent, not listed-and-greyed. That
+     * is the opposite of how a frozen EMPLOYMENT is shown, and deliberately so: a frozen employment
+     * is a standing relationship the person should see and can ask about, while a lapsed consultancy
+     * grant is simply not access they have. Empty when the consultant is disabled.
+     */
+    Set<Long> enterableTenantIds(Long profileId);
+
+    /** Whether this person is a consultant at all — enabled or not. */
+    boolean isConsultant(Long profileId);
+
+    /**
+     * Replace a consultant's grants with exactly this set, minting an account for each company that
+     * does not have one yet.
+     *
+     * <p>Whole-set rather than add/remove calls: the form saves a table, and applying it as a
+     * difference here keeps "what the screen showed" and "what was stored" from drifting apart.
+     * Removed grants are deleted; the accounts they minted stay, because the tenant's audit log
+     * points at them (a deleted account would blank the record of what the consultant did).
+     *
+     * @throws io.softa.framework.base.exception.BusinessException if a company already holds a
+     *         non-consultant membership for this person — one person is not both staff and
+     *         consultant in the same company, and the PRD blocks it rather than defining it
+     */
+    void replaceAuthorizations(Long profileId, List<ConsultantAuthorization> authorizations);
+
+    /** This consultant's grants, live or not, for the platform's own screens. */
+    List<ConsultantAuthorization> authorizationsOf(Long profileId);
+
+    /**
+     * Today, as the grants are read against. One method so a test can pin it and so every caller
+     * agrees on the boundary — the platform's day, not the tenant's.
+     */
+    LocalDate today();
+}

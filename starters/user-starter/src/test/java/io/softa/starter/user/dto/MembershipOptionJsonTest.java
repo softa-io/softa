@@ -23,7 +23,7 @@ class MembershipOptionJsonTest {
     @Test
     void selectableReachesTheClient() throws Exception {
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false));
 
         assertThat(json).contains("\"selectable\":true");
     }
@@ -31,7 +31,7 @@ class MembershipOptionJsonTest {
     @Test
     void aNonActiveOptionSaysSoOnTheWire() throws Exception {
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.FROZEN, false));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.FROZEN, false, false));
 
         assertThat(json).contains("\"selectable\":false");
     }
@@ -42,7 +42,7 @@ class MembershipOptionJsonTest {
         // person who just got in with a code (allowed during a lock, PRD D5) must still be able to
         // enter their company.
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, true));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, true, false));
 
         assertThat(json).contains("\"locked\":true").contains("\"selectable\":true");
     }
@@ -50,7 +50,7 @@ class MembershipOptionJsonTest {
     @Test
     void theOtherFieldsAreCarriedToo() throws Exception {
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false));
 
         assertThat(json).contains("\"accountId\":1")
                 .contains("\"tenantId\":2")
