@@ -22,6 +22,16 @@ import org.springframework.stereotype.Component;
  * extra check provides a defensive guard against cross-tenant writes if a
  * stale cached {@link SysSequence}
  * id ever leaks across tenants.
+ *
+ * <p><b>Why {@code IS NOT DISTINCT FROM} rather than {@code a = ? OR (a IS NULL AND ? IS NULL)}.</b>
+ * Both express NULL-safe equality, but the expanded form binds the same value twice and the
+ * second occurrence appears <i>only</i> inside {@code ? IS NULL}. PostgreSQL resolves every
+ * parameter's type at prepare time and infers it from context; {@code IS NULL} accepts any type,
+ * so that occurrence carries no information and the statement fails to prepare at all with
+ * {@code 42P18 could not determine data type of parameter $N}. MySQL never surfaced this because
+ * it does no prepare-time type resolution — and MySQL does not use this class. The standard
+ * predicate compares the parameter against the column, so the column's type flows into the
+ * parameter, and it halves the bind count on both predicates.
  */
 @Component
 @RequiredArgsConstructor
@@ -30,32 +40,32 @@ public class StandardSequenceDialect implements SequenceDialect {
     private static final String SQL_SINGLE = """
             UPDATE sys_sequence
             SET current_value = CASE
-                    WHEN (last_reset_key = ? OR (last_reset_key IS NULL AND ? IS NULL)) THEN current_value + ?
+                    WHEN last_reset_key IS NOT DISTINCT FROM ? THEN current_value + ?
                     ELSE ?
                 END,
                 last_reset_key = ?,
                 updated_time = CURRENT_TIMESTAMP
             WHERE id = ?
-              AND (tenant_id = ? OR (tenant_id IS NULL AND ? IS NULL))
+              AND tenant_id IS NOT DISTINCT FROM ?
             """;
 
     private static final String SQL_BATCH = """
             UPDATE sys_sequence
             SET current_value = CASE
-                    WHEN (last_reset_key = ? OR (last_reset_key IS NULL AND ? IS NULL)) THEN current_value + ? * ?
+                    WHEN last_reset_key IS NOT DISTINCT FROM ? THEN current_value + ? * ?
                     ELSE ? + (? - 1) * ?
                 END,
                 last_reset_key = ?,
                 updated_time = CURRENT_TIMESTAMP
             WHERE id = ?
-              AND (tenant_id = ? OR (tenant_id IS NULL AND ? IS NULL))
+              AND tenant_id IS NOT DISTINCT FROM ?
             """;
 
     private static final String SQL_SELECT_CURRENT = """
             SELECT current_value
             FROM sys_sequence
             WHERE id = ?
-              AND (tenant_id = ? OR (tenant_id IS NULL AND ? IS NULL))
+              AND tenant_id IS NOT DISTINCT FROM ?
             """;
 
     private final JdbcProxy jdbcProxy;
@@ -64,20 +74,17 @@ public class StandardSequenceDialect implements SequenceDialect {
     public SqlParams buildAllocateSql(String currentKey, long step, long startValue, int count, Long id, Long tenantId) {
         SqlParams sqlParams;
         if (count == 1) {
-            // SQL_SINGLE placeholders: currentKey, currentKey, step, startValue, currentKey, id, tenantId, tenantId
+            // SQL_SINGLE placeholders: currentKey, step, startValue, currentKey, id, tenantId
             sqlParams = new SqlParams(SQL_SINGLE);
             sqlParams.addArgValue(currentKey);
-            sqlParams.addArgValue(currentKey);
             sqlParams.addArgValue(step);
             sqlParams.addArgValue(startValue);
             sqlParams.addArgValue(currentKey);
             sqlParams.addArgValue(id);
-            sqlParams.addArgValue(tenantId);
             sqlParams.addArgValue(tenantId);
         } else {
-            // SQL_BATCH placeholders: currentKey, currentKey, step, count, startValue, count, step, currentKey, id, tenantId, tenantId
+            // SQL_BATCH placeholders: currentKey, step, count, startValue, count, step, currentKey, id, tenantId
             sqlParams = new SqlParams(SQL_BATCH);
-            sqlParams.addArgValue(currentKey);
             sqlParams.addArgValue(currentKey);
             sqlParams.addArgValue(step);
             sqlParams.addArgValue(count);
@@ -86,7 +93,6 @@ public class StandardSequenceDialect implements SequenceDialect {
             sqlParams.addArgValue(step);
             sqlParams.addArgValue(currentKey);
             sqlParams.addArgValue(id);
-            sqlParams.addArgValue(tenantId);
             sqlParams.addArgValue(tenantId);
         }
         return sqlParams;
@@ -94,10 +100,9 @@ public class StandardSequenceDialect implements SequenceDialect {
 
     @Override
     public Long fetchEndValue(String modelName, Long id, Long tenantId) {
-        // SQL_SELECT_CURRENT placeholders: id, tenantId, tenantId
+        // SQL_SELECT_CURRENT placeholders: id, tenantId
         SqlParams sqlParams = new SqlParams(SQL_SELECT_CURRENT);
         sqlParams.addArgValue(id);
-        sqlParams.addArgValue(tenantId);
         sqlParams.addArgValue(tenantId);
         return (Long) jdbcProxy.queryForObject(modelName, sqlParams, Long.class);
     }
