@@ -117,10 +117,16 @@ class AuthorizationFlowTest {
         });
     }
 
-    // ─── SUPER_ADMIN → bypass even without explicit grant ───
+    // ─── SUPER_ADMIN → the platform's own screens, and not the tenant's (C5) ───
+    //
+    // Named for what it used to assert: that a super-admin reached a tenant business endpoint with
+    // no grant behind it at all. C5 hands that work to the consultant, who does it inside the
+    // customer that authorized them and only while the authorization lasts, so the platform
+    // administrator is now refused here. Rewritten rather than deleted — the old contract is what
+    // must not come back by accident, and this fixture is the one that would notice.
 
     @Test
-    void superAdmin_bypassesEverything() {
+    void superAdmin_isRefusedATenantBusinessEndpoint() {
         // Rebuild with a SUPER_ADMIN role bound to user 1.
         PermissionFlowFixture sa = new PermissionFlowFixture();
         sa.nav("hr", null, null);
@@ -135,16 +141,20 @@ class AuthorizationFlowTest {
         ctx.setTenantId(10L);
         ctx.setUserId(1L);
 
-        Boolean allowed = ContextHolder.callWith(ctx, () -> {
+        ContextHolder.runWith(ctx, () -> {
             PermissionInterceptor interceptor = new PermissionInterceptor(
                     sa.endpointIndex, sa.provider, new PermissionInterceptorProperties());
-            return interceptor.preHandle(req("POST", "/Employee/searchList"),
-                    new MockHttpServletResponse(), null);
+            // /Employee/searchList is a tenant business endpoint and IS mapped, so the gate has a
+            // permission to match against — and the platform administrator's snapshot does not hold
+            // it. An unmapped endpoint would still pass, which is the allowance, not the boundary.
+            assertThatThrownBy(() ->
+                    interceptor.preHandle(req("POST", "/Employee/searchList"),
+                            new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class);
         });
-        assertThat(allowed).isTrue();
     }
 
-    // ─── unmapped endpoint → 403 for everyone (except super-admin) ───
+    // ─── unmapped endpoint → 403 for everyone (except the admin-shaped principals) ───
 
     @Test
     void hrUser_hitsUnmappedEndpoint_forbidden() {

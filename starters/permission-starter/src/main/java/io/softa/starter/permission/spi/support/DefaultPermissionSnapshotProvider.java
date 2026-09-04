@@ -319,11 +319,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         }
 
         if (roleCodes.contains(SUPER_ADMIN_CODE)) {
-            PermissionInfo info = emptyGrantsSnapshot(roleCodes);
-            // Bypasses everything, so the grant stays unrestricted — but "my countries" is still a
-            // fact about this tenant's companies, and the value domains narrow by it for admins too.
-            info.setGrantedCountries(readGrantedCountries(null));
-            return info;
+            return platformAdminSnapshot(roleCodes);
         }
         if (roleCodes.contains(TENANT_ADMIN_CODE) || roleCodes.contains(CONSULTANT_CODE)) {
             // A consultant gets the same MENU set a tenant admin does — everything the tenant's
@@ -621,6 +617,57 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             }
         }
         return false;
+    }
+
+    /**
+     * Platform administrator: the platform's own navigations and nothing else (PRD C5).
+     *
+     * <p>The exact mirror of {@link #tenantAdminSnapshot} — that one takes everything EXCEPT the
+     * platform prefixes, this one takes only them — so the two principals partition the product
+     * between them and one config value decides where the line falls.
+     *
+     * <p>This used to be the empty-grants shape, which was safe only because the gate bypassed a
+     * super-admin outright. C5 removes that bypass, and an empty permission set under a real gate
+     * denies the platform administrator their own console. So the set is computed, for the same
+     * reason a tenant admin's is: it holds no static grants, and what it may reach has to come from
+     * somewhere.
+     *
+     * <p>No plan narrowing here, unlike the tenant admin's. A platform module is not something any
+     * tenant buys, and there is no subscription on the platform's own tenant to read.
+     *
+     * <p>Scope and sensitive-field maps stay empty. C5 is about which SCREENS the platform reaches;
+     * cross-tenant reads — the account roster, provisioning — are what the platform administrator
+     * exists to do, and are bounded by the endpoints above rather than by row scope.
+     */
+    private PermissionInfo platformAdminSnapshot(Set<String> roleCodes) {
+        List<NavigationView> allNavs = modelService.searchList(M_NAV,
+                new FlexQuery(List.of("id"), new Filters()), NavigationView.class);
+        Set<String> navigations = new HashSet<>();
+        for (NavigationView n : allNavs) {
+            if (n.getId() != null && isPlatformNav(n.getId())) {
+                navigations.add(n.getId());
+            }
+        }
+        List<PermissionView> allPerms = modelService.searchList(M_PERMISSION,
+                new FlexQuery(List.of("id", "navigationId"), new Filters()), PermissionView.class);
+        Set<String> permissions = new HashSet<>();
+        for (PermissionView p : allPerms) {
+            if (p.getId() != null && p.getNavigationId() != null && navigations.contains(p.getNavigationId())) {
+                permissions.add(p.getId());
+            }
+        }
+        PermissionInfo info = new PermissionInfo();
+        info.setRoleCodes(roleCodes);
+        info.setNavigations(navigations);
+        info.setPermissions(permissions);
+        info.setModelScopeMap(Collections.emptyMap());
+        info.setModelSensitiveFieldSetsMap(Collections.emptyMap());
+        // Carried over from the empty-grants snapshot this replaced: the grant is unrestricted, so
+        // every company and the countries of all of them. Not a narrowing — it is the value domain
+        // the country-driven fields read, and an administrator whose set is empty sees empty
+        // dropdowns rather than a wider choice.
+        info.setGrantedCountries(readGrantedCountries(null));
+        return info;
     }
 
     private static PermissionInfo emptyGrantsSnapshot(Set<String> roleCodes) {

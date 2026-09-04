@@ -150,10 +150,12 @@ public class UiContextBuilder {
 
         List<Long> roleIds = activeRoles.stream().map(Role::getId).filter(Objects::nonNull).toList();
 
-        // SUPER_ADMIN (detected downstream by roleCodes) → empty-grants shape, matching the
-        // engine's emptyGrantsSnapshot.
+        // SUPER_ADMIN → the platform's own navigations and nothing else (PRD C5), mirroring the
+        // engine's platformAdminSnapshot. It used to be the empty-grants shape, which was safe only
+        // while the gate bypassed a super-admin outright; C5 removes that bypass, and the two
+        // assemblies have to agree or the sidebar stops matching what the gate allows.
         if (superAdmin) {
-            return emptyGrants(out);
+            return platformAdminGrants(out);
         }
 
         // Consultant — ahead of the roleless check, which is the whole reason this branch exists.
@@ -248,6 +250,39 @@ public class UiContextBuilder {
      * new role-configuration surface, only a different body here. Merged into one branch there would
      * be nothing to change without unpicking the two apart first.
      */
+    /**
+     * Platform administrator: every platform navigation, and no tenant module (PRD C5).
+     *
+     * <p>The mirror of {@link #tenantAdminGrants} — that one takes everything EXCEPT the platform
+     * prefixes. No plan narrowing: a platform module is not something a tenant buys, and there is no
+     * subscription on the platform's own tenant to read.
+     */
+    private UiContext platformAdminGrants(UiContext out) {
+        Collection<Navigation> allNavs = navigationModelResolver.allNavigations();
+        Set<String> navigations = new HashSet<>();
+        if (allNavs != null) {
+            for (Navigation n : allNavs) {
+                if (n != null && n.getId() != null && isPlatformNav(n.getId())) {
+                    navigations.add(n.getId());
+                }
+            }
+        }
+        Set<String> permissions = new HashSet<>();
+        List<Map<String, Object>> perms = modelService.searchList("Permission",
+                new FlexQuery(List.of("id", "navigationId"), new Filters()));
+        for (Map<String, Object> p : perms) {
+            Object id = p.get("id");
+            Object navId = p.get("navigationId");
+            if (id != null && navId != null && navigations.contains(navId.toString())) {
+                permissions.add(id.toString());
+            }
+        }
+        out.setNavigations(navigations);
+        out.setPermissions(permissions);
+        out.setModelSensitiveFieldSetsMap(Map.of());
+        return out;
+    }
+
     private UiContext consultantGrants(UiContext out, Long tenantId) {
         return tenantAdminGrants(out, tenantId);
     }

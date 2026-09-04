@@ -122,14 +122,23 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // aspects (e.g. {@code @RequireRole}) can gate on system roles without
         // depending on the user-starter permission model.
         bridgeRoleCodesToContext(ctx, pi);
-        // Platform super-admin — full bypass, cross-tenant (crossTenant set in the bridge).
-        if (PermissionInfo.isSuperAdmin(pi)) return true;
+        // Platform super-admin — cross-tenant (crossTenant is set in the bridge above and stays: the
+        // account roster and provisioning span tenants by definition), but no longer a full bypass.
+        //
+        // C5 hands tenant business work to the consultant, who does it inside the customer that
+        // authorized them and for as long as that authorization lasts. The platform administrator
+        // keeps System and Studio. Matching against their snapshot — which platformAdminSnapshot
+        // narrowed to exactly those — is what makes that a boundary rather than a hidden sidebar:
+        // otherwise every tenant endpoint stays one typed URL away.
+        if (PermissionInfo.isSuperAdmin(pi)) {
+            return planBoundedBypass(pi, ctx, uri, method, "platform-admin", false);
+        }
         // Tenant super-admin — bypasses the permission gate WITHIN its own tenant (tenant-isolated,
         // crossTenant stays false), but is denied platform-only Ops endpoints (billing / plan /
         // provisioning) which only SUPER_ADMIN may reach, and endpoints belonging to a module its
         // plan does not entitle.
         if (PermissionInfo.isTenantAdmin(pi)) {
-            return planBoundedBypass(pi, ctx, uri, method, "tenant-admin");
+            return planBoundedBypass(pi, ctx, uri, method, "tenant-admin", true);
         }
         // Platform consultant — the same gate, reached by a different rule. A consultant's menus and
         // functions are defined as the tenant's current subscription in full, which is computed the
@@ -155,7 +164,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
                 throw new BusinessException(ResponseCode.CONSULTANT_AUTHORIZATION_ENDED,
                         "Your authorization for this tenant has ended.");
             }
-            return planBoundedBypass(pi, ctx, uri, method, "consultant");
+            return planBoundedBypass(pi, ctx, uri, method, "consultant", true);
         }
 
         // EndpointIndex.lookup returns every permission id that lists this
@@ -259,12 +268,17 @@ public class PermissionInterceptor implements HandlerInterceptor {
      * gate into a broad outage. It is also why the coverage validator exists — the mapping gap is the
      * thing to close, not this allowance.
      *
-     * @param principal what to call the caller in the logs; the two callers are otherwise identical
+     * @param principal what to call the caller in the logs; the callers are otherwise identical
      *                  today and deliberately kept separately callable
+     * @param denyPlatformOnly false for the platform administrator, who is the one these endpoints
+     *                  exist FOR. Billing, plan and provisioning are barred to everyone INSIDE a
+     *                  tenant — a tenant admin and a consultant alike — and are the platform's own
+     *                  work. Refusing them here would deny the platform administrator their console
+     *                  and leave nobody able to provision anything.
      */
     private boolean planBoundedBypass(PermissionInfo pi, Context ctx, String uri, String method,
-                                      String principal) {
-        if (matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+                                      String principal, boolean denyPlatformOnly) {
+        if (denyPlatformOnly && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
             log.warn("Platform-only endpoint denied to {} — userId={}, uri={} {}",
                     principal, ctx.getUserId(), method, uri);
             throw new PermissionException("Platform-admin only: " + method + " " + uri);

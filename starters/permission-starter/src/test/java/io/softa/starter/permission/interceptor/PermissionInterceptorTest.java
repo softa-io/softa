@@ -142,21 +142,79 @@ class PermissionInterceptorTest {
         org.mockito.Mockito.verify(endpointIndex, org.mockito.Mockito.never()).lookup(anyString(), anyString());
     }
 
-    // ─── super-admin short-circuit ───
+    // ─── platform admin: System and Studio, and no longer everything (C5) ───
+    //
+    // This block used to assert the opposite — that a super-admin bypassed the endpoint gate outright
+    // and the index was never even consulted. C5 retires that: tenant business work belongs to the
+    // consultant now, done inside the customer that authorized them and only while that authorization
+    // lasts. The cases are rewritten rather than deleted, because the old contract is exactly what
+    // must not come back by accident.
+
+    /** A platform administrator as platformAdminSnapshot builds one: platform permissions only. */
+    private static PermissionInfo platformAdmin() {
+        return PermissionInfo.builder()
+                .roleCodes(Set.of(PermissionInfo.CODE_SUPER_ADMIN))
+                .permissions(Set.of("system.tenant-info.view", "studio.model.view"))
+                .build();
+    }
 
     @Test
-    void superAdmin_bypassesEndpointCheck() {
-        PermissionInfo pi = PermissionInfo.builder()
-                .roleCodes(Set.of(PermissionInfo.CODE_SUPER_ADMIN))
-                .build();
-        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(pi);
+    void platformAdmin_isDeniedATenantBusinessEndpoint() {
+        // The whole point of C5, and the reason it is enforcement rather than a hidden sidebar:
+        // without this the module is still one typed URL away.
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(platformAdmin());
+        when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST")))
+                .thenReturn(Set.of("core-hr.employee.view"));
 
         MockHttpServletRequest r = req("POST", "/Employee/searchList");
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() ->
+                    interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class)
+                    .hasMessageContaining("Missing permission");
+            return null;
+        });
+    }
+
+    @Test
+    void platformAdmin_reachesItsOwnConsole() {
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(platformAdmin());
+        when(endpointIndex.lookup(eq("/TenantInfo/searchPage"), eq("POST")))
+                .thenReturn(Set.of("system.tenant-info.view"));
+
+        MockHttpServletRequest r = req("POST", "/TenantInfo/searchPage");
         boolean allowed = inCtx(10L, 42L,
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
         assertThat(allowed).isTrue();
-        org.mockito.Mockito.verify(endpointIndex, org.mockito.Mockito.never())
-                .lookup(anyString(), anyString());
+    }
+
+    @Test
+    void platformAdmin_isNOTdeniedThePlatformOnlyEndpoints() {
+        // The lockout this nearly caused. platformOnlyPatterns bars billing / plan / provisioning to
+        // everyone INSIDE a tenant — an admin and a consultant alike — precisely because they are the
+        // platform's own work. Running the platform administrator through the same denial would take
+        // their console away and leave nobody able to provision anything.
+        props.setPlatformOnlyPatterns(List.of("/TenantInfo/**"));
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(platformAdmin());
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
+
+        MockHttpServletRequest r = req("POST", "/TenantInfo/createOne");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    @Test
+    void platformAdmin_stillReachesAnUnregisteredEndpoint() {
+        // Same allowance the other two admin-shaped principals get: plenty of endpoints carry no
+        // permission mapping, and denying those would turn this boundary into a broad outage.
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(platformAdmin());
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
+
+        MockHttpServletRequest r = req("POST", "/SomeUnmappedOps/doIt");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
     }
 
     @Test
