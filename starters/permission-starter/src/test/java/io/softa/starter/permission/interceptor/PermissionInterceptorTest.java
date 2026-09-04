@@ -412,4 +412,83 @@ class PermissionInterceptorTest {
             return null;
         });
     }
+
+    // ─── consultant: the same gate, reached by a different rule ───
+    //
+    // A consultant's reach is defined as the tenant's current subscription in full, which is how a
+    // tenant admin's is computed too — two rules that agree today, not one rule. They are separately
+    // callable on purpose: folding CONSULTANT into isTenantAdmin() would make every other reader of
+    // "is a tenant admin" quietly answer yes for consultants, and would leave nothing to change here
+    // if consultants were ever narrowed. These cases pin that the second call site exists and behaves,
+    // so collapsing it back into the first is a failing test rather than a silent widening.
+
+    /** A consultant in a tenant whose plan dropped payroll. No TENANT_ADMIN code — that is the point. */
+    private static PermissionInfo consultantOnFreePlan() {
+        return PermissionInfo.builder()
+                .roleCodes(Set.of(PermissionInfo.CODE_CONSULTANT))
+                .permissions(Set.of("employee.view", "department.view"))   // no payroll.*
+                .build();
+    }
+
+    @Test
+    void consultant_allowedOnAnEntitledModule() {
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+        when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST")))
+                .thenReturn(Set.of("employee.view"));
+
+        MockHttpServletRequest r = req("POST", "/Employee/searchList");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    @Test
+    void consultant_deniedOnAModuleTheTenantsPlanDropped() {
+        // The consultant works inside somebody else's subscription, so the plan bounds them exactly as
+        // it bounds that tenant's own admin — being platform staff buys no extra modules.
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+        when(endpointIndex.lookup(eq("/PayItem/searchList"), eq("POST")))
+                .thenReturn(Set.of("payroll.pay-item.view"));
+
+        MockHttpServletRequest r = req("POST", "/PayItem/searchList");
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() ->
+                    interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class)
+                    .hasMessageContaining("Missing permission");
+            return null;
+        });
+    }
+
+    @Test
+    void consultant_reachesAnUnregisteredEndpointLikeAnAdminDoes() {
+        // The asymmetry this branch was added for. Without it a consultant fell through to the normal
+        // path and got "Endpoint not registered" wherever the mapping is incomplete — a 403 on work a
+        // tenant admin does freely, which contradicts "the tenant's functions, in full".
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
+
+        MockHttpServletRequest r = req("POST", "/SomeUnmappedThing/doIt");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    @Test
+    void consultant_isStillDeniedPlatformOnlyEndpoints() {
+        // The one place being platform staff might have been assumed to help. It does not: the
+        // consultant is inside a customer's tenant, and billing / plan / provisioning belong to the
+        // platform's own console, which they reach as themselves or not at all.
+        props.setPlatformOnlyPatterns(List.of("/TenantInfo/**"));
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+
+        MockHttpServletRequest r = req("POST", "/TenantInfo/createOne");
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() ->
+                    interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class)
+                    .hasMessageContaining("Platform-admin only");
+            return null;
+        });
+    }
 }

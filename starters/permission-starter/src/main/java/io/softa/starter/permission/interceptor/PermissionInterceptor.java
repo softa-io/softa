@@ -120,27 +120,19 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // provisioning) which only SUPER_ADMIN may reach, and endpoints belonging to a module its
         // plan does not entitle.
         if (PermissionInfo.isTenantAdmin(pi)) {
-            if (matchAny(properties.getPlatformOnlyPatterns(), uri)) {
-                log.warn("Platform-only endpoint denied to tenant-admin — userId={}, uri={} {}",
-                        ctx.getUserId(), method, uri);
-                throw new PermissionException("Platform-admin only: " + method + " " + uri);
-            }
-            // The admin's snapshot is already narrowed to its plan (tenantAdminSnapshot), so matching
-            // against it is what enforces 版本计费 for an admin. This cannot be left to the frontend or
-            // to the downgrade cleanup: an admin holds no static nav grants, so a downgrade has nothing
-            // to strip for it, and a direct call would otherwise reach a dropped module's endpoints.
-            //
-            // An UNREGISTERED endpoint still bypasses. That is what this branch has always been for —
-            // plenty of endpoints carry no permission mapping, and a tenant admin is expected to reach
-            // them. Denying those here would turn a billing gate into a broad outage.
-            Set<String> adminCandidates = endpointIndex.lookup(uri, method);
-            if (adminCandidates != null && !adminCandidates.isEmpty()
-                    && Collections.disjoint(pi.getPermissions(), adminCandidates)) {
-                log.warn("Module not entitled for tenant-admin — userId={}, uri={} {}, required any of: {}",
-                        ctx.getUserId(), method, uri, adminCandidates);
-                throw new PermissionException("Missing permission for " + method + " " + uri);
-            }
-            return true;
+            return planBoundedBypass(pi, ctx, uri, method, "tenant-admin");
+        }
+        // Platform consultant — the same gate, reached by a different rule. A consultant's menus and
+        // functions are defined as the tenant's current subscription in full, which is computed the
+        // same way a tenant admin's are; they are two rules that agree today, not one rule.
+        //
+        // Its own named branch rather than folding CONSULTANT into isTenantAdmin(), because that
+        // predicate is a bypass and a bypass has no dial: were consultants ever to be narrowed —
+        // the platform deciding they should not reach payroll, say — there would be nothing to
+        // change here without first unpicking them back out of the admin path, and every other
+        // reader of "is a tenant admin" would have silently started answering yes for them.
+        if (PermissionInfo.isConsultant(pi)) {
+            return planBoundedBypass(pi, ctx, uri, method, "consultant");
         }
 
         // EndpointIndex.lookup returns every permission id that lists this
@@ -227,6 +219,41 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     private boolean isPublic(String uri) {
         return matchAny(properties.getPublicUriPatterns(), uri);
+    }
+
+    /**
+     * The gate an admin-shaped principal passes: bypasses per-permission checks inside its own
+     * tenant, but is denied platform-only Ops endpoints and anything in a module the tenant's plan
+     * does not entitle.
+     *
+     * <p>The plan match is enforcement, not decoration. Neither principal holds static nav grants, so
+     * the downgrade cleanup has nothing to strip for either, and their snapshot's permission set — the
+     * set matched here — is the only thing standing between a direct call and a dropped module's
+     * endpoints.
+     *
+     * <p><b>An unregistered endpoint still bypasses.</b> That is what this path has always been for:
+     * plenty of endpoints carry no permission mapping at all, and refusing those would turn a billing
+     * gate into a broad outage. It is also why the coverage validator exists — the mapping gap is the
+     * thing to close, not this allowance.
+     *
+     * @param principal what to call the caller in the logs; the two callers are otherwise identical
+     *                  today and deliberately kept separately callable
+     */
+    private boolean planBoundedBypass(PermissionInfo pi, Context ctx, String uri, String method,
+                                      String principal) {
+        if (matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied to {} — userId={}, uri={} {}",
+                    principal, ctx.getUserId(), method, uri);
+            throw new PermissionException("Platform-admin only: " + method + " " + uri);
+        }
+        Set<String> candidates = endpointIndex.lookup(uri, method);
+        if (candidates != null && !candidates.isEmpty()
+                && Collections.disjoint(pi.getPermissions(), candidates)) {
+            log.warn("Module not entitled for {} — userId={}, uri={} {}, required any of: {}",
+                    principal, ctx.getUserId(), method, uri, candidates);
+            throw new PermissionException("Missing permission for " + method + " " + uri);
+        }
+        return true;
     }
 
     private boolean matchAny(List<String> patterns, String uri) {

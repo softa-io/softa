@@ -261,6 +261,92 @@ class UiContextBuilderTest {
                 .containsExactlyInAnyOrder("core-hr.employee", "payroll.pay-item");
     }
 
+    // ─── build() for a consultant — the half that was missed ───
+    //
+    // The consultant principal was added to the permission engine first, where it made the endpoint
+    // gate and the row scope work. This build is the OTHER assembly of the same question (see the
+    // class doc's consistency caveat) and it reads role ROWS, of which a consultant has none — so it
+    // fell straight through to empty grants. The consultant passed every permission check and was
+    // shown a shell with no menus in it, which reads as bad seed data rather than a half-applied
+    // change. These pin both halves of that: that the branch is reached at all, and that reaching it
+    // needs an actual consultant.
+
+    /** A consultant logged into tenant 7 — same nav tree as the admin cases, and NO role rows. */
+    private void consultantOf(Long tenantId) {
+        when(userRoleRelService.searchList(any(FlexQuery.class))).thenReturn(List.of());
+        when(navigationModelResolver.allNavigations()).thenReturn(List.of(
+                nav("core-hr.employee", null, NavigationType.MENU),
+                nav("payroll.pay-item", null, NavigationType.MENU)));
+        when(modelService.searchList(eq("Permission"), any(FlexQuery.class))).thenReturn(List.of(
+                Map.of("id", "employee.view", "navigationId", "core-hr.employee"),
+                Map.of("id", "pay-item.view", "navigationId", "payroll.pay-item")));
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("consultant", true)));
+        Context c = new Context();
+        c.setTenantId(tenantId);
+        c.setUserId(42L);
+        this.ctx = c;
+    }
+
+    @Test
+    void build_consultant_getsTheTenantsMenus_notEmptyGrants() {
+        consultantOf(7L);   // no entitlement gate → every module entitled
+
+        UiContext out = ContextHolder.callWith(ctx, () -> builder.build(42L));
+
+        assertThat(out.getNavigations())
+                .containsExactlyInAnyOrder("core-hr.employee", "payroll.pay-item");
+        assertThat(out.getPermissions())
+                .containsExactlyInAnyOrder("employee.view", "pay-item.view");
+        // Carried to the FE too: the top bar has to be able to say which hat the user is wearing.
+        assertThat(out.getRoleCodes()).containsExactly("CONSULTANT");
+    }
+
+    @Test
+    void build_consultant_narrowedByPlanEntitlement() {
+        // A consultant's reach is defined as the tenant's CURRENT subscription, so a downgrade has to
+        // narrow it here for the same reason it does for an admin: neither holds static nav grants,
+        // so the downgrade cleanup has nothing to strip for either.
+        consultantOf(7L);
+        EntitlementService gate = mock(EntitlementService.class);
+        when(gate.entitledModules(7L)).thenReturn(Set.of("core-hr"));
+        ReflectionTestUtils.setField(builder, "entitlementService", gate);
+
+        UiContext out = ContextHolder.callWith(ctx, () -> builder.build(42L));
+
+        assertThat(out.getNavigations()).containsExactly("core-hr.employee");
+        assertThat(out.getPermissions()).containsExactly("employee.view");
+    }
+
+    @Test
+    void build_rolelessOrdinaryUser_stillGetsNothing() {
+        // The other half of the pair. A derivation stuck on true would satisfy both tests above and
+        // hand every roleless account in the deployment a tenant's entire menu.
+        consultantOf(7L);
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("consultant", false)));
+
+        UiContext out = ContextHolder.callWith(ctx, () -> builder.build(42L));
+
+        assertThat(out.getRoleCodes()).isEmpty();
+        assertThat(out.getNavigations()).isEmpty();
+        assertThat(out.getPermissions()).isEmpty();
+    }
+
+    @Test
+    void build_consultantFlagIsReadHoweverTheDriverMapsIt() {
+        // The generic map read hands a MySQL TINYINT(1) back as an Integer, not a Boolean. Read only
+        // as a Boolean, this answers false against a live database while every mock above stays green.
+        consultantOf(7L);
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("consultant", 1)));
+
+        UiContext out = ContextHolder.callWith(ctx, () -> builder.build(42L));
+
+        assertThat(out.getRoleCodes()).containsExactly("CONSULTANT");
+        assertThat(out.getNavigations()).isNotEmpty();
+    }
+
     // ─── helpers ───
 
     private static Navigation nav(String id, String parentId, NavigationType type) {
