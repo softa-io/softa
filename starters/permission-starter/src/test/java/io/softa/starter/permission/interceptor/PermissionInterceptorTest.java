@@ -491,4 +491,74 @@ class PermissionInterceptorTest {
             return null;
         });
     }
+
+    // ─── CE3: a consultant whose authorization ended is out, on the next request ───
+
+    /** Installs a checker that answers the given verdict for every account. */
+    private void consultantAccessIs(boolean stillAuthorized) {
+        org.springframework.test.util.ReflectionTestUtils.setField(interceptor, "consultantAccessChecker",
+                (io.softa.framework.orm.service.ConsultantAccessChecker) id -> stillAuthorized);
+    }
+
+    @Test
+    void consultant_whoseAuthorizationEnded_isRefusedWithItsOwnCode() {
+        // Its own response code, not a plain 403: the client's correct reaction is to leave THIS
+        // tenant for the picker, where the person's other memberships may still be waiting. Read as
+        // "you lack a permission here" it would send them to a tenant admin who cannot grant it.
+        consultantAccessIs(false);
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+        when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST")))
+                .thenReturn(Set.of("employee.view"));
+
+        MockHttpServletRequest r = req("POST", "/Employee/searchList");
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() ->
+                    interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(io.softa.framework.base.exception.BusinessException.class)
+                    .hasMessageContaining("authorization for this tenant has ended");
+            return null;
+        });
+    }
+
+    @Test
+    void consultant_stillAuthorized_passesAsBefore() {
+        consultantAccessIs(true);
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+        when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST")))
+                .thenReturn(Set.of("employee.view"));
+
+        MockHttpServletRequest r = req("POST", "/Employee/searchList");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    @Test
+    void lapsedConsultant_canStillReachTheSelfServiceEndpointsThatLetThemRecover() {
+        // The check sits after the authenticated-bypass patterns on purpose. A client that has just
+        // been told its authorization ended still needs /me and the tenant list to render that state
+        // and offer the person's other companies; refusing everything strands them on a blank screen
+        // instead of the picker the error is telling them to go back to.
+        props.setAuthenticatedBypassPatterns(List.of("/me/**"));
+        consultantAccessIs(false);
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+
+        MockHttpServletRequest r = req("GET", "/me/uiContext");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    @Test
+    void noCheckerInstalled_consultantsAreNotRefused() {
+        // A deployment without consultants installs no implementation; the branch must not fail closed
+        // on a null collaborator.
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
+
+        MockHttpServletRequest r = req("POST", "/Anything/doIt");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
 }

@@ -15,8 +15,11 @@ import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.enums.SystemRole;
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.ConfigurationException;
+import io.softa.framework.orm.service.ConsultantAccessChecker;
 import io.softa.framework.base.exception.PermissionException;
 import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
@@ -42,6 +45,12 @@ import io.softa.starter.permission.index.EndpointIndex;
 public class PermissionInterceptor implements HandlerInterceptor {
 
     private final AntPathMatcher matcher = new AntPathMatcher();
+
+    /** CE3's per-request check. Optional — a deployment without consultants installs no
+     *  implementation, and the consultant branch never fires there anyway. Field-injected: the
+     *  constructor is RequiredArgs over finals. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ConsultantAccessChecker consultantAccessChecker;
     private final EndpointIndex endpointIndex;
     private final PermissionSnapshotProvider snapshotProvider;
     /** Whitelist patterns bound via {@code @ConfigurationProperties} — see
@@ -132,6 +141,20 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // change here without first unpicking them back out of the admin path, and every other
         // reader of "is a tenant admin" would have silently started answering yes for them.
         if (PermissionInfo.isConsultant(pi)) {
+            // CE3 — asked on every request, because a consultant's access ends on a DATE and nobody
+            // edits anything when it lapses at midnight. Cached with the snapshot it would keep a
+            // lapsed consultant inside a customer's tenant for the rest of the TTL.
+            //
+            // Deliberately after the authenticated-bypass patterns above: /me/**, the tenant list and
+            // the self-service reads have to keep working, or the client that just learned its
+            // authorization ended could not render that state or find the person's other tenants.
+            // Refusing everything would strand them on a blank screen instead of the picker.
+            if (consultantAccessChecker != null && !consultantAccessChecker.stillAuthorized(ctx.getUserId())) {
+                log.info("Consultant authorization ended — userId={}, tenantId={}, uri={} {}",
+                        ctx.getUserId(), ctx.getTenantId(), method, uri);
+                throw new BusinessException(ResponseCode.CONSULTANT_AUTHORIZATION_ENDED,
+                        "Your authorization for this tenant has ended.");
+            }
             return planBoundedBypass(pi, ctx, uri, method, "consultant");
         }
 
