@@ -8,8 +8,10 @@ import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.message.MailRequestMessage;
+import io.softa.framework.base.message.MessageScope;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.shared.TenantScopes;
 
 /**
  * Consumes {@link MailRequestMessage} off the mail-request MQ topic and delivers it through the mail
@@ -54,6 +56,23 @@ public class MailRequestConsumer {
         Context ctx = ContextHolder.cloneContext();
         if (message.tenantId() != null) {
             ctx.setTenantId(message.tenantId());
+        } else if (message.scope() == MessageScope.PLATFORM) {
+            // A platform-scoped request names no tenant, because none is known yet — a login or
+            // forgot-password code is asked for before any session exists. Left as-is, the record
+            // this send writes is stamped from an empty context: the ORM puts tenant_id = NULL
+            // EXPLICITLY into the insert (AutofillFields), and the column is NOT NULL, so the row
+            // either fails outright or is coerced to 0 by a lenient server. Both are wrong — the
+            // first loses the mail, the second files it under a tenant that does not exist.
+            //
+            // The platform tier is the right home, and the rest of the pipeline already agrees:
+            // template and server resolve explicitly at PLATFORM, and MonthlyQuotaGuard.bucketFor
+            // charges the platform's own quota. Only the record was left out.
+            //
+            // Deliberately NOT applied to a null tenant on a TENANT-scoped message. That
+            // combination is a producer bug (the sender had a tenant and failed to pass it), and
+            // pinning it here would render the platform's copy under a tenant's name and hide the
+            // mistake.
+            ctx.setTenantId(TenantScopes.PLATFORM);
         }
         ContextHolder.runWith(ctx, () -> messageService.sendMail(mail));
         log.debug("Delivered mail-request → template '{}' to {} recipient(s), tenantId={}, scope={}",
