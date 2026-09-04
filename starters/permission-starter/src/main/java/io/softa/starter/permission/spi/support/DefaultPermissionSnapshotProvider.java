@@ -85,6 +85,8 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     private static final String M_ROLE_SFS = "RoleSensitiveFieldSet";
     private static final String M_NAV = "Navigation";
     private static final String M_PERMISSION = "Permission";
+    private static final String M_USER_ACCOUNT = "UserAccount";
+    private static final String F_CONSULTANT = "consultant";
 
     private final CacheService cacheService;
     private final ModelService<?> modelService;
@@ -304,12 +306,17 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         }
     }
 
-    private PermissionInfo doLoadFromDb(Long tenantId, Long userId) {
+    /** Package-private so the same-package test can drive the whole build — the consultant
+     *  derivation and the routing it feeds only mean anything together. */
+    PermissionInfo doLoadFromDb(Long tenantId, Long userId) {
         List<RoleView> activeRoles = loadActiveRolesFor(userId);
         Set<String> roleCodes = activeRoles.stream()
                 .map(RoleView::getCode)
                 .filter(c -> c != null && !c.isEmpty())
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(HashSet::new));
+        if (isConsultantMembership(userId)) {
+            roleCodes.add(CONSULTANT_CODE);
+        }
 
         if (roleCodes.contains(SUPER_ADMIN_CODE)) {
             PermissionInfo info = emptyGrantsSnapshot(roleCodes);
@@ -402,6 +409,34 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         info.setGrantedCompanyIds(grantedCompanyIds);
         info.setGrantedCountries(grantedCountries);
         return info;
+    }
+
+    /**
+     * True when the acting membership was minted for a consultant.
+     *
+     * <p>The consultant role code is <b>derived from the account, never stored as a role row</b>, for
+     * the same two reasons the consultant's menus are derived. A real {@code Role} would show up in
+     * the tenant's own role management, which the consultant role is explicitly not supposed to be
+     * visible in — let alone editable. And the entitlement cleanup hard-deletes role grants on a plan
+     * downgrade and never restores them: one downgrade would strip every consultant in that tenant
+     * permanently, with no role left anywhere for anyone to put back.
+     *
+     * <p>Read generically by model name, like the RBAC reads around it — this module also gates
+     * deployments that do not carry user-starter, and {@link #loadFromDb} fails closed when the model
+     * is absent. One by-primary-key read, on the cache-miss path only.
+     */
+    private boolean isConsultantMembership(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        List<Map<String, Object>> rows = modelService.searchList(M_USER_ACCOUNT,
+                new FlexQuery(List.of(F_CONSULTANT), new Filters().eq(ModelConstant.ID, userId)));
+        if (rows.isEmpty()) {
+            return false;
+        }
+        Object flag = rows.get(0).get(F_CONSULTANT);
+        // Boolean or 1/0, depending on how the driver maps the column.
+        return Boolean.TRUE.equals(flag) || (flag instanceof Number n && n.intValue() == 1);
     }
 
     /** Roles for a user, filtered to active=true (inactive roles revoke their
