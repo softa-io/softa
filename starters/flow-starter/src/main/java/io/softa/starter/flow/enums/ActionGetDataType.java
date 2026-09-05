@@ -13,7 +13,7 @@ import io.softa.framework.base.annotation.OptionSet;
  * {@code GetDataTaskExecutor} derives its routing sets ({@code COUNT_TYPES = {Exist,
  * Count}}, {@code SINGLE_ROW_TYPES = {SingleRow, OneFieldValue}},
  * {@code MULTI_ROW_TYPES = {MultiRows, OneFieldValues}}) and its {@code getDataType}
- * option schema directly from {@link #getCode()}, so adding or renaming a value is a
+ * option schema directly from {@code #getCode()}, so adding or renaming a value is a
  * one-line change here. The scanner materializes this option set from the code,
  * so the engine's routing sets and the stored option schema always agree.
  *

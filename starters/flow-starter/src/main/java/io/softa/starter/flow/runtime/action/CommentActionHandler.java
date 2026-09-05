@@ -48,7 +48,8 @@ public class CommentActionHandler implements FlowActionHandler<FlowCommentReques
                 .comment(request.getComment())
                 .nodeId(request.getNodeId())
                 .statusBefore(statusBefore)
-                .statusAfter(statusBefore));
+                .statusAfter(statusBefore)
+                .build());
         contextService.persistState(state);
         return state;
     }

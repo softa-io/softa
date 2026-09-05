@@ -15,9 +15,9 @@ import io.softa.starter.flow.runtime.nodeconfig.ScriptNodeConfig;
  * Handler for {@link FlowNodeType#SCRIPT} nodes.
  * <p>
  * Replaces the former {@code ComputeTaskNodeExecutionHandler}. Evaluates an
- * AviatorScript expression sourced from {@link ScriptNodeConfig#getExpression()}
+ * AviatorScript expression sourced from {@code ScriptNodeConfig#getExpression()}
  * against the current {@link FlowVariableContext} and writes the result under
- * {@link ScriptNodeConfig#getOutputVariable()} into {@code outputs}.
+ * {@code ScriptNodeConfig#getOutputVariable()} into {@code outputs}.
  * </p>
  * <p>
  * Config example:

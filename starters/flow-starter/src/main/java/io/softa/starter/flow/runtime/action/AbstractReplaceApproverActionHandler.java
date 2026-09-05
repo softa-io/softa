@@ -69,11 +69,12 @@ public abstract class AbstractReplaceApproverActionHandler<R extends AbstractFlo
 
         auditService.addTrace(state, definition.getFlowCode(), node, traceEventType,
                 auditMessage.build(node, request));
-        auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, ctx.statusBefore(), state.getStatus())
+        auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, ctx.statusBefore(), state.getStatus()).toBuilder()
                 .action(actionType)
                 .actorId(request.getActorId())
                 .targetActorId(request.getTargetActorId())
-                .comment(request.getComment()));
+                .comment(request.getComment())
+                .build());
         contextService.persistState(state);
         notificationService.notify(notification.create(state, pendingApproval));
         return state;

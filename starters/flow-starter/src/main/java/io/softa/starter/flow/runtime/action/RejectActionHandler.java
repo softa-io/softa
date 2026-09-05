@@ -80,10 +80,11 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
             if (pendingApproval.getRejectedActors().size() < pendingApproval.getRequiredRejectCount()) {
                 auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.WAIT_APPROVAL,
                         auditService.buildPartialRejectMessage(node, pendingApproval, request.getActorId()));
-                auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, statusBefore, state.getStatus())
+                auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                         .action(ApprovalActionType.REJECT)
                         .actorId(request.getActorId())
-                        .comment(request.getComment()));
+                        .comment(request.getComment())
+                        .build());
                 contextService.persistState(state);
                 return state;
             }
@@ -95,10 +96,11 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
         contextService.mergeVariables(state, Map.of("approvalDecision", auditService.buildApprovalDecisionPayload("Rejected", request)));
         auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_REJECTED,
                 auditService.buildRejectionMessage(node, request));
-        auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, statusBefore, state.getStatus())
+        auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.REJECT)
                 .actorId(request.getActorId())
-                .comment(request.getComment()));
+                .comment(request.getComment())
+                .build());
         contextService.persistState(state);
         notificationService.notify(new FlowNotificationEvent.TaskCompleted(state, pendingApproval, false));
         return state;

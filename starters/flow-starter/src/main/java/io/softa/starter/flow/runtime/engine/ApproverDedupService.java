@@ -57,10 +57,11 @@ public class ApproverDedupService {
                 if (priorApprovers.contains(approver) && !pending.getApprovedActors().contains(approver)) {
                     pending.getApprovedActors().add(approver);
                     auditService.appendApprovalAudit(state,
-                            auditService.baseBuilder(definition, node, pending, state.getStatus(), state.getStatus())
+                            auditService.baseEntry(definition, node, pending, state.getStatus(), state.getStatus()).toBuilder()
                                     .action(ApprovalActionType.AUTO_APPROVE)
                                     .actorId(approver)
-                                    .comment("Auto-approved (approver dedup: " + strategy + ")"));
+                                    .comment("Auto-approved (approver dedup: " + strategy + ")")
+                                    .build());
                 }
             }
         }

@@ -9,7 +9,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
  * Persistence port for the approval action audit ledger ({@code flow_approval_record}) —
  * the single authority for approval lifecycle history.
  * <p>
- * The runtime keeps {@link FlowExecutionState#getApprovalAuditDelta()} as a delta buffer
+ * The runtime keeps {@code FlowExecutionState#getApprovalAuditDelta()} as a delta buffer
  * of the current attempt; the instance store flushes it here on every save, in the same
  * transaction as the instance row (a failed attempt's REQUIRES_NEW failure record therefore
  * carries its audit rows too). Readers needing full history combine {@link #findByInstanceId}

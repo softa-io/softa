@@ -7,7 +7,7 @@ import lombok.Getter;
 /**
  * Why a {@link FlowWaitToken} is parked on a suspended branch.
  * <p>
- * Approval waits are modelled separately by {@link FlowExecutionState#getPendingApprovals()};
+ * Approval waits are modelled separately by {@code FlowExecutionState#getPendingApprovals()};
  * only the non-approval scalar waits (timer / async callback) are represented as wait tokens.
  */
 @Getter

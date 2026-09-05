@@ -28,7 +28,7 @@ import io.softa.starter.flow.enums.FlowScenario;
  *       conflict instead of silently overwriting each other.</li>
  *   <li>{@link #publishedRevision} and {@link #publishedChecksum} are set each time
  *       {@code POST /flow/designs/{id}/publish} succeeds, pointing to the
- *       corresponding {@link FlowBundle#getRevision()}.</li>
+ *       corresponding {@code FlowBundle#getRevision()}.</li>
  * </ol>
  * </p>
  */

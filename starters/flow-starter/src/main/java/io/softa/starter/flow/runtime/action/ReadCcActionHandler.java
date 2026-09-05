@@ -63,7 +63,8 @@ public class ReadCcActionHandler implements FlowActionHandler<FlowCcReadRequest>
                 .targetActorId(ccAudit.getActorId())
                 .comment(request.getComment())
                 .statusBefore(state.getStatus())
-                .statusAfter(state.getStatus()));
+                .statusAfter(state.getStatus())
+                .build());
         contextService.persistState(state);
         return state;
     }

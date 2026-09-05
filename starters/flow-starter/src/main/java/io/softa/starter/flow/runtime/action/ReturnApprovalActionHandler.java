@@ -22,7 +22,7 @@ import io.softa.starter.flow.runtime.state.*;
  * Handles return-approval actions for pending approvals.
  *
  * <p>Return policy is read from {@link ApprovalNodeConfig} (embedded in
- * {@link CompiledFlowNode#getParsedConfig()}), replacing the former separate
+ * {@code CompiledFlowNode#getParsedConfig()}), replacing the former separate
  * {@code returnPolicy} field on the compiled node.</p>
  */
 @Component
@@ -102,12 +102,13 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
                 auditService.buildReturnDecisionPayload(request, node, state.getInitiatorId(), target, null)));
         auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_RETURNED,
                 auditService.buildReturnMessage(node, request, target, state.getInitiatorId(), null));
-        auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, statusBefore, state.getStatus())
+        auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RETURN)
                 .actorId(request.getActorId())
                 .comment(request.getComment())
                 .targetType(target)
-                .targetActorId(state.getInitiatorId()));
+                .targetActorId(state.getInitiatorId())
+                .build());
         contextService.persistState(state);
         return state;
     }
@@ -133,13 +134,14 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
                 auditService.buildReturnMessage(node, request, target, null, targetNode));
         auditService.addTrace(state, definition.getFlowCode(), targetNode, FlowTraceEventType.WAIT_APPROVAL,
                 "Waiting for approval at node " + targetNode.getNodeId() + " after return from " + node.getNodeId());
-        auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, statusBefore, state.getStatus())
+        auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RETURN)
                 .actorId(request.getActorId())
                 .comment(request.getComment())
                 .targetType(target)
                 .targetNodeId(targetNode.getNodeId())
-                .targetNodeLabel(targetNode.getLabel()));
+                .targetNodeLabel(targetNode.getLabel())
+                .build());
         contextService.persistState(state);
         return state;
     }
@@ -171,13 +173,14 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
                 auditService.buildReturnMessage(node, request, target, null, targetNode));
         auditService.addTrace(state, definition.getFlowCode(), targetNode, FlowTraceEventType.WAIT_APPROVAL,
                 "Waiting for approval at node " + targetNode.getNodeId() + " after return from " + node.getNodeId());
-        auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, statusBefore, state.getStatus())
+        auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RETURN)
                 .actorId(request.getActorId())
                 .comment(request.getComment())
                 .targetType(target)
                 .targetNodeId(targetNode.getNodeId())
-                .targetNodeLabel(targetNode.getLabel()));
+                .targetNodeLabel(targetNode.getLabel())
+                .build());
         contextService.persistState(state);
         return state;
     }

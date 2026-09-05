@@ -15,7 +15,7 @@ import io.softa.starter.flow.enums.VoteThresholdMode;
  * Structured audit entry for approval lifecycle actions.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @Schema(name = "ApprovalActionAuditEntry")

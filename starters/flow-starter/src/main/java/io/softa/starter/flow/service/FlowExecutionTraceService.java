@@ -11,7 +11,7 @@ import io.softa.starter.flow.runtime.state.FlowTraceEventType;
 /**
  * Service for persisting and reading execution trace entries.
  *
- * <p>The runtime keeps {@link FlowExecutionState#getTrace()} in memory as a
+ * <p>The runtime keeps {@code FlowExecutionState#getTrace()} in memory as a
  * <b>delta buffer</b> — only the entries of the current attempt. Loads leave it
  * empty (the full history is not hydrated); this service flushes new entries to
  * {@code flow_execution_trace} on every state save, continuing the sequence from

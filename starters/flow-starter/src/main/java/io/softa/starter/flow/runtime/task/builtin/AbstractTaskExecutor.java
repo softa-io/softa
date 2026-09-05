@@ -53,7 +53,7 @@ public abstract class AbstractTaskExecutor implements TaskExecutor {
     }
 
     /**
-     * Obtain a migrated executor's typed input config: the handler-parsed {@link TaskExecutionRequest#getConfig()}
+     * Obtain a migrated executor's typed input config: the handler-parsed {@code TaskExecutionRequest#getConfig()}
      * when present, else (for direct callers / unit tests that pass a raw {@code input} map) parsed from it. This
      * is the single point where a typed executor turns wire config into its DTO — executors themselves stay
      * Map-free.
