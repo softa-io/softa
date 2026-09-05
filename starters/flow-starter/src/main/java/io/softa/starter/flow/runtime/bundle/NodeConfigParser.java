@@ -12,7 +12,7 @@ import io.softa.starter.flow.runtime.nodeconfig.*;
  * Called from two places that must stay in sync: the compiler
  * ({@code NodeTransformer.compileNodes}) when a design graph is compiled, and
  * {@link FlowBundleMapper#toDefinition} when a persisted bundle is deserialized —
- * {@link CompiledFlowNode#getParsedConfig()} is {@code @JsonIgnore} and must be
+ * {@code CompiledFlowNode#getParsedConfig()} is {@code @JsonIgnore} and must be
  * rebuilt on every load or node handlers pattern-matching on it would fail.
  */
 public final class NodeConfigParser {

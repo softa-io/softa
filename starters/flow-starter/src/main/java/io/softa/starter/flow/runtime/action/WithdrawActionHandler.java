@@ -67,7 +67,8 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
                 .actorId(request.getActorId())
                 .comment(request.getComment())
                 .statusBefore(statusBefore)
-                .statusAfter(state.getStatus()));
+                .statusAfter(state.getStatus())
+                .build());
         contextService.persistState(state);
         return state;
     }

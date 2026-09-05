@@ -35,8 +35,8 @@ public interface FlowDesignService extends EntityService<FlowDesign, Long> {
     FlowDesignStatusView getStatus(Long id);
 
     /**
-     * Update the draft's publish markers ({@link FlowDesign#getPublishedRevision()} and
-     * {@link FlowDesign#getPublishedChecksum()}) after a successful publish.
+     * Update the draft's publish markers ({@code FlowDesign#getPublishedRevision()} and
+     * {@code FlowDesign#getPublishedChecksum()}) after a successful publish.
      * Called by {@link FlowPublishService} once the bundle has been persisted.
      */
     void upsertFromPublish(Long designId, Integer publishedRevision);

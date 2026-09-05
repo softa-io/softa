@@ -15,7 +15,6 @@ import io.softa.starter.flow.enums.ApprovalReturnTarget;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry.ApprovalActionAuditEntryBuilder;
 import io.softa.starter.flow.runtime.state.*;
 
 /**
@@ -45,15 +44,14 @@ public class FlowAuditService {
                 .build());
     }
 
-    public void appendApprovalAudit(FlowExecutionState state,
-                                    ApprovalActionAuditEntryBuilder builder) {
+    public void appendApprovalAudit(FlowExecutionState state, ApprovalActionAuditEntry entry) {
         if (state.getApprovalAuditDelta() == null) {
             state.setApprovalAuditDelta(new ArrayList<>());
         }
-        // Sequence is assigned at flush time by the ledger (base + index), not here.
-        state.getApprovalAuditDelta().add(builder
-                .eventTime(LocalDateTime.now())
-                .build());
+        // Sequence is assigned at flush time by the ledger (base + index), not here; the
+        // event time is stamped here so no caller has to remember it.
+        entry.setEventTime(LocalDateTime.now());
+        state.getApprovalAuditDelta().add(entry);
     }
 
     public void appendCcAudit(FlowExecutionState state,
@@ -66,11 +64,12 @@ public class FlowAuditService {
                               FlowExecutionStatus statusBefore) {
         addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_CCED,
                 buildCcMessage(node, actorId, targetActorId, comment));
-        appendApprovalAudit(state, baseBuilder(definition, node, pendingApproval, statusBefore, state.getStatus())
+        appendApprovalAudit(state, baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.CC)
                 .actorId(actorId)
                 .targetActorId(targetActorId)
-                .comment(comment));
+                .comment(comment)
+                .build());
     }
 
     public Optional<ApprovalActionAuditEntry> findCcAudit(FlowExecutionState state,
@@ -102,9 +101,15 @@ public class FlowAuditService {
     }
 
     /**
-     * Pre-fill a builder with common fields from the approval context.
+     * Pre-fill an audit entry with the common fields of the approval context. Callers add the
+     * action-specific fields through {@code toBuilder()} and hand the result to
+     * {@link #appendApprovalAudit(FlowExecutionState, ApprovalActionAuditEntry)}.
+     * <p>
+     * Returns the built entry rather than its Lombok builder on purpose: the builder is a
+     * generated type that javadoc never sees, so naming it in a signature both breaks the
+     * documentation build and leaks a Lombok artefact into the public API.
      */
-    public ApprovalActionAuditEntryBuilder baseBuilder(
+    public ApprovalActionAuditEntry baseEntry(
             CompiledFlowDefinition definition,
             CompiledFlowNode node,
             PendingApproval pendingApproval,
@@ -125,7 +130,8 @@ public class FlowAuditService {
                 .dynamicApprovers(pendingApproval.getDynamicApprovers())
                 .rejectMode(pendingApproval.getRejectMode())
                 .requiredRejectCount(pendingApproval.getRequiredRejectCount())
-                .rejectedActors(List.copyOf(pendingApproval.getRejectedActors()));
+                .rejectedActors(List.copyOf(pendingApproval.getRejectedActors()))
+                .build();
     }
 
     // --- message builders ---

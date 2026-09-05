@@ -72,12 +72,13 @@ public class ResubmitActionHandler implements FlowActionHandler<FlowResubmitRequ
                 auditService.buildResubmissionMessage(node, request, state.getResubmissionCount()));
         auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.WAIT_APPROVAL,
                 "Waiting for approval at node " + node.getNodeId() + " after resubmission");
-        auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, resolvedPendingApproval, statusBefore, state.getStatus())
+        auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, resolvedPendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RESUBMIT)
                 .actorId(request.getActorId())
                 .comment(request.getComment())
                 .resubmissionCount(state.getResubmissionCount())
-                .variableKeys(request.getVariables() == null ? List.of() : List.copyOf(request.getVariables().keySet())));
+                .variableKeys(request.getVariables() == null ? List.of() : List.copyOf(request.getVariables().keySet()))
+                .build());
         contextService.persistState(state);
         return state;
     }

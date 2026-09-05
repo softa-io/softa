@@ -80,7 +80,8 @@ public class UrgeActionHandler implements FlowActionHandler<FlowUrgeRequest> {
                 .actorId(request.getActorId())
                 .comment(message)
                 .statusBefore(state.getStatus())
-                .statusAfter(state.getStatus()));
+                .statusAfter(state.getStatus())
+                .build());
 
         contextService.persistState(state);
 

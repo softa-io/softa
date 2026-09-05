@@ -18,7 +18,7 @@ import io.softa.starter.flow.service.FlowExecutionTraceService;
 
 /**
  * ORM-backed trace service. Keeps {@code flow_execution_trace} as the
- * source of truth and {@link FlowExecutionState#getTrace()} as an in-memory
+ * source of truth and {@code FlowExecutionState#getTrace()} as an in-memory
  * delta buffer of the current attempt.
  */
 @Service

@@ -8,7 +8,7 @@ import lombok.Getter;
  * Palette grouping category for node types.
  * <p>
  * Used by the front-end editor to organise the node palette into sections,
- * and by {@link FlowNodeType#getCategory()} so each type knows its own group.
+ * and by {@code FlowNodeType#getCategory()} so each type knows its own group.
  */
 @Getter
 @AllArgsConstructor

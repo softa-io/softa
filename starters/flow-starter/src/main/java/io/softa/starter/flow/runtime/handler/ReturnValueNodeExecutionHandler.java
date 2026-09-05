@@ -14,7 +14,7 @@ import io.softa.starter.flow.runtime.nodeconfig.ReturnValueNodeConfig;
  * Handler for {@link FlowNodeType#RETURN_VALUE} nodes.
  * <p>
  * Replaces the former {@code ReturnDataNodeExecutionHandler}. Evaluates each
- * entry in {@link ReturnValueNodeConfig#getOutputExpressions()} against the
+ * entry in {@code ReturnValueNodeConfig#getOutputExpressions()} against the
  * current {@link FlowVariableContext} and returns them as a
  * {@link NodeOutcome.Ended} — the outputs double as the flow's return envelope,
  * and the engine terminates the instance after recording them.

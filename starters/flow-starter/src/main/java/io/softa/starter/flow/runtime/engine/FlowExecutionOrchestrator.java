@@ -27,7 +27,7 @@ import io.softa.starter.flow.runtime.state.*;
  * {@link FlowVariableContext} is maintained for the entire lifetime of each
  * {@link #executeDefinition} call and passed to every node handler. Node outputs are
  * merged into the context's mutable {@code vars} tier after each node completes, which
- * is synced back to {@link FlowExecutionState#getVariables()} for persistence-layer
+ * is synced back to {@code FlowExecutionState#getVariables()} for persistence-layer
  * compatibility.</p>
  */
 @Component

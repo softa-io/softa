@@ -82,10 +82,11 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
             if (!lifecycleService.canCompleteApproval(pendingApproval)) {
                 auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.WAIT_APPROVAL,
                         auditService.buildPartialApprovalMessage(node, pendingApproval, request.getActorId()));
-                auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, statusBefore, state.getStatus())
+                auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                         .action(ApprovalActionType.APPROVE)
                         .actorId(request.getActorId())
-                        .comment(request.getComment()));
+                        .comment(request.getComment())
+                        .build());
                 contextService.persistState(state);
                 return state;
             }
@@ -93,10 +94,11 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
 
         // Record the completing approval BEFORE advancing, so a downstream node's approver-dedup
         // (审批人去重) sees that this actor approved this node during the same resume cascade.
-        auditService.appendApprovalAudit(state, auditService.baseBuilder(definition, node, pendingApproval, statusBefore, FlowExecutionStatus.RUNNING)
+        auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, FlowExecutionStatus.RUNNING).toBuilder()
                 .action(ApprovalActionType.APPROVE)
                 .actorId(request.getActorId())
-                .comment(request.getComment()));
+                .comment(request.getComment())
+                .build());
         orchestrator.resumeApprovedNode(state, pendingApproval, definition, node);
         contextService.persistState(state);
         notificationService.notify(new FlowNotificationEvent.TaskCompleted(state, pendingApproval, true));
