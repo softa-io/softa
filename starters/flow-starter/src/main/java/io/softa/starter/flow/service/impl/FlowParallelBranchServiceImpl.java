@@ -8,6 +8,7 @@ import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowParallelBranch;
@@ -35,7 +36,14 @@ public class FlowParallelBranchServiceImpl extends EntityServiceImpl<FlowParalle
         return this.searchList(filters);
     }
 
+    /**
+     * Engine bookkeeping write — exempt from the caller's row scope; see
+     * {@code FlowInstanceServiceImpl.saveInstance} for why the post-write scope re-read cannot
+     * succeed on a {@code Flow*} ledger table. This is the listener entry the publisher calls, so
+     * the flag is already set by the time {@code syncFromState} reaches the ORM.
+     */
     @Override
+    @SkipPermissionCheck
     public void onStateChanged(FlowExecutionState state) {
         syncFromState(state);
     }

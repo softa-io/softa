@@ -2,12 +2,20 @@ package io.softa.starter.flow.service.support;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
+import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
+import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
@@ -15,11 +23,17 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class FlowApprovalTaskProjectorTest {
 
+    private final FlowBundleRegistry bundleRegistry = mock(FlowBundleRegistry.class);
+    private final ModelService<?> modelService = mock(ModelService.class);
     private final FlowApprovalTaskProjector projector = new FlowApprovalTaskProjector(
-            new ApprovalAuditReader(new NoopApprovalActionLedger()));
+            new ApprovalAuditReader(new NoopApprovalActionLedger()), bundleRegistry, modelService);
 
     @Test
     void shouldProjectPerActorTasksFromPendingApprovalProgress() {
@@ -184,5 +198,55 @@ class FlowApprovalTaskProjectorTest {
         assertEquals(ApprovalActionType.CC, ccTask.getAction());
         assertEquals("manager", ccTask.getClosedByActorId());
         assertEquals(ccAt, ccTask.getEndTime());
+    }
+
+    @Test
+    void shouldSnapshotConfiguredFormFieldsFromBusinessRow() {
+        ApprovalNodeConfig config = new ApprovalNodeConfig();
+        config.setFormPermissions(Map.of(
+                "claimName", FormFieldPermission.READONLY,
+                "totalAmount", FormFieldPermission.READONLY,
+                "salary", FormFieldPermission.HIDDEN));
+        CompiledFlowNode node = mock(CompiledFlowNode.class);
+        when(node.getParsedConfig()).thenReturn(config);
+        CompiledFlowDefinition definition = mock(CompiledFlowDefinition.class);
+        when(definition.getNodeIndex()).thenReturn(Map.of("managerApproval", node));
+        when(bundleRegistry.getByBundleId(7L)).thenReturn(Optional.of(definition));
+        when(modelService.searchOne(eq("ExpenseClaim"), any())).thenReturn(Optional.of(Map.of(
+                "claimName", "Shanghai trip",
+                "totalAmount", "120.00",
+                "salary", "secret")));
+
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("instance-1")
+                .bundleId(7L)
+                .modelName("ExpenseClaim")
+                .rowId("42")
+                .pendingApprovals(List.of(PendingApproval.builder()
+                        .nodeId("managerApproval")
+                        .approvers(List.of("manager"))
+                        .build()))
+                .build();
+
+        var task = projector.project(state).getFirst();
+
+        assertNotNull(task.getFormSnapshot());
+        assertTrue(task.getFormSnapshot().contains("Shanghai trip"));
+        assertTrue(task.getFormSnapshot().contains("totalAmount"));
+        // Hidden fields must never leak into the snapshot an approver can read.
+        assertFalse(task.getFormSnapshot().contains("secret"));
+    }
+
+    @Test
+    void shouldLeaveSnapshotNullWithoutFormConfig() {
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("instance-1")
+                .pendingApprovals(List.of(PendingApproval.builder()
+                        .nodeId("managerApproval")
+                        .approvers(List.of("manager"))
+                        .build()))
+                .build();
+
+        assertNull(projector.project(state).getFirst().getFormSnapshot());
     }
 }

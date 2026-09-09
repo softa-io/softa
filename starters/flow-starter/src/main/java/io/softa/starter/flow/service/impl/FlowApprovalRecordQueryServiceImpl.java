@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -50,7 +51,15 @@ public class FlowApprovalRecordQueryServiceImpl implements FlowApprovalRecordQue
         this.accessGuard = accessGuard;
     }
 
+    /**
+     * Cross-actor timeline read, exempt from row scope for the same reason as
+     * {@code FlowApprovalTaskServiceImpl.getTasksByInstanceId}: a per-row rule keyed on the
+     * caller can never assemble another participant's entries, and the in-method
+     * {@code requireInstanceViewer} — whose initiator lookup the exemption flag also covers —
+     * is what actually authorizes the caller.
+     */
     @Override
+    @SkipPermissionCheck
     public List<FlowApprovalRecordView> getByInstanceId(String instanceId, String requesterId) {
         List<FlowApprovalRecord> records = getRecordEntitiesByInstanceId(instanceId);
         boolean participant = records.stream().anyMatch(record -> requesterId != null

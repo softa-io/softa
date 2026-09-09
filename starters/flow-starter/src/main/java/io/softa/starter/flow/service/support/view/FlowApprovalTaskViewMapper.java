@@ -1,7 +1,11 @@
 package io.softa.starter.flow.service.support.view;
 
 import java.util.List;
+import java.util.Map;
 
+import tools.jackson.core.type.TypeReference;
+
+import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 
@@ -46,7 +50,16 @@ public final class FlowApprovalTaskViewMapper {
                 .blockedByActorId(task.getBlockedByActorId())
                 .dueTime(task.getDueTime())
                 .urgency(task.getUrgency())
+                .formSnapshot(parseFormSnapshot(task.getFormSnapshot()))
                 .build();
+    }
+
+    /** Stored as a JSON string on the row; served as a map. Null / unparseable stays null. */
+    private static Map<String, Object> parseFormSnapshot(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        return JsonUtils.stringToObject(json, new TypeReference<Map<String, Object>>() { }, null);
     }
 
     public static List<FlowApprovalTaskView> toViews(List<FlowApprovalTask> tasks) {
