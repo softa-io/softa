@@ -120,6 +120,7 @@ Annotate **every declared field**. Most-used attributes:
 | `description` | `""` | shown in UI; **≤512 chars** (parse-time enforced) — concise user-facing summary, design notes go in Javadoc |
 | `fieldType` | inferred from the Java type (see §3) | override only when the Java type is ambiguous |
 | `length` | type default (`String` → 64, see §3) | column width; declare only to override |
+| `min` / `max` / `pattern` | `""` | which **values** the field accepts, as opposed to how wide the column is — see §5 |
 | `required` | `false` (primitives auto-`true`) | NOT NULL |
 | `readonly` / `unsearchable` | `false` | UI behavior |
 | `copyable` | `true` | `false` = value not carried when a row is duplicated (keys, secrets, runtime state) |
@@ -270,6 +271,40 @@ Restart your dev app → the column is added automatically.
 ### Make a field required
 Flip `required = true`. **First check for existing NULL rows** — if any exist,
 backfill them before you flip it, or the tightened NOT NULL will fail.
+
+### Bound what a field accepts (`min` / `max` / `pattern`)
+`length` is how wide the column is; these are which values it accepts.
+
+```java
+@Field(label = "Active Employees", min = "0",
+       constraintMessage = "Headcount cannot be negative.")
+private Integer activeEmpCount;
+
+@Field(label = "Employee Code", pattern = "[A-Z]{2}\\d{6}",
+       constraintMessage = "Employee code must be two letters and six digits.")
+private String code;
+```
+
+Enforced on **every** write — API, batch, import, seed loading, flow write nodes
+— because they all share the field-processor pipeline that checks it. No `CHECK`
+constraint is generated, so tightening a bound is a redeploy rather than a
+migration and existing rows are not retroactively invalid.
+
+- Bounds are **inclusive**, numeric field types only, written as decimal
+  literals (`min = "0.01"`, never `0.01d` — an annotation constant cannot carry
+  an exact `BigDecimal`).
+- `pattern` matches the **whole** value (`"[A-Z]{2}"` ≡ `"^[A-Z]{2}$"`), `STRING`
+  / `TEXT` only. Stick to syntax Java and JavaScript agree on — the frontend runs
+  the same string, and a construct only one side understands makes them disagree.
+- **Empty passes.** Use `required` for "must be filled in"; a bound that rejected
+  null would make every bounded optional field mandatory.
+- `constraintMessage` is what the user sees, and is its own i18n key. Skip it on
+  a bound if the composed sentence ("must be at least 0") is fine; always write
+  one for a `pattern`, since the alternative is showing somebody a regex.
+
+A bad declaration fails the boot, not the first save: an unparseable literal,
+`min` above `max`, an uncompilable regex, or the attribute on the wrong field
+type.
 
 ### Remove a field safely
 Delete the field. The framework will **not** drop the column automatically — it

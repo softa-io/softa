@@ -73,6 +73,16 @@ public class MetaField implements Serializable {
 
     private Integer scale;
 
+    /** Value-domain bounds and format, as declared (decimal literals / a regex); null = unbounded. */
+    private String min;
+
+    private String max;
+
+    private String pattern;
+
+    /** Overrides the generated sentence when a bound or the pattern rejects a value. */
+    private String constraintMessage;
+
     private boolean required;
 
     private boolean readonly;

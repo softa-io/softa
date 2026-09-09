@@ -369,6 +369,117 @@ class AnnotationParserTest {
         assertTrue(ex.getMessage().contains("512"));
     }
 
+    // ------- value domain: min / max / pattern ---------------------------
+    // A declaration is read once, at boot. Every mistake here is a mistake in
+    // something written by hand and compiled — so it fails the startup that
+    // reads it, in front of the person who wrote it, rather than the first save
+    // months later in front of a tenant.
+
+    @Model
+    static class ValueDomainIsCarried extends AuditableModel {
+        @Field(min = "0", max = "100", constraintMessage = "Must be a percentage.")
+        private Integer completion;
+        @Field(pattern = "[A-Z]{2}\\d{6}") private String code;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void valueDomain_reachesTheCatalogRow() {
+        AnnotationScanResult result = parser.parse(List.of(ValueDomainIsCarried.class), List.of());
+
+        SysField completion = byFieldName(result.fields(), "completion");
+        assertEquals("0", completion.getMin());
+        assertEquals("100", completion.getMax());
+        assertEquals("Must be a percentage.", completion.getConstraintMessage());
+        assertEquals("[A-Z]{2}\\d{6}", byFieldName(result.fields(), "code").getPattern());
+    }
+
+    @Test
+    void anUndeclaredDomain_staysNullRatherThanEmpty() {
+        // Null on both sides is what makes this column need no backfill: FIELD_ATTRS is reflective,
+        // so the cross-lane checksum picks the attribute up immediately, and "" would not equal the
+        // NULL an existing row carries.
+        SysField plain = byFieldName(
+                parser.parse(List.of(ValueDomainIsCarried.class), List.of()).fields(), "id");
+        assertNull(plain.getMin());
+        assertNull(plain.getMax());
+        assertNull(plain.getPattern());
+        assertNull(plain.getConstraintMessage());
+    }
+
+    @Model
+    static class BoundOnAStringIsRejected extends AuditableModel {
+        @Field(min = "0") private String name;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void bound_onANonNumericField_isRejectedAtParse() {
+        // Silently ignoring it is the harmful option: to whoever wrote the line, an ignored bound
+        // and an enforced one look exactly the same.
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(BoundOnAStringIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("BoundOnAStringIsRejected.name"));
+        assertTrue(ex.getMessage().contains("numeric"));
+    }
+
+    @Model
+    static class PatternOnANumberIsRejected extends AuditableModel {
+        @Field(pattern = "\\d+") private Integer count;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void pattern_onANonStringField_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(PatternOnANumberIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("PatternOnANumberIsRejected.count"));
+        assertTrue(ex.getMessage().contains("STRING"));
+    }
+
+    @Model
+    static class MalformedBoundIsRejected extends AuditableModel {
+        @Field(min = "zero") private Integer count;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aBoundThatIsNotADecimal_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(MalformedBoundIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("decimal literal"));
+        assertTrue(ex.getMessage().contains("zero"));
+    }
+
+    @Model
+    static class InvertedBoundsAreRejected extends AuditableModel {
+        @Field(min = "100", max = "0") private Integer count;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aMinAboveItsMax_isRejectedAtParse() {
+        // No value satisfies it, so the field would be unwritable — and the symptom ("every save of
+        // this model fails") points nowhere near the two attributes that caused it.
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(InvertedBoundsAreRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("no value can satisfy"));
+    }
+
+    @Model
+    static class UncompilablePatternIsRejected extends AuditableModel {
+        @Field(pattern = "[A-Z") private String code;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aPatternThatDoesNotCompile_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(UncompilablePatternIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("UncompilablePatternIsRejected.code"));
+        assertTrue(ex.getMessage().contains("valid regular expression"));
+    }
+
     // ------- OPTION / MULTI_OPTION are forward-inferred only ------------
     // OPTION / MULTI_OPTION can never be written explicitly in
     // @Field(fieldType = ...). They are always derived from the Java type

@@ -114,6 +114,9 @@ extends `AuditableModel`.
 | `columnName` | String | `""` | `columnName` | empty → `snake_case(fieldName)` |
 | `length` | int | `0` | `length` | `0` → type default: STRING/OPTION 64, MULTI_STRING/ORDERS 256, DOUBLE 24 (measurements), BIG_DECIMAL 32 (money); declare explicitly for anything else. On `TEXT` fields length is optional — purely an app-level guard (the column is unbounded). Legacy: MySQL renders STRING `length > 16383` as TEXT (64KB bytes; prefer `fieldType = TEXT`) |
 | `scale` | int | `0` | `scale` | `0` → type default: DOUBLE 2, BIG_DECIMAL 8 (DECIMAL scale) |
+| `min` / `max` | String | `""` | `min` / `max` | **value domain**, not a column width — inclusive bounds enforced on every write by `ValueConstraints` (see below); numeric field types only, decimal literals (`"0"`, `"-1.5"`) so a `BigDecimal` bound stays exact. Parsed at scan time: a malformed literal or `min > max` fails the boot |
+| `pattern` | String | `""` | `pattern` | regex the **whole** value must match (`Pattern.matches`, not `find`); STRING / TEXT only, compiled at scan time. Keep to syntax Java and JavaScript agree on — the frontend evaluates the same string |
+| `constraintMessage` | String | `""` | `constraint_message` | sentence shown when `min` / `max` / `pattern` rejects a value; its own i18n key, like `@Index(message)`. Optional for a bound ("must be at least 0" composes itself), effectively required for a `pattern` (a regex tells the person filling the form nothing) |
 | `required` | boolean | `false` | `required` | NOT NULL constraint |
 | `readonly` | boolean | `false` | `readonly` | UI hint |
 | `translatable` | boolean | `false` | `translatable` | i18n-aware column |
@@ -149,6 +152,48 @@ value-preserving rename would have carried wrong values.
 | (scanner sets) | — | — | `appCode` / `id` | |
 | (FK fixup post-init) | — | — | `modelId` | |
 | (not exposed via `@Field`) | — | — | `hidden` | UI-only flag set via Studio |
+
+#### Value domain (`min` / `max` / `pattern`)
+
+`length` says how wide the column is; `min` / `max` / `pattern` say which values the field accepts.
+The two are deliberately separate — a headcount is a plain `INT` that must not go negative, and
+widening the column has nothing to do with it.
+
+Enforced in `io.softa.framework.orm.meta.ValueConstraints`, called from the field processors
+(`NumericProcessor` after the type coercion, `StringProcessor` after the trim). Every write reaches
+the database through that pipeline — create, update, batch, import, seed loading, flow write nodes —
+so one declaration covers all of them, including the paths that never touch a controller. A reader
+that wants the same answer without writing (a filter builder validating what an admin typed) can
+call `ValueConstraints` directly instead of restating the rule.
+
+```java
+@Field(label = "Active Employees", min = "0",
+       constraintMessage = "Headcount cannot be negative.")
+private Integer activeEmpCount;
+
+@Field(label = "Employee Code", pattern = "[A-Z]{2}\\d{6}",
+       constraintMessage = "Employee code must be two letters and six digits.")
+private String code;
+```
+
+What it is **not**: a column constraint. No `CHECK` is rendered and no DDL changes, so tightening a
+bound is a redeploy rather than a migration and rows written before the bound existed stay valid —
+which is what a business rule wants and what a `CHECK` would not give.
+
+Rules worth knowing before declaring one:
+
+- **Bounds are inclusive**, and **null passes**. Absence is what `required` is for; a bounded
+  optional field has to stay leavable empty.
+- **A blank string is not matched** against the pattern, for the same reason — otherwise every
+  formatted field would become mandatory by accident.
+- **The pattern matches the whole value**, not a substring, so `"[A-Z]{2}"` and `"^[A-Z]{2}$"` mean
+  the same thing. Keep to the syntax Java and JavaScript agree on: the frontend evaluates the same
+  string, and a construct only one side understands makes the two disagree about the same value.
+- **Bounds are decimal literals, not doubles.** An annotation attribute can only be a constant, and
+  `0.01d` does not survive the round trip to a `BigDecimal` field — `min = "0.01"` does.
+- `min` / `max` apply to numeric field types only, `pattern` to `STRING` / `TEXT` only. Both are
+  validated at scan time together with the literals and the regex, so a malformed declaration —
+  or `min` above `max` — fails the boot rather than the first save.
 
 #### Delete strategy (`onDelete`)
 

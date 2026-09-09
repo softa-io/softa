@@ -1,9 +1,11 @@
 package io.softa.starter.metadata.scanner.annotation;
 
 import java.lang.reflect.Field;
+import java.math.BigDecimal;
 import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.Nullable;
 
@@ -60,6 +62,13 @@ public final class AnnotationParser {
      * leaves headroom and stays index-friendly.
      */
     private static final Pattern COUNTRY_CODE = Pattern.compile("[A-Z]{2}");
+
+    /** Where a regex can mean something: the two field types that hold free text. */
+
+    private static final Set<FieldType> PATTERN_TYPES =
+
+            Set.of(FieldType.STRING, FieldType.TEXT);
+
 
     private static final int STRING_ID_LENGTH = 24;
 
@@ -570,6 +579,7 @@ public final class AnnotationParser {
                 f.setScale(typeDefault.scale());
             }
         }
+        applyValueConstraints(f, anno, resolved.fieldType(), modelName, javaField.getName());
         f.setRequired(anno.required() || javaField.getType().isPrimitive());
         f.setReadonly(anno.readonly());
         f.setTranslatable(anno.translatable());
@@ -606,6 +616,68 @@ public final class AnnotationParser {
         }
 
         return f;
+    }
+
+    /**
+     * The declared value domain: numeric bounds, a regex, and the sentence shown when one rejects.
+     *
+     * <p>Everything here fails the boot rather than the first save. A bound that does not parse, a
+     * regex that does not compile, or a bound on a field type that cannot be compared are all
+     * mistakes in a declaration, and a declaration is read once at startup — deferring them to
+     * runtime means the person who wrote it is not the one who finds out.
+     *
+     * <p>Applies to the field type it can mean something for and rejects the rest outright rather
+     * than ignoring it: a {@code min} silently dropped from a String field reads, to whoever wrote
+     * it, exactly like a bound that is being enforced.
+     */
+    private void applyValueConstraints(SysField f, io.softa.framework.orm.annotation.Field anno,
+                                       FieldType fieldType, String modelName, String fieldName) {
+        String min = blankToNull(anno.min());
+        String max = blankToNull(anno.max());
+        String pattern = blankToNull(anno.pattern());
+        String where = modelName + "." + fieldName;
+
+        if ((min != null || max != null) && !FieldType.NUMERIC_TYPES.contains(fieldType)) {
+            throw new IllegalStateException("@Field(min / max) on " + where + " applies to numeric"
+                    + " field types only, but the resolved field type is " + fieldType
+                    + ". For a string use pattern, for a length use length.");
+        }
+        if (pattern != null && !PATTERN_TYPES.contains(fieldType)) {
+            throw new IllegalStateException("@Field(pattern) on " + where + " applies to STRING and"
+                    + " TEXT only, but the resolved field type is " + fieldType + ".");
+        }
+
+        BigDecimal lower = parseBound(min, "min", where);
+        BigDecimal upper = parseBound(max, "max", where);
+        if (lower != null && upper != null && lower.compareTo(upper) > 0) {
+            throw new IllegalStateException("@Field(min / max) on " + where + " declares min " + min
+                    + " above max " + max + ", which no value can satisfy.");
+        }
+        if (pattern != null) {
+            try {
+                Pattern.compile(pattern);
+            } catch (PatternSyntaxException e) {
+                throw new IllegalStateException("@Field(pattern) on " + where
+                        + " is not a valid regular expression: " + e.getDescription(), e);
+            }
+        }
+
+        f.setMin(min);
+        f.setMax(max);
+        f.setPattern(pattern);
+        f.setConstraintMessage(blankToNull(anno.constraintMessage()));
+    }
+
+    private static BigDecimal parseBound(String bound, String attribute, String where) {
+        if (bound == null) {
+            return null;
+        }
+        try {
+            return new BigDecimal(bound);
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("@Field(" + attribute + ") on " + where
+                    + " is not a decimal literal: `" + bound + "`.", e);
+        }
     }
 
     private TypeInference.FieldTypeResolution resolveFieldType(

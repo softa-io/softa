@@ -104,6 +104,20 @@ public class SysField extends AuditableModel {
     @Field
     private Integer scale;
 
+    // Value domain, enforced by the field-processor pipeline every write path shares — not a column
+    // width and not a CHECK constraint. Decimal literals so a BigDecimal bound survives exactly.
+    @Field(length = 40, description = "Smallest accepted value, as a decimal literal; numeric fields only")
+    private String min;
+
+    @Field(length = 40, description = "Largest accepted value, as a decimal literal; numeric fields only")
+    private String max;
+
+    @Field(length = 256, description = "Regex the whole value must match; STRING and TEXT only")
+    private String pattern;
+
+    @Field(length = 256, description = "Shown when a bound or the pattern rejects a value; its own i18n key")
+    private String constraintMessage;
+
     @Field(label = "Is Required")
     private Boolean required;
 

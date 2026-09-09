@@ -8,6 +8,7 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ValueConstraints;
 
 /**
  * String field processor
@@ -55,6 +56,9 @@ public class StringProcessor extends BaseProcessor {
             // Remove the leading and trailing spaces
             value = value.trim();
             checkStringLength(value);
+            // Trimmed first: a pattern describes the value, and the surrounding space is not part of
+            // it — anchoring would otherwise reject a cell someone pasted with a trailing space.
+            ValueConstraints.checkPattern(metaField, value);
             if (metaField.getMaskingType() != null && value.contains(StringConstant.MASKING_SYMBOL)) {
                 // If the masking field contains `****`,
                 // throw an exception to prevent from setting the field incorrectly.

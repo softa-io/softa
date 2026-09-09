@@ -107,6 +107,21 @@ public class DesignField extends AuditableModel {
     @Field
     private Integer scale;
 
+    // Structural mirror of sys_field's value-domain columns. FIELD_ATTRS is reflective, so the
+    // cross-lane checksum reads these the moment they exist — but unlike a boolean attribute, an
+    // absent String is null on both sides, so no backfill is needed for the aggregate to agree.
+    @Field(length = 40, description = "Smallest accepted value, as a decimal literal; numeric fields only")
+    private String min;
+
+    @Field(length = 40, description = "Largest accepted value, as a decimal literal; numeric fields only")
+    private String max;
+
+    @Field(length = 256, description = "Regex the whole value must match; STRING and TEXT only")
+    private String pattern;
+
+    @Field(length = 256, description = "Shown when a bound or the pattern rejects a value; its own i18n key")
+    private String constraintMessage;
+
     @Field(label = "Is Required")
     private Boolean required;
 

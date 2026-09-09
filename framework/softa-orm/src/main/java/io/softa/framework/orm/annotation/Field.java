@@ -63,6 +63,43 @@ public @interface Field {
     /** Scale (DOUBLE / BIG_DECIMAL); 0 = scanner picks type-specific default. */
     int scale() default 0;
 
+    /**
+     * Smallest value this field accepts, as a decimal literal — {@code "0"}, {@code "-1.5"}.
+     * Numeric field types only; blank means unbounded below.
+     *
+     * <p>A literal rather than a {@code double} because {@code BigDecimal} fields are exact and an
+     * annotation attribute can only be a constant: {@code min = "0.01"} survives the round trip,
+     * {@code 0.01d} does not. It parses at scan time, so a malformed bound fails the boot rather
+     * than the first save.
+     *
+     * <p>This is a <b>value domain</b>, not a column width — it is enforced in the application
+     * (every write path shares one field-processor pipeline) and renders no CHECK constraint.
+     */
+    String min() default "";
+
+    /** Largest value this field accepts, as a decimal literal. See {@link #min()}. */
+    String max() default "";
+
+    /**
+     * Regex the whole value must match. String-like field types only; blank means no pattern.
+     *
+     * <p>Compiled once at scan time — an invalid regex fails the boot. Keep to the syntax Java and
+     * JavaScript agree on (character classes, quantifiers, anchors, groups): the same pattern is
+     * served in the field metadata and applied by the browser before a value is ever submitted, and
+     * a construct only one side understands makes the two disagree about the same value.
+     */
+    String pattern() default "";
+
+    /**
+     * Shown when {@link #min()} / {@link #max()} / {@link #pattern()} rejects a value; its own i18n
+     * key, like {@code @Index(message)}.
+     *
+     * <p>Optional for a bound — "must be at least 0" writes itself. All but mandatory for a pattern:
+     * a regex cannot be turned into a sentence, and "must match ^[A-Z]{2}\\d{6}$" tells the person
+     * filling the form nothing they can act on.
+     */
+    String constraintMessage() default "";
+
     /** Required (NOT NULL). Default reflects Java primitive (true) vs wrapper (false). */
     boolean required() default false;
 

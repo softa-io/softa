@@ -181,6 +181,24 @@ public enum CustomerTier {
   64KB **bytes** while validation counts characters — new code uses `TEXT`.
   This is sound for the annotation lane: it always renders DDL via the
   builtin resolver; the studio (no-code) lane keeps per-flavor defaults.
+- `min` / `max` / `pattern` (+ `constraintMessage`) declare a field's **value
+  domain** — which values it accepts — as opposed to `length`, which declares how
+  wide the column is. Enforced in the application by `ValueConstraints`, called
+  from the field processors (`NumericProcessor` after the coercion,
+  `StringProcessor` after the trim), so a single declaration covers every write
+  path that shares the pipeline: create, update, batch, import, seed loading,
+  flow write nodes. **No `CHECK` is rendered** — tightening a bound is a
+  redeploy, not a migration, and rows written before it stay valid. Bounds are
+  inclusive **decimal literals** (`min = "0"`, not `0d` — an annotation constant
+  cannot carry an exact `BigDecimal`) on numeric types only; `pattern` is a
+  whole-value regex on `STRING` / `TEXT` only, kept to syntax Java and
+  JavaScript agree on because the frontend evaluates the same string. **null /
+  blank always passes** — absence is `required`'s business, and conflating the
+  two makes a bounded optional field impossible to leave empty. All of it is
+  validated at scan time (malformed literal, `min > max`, uncompilable regex,
+  wrong field type ⇒ boot failure). `constraintMessage` is the sentence shown on
+  rejection, its own i18n key like `@Index(message)`: optional for a bound,
+  which composes its own, effectively required for a pattern, which cannot.
 - `id` is always emitted to `sys_field` as the PK; its type is inferred from the
   declared Java field (`Long` / `String`). **Convention: write an explicit
   `@Field(label = "ID")` on `id`** (consistent with "annotate every declared field");
