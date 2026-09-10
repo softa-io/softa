@@ -28,6 +28,7 @@ import io.softa.starter.file.dto.ExportResult;
 import io.softa.starter.file.entity.ExportTemplate;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
+import io.softa.starter.file.excel.export.support.LargeIntegerAsTextHandler;
 
 /**
  * Export by file template.
@@ -93,8 +94,12 @@ public class ExportByFileTemplate implements ExportStrategy {
              ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
              // Use FesodSheet to write the template and fill in the data
              ExcelWriter excelWriter = FesodSheet.write(outputStream).withTemplate(inputStream).build()) {
-            // Create a write sheet and fill in the data
-            WriteSheet writeSheet = FesodSheet.writerSheet(sheetName).build();
+            // Create a write sheet and fill in the data. This path builds its own sheet rather than
+            // going through ExcelWriterFactory — the template supplies the styling — so the one
+            // handler that is about VALUES, not appearance, has to be named here as well.
+            WriteSheet writeSheet = FesodSheet.writerSheet(sheetName)
+                    .registerWriteHandler(new LargeIntegerAsTextHandler())
+                    .build();
             excelWriter.fill(rows, writeSheet);
             // TODO: fill in the ENV related to current user
             excelWriter.finish();

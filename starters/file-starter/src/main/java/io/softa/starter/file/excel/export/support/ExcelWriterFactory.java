@@ -25,6 +25,7 @@ public class ExcelWriterFactory {
         builder = builder.registerWriteHandler(new CommonSheetStyleHandler());
         builder = builder.registerWriteHandler(new CommonFontStyleHandler());
         builder = builder.registerWriteHandler(new CommonHeadStyleHandler());
+        builder = builder.registerWriteHandler(new LargeIntegerAsTextHandler());
         if (handlers == null) {
             return builder;
         }
