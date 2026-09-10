@@ -181,7 +181,7 @@ public class OptionDropdownResolver {
             assign(optionsByColumn, columns, queryEntityValues(request));
             columns.forEach(columnIndex -> requestByColumn.put(columnIndex, request));
         });
-        return new Resolution(optionsByColumn, resolveCascades(requestByColumn, country));
+        return new Resolution(optionsByColumn, resolveCascades(requestByColumn));
     }
 
     /**
@@ -200,37 +200,56 @@ public class OptionDropdownResolver {
      * an education track names the level it belongs to, so the tracks worth offering are the ones for
      * the level already chosen rather than every track in the country.
      *
-     * <p><b>Only between two code-as-id columns.</b> Both then offer ids, and the child's foreign key
-     * holds exactly the value the parent column offers — so the grouping is one query and no
-     * translation. A pair where either side is addressed by name would need the parent's ids and names
-     * matched up as well; that is a further step, and no template asks for it yet.
+     * <p><b>However either column is addressed.</b> The pair used to be allowed only between two
+     * columns offering ids, because the child's foreign key then holds exactly the value the parent
+     * column shows and the grouping needs no translation. That restriction is what stopped a column
+     * being readable and cascaded at once: a template that addressed either side by name — which every
+     * other relation column on the employee sheet already does — silently lost the pairing, and the
+     * child offered every value in the country instead of the chosen parent's. The parent's key is
+     * translated instead, see {@link #parentKeysById}.
+     *
+     * <p>A column keeps looking through the later candidates when a pair yields nothing to offer, so
+     * one empty parent does not cost it a working one.
      */
-    private Map<Integer, Cascade> resolveCascades(Map<Integer, ValueRequest> requestByColumn, String country) {
+    private Map<Integer, Cascade> resolveCascades(Map<Integer, ValueRequest> requestByColumn) {
         Map<Integer, Cascade> cascades = new LinkedHashMap<>();
-        requestByColumn.forEach((columnIndex, request) -> {
-            if (!ModelConstant.ID.equals(request.fieldName())) {
-                return;
-            }
+        requestByColumn.forEach((columnIndex, child) -> {
             for (Map.Entry<Integer, ValueRequest> candidate : requestByColumn.entrySet()) {
-                if (candidate.getKey().equals(columnIndex)
-                        || !ModelConstant.ID.equals(candidate.getValue().fieldName())) {
+                if (candidate.getKey().equals(columnIndex)) {
                     continue;
                 }
-                MetaField link = linkFieldOnto(request.modelName(), candidate.getValue().modelName());
+                ValueRequest parent = candidate.getValue();
+                MetaField link = linkFieldOnto(child.modelName(), parent.modelName());
                 if (link == null) {
                     continue;
                 }
-                Map<String, List<String>> grouped = queryGroupedByParent(request, link.getFieldName(), country);
+                Map<String, List<String>> grouped = queryGroupedByParent(child, parent, link.getFieldName());
                 if (!grouped.isEmpty()) {
                     cascades.put(columnIndex, new Cascade(candidate.getKey(), grouped));
+                    return;
                 }
-                return;
+                // This parent has nothing to offer; a later column may still be a working parent.
             }
         });
         return cascades;
     }
 
-    /** The many-to-one on {@code childModel} that points at {@code parentModel}, or null when none does. */
+    /**
+     * The many-to-one on {@code childModel} that can act as its cascade parent onto {@code parentModel},
+     * or null when none does.
+     *
+     * <p><b>The country anchor is not a parent.</b> A track points at its level and at its country with
+     * the same kind of field, and only one of those narrows it in the sense a sheet means. The two are
+     * nevertheless distinguishable without anyone declaring which is which: a multi-country model is
+     * guaranteed to carry the second — {@code ModelManager.validateMultiCountry} asserts at startup
+     * that every {@code multiCountry} model has a {@code country} field onto {@code CountryRegion} —
+     * and its rows are already narrowed by it before any dropdown is built.
+     *
+     * <p>Reading it as a parent is what would let a Nationality column narrow the race,
+     * residence-status, ID-type, pass-type and education columns of the same sheet. Those escaped it
+     * only because they happen to be addressed by name, which the pairing rule used to exclude; with
+     * that restriction lifted, excluding the partition axis is what keeps them apart.
+     */
     private MetaField linkFieldOnto(String childModel, String parentModel) {
         if (!ModelManager.existModel(childModel)) {
             return null;
@@ -238,49 +257,114 @@ public class OptionDropdownResolver {
         return ModelManager.getModelFields(childModel).stream()
                 .filter(f -> f.getFieldType() == FieldType.MANY_TO_ONE)
                 .filter(f -> parentModel.equals(f.getRelatedModel()))
+                .filter(f -> !isCountryAnchor(childModel, f))
                 .findFirst()
                 .orElse(null);
     }
 
-    /** The child model's ids, grouped under the parent id each one names. */
-    private Map<String, List<String>> queryGroupedByParent(ValueRequest request, String linkField, String country) {
+    /** Whether the field is a multi-country model's partition axis rather than a parent of its rows. */
+    private static boolean isCountryAnchor(String modelName, MetaField field) {
+        return ModelManager.getModel(modelName).isMultiCountry()
+                && COUNTRY.equals(field.getFieldName());
+    }
+
+    /** The child column's values, grouped under the value the parent column shows for each one. */
+    private Map<String, List<String>> queryGroupedByParent(ValueRequest child, ValueRequest parent,
+                                                           String linkField) {
         Map<String, List<String>> grouped = new LinkedHashMap<>();
         try {
             Filters filters = new Filters();
-            Filters declared = Filters.of(request.filters());
+            Filters declared = Filters.of(child.filters());
             if (!Filters.isEmpty(declared)) {
                 filters.and(declared);
             }
-            if (narrowingCountryFor(request.modelName(), country) != null) {
-                filters.and(COUNTRY, Operator.EQUAL, country);
+            if (child.country() != null) {
+                filters.and(COUNTRY, Operator.EQUAL, child.country());
             }
-            FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID, linkField), filters,
-                    Orders.ofAsc(ModelConstant.ID));
+            String childValue = child.fieldName();
+            FlexQuery flexQuery = new FlexQuery(List.of(childValue, linkField), filters,
+                    Orders.ofAsc(childValue));
+            // Distinct on the pair, as the flat list is on the value alone: two rows differing only in
+            // a column nobody asked for would otherwise offer their shared name twice under one parent.
+            flexQuery.setDistinct(true);
             flexQuery.setLimitSize(MAX_VALUES_PER_COLUMN + 1);
-            List<Map<String, Object>> rows = modelService.searchList(request.modelName(), flexQuery);
+            List<Map<String, Object>> rows = modelService.searchList(child.modelName(), flexQuery);
             if (rows.size() > MAX_VALUES_PER_COLUMN) {
                 // Said out loud, as the flat list does. The cut falls at the end of the ordering, so
                 // the parents that lose their children are whichever sort last — and on the sheet that
                 // looks like a level with no tracks rather than like a list that was truncated.
                 log.warn("{} has more than {} rows to group by {}; the later parents will offer nothing.",
-                        request.modelName(), MAX_VALUES_PER_COLUMN, linkField);
+                        child.modelName(), MAX_VALUES_PER_COLUMN, linkField);
                 rows = rows.subList(0, MAX_VALUES_PER_COLUMN);
             }
+            // The link column holds the parent's id, but the sheet matches the parent CELL — which
+            // shows whatever the parent column is addressed by. Group under that, or the MATCH the
+            // validation formula performs never finds it and every branch comes back empty.
+            // Addressed by id, the link already is the value the cell shows: nothing to look up.
+            boolean parentAddressedById = ModelConstant.ID.equals(parent.fieldName());
+            Map<String, String> parentKeyById = parentAddressedById ? Map.of() : parentKeysById(parent);
             for (Map<String, Object> row : rows) {
-                Object id = row.get(ModelConstant.ID);
-                Object parent = row.get(linkField);
-                if (id == null || parent == null) {
+                Object value = row.get(childValue);
+                Object parentId = row.get(linkField);
+                if (value == null || parentId == null) {
                     continue;
                 }
-                grouped.computeIfAbsent(String.valueOf(parent), k -> new ArrayList<>()).add(String.valueOf(id));
+                String parentKey = parentAddressedById
+                        ? String.valueOf(parentId)
+                        : parentKeyById.get(String.valueOf(parentId));
+                if (parentKey == null) {
+                    // The parent row is outside what its own column offers — narrowed away by the
+                    // country, or by the filters the parent field declares. Its children belong to a
+                    // value the reader cannot pick, so they are not offered under anything.
+                    continue;
+                }
+                grouped.computeIfAbsent(parentKey, k -> new ArrayList<>()).add(String.valueOf(value));
             }
         } catch (RuntimeException e) {
             // Losing the grouping costs the narrowing, not the column: it keeps the flat list it
             // already resolved to.
             log.warn("Could not group {} by {}, that column stays a flat list: {}",
-                    request.modelName(), linkField, e.getMessage());
+                    child.modelName(), linkField, e.getMessage());
         }
         return grouped;
+    }
+
+    /**
+     * Parent id → the value the parent column shows for it, for a parent addressed by something other
+     * than its id.
+     *
+     * <p>Read under the same filters and country the parent column itself resolved under, so a parent
+     * that column does not offer is absent here too and its children fall out of the grouping rather
+     * than hanging under a value nobody can pick.
+     *
+     * <p><b>The shown value has to identify one parent row.</b> The validation formula is
+     * {@code INDIRECT("_cN_" & IFERROR(MATCH(parentCell, parents, 0), 0))} and MATCH answers with the
+     * first position it finds, while this map is keyed by the shown value in the first place — so two
+     * parents sharing one keeps only the last one's children and makes the other unreachable, quietly.
+     * An id or a code carries a unique index; a display name may not, and a model addressed by one is
+     * relying on its data rather than on a constraint.
+     */
+    private Map<String, String> parentKeysById(ValueRequest parent) {
+        Filters filters = new Filters();
+        Filters declared = Filters.of(parent.filters());
+        if (!Filters.isEmpty(declared)) {
+            filters.and(declared);
+        }
+        if (parent.country() != null) {
+            filters.and(COUNTRY, Operator.EQUAL, parent.country());
+        }
+        FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID, parent.fieldName()), filters,
+                Orders.ofAsc(parent.fieldName()));
+        flexQuery.setLimitSize(MAX_VALUES_PER_COLUMN + 1);
+        Map<String, String> keyById = new LinkedHashMap<>();
+        for (Map<String, Object> row : modelService.searchList(parent.modelName(), flexQuery)) {
+            Object id = row.get(ModelConstant.ID);
+            Object key = row.get(parent.fieldName());
+            if (id != null && key != null) {
+                keyById.put(String.valueOf(id), String.valueOf(key));
+            }
+        }
+        return keyById;
     }
 
     /** Gives every column of a batch the values that batch resolved to, if it resolved to any. */
