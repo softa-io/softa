@@ -26,6 +26,7 @@ import io.softa.framework.orm.utils.FileUtils;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.metadata.entity.SysPreData;
 import io.softa.starter.metadata.service.SysPreDataService;
+import lombok.extern.slf4j.Slf4j;
 
 import static io.softa.framework.orm.constant.ModelConstant.ID;
 
@@ -46,6 +47,7 @@ import static io.softa.framework.orm.constant.ModelConstant.ID;
  * File-format concerns (JSON / CSV / XML) are delegated to {@link PreDataFormatParser}; this service owns the
  * predefined-data domain logic only — preId binding, main/sub-model ordering, and create-or-update reconciliation.
  */
+@Slf4j
 @Service
 public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> implements SysPreDataService {
 
@@ -216,10 +218,14 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * treated as read-only — it is split into a main-model map and a OneToMany map.
      * When the OneToMany field value is empty, it indicates the deletion of existing associated model data.
      *
+     * <p>Package-private so one seed record — the main row, its frozen state, and the reconciliation
+     * of the children it owns — can be driven from a unit test without a whole file load, the same
+     * reason {@link #bindingScopeOf} is.
+     *
      * @param model Model name
      * @param row Predefined data record
      */
-    private Serializable handlePredefinedData(String model, Map<String, Object> row) {
+    Serializable handlePredefinedData(String model, Map<String, Object> row) {
         validateSeedScope(model);
         Map<String, Object> mainRow = new LinkedHashMap<>();
         Map<String, Object> oneToManyMap = new LinkedHashMap<>();
@@ -232,8 +238,17 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 mainRow.put(field, value);
             }
         });
+        // Frozen is decided here rather than inside createOrUpdateData, so that it covers the whole
+        // record — the main row AND the children it owns. Freezing only the main row protected the
+        // half a re-load barely touches while leaving the destructive half unguarded: child sync
+        // deletes every row the file no longer declares, including the grants and option items an
+        // operator added by hand. That is what a freeze is for.
+        Optional<SysPreData> binding = getPreDataByPreId(model, mainRow);
+        if (binding.isPresent() && Boolean.TRUE.equals(binding.get().getFrozen())) {
+            return IdUtils.formatId(model, binding.get().getRowId());
+        }
         // Load main model data first, then the OneToMany rows it owns.
-        Serializable rowId = createOrUpdateData(model, mainRow);
+        Serializable rowId = createOrUpdateData(model, mainRow, binding);
         loadOneToManyRows(model, rowId, oneToManyMap);
         return rowId;
     }
@@ -263,8 +278,25 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     /**
-     * Load OneToMany field data
-     * Based on and retain the existing Many side ids, delete Many side data that does not exist in the predefined data file.
+     * Reconcile a main row's OneToMany children with the file: the children it still declares are
+     * created or updated, the rest are deleted.
+     *
+     * <p>Reconciliation runs BEFORE the writes, and what survives is read from the bindings — the rows
+     * the file's child preIds point at — rather than from what the writes just returned. The order is
+     * the whole point. Writing first and deleting the leftovers afterwards cannot express a RENAMED
+     * preId: a renamed child is one row to delete and one to create, and with the delete last the
+     * create runs while the old row is still there, so any child model with a business unique key
+     * fails on its index. Role.Tenant.json is exactly that shape — renaming
+     * {@code role_navigation.employee.employee} to
+     * {@code role_navigation.employee.core-hr-employee-employee} left the grant itself untouched, and
+     * every re-load died on "This role already has a grant for this navigation", naming a duplicate
+     * that was never going to exist once the delete ran.
+     *
+     * <p>Deleting first is safe in a way the reverse is not: the whole load is one transaction, so a
+     * failure anywhere puts the deleted rows back, and "survives" is decided by the file, not by
+     * write side effects. Rows the tenant added by hand still go — they carry no binding, so the file
+     * does not declare them — which is the pre-existing contract, now applied a step earlier. A
+     * frozen record never reaches here at all.
      *
      * @param model Main model name
      * @param mainId Main model row ID
@@ -275,7 +307,8 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             Assert.isTrue(value instanceof Collection,
                     "The data of OneToMany field {0}:{1} must be a list: {2}", model, field, value);
             MetaField relation = ModelManager.getModelField(model, field);
-            List<Serializable> manyIds = new ArrayList<>();
+            String childModel = relation.getRelatedModel();
+            List<Map<String, Object>> childRows = new ArrayList<>();
             for (Object item : (Collection<?>) value) {
                 Assert.isTrue(item instanceof Map,
                         "The single predefined data of the OneToMany field {0}:{1} must be in Map format: {2}",
@@ -283,30 +316,101 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 // Copy the child row and inject the back-reference to the main row, leaving the parsed input untouched.
                 Map<String, Object> childRow = new LinkedHashMap<>(Cast.<Map<String, Object>>of(item));
                 childRow.put(relation.getRelatedField(), mainId);
-                manyIds.add(handlePredefinedData(relation.getRelatedModel(), childRow));
+                childRows.add(childRow);
             }
-            // Delete Many side data but retain those that appear in the predefined data file.
+            // The rows the file still declares. A child whose preId has no binding yet contributes
+            // nothing here — it is about to be created, and there is no old row of its own to keep.
+            List<Serializable> keepIds = boundRowIds(childModel, preIdsOf(childModel, childRows));
             Filters deleteFilters = new Filters().eq(relation.getRelatedField(), mainId);
-            if (!manyIds.isEmpty()) {
-                deleteFilters.notIn(ID, manyIds);
+            if (!keepIds.isEmpty()) {
+                deleteFilters.notIn(ID, keepIds);
             }
-            modelService.deleteByFilters(relation.getRelatedModel(), deleteFilters);
+            // Read the doomed ids before the delete: their bindings have to go with them. A binding
+            // left pointing at a deleted row is not inert — the next run finds it and tries to update
+            // a row that is gone, so dropping a child from the seed would poison every later load.
+            List<Serializable> removedIds = modelService.getIds(childModel, deleteFilters);
+            modelService.deleteByFilters(childModel, deleteFilters);
+            deleteBindings(childModel, removedIds);
+            childRows.forEach(childRow -> handlePredefinedData(childModel, childRow));
         });
+    }
+
+    /**
+     * The preIds of a set of child rows, in file order. Validated here rather than at the write, so a
+     * malformed child is refused before anything is deleted.
+     *
+     * @param model Child model name
+     * @param rows Child rows as the file declares them
+     * @return their preIds
+     */
+    private List<String> preIdsOf(String model, List<Map<String, Object>> rows) {
+        return rows.stream().map(row -> {
+            Assert.isTrue(row.containsKey(ID),
+                    "Predefined data for model {0} must include the preID: {1}", model, row);
+            Object preId = row.get(ID);
+            Assert.isTrue(preId instanceof String,
+                    "Model {0} predefined data's preId must be of type String: {1}", model, preId);
+            return (String) preId;
+        }).toList();
+    }
+
+    /**
+     * The row ids these preIds are bound to, skipping the ones with no binding — unlike
+     * {@link #getOriginalRowIdsByPreIds}, which is a reference resolution and must find every one.
+     * Here a missing binding is the ordinary "this child is new" case.
+     *
+     * @param model Model name
+     * @param preIds Predefined IDs
+     * @return the bound row ids, typed for the model's key
+     */
+    private List<Serializable> boundRowIds(String model, List<String> preIds) {
+        if (CollectionUtils.isEmpty(preIds)) {
+            return List.of();
+        }
+        return getScopedBindings(model, preIds, bindingScopeOf(model)).stream()
+                .map(binding -> (Serializable) IdUtils.formatId(model, binding.getRowId()))
+                .toList();
+    }
+
+    /**
+     * Drop the preId bindings of rows that no longer exist.
+     *
+     * <p>Scope-exact like every other binding access, and through the same primitive: the scope comes
+     * from {@link #bindingScopeOf} for the model being addressed, not from the ambient tenant. So one
+     * tenant dropping a seeded child cannot unbind another tenant's copy of it.
+     *
+     * @param model Model name
+     * @param rowIds Ids of the rows that were just deleted
+     */
+    private void deleteBindings(String model, List<Serializable> rowIds) {
+        if (CollectionUtils.isEmpty(rowIds)) {
+            return;
+        }
+        Long tenantId = bindingScopeOf(model);
+        Filters filters = new Filters()
+                .eq(SysPreData::getModel, model)
+                .in(SysPreData::getRowId, rowIds.stream().map(String::valueOf).toList());
+        if (tenantId == null) {
+            filters.isNotSet(SysPreData::getTenantId);
+        } else {
+            filters.eq(SysPreData::getTenantId, tenantId);
+        }
+        this.deleteByFilters(filters);
     }
 
     /**
      * Determine whether to create or update predefined data based on whether the main model preId already exists.
      *
+     * <p>The binding is passed in rather than looked up here: the caller has already read it to
+     * decide whether the record is frozen, and one lookup per seed row is enough.
+     *
      * @param model Model name
      * @param row Predefined data record (main-model fields only)
+     * @param optionalPreData this preId's binding in its scope, empty when the row is new
      * @return Record ID created or updated
      */
-    private Serializable createOrUpdateData(String model, Map<String, Object> row) {
-        Optional<SysPreData> optionalPreData = getPreDataByPreId(model, row);
-        if (optionalPreData.isPresent() && Boolean.TRUE.equals(optionalPreData.get().getFrozen())) {
-            // The current data is frozen, and the data ID is returned directly
-            return IdUtils.formatId(model, optionalPreData.get().getRowId());
-        }
+    private Serializable createOrUpdateData(String model, Map<String, Object> row,
+                                            Optional<SysPreData> optionalPreData) {
         // Resolve the preIds of ManyToOne, OneToOne, and ManyToMany fields to row IDs (returns a new
         // map; the caller's row is left untouched).
         Map<String, Object> resolved = resolveReferencedPreIds(model, row);
@@ -325,18 +429,50 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             SysPreData preData = optionalPreData.get();
             // Update the data and return the data ID
             Serializable rowId = IdUtils.formatId(model, preData.getRowId());
-            resolved.put(ID, rowId);
-            // Clear other fields that do not appear in the predefined data
-            Set<String> updatableStoredFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
-            updatableStoredFields.removeAll(resolved.keySet());
-            updatableStoredFields.forEach(fieldName -> resolved.put(fieldName, null));
-            boolean result = modelService.updateOne(model, resolved);
-            if (!result) {
-                boolean isExist = modelService.exist(model, rowId);
-                Assert.isTrue(isExist, "Updating predefined data for model {0} ({1}) failed " +
-                        "as it has already been physically deleted!", model, preData.getRowId());
+            // The update payload is `resolved` plus a null for every updatable field the file leaves
+            // out — "clear what the seed no longer says". Held apart from `resolved` because the
+            // recreate path below must not inherit those nulls: a default value is filled only when
+            // the key is ABSENT (BaseProcessor's computeIfAbsent), so creating from the cleared map
+            // would write nulls over the model's defaults and produce a row a first load never would.
+            Map<String, Object> updatePayload = new LinkedHashMap<>(resolved);
+            updatePayload.put(ID, rowId);
+            Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
+            clearedFields.removeAll(updatePayload.keySet());
+            clearedFields.forEach(fieldName -> updatePayload.put(fieldName, null));
+            boolean result = modelService.updateOne(model, updatePayload);
+            if (!result && !modelService.exist(model, rowId)) {
+                // The binding outlived the row it points at. That is a normal state, not corruption:
+                // seeded rows are ordinary business data afterwards — the role wizard rewrites a
+                // role's data scopes, an admin deletes a navigation — and nothing tells sys_pre_data.
+                // Failing here made the seed permanently un-re-appliable the moment anyone touched
+                // the data. Re-create the row and re-point the binding instead, which is what
+                // create-or-update already does for a preId with no binding; this is the same case one
+                // step later. (`exist` reads through the soft-delete predicate, so a soft-deleted row
+                // counts as gone and is re-created rather than revived.)
+                //
+                // `result` alone is not enough to conclude the row is missing: updateOne also returns
+                // false when nothing changed, which is why the row is probed before recreating.
+                log.warn("Predefined data for model {} ({}) was physically deleted; recreating it and "
+                        + "re-pointing the binding.", model, preData.getRowId());
+                // Same id rule as the create branch above: an EXTERNAL_ID model's id IS its primary
+                // key (code-as-id), so the recreated row keeps the id the binding already names. Every
+                // other strategy assigns a fresh surrogate, which the binding is re-pointed to.
+                if (ModelManager.getIdStrategy(model) == IdStrategy.EXTERNAL_ID) {
+                    resolved.put(ID, rowId);
+                } else {
+                    resolved.remove(ID);
+                }
+                Serializable recreatedId = modelService.createOne(model, resolved);
+                preData.setRowId(String.valueOf(recreatedId));
+                this.updateOne(preData);
+                return recreatedId;
             }
-            return preData.getRowId();
+            // The typed id, not `preData.getRowId()` — that column is a String. The caller injects this
+            // value into each OneToMany child as the back-reference, and resolveReferencedPreIds reads a
+            // String on a to-one field as a preId: a raw row id would be looked up in sys_pre_data, found
+            // missing, and reported as "the preIDs … do not exist". Only the UPDATE branch could return
+            // the untyped value, so a seed carrying children loaded once and failed on every re-run.
+            return rowId;
         }
     }
 
