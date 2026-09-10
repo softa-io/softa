@@ -99,13 +99,17 @@ public class ExportByDynamic implements ExportStrategy {
      * @param flexQuery the flexQuery object
      * @param headers the list of header label
      */
-    private List<List<Object>> extractDataTableFromDB(String modelName, FlexQuery flexQuery, List<String> headers) {
+    List<List<Object>> extractDataTableFromDB(String modelName, FlexQuery flexQuery, List<String> headers) {
+        // Read BEFORE the query, not after. SelectBuilder writes its own working set back onto the
+        // flexQuery — `new HashSet<>(fields)` plus the id and whatever a dynamic field depends on —
+        // so the list afterwards is no longer the one that was asked for: the sheet came out in hash
+        // order, with the id in it, however the fields had been picked.
+        List<String> exportedFields = List.copyOf(flexQuery.getFields());
         List<Map<String, Object>> rows = exportDataFetcher.fetchRows(modelName, null, flexQuery);
-        List<String> fieldNames = flexQuery.getFields();
-        fieldNames.forEach(fieldName -> {
+        exportedFields.forEach(fieldName -> {
             MetaField lastField = ModelManager.getLastFieldOfCascaded(modelName, fieldName);
             headers.add(lastField.getLabel());
         });
-        return ListUtils.convertToTableData(fieldNames, rows);
+        return ListUtils.convertToTableData(exportedFields, rows);
     }
 }
