@@ -74,11 +74,20 @@ public class SearchNameParams {
         flexQuery.setFields(searchNameParams.getAdditionalFields());
         // Set the convert type to REFERENCE.
         flexQuery.setConvertType(ConvertType.REFERENCE);
-        // Default limitSize for searchName.
+        // limitSize: absent means "use the default"; present means the caller stated a size, and a
+        // stated size out of range is rejected at BOTH ends. It used to be rejected only at the top,
+        // while 0 and negatives fell back to the default — so a caller computing a size wrongly got a
+        // short page and no signal, and the silence read as "no validation at all" to anyone testing
+        // it against a table holding fewer rows than the default.
         Integer limitSize = searchNameParams.getLimitSize();
-        limitSize = limitSize == null || limitSize < 1 ? BaseConstant.DEFAULT_NAME_LIST_SIZE : limitSize;
-        Assert.isTrue(limitSize <= BaseConstant.MAX_BATCH_SIZE,
-                "API `searchName` cannot exceed the maximum limit of {0}.", BaseConstant.MAX_BATCH_SIZE);
+        if (limitSize == null) {
+            limitSize = BaseConstant.DEFAULT_NAME_LIST_SIZE;
+        } else {
+            Assert.isTrue(limitSize >= 1,
+                    "API `searchName` limitSize must be a positive integer, but got {0}.", limitSize);
+            Assert.isTrue(limitSize <= BaseConstant.MAX_BATCH_SIZE,
+                    "API `searchName` cannot exceed the maximum limit of {0}.", BaseConstant.MAX_BATCH_SIZE);
+        }
         flexQuery.setLimitSize(limitSize);
         ContextHolder.getContext().setEffectiveDate(searchNameParams.getEffectiveDate());
         return flexQuery;

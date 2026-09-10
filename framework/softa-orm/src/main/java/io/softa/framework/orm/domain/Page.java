@@ -169,6 +169,21 @@ public class Page<T> implements Serializable {
     public void setTotalCount(long count) {
         this.totalCount = Math.toIntExact(count);
         this.totalPages = (totalCount + pageSize - 1) / pageSize;
+        // `pageNumber` is documented as the CURRENT page, so it has to name a page that exists. A
+        // request past the end used to be echoed back untouched, producing a response that contradicts
+        // itself — pageNumber 2 with totalPages 1, totalCount 2 and no rows — and leaving every client
+        // to infer "out of range" from comparing two fields. Clamping here rather than at the response
+        // boundary is what makes it useful: selectByPage counts first and only then builds the page SQL
+        // (see JdbcServiceImpl#selectByPage), so the offset is derived from the clamped value and the
+        // caller gets the last page's rows instead of an empty list.
+        //
+        // The lower bound is already handled in the constructor, and deliberately differently: 0 or a
+        // negative is a malformed request, whereas overshooting the end is what happens to a legitimate
+        // page number when rows are deleted underneath it — the caller did nothing wrong, so correct it
+        // rather than reject it. Cursor pagination is skipped: pageNumber is fixed and meaningless there.
+        if (!cursorPage && totalPages > 0 && pageNumber > totalPages) {
+            this.pageNumber = totalPages;
+        }
     }
 
     /**
