@@ -45,8 +45,18 @@ class ConsultantAccessTest {
         ReflectionTestUtils.setField(consultantService, "tenantInfoService", tenantInfoService);
         // Companies are open unless a test says otherwise — the existing cases are about grants.
         when(tenantInfoService.isTenantActive(any())).thenReturn(true);
-        todayIs(LocalDate.of(2026, 9, 3));
+        todayIs(TODAY);
     }
+
+    /**
+     * The day every case in this class is asked on.
+     *
+     * <p>A constant rather than {@code LocalDate.now()}, and every window below is expressed
+     * relative to IT. Two cases used to build their grant from the real clock while {@code today()}
+     * stayed stubbed at a fixed date, so they passed on the day they were written and started
+     * failing a week later — the grant had walked away from the day being asked about.
+     */
+    private static final LocalDate TODAY = LocalDate.of(2026, 9, 3);
 
     private void todayIs(LocalDate date) {
         doReturn(date).when(consultantService).today();
@@ -147,7 +157,7 @@ class ConsultantAccessTest {
         // principal who would otherwise walk straight in: their data access is unrestricted and
         // their menus come from the plan, so nothing further down the stack would stop them.
         givenConsultant(true);
-        givenGrant(LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
+        givenGrant(TODAY.minusDays(1), TODAY.plusDays(1));
         when(tenantInfoService.isTenantActive(TENANT)).thenReturn(false);
 
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isFalse();
@@ -159,7 +169,7 @@ class ConsultantAccessTest {
         // because the question cannot be asked would close the door on the whole feature.
         ReflectionTestUtils.setField(consultantService, "tenantInfoService", null);
         givenConsultant(true);
-        givenGrant(LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
+        givenGrant(TODAY.minusDays(1), TODAY.plusDays(1));
 
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isTrue();
     }
