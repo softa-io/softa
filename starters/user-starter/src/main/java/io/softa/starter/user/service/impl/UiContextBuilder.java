@@ -101,6 +101,12 @@ public class UiContextBuilder {
     @Value("${permission.platform-nav-prefixes:}")
     private String platformNavPrefixesCsv;
 
+    /** Prefixes a tenant AND the platform both work in (e.g. messaging, whose models are all
+     *  multiTenant so the platform reads the same menus on its own tier). Disjoint from the list
+     *  above: that one is what a tenant admin is kept out of, this is what both are let into. */
+    @Value("${permission.shared-nav-prefixes:}")
+    private String sharedNavPrefixesCsv;
+
     /** Plan (entitlement) gate — optional: a pure-enforce deployment without tenant-starter has none,
      *  in which case every module is treated as entitled (no plan narrowing). */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -262,7 +268,7 @@ public class UiContextBuilder {
         Set<String> navigations = new HashSet<>();
         if (allNavs != null) {
             for (Navigation n : allNavs) {
-                if (n != null && n.getId() != null && isPlatformNav(n.getId())) {
+                if (n != null && n.getId() != null && isPlatformAdminNav(n.getId())) {
                     navigations.add(n.getId());
                 }
             }
@@ -354,10 +360,19 @@ public class UiContextBuilder {
 
     /** True when a nav id falls under a configured platform-only prefix (never tenant-facing). */
     private boolean isPlatformNav(String navId) {
-        if (platformNavPrefixesCsv == null || platformNavPrefixesCsv.isBlank()) {
+        return matchesPrefixCsv(navId, platformNavPrefixesCsv);
+    }
+
+    /** What a platform administrator may reach: the platform's own modules plus the shared ones. */
+    private boolean isPlatformAdminNav(String navId) {
+        return isPlatformNav(navId) || matchesPrefixCsv(navId, sharedNavPrefixesCsv);
+    }
+
+    private static boolean matchesPrefixCsv(String navId, String csv) {
+        if (csv == null || csv.isBlank()) {
             return false;
         }
-        for (String prefix : platformNavPrefixesCsv.split(",")) {
+        for (String prefix : csv.split(",")) {
             String p = prefix.trim();
             if (!p.isEmpty() && navId.startsWith(p)) {
                 return true;

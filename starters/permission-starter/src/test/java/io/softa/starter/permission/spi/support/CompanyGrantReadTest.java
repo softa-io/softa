@@ -61,7 +61,7 @@ class CompanyGrantReadTest {
         modelService = mockModelService();
         compiler = mock(ScopeRuleCompiler.class);
         provider = new DefaultPermissionSnapshotProvider(null, modelService, null, () -> compiler,
-                List.of());
+                List.of(), List.of());
     }
 
     @SuppressWarnings("unchecked")

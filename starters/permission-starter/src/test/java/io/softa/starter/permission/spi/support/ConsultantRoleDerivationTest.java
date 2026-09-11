@@ -55,7 +55,7 @@ class ConsultantRoleDerivationTest {
                 .thenReturn(List.of(navigation("navigation.hcm.employee")));
         when(modelService.searchList(eq("Permission"), any(FlexQuery.class), any(Class.class)))
                 .thenReturn(List.of(permission("employee.view", "navigation.hcm.employee")));
-        return new DefaultPermissionSnapshotProvider(null, modelService, null, () -> null, List.of());
+        return new DefaultPermissionSnapshotProvider(null, modelService, null, () -> null, List.of(), List.of());
     }
 
     private static DefaultPermissionSnapshotProvider.NavigationView navigation(String id) {

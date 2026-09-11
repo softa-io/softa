@@ -619,4 +619,27 @@ class PermissionInterceptorTest {
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
         assertThat(allowed).isTrue();
     }
+
+    // ─── the platform admin's shared modules ───
+
+    @Test
+    void platformAdmin_reachesASharedModule() {
+        // Messaging is in shared-nav-prefixes, not platform-nav-prefixes, and the difference matters:
+        // every model under it is multiTenant, so a tenant admin keeps its own menus while the
+        // platform reads the same ones on its own tier — where the verification-code and
+        // password-reset mails live, including the one a consultant logs in with. Locking the
+        // platform out of those was the first version of C5's bug.
+        PermissionInfo pi = PermissionInfo.builder()
+                .roleCodes(Set.of(PermissionInfo.CODE_SUPER_ADMIN))
+                .permissions(Set.of("message.mail-template.view"))
+                .build();
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(pi);
+        when(endpointIndex.lookup(eq("/MailTemplate/searchPage"), eq("POST")))
+                .thenReturn(Set.of("message.mail-template.view"));
+
+        MockHttpServletRequest r = req("POST", "/MailTemplate/searchPage");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
 }

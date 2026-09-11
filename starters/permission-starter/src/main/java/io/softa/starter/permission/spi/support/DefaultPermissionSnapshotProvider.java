@@ -106,6 +106,21 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     /** Nav-id prefixes that are platform-only (never in a tenant admin's grant), e.g.
      *  {@code navigation.system.} / {@code navigation.studio.}. From {@code permission.platform-nav-prefixes}. */
     private final List<String> platformNavPrefixes;
+    /**
+     * Nav-id prefixes a tenant AND the platform both work in, e.g. {@code navigation.message.}. From
+     * {@code permission.shared-nav-prefixes}.
+     *
+     * <p>A second list rather than a longer first one, and the two are <b>disjoint</b>. They answer
+     * different questions: {@link #platformNavPrefixes} is what a tenant admin is kept OUT of, this is
+     * what both audiences are let into. Folding them together would name system and studio twice —
+     * once under each meaning — which is the shape that drifts.
+     *
+     * <p>Messaging is the case that needs it. Every model under it is multiTenant, so the platform is
+     * not looking at a different module: it is looking at the same menus on its own tier, where the
+     * verification-code and password-reset mails live. Take it away and nobody can edit the mail a
+     * consultant logs in with.
+     */
+    private final List<String> sharedNavPrefixes;
 
     /** Plan (entitlement) gate — optional: a pure-enforce deployment without tenant-starter has none,
      *  in which case every module is treated as entitled (no plan narrowing). The SPI lives in
@@ -121,12 +136,14 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                                              ModelService<?> modelService,
                                              SensitiveFieldSetCache sensitiveFieldSetCache,
                                              Supplier<ScopeRuleCompiler> scopeRuleCompiler,
-                                             List<String> platformNavPrefixes) {
+                                             List<String> platformNavPrefixes,
+                                             List<String> sharedNavPrefixes) {
         this.cacheService = cacheService;
         this.modelService = modelService;
         this.sensitiveFieldSetCache = sensitiveFieldSetCache;
         this.scopeRuleCompiler = scopeRuleCompiler;
         this.platformNavPrefixes = platformNavPrefixes == null ? List.of() : platformNavPrefixes;
+        this.sharedNavPrefixes = sharedNavPrefixes == null ? List.of() : sharedNavPrefixes;
     }
 
     @Override
@@ -611,7 +628,16 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
 
     /** True when a nav id falls under a configured platform-only prefix (never tenant-facing). */
     private boolean isPlatformNav(String navId) {
-        for (String prefix : platformNavPrefixes) {
+        return matchesPrefix(navId, platformNavPrefixes);
+    }
+
+    /** What a platform administrator may reach: the platform's own modules plus the shared ones. */
+    private boolean isPlatformAdminNav(String navId) {
+        return isPlatformNav(navId) || matchesPrefix(navId, sharedNavPrefixes);
+    }
+
+    private static boolean matchesPrefix(String navId, List<String> prefixes) {
+        for (String prefix : prefixes) {
             if (prefix != null && !prefix.isBlank() && navId.startsWith(prefix.trim())) {
                 return true;
             }
@@ -644,7 +670,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 new FlexQuery(List.of("id"), new Filters()), NavigationView.class);
         Set<String> navigations = new HashSet<>();
         for (NavigationView n : allNavs) {
-            if (n.getId() != null && isPlatformNav(n.getId())) {
+            if (n.getId() != null && isPlatformAdminNav(n.getId())) {
                 navigations.add(n.getId());
             }
         }
