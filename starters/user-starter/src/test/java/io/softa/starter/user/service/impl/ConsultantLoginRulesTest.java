@@ -7,6 +7,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
@@ -32,12 +33,15 @@ class ConsultantLoginRulesTest {
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final ConsultantService consultantService = mock(ConsultantService.class);
+    private final io.softa.starter.user.service.UserProfileService profileService =
+            mock(io.softa.starter.user.service.UserProfileService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     ConsultantLoginRulesTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "consultantService", consultantService);
+        ReflectionTestUtils.setField(loginService, "profileService", profileService);
     }
 
     private static UserAccount membership(boolean consultant, AccountStatus status) {
@@ -95,5 +99,49 @@ class ConsultantLoginRulesTest {
                 .invokeMethod(loginService, "noCompanyRefusal", PROFILE);
 
         assertThat(refusal.getMessage()).doesNotContain("platform administrator");
+    }
+
+    /**
+     * The path a consultant actually takes.
+     *
+     * <p>The cases above call {@code mustSetPassword(profileId)} — an entry point only the
+     * tenant-switch reaches. Signing in goes through {@code afterAuthentication}, which computed the
+     * same answer inline as a bare blank-password test and knew nothing about consultants. So the
+     * exemption held when switching tenant and not when logging in, and this class stayed green
+     * through it: it was asserting the overload nobody on that path calls.
+     */
+    @Test
+    void aConsultantSigningInIsNotStoppedForAPassword() throws Exception {
+        when(consultantService.isConsultant(PROFILE)).thenReturn(true);
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(java.util.List.of(
+                membership(true, AccountStatus.ACTIVE)));
+        when(consultantService.canEnter(PROFILE, 100L)).thenReturn(true);
+
+        assertThat(afterAuthentication(passwordlessIdentity()).mustSetPassword()).isFalse();
+    }
+
+    @Test
+    void anEmployeeSigningInWithNoPasswordStillIs() {
+        // The paired case: an exemption that fired for everyone would satisfy the test above while
+        // dropping the step that exists because an invited employee has no other way back in.
+        when(consultantService.isConsultant(PROFILE)).thenReturn(false);
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(java.util.List.of(
+                membership(false, AccountStatus.ACTIVE)));
+
+        assertThat(afterAuthentication(passwordlessIdentity()).mustSetPassword()).isTrue();
+    }
+
+    private UserIdentity passwordlessIdentity() {
+        UserIdentity identity = new UserIdentity();
+        identity.setId(11L);
+        identity.setProfileId(PROFILE);
+        identity.setPassword(null);
+        return identity;
+    }
+
+    /** Reaches the private assembly the real login paths funnel through. */
+    private io.softa.starter.user.dto.AuthenticationResult afterAuthentication(UserIdentity identity) {
+        return (io.softa.starter.user.dto.AuthenticationResult) ReflectionTestUtils
+                .invokeMethod(loginService, "afterAuthentication", identity);
     }
 }

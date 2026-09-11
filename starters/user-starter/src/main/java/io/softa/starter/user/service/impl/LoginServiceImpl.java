@@ -374,7 +374,7 @@ public class LoginServiceImpl implements LoginService {
      */
     private AuthenticationResult afterAuthentication(UserIdentity identity) {
         Long profileId = identity.getProfileId();
-        boolean mustSetPassword = StringUtils.isBlank(identity.getPassword());
+        boolean mustSetPassword = mustSetPasswordFor(identity);
         List<MembershipOption> options = this.resolveMemberships(profileId);
         List<MembershipOption> enterable = options.stream()
                 .filter(MembershipOption::selectable).toList();
@@ -674,19 +674,32 @@ public class LoginServiceImpl implements LoginService {
 
     @Override
     public boolean mustSetPassword(Long profileId) {
-        // Consultants are exempt (PRD C1). An employee is forced to set one because they arrived by
-        // invitation and, without a password, could not come back through the password route at all.
-        // A consultant is created by the platform with no invitation and no welcome mail, and code
-        // login is their intended way in for as long as they like — forcing the step would block a
-        // login on a credential nobody asked them to create. They may still set one from Personal
-        // Settings, which is why this is an exemption from being FORCED, not from having one.
-        if (consultantService.isConsultant(profileId)) {
-            return false;
-        }
         return identityService.findByProfile(profileId)
-                .map(identity -> StringUtils.isBlank(identity.getPassword()))
+                .map(this::mustSetPasswordFor)
                 // Unknown person → do not claim they are fine; the caller fails elsewhere.
                 .orElse(Boolean.FALSE);
+    }
+
+    /**
+     * Whether this person must set a password before going any further.
+     *
+     * <p>One rule, reached from both the id-only overload and {@link #afterAuthentication}, which
+     * holds the identity already and would otherwise pay a second read for it. It used to be inlined
+     * there as a bare blank-password test — so the exemption below applied when switching tenant and
+     * not when signing in, which is the one path every consultant takes.
+     *
+     * <p>Consultants are exempt (PRD C1). An employee is forced because they arrived by invitation
+     * and, without a password, could not come back through the password route at all. A consultant is
+     * created by the platform with no invitation and no welcome mail, and code login is their intended
+     * way in for as long as they like — forcing the step would block a login on a credential nobody
+     * asked them to create. They may still set one from Personal Settings, so this exempts them from
+     * being FORCED, not from having one.
+     */
+    private boolean mustSetPasswordFor(UserIdentity identity) {
+        if (consultantService.isConsultant(identity.getProfileId())) {
+            return false;
+        }
+        return StringUtils.isBlank(identity.getPassword());
     }
     @Override
     public List<MembershipOption> listTenants(String authToken) {
