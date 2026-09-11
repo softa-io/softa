@@ -31,10 +31,24 @@ class MustSetMyPasswordTest {
     private static final Long PROFILE = 7L;
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
+    private final io.softa.starter.user.service.ConsultantService consultantService =
+            mock(io.softa.starter.user.service.ConsultantService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
 
+    /**
+     * A REAL LoginServiceImpl over the mocked credential store, not a stubbed rule.
+     *
+     * <p>The endpoint delegates now — whether a password is owed has one definition, because the
+     * login page ORs this answer with the login response and two definitions meant the stricter,
+     * wrong one always won. Stubbing the delegate would make these cases assert the stub; wiring the
+     * real rule keeps them asserting the behaviour they were written for.
+     */
     MustSetMyPasswordTest() {
+        LoginServiceImpl loginService = new LoginServiceImpl();
+        ReflectionTestUtils.setField(loginService, "identityService", identityService);
+        ReflectionTestUtils.setField(loginService, "consultantService", consultantService);
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        ReflectionTestUtils.setField(accountService, "loginService", loginService);
     }
 
     /** ContextHolder is a ScopedValue — a session exists only inside runWith/callWith. */
@@ -88,5 +102,17 @@ class MustSetMyPasswordTest {
     @Test
     void noSession_owesNothing() {
         assertThat(asUser(null)).isFalse();
+    }
+
+    @Test
+    void aConsultantOwesNothingEvenWithNoPassword() {
+        // PRD C1, and the case that made this endpoint matter: a consultant cleared by the login
+        // response still met the wall here, because this ran its own blank-password test and the
+        // login page ORs the two.
+        doReturn(Optional.of(account(PROFILE))).when(accountService).getById(USER);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity(null)));
+        when(consultantService.isConsultant(PROFILE)).thenReturn(true);
+
+        assertThat(asUser(USER)).isFalse();
     }
 }

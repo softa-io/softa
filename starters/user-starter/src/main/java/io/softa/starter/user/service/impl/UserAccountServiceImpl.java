@@ -12,6 +12,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import java.time.LocalDateTime;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -65,6 +66,13 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     @Autowired
     private UserIdentityService identityService;
+
+    /** @Lazy breaks the UserAccount ⇄ Login service cycle: LoginServiceImpl injects this service.
+     *  Used only to ask the one question about whether a password is owed, so the rule has a single
+     *  definition instead of a copy on each screen that asks. */
+    @Autowired
+    @Lazy
+    private io.softa.starter.user.service.LoginService loginService;
 
     /** Role grants are cleared on off-boarding and on reviving a membership. */
     @Autowired
@@ -943,13 +951,14 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             // No session, nothing owed — the caller is not the person this could apply to.
             return false;
         }
+        // Delegated rather than decided here. This used to be its own blank-password test, which is
+        // how a consultant still met the set-password wall after logging in: the login response said
+        // no and this said yes, and the login page ORs the two. Whether somebody must set a password
+        // has one answer, and LoginService owns it — a consultant is exempt (PRD C1), a person with
+        // no credentials row at all is not forced into a screen the set-password call would refuse.
         return this.getById(userId)
-                .map(account -> account.getProfileId() != null
-                        && identityService.findByProfile(account.getProfileId())
-                                .map(identity -> StringUtils.isBlank(identity.getPassword()))
-                                // No credentials row at all: a data fault, and NOT a reason to
-                                // force a password screen the set-password call would then refuse.
-                                .orElse(false))
+                .map(UserAccount::getProfileId)
+                .map(loginService::mustSetPassword)
                 .orElse(false);
     }
 
