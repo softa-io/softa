@@ -137,6 +137,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         String mobile = form.getMobile() == null ? null : form.getMobile().trim();
 
         Long profileId = form.getProfileId() != null ? form.getProfileId() : resolveOrCreatePerson(email, mobile);
+        applyBasicInformation(profileId, form.getUsername(), email, mobile);
 
         // The consultant record itself: created on first save, and its Enabled/Disabled switch is
         // whatever the form says. Defaulting to enabled on create — a consultant is made in order
@@ -174,6 +175,69 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
      * an employee at one company and a consultant for another — one person, two kinds of membership,
      * one picker. Matching on either channel, because the operator may type whichever they know.
      */
+
+    /**
+     * Write back what the form says about the PERSON — the half of this screen that is not about the
+     * consultancy at all.
+     *
+     * <p>It was missing entirely: {@code save} read the email and mobile into locals, used them only
+     * to find or create the person, and never wrote them anywhere; the username it did not read at
+     * all. So every edit to the Basic information card was accepted and silently discarded, and even
+     * on create the username was dropped — which is why a consultant's name comes back as their email
+     * address, the identifier {@code createPersonForJoin} seeds the person with.
+     *
+     * <p>A blank field means "not supplied", never "clear it". These are login identifiers: one
+     * cleared by accident locks the person out of the product, and there is no screen here that would
+     * explain why. The form requires all three anyway.
+     *
+     * <p>Changing an identifier is checked against every other person, not just consultants. They are
+     * globally unique by index, so taking one that belongs to somebody else would fail at the database
+     * with a constraint name instead of a sentence — and the operator's actual mistake (typing a real
+     * person's address) deserves to be said out loud.
+     */
+    private void applyBasicInformation(Long profileId, String username, String email, String mobile) {
+        String name = username == null ? null : username.trim();
+        if (name != null && !name.isEmpty()) {
+            profileService.getById(profileId).ifPresent(person -> {
+                if (!name.equals(person.getFullName())) {
+                    person.setFullName(name);
+                    profileService.updateOne(person);
+                    // The cached UserInfo carries the name, and nothing evicts it on a bare update —
+                    // saveMyProfile does this by hand for the same reason. Keyed per MEMBERSHIP, so
+                    // every one of them has to go: miss one and that tenant serves the old name until
+                    // the entry expires a month later, to somebody just told the change was saved.
+                    accountService.listMembershipsOf(profileId)
+                            .forEach(account -> profileService.evictUserInfo(account.getId()));
+                }
+            });
+        }
+
+        identityService.findByProfile(profileId).ifPresent(identity -> {
+            boolean changed = false;
+            if (email != null && !email.isEmpty() && !email.equalsIgnoreCase(identity.getLoginEmail())) {
+                requireClaimable(email, profileId);
+                identity.setLoginEmail(email);
+                changed = true;
+            }
+            if (mobile != null && !mobile.isEmpty() && !mobile.equals(identity.getLoginMobile())) {
+                requireClaimable(mobile, profileId);
+                identity.setLoginMobile(mobile);
+                changed = true;
+            }
+            if (changed) {
+                identityService.updateOne(identity);
+            }
+        });
+    }
+
+    private void requireClaimable(String identifier, Long profileId) {
+        if (!identityService.isIdentifierClaimable(identifier, profileId)) {
+            throw new BusinessException(
+                    "\"" + identifier + "\" already belongs to someone else. Login identifiers are "
+                            + "unique across the platform.");
+        }
+    }
+
     private Long resolveOrCreatePerson(String email, String mobile) {
         Optional<Long> byEmail = identityService.findByLoginIdentifier(email)
                 .map(io.softa.starter.user.entity.UserIdentity::getProfileId);
