@@ -2,6 +2,7 @@ package io.softa.starter.file.controller;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +15,10 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
-import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.file.entity.ImportTemplate;
+import io.softa.starter.file.support.TemplateScope;
 import io.softa.starter.file.service.ImportService;
 import io.softa.starter.file.service.ImportTemplateService;
 
@@ -41,8 +42,7 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
     @Operation(summary="listByModel", description = "List all import templates of the specified model")
     @PostMapping(value = "/listByModel")
     public ApiResponse<List<ImportTemplate>> listByModel(@RequestParam String modelName) {
-        Set<String> modelNames = ModelManager.getChildModels(modelName);
-        modelNames.add(modelName);
+        Set<String> modelNames = TemplateScope.of(modelName, this::standaloneModelNames);
         Filters filters = new Filters().in(ImportTemplate::getModelName, modelNames);
         Filters countryScope = countryScope();
         if (countryScope != null) {
@@ -92,4 +92,12 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
         return ApiResponse.success(importService.getTemplateFile(id));
     }
 
+
+    /** Models whose import templates belong only on their own page — see {@link TemplateScope}. */
+    private Set<String> standaloneModelNames() {
+        Filters standalone = new Filters().eq(ImportTemplate::getStandalone, true);
+        return service.searchList(new FlexQuery(standalone)).stream()
+                .map(ImportTemplate::getModelName)
+                .collect(Collectors.toSet());
+    }
 }

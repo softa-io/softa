@@ -2,8 +2,9 @@ package io.softa.starter.file.service.impl;
 
 import java.util.List;
 import java.util.Map;
-import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.context.ContextHolder;
@@ -11,16 +12,22 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.ConvertType;
-import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.file.entity.ImportHistory;
+import io.softa.starter.file.entity.ImportTemplate;
 import io.softa.starter.file.service.ImportHistoryService;
+import io.softa.starter.file.service.ImportTemplateService;
+import io.softa.starter.file.support.TemplateScope;
 
 /**
  * ImportHistory service implementation
  */
 @Service
 public class ImportHistoryServiceImpl extends EntityServiceImpl<ImportHistory, Long> implements ImportHistoryService {
+
+    /** Read-only, for the standalone-template exclusion the template list applies too. */
+    @Autowired
+    private ImportTemplateService importTemplateService;
 
     /**
      * The imports this page can show, which is the imports this page can START.
@@ -37,10 +44,7 @@ public class ImportHistoryServiceImpl extends EntityServiceImpl<ImportHistory, L
     @Override
     public List<Map<String, Object>> listMyImportHistory(String modelName) {
         Long userId = ContextHolder.getContext().getUserId();
-        // Copied rather than added to in place: whether getChildModels hands back something mutable
-        // is not part of what it promises.
-        Set<String> modelNames = new HashSet<>(ModelManager.getChildModels(modelName));
-        modelNames.add(modelName);
+        Set<String> modelNames = TemplateScope.of(modelName, this::standaloneModelNames);
         FlexQuery flexQuery = new FlexQuery()
                 .where(new Filters()
                         .eq(ImportHistory::getCreatedId, userId)
@@ -48,5 +52,13 @@ public class ImportHistoryServiceImpl extends EntityServiceImpl<ImportHistory, L
                 .orderBy(Orders.ofDesc(ImportHistory::getCreatedTime))
                 .setConvertType(ConvertType.REFERENCE);
         return this.modelService.searchList(this.modelName, flexQuery);
+    }
+
+    /** Models whose import templates belong only on their own page — see {@link TemplateScope}. */
+    private Set<String> standaloneModelNames() {
+        Filters standalone = new Filters().eq(ImportTemplate::getStandalone, true);
+        return importTemplateService.searchList(new FlexQuery(standalone)).stream()
+                .map(ImportTemplate::getModelName)
+                .collect(Collectors.toSet());
     }
 }
