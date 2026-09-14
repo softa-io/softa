@@ -1,5 +1,7 @@
 package io.softa.framework.base.enums;
 
+import java.util.Collection;
+
 import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -71,5 +73,37 @@ public enum BuiltinRole {
     @JsonValue
     public String getCode() {
         return name();
+    }
+
+    /**
+     * Whether a principal holding these role codes holds this role.
+     *
+     * <p>The question every caller was asking by hand, as
+     * {@code roleCodes != null && roleCodes.contains(SOME_CODE)} — fourteen times across the
+     * starters, and not all of them with the null guard. A snapshot that failed to build leaves the
+     * set null, and an unguarded contains turns that into an NPE inside the gate rather than the
+     * refusal it should be.
+     *
+     * <p>Here rather than on {@code PermissionInfo}, whose three predicates now delegate to it: the
+     * snapshot builder asks this while it is still assembling the codes and has no PermissionInfo
+     * to ask, which is why it had its own copy.
+     *
+     * @param roleCodes what the principal holds; null (no snapshot) holds nothing
+     */
+    public boolean heldBy(Collection<String> roleCodes) {
+        return roleCodes != null && roleCodes.contains(getCode());
+    }
+
+    /** True when the principal holds any of {@code roles} — the multi-role question, asked once. */
+    public static boolean anyHeldBy(Collection<String> roleCodes, BuiltinRole... roles) {
+        if (roleCodes == null) {
+            return false;
+        }
+        for (BuiltinRole role : roles) {
+            if (roleCodes.contains(role.getCode())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

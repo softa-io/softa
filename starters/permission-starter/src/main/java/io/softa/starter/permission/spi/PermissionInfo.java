@@ -131,7 +131,7 @@ public class PermissionInfo implements Serializable {
      * a null {@code pi}.
      */
     public boolean isSuperAdmin() {
-        return roleCodes != null && roleCodes.contains(CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 
     /** Static null-tolerant variant — {@code pi == null} treated as not super-admin. */
@@ -141,7 +141,7 @@ public class PermissionInfo implements Serializable {
 
     /** True iff the user holds the {@link #CODE_TENANT_ADMIN} role — a tenant-scoped super-admin. */
     public boolean isTenantAdmin() {
-        return roleCodes != null && roleCodes.contains(CODE_TENANT_ADMIN);
+        return BuiltinRole.TENANT_ADMIN.heldBy(roleCodes);
     }
 
     /** Static null-tolerant variant of {@link #isTenantAdmin()}. */
@@ -166,7 +166,7 @@ public class PermissionInfo implements Serializable {
 
     /** True iff the user is acting as a consultant inside this tenant — see {@link #CODE_CONSULTANT}. */
     public boolean isConsultant() {
-        return roleCodes != null && roleCodes.contains(CODE_CONSULTANT);
+        return BuiltinRole.CONSULTANT.heldBy(roleCodes);
     }
 
     /** Static null-tolerant variant of {@link #isConsultant()}. */

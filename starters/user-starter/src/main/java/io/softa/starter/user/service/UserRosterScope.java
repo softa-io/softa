@@ -16,6 +16,7 @@ import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
+import io.softa.framework.base.enums.BuiltinRole;
 
 /**
  * The platform super-admin's cross-tenant account roster: who it may reach, and the window that lets
@@ -46,7 +47,7 @@ public class UserRosterScope {
     public boolean isPlatformSuperAdmin() {
         Context context = ContextHolder.getContext();
         Set<String> roleCodes = context == null ? null : context.getRoleCodes();
-        return roleCodes != null && roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 
     /**

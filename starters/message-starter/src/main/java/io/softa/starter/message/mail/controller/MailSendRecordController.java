@@ -158,7 +158,7 @@ public class MailSendRecordController
     private static boolean isPlatformSuperAdmin() {
         Context context = ContextHolder.getContext();
         Set<String> roleCodes = context == null ? null : context.getRoleCodes();
-        return roleCodes != null && roleCodes.contains(BuiltinRole.SUPER_ADMIN.getCode());
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 
     /**

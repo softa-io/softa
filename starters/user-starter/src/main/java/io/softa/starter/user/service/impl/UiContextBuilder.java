@@ -153,7 +153,7 @@ public class UiContextBuilder {
 
         UiContext out = new UiContext();
         out.setRoleCodes(roleCodes);
-        boolean superAdmin = roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        boolean superAdmin = BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
 
         List<Long> roleIds = activeRoles.stream().map(Role::getId).filter(Objects::nonNull).toList();
 
@@ -168,7 +168,7 @@ public class UiContextBuilder {
         // Consultant — ahead of the roleless check, which is the whole reason this branch exists.
         // A consultant holds no role rows at all, so the check below would return empty grants and
         // the FE would render a shell with no menus in it.
-        if (roleCodes.contains(BuiltinRole.CONSULTANT.getCode())) {
+        if (BuiltinRole.CONSULTANT.heldBy(roleCodes)) {
             return consultantGrants(out, tenantId);
         }
 
@@ -180,7 +180,7 @@ public class UiContextBuilder {
         // TENANT_ADMIN → all tenant-facing navs (all minus platform-only prefixes) narrowed by the
         // tenant's plan, + their permissions, computed at runtime (mirrors
         // DefaultPermissionSnapshotProvider).
-        if (roleCodes.contains(RoleConstant.CODE_TENANT_ADMIN)) {
+        if (BuiltinRole.TENANT_ADMIN.heldBy(roleCodes)) {
             return tenantAdminGrants(out, tenantId);
         }
 
@@ -222,8 +222,7 @@ public class UiContextBuilder {
                 .map(Role::getCode)
                 .filter(c -> c != null && !c.isEmpty())
                 .collect(Collectors.toSet());
-        if (roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN)
-                || roleCodes.contains(RoleConstant.CODE_TENANT_ADMIN)) {
+        if (BuiltinRole.anyHeldBy(roleCodes, BuiltinRole.SUPER_ADMIN, BuiltinRole.TENANT_ADMIN)) {
             return Map.of();
         }
         List<Long> roleIds = activeRoles.stream().map(Role::getId).filter(Objects::nonNull).toList();

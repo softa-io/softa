@@ -34,6 +34,7 @@ import io.softa.starter.user.service.UserRosterScope;
 import io.softa.starter.user.service.impl.UiContextBuilder;
 import io.softa.starter.user.util.ModelRefIds;
 import io.softa.starter.user.util.PermissionSnapshotKey;
+import io.softa.framework.base.enums.BuiltinRole;
 
 /**
  * Read-only admin API for the user-access (RBAC) management UI — the endpoints
@@ -253,6 +254,6 @@ public class UserAccessController {
     }
 
     private static boolean holdsSuperAdmin(Set<String> roleCodes) {
-        return roleCodes != null && roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 }

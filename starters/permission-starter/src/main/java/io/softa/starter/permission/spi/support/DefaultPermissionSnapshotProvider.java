@@ -330,11 +330,10 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             roleCodes.add(BuiltinRole.CONSULTANT.getCode());
         }
 
-        if (roleCodes.contains(BuiltinRole.SUPER_ADMIN.getCode())) {
+        if (BuiltinRole.SUPER_ADMIN.heldBy(roleCodes)) {
             return platformAdminSnapshot(roleCodes);
         }
-        if (roleCodes.contains(BuiltinRole.TENANT_ADMIN.getCode())
-                || roleCodes.contains(BuiltinRole.CONSULTANT.getCode())) {
+        if (BuiltinRole.anyHeldBy(roleCodes, BuiltinRole.TENANT_ADMIN, BuiltinRole.CONSULTANT)) {
             // A consultant gets the same MENU set a tenant admin does — everything the tenant's
             // plan entitles, derived here rather than stored as role grants. Stored grants would be
             // deleted by the entitlement cleanup on a downgrade and never restored, and the
