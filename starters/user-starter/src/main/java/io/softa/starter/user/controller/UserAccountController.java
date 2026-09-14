@@ -353,6 +353,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         ContextHolder.getContext().setEffectiveDate(getByIdsParams.getEffectiveDate());
         List<Long> ids = IdUtils.formatIds(MODEL, getByIdsParams.getIds());
         Assert.notEmpty(ids, "The IDs of the data to be read cannot be empty!");
+        validateIdList(ids);
         SubQueries subQueries = new SubQueries();
         if (!CollectionUtils.isEmpty(getByIdsParams.getSubQueries())) {
             subQueries.setQueryMap(getByIdsParams.getSubQueries());
@@ -455,6 +456,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @PostMapping("/deleteByIds")
     public ApiResponse<Boolean> deleteByIds(@RequestParam List<Long> ids) {
         Assert.notEmpty(ids, "The IDs of the data to be deleted cannot be empty!");
+        validateIdList(ids);
         List<Long> rowIds = IdUtils.formatIds(MODEL, ids);
         return ApiResponse.success(onRosterAccounts(rowIds,
                 () -> modelService.deleteByIds(MODEL, rowIds)));
@@ -670,6 +672,23 @@ public class UserAccountController extends EntityController<UserAccountService, 
         Object raw = row.get(ModelConstant.ID);
         Assert.notNull(raw, "`id` cannot be null or missing when updating data!");
         return raw instanceof Number n ? Long.valueOf(n.longValue()) : Long.valueOf(raw.toString());
+    }
+
+    /**
+     * The bounds {@code ModelController.validateIds} applies to a by-id list, restated because that
+     * method is private: no null element (it would widen the IN to every row) and no more than the
+     * framework's batch maximum (a by-id endpoint is not a way to walk, or empty, the table).
+     *
+     * <p>The null check is a stream rather than {@code Assert.allNotNull}, whose implementation is
+     * {@code objects.contains(null)} — and {@code List.of(...)} throws NPE on that rather than
+     * answering false. Spring binds a request parameter to an ArrayList so the generic endpoint
+     * never meets it, but a caller passing an immutable list would get an NPE where it meant to get
+     * a refusal.
+     */
+    private void validateIdList(List<Long> ids) {
+        Assert.isTrue(ids.stream().allMatch(Objects::nonNull),
+                "ids cannot contain null values: {0}", ids);
+        this.validateBatchSize(ids.size());
     }
 
     /**

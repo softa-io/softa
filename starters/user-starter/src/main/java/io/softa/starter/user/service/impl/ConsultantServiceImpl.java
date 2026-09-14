@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.CrossTenant;
@@ -299,14 +300,27 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         // not a page, and an unbounded IN is how a lookup becomes a way to walk the account table.
         Assert.isTrue(accountIds.size() <= MAX_ACTOR_LOOKUP,
                 "At most {0} actors can be looked up at once.", MAX_ACTOR_LOOKUP);
+        // Bounded to the CALLER'S OWN tenant. The lookup answers for the actors on one page of one
+        // tenant's audit log, and those are by definition memberships of that tenant — but the
+        // method is @CrossTenant (the platform reads it too) and the endpoint is on the
+        // authenticated-bypass list, so without this clause any signed-in user of any tenant could
+        // post another tenant's account ids and harvest the login emails of its consultants. The
+        // flag alone was harmless enough to miss; adding the email is what made the boundary matter.
+        //
+        // Null tenant = the platform's own read, which is allowed to span tenants.
+        Long tenantId = ContextHolder.getContext() == null ? null : ContextHolder.getContext().getTenantId();
+        Filters filters = new Filters()
+                .in(UserAccount::getId, accountIds)
+                .eq(UserAccount::getConsultant, true);
+        if (tenantId != null) {
+            filters = filters.eq(UserAccount::getTenantId, tenantId);
+        }
         // Read straight from the accounts, bypassing the roster scope that hides consultants: the
         // tenant may not administer these memberships, but it must be able to attribute changes made
-        // to its own data. The flag and the login email are exposed — the PRD's actor column names
-        // the consultant by email so the tenant can tell WHICH consultant, and can quote it back to
-        // the platform. Nothing else: no mobile, no grant dates, nothing about other customers.
-        List<UserAccount> consultants = accountService.searchList(new Filters()
-                .in(UserAccount::getId, accountIds)
-                .eq(UserAccount::getConsultant, true));
+        // to its own data. The flag and the login email are exposed — the actor column names the
+        // consultant by email so the tenant can tell WHICH consultant, and can quote it back to the
+        // platform. Nothing else: no mobile, no grant dates, nothing about other customers.
+        List<UserAccount> consultants = accountService.searchList(filters);
         if (consultants.isEmpty()) {
             return Map.of();
         }

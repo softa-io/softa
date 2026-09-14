@@ -7,6 +7,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
@@ -77,6 +79,36 @@ class ConsultantActorsTest {
         Map<Long, String> actors = consultantService.consultantActors(List.of(2L));
         assertThat(actors).containsKey(2L);
         assertThat(actors.get(2L)).isNull();
+    }
+
+    @Test
+    void aTenantsLookupIsBoundedToItsOwnMemberships() {
+        // The endpoint sits on the authenticated-bypass list and the method is @CrossTenant, so
+        // without a tenant clause any signed-in user of any tenant could post another tenant's
+        // account ids and harvest its consultants' login emails. The flag alone was harmless
+        // enough to miss; answering with the email is what made the boundary matter.
+        org.mockito.ArgumentCaptor<Filters> asked = org.mockito.ArgumentCaptor.forClass(Filters.class);
+        when(accountService.searchList(any(Filters.class))).thenReturn(List.of());
+
+        Context ctx = new Context();
+        ctx.setTenantId(42L);
+        ContextHolder.runWith(ctx, () -> consultantService.consultantActors(List.of(1L, 2L)));
+
+        verify(accountService).searchList(asked.capture());
+        assertThat(asked.getValue().toString()).contains("42");
+    }
+
+    @Test
+    void thePlatformsOwnLookupStillSpansTenants() {
+        // The paired negative: no tenant in context is the platform reading, which is allowed to
+        // span tenants — narrowing that would break the platform's own console.
+        org.mockito.ArgumentCaptor<Filters> asked = org.mockito.ArgumentCaptor.forClass(Filters.class);
+        when(accountService.searchList(any(Filters.class))).thenReturn(List.of());
+
+        consultantService.consultantActors(List.of(1L, 2L));
+
+        verify(accountService).searchList(asked.capture());
+        assertThat(asked.getValue().toString()).doesNotContain("tenantId");
     }
 
     @Test
