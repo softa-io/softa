@@ -71,13 +71,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     private static final int CACHE_TTL_SECONDS = RedisConstant.ONE_HOUR;
     private static final int ANCESTOR_DEPTH_CAP = 32;
 
-    /** Role code that bypasses all enforcement — must match the seeded role. */
-    private static final String SUPER_ADMIN_CODE = BuiltinRole.SUPER_ADMIN.getCode();
-    /** Tenant super-admin — granted every tenant-facing nav (all minus platform prefixes). */
-    private static final String TENANT_ADMIN_CODE = BuiltinRole.TENANT_ADMIN.getCode();
 
-    /** Platform consultant — same entitled menu set as a tenant admin, different data-plane rights. */
-    private static final String CONSULTANT_CODE = BuiltinRole.CONSULTANT.getCode();
 
     private static final String M_USER_ROLE_REL = "UserRoleRel";
     private static final String M_ROLE = "Role";
@@ -333,13 +327,14 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 .filter(c -> c != null && !c.isEmpty())
                 .collect(Collectors.toCollection(HashSet::new));
         if (isConsultantMembership(userId)) {
-            roleCodes.add(CONSULTANT_CODE);
+            roleCodes.add(BuiltinRole.CONSULTANT.getCode());
         }
 
-        if (roleCodes.contains(SUPER_ADMIN_CODE)) {
+        if (roleCodes.contains(BuiltinRole.SUPER_ADMIN.getCode())) {
             return platformAdminSnapshot(roleCodes);
         }
-        if (roleCodes.contains(TENANT_ADMIN_CODE) || roleCodes.contains(CONSULTANT_CODE)) {
+        if (roleCodes.contains(BuiltinRole.TENANT_ADMIN.getCode())
+                || roleCodes.contains(BuiltinRole.CONSULTANT.getCode())) {
             // A consultant gets the same MENU set a tenant admin does — everything the tenant's
             // plan entitles, derived here rather than stored as role grants. Stored grants would be
             // deleted by the entitlement cleanup on a downgrade and never restored, and the

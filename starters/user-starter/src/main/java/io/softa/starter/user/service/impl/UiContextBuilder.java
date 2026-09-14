@@ -26,6 +26,7 @@ import io.softa.framework.orm.domain.Filters;
 import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.EffectiveAccess;
 import io.softa.starter.user.dto.UiContext;
@@ -144,10 +145,10 @@ public class UiContextBuilder {
                 .filter(c -> c != null && !c.isEmpty())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        // Derived, never stored — see RoleConstant.CODE_CONSULTANT. Added before the branches below
-        // so it reaches the FE in roleCodes as well as steering this build.
+        // Derived, never stored — see BuiltinRole.CONSULTANT. Added before the branches below so
+        // it reaches the FE in roleCodes as well as steering this build.
         if (isConsultantMembership(userId)) {
-            roleCodes.add(RoleConstant.CODE_CONSULTANT);
+            roleCodes.add(BuiltinRole.CONSULTANT.getCode());
         }
 
         UiContext out = new UiContext();
@@ -167,7 +168,7 @@ public class UiContextBuilder {
         // Consultant — ahead of the roleless check, which is the whole reason this branch exists.
         // A consultant holds no role rows at all, so the check below would return empty grants and
         // the FE would render a shell with no menus in it.
-        if (roleCodes.contains(RoleConstant.CODE_CONSULTANT)) {
+        if (roleCodes.contains(BuiltinRole.CONSULTANT.getCode())) {
             return consultantGrants(out, tenantId);
         }
 

@@ -38,22 +38,6 @@ public final class RoleConstant {
      */
     public static final String CODE_TENANT_ADMIN = BuiltinRole.TENANT_ADMIN.getCode();
 
-    /**
-     * Reserved code for the platform consultant — implementation staff authorized into a customer
-     * for a bounded period.
-     *
-     * <p>Unlike the two above, <b>no role row ever carries this code</b>. It is derived from the
-     * membership ({@code UserAccount.consultant}) while a snapshot or a UI context is built, because
-     * a stored role could not survive what this principal has to survive: the entitlement cleanup
-     * hard-deletes role grants on a plan downgrade and never restores them, and this role is not
-     * visible in the tenant's role management, so nobody could put them back — one downgrade would
-     * strip every consultant in that tenant for good. Derived, the consultant's reach follows the
-     * plan up and down on its own, which is what the requirement asks for.
-     *
-     * <p>So {@code RoleConstant.isReservedRole} and friends never see it; only {@code roleCodes}
-     * sets do.
-     */
-    public static final String CODE_CONSULTANT = BuiltinRole.CONSULTANT.getCode();
 
     /** Null-safe — true when the given role is the reserved tenant super-admin role. */
     public static boolean isTenantAdmin(Role role) {
