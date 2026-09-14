@@ -96,6 +96,12 @@ class NewAccountRefusalTest {
         return row;
     }
 
+    /** The row the platform mints when a consultant is authorized for this company. */
+    private void consultantMembershipHere() {
+        UserAccount row = membershipHere(AccountStatus.ACTIVE);
+        row.setConsultant(Boolean.TRUE);
+    }
+
     private static UserAccount accountHolding(Long id) {
         UserAccount holder = new UserAccount();
         holder.setId(id);
@@ -133,6 +139,31 @@ class NewAccountRefusalTest {
     void thePersonAlreadyHasALiveMembershipHere(AccountStatus live) {
         identifierBelongsTo(EMAIL, PERSON);
         membershipHere(live);
+
+        assertThat(refusalInThisTenant(EMAIL, null))
+                .isEqualTo("This person is already a member of this company.");
+    }
+
+    @Test
+    void aConsultantsMembershipSaysSoRatherThanNamingAMemberNobodyCanFind() {
+        // The same refusal, told apart. A consultant's row is minted by the platform and hidden
+        // from every roster read, so "already a member of this company" pointed the operator at an
+        // account list that does not contain it and never will — a dead end with no next step.
+        identifierBelongsTo(EMAIL, PERSON);
+        consultantMembershipHere();
+
+        assertThat(refusalInThisTenant(EMAIL, null))
+                .isEqualTo("This person is a consultant for this company, so they cannot also be "
+                        + "created as an employee here. Ask the platform administrator.");
+    }
+
+    @Test
+    void anOrdinaryMembershipKeepsTheGenericWording() {
+        // The paired negative: an employee's own row is visible in the account list, so naming it
+        // generically is correct there and the consultant branch must not swallow it.
+        identifierBelongsTo(EMAIL, PERSON);
+        UserAccount row = membershipHere(AccountStatus.ACTIVE);
+        row.setConsultant(Boolean.FALSE);
 
         assertThat(refusalInThisTenant(EMAIL, null))
                 .isEqualTo("This person is already a member of this company.");

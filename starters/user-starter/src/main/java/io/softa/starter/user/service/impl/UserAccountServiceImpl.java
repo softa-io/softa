@@ -365,9 +365,31 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             return NewAccountDecision.refuse(mobileRefusal);
         }
         if (membershipHere != null && closedRow == null) {
-            return NewAccountDecision.refuse("This person is already a member of this company.");
+            return NewAccountDecision.refuse(liveMembershipRefusal(membershipHere));
         }
         return new NewAccountDecision(existingPerson, closedRow, null);
+    }
+
+    /**
+     * Why a live membership blocks the create — and, when it is a consultant's, that it IS one.
+     *
+     * <p>A consultant's membership is minted by the platform and hidden from every roster read
+     * ({@code UserRosterScope} filters it out before anything else narrows), so the generic wording
+     * sent an operator to look for a row they are structurally unable to see: the account list says
+     * this company has no such member, and it never will. The message named a fact the UI is built
+     * to contradict.
+     *
+     * <p>Saying "consultant" turns that dead end into something actionable — not by this operator,
+     * who cannot administer these memberships by design, but by pointing at the side that can. The
+     * refusal itself is unchanged: whether one person may be both a consultant and an employee of
+     * one company is left undefined by the PRD (§0.1), and a message is not the place to decide it.
+     */
+    private String liveMembershipRefusal(UserAccount membership) {
+        if (Boolean.TRUE.equals(membership.getConsultant())) {
+            return "This person is a consultant for this company, so they cannot also be created "
+                    + "as an employee here. Ask the platform administrator.";
+        }
+        return "This person is already a member of this company.";
     }
 
     /** The person whose live login identifier this contact is, or null when it is nobody's. */
