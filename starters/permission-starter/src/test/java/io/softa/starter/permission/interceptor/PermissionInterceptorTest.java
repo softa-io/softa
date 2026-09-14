@@ -607,6 +607,53 @@ class PermissionInterceptorTest {
         assertThat(allowed).isTrue();
     }
 
+    /** A consultant membership that has ALSO picked up the tenant-admin code — through a role write
+     *  the tenant should never have been able to make against a hidden row, but the gate cannot know
+     *  how it happened and must not care. */
+    private static PermissionInfo consultantWearingTenantAdmin() {
+        return PermissionInfo.builder()
+                .roleCodes(Set.of("TENANT_ADMIN", PermissionInfo.CODE_CONSULTANT))
+                .permissions(Set.of("employee.view"))
+                .build();
+    }
+
+    @Test
+    void consultantWhoAlsoHoldsTenantAdmin_isStillRefusedOnceAuthorizationEnds() {
+        // The check sat inside the consultant branch, which is reached only when the caller holds
+        // neither admin code. Give a consultant membership TENANT_ADMIN and it took the admin branch
+        // first, and CE3 was never asked: disable, revoke and expiry stopped applying to exactly the
+        // consultant with the most reach, for as long as the snapshot stayed cached. The question is
+        // about the membership, not the bypass earned afterwards, so it is asked before all of them.
+        consultantAccessIs(false);
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantWearingTenantAdmin());
+        when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST")))
+                .thenReturn(Set.of("employee.view"));
+
+        MockHttpServletRequest r = req("POST", "/Employee/searchList");
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() ->
+                    interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(io.softa.framework.base.exception.BusinessException.class)
+                    .hasMessageContaining("authorization for this tenant has ended");
+            return null;
+        });
+    }
+
+    @Test
+    void consultantWhoAlsoHoldsTenantAdmin_passesWhileAuthorized() {
+        // The paired negative: asking CE3 first must not cost a still-authorized consultant the
+        // admin-shaped gate they would otherwise take.
+        consultantAccessIs(true);
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantWearingTenantAdmin());
+        when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST")))
+                .thenReturn(Set.of("employee.view"));
+
+        MockHttpServletRequest r = req("POST", "/Employee/searchList");
+        boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
     @Test
     void noCheckerInstalled_consultantsAreNotRefused() {
         // A deployment without consultants installs no implementation; the branch must not fail closed

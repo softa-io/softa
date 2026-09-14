@@ -122,6 +122,29 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // aspects (e.g. {@code @RequireRole}) can gate on system roles without
         // depending on the user-starter permission model.
         bridgeRoleCodesToContext(ctx, pi);
+        // CE3 — asked on every request, and asked FIRST, ahead of every bypass below. A consultant's
+        // access ends on a DATE and nobody edits anything when it lapses at midnight; cached with the
+        // snapshot it would keep a lapsed consultant inside a customer's tenant for the rest of the TTL.
+        //
+        // Ahead of the admin branches because those return early. This check used to sit inside the
+        // consultant branch, which is reached only when the caller holds neither admin code — so a
+        // consultant membership that had somehow picked up TENANT_ADMIN took the admin branch and was
+        // never asked whether its authorization still stood. Disable, revoke and expiry all stopped
+        // applying to exactly the consultant with the most reach. The question is about the
+        // MEMBERSHIP, not about which bypass the caller earns afterwards, so it belongs before all of
+        // them.
+        //
+        // Deliberately after the authenticated-bypass patterns above: /me/**, the tenant list and the
+        // self-service reads have to keep working, or the client that just learned its authorization
+        // ended could not render that state or find the person's other tenants. Refusing everything
+        // would strand them on a blank screen instead of the picker.
+        if (PermissionInfo.isConsultant(pi) && consultantAccessChecker != null
+                && !consultantAccessChecker.stillAuthorized(ctx.getUserId())) {
+            log.info("Consultant authorization ended — userId={}, tenantId={}, uri={} {}",
+                    ctx.getUserId(), ctx.getTenantId(), method, uri);
+            throw new BusinessException(ResponseCode.CONSULTANT_AUTHORIZATION_ENDED,
+                    "Your authorization for this tenant has ended.");
+        }
         // Platform super-admin — cross-tenant (crossTenant is set in the bridge above and stays: the
         // account roster and provisioning span tenants by definition), but no longer a full bypass.
         //
@@ -150,20 +173,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // change here without first unpicking them back out of the admin path, and every other
         // reader of "is a tenant admin" would have silently started answering yes for them.
         if (PermissionInfo.isConsultant(pi)) {
-            // CE3 — asked on every request, because a consultant's access ends on a DATE and nobody
-            // edits anything when it lapses at midnight. Cached with the snapshot it would keep a
-            // lapsed consultant inside a customer's tenant for the rest of the TTL.
-            //
-            // Deliberately after the authenticated-bypass patterns above: /me/**, the tenant list and
-            // the self-service reads have to keep working, or the client that just learned its
-            // authorization ended could not render that state or find the person's other tenants.
-            // Refusing everything would strand them on a blank screen instead of the picker.
-            if (consultantAccessChecker != null && !consultantAccessChecker.stillAuthorized(ctx.getUserId())) {
-                log.info("Consultant authorization ended — userId={}, tenantId={}, uri={} {}",
-                        ctx.getUserId(), ctx.getTenantId(), method, uri);
-                throw new BusinessException(ResponseCode.CONSULTANT_AUTHORIZATION_ENDED,
-                        "Your authorization for this tenant has ended.");
-            }
+            // CE3 has already been asked above, before any bypass; this branch only decides the gate.
             return planBoundedBypass(pi, ctx, uri, method, "consultant", true);
         }
 
