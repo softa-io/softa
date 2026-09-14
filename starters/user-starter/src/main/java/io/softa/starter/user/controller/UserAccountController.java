@@ -1,7 +1,10 @@
 package io.softa.starter.user.controller;
 
+import java.io.Serializable;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,9 +36,11 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.AggFunctions;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.Page;
+import io.softa.framework.orm.domain.PivotTable;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.service.CacheService;
@@ -43,9 +48,15 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.vo.ModelReference;
 import io.softa.framework.web.controller.EntityController;
+import io.softa.framework.web.dto.BulkUpdateParams;
+import io.softa.framework.web.dto.CountParams;
+import io.softa.framework.web.dto.CountResult;
 import io.softa.framework.web.dto.GetByIdParams;
+import io.softa.framework.web.dto.GetByIdsParams;
 import io.softa.framework.web.dto.QueryParams;
 import io.softa.framework.web.dto.SearchListParams;
+import io.softa.framework.web.dto.SearchNameParams;
+import io.softa.framework.web.dto.SimpleAggParams;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.web.utils.CookieUtils;
 import io.softa.starter.user.dto.ChangePasswordDTO;
@@ -78,6 +89,9 @@ public class UserAccountController extends EntityController<UserAccountService, 
     private static final String PROFILE_FIELD = "profileId";
     /** {@link UserAccount#getLocked()} — derived per row, never stored. */
     private static final String LOCKED_FIELD = "locked";
+    /** {@link UserAccount#getConsultant()} — set when the platform mints the membership, never by a
+     *  write that arrives here. See {@link #dropConsultantFlag}. */
+    private static final String CONSULTANT_FIELD = "consultant";
 
     @Autowired
     private CacheService cacheService;
@@ -201,7 +215,8 @@ public class UserAccountController extends EntityController<UserAccountService, 
         Assert.notNull(row.get("id"), "`id` cannot be null or missing when updating data!");
         IdUtils.formatMapId(MODEL, row);
         dropDerivedLock(row);
-        boolean ok = modelService.updateOne(MODEL, row);
+        dropConsultantFlag(row);
+        boolean ok = onRosterAccounts(List.of(idOf(row)), () -> modelService.updateOne(MODEL, row));
         evictIfRolesTouched(row);
         return ApiResponse.success(ok);
     }
@@ -214,7 +229,9 @@ public class UserAccountController extends EntityController<UserAccountService, 
         Assert.notNull(row.get("id"), "`id` cannot be null or missing when updating data!");
         IdUtils.formatMapId(MODEL, row);
         dropDerivedLock(row);
-        Map<String, Object> result = modelService.updateOneAndFetch(MODEL, row, ConvertType.REFERENCE);
+        dropConsultantFlag(row);
+        Map<String, Object> result = onRosterAccounts(List.of(idOf(row)),
+                () -> modelService.updateOneAndFetch(MODEL, row, ConvertType.REFERENCE));
         evictIfRolesTouched(row);
         return ApiResponse.success(result);
     }
@@ -293,12 +310,16 @@ public class UserAccountController extends EntityController<UserAccountService, 
         boolean borrowed = needsProfileId(getByIdParams.getFields());
         List<String> fields = borrowed ? withProfileId(getByIdParams.getFields()) : getByIdParams.getFields();
         return ApiResponse.success(rosterScope.call(() -> {
-            // Roster membership first (super-admin only — everyone else never enters the window and
-            // stays on the ORM's own tenant filter). Both the check and the roster resolution must sit
-            // inside the window, same as the list reads.
-            if (rosterScope.isPlatformSuperAdmin() && modelService.count(MODEL,
-                    rosterScope.scopeToAdminAccounts(new Filters().eq(ModelConstant.ID, id))) == 0) {
-                return null;   // outside the roster — same answer as a nonexistent record
+            // Roster membership first, for EVERYONE — the same bounds the list reads apply, consultant
+            // memberships excluded. This used to ask only for the super-admin; an ordinary tenant admin
+            // skipped it and read the row straight through the ORM's tenant filter, which a consultant's
+            // membership in that tenant passes. So the User Accounts page said the row did not exist
+            // while getById handed over its name and contacts to anyone holding the id — and the audit
+            // panel prints that id beside every change the consultant makes. Same answer as a
+            // nonexistent record, so the check confirms nothing about ids it hides.
+            if (modelService.count(MODEL,
+                    rosterScope.scopeByTenant(new Filters().eq(ModelConstant.ID, id))) == 0) {
+                return null;
             }
             Map<String, Object> row = modelService
                     .getById(MODEL, id, fields, subQueries, ConvertType.REFERENCE)
@@ -307,6 +328,197 @@ public class UserAccountController extends EntityController<UserAccountService, 
                 stampPasswordLock(List.of(row), borrowed);
             }
             return row;
+        }));
+    }
+
+    // ─── Typed shadows of the remaining generic endpoints ─────────────────────────────────────
+    //
+    // This controller shadows searchPage / searchList / getById / updateOne so that those pass the
+    // roster scope. Every generic endpoint it did NOT shadow still resolved: Spring falls through to
+    // ModelController's templated /{modelName}/..., and none of those apply the scope. So a tenant
+    // admin holding the ordinary account permissions could POST /UserAccount/deleteByIds against a
+    // consultant's hidden row, /UserAccount/getByIds to read its name and contacts, or
+    // /UserAccount/updateByFilter to rewrite every row's consultant flag at once. The list hid the
+    // rows; the by-id surface handed them over.
+    //
+    // Shadowed here one by one, and pinned by UserAccountShadowsGenericEndpointsTest so a generic
+    // endpoint added to ModelController later fails a test instead of quietly reopening the gap.
+    // The four copy endpoints are not shadowed: UserAccount is copyable = false, so the framework
+    // refuses them before any row is read — a membership is not a thing to duplicate.
+
+    @Operation(summary = "Get UserAccounts by IDs — roster-scoped; ids outside the roster are dropped, not refused")
+    @PostMapping("/getByIds")
+    @DataMask
+    public ApiResponse<List<Map<String, Object>>> getByIds(@RequestBody GetByIdsParams getByIdsParams) {
+        ContextHolder.getContext().setEffectiveDate(getByIdsParams.getEffectiveDate());
+        List<Long> ids = IdUtils.formatIds(MODEL, getByIdsParams.getIds());
+        Assert.notEmpty(ids, "The IDs of the data to be read cannot be empty!");
+        SubQueries subQueries = new SubQueries();
+        if (!CollectionUtils.isEmpty(getByIdsParams.getSubQueries())) {
+            subQueries.setQueryMap(getByIdsParams.getSubQueries());
+        }
+        return ApiResponse.success(rosterScope.call(() -> {
+            // Dropped rather than refused, matching searchPage: a batch read that named one hidden id
+            // should still answer for the rest, and a refusal would confirm the hidden id exists.
+            List<Long> visible = visibleIds(ids);
+            if (visible.isEmpty()) {
+                return List.of();
+            }
+            return modelService.getByIds(MODEL, visible, getByIdsParams.getFields(), subQueries,
+                    ConvertType.REFERENCE);
+        }));
+    }
+
+    @Operation(summary = "Unmask one field of a UserAccount — roster-scoped")
+    @GetMapping("/getUnmaskedField")
+    public ApiResponse<String> getUnmaskedField(@RequestParam Long id, @RequestParam String field,
+                                                @RequestParam(required = false) LocalDate effectiveDate) {
+        ContextHolder.getContext().setEffectiveDate(effectiveDate);
+        Long rowId = IdUtils.formatId(MODEL, id);
+        return ApiResponse.success(onRosterAccounts(List.of(rowId),
+                () -> modelService.getUnmaskedField(MODEL, rowId, field)));
+    }
+
+    @Operation(summary = "Unmask several fields of a UserAccount — roster-scoped")
+    @GetMapping("/getUnmaskedFields")
+    public ApiResponse<Map<String, Object>> getUnmaskedFields(@RequestParam Long id,
+                                                              @RequestParam List<String> fields,
+                                                              @RequestParam(required = false) LocalDate effectiveDate) {
+        ContextHolder.getContext().setEffectiveDate(effectiveDate);
+        Long rowId = IdUtils.formatId(MODEL, id);
+        return ApiResponse.success(onRosterAccounts(List.of(rowId),
+                () -> modelService.getUnmaskedFields(MODEL, rowId, fields)));
+    }
+
+    @Operation(summary = "Update several UserAccounts by ID — roster-scoped; evicts cached permissions when roles change")
+    @PostMapping("/updateList")
+    public ApiResponse<Boolean> updateList(@RequestBody List<Map<String, Object>> rows) {
+        Assert.notEmpty(rows, "The data to be updated cannot be empty!");
+        this.validateBatchSize(rows.size());
+        IdUtils.formatMapIds(MODEL, rows);
+        rows.forEach(row -> {
+            dropDerivedLock(row);
+            dropConsultantFlag(row);
+        });
+        List<Long> ids = rows.stream().map(UserAccountController::idOf).toList();
+        boolean ok = onRosterAccounts(ids, () -> modelService.updateList(MODEL, rows));
+        rows.forEach(this::evictIfRolesTouched);
+        return ApiResponse.success(ok);
+    }
+
+    @Operation(summary = "Update several UserAccounts by ID and fetch — roster-scoped; evicts cached permissions when roles change")
+    @PostMapping("/updateListAndFetch")
+    @DataMask
+    public ApiResponse<List<Map<String, Object>>> updateListAndFetch(@RequestBody List<Map<String, Object>> rows) {
+        Assert.notEmpty(rows, "The data to be updated cannot be empty!");
+        this.validateBatchSize(rows.size());
+        IdUtils.formatMapIds(MODEL, rows);
+        rows.forEach(row -> {
+            dropDerivedLock(row);
+            dropConsultantFlag(row);
+        });
+        List<Long> ids = rows.stream().map(UserAccountController::idOf).toList();
+        List<Map<String, Object>> result = onRosterAccounts(ids,
+                () -> modelService.updateListAndFetch(MODEL, rows, ConvertType.REFERENCE));
+        rows.forEach(this::evictIfRolesTouched);
+        return ApiResponse.success(result);
+    }
+
+    /**
+     * Bulk update within the roster. {@code roles} is refused here rather than accepted blind: a
+     * filter names no ids, so there would be nobody to evict, and a role change that leaves every
+     * affected user's cached permissions stale for the TTL is worse than no bulk path at all.
+     */
+    @Operation(summary = "Update UserAccounts by filter — roster-scoped; roles must be assigned per account")
+    @PostMapping("/updateByFilter")
+    public ApiResponse<Integer> updateByFilter(@RequestBody BulkUpdateParams bulkUpdateParams) {
+        Map<String, Object> values = bulkUpdateParams.getValues();
+        Assert.notEmpty(values, "The updated data cannot be empty!");
+        Assert.notTrue(values.containsKey(ROLES_FIELD),
+                "Roles are assigned per account, not by filter.");
+        dropDerivedLock(values);
+        dropConsultantFlag(values);
+        ContextHolder.getContext().setEffectiveDate(bulkUpdateParams.getEffectiveDate());
+        return ApiResponse.success(rosterScope.call(() -> modelService.updateByFilter(MODEL,
+                rosterScope.scopeByTenant(bulkUpdateParams.getFilters()), values)));
+    }
+
+    @Operation(summary = "Delete one UserAccount — roster-scoped")
+    @PostMapping("/deleteById")
+    public ApiResponse<Boolean> deleteById(@RequestParam Long id) {
+        Long rowId = IdUtils.formatId(MODEL, id);
+        return ApiResponse.success(onRosterAccounts(List.of(rowId),
+                () -> modelService.deleteById(MODEL, rowId)));
+    }
+
+    @Operation(summary = "Delete several UserAccounts — roster-scoped")
+    @PostMapping("/deleteByIds")
+    public ApiResponse<Boolean> deleteByIds(@RequestParam List<Long> ids) {
+        Assert.notEmpty(ids, "The IDs of the data to be deleted cannot be empty!");
+        List<Long> rowIds = IdUtils.formatIds(MODEL, ids);
+        return ApiResponse.success(onRosterAccounts(rowIds,
+                () -> modelService.deleteByIds(MODEL, rowIds)));
+    }
+
+    @Operation(summary = "Search UserAccount display names — roster-scoped")
+    @PostMapping("/searchName")
+    @DataMask
+    public ApiResponse<List<Map<String, Object>>> searchName(
+            @RequestBody(required = false) SearchNameParams searchNameParams) {
+        FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(searchNameParams);
+        return ApiResponse.success(rosterScope.call(() -> {
+            flexQuery.setFilters(rosterScope.scopeByTenant(flexQuery.getFilters()));
+            return modelService.searchName(MODEL, flexQuery);
+        }));
+    }
+
+    @Operation(summary = "Aggregate over UserAccounts — roster-scoped")
+    @PostMapping("/searchSimpleAgg")
+    @DataMask
+    public ApiResponse<Map<String, Object>> searchSimpleAgg(@RequestBody SimpleAggParams simpleAggParams) {
+        ContextHolder.getContext().setEffectiveDate(simpleAggParams.getEffectiveDate());
+        Assert.notTrue(AggFunctions.isEmpty(simpleAggParams.getAggFunctions()), "`aggFunctions` cannot be null!");
+        return ApiResponse.success(rosterScope.call(() -> {
+            FlexQuery flexQuery = new FlexQuery(rosterScope.scopeByTenant(simpleAggParams.getFilters()));
+            flexQuery.setAggFunctions(simpleAggParams.getAggFunctions());
+            return modelService.searchOne(MODEL, flexQuery).orElse(null);
+        }));
+    }
+
+    @Operation(summary = "Pivot over UserAccounts — roster-scoped")
+    @PostMapping("/searchPivot")
+    @DataMask
+    public ApiResponse<PivotTable> searchPivot(@RequestBody(required = false) QueryParams queryParams) {
+        QueryParams params = queryParams == null ? new QueryParams() : queryParams;
+        FlexQuery flexQuery = QueryParams.convertParamsToFlexQuery(params);
+        flexQuery.setSplitBy(params.getSplitBy());
+        return ApiResponse.success(rosterScope.call(() -> {
+            flexQuery.setFilters(rosterScope.scopeByTenant(flexQuery.getFilters()));
+            return modelService.searchPivot(MODEL, flexQuery);
+        }));
+    }
+
+    @Operation(summary = "Count UserAccounts — roster-scoped")
+    @PostMapping("/count")
+    @DataMask
+    public ApiResponse<CountResult> count(@RequestBody(required = false) CountParams countParams) {
+        CountParams params = countParams == null ? new CountParams() : countParams;
+        ContextHolder.getContext().setEffectiveDate(params.getEffectiveDate());
+        return ApiResponse.success(rosterScope.call(() -> {
+            Filters scoped = rosterScope.scopeByTenant(params.getFilters());
+            CountResult result = new CountResult();
+            List<String> groupBy = params.getGroupBy();
+            if (!CollectionUtils.isEmpty(groupBy)) {
+                Assert.allNotBlank(groupBy, "`groupBy` cannot contain empty value: {0}", groupBy);
+                FlexQuery flexQuery = new FlexQuery(scoped, params.getOrders());
+                flexQuery.setFields(new HashSet<>(groupBy));
+                flexQuery.setGroupBy(groupBy);
+                flexQuery.setConvertType(ConvertType.TYPE_CAST);
+                result.setGroups(modelService.searchList(MODEL, flexQuery));
+            } else {
+                result.setTotal(modelService.count(MODEL, scoped));
+            }
+            return result;
         }));
     }
 
@@ -431,6 +643,49 @@ public class UserAccountController extends EntityController<UserAccountService, 
      */
     private static void dropDerivedLock(Map<String, Object> row) {
         row.remove(LOCKED_FIELD);
+    }
+
+    /**
+     * Strip the consultant flag from an inbound write.
+     *
+     * <p>The flag is set exactly once, when the platform mints a consultant's membership, and every
+     * roster read hides rows that carry it. Accepting it from a tenant-side write would let one call
+     * turn an employee into a hidden row nobody in the tenant can find again, or — on a row the caller
+     * should not have reached — turn a consultant's membership into a visible employment they can
+     * then freeze and re-role. Silently dropped rather than refused, like the derived lock: a form
+     * that round-trips the row as it read it must not fail for carrying a field it never edited.
+     */
+    private static void dropConsultantFlag(Map<String, Object> row) {
+        row.remove(CONSULTANT_FIELD);
+    }
+
+    /**
+     * The row's id as a Long, after {@link IdUtils#formatMapId} has normalised it.
+     *
+     * <p>Coerced here rather than through {@code IdUtils.formatId}: the key type of this model is
+     * fixed, and the same coercion already sits in {@link #evictIfRolesTouched}. Going back through
+     * the metadata for a fact the class knows would only add a second place for it to be wrong.
+     */
+    private static Long idOf(Map<String, Object> row) {
+        Object raw = row.get(ModelConstant.ID);
+        Assert.notNull(raw, "`id` cannot be null or missing when updating data!");
+        return raw instanceof Number n ? Long.valueOf(n.longValue()) : Long.valueOf(raw.toString());
+    }
+
+    /**
+     * The ids among {@code ids} naming rows the caller administers. Must run inside
+     * {@link UserRosterScope#call}, for the same reason the list reads must.
+     */
+    private List<Long> visibleIds(List<Long> ids) {
+        FlexQuery q = new FlexQuery(List.of(ModelConstant.ID),
+                rosterScope.scopeByTenant(new Filters().in(ModelConstant.ID, ids)));
+        return modelService.searchList(MODEL, q).stream()
+                .map(r -> UserAccountController.<Long>keyOf(r.get(ModelConstant.ID)))
+                .toList();
+    }
+
+    private static <K extends Serializable> K keyOf(Object raw) {
+        return IdUtils.formatId(MODEL, (Serializable) raw);
     }
 
     /**
@@ -576,12 +831,18 @@ public class UserAccountController extends EntityController<UserAccountService, 
     /** The value-returning twin, for the reads that need the same reach as the operations. */
     private <T> T onRosterAccounts(List<Long> ids, Supplier<T> op) {
         return rosterScope.call(() -> {
-            if (rosterScope.isPlatformSuperAdmin()) {
-                long visible = modelService.count(MODEL,
-                        rosterScope.scopeToAdminAccounts(new Filters().in(ModelConstant.ID, ids)));
-                if (visible != ids.stream().distinct().count()) {
-                    throw new BusinessException("User not found.");
-                }
+            // For everyone, not the super-admin alone. The roster scope hides consultant memberships
+            // from every LIST read; a by-id operation that skipped it let a tenant admin freeze,
+            // re-role or delete a row the same page had just said does not exist — and freezing one
+            // is exactly the drift UserRosterScope warns about: the platform's grant saying yes while
+            // the membership says no. scopeByTenant carries the consultant predicate for every caller
+            // and the roster bounds for the super-admin; for an ordinary caller the count also runs
+            // under the ORM's tenant filter, so an id from another company gets the same answer here
+            // as a nonexistent one.
+            long visible = modelService.count(MODEL,
+                    rosterScope.scopeByTenant(new Filters().in(ModelConstant.ID, ids)));
+            if (visible != ids.stream().distinct().count()) {
+                throw new BusinessException("User not found.");
             }
             return op.get();
         });

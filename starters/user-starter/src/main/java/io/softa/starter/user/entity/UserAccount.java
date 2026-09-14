@@ -19,9 +19,15 @@ import io.softa.starter.user.enums.AccountStatus;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
+// copyable = false: a membership is not a thing to duplicate — (tenantId, profileId) is unique, so a
+// copy could only ever fail at the index — and, more to the point, it closes the four generic copy
+// endpoints without a shadow each. UserAccountController shadows every OTHER generic endpoint so the
+// roster scope applies to by-id reads and writes; copy is the one family the framework refuses on
+// its own once this is false.
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         multiTenant = true,
+        copyable = false,
         searchName = {"nickname", "username"}
 )
 /**
