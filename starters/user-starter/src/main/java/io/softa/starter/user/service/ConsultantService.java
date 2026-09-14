@@ -37,6 +37,19 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
     boolean canEnter(Long profileId, Long tenantId);
 
     /**
+     * Whether the GRANT itself still stands — enabled consultant, authorization covering today —
+     * saying nothing about the company's own state.
+     *
+     * <p>Split from {@link #canEnter} because the tenant picker treats the two causes differently,
+     * and PRD §3.2 and CE5 are about different things rather than in conflict. A grant that has
+     * lapsed, or a consultant who has been disabled, is a relationship that no longer exists: the row
+     * goes, because listing it invites the person to ask a company that never authorized them. A live
+     * grant into a company the platform has frozen is a relationship that DOES exist and cannot be
+     * used right now — that row stays, greyed, carrying the reason.
+     */
+    boolean grantStands(Long profileId, Long tenantId);
+
+    /**
      * The companies this consultant may enter today.
      *
      * <p>Only live grants — an expired or not-yet-started one is absent, not listed-and-greyed. That

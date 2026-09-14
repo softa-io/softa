@@ -96,6 +96,16 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         if (tenantInfoService != null && !tenantInfoService.isTenantActive(tenantId)) {
             return false;
         }
+        return grantStands(profileId, tenantId);
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public boolean grantStands(Long profileId, Long tenantId) {
+        if (profileId == null || tenantId == null || !isEnabled(profileId)) {
+            return false;
+        }
         return authorizationService.searchOne(new Filters()
                         .eq(ConsultantAuthorization::getProfileId, profileId)
                         .eq(ConsultantAuthorization::getTenantId, tenantId))

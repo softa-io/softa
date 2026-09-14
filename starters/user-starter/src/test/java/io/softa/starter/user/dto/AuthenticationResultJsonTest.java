@@ -54,7 +54,7 @@ class AuthenticationResultJsonTest {
     @Test
     void aPendingChoice_saysNotResolved() throws Exception {
         String json = mapper.writeValueAsString(AuthenticationResult.choicePending(7L,
-                List.of(new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false)),
+                List.of(new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false, null)),
                 false, "token"));
 
         assertThat(json).contains("\"resolved\":false").contains("\"authToken\":\"token\"");

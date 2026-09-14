@@ -708,6 +708,20 @@ public class LoginServiceImpl implements LoginService {
         return resolveMemberships(resolvePreAuthToken(authToken));
     }
 
+    /**
+     * Why a row cannot be entered even though the membership behind it is intact (PRD CE5).
+     *
+     * <p>Asked for consultant rows only — see the call site. Only the company's own availability today. One neutral phrase rather than the tenant's
+     * actual status: whether a customer is suspended or closed is that customer's business, and the
+     * person reading this row needs to know they cannot go in, not why the company stopped paying.
+     */
+    private String unavailableReason(Long tenantId) {
+        if (tenantInfoService == null || tenantInfoService.isTenantActive(tenantId)) {
+            return null;
+        }
+        return "Unavailable";
+    }
+
     private List<MembershipOption> resolveMemberships(Long profileId) {
         // The lock lives on the person's credential, so it is read once and stamped on every
         // option rather than looked up per company.
@@ -718,16 +732,24 @@ public class LoginServiceImpl implements LoginService {
                 // shown greyed — it is a standing relationship the person can ask about. A lapsed
                 // CONSULTANCY is simply absent: it is not access on hold, it is access they no
                 // longer have, and listing it would invite them to ask a tenant that never granted
-                // it. canEnter answers the whole consultant question at once (is a consultant at
-                // all / not disabled / grant covers today), so nothing here re-derives a third of it.
+                // it. That is grantStands, not canEnter: canEnter also folds in the COMPANY's own
+                // state, and a live grant into a frozen company is the one consultant row that does
+                // stay — greyed, carrying the reason (PRD §3.2's table and CE5 are about different
+                // causes, not in conflict).
                 .filter(account -> Boolean.TRUE.equals(account.getConsultant())
-                        ? consultantService.canEnter(profileId, account.getTenantId())
+                        ? consultantService.grantStands(profileId, account.getTenantId())
                         : COUNTED_STATUSES.contains(account.getStatus()))
                 .map(account -> new MembershipOption(
                         account.getId(), account.getTenantId(),
                         tenantInfoService == null ? null
                                 : tenantInfoService.getTenantName(account.getTenantId()),
-                        account.getStatus(), locked, Boolean.TRUE.equals(account.getConsultant())))
+                        account.getStatus(), locked, Boolean.TRUE.equals(account.getConsultant()),
+                        // Consultant rows only. CE5 is about the consultant's switcher; an
+                        // employment into a frozen company already reads as such through its own
+                        // status badge, and giving it a second mechanism would change a path this
+                        // feature has no business changing.
+                        Boolean.TRUE.equals(account.getConsultant())
+                                ? unavailableReason(account.getTenantId()) : null))
                 // Selectable first: the common case is one usable company among some frozen ones,
                 // and making the person hunt for it in a mixed list is a needless step.
                 .sorted(Comparator.comparing(MembershipOption::selectable).reversed())

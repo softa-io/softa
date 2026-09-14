@@ -22,6 +22,13 @@ import io.softa.starter.user.enums.AccountStatus;
  *                   a badge, never enforced: PRD §1.5 greys a Locked company, but the picker is
  *                   reached only after authentication, and §1.6 / D5 keep code login open during
  *                   a lock — greying here would refuse a person the code route just admitted.
+ * @param unavailableReason why this row cannot be entered despite the membership being fine —
+ *                  today only a company the platform has frozen (PRD CE5). Null when nothing blocks
+ *                  it. Its own field rather than a reading of {@code status}, because the account
+ *                  status here is genuinely Active: it is the COMPANY that is unavailable, and
+ *                  showing "Active" beside a row that refuses entry explains nothing. Deliberately
+ *                  one neutral phrase and not the tenant's actual state — a consultant has no
+ *                  business learning a customer's billing standing.
  * @param consultant whether this is a CONSULTANT's access rather than an employment. The picker
  *                   labels it, because the person needs to know which hat they are putting on: an
  *                   employment persists, a consultancy is a grant with an end date. Only LIVE grants
@@ -29,7 +36,7 @@ import io.softa.starter.user.enums.AccountStatus;
  *                   employment, because it is not access they hold rather than access on hold.
  */
 public record MembershipOption(Long accountId, Long tenantId, String tenantName, AccountStatus status,
-                               boolean locked, boolean consultant) {
+                               boolean locked, boolean consultant, String unavailableReason) {
 
     /**
      * Whether this option can actually be entered.
@@ -42,6 +49,6 @@ public record MembershipOption(Long accountId, Long tenantId, String tenantName,
     @JsonProperty("selectable")
     public boolean selectable() {
         // Deliberately independent of locked — see the component doc.
-        return status == AccountStatus.ACTIVE;
+        return status == AccountStatus.ACTIVE && unavailableReason == null;
     }
 }
