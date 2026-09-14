@@ -156,14 +156,14 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // narrowed to exactly those — is what makes that a boundary rather than a hidden sidebar:
         // otherwise every tenant endpoint stays one typed URL away.
         if (PermissionInfo.isSuperAdmin(pi)) {
-            return planBoundedBypass(pi, ctx, uri, method, "platform-admin", false);
+            return planBoundedBypass(pi, ctx, uri, method, AdminPrincipal.PLATFORM_ADMIN);
         }
         // Tenant super-admin — bypasses the permission gate WITHIN its own tenant (tenant-isolated,
         // crossTenant stays false), but is denied platform-only Ops endpoints (billing / plan /
         // provisioning) which only SUPER_ADMIN may reach, and endpoints belonging to a module its
         // plan does not entitle.
         if (PermissionInfo.isTenantAdmin(pi)) {
-            return planBoundedBypass(pi, ctx, uri, method, "tenant-admin", true);
+            return planBoundedBypass(pi, ctx, uri, method, AdminPrincipal.TENANT_ADMIN);
         }
         // Platform consultant — the same gate, reached by a different rule. A consultant's menus and
         // functions are defined as the tenant's current subscription in full, which is computed the
@@ -176,7 +176,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // reader of "is a tenant admin" would have silently started answering yes for them.
         if (PermissionInfo.isConsultant(pi)) {
             // The authorization was checked above, before any bypass; this branch only decides the gate.
-            return planBoundedBypass(pi, ctx, uri, method, "consultant", true);
+            return planBoundedBypass(pi, ctx, uri, method, AdminPrincipal.CONSULTANT);
         }
 
         // EndpointIndex.lookup returns every permission id that lists this
@@ -280,17 +280,12 @@ public class PermissionInterceptor implements HandlerInterceptor {
      * gate into a broad outage. It is also why the coverage validator exists — the mapping gap is the
      * thing to close, not this allowance.
      *
-     * @param principal what to call the caller in the logs; the callers are otherwise identical
-     *                  today and deliberately kept separately callable
-     * @param denyPlatformOnly false for the platform administrator, who is the one these endpoints
-     *                  exist FOR. Billing, plan and provisioning are barred to everyone INSIDE a
-     *                  tenant — a tenant admin and a consultant alike — and are the platform's own
-     *                  work. Refusing them here would deny the platform administrator their console
-     *                  and leave nobody able to provision anything.
+     * @param principal which of the three is calling — it names them in the logs and carries
+     *                  whether the platform-only endpoints are barred to them
      */
     private boolean planBoundedBypass(PermissionInfo pi, Context ctx, String uri, String method,
-                                      String principal, boolean denyPlatformOnly) {
-        if (denyPlatformOnly && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+                                      AdminPrincipal principal) {
+        if (principal.deniedPlatformOnly && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
             log.warn("Platform-only endpoint denied to {} — userId={}, uri={} {}",
                     principal, ctx.getUserId(), method, uri);
             throw new PermissionException("Platform-admin only: " + method + " " + uri);
@@ -303,6 +298,51 @@ public class PermissionInterceptor implements HandlerInterceptor {
             throw new PermissionException("Missing permission for " + method + " " + uri);
         }
         return true;
+    }
+
+    /**
+     * The three principals that pass {@link #planBoundedBypass}, and the one way they differ.
+     *
+     * <p>An enum rather than a name and a flag at each call site, because those two arguments are
+     * not independent: exactly one principal may reach the platform-only endpoints, and passing the
+     * wrong boolean beside the right name would open billing, plan and provisioning to everyone
+     * inside a tenant — silently, since nothing downstream re-checks. Bound together here, that is
+     * not expressible. A call site also stops reading as {@code (…, "tenant-admin", true)}, which
+     * says nothing about what {@code true} does without opening this file.
+     *
+     * <p>Private, and deliberately not a role enum. What separates these three HERE is a policy of
+     * this gate, not a property of the role: the codes themselves live in
+     * {@link PermissionInfo#CODE_SUPER_ADMIN} and friends as the reserved {@code Role.code} strings
+     * they are, and one of them — the consultant — is never a role row at all. Promoting this to a
+     * shared type would put the endpoint whitelist's shape into the role model, and the consultant
+     * concept into a framework that knows it only through {@code ConsultantAccessChecker}.
+     */
+    private enum AdminPrincipal {
+        /**
+         * The platform administrator, who is who the platform-only endpoints exist FOR. Billing,
+         * plan and provisioning are barred to everyone INSIDE a tenant and are the platform's own
+         * work; refusing them here would deny the platform its console and leave nobody able to
+         * provision anything.
+         */
+        PLATFORM_ADMIN("platform-admin", false),
+        TENANT_ADMIN("tenant-admin", true),
+        CONSULTANT("consultant", true);
+
+        /** What the logs call this principal. */
+        private final String label;
+        /** Whether {@code platformOnlyPatterns} are refused to it. */
+        private final boolean deniedPlatformOnly;
+
+        AdminPrincipal(String label, boolean deniedPlatformOnly) {
+            this.label = label;
+            this.deniedPlatformOnly = deniedPlatformOnly;
+        }
+
+        /** The log lines interpolate the principal directly, so this IS the wording they carry. */
+        @Override
+        public String toString() {
+            return label;
+        }
     }
 
     private boolean matchAny(List<String> patterns, String uri) {

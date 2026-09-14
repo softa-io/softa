@@ -1,5 +1,6 @@
 package io.softa.starter.permission.interceptor;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -665,6 +667,51 @@ class PermissionInterceptorTest {
         boolean allowed = inCtx(10L, 42L,
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
         assertThat(allowed).isTrue();
+    }
+
+    // ─── the one thing that separates the three principals ───
+
+    @Test
+    void exactlyOnePrincipalMayReachThePlatformOnlyEndpoints() {
+        // The invariant the enum exists to hold. Billing, plan, provisioning and the consultant
+        // models are the platform's own work: the platform administrator is who they exist for, and
+        // everyone INSIDE a tenant is barred. As a boolean beside a name at each call site, getting
+        // this wrong was one transposed argument away and nothing downstream re-checks — a tenant
+        // admin would simply have been able to provision tenants.
+        //
+        // Asserted over the enum rather than per principal so a FOURTH one added later has to face
+        // the question: a new constant carrying `false` fails here, and its author is told why.
+        Object[] principals = reflectPrincipals();
+        assertThat(principals).hasSize(3);
+
+        List<String> exempt = new ArrayList<>();
+        for (Object principal : principals) {
+            if (!(boolean) ReflectionTestUtils.getField(principal, "deniedPlatformOnly")) {
+                exempt.add(principal.toString());
+            }
+        }
+        assertThat(exempt)
+                .as("only the platform administrator may reach the platform-only endpoints")
+                .containsExactly("platform-admin");
+    }
+
+    @Test
+    void eachPrincipalNamesItselfInTheLogs() {
+        // The paired case: the log lines interpolate the principal directly, so toString() IS the
+        // wording ops reads. A default enum toString would print PLATFORM_ADMIN where the previous
+        // code printed platform-admin, quietly breaking whatever greps those warnings.
+        assertThat(reflectPrincipals()).extracting(Object::toString)
+                .containsExactly("platform-admin", "tenant-admin", "consultant");
+    }
+
+    /** The interceptor's own private principal enum — private because the policy is this gate's. */
+    private static Object[] reflectPrincipals() {
+        for (Class<?> nested : PermissionInterceptor.class.getDeclaredClasses()) {
+            if (nested.isEnum()) {
+                return nested.getEnumConstants();
+            }
+        }
+        throw new AssertionError("PermissionInterceptor declares no principal enum");
     }
 
     // ─── the platform admin's shared modules ───
