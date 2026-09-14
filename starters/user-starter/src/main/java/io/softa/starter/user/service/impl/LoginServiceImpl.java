@@ -44,6 +44,7 @@ import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * UserAccount Model Service Implementation
@@ -124,7 +125,7 @@ public class LoginServiceImpl implements LoginService {
 
     /** Consultant access is a grant with dates, not a status — only this can say if it is live. */
     @Autowired
-    private io.softa.starter.user.service.ConsultantService consultantService;
+    private ConsultantService consultantService;
 
     /** Carries "the code was passed" into the anonymous set-password / confirm steps. */
     @Autowired

@@ -21,6 +21,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * {@code verifyJoinCode} must refuse to identify an invitee from a SHARED work contact (finding #2).
@@ -48,7 +49,7 @@ class VerifyJoinCodeSharedContactTest {
     VerifyJoinCodeSharedContactTest() {
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
         ReflectionTestUtils.setField(loginService, "consultantService",
-                mock(io.softa.starter.user.service.ConsultantService.class));
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);

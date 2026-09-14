@@ -26,6 +26,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.framework.base.context.UserInfo;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * Authentication says WHO, membership selection says WHERE. This covers the second step —
@@ -50,7 +52,7 @@ class MembershipSelectionTest {
     MembershipSelectionTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "consultantService",
-                mock(io.softa.starter.user.service.ConsultantService.class));
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
@@ -213,7 +215,7 @@ class MembershipSelectionTest {
     @Test
     void selectingOwnActiveMembership_isAllowed() {
         givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE));
-        when(profileService.getUserInfo(100L)).thenReturn(new io.softa.framework.base.context.UserInfo());
+        when(profileService.getUserInfo(100L)).thenReturn(new UserInfo());
 
         AuthenticationResult result = loginService.selectTenant(TOKEN, 100L);
 
@@ -245,7 +247,7 @@ class MembershipSelectionTest {
         // way, and the company step must not turn the lock into a second refusal.
         givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE));
         givenPasswordLocked();
-        when(profileService.getUserInfo(100L)).thenReturn(new io.softa.framework.base.context.UserInfo());
+        when(profileService.getUserInfo(100L)).thenReturn(new UserInfo());
 
         AuthenticationResult result = loginService.selectTenant(TOKEN, 100L);
 

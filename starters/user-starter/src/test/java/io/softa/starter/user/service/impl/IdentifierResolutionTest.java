@@ -25,6 +25,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * Login resolves the PERSON by a login identifier rather than the company account by its work
@@ -53,7 +54,7 @@ class IdentifierResolutionTest {
     IdentifierResolutionTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "consultantService",
-                mock(io.softa.starter.user.service.ConsultantService.class));
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);

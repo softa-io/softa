@@ -9,6 +9,8 @@ import java.util.Set;
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.entity.ConsultantProfile;
+import io.softa.starter.user.dto.ConsultantProfileDTO;
+import io.softa.starter.user.dto.ConsultantRowDTO;
 
 /**
  * Consultants — platform staff who work inside client companies for a bounded period.
@@ -74,7 +76,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
      *
      * @return the consultant's profileId
      */
-    Long save(io.softa.starter.user.dto.ConsultantProfileDTO form);
+    Long save(ConsultantProfileDTO form);
 
     /**
      * Enable or disable a consultant across every authorized tenant at once.
@@ -94,7 +96,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
      *
      * @param search matched against name and email, case-insensitively; blank returns everyone
      */
-    List<io.softa.starter.user.dto.ConsultantRowDTO> list(String search);
+    List<ConsultantRowDTO> list(String search);
 
     /**
      * Which of these acting accounts belong to consultants — for labelling an audit trail.

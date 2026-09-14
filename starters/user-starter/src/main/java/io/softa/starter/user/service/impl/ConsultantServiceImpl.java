@@ -30,6 +30,12 @@ import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
 
 import static io.softa.framework.base.context.ContextUtils.inTenantContext;
+import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.user.dto.ConsultantProfileDTO;
+import io.softa.starter.user.dto.ConsultantRowDTO;
+import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.service.UserIdentityService;
+import io.softa.starter.user.service.UserProfileService;
 
 /**
  * Consultants — see {@link ConsultantService} for what they are.
@@ -56,14 +62,14 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     private ConsultantAuthorizationService authorizationService;
 
     @Autowired
-    private io.softa.starter.user.service.UserIdentityService identityService;
+    private UserIdentityService identityService;
 
     @Autowired
-    private io.softa.starter.user.service.UserProfileService profileService;
+    private UserProfileService profileService;
 
     /** Optional: the list shows company names; absent tenant-starter → the id alone. */
     @Autowired(required = false)
-    private io.softa.framework.orm.service.TenantInfoService tenantInfoService;
+    private TenantInfoService tenantInfoService;
 
     /** Upper bound on one {@code consultantActors} lookup — the actors on one audit page. */
     private static final int MAX_ACTOR_LOOKUP = 500;
@@ -145,7 +151,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @CrossTenant
     @Override
     @Transactional
-    public Long save(io.softa.starter.user.dto.ConsultantProfileDTO form) {
+    public Long save(ConsultantProfileDTO form) {
         Assert.notNull(form, "A consultant profile is required");
         String email = form.getEmail() == null ? null : form.getEmail().trim();
         String mobile = form.getMobile() == null ? null : form.getMobile().trim();
@@ -180,7 +186,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             this.updateOne(profile);
         }
 
-        List<ConsultantAuthorization> grants = (form.getAuthorizations() == null ? List.<io.softa.starter.user.dto.ConsultantProfileDTO.AuthorizationRow>of()
+        List<ConsultantAuthorization> grants = (form.getAuthorizations() == null ? List.<ConsultantProfileDTO.AuthorizationRow>of()
                 : form.getAuthorizations()).stream().map(row -> {
                     ConsultantAuthorization grant = new ConsultantAuthorization();
                     grant.setTenantId(row.getTenantId());
@@ -266,12 +272,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
 
     private Long resolveOrCreatePerson(String email, String mobile) {
         Optional<Long> byEmail = identityService.findByLoginIdentifier(email)
-                .map(io.softa.starter.user.entity.UserIdentity::getProfileId);
+                .map(UserIdentity::getProfileId);
         if (byEmail.isPresent()) {
             return byEmail.get();
         }
         Optional<Long> byMobile = identityService.findByLoginIdentifier(mobile)
-                .map(io.softa.starter.user.entity.UserIdentity::getProfileId);
+                .map(UserIdentity::getProfileId);
         return byMobile.orElseGet(() -> profileService.createPersonForJoin(
                 email != null && !email.isBlank() ? email : mobile));
     }
@@ -279,7 +285,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @SkipPermissionCheck
     @CrossTenant
     @Override
-    public List<io.softa.starter.user.dto.ConsultantRowDTO> list(String search) {
+    public List<ConsultantRowDTO> list(String search) {
         String needle = search == null ? "" : search.trim().toLowerCase();
         return this.searchList(new Filters()).stream()
                 .map(this::toRow)
@@ -329,10 +335,10 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 .filter(java.util.Objects::nonNull).distinct().toList();
         Map<Long, String> emailByProfile = profileIds.isEmpty() ? Map.of()
                 : identityService.searchList(new Filters()
-                                .in(io.softa.starter.user.entity.UserIdentity::getProfileId, profileIds)).stream()
+                                .in(UserIdentity::getProfileId, profileIds)).stream()
                         .filter(identity -> identity.getProfileId() != null)
                         .collect(Collectors.toMap(
-                                io.softa.starter.user.entity.UserIdentity::getProfileId,
+                                UserIdentity::getProfileId,
                                 identity -> identity.getLoginEmail() == null ? "" : identity.getLoginEmail(),
                                 (a, b) -> a));
         Map<Long, String> out = new java.util.HashMap<>();
@@ -343,8 +349,8 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         return out;
     }
 
-    private io.softa.starter.user.dto.ConsultantRowDTO toRow(ConsultantProfile profile) {
-        io.softa.starter.user.dto.ConsultantRowDTO row = new io.softa.starter.user.dto.ConsultantRowDTO();
+    private ConsultantRowDTO toRow(ConsultantProfile profile) {
+        ConsultantRowDTO row = new ConsultantRowDTO();
         Long profileId = profile.getProfileId();
         row.setProfileId(profileId);
         row.setActive(profile.getActive());
@@ -360,8 +366,8 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                         .map(ConsultantAuthorization::getTenantId).collect(Collectors.toSet())
                 : Set.of();
         row.setAuthorizedTenants(live.stream().map(tenantId -> {
-            io.softa.starter.user.dto.ConsultantRowDTO.Tenant badge =
-                    new io.softa.starter.user.dto.ConsultantRowDTO.Tenant();
+            ConsultantRowDTO.Tenant badge =
+                    new ConsultantRowDTO.Tenant();
             badge.setTenantId(tenantId);
             badge.setTenantName(tenantInfoService == null ? null
                     : tenantInfoService.getTenantName(tenantId));

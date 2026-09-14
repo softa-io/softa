@@ -16,6 +16,10 @@ import io.softa.starter.user.service.UserIdentityService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.user.dto.AuthenticationResult;
+import io.softa.starter.user.dto.MembershipOption;
+import io.softa.starter.user.service.UserProfileService;
 
 /**
  * The two places login treats a consultant differently.
@@ -33,8 +37,8 @@ class ConsultantLoginRulesTest {
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final ConsultantService consultantService = mock(ConsultantService.class);
-    private final io.softa.starter.user.service.UserProfileService profileService =
-            mock(io.softa.starter.user.service.UserProfileService.class);
+    private final UserProfileService profileService =
+            mock(UserProfileService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     ConsultantLoginRulesTest() {
@@ -66,7 +70,7 @@ class ConsultantLoginRulesTest {
     @Test
     void anEmployeeWithNoPasswordIsStillForced() {
         when(consultantService.isConsultant(PROFILE)).thenReturn(false);
-        io.softa.starter.user.entity.UserIdentity identity = new io.softa.starter.user.entity.UserIdentity();
+        UserIdentity identity = new UserIdentity();
         identity.setProfileId(PROFILE);
         identity.setPassword(null);
         when(identityService.findByProfile(PROFILE)).thenReturn(java.util.Optional.of(identity));
@@ -140,8 +144,8 @@ class ConsultantLoginRulesTest {
     }
 
     /** Reaches the private assembly the real login paths funnel through. */
-    private io.softa.starter.user.dto.AuthenticationResult afterAuthentication(UserIdentity identity) {
-        return (io.softa.starter.user.dto.AuthenticationResult) ReflectionTestUtils
+    private AuthenticationResult afterAuthentication(UserIdentity identity) {
+        return (AuthenticationResult) ReflectionTestUtils
                 .invokeMethod(loginService, "afterAuthentication", identity);
     }
 
@@ -162,7 +166,7 @@ class ConsultantLoginRulesTest {
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
         when(tenantInfoService.isTenantActive(100L)).thenReturn(false);
 
-        java.util.List<io.softa.starter.user.dto.MembershipOption> options = resolveMemberships();
+        java.util.List<MembershipOption> options = resolveMemberships();
 
         assertThat(options).singleElement().satisfies(option -> {
             assertThat(option.unavailableReason()).isNotNull();
@@ -196,12 +200,12 @@ class ConsultantLoginRulesTest {
         assertThat(resolveMemberships()).isEmpty();
     }
 
-    private final io.softa.framework.orm.service.TenantInfoService tenantInfoService =
-            mock(io.softa.framework.orm.service.TenantInfoService.class);
+    private final TenantInfoService tenantInfoService =
+            mock(TenantInfoService.class);
 
     @SuppressWarnings("unchecked")
-    private java.util.List<io.softa.starter.user.dto.MembershipOption> resolveMemberships() {
-        return (java.util.List<io.softa.starter.user.dto.MembershipOption>) ReflectionTestUtils
+    private java.util.List<MembershipOption> resolveMemberships() {
+        return (java.util.List<MembershipOption>) ReflectionTestUtils
                 .invokeMethod(loginService, "resolveMemberships", PROFILE);
     }
 }

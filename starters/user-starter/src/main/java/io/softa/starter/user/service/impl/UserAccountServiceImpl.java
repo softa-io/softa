@@ -46,6 +46,8 @@ import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserRoleRelService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.user.service.LoginService;
 
 /**
  * UserAccount Model Service Implementation
@@ -72,7 +74,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      *  definition instead of a copy on each screen that asks. */
     @Autowired
     @Lazy
-    private io.softa.starter.user.service.LoginService loginService;
+    private LoginService loginService;
 
     /** Role grants are cleared on off-boarding and on reviving a membership. */
     @Autowired
@@ -84,7 +86,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     /** Optional: the contact-change notice names the company; absent tenant-starter → blank. */
     @Autowired(required = false)
-    private io.softa.framework.orm.service.TenantInfoService tenantInfoService;
+    private TenantInfoService tenantInfoService;
 
     /**
      * Every single-entity account write funnels through here, so this is the one place that has to

@@ -16,6 +16,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * Whether the forced Set Password step survives a page reload.
@@ -31,8 +32,8 @@ class MustSetMyPasswordTest {
     private static final Long PROFILE = 7L;
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
-    private final io.softa.starter.user.service.ConsultantService consultantService =
-            mock(io.softa.starter.user.service.ConsultantService.class);
+    private final ConsultantService consultantService =
+            mock(ConsultantService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
 
     /**

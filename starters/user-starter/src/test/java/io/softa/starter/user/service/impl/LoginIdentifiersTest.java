@@ -24,6 +24,9 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.starter.user.service.ConsultantService;
+import io.softa.starter.user.service.UserAccountService;
 
 /**
  * One spelling for a login identifier, wherever it is stored, looked up or hashed.
@@ -126,19 +129,19 @@ class LoginIdentifiersTest {
         // and the counters, and used to hand that same canonical string to the lookups, so no
         // caller could ever reach a pre-fold row. Load-bearing: the lookups see the typed form.
         UserIdentityService identityService = mock(UserIdentityService.class);
-        io.softa.starter.user.service.UserAccountService accountService =
-                mock(io.softa.starter.user.service.UserAccountService.class);
+        UserAccountService accountService =
+                mock(UserAccountService.class);
         VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
         LoginServiceImpl loginService = new LoginServiceImpl();
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "consultantService",
-                mock(io.softa.starter.user.service.ConsultantService.class));
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "codeGuard", codeGuard);
         when(identityService.findByLoginIdentifier(any())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> loginService.authenticateByCode(" +65 9123-4567 ", "123456"))
-                .isInstanceOf(io.softa.framework.base.exception.BusinessException.class);
+                .isInstanceOf(BusinessException.class);
 
         verify(codeGuard).verify("+6591234567", "123456");
         verify(accountService).isWorkContactShared("+65 9123-4567");

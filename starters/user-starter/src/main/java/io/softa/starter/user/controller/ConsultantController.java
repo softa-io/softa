@@ -16,6 +16,7 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.ConsultantProfileDTO;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.service.ConsultantService;
+import io.softa.starter.user.dto.ConsultantRowDTO;
 
 /**
  * Consultant Profiles — the platform's own screen.
@@ -47,7 +48,7 @@ public class ConsultantController {
      */
     @Operation(summary = "List consultant profiles with their live authorizations")
     @PostMapping("/list")
-    public ApiResponse<List<io.softa.starter.user.dto.ConsultantRowDTO>> list(
+    public ApiResponse<List<ConsultantRowDTO>> list(
             @RequestParam(required = false) String search) {
         return ApiResponse.success(consultantService.list(search));
     }

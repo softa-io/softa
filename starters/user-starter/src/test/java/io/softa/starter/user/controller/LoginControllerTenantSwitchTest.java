@@ -39,6 +39,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * The header's tenant switcher: moving an ALREADY signed-in session from one of a person's
@@ -86,7 +87,7 @@ class LoginControllerTenantSwitchTest {
 
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "consultantService",
-                mock(io.softa.starter.user.service.ConsultantService.class));
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);

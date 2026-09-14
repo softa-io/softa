@@ -18,6 +18,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
+import io.softa.framework.orm.service.TenantInfoService;
 
 /**
  * Who may enter a company as a consultant, and when.
@@ -35,8 +36,8 @@ class ConsultantAccessTest {
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final ConsultantAuthorizationService authorizationService =
             mock(ConsultantAuthorizationService.class);
-    private final io.softa.framework.orm.service.TenantInfoService tenantInfoService =
-            mock(io.softa.framework.orm.service.TenantInfoService.class);
+    private final TenantInfoService tenantInfoService =
+            mock(TenantInfoService.class);
     private final ConsultantServiceImpl consultantService = spy(new ConsultantServiceImpl());
 
     ConsultantAccessTest() {
