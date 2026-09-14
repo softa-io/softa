@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.enums.SystemRole;
 import io.softa.framework.base.exception.BusinessException;
@@ -156,14 +157,14 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // narrowed to exactly those — is what makes that a boundary rather than a hidden sidebar:
         // otherwise every tenant endpoint stays one typed URL away.
         if (PermissionInfo.isSuperAdmin(pi)) {
-            return planBoundedBypass(pi, ctx, uri, method, AdminPrincipal.PLATFORM_ADMIN);
+            return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.SUPER_ADMIN);
         }
         // Tenant super-admin — bypasses the permission gate WITHIN its own tenant (tenant-isolated,
         // crossTenant stays false), but is denied platform-only Ops endpoints (billing / plan /
         // provisioning) which only SUPER_ADMIN may reach, and endpoints belonging to a module its
         // plan does not entitle.
         if (PermissionInfo.isTenantAdmin(pi)) {
-            return planBoundedBypass(pi, ctx, uri, method, AdminPrincipal.TENANT_ADMIN);
+            return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.TENANT_ADMIN);
         }
         // Platform consultant — the same gate, reached by a different rule. A consultant's menus and
         // functions are defined as the tenant's current subscription in full, which is computed the
@@ -176,7 +177,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // reader of "is a tenant admin" would have silently started answering yes for them.
         if (PermissionInfo.isConsultant(pi)) {
             // The authorization was checked above, before any bypass; this branch only decides the gate.
-            return planBoundedBypass(pi, ctx, uri, method, AdminPrincipal.CONSULTANT);
+            return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.CONSULTANT);
         }
 
         // EndpointIndex.lookup returns every permission id that lists this
@@ -280,12 +281,12 @@ public class PermissionInterceptor implements HandlerInterceptor {
      * gate into a broad outage. It is also why the coverage validator exists — the mapping gap is the
      * thing to close, not this allowance.
      *
-     * @param principal which of the three is calling — it names them in the logs and carries
-     *                  whether the platform-only endpoints are barred to them
+     * @param principal which of the built-in roles is calling — named in the logs by its role code,
+     *                  and the one input to {@link #deniedPlatformOnly}
      */
     private boolean planBoundedBypass(PermissionInfo pi, Context ctx, String uri, String method,
-                                      AdminPrincipal principal) {
-        if (principal.deniedPlatformOnly && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+                                      BuiltinRole principal) {
+        if (deniedPlatformOnly(principal) && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
             log.warn("Platform-only endpoint denied to {} — userId={}, uri={} {}",
                     principal, ctx.getUserId(), method, uri);
             throw new PermissionException("Platform-admin only: " + method + " " + uri);
@@ -301,48 +302,26 @@ public class PermissionInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * The three principals that pass {@link #planBoundedBypass}, and the one way they differ.
+     * Whether the platform-only endpoints — billing, plan, provisioning, the consultant models — are
+     * barred to this principal.
      *
-     * <p>An enum rather than a name and a flag at each call site, because those two arguments are
-     * not independent: exactly one principal may reach the platform-only endpoints, and passing the
-     * wrong boolean beside the right name would open billing, plan and provisioning to everyone
-     * inside a tenant — silently, since nothing downstream re-checks. Bound together here, that is
-     * not expressible. A call site also stops reading as {@code (…, "tenant-admin", true)}, which
-     * says nothing about what {@code true} does without opening this file.
+     * <p>Exactly one is exempt: the platform administrator, who is who those endpoints exist FOR.
+     * Everyone INSIDE a tenant is barred, a tenant admin and a consultant alike; refusing the
+     * platform here would deny it its console and leave nobody able to provision anything.
      *
-     * <p>Private, and deliberately not a role enum. What separates these three HERE is a policy of
-     * this gate, not a property of the role: the codes themselves live in
-     * {@link PermissionInfo#CODE_SUPER_ADMIN} and friends as the reserved {@code Role.code} strings
-     * they are, and one of them — the consultant — is never a role row at all. Promoting this to a
-     * shared type would put the endpoint whitelist's shape into the role model, and the consultant
-     * concept into a framework that knows it only through {@code ConsultantAccessChecker}.
+     * <p>Written as "not the platform" rather than as a list of the barred, so that a built-in role
+     * added later is barred until somebody decides otherwise — fail-closed, which is the right
+     * default for a whitelist of the platform's own operations. Package-private for the test that
+     * pins this over every value of {@link BuiltinRole}.
+     *
+     * <p>This used to be a private enum beside this method, carrying a log label and this flag per
+     * principal. {@link BuiltinRole} now names the same three in the framework's base, so the enum
+     * was a second copy of an identity that already had one home — and the flag reduces to one
+     * comparison. The logs now print the role code itself, which is also what {@code role.code}
+     * and a user's {@code roleCodes} carry, so one term greps across all three.
      */
-    private enum AdminPrincipal {
-        /**
-         * The platform administrator, who is who the platform-only endpoints exist FOR. Billing,
-         * plan and provisioning are barred to everyone INSIDE a tenant and are the platform's own
-         * work; refusing them here would deny the platform its console and leave nobody able to
-         * provision anything.
-         */
-        PLATFORM_ADMIN("platform-admin", false),
-        TENANT_ADMIN("tenant-admin", true),
-        CONSULTANT("consultant", true);
-
-        /** What the logs call this principal. */
-        private final String label;
-        /** Whether {@code platformOnlyPatterns} are refused to it. */
-        private final boolean deniedPlatformOnly;
-
-        AdminPrincipal(String label, boolean deniedPlatformOnly) {
-            this.label = label;
-            this.deniedPlatformOnly = deniedPlatformOnly;
-        }
-
-        /** The log lines interpolate the principal directly, so this IS the wording they carry. */
-        @Override
-        public String toString() {
-            return label;
-        }
+    static boolean deniedPlatformOnly(BuiltinRole principal) {
+        return principal != BuiltinRole.SUPER_ADMIN;
     }
 
     private boolean matchAny(List<String> patterns, String uri) {

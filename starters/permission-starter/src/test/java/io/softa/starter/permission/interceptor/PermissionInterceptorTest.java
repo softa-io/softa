@@ -14,6 +14,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.framework.base.enums.SystemRole;
 import io.softa.framework.base.exception.ConfigurationException;
 import io.softa.framework.base.exception.PermissionException;
@@ -669,49 +670,24 @@ class PermissionInterceptorTest {
         assertThat(allowed).isTrue();
     }
 
-    // ─── the one thing that separates the three principals ───
+    // ─── the one thing that separates the built-in roles at this gate ───
 
     @Test
     void exactlyOnePrincipalMayReachThePlatformOnlyEndpoints() {
-        // The invariant the enum exists to hold. Billing, plan, provisioning and the consultant
-        // models are the platform's own work: the platform administrator is who they exist for, and
-        // everyone INSIDE a tenant is barred. As a boolean beside a name at each call site, getting
-        // this wrong was one transposed argument away and nothing downstream re-checks — a tenant
-        // admin would simply have been able to provision tenants.
-        //
-        // Asserted over the enum rather than per principal so a FOURTH one added later has to face
-        // the question: a new constant carrying `false` fails here, and its author is told why.
-        Object[] principals = reflectPrincipals();
-        assertThat(principals).hasSize(3);
-
-        List<String> exempt = new ArrayList<>();
-        for (Object principal : principals) {
-            if (!(boolean) ReflectionTestUtils.getField(principal, "deniedPlatformOnly")) {
-                exempt.add(principal.toString());
+        // The invariant this predicate exists to hold. Billing, plan, provisioning and the
+        // consultant models are the platform's own work: the platform administrator is who they
+        // exist for, and everyone INSIDE a tenant is barred. Asserted over EVERY BuiltinRole value
+        // rather than per principal, so a fourth role added to the framework is barred here by
+        // default and its author reads why before deciding otherwise.
+        List<BuiltinRole> exempt = new ArrayList<>();
+        for (BuiltinRole role : BuiltinRole.values()) {
+            if (!PermissionInterceptor.deniedPlatformOnly(role)) {
+                exempt.add(role);
             }
         }
         assertThat(exempt)
                 .as("only the platform administrator may reach the platform-only endpoints")
-                .containsExactly("platform-admin");
-    }
-
-    @Test
-    void eachPrincipalNamesItselfInTheLogs() {
-        // The paired case: the log lines interpolate the principal directly, so toString() IS the
-        // wording ops reads. A default enum toString would print PLATFORM_ADMIN where the previous
-        // code printed platform-admin, quietly breaking whatever greps those warnings.
-        assertThat(reflectPrincipals()).extracting(Object::toString)
-                .containsExactly("platform-admin", "tenant-admin", "consultant");
-    }
-
-    /** The interceptor's own private principal enum — private because the policy is this gate's. */
-    private static Object[] reflectPrincipals() {
-        for (Class<?> nested : PermissionInterceptor.class.getDeclaredClasses()) {
-            if (nested.isEnum()) {
-                return nested.getEnumConstants();
-            }
-        }
-        throw new AssertionError("PermissionInterceptor declares no principal enum");
+                .containsExactly(BuiltinRole.SUPER_ADMIN);
     }
 
     // ─── the platform admin's shared modules ───
