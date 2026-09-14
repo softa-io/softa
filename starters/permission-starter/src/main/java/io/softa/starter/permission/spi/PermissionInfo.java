@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.softa.framework.base.enums.BuiltinRole;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -36,12 +37,12 @@ public class PermissionInfo implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /** Role code that identifies a platform super-admin (cross-tenant, all menus + platform Ops). */
-    public static final String CODE_SUPER_ADMIN = "SUPER_ADMIN";
+    public static final String CODE_SUPER_ADMIN = BuiltinRole.SUPER_ADMIN.getCode();
 
     /** Role code that identifies a tenant super-admin — bypasses permission/scope WITHIN its own
      *  tenant (tenant-isolated, no cross-tenant), but is denied platform-only endpoints (billing /
      *  provisioning / cross-tenant Ops; see {@code PermissionInterceptorProperties.platformOnlyPatterns}). */
-    public static final String CODE_TENANT_ADMIN = "TENANT_ADMIN";
+    public static final String CODE_TENANT_ADMIN = BuiltinRole.TENANT_ADMIN.getCode();
 
     /**
      * Platform consultant working inside a client company under a dated grant.
@@ -58,7 +59,7 @@ public class PermissionInfo implements Serializable {
      * the subscription at request time has no such failure mode, and makes an upgrade take effect
      * the moment it is bought.
      */
-    public static final String CODE_CONSULTANT = "CONSULTANT";
+    public static final String CODE_CONSULTANT = BuiltinRole.CONSULTANT.getCode();
 
     @Schema(description = "Role codes the user holds (display + super-admin check; auth decisions use permissions / nav sets)")
     private Set<String> roleCodes;

@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
@@ -60,7 +61,8 @@ public class MailSendRecordController
 
     private static final String MODEL = "MailSendRecord";
     /** Holding either of these makes an account part of the roster Ops is responsible for. */
-    private static final List<String> ADMIN_ROLE_CODES = List.of("SUPER_ADMIN", "TENANT_ADMIN");
+    private static final List<String> ADMIN_ROLE_CODES =
+            List.of(BuiltinRole.SUPER_ADMIN.getCode(), BuiltinRole.TENANT_ADMIN.getCode());
 
     @Autowired
     private ModelService<Long> modelService;
@@ -156,7 +158,7 @@ public class MailSendRecordController
     private static boolean isPlatformSuperAdmin() {
         Context context = ContextHolder.getContext();
         Set<String> roleCodes = context == null ? null : context.getRoleCodes();
-        return roleCodes != null && roleCodes.contains("SUPER_ADMIN");
+        return roleCodes != null && roleCodes.contains(BuiltinRole.SUPER_ADMIN.getCode());
     }
 
     /**

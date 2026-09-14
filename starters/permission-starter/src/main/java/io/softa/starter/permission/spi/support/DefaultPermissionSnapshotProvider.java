@@ -20,6 +20,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -71,12 +72,12 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     private static final int ANCESTOR_DEPTH_CAP = 32;
 
     /** Role code that bypasses all enforcement — must match the seeded role. */
-    private static final String SUPER_ADMIN_CODE = "SUPER_ADMIN";
+    private static final String SUPER_ADMIN_CODE = BuiltinRole.SUPER_ADMIN.getCode();
     /** Tenant super-admin — granted every tenant-facing nav (all minus platform prefixes). */
-    private static final String TENANT_ADMIN_CODE = "TENANT_ADMIN";
+    private static final String TENANT_ADMIN_CODE = BuiltinRole.TENANT_ADMIN.getCode();
 
     /** Platform consultant — same entitled menu set as a tenant admin, different data-plane rights. */
-    private static final String CONSULTANT_CODE = "CONSULTANT";
+    private static final String CONSULTANT_CODE = BuiltinRole.CONSULTANT.getCode();
 
     private static final String M_USER_ROLE_REL = "UserRoleRel";
     private static final String M_ROLE = "Role";
