@@ -157,16 +157,22 @@ public class PermissionRegistryValidator {
                     navigations.size(), permissions.size(), sensitiveFieldSets.size(), grants.size());
             return;
         }
-        // Log loudly but do not fail-fast. The design (v4 §3.8) calls for
-        // fail-fast, but in a multi-app world the same navigation.json seed
-        // ships nav entries for modules that may or may not be present in
-        // every app's classpath — taking the whole app down because Studio
-        // isn't included here is the wrong trade-off. Ops still sees the
-        // full list of violations in the log, and our checklist tooling can
-        // gate CI on a clean run.
-        log.error("PermissionRegistryValidator — {} violation(s):", errors.size());
-        errors.forEach(e -> log.error("  - {}", e));
-        log.error("PermissionRegistryValidator — startup continues; investigate and fix the seed / classpath above");
+        // WARN, not ERROR, and do not fail-fast. The design calls for fail-fast, but in a
+        // multi-app world the same navigation.json seed ships nav entries for modules that may or
+        // may not be present in every app's classpath — taking the whole app down because Studio
+        // isn't included here is the wrong trade-off.
+        //
+        // Having decided to continue, ERROR was the wrong level for the same reason: hcm-app alone
+        // reports 38 of these on every single boot, all of them navigations naming studio and ai
+        // models it will never carry, and none of them ever actionable. A level that is permanently
+        // red teaches its readers to skip it, and a genuine finding — a role squatting on a reserved
+        // code, a grant pointing at a missing navigation — looks exactly the same and goes with it.
+        //
+        // Ops still sees every violation, and CI still gates on a clean run; what changes is that
+        // ERROR in this application's log once again means something is actually broken.
+        log.warn("PermissionRegistryValidator — {} violation(s):", errors.size());
+        errors.forEach(e -> log.warn("  - {}", e));
+        log.warn("PermissionRegistryValidator — startup continues; investigate and fix the seed / classpath above");
     }
 
     /** Rule ② — Permission.id uniqueness. Also builds the {@code permId →
@@ -313,7 +319,7 @@ public class PermissionRegistryValidator {
         } catch (Throwable t) {
             errors.add("PermissionRegistryValidator could not load RoleNavigation rows: "
                     + t.getMessage() + " — grant checks (③⑩) will be skipped");
-            log.error("PermissionRegistryValidator — roleNavigationService.searchList() threw", t);
+            log.warn("PermissionRegistryValidator — roleNavigationService.searchList() threw", t);
             return List.of();
         }
     }
@@ -380,7 +386,7 @@ public class PermissionRegistryValidator {
         } catch (Throwable t) {
             errors.add("PermissionRegistryValidator could not load RoleDataScope rows: "
                     + t.getMessage() + " — scope checks (⑨) will be skipped");
-            log.error("PermissionRegistryValidator — roleDataScopeService.searchList() threw", t);
+            log.warn("PermissionRegistryValidator — roleDataScopeService.searchList() threw", t);
             return List.of();
         }
     }
@@ -392,7 +398,7 @@ public class PermissionRegistryValidator {
         } catch (Throwable t) {
             errors.add("PermissionRegistryValidator could not load RoleSensitiveFieldSet rows: "
                     + t.getMessage() + " — SFS existence checks will be skipped");
-            log.error("PermissionRegistryValidator — roleSensitiveFieldSetService.searchList() threw", t);
+            log.warn("PermissionRegistryValidator — roleSensitiveFieldSetService.searchList() threw", t);
             return List.of();
         }
     }
@@ -479,7 +485,7 @@ public class PermissionRegistryValidator {
             errors.add(String.format(
                     "PermissionRegistryValidator could not load %s rows: %s — downstream checks for this table will be skipped",
                     modelName, t.getMessage()));
-            log.error("PermissionRegistryValidator — searchList({}) threw", modelName, t);
+            log.warn("PermissionRegistryValidator — searchList({}) threw", modelName, t);
             return List.of();
         }
     }
