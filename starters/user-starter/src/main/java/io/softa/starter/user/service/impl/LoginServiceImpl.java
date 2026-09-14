@@ -76,7 +76,7 @@ public class LoginServiceImpl implements LoginService {
             "Your account is not linked to any company. Please contact your administrator.";
 
     /**
-     * A consultant whose grants have all lapsed (PRD CE2). Distinct from NO_COMPANY_MESSAGE because
+     * A consultant whose grants have all lapsed. Distinct from NO_COMPANY_MESSAGE because
      * the remedy is different and so is the person to ask: nothing is wrong with their account, an
      * authorization simply ended, and it is the PLATFORM that extends it — telling them to contact
      * "your administrator" would send them to a tenant that never granted the access.
@@ -688,7 +688,7 @@ public class LoginServiceImpl implements LoginService {
      * there as a bare blank-password test — so the exemption below applied when switching tenant and
      * not when signing in, which is the one path every consultant takes.
      *
-     * <p>Consultants are exempt (PRD C1). An employee is forced because they arrived by invitation
+     * <p>Consultants are exempt. An employee is forced because they arrived by invitation
      * and, without a password, could not come back through the password route at all. A consultant is
      * created by the platform with no invitation and no welcome mail, and code login is their intended
      * way in for as long as they like — forcing the step would block a login on a credential nobody
@@ -709,7 +709,7 @@ public class LoginServiceImpl implements LoginService {
     }
 
     /**
-     * Why a row cannot be entered even though the membership behind it is intact (PRD CE5).
+     * Why a row cannot be entered even though the membership behind it is intact.
      *
      * <p>Asked for consultant rows only — see the call site. Only the company's own availability today. One neutral phrase rather than the tenant's
      * actual status: whether a customer is suspended or closed is that customer's business, and the
@@ -734,8 +734,8 @@ public class LoginServiceImpl implements LoginService {
                 // longer have, and listing it would invite them to ask a tenant that never granted
                 // it. That is grantStands, not canEnter: canEnter also folds in the COMPANY's own
                 // state, and a live grant into a frozen company is the one consultant row that does
-                // stay — greyed, carrying the reason (PRD §3.2's table and CE5 are about different
-                // causes, not in conflict).
+                // stay — greyed, carrying the reason (the picker's row rules and the frozen-company
+                // rule are about different causes, not in conflict).
                 .filter(account -> Boolean.TRUE.equals(account.getConsultant())
                         ? consultantService.grantStands(profileId, account.getTenantId())
                         : COUNTED_STATUSES.contains(account.getStatus()))
@@ -744,7 +744,7 @@ public class LoginServiceImpl implements LoginService {
                         tenantInfoService == null ? null
                                 : tenantInfoService.getTenantName(account.getTenantId()),
                         account.getStatus(), locked, Boolean.TRUE.equals(account.getConsultant()),
-                        // Consultant rows only. CE5 is about the consultant's switcher; an
+                        // Consultant rows only. The frozen-company reason is about the consultant's switcher; an
                         // employment into a frozen company already reads as such through its own
                         // status badge, and giving it a second mechanism would change a path this
                         // feature has no business changing.
@@ -853,7 +853,7 @@ public class LoginServiceImpl implements LoginService {
         Long profileId = personBehind(currentAccountId);
         List<MembershipOption> options = this.resolveMemberships(profileId);
         // Nothing left to choose from: the same answer a login with nowhere to go gets, worded for
-        // who this is — a consultant whose grants have all lapsed is told to ask the platform (CE2),
+        // who this is — a consultant whose grants have all lapsed is told to ask the platform,
         // not "your administrator".
         if (options.isEmpty()) {
             throw noCompanyRefusal(profileId);

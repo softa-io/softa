@@ -86,7 +86,7 @@ class PlatformAdminNavScopeTest {
     @Test
     void aTenantBusinessModuleStaysOut() {
         // The paired case: a provider that simply returned every navigation would satisfy the
-        // assertion above, and C5 would be a hidden sidebar rather than a boundary.
+        // assertion above, and the narrowing would be a hidden sidebar rather than a boundary.
         PermissionInfo info = providerOver(
                 "navigation.system.tenant-data.tenant-info",
                 "navigation.payroll.pay-item").doLoadFromDb(7L, 42L);

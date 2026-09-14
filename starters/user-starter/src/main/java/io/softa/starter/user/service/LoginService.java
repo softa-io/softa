@@ -186,7 +186,7 @@ public interface LoginService {
 
     /**
      * Leave the tenant the session is in and go back to the company step — still authenticated
-     * (PRD CE3: "回 Select Tenant", or CE2 when nothing is left to pick).
+     * — back to the company picker, or the no-company refusal when nothing is left to pick.
      *
      * <p>The person's authorization for THIS company ended — disabled, revoked, or past its end
      * date — and that says nothing about who they are or about their other companies. Signing them
@@ -198,7 +198,7 @@ public interface LoginService {
      * company that refused them is absent from the list by construction (a consultant row with no
      * live grant does not resolve), so the picker cannot offer the door that just closed. When no
      * company is left at all, this throws the same refusal a login with nowhere to go throws —
-     * for a consultant, CE2's wording.
+     * for a consultant, the wording that points them at the platform.
      *
      * <p>No session is ended here — the controller owns the session, and drops it only after this
      * has answered, so a refusal leaves the caller exactly where they were.

@@ -18,7 +18,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * The two places login treats a consultant differently (PRD C1 and CE2).
+ * The two places login treats a consultant differently.
  *
  * <p>Both are about not sending someone down a road that does not apply to them: an employee is
  * forced to set a password because without one they cannot return through the password route, while
@@ -145,15 +145,16 @@ class ConsultantLoginRulesTest {
                 .invokeMethod(loginService, "afterAuthentication", identity);
     }
 
-    // ─── CE5: a live grant into a company the platform has frozen ───
+    // ─── a live grant into a company the platform has frozen ───
 
     @Test
     void aFrozenCompanyStaysOnTheListGreyedRatherThanVanishing() {
-        // PRD §3.2's table and CE5 are about different causes, not in conflict. A grant that lapsed,
+        // The picker's row rules and the frozen-company rule are about different causes, not in
+        // conflict. A grant that lapsed,
         // or a consultant who was disabled, is a relationship that no longer exists — that row goes,
         // because listing it invites the person to ask a company that never authorized them. A live
         // grant into a frozen company is a relationship that DOES exist and cannot be used today.
-        // Dropping it too would leave the person with CE2's "contact the platform administrator" and
+        // Dropping it too would leave the person with "contact the platform administrator" and
         // no idea which company, or why.
         when(accountService.listMembershipsOf(PROFILE)).thenReturn(java.util.List.of(
                 membership(true, AccountStatus.ACTIVE)));
@@ -187,7 +188,7 @@ class ConsultantLoginRulesTest {
 
     @Test
     void aLapsedGrantIsStillAbsentEntirely() {
-        // The rule CE5 must not erode: no grant, no row.
+        // The rule the frozen-company reason must not erode: no grant, no row.
         when(accountService.listMembershipsOf(PROFILE)).thenReturn(java.util.List.of(
                 membership(true, AccountStatus.ACTIVE)));
         when(consultantService.grantStands(PROFILE, 100L)).thenReturn(false);

@@ -23,7 +23,7 @@ import io.softa.starter.user.enums.AccountStatus;
  *                   reached only after authentication, and §1.6 / D5 keep code login open during
  *                   a lock — greying here would refuse a person the code route just admitted.
  * @param unavailableReason why this row cannot be entered despite the membership being fine —
- *                  today only a company the platform has frozen (PRD CE5). Null when nothing blocks
+ *                  today only a company the platform has frozen. Null when nothing blocks
  *                  it. Its own field rather than a reading of {@code status}, because the account
  *                  status here is genuinely Active: it is the COMPANY that is unavailable, and
  *                  showing "Active" beside a row that refuses entry explains nothing. Deliberately

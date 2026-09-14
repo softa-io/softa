@@ -4,7 +4,7 @@ import java.util.List;
 import lombok.Data;
 
 /**
- * One row of the Consultant Profiles list (PRD §2.2).
+ * One row of the Consultant Profiles list.
  *
  * <p>A DTO rather than generic model columns because two of the five are out of reach of either:
  * the login identifiers live on {@code UserIdentity}, a satellite whose FK points AT the profile, so

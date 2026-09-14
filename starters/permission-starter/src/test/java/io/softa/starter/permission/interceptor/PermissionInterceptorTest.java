@@ -142,10 +142,10 @@ class PermissionInterceptorTest {
         org.mockito.Mockito.verify(endpointIndex, org.mockito.Mockito.never()).lookup(anyString(), anyString());
     }
 
-    // ─── platform admin: System and Studio, and no longer everything (C5) ───
+    // ─── platform admin: System and Studio, and no longer everything ───
     //
     // This block used to assert the opposite — that a super-admin bypassed the endpoint gate outright
-    // and the index was never even consulted. C5 retires that: tenant business work belongs to the
+    // and the index was never even consulted. That is retired: tenant business work belongs to the
     // consultant now, done inside the customer that authorized them and only while that authorization
     // lasts. The cases are rewritten rather than deleted, because the old contract is exactly what
     // must not come back by accident.
@@ -160,7 +160,7 @@ class PermissionInterceptorTest {
 
     @Test
     void platformAdmin_isDeniedATenantBusinessEndpoint() {
-        // The whole point of C5, and the reason it is enforcement rather than a hidden sidebar:
+        // The whole point of the narrowing, and the reason it is enforcement rather than a hidden sidebar:
         // without this the module is still one typed URL away.
         when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(platformAdmin());
         when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST")))
@@ -550,7 +550,7 @@ class PermissionInterceptorTest {
         });
     }
 
-    // ─── CE3: a consultant whose authorization ended is out, on the next request ───
+    // ─── a consultant whose authorization ended is out, on the next request ───
 
     /** Installs a checker that answers the given verdict for every account. */
     private void consultantAccessIs(boolean stillAuthorized) {
@@ -621,7 +621,7 @@ class PermissionInterceptorTest {
     void consultantWhoAlsoHoldsTenantAdmin_isStillRefusedOnceAuthorizationEnds() {
         // The check sat inside the consultant branch, which is reached only when the caller holds
         // neither admin code. Give a consultant membership TENANT_ADMIN and it took the admin branch
-        // first, and CE3 was never asked: disable, revoke and expiry stopped applying to exactly the
+        // first, and the authorization was never checked: disable, revoke and expiry stopped applying to exactly the
         // consultant with the most reach, for as long as the snapshot stayed cached. The question is
         // about the membership, not the bypass earned afterwards, so it is asked before all of them.
         consultantAccessIs(false);
@@ -641,7 +641,7 @@ class PermissionInterceptorTest {
 
     @Test
     void consultantWhoAlsoHoldsTenantAdmin_passesWhileAuthorized() {
-        // The paired negative: asking CE3 first must not cost a still-authorized consultant the
+        // The paired negative: asking about the authorization first must not cost a still-authorized consultant the
         // admin-shaped gate they would otherwise take.
         consultantAccessIs(true);
         when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantWearingTenantAdmin());
@@ -675,7 +675,7 @@ class PermissionInterceptorTest {
         // every model under it is multiTenant, so a tenant admin keeps its own menus while the
         // platform reads the same ones on its own tier — where the verification-code and
         // password-reset mails live, including the one a consultant logs in with. Locking the
-        // platform out of those was the first version of C5's bug.
+        // platform out of those was the first version of this narrowing's bug.
         PermissionInfo pi = PermissionInfo.builder()
                 .roleCodes(Set.of(PermissionInfo.CODE_SUPER_ADMIN))
                 .permissions(Set.of("message.mail-template.view"))

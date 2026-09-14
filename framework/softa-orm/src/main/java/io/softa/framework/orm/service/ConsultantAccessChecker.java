@@ -1,7 +1,7 @@
 package io.softa.framework.orm.service;
 
 /**
- * Asks whether a consultant's membership may still be entered, right now (PRD §5 CE3).
+ * Asks whether a consultant's membership may still be entered, right now.
  *
  * <p>Declared here, in the layer both sides can see, for the same reason {@link EntitlementService}
  * is: the question is asked by the permission gate and answered by user management, and those two

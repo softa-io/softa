@@ -18,7 +18,7 @@ import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.service.ConsultantService;
 
 /**
- * Consultant Profiles — the platform's own screen (PRD §2).
+ * Consultant Profiles — the platform's own screen.
  *
  * <p>Platform-side throughout: these endpoints create the people who work inside client companies
  * and decide which companies, for how long. Nothing here is reachable from a tenant, and the
@@ -38,7 +38,7 @@ public class ConsultantController {
     private ConsultantService consultantService;
 
     /**
-     * The Consultant Profiles list (PRD §2.2).
+     * The Consultant Profiles list.
      *
      * <p>Assembled rows rather than the generic model surface: the login identifiers live on a
      * satellite pointing at the profile, so no cascade path reaches them, and Authorized Tenants is
@@ -80,15 +80,15 @@ public class ConsultantController {
     }
 
     /**
-     * Which of these acting accounts are consultants, for an audit trail's badge (PRD §4.4).
+     * Which of these acting accounts are consultants, for an audit trail's badge.
      *
      * <p>A separate question rather than a field on the audit record: change logging is generic and
      * has no business knowing consultants exist. A tenant reading its own log calls this for the
      * actors on the page.
      *
      * <p>Answerable by a tenant even though it may not administer these memberships — attribution
-     * is not administration. The flag and the consultant's login email come back (PRD §4.4 names
-     * the actor as "{name} ({email})"), and nothing else: the hiding rule protects the roster —
+     * is not administration. The flag and the consultant's login email come back — the actor column
+     * reads "{name} ({email})" — and nothing else: the hiding rule protects the roster —
      * mobile, grants, other customers — not the identity of somebody who changed this tenant's data.
      */
     @Operation(summary = "Flag which acting accounts are consultants, with their login email, for audit attribution")
@@ -98,7 +98,7 @@ public class ConsultantController {
     }
 
     /**
-     * Enable or disable a consultant (PRD §2.2 row action).
+     * Enable or disable a consultant — the list's row action.
      *
      * <p>One switch over every company at once, and it leaves the grants alone — so re-enabling
      * restores exactly the access that was there, with each grant's own dates still deciding.

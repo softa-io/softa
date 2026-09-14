@@ -9,7 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 /**
- * What the platform's Consultant Profile form saves (PRD §2.3).
+ * What the platform's Consultant Profile form saves.
  *
  * <p>One payload for create and edit, because the form is one form: basic details plus the whole
  * authorization table. The table is applied as a SET, not as add/remove calls — see

@@ -86,7 +86,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         if (profileId == null || tenantId == null) {
             return false;
         }
-        // The company's own state outranks the grant (PRD CE5). A tenant the platform has frozen or
+        // The company's own state outranks the grant. A tenant the platform has frozen or
         // closed is not open to anyone, and a consultant is the one principal who would otherwise
         // walk straight in: their data access is unrestricted and their menus come from the plan, so
         // nothing further down would stop them. Absent tenant-starter there is no such state to
@@ -94,7 +94,8 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         //
         // Asked first because it is the cheaper question (cached by the tenant directory) and rules
         // the rest out. The enabled check is grantStands' own — this used to ask it here as well, so
-        // CE3, which runs this on EVERY request a consultant makes, read the consultant row twice.
+        // the per-request authorization check, which runs this on EVERY request a consultant makes,
+        // read the consultant row twice.
         if (tenantInfoService != null && !tenantInfoService.isTenantActive(tenantId)) {
             return false;
         }
@@ -421,7 +422,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
      * stamped from context, not from the object.
      *
      * <p>An existing membership blocks rather than converts. A person who is already staff at this
-     * company is a case the PRD declines to define (§0.1), and quietly turning their employment into
+     * company is a case the requirement declines to define, and quietly turning their employment into
      * a consultancy — or attaching a second one — would decide it by accident.
      */
     private void mintMembership(Long profileId, Long tenantId) {

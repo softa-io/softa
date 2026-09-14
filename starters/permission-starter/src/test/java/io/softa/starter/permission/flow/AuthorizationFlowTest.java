@@ -117,10 +117,10 @@ class AuthorizationFlowTest {
         });
     }
 
-    // ─── SUPER_ADMIN → the platform's own screens, and not the tenant's (C5) ───
+    // ─── SUPER_ADMIN → the platform's own screens, and not the tenant's ───
     //
     // Named for what it used to assert: that a super-admin reached a tenant business endpoint with
-    // no grant behind it at all. C5 hands that work to the consultant, who does it inside the
+    // no grant behind it at all. Tenant business work belongs to the consultant, who does it inside the
     // customer that authorized them and only while the authorization lasts, so the platform
     // administrator is now refused here. Rewritten rather than deleted — the old contract is what
     // must not come back by accident, and this fixture is the one that would notice.

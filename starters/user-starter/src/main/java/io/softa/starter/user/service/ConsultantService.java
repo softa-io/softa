@@ -42,7 +42,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
      * saying nothing about the company's own state.
      *
      * <p>Split from {@link #canEnter} because the tenant picker treats the two causes differently,
-     * and PRD §3.2 and CE5 are about different things rather than in conflict. A grant that has
+     * and the two rules are about different things rather than in conflict. A grant that has
      * lapsed, or a consultant who has been disabled, is a relationship that no longer exists: the row
      * goes, because listing it invites the person to ask a company that never authorized them. A live
      * grant into a company the platform has frozen is a relationship that DOES exist and cannot be
@@ -66,7 +66,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
     /**
      * Create or update a consultant from the platform's form, grants included.
      *
-     * <p>Handles the case the PRD's form does not draw but its §3.2 requires: the email may already
+     * <p>Handles the case the form does not draw but the tenant picker requires: the email may already
      * belong to somebody. Login identifiers are globally unique, so that person cannot be given a
      * second profile — they ARE the consultant, and the grant attaches to the person they already
      * are. That is what makes "employee of company A, consultant for company B" expressible at all;
@@ -86,7 +86,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
     void setActive(Long profileId, boolean active);
 
     /**
-     * The Consultant Profiles list (PRD §2.2), assembled.
+     * The Consultant Profiles list, assembled.
      *
      * <p>Rows carry the person's name and login identifiers plus the companies whose grant covers
      * today — none of which a generic model read can produce: the identifiers hang off a satellite
@@ -97,7 +97,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
     List<io.softa.starter.user.dto.ConsultantRowDTO> list(String search);
 
     /**
-     * Which of these acting accounts belong to consultants — for labelling an audit trail (PRD §4.4).
+     * Which of these acting accounts belong to consultants — for labelling an audit trail.
      *
      * <p>Asked as its own question rather than carried on the audit record. Change logging is
      * generic: it captures whoever the actor was for every model, and it has no business knowing
@@ -108,7 +108,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
      * consultant's membership, but it must be able to see WHO changed its data — hiding the actor
      * would turn "a consultant edited this" into an unattributed change.
      *
-     * <p>Answers with the login email as well as the flag (PRD §4.4: the actor column reads
+     * <p>Answers with the login email as well as the flag (the actor column reads
      * "{name} ({email})" plus the Consultant tag). The email is the consultant's platform login
      * identifier, not a tenant contact — the minted membership carries none — so it is read from
      * the person's credential, not from the account row.
@@ -130,7 +130,7 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
      *
      * @throws io.softa.framework.base.exception.BusinessException if a company already holds a
      *         non-consultant membership for this person — one person is not both staff and
-     *         consultant in the same company, and the PRD blocks it rather than defining it
+     *         consultant in the same company, and the requirement blocks it rather than defining it
      */
     void replaceAuthorizations(Long profileId, List<ConsultantAuthorization> authorizations);
 

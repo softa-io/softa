@@ -21,7 +21,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Labelling a tenant's audit trail with who was a consultant (PRD §4.4).
+ * Labelling a tenant's audit trail with who was a consultant.
  *
  * <p>The point of asking it here rather than carrying a flag on the audit record: change logging is
  * generic — it captures whoever acted, for every model, and has no business knowing consultants
@@ -60,7 +60,7 @@ class ConsultantActorsTest {
     void onlyTheConsultantActorsComeBack_eachWithTheirLoginEmail() {
         // The account query itself filters on the flag, so whatever it returns IS the consultant
         // subset — the employee ids simply never appear. The email is the PERSON's login
-        // identifier (PRD §4.4 names the actor by it), read from the credential in one batch.
+        // identifier (the actor column names them by it), read from the credential in one batch.
         when(accountService.searchList(any(Filters.class))).thenReturn(List.of(account(2L, 20L)));
         when(identityService.searchList(any(Filters.class))).thenReturn(List.of(identity(20L, "c@zingkey.com")));
 

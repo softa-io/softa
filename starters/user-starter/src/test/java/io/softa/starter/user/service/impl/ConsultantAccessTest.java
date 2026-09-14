@@ -153,7 +153,7 @@ class ConsultantAccessTest {
 
     @Test
     void aFrozenCompanyIsClosedEvenToAConsultantWithALiveGrant() {
-        // PRD CE5. The company's own state outranks the grant, and a consultant is the one
+        // The company's own state outranks the grant, and a consultant is the one
         // principal who would otherwise walk straight in: their data access is unrestricted and
         // their menus come from the plan, so nothing further down the stack would stop them.
         givenConsultant(true);

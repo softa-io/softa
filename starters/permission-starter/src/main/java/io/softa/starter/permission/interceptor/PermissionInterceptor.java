@@ -46,7 +46,8 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     private final AntPathMatcher matcher = new AntPathMatcher();
 
-    /** CE3's per-request check. Optional — a deployment without consultants installs no
+    /** Whether a consultant's authorization for this tenant still stands, asked per request.
+     *  Optional — a deployment without consultants installs no
      *  implementation, and the consultant branch never fires there anyway. Field-injected: the
      *  constructor is RequiredArgs over finals. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -122,7 +123,8 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // aspects (e.g. {@code @RequireRole}) can gate on system roles without
         // depending on the user-starter permission model.
         bridgeRoleCodesToContext(ctx, pi);
-        // CE3 — asked on every request, and asked FIRST, ahead of every bypass below. A consultant's
+        // Whether the consultant's authorization still stands — asked on every request, and asked
+        // FIRST, ahead of every bypass below. A consultant's
         // access ends on a DATE and nobody edits anything when it lapses at midnight; cached with the
         // snapshot it would keep a lapsed consultant inside a customer's tenant for the rest of the TTL.
         //
@@ -148,7 +150,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // Platform super-admin — cross-tenant (crossTenant is set in the bridge above and stays: the
         // account roster and provisioning span tenants by definition), but no longer a full bypass.
         //
-        // C5 hands tenant business work to the consultant, who does it inside the customer that
+        // Tenant business work belongs to the consultant now, who does it inside the customer that
         // authorized them and for as long as that authorization lasts. The platform administrator
         // keeps System and Studio. Matching against their snapshot — which platformAdminSnapshot
         // narrowed to exactly those — is what makes that a boundary rather than a hidden sidebar:
@@ -173,7 +175,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // change here without first unpicking them back out of the admin path, and every other
         // reader of "is a tenant admin" would have silently started answering yes for them.
         if (PermissionInfo.isConsultant(pi)) {
-            // CE3 has already been asked above, before any bypass; this branch only decides the gate.
+            // The authorization was checked above, before any bypass; this branch only decides the gate.
             return planBoundedBypass(pi, ctx, uri, method, "consultant", true);
         }
 

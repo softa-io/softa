@@ -156,9 +156,9 @@ public class UiContextBuilder {
 
         List<Long> roleIds = activeRoles.stream().map(Role::getId).filter(Objects::nonNull).toList();
 
-        // SUPER_ADMIN → the platform's own navigations and nothing else (PRD C5), mirroring the
+        // SUPER_ADMIN → the platform's own navigations and nothing else, mirroring the
         // engine's platformAdminSnapshot. It used to be the empty-grants shape, which was safe only
-        // while the gate bypassed a super-admin outright; C5 removes that bypass, and the two
+        // while the gate bypassed a super-admin outright; that bypass is gone, and the two
         // assemblies have to agree or the sidebar stops matching what the gate allows.
         if (superAdmin) {
             return platformAdminGrants(out);
@@ -257,7 +257,7 @@ public class UiContextBuilder {
      * be nothing to change without unpicking the two apart first.
      */
     /**
-     * Platform administrator: every platform navigation, and no tenant module (PRD C5).
+     * Platform administrator: every platform navigation, and no tenant module.
      *
      * <p>The mirror of {@link #tenantAdminGrants} — that one takes everything EXCEPT the platform
      * prefixes. No plan narrowing: a platform module is not something a tenant buys, and there is no

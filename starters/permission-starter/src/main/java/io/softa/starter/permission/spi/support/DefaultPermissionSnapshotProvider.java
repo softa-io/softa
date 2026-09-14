@@ -646,14 +646,14 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     }
 
     /**
-     * Platform administrator: the platform's own navigations and nothing else (PRD C5).
+     * Platform administrator: the platform's own navigations and nothing else.
      *
      * <p>The exact mirror of {@link #tenantAdminSnapshot} — that one takes everything EXCEPT the
      * platform prefixes, this one takes only them — so the two principals partition the product
      * between them and one config value decides where the line falls.
      *
      * <p>This used to be the empty-grants shape, which was safe only because the gate bypassed a
-     * super-admin outright. C5 removes that bypass, and an empty permission set under a real gate
+     * super-admin outright. That bypass is gone, and an empty permission set under a real gate
      * denies the platform administrator their own console. So the set is computed, for the same
      * reason a tenant admin's is: it holds no static grants, and what it may reach has to come from
      * somewhere.
@@ -661,7 +661,8 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
      * <p>No plan narrowing here, unlike the tenant admin's. A platform module is not something any
      * tenant buys, and there is no subscription on the platform's own tenant to read.
      *
-     * <p>Scope and sensitive-field maps stay empty. C5 is about which SCREENS the platform reaches;
+     * <p>Scope and sensitive-field maps stay empty. This narrowing is about which SCREENS the
+     * platform reaches;
      * cross-tenant reads — the account roster, provisioning — are what the platform administrator
      * exists to do, and are bounded by the endpoints above rather than by row scope.
      */

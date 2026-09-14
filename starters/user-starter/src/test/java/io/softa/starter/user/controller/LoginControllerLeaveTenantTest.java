@@ -38,7 +38,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * CE3's exit: a consultant whose authorization for the current tenant ended goes back to the
+ * The exit: a consultant whose authorization for the current tenant ended goes back to the
  * company step — authenticated, with their other companies on offer — rather than out.
  *
  * <p>The first client did the only thing the API allowed: it signed the person out, and made them
@@ -50,7 +50,8 @@ import static org.mockito.Mockito.when;
  * <p>Three things are pinned. The answer is CHOICE-PENDING — a pre-auth token and the memberships,
  * never a session (one route to a session, not two). The old session is dropped and the cookie
  * cleared, or the login page would probe a dead id and read the 401 as a sign-out. And when nothing
- * is left to enter, the refusal is CE2's wording, raised BEFORE the session is touched, so a
+ * is left to enter, the refusal is the one that points at the platform, raised BEFORE the session
+ * is touched, so a
  * consultant with nowhere to go is not also logged out mid-request.
  */
 class LoginControllerLeaveTenantTest {
@@ -151,7 +152,7 @@ class LoginControllerLeaveTenantTest {
 
     @Test
     void aConsultantWithNothingLeftIsToldSo_andKeepsTheSessionTheyHad() {
-        // CE2. Every grant lapsed: the picker would be empty, so the refusal says who can fix it —
+        // Every grant lapsed: the picker would be empty, so the refusal says who can fix it —
         // the platform, not "your administrator". Raised BEFORE the session is dropped: a refusal
         // must leave the caller exactly where they were, even if "where they were" is a tenant that
         // will refuse their next request too.

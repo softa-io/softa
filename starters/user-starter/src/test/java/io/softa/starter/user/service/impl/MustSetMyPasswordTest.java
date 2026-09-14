@@ -106,7 +106,7 @@ class MustSetMyPasswordTest {
 
     @Test
     void aConsultantOwesNothingEvenWithNoPassword() {
-        // PRD C1, and the case that made this endpoint matter: a consultant cleared by the login
+        // The case that made this endpoint matter: a consultant cleared by the login
         // response still met the wall here, because this ran its own blank-password test and the
         // login page ORs the two.
         doReturn(Optional.of(account(PROFILE))).when(accountService).getById(USER);

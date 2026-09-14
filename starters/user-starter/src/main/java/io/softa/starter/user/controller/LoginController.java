@@ -310,11 +310,11 @@ public class LoginController {
 
     /**
      * Leave the tenant this session is in and return to the company step, still authenticated
-     * (PRD CE3). The client calls this when a request inside a tenant answered 414 — the
+     * The client calls this when a request inside a tenant answered 414 — the
      * consultant's authorization there ended — instead of signing the person out.
      *
      * <p>Authorized by the CURRENT SESSION, like {@link #switchTenant}. The session is dropped only
-     * after the service has answered, so a refusal (CE2: nothing left to enter) leaves the caller
+     * after the service has answered, so a refusal (nothing left to enter) leaves the caller
      * where they were, and the cookie goes with it: the browser must not carry a session id that
      * maps to nothing, or the login page would probe it and read the 401 as a sign-out.
      *
@@ -322,7 +322,7 @@ public class LoginController {
      * spends it on {@code selectTenant} exactly as after a fresh login — one route to a session,
      * not two.
      */
-    @Operation(summary = "Leave the current tenant and return to the company step, still authenticated (CE3)")
+    @Operation(summary = "Leave the current tenant and return to the company step, still authenticated")
     @PostMapping("/leaveTenant")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<AuthenticationResult> leaveTenant(HttpServletRequest request,

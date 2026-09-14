@@ -13,7 +13,7 @@ import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
 
 /**
- * CE3, answered from the membership the session holds.
+ * Whether a consultant's authorization still stands, answered from the membership the session holds.
  *
  * <p>The gate knows the request's {@code userId} — a membership — while the grant is a fact about the
  * person and the company. This resolves the one to the other and hands the whole question to

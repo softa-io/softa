@@ -382,7 +382,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * <p>Saying "consultant" turns that dead end into something actionable — not by this operator,
      * who cannot administer these memberships by design, but by pointing at the side that can. The
      * refusal itself is unchanged: whether one person may be both a consultant and an employee of
-     * one company is left undefined by the PRD (§0.1), and a message is not the place to decide it.
+     * one company is left undefined by the requirement, and a message is not the place to decide it.
      */
     private String liveMembershipRefusal(UserAccount membership) {
         if (Boolean.TRUE.equals(membership.getConsultant())) {
@@ -976,7 +976,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // Delegated rather than decided here. This used to be its own blank-password test, which is
         // how a consultant still met the set-password wall after logging in: the login response said
         // no and this said yes, and the login page ORs the two. Whether somebody must set a password
-        // has one answer, and LoginService owns it — a consultant is exempt (PRD C1), a person with
+        // has one answer, and LoginService owns it — a consultant is exempt, a person with
         // no credentials row at all is not forced into a screen the set-password call would refuse.
         return this.getById(userId)
                 .map(UserAccount::getProfileId)

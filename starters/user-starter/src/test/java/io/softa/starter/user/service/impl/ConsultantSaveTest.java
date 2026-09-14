@@ -27,9 +27,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Saving a consultant, and the case the PRD's form does not draw but its §3.2 requires.
+ * Saving a consultant, and the case the form does not draw but the tenant picker requires.
  *
- * <p>The PRD's C2 would have scoped the duplicate check to consultants, so a consultant could share
+ * <p>The requirement would have scoped the duplicate check to consultants, so a consultant could share
  * an email with an employee. That cannot be built: login identifiers are globally unique, so a
  * second profile carrying the address is impossible — and it is also unnecessary, because the person
  * holding it IS the consultant. Reusing them is what makes "employee at company A, consultant for
