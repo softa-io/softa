@@ -64,6 +64,9 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @Autowired(required = false)
     private io.softa.framework.orm.service.TenantInfoService tenantInfoService;
 
+    /** Upper bound on one {@code consultantActors} lookup — the actors on one audit page. */
+    private static final int MAX_ACTOR_LOOKUP = 500;
+
     @Override
     public LocalDate today() {
         return LocalDate.now();
@@ -83,16 +86,15 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         if (profileId == null || tenantId == null) {
             return false;
         }
-        // Disabled stops every company at once, without the grants being touched — so the answer is
-        // no here even while the dates still say yes, and re-enabling needs no grant edits.
-        if (!isEnabled(profileId)) {
-            return false;
-        }
         // The company's own state outranks the grant (PRD CE5). A tenant the platform has frozen or
         // closed is not open to anyone, and a consultant is the one principal who would otherwise
         // walk straight in: their data access is unrestricted and their menus come from the plan, so
         // nothing further down would stop them. Absent tenant-starter there is no such state to
         // consult, and the grant alone decides.
+        //
+        // Asked first because it is the cheaper question (cached by the tenant directory) and rules
+        // the rest out. The enabled check is grantStands' own — this used to ask it here as well, so
+        // CE3, which runs this on EVERY request a consultant makes, read the consultant row twice.
         if (tenantInfoService != null && !tenantInfoService.isTenantActive(tenantId)) {
             return false;
         }
@@ -146,7 +148,19 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         String email = form.getEmail() == null ? null : form.getEmail().trim();
         String mobile = form.getMobile() == null ? null : form.getMobile().trim();
 
-        Long profileId = form.getProfileId() != null ? form.getProfileId() : resolveOrCreatePerson(email, mobile);
+        Long profileId;
+        if (form.getProfileId() != null) {
+            // A supplied id names a person who must exist. Without this a mistyped id made a
+            // consultant record pointing at nobody — saveable, listable with blank columns, and
+            // impossible to fix from the form, whose person lookups all come back empty. Only the
+            // client-supplied id is checked: resolveOrCreatePerson answers with a person it just
+            // found or made.
+            Assert.isTrue(profileService.getById(form.getProfileId()).isPresent(),
+                    "No person exists with id {0}.", form.getProfileId());
+            profileId = form.getProfileId();
+        } else {
+            profileId = resolveOrCreatePerson(email, mobile);
+        }
         applyBasicInformation(profileId, form.getUsername(), email, mobile);
 
         // The consultant record itself: created on first save, and its Enabled/Disabled switch is
@@ -276,19 +290,42 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @SkipPermissionCheck
     @CrossTenant
     @Override
-    public Set<Long> consultantActors(Collection<Long> accountIds) {
+    public Map<Long, String> consultantActors(Collection<Long> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) {
-            return Set.of();
+            return Map.of();
         }
+        // The audit panel asks for the actors on one page. A list longer than any page could hold is
+        // not a page, and an unbounded IN is how a lookup becomes a way to walk the account table.
+        Assert.isTrue(accountIds.size() <= MAX_ACTOR_LOOKUP,
+                "At most {0} actors can be looked up at once.", MAX_ACTOR_LOOKUP);
         // Read straight from the accounts, bypassing the roster scope that hides consultants: the
         // tenant may not administer these memberships, but it must be able to attribute changes made
-        // to its own data. Only the flag is exposed — no name, no contact, nothing the hiding rule
-        // was protecting.
-        return accountService.searchList(new Filters()
-                        .in(UserAccount::getId, accountIds)
-                        .eq(UserAccount::getConsultant, true)).stream()
-                .map(UserAccount::getId)
-                .collect(Collectors.toSet());
+        // to its own data. The flag and the login email are exposed — the PRD's actor column names
+        // the consultant by email so the tenant can tell WHICH consultant, and can quote it back to
+        // the platform. Nothing else: no mobile, no grant dates, nothing about other customers.
+        List<UserAccount> consultants = accountService.searchList(new Filters()
+                .in(UserAccount::getId, accountIds)
+                .eq(UserAccount::getConsultant, true));
+        if (consultants.isEmpty()) {
+            return Map.of();
+        }
+        // One read for the page's consultants, not one per row.
+        List<Long> profileIds = consultants.stream().map(UserAccount::getProfileId)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, String> emailByProfile = profileIds.isEmpty() ? Map.of()
+                : identityService.searchList(new Filters()
+                                .in(io.softa.starter.user.entity.UserIdentity::getProfileId, profileIds)).stream()
+                        .filter(identity -> identity.getProfileId() != null)
+                        .collect(Collectors.toMap(
+                                io.softa.starter.user.entity.UserIdentity::getProfileId,
+                                identity -> identity.getLoginEmail() == null ? "" : identity.getLoginEmail(),
+                                (a, b) -> a));
+        Map<Long, String> out = new java.util.HashMap<>();
+        for (UserAccount account : consultants) {
+            String email = emailByProfile.get(account.getProfileId());
+            out.put(account.getId(), email == null || email.isEmpty() ? null : email);
+        }
+        return out;
     }
 
     private io.softa.starter.user.dto.ConsultantRowDTO toRow(ConsultantProfile profile) {
@@ -301,8 +338,13 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             row.setEmail(identity.getLoginEmail());
             row.setMobile(identity.getLoginMobile());
         });
-        // Live grants only — the badges must agree with the switcher the consultant will see.
-        row.setAuthorizedTenants(enterableTenantIds(profileId).stream().map(tenantId -> {
+        // Live grants only — the badges must agree with the switcher the consultant will see. The
+        // enabled check is answered from the row already in hand rather than by re-reading it.
+        Set<Long> live = Boolean.TRUE.equals(profile.getActive())
+                ? authorizationsOf(profileId).stream().filter(this::coversToday)
+                        .map(ConsultantAuthorization::getTenantId).collect(Collectors.toSet())
+                : Set.of();
+        row.setAuthorizedTenants(live.stream().map(tenantId -> {
             io.softa.starter.user.dto.ConsultantRowDTO.Tenant badge =
                     new io.softa.starter.user.dto.ConsultantRowDTO.Tenant();
             badge.setTenantId(tenantId);
@@ -332,7 +374,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     public void replaceAuthorizations(Long profileId, List<ConsultantAuthorization> wanted) {
         Assert.notNull(profileId, "profileId is required");
         List<ConsultantAuthorization> desired = wanted == null ? List.of() : wanted;
-        desired.forEach(ConsultantServiceImpl::validate);
+        desired.forEach(this::validate);
 
         // One row per company: two grants for the same pair would make "is this live today?"
         // answerable two ways. Caught here as a message rather than at the unique index, which
@@ -420,12 +462,19 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 && !now.isBefore(a.getStartDate()) && !now.isAfter(a.getEndDate());
     }
 
-    private static void validate(ConsultantAuthorization a) {
+    private void validate(ConsultantAuthorization a) {
         if (a.getTenantId() == null || a.getStartDate() == null || a.getEndDate() == null) {
             throw new BusinessException("Every authorization needs a tenant, a start date and an end date.");
         }
         if (a.getEndDate().isBefore(a.getStartDate())) {
             throw new BusinessException("An authorization cannot end before it starts.");
+        }
+        // The company has to exist before a membership is minted under it. The picker only offers
+        // real tenants, but the API took any number, and mintMembership would then create an
+        // account inside a tenant context nothing else has ever heard of. Skipped without the
+        // tenant directory — there is nothing to ask.
+        if (tenantInfoService != null && tenantInfoService.getTenantName(a.getTenantId()) == null) {
+            throw new BusinessException("No company exists with id " + a.getTenantId() + ".");
         }
     }
 }

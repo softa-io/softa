@@ -3,6 +3,7 @@ package io.softa.starter.user.service;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import io.softa.framework.orm.service.EntityService;
@@ -107,10 +108,16 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
      * consultant's membership, but it must be able to see WHO changed its data — hiding the actor
      * would turn "a consultant edited this" into an unattributed change.
      *
+     * <p>Answers with the login email as well as the flag (PRD §4.4: the actor column reads
+     * "{name} ({email})" plus the Consultant tag). The email is the consultant's platform login
+     * identifier, not a tenant contact — the minted membership carries none — so it is read from
+     * the person's credential, not from the account row.
+     *
      * @param accountIds the actors on the page being rendered
-     * @return the subset that are consultant memberships
+     * @return the subset that are consultant memberships, each mapped to the consultant's login
+     *         email (null when the person has no credential row)
      */
-    Set<Long> consultantActors(Collection<Long> accountIds);
+    Map<Long, String> consultantActors(Collection<Long> accountIds);
 
     /**
      * Replace a consultant's grants with exactly this set, minting an account for each company that

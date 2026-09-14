@@ -283,7 +283,11 @@ public class UiContextBuilder {
                 permissions.add(id.toString());
             }
         }
-        out.setNavigations(navigations);
+        // With ancestors, like the role-based build. A prefix such as `navigation.users.people.`
+        // admits the group's pages and not the `navigation.users` module row above them, and the
+        // sidebar asks about that row too — without this the FE had to keep its own copy of the
+        // prefix list to reconstruct what the server left out, a third place for one rule to drift.
+        out.setNavigations(expandAncestors(navigations));
         out.setPermissions(permissions);
         out.setModelSensitiveFieldSetsMap(Map.of());
         return out;

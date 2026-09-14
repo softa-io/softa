@@ -309,6 +309,32 @@ public class LoginController {
     }
 
     /**
+     * Leave the tenant this session is in and return to the company step, still authenticated
+     * (PRD CE3). The client calls this when a request inside a tenant answered 414 — the
+     * consultant's authorization there ended — instead of signing the person out.
+     *
+     * <p>Authorized by the CURRENT SESSION, like {@link #switchTenant}. The session is dropped only
+     * after the service has answered, so a refusal (CE2: nothing left to enter) leaves the caller
+     * where they were, and the cookie goes with it: the browser must not carry a session id that
+     * maps to nothing, or the login page would probe it and read the 401 as a sign-out.
+     *
+     * <p>No new session is minted. The answer carries a single-use pre-auth token, and the picker
+     * spends it on {@code selectTenant} exactly as after a fresh login — one route to a session,
+     * not two.
+     */
+    @Operation(summary = "Leave the current tenant and return to the company step, still authenticated (CE3)")
+    @PostMapping("/leaveTenant")
+    @SwitchUser(SystemUser.REGISTERED_USER)
+    public ApiResponse<AuthenticationResult> leaveTenant(HttpServletRequest request,
+                                                         HttpServletResponse response) {
+        String sessionId = this.sessionIdOf(request);
+        AuthenticationResult result = loginService.leaveTenant(this.sessionUser(sessionId));
+        cacheService.clear(RedisConstant.SESSION + sessionId);
+        CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
+        return ApiResponse.success(result);
+    }
+
+    /**
      * The session id this request carries — cookie first, then the header {@code ContextBuilder}
      * also accepts, so the two endpoints above authenticate the same way every other endpoint does.
      *

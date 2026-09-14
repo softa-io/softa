@@ -87,12 +87,13 @@ public class ConsultantController {
      * actors on the page.
      *
      * <p>Answerable by a tenant even though it may not administer these memberships — attribution
-     * is not administration. Only the flag comes back; the hiding rule protects the name and the
-     * contact details, not the fact that a change had an author.
+     * is not administration. The flag and the consultant's login email come back (PRD §4.4 names
+     * the actor as "{name} ({email})"), and nothing else: the hiding rule protects the roster —
+     * mobile, grants, other customers — not the identity of somebody who changed this tenant's data.
      */
-    @Operation(summary = "Flag which acting accounts are consultants, for audit attribution")
+    @Operation(summary = "Flag which acting accounts are consultants, with their login email, for audit attribution")
     @PostMapping("/actors")
-    public ApiResponse<java.util.Set<Long>> actors(@RequestBody java.util.List<Long> accountIds) {
+    public ApiResponse<java.util.Map<Long, String>> actors(@RequestBody java.util.List<Long> accountIds) {
         return ApiResponse.success(consultantService.consultantActors(accountIds));
     }
 

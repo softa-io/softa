@@ -770,12 +770,12 @@ public class LoginServiceImpl implements LoginService {
         // generic wording would send them to a tenant administrator who cannot help. Only when the
         // person is a consultant AND holds no employment does this apply — someone who is both gets
         // the employee wording, which is the half they can still act on.
+        List<UserAccount> memberships = accountService.listMembershipsOf(profileId);
         if (consultantService.isConsultant(profileId)
-                && accountService.listMembershipsOf(profileId).stream()
-                        .allMatch(account -> Boolean.TRUE.equals(account.getConsultant()))) {
+                && memberships.stream().allMatch(account -> Boolean.TRUE.equals(account.getConsultant()))) {
             return new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
         }
-        boolean invited = accountService.listMembershipsOf(profileId).stream()
+        boolean invited = memberships.stream()
                 .anyMatch(account -> account.getStatus() == AccountStatus.PENDING
                         || account.getStatus() == AccountStatus.INVITED);
         return new BusinessException(invited ? INVITATION_PENDING_MESSAGE : NO_COMPANY_MESSAGE);
@@ -846,6 +846,23 @@ public class LoginServiceImpl implements LoginService {
         // run the tenant and account gates on the TARGET membership.
         return AuthenticationResult.resolved(
                 profileId, profileService.getUserInfo(accountId), this.mustSetPassword(profileId));
+    }
+
+    @Override
+    public AuthenticationResult leaveTenant(Long currentAccountId) {
+        Long profileId = personBehind(currentAccountId);
+        List<MembershipOption> options = this.resolveMemberships(profileId);
+        // Nothing left to choose from: the same answer a login with nowhere to go gets, worded for
+        // who this is — a consultant whose grants have all lapsed is told to ask the platform (CE2),
+        // not "your administrator".
+        if (options.isEmpty()) {
+            throw noCompanyRefusal(profileId);
+        }
+        // Always the picker, even with a single company left. The person was just removed from
+        // somewhere; walking them silently into somewhere else would read as the refusal having
+        // failed, and the picker is where the reason is shown.
+        return AuthenticationResult.choicePending(
+                profileId, options, this.mustSetPassword(profileId), issuePreAuthToken(profileId));
     }
 
     /**

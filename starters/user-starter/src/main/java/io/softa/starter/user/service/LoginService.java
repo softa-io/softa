@@ -185,6 +185,30 @@ public interface LoginService {
     AuthenticationResult switchTenant(Long currentAccountId, Long accountId);
 
     /**
+     * Leave the tenant the session is in and go back to the company step — still authenticated
+     * (PRD CE3: "回 Select Tenant", or CE2 when nothing is left to pick).
+     *
+     * <p>The person's authorization for THIS company ended — disabled, revoked, or past its end
+     * date — and that says nothing about who they are or about their other companies. Signing them
+     * out entirely, which is what the client did first, made them prove their identity again with a
+     * fresh code to reach a picker the server could have handed them directly.
+     *
+     * <p>Answers the same shape a fresh login answers when a choice is pending: the person's current
+     * memberships and a single-use pre-auth token that authorizes {@link #selectTenant}. The
+     * company that refused them is absent from the list by construction (a consultant row with no
+     * live grant does not resolve), so the picker cannot offer the door that just closed. When no
+     * company is left at all, this throws the same refusal a login with nowhere to go throws —
+     * for a consultant, CE2's wording.
+     *
+     * <p>No session is ended here — the controller owns the session, and drops it only after this
+     * has answered, so a refusal leaves the caller exactly where they were.
+     *
+     * @param currentAccountId the membership the session maps to
+     * @return a choice-pending result; never a resolved one
+     */
+    AuthenticationResult leaveTenant(Long currentAccountId);
+
+    /**
      * Forgot password — issue a self-service password-reset token and email the set-password link.
      *
      * @param email registered email

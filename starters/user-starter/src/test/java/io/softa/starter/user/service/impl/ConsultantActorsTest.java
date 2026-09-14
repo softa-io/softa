@@ -1,13 +1,16 @@
 package io.softa.starter.user.service.impl;
 
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserAccountService;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,25 +34,58 @@ import static org.mockito.Mockito.when;
 class ConsultantActorsTest {
 
     private final UserAccountService accountService = mock(UserAccountService.class);
+    private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final ConsultantServiceImpl consultantService = new ConsultantServiceImpl();
 
     ConsultantActorsTest() {
         ReflectionTestUtils.setField(consultantService, "accountService", accountService);
+        ReflectionTestUtils.setField(consultantService, "identityService", identityService);
     }
 
-    private static UserAccount account(Long id) {
+    private static UserAccount account(Long id, Long profileId) {
         UserAccount a = new UserAccount();
         a.setId(id);
+        a.setProfileId(profileId);
         return a;
     }
 
-    @Test
-    void onlyTheConsultantActorsComeBack() {
-        // The query itself filters on the flag, so whatever it returns IS the consultant subset —
-        // the employee ids simply never appear in the answer.
-        when(accountService.searchList(any(Filters.class))).thenReturn(List.of(account(2L)));
+    private static UserIdentity identity(Long profileId, String email) {
+        UserIdentity i = new UserIdentity();
+        i.setProfileId(profileId);
+        i.setLoginEmail(email);
+        return i;
+    }
 
-        assertThat(consultantService.consultantActors(List.of(1L, 2L, 3L))).isEqualTo(Set.of(2L));
+    @Test
+    void onlyTheConsultantActorsComeBack_eachWithTheirLoginEmail() {
+        // The account query itself filters on the flag, so whatever it returns IS the consultant
+        // subset — the employee ids simply never appear. The email is the PERSON's login
+        // identifier (PRD §4.4 names the actor by it), read from the credential in one batch.
+        when(accountService.searchList(any(Filters.class))).thenReturn(List.of(account(2L, 20L)));
+        when(identityService.searchList(any(Filters.class))).thenReturn(List.of(identity(20L, "c@zingkey.com")));
+
+        assertThat(consultantService.consultantActors(List.of(1L, 2L, 3L)))
+                .isEqualTo(Map.of(2L, "c@zingkey.com"));
+    }
+
+    @Test
+    void aConsultantWithNoCredentialRowIsStillFlagged() {
+        // The flag is the load-bearing half: a missing email must not make the change unattributed.
+        when(accountService.searchList(any(Filters.class))).thenReturn(List.of(account(2L, 20L)));
+        when(identityService.searchList(any(Filters.class))).thenReturn(List.of());
+
+        Map<Long, String> actors = consultantService.consultantActors(List.of(2L));
+        assertThat(actors).containsKey(2L);
+        assertThat(actors.get(2L)).isNull();
+    }
+
+    @Test
+    void tooManyActorsAtOnceIsRefused() {
+        // The audit panel asks for one page; an unbounded IN is a way to walk the account table.
+        List<Long> tooMany = java.util.stream.LongStream.rangeClosed(1, 501).boxed().toList();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> consultantService.consultantActors(tooMany))
+                .hasMessageContaining("At most 500");
+        verify(accountService, never()).searchList(any(Filters.class));
     }
 
     @Test
