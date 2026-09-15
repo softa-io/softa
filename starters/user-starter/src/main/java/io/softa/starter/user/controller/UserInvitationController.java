@@ -28,6 +28,7 @@ import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
 import io.softa.starter.user.service.RoleService;
 import io.softa.starter.user.service.UserRoleRelService;
+import io.softa.framework.base.enums.BuiltinRole;
 
 /**
  * Shadows the generic {@code /UserInvitation} list reads so the platform super-admin can see the
@@ -97,7 +98,7 @@ public class UserInvitationController {
     private static boolean isPlatformSuperAdmin() {
         Context context = ContextHolder.getContext();
         Set<String> roleCodes = context == null ? null : context.getRoleCodes();
-        return roleCodes != null && roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 
     /**

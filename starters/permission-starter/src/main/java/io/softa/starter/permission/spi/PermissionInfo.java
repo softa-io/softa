@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.softa.framework.base.enums.BuiltinRole;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -36,12 +37,29 @@ public class PermissionInfo implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /** Role code that identifies a platform super-admin (cross-tenant, all menus + platform Ops). */
-    public static final String CODE_SUPER_ADMIN = "SUPER_ADMIN";
+    public static final String CODE_SUPER_ADMIN = BuiltinRole.SUPER_ADMIN.getCode();
 
     /** Role code that identifies a tenant super-admin — bypasses permission/scope WITHIN its own
      *  tenant (tenant-isolated, no cross-tenant), but is denied platform-only endpoints (billing /
      *  provisioning / cross-tenant Ops; see {@code PermissionInterceptorProperties.platformOnlyPatterns}). */
-    public static final String CODE_TENANT_ADMIN = "TENANT_ADMIN";
+    public static final String CODE_TENANT_ADMIN = BuiltinRole.TENANT_ADMIN.getCode();
+
+    /**
+     * Platform consultant working inside a client company under a dated grant.
+     *
+     * <p>A third kind of principal, not a third admin. The distinction is the whole point: a
+     * consultant sees the tenant's data without restriction — that is what they were brought in to
+     * work on — but the MENUS they get are whatever the tenant's subscription includes, no more.
+     * Folding them into {@link #isAdmin()} would hand them screens the tenant has not bought.
+     *
+     * <p>Not a role with grant rows either. A downgrade physically deletes over-plan role grants and
+     * a re-upgrade does not restore them (the entitlement cleanup's deliberate design), and this
+     * role is not editable and does not appear in the tenant's role management — so a single
+     * downgrade would strip it permanently with nobody able to put it back. Deriving the menus from
+     * the subscription at request time has no such failure mode, and makes an upgrade take effect
+     * the moment it is bought.
+     */
+    public static final String CODE_CONSULTANT = BuiltinRole.CONSULTANT.getCode();
 
     @Schema(description = "Role codes the user holds (display + super-admin check; auth decisions use permissions / nav sets)")
     private Set<String> roleCodes;
@@ -97,7 +115,7 @@ public class PermissionInfo implements Serializable {
      * a null {@code pi}.
      */
     public boolean isSuperAdmin() {
-        return roleCodes != null && roleCodes.contains(CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 
     /** Static null-tolerant variant — {@code pi == null} treated as not super-admin. */
@@ -107,7 +125,7 @@ public class PermissionInfo implements Serializable {
 
     /** True iff the user holds the {@link #CODE_TENANT_ADMIN} role — a tenant-scoped super-admin. */
     public boolean isTenantAdmin() {
-        return roleCodes != null && roleCodes.contains(CODE_TENANT_ADMIN);
+        return BuiltinRole.TENANT_ADMIN.heldBy(roleCodes);
     }
 
     /** Static null-tolerant variant of {@link #isTenantAdmin()}. */
@@ -128,5 +146,35 @@ public class PermissionInfo implements Serializable {
     /** Static null-tolerant variant of {@link #isAdmin()}. */
     public static boolean isAdmin(PermissionInfo pi) {
         return pi != null && pi.isAdmin();
+    }
+
+    /** True iff the user is acting as a consultant inside this tenant — see {@link #CODE_CONSULTANT}. */
+    public boolean isConsultant() {
+        return BuiltinRole.CONSULTANT.heldBy(roleCodes);
+    }
+
+    /** Static null-tolerant variant of {@link #isConsultant()}. */
+    public static boolean isConsultant(PermissionInfo pi) {
+        return pi != null && pi.isConsultant();
+    }
+
+    /**
+     * Whether this principal reads the tenant's data without row scope, field masking or write
+     * guards — the admins, plus a consultant.
+     *
+     * <p>Separate from {@link #isAdmin()} on purpose, and this is the line the whole consultant
+     * design rests on: the DATA plane treats a consultant like an admin, the MENU plane does not.
+     * Every data-plane check asks this; endpoint and navigation checks keep asking
+     * {@code isAdmin()}, so a consultant is still bounded by what the tenant's plan includes.
+     * Merging the two would silently sell the tenant's whole menu to whoever authorized a
+     * consultant.
+     */
+    public boolean hasFullDataAccess() {
+        return isAdmin() || isConsultant();
+    }
+
+    /** Static null-tolerant variant of {@link #hasFullDataAccess()}. */
+    public static boolean hasFullDataAccess(PermissionInfo pi) {
+        return pi != null && pi.hasFullDataAccess();
     }
 }

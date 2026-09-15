@@ -12,6 +12,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import java.time.LocalDateTime;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,8 @@ import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserRoleRelService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.user.service.LoginService;
 
 /**
  * UserAccount Model Service Implementation
@@ -66,6 +69,13 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @Autowired
     private UserIdentityService identityService;
 
+    /** @Lazy breaks the UserAccount ⇄ Login service cycle: LoginServiceImpl injects this service.
+     *  Used only to ask the one question about whether a password is owed, so the rule has a single
+     *  definition instead of a copy on each screen that asks. */
+    @Autowired
+    @Lazy
+    private LoginService loginService;
+
     /** Role grants are cleared on off-boarding and on reviving a membership. */
     @Autowired
     private UserRoleRelService roleRelService;
@@ -76,7 +86,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     /** Optional: the contact-change notice names the company; absent tenant-starter → blank. */
     @Autowired(required = false)
-    private io.softa.framework.orm.service.TenantInfoService tenantInfoService;
+    private TenantInfoService tenantInfoService;
 
     /**
      * Every single-entity account write funnels through here, so this is the one place that has to
@@ -357,9 +367,31 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             return NewAccountDecision.refuse(mobileRefusal);
         }
         if (membershipHere != null && closedRow == null) {
-            return NewAccountDecision.refuse("This person is already a member of this company.");
+            return NewAccountDecision.refuse(liveMembershipRefusal(membershipHere));
         }
         return new NewAccountDecision(existingPerson, closedRow, null);
+    }
+
+    /**
+     * Why a live membership blocks the create — and, when it is a consultant's, that it IS one.
+     *
+     * <p>A consultant's membership is minted by the platform and hidden from every roster read
+     * ({@code UserRosterScope} filters it out before anything else narrows), so the generic wording
+     * sent an operator to look for a row they are structurally unable to see: the account list says
+     * this company has no such member, and it never will. The message named a fact the UI is built
+     * to contradict.
+     *
+     * <p>Saying "consultant" turns that dead end into something actionable — not by this operator,
+     * who cannot administer these memberships by design, but by pointing at the side that can. The
+     * refusal itself is unchanged: whether one person may be both a consultant and an employee of
+     * one company is left undefined by the requirement, and a message is not the place to decide it.
+     */
+    private String liveMembershipRefusal(UserAccount membership) {
+        if (Boolean.TRUE.equals(membership.getConsultant())) {
+            return "This person is a consultant for this company, so they cannot also be created "
+                    + "as an employee here. Ask the platform administrator.";
+        }
+        return "This person is already a member of this company.";
     }
 
     /** The person whose live login identifier this contact is, or null when it is nobody's. */
@@ -943,13 +975,14 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             // No session, nothing owed — the caller is not the person this could apply to.
             return false;
         }
+        // Delegated rather than decided here. This used to be its own blank-password test, which is
+        // how a consultant still met the set-password wall after logging in: the login response said
+        // no and this said yes, and the login page ORs the two. Whether somebody must set a password
+        // has one answer, and LoginService owns it — a consultant is exempt, a person with
+        // no credentials row at all is not forced into a screen the set-password call would refuse.
         return this.getById(userId)
-                .map(account -> account.getProfileId() != null
-                        && identityService.findByProfile(account.getProfileId())
-                                .map(identity -> StringUtils.isBlank(identity.getPassword()))
-                                // No credentials row at all: a data fault, and NOT a reason to
-                                // force a password screen the set-password call would then refuse.
-                                .orElse(false))
+                .map(UserAccount::getProfileId)
+                .map(loginService::mustSetPassword)
                 .orElse(false);
     }
 

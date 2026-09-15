@@ -1,5 +1,6 @@
 package io.softa.starter.user.constant;
 
+import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.starter.user.entity.Role;
 
 /**
@@ -27,7 +28,7 @@ public final class RoleConstant {
      * <p>The role row itself cannot be deleted / renamed / made inactive;
      * the service layer also rejects revoking the last Manual holder.
      */
-    public static final String CODE_SUPER_ADMIN = "SUPER_ADMIN";
+    public static final String CODE_SUPER_ADMIN = BuiltinRole.SUPER_ADMIN.getCode();
 
     /**
      * Reserved code for a tenant super-admin role. Holders bypass the permission gate WITHIN
@@ -35,7 +36,8 @@ public final class RoleConstant {
      * endpoints (billing / provisioning; see {@code PermissionInterceptorProperties.platformOnlyPatterns}).
      * Seeded per-tenant by provisioning; the first tenant admin is granted this role.
      */
-    public static final String CODE_TENANT_ADMIN = "TENANT_ADMIN";
+    public static final String CODE_TENANT_ADMIN = BuiltinRole.TENANT_ADMIN.getCode();
+
 
     /** Null-safe — true when the given role is the reserved tenant super-admin role. */
     public static boolean isTenantAdmin(Role role) {

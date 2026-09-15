@@ -35,6 +35,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * The password lockout (PRD D5 / A8) — "linked across tenants" comes free from the credential
@@ -72,6 +73,8 @@ class PasswordLockoutTest {
 
     PasswordLockoutTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);

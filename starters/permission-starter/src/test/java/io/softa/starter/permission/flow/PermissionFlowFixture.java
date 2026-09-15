@@ -287,7 +287,7 @@ public final class PermissionFlowFixture {
         // than an NPE in an unrelated test.
         provider = new DefaultPermissionSnapshotProvider(cacheService, modelService, sfsCache,
                 () -> null,
-                java.util.List.of());
+                java.util.List.of(), List.of());
     }
 
     // ─── FlexQuery filter extraction helpers (framework types only) ───

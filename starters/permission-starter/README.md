@@ -51,6 +51,40 @@ you get, auto-wired:
   row-filtering, field masking and write guards; registered via
   `@Bean @ConditionalOnMissingBean` (an app may override, e.g. a no-op stub).
 
+## Principals
+
+Three, and the third is not a third admin.
+
+| | Endpoint gate | Row scope / field mask / write guard | Where its reach comes from |
+|---|---|---|---|
+| `SUPER_ADMIN` | platform + shared navs | skipped | the platform's own modules |
+| `TENANT_ADMIN` | everything its tenant's plan entitles | skipped | that plan |
+| `CONSULTANT` | everything its tenant's plan entitles | **skipped** | that plan, for as long as the grant lasts |
+
+The line the whole design rests on is the split between two predicates on
+`PermissionInfo`:
+
+```java
+isAdmin()            // SUPER_ADMIN or TENANT_ADMIN — asked by the ENDPOINT and NAV checks
+hasFullDataAccess()  // isAdmin() or CONSULTANT     — asked by every DATA-plane check
+```
+
+A consultant reads the tenant's data unrestricted — that is what they were brought
+in to work on — but the MENUS they get are whatever the tenant bought, no more.
+Merging the two predicates would silently sell a tenant's entire menu to whoever
+authorized a consultant into it.
+
+`CONSULTANT` is **derived from the acting membership, never stored as a `Role`
+row**. A stored role would appear in the tenant's own role management, which this
+one is explicitly not supposed to be visible in; and the entitlement cleanup
+hard-deletes role grants on a plan downgrade without restoring them, so one
+downgrade would strip every consultant in that tenant permanently, with no role
+left for anyone to put back. Derived, an upgrade takes effect the moment it is
+bought and a downgrade narrows on its own.
+
+Whether the derived principal may still act **is not part of the snapshot** — see
+`ConsultantAccessChecker` below and step 5 of route admission.
+
 ## The SPI seams
 
 `permission-starter` defines the **contract**; someone else provides the
@@ -64,16 +98,25 @@ calls it directly); the rest live in `io.softa.starter.permission.spi`.
 | `PermissionSnapshotProvider` | `permission-starter.spi` | `(tenantId, userId) → PermissionInfo` | `DefaultPermissionSnapshotProvider` (builds via 约定读) — or `RedisPermissionSnapshotProvider` (read-only) for pure-enforce |
 | `PermissionEndpointSource` | `permission-starter.spi` | endpoint → permission rows | `DbPermissionEndpointSource` |
 | `SensitiveFieldSetSource` | `permission-starter.spi` | sensitive-field-set defs | `DbSensitiveFieldSetSource` |
+| `EntitlementService` | `softa-orm` | tenantId → the modules its plan entitles | tenant-starter; **optional** — absent = everything entitled |
+| `ConsultantAccessChecker` | `softa-orm` | accountId → may this membership still act, right now | user-starter; **optional** — absent = the question is never asked |
 
 Every SPI ships a **`@ConditionalOnMissingBean` default in this module**, so
 permission-starter is self-sufficient: `DefaultPermissionSnapshotProvider` builds
 the per-user snapshot from the RBAC config models **by name** (约定读 into view
 DTOs), and the `Db*` sources read the endpoint / sensitive-field-set config the
-same way. `user-starter` implements **none** of these SPIs — it is fully ⊥ of the
-engine (no compile dependency in *either* direction, main or test). An app that
-needs different behaviour (a pure-enforce microservice with an RPC re-sourcer, a
-no-op stub, …) registers its own bean and the `@ConditionalOnMissingBean` steps
-aside.
+same way. An app that needs different behaviour (a pure-enforce microservice with
+an RPC re-sourcer, a no-op stub, …) registers its own bean and the
+`@ConditionalOnMissingBean` steps aside.
+
+**`user-starter` and this module stay ⊥** — no compile dependency in *either*
+direction, main or test. The last two rows are how a question can still cross that
+line: they are declared in `softa-orm`, the layer both sides already depend on, and
+injected `required = false`. The engine asks; whoever installed the starter that
+knows the answer provides it; a deployment with neither still starts. That is also
+why `ConsultantAccessChecker` names a business concept inside the framework — a
+deliberate trade, taken because there is no third place for the contract to live,
+and recorded on the interface itself.
 
 ## Package layout
 
@@ -281,7 +324,21 @@ permission:
     - /actuator/health
   authenticated-bypass-patterns:  # authenticated but no permission needed
     - /me/**                      # returns the caller's own data
+  platform-only-patterns:         # only SUPER_ADMIN may reach these
+    - /Plan/**                    # billing / provisioning / cross-tenant Ops
+  platform-nav-prefixes: navigation.system.,navigation.studio.
+  shared-nav-prefixes: navigation.message.
 ```
+
+The two prefix lists are **disjoint, and answer different questions**:
+`platform-nav-prefixes` is what a tenant admin is kept OUT of; `shared-nav-prefixes`
+is what both audiences are let INTO. A tenant admin's nav set is *every* nav minus
+the platform prefixes (fail-open); the platform admin's is *only* the platform
+prefixes plus the shared ones (fail-closed). Folding the two lists into one would
+name system and studio twice, once under each meaning — the shape that drifts.
+
+Both are read twice, by `DefaultPermissionSnapshotProvider` here and by
+user-starter's `UiContextBuilder`, which assembles the same answer for the client.
 
 Framework infrastructure (`/error`, `/actuator/**`, `/swagger-ui/**`,
 `/v3/api-docs/**`, `/favicon.ico`) is excluded from the interceptor out of the
@@ -291,11 +348,36 @@ box.
 
 1. Public URI → allow.
 2. No authenticated user → reject.
-3. Authenticated-bypass pattern → allow (caller's own data).
-4. Super-admin → allow.
-5. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
-   (unknown URLs are denied, not opened).
-6. Snapshot holds a required permission? allow, else 403.
+3. No tenant on the context → reject (`ConfigurationException`, so monitoring can
+   tell a wiring fault from a permission one).
+4. Authenticated-bypass pattern → allow (caller's own data).
+5. **Consultant whose authorization has ended → 414** (`ConsultantAccessChecker`).
+   Asked here, ahead of *every* bypass below, because a consultant's access ends on
+   a DATE and the snapshot's own TTL would keep a lapsed one inside a customer's
+   tenant. Deliberately after step 4: the client that just learned its authorization
+   ended still has to reach `/me/**` and the tenant list to render that.
+6. Principal branches — each **bounded**, none a blanket allow:
+   - **SUPER_ADMIN** → platform-only patterns exempt, then matched against its own
+     snapshot (which `platformAdminSnapshot` narrowed to the platform + shared navs).
+   - **TENANT_ADMIN** → platform-only patterns denied, then matched against its
+     snapshot (which the tenant's plan narrowed) — this is where 版本计费 is enforced
+     for an admin, who holds no static grants for a downgrade to strip.
+   - **CONSULTANT** → the same gate as a tenant admin, reached by its own rule: a
+     consultant's menus are the tenant's subscription in full. Two rules that agree
+     today, not one rule.
+   An **unregistered** endpoint still passes all three — plenty of endpoints carry no
+   permission mapping, and denying those would turn a billing gate into an outage.
+   Closing the mapping gap is `EndpointCoverageValidator`'s job, not this branch's.
+7. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
+   (unknown URLs are denied, not opened) — for everyone who reached this step.
+8. Snapshot holds a required permission? allow, else 403.
+
+> **Changed:** the super-admin used to be step 4 and a blanket `return true`. It is
+> now step 6, bounded by its snapshot. Tenant business work belongs to the consultant,
+> who does it inside the customer that authorized them; the platform administrator
+> keeps System and Studio. Matching against the snapshot is what makes that a
+> boundary rather than a hidden sidebar — otherwise every tenant endpoint stays one
+> typed URL away.
 
 Fine-grained enforcement (row scope + field masking + write guards) then runs in
 the data plane via `PermissionService`, transparently inside `ModelServiceImpl`.

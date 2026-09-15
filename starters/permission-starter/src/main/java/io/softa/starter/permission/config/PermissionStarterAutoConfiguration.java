@@ -97,7 +97,8 @@ public class PermissionStarterAutoConfiguration {
             @Lazy ModelService<?> modelService,
             @Lazy SensitiveFieldSetCache sensitiveFieldSetCache,
             ObjectProvider<ScopeRuleCompiler> scopeRuleCompiler,
-            @Value("${permission.platform-nav-prefixes:}") String platformNavPrefixes) {
+            @Value("${permission.platform-nav-prefixes:}") String platformNavPrefixes,
+            @Value("${permission.shared-nav-prefixes:}") String sharedNavPrefixes) {
         // Default: build the per-user snapshot from the standard RBAC config models
         // (约定读 into view DTOs). A pure-enforce deployment without those models
         // gets fail-closed nulls and should register its own provider (e.g. a
@@ -109,7 +110,8 @@ public class PermissionStarterAutoConfiguration {
         // first use without one, and lets a pure-enforce context that registers no compiler start
         // instead of failing at wiring.
         return new DefaultPermissionSnapshotProvider(cacheService, modelService, sensitiveFieldSetCache,
-                scopeRuleCompiler::getIfAvailable, splitCsv(platformNavPrefixes));
+                scopeRuleCompiler::getIfAvailable, splitCsv(platformNavPrefixes),
+                splitCsv(sharedNavPrefixes));
     }
 
     /** Split a comma-separated config value into a trimmed, non-empty list. */

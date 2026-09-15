@@ -112,6 +112,28 @@ class PermissionRegistryValidatorTest {
         assertThat(errors).isEmpty();
     }
 
+    @Test
+    void checkPermissionUniqueness_nullNavigationId_reportsError() throws Exception {
+        // Both admin snapshots build their permission set from the navigations they may reach, so a
+        // permission naming none lands in nobody's set — and because the gate treats a REGISTERED
+        // endpoint as gated, its endpoints stop answering for the platform administrator and the
+        // tenant administrator alike. Silently: the row looks fine and the endpoints are indexed.
+        List<String> errors = new ArrayList<>();
+        callCheckPermissionUniqueness(List.of(perm("employee.view", null)), errors);
+        assertThat(errors).hasSize(1);
+        assertThat(errors.getFirst()).contains("employee.view").contains("navigationId is null");
+    }
+
+    @Test
+    void checkPermissionUniqueness_nullIdAndNullNav_reportsNeither() throws Exception {
+        // The paired case: the id check skips a row with no id, and the nav check must skip it too —
+        // an unidentifiable row cannot be reported usefully, and reporting it twice from one row
+        // would make a single bad seed look like two.
+        List<String> errors = new ArrayList<>();
+        callCheckPermissionUniqueness(List.of(perm(null, null)), errors);
+        assertThat(errors).isEmpty();
+    }
+
     // ─── Rule ⑤: nav parent/child type compatibility ───
 
     @Test

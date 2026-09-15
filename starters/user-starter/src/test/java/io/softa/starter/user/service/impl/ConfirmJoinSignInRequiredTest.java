@@ -33,6 +33,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * confirmJoin on a bound row does not sign in a person who can sign in elsewhere — password or not.
@@ -69,6 +70,8 @@ class ConfirmJoinSignInRequiredTest {
 
     ConfirmJoinSignInRequiredTest() {
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);

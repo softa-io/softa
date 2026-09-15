@@ -34,6 +34,7 @@ import io.softa.starter.user.service.UserRosterScope;
 import io.softa.starter.user.service.impl.UiContextBuilder;
 import io.softa.starter.user.util.ModelRefIds;
 import io.softa.starter.user.util.PermissionSnapshotKey;
+import io.softa.framework.base.enums.BuiltinRole;
 
 /**
  * Read-only admin API for the user-access (RBAC) management UI — the endpoints
@@ -92,7 +93,19 @@ public class UserAccessController {
         q.setFields(List.of(
                 "id", "nickname", "username", "email", "mobile",
                 "status", "createdTime", "updatedTime"));
-        List<Map<String, Object>> users = modelService.searchList("UserAccount", q);
+        // Through the roster scope, like every other UserAccount roster read. This one was reading
+        // the model raw, which is how consultant memberships — hidden from the User Accounts page
+        // since they were introduced — still turned up in the Add-Members and Assign-Roles dialogs.
+        // A tenant does not administer its consultants, and offering one as a candidate invites an
+        // administrator to grant a role to somebody they cannot even see.
+        //
+        // Routing it here rather than filtering consultants out on the spot is the point of that
+        // class: the dialogs and the page they open from now compute their bounds from one place,
+        // which is what stops a panel from listing a user the page itself will not open.
+        List<Map<String, Object>> users = rosterScope.call(() -> {
+            q.setFilters(rosterScope.scopeByTenant(q.getFilters()));
+            return modelService.searchList("UserAccount", q);
+        });
 
         Map<Long, EmployeeOrgView> ctxByUser = loadOrgContext(users);
 
@@ -241,6 +254,6 @@ public class UserAccessController {
     }
 
     private static boolean holdsSuperAdmin(Set<String> roleCodes) {
-        return roleCodes != null && roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 }

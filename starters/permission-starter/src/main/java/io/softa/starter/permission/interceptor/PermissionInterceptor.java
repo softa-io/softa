@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -15,9 +16,13 @@ import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.BuiltinRole;
+import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.enums.SystemRole;
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.ConfigurationException;
 import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.orm.service.ConsultantAccessChecker;
 import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import io.softa.starter.permission.index.EndpointIndex;
@@ -42,6 +47,13 @@ import io.softa.starter.permission.index.EndpointIndex;
 public class PermissionInterceptor implements HandlerInterceptor {
 
     private final AntPathMatcher matcher = new AntPathMatcher();
+
+    /** Whether a consultant's authorization for this tenant still stands, asked per request.
+     *  Optional — a deployment without consultants installs no
+     *  implementation, and the consultant branch never fires there anyway. Field-injected: the
+     *  constructor is RequiredArgs over finals. */
+    @Autowired(required = false)
+    private ConsultantAccessChecker consultantAccessChecker;
     private final EndpointIndex endpointIndex;
     private final PermissionSnapshotProvider snapshotProvider;
     /** Whitelist patterns bound via {@code @ConfigurationProperties} — see
@@ -104,34 +116,60 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // aspects (e.g. {@code @RequireRole}) can gate on system roles without
         // depending on the user-starter permission model.
         bridgeRoleCodesToContext(ctx, pi);
-        // Platform super-admin — full bypass, cross-tenant (crossTenant set in the bridge).
-        if (PermissionInfo.isSuperAdmin(pi)) return true;
+        // Whether the consultant's authorization still stands — asked on every request, and asked
+        // FIRST, ahead of every bypass below. A consultant's
+        // access ends on a DATE and nobody edits anything when it lapses at midnight; cached with the
+        // snapshot it would keep a lapsed consultant inside a customer's tenant for the rest of the TTL.
+        //
+        // Ahead of the admin branches because those return early. This check used to sit inside the
+        // consultant branch, which is reached only when the caller holds neither admin code — so a
+        // consultant membership that had somehow picked up TENANT_ADMIN took the admin branch and was
+        // never asked whether its authorization still stood. Disable, revoke and expiry all stopped
+        // applying to exactly the consultant with the most reach. The question is about the
+        // MEMBERSHIP, not about which bypass the caller earns afterwards, so it belongs before all of
+        // them.
+        //
+        // Deliberately after the authenticated-bypass patterns above: /me/**, the tenant list and the
+        // self-service reads have to keep working, or the client that just learned its authorization
+        // ended could not render that state or find the person's other tenants. Refusing everything
+        // would strand them on a blank screen instead of the picker.
+        if (PermissionInfo.isConsultant(pi) && consultantAccessChecker != null
+                && !consultantAccessChecker.stillAuthorized(ctx.getUserId())) {
+            log.info("Consultant authorization ended — userId={}, tenantId={}, uri={} {}",
+                    ctx.getUserId(), ctx.getTenantId(), method, uri);
+            throw new BusinessException(ResponseCode.CONSULTANT_AUTHORIZATION_ENDED,
+                    "Your authorization for this tenant has ended.");
+        }
+        // Platform super-admin — cross-tenant (crossTenant is set in the bridge above and stays: the
+        // account roster and provisioning span tenants by definition), but no longer a full bypass.
+        //
+        // Tenant business work belongs to the consultant now, who does it inside the customer that
+        // authorized them and for as long as that authorization lasts. The platform administrator
+        // keeps System and Studio. Matching against their snapshot — which platformAdminSnapshot
+        // narrowed to exactly those — is what makes that a boundary rather than a hidden sidebar:
+        // otherwise every tenant endpoint stays one typed URL away.
+        if (PermissionInfo.isSuperAdmin(pi)) {
+            return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.SUPER_ADMIN);
+        }
         // Tenant super-admin — bypasses the permission gate WITHIN its own tenant (tenant-isolated,
         // crossTenant stays false), but is denied platform-only Ops endpoints (billing / plan /
         // provisioning) which only SUPER_ADMIN may reach, and endpoints belonging to a module its
         // plan does not entitle.
         if (PermissionInfo.isTenantAdmin(pi)) {
-            if (matchAny(properties.getPlatformOnlyPatterns(), uri)) {
-                log.warn("Platform-only endpoint denied to tenant-admin — userId={}, uri={} {}",
-                        ctx.getUserId(), method, uri);
-                throw new PermissionException("Platform-admin only: " + method + " " + uri);
-            }
-            // The admin's snapshot is already narrowed to its plan (tenantAdminSnapshot), so matching
-            // against it is what enforces 版本计费 for an admin. This cannot be left to the frontend or
-            // to the downgrade cleanup: an admin holds no static nav grants, so a downgrade has nothing
-            // to strip for it, and a direct call would otherwise reach a dropped module's endpoints.
-            //
-            // An UNREGISTERED endpoint still bypasses. That is what this branch has always been for —
-            // plenty of endpoints carry no permission mapping, and a tenant admin is expected to reach
-            // them. Denying those here would turn a billing gate into a broad outage.
-            Set<String> adminCandidates = endpointIndex.lookup(uri, method);
-            if (adminCandidates != null && !adminCandidates.isEmpty()
-                    && Collections.disjoint(pi.getPermissions(), adminCandidates)) {
-                log.warn("Module not entitled for tenant-admin — userId={}, uri={} {}, required any of: {}",
-                        ctx.getUserId(), method, uri, adminCandidates);
-                throw new PermissionException("Missing permission for " + method + " " + uri);
-            }
-            return true;
+            return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.TENANT_ADMIN);
+        }
+        // Platform consultant — the same gate, reached by a different rule. A consultant's menus and
+        // functions are defined as the tenant's current subscription in full, which is computed the
+        // same way a tenant admin's are; they are two rules that agree today, not one rule.
+        //
+        // Its own named branch rather than folding CONSULTANT into isTenantAdmin(), because that
+        // predicate is a bypass and a bypass has no dial: were consultants ever to be narrowed —
+        // the platform deciding they should not reach payroll, say — there would be nothing to
+        // change here without first unpicking them back out of the admin path, and every other
+        // reader of "is a tenant admin" would have silently started answering yes for them.
+        if (PermissionInfo.isConsultant(pi)) {
+            // The authorization was checked above, before any bypass; this branch only decides the gate.
+            return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.CONSULTANT);
         }
 
         // EndpointIndex.lookup returns every permission id that lists this
@@ -203,6 +241,64 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     private boolean isPublic(String uri) {
         return matchAny(properties.getPublicUriPatterns(), uri);
+    }
+
+    /**
+     * The gate an admin-shaped principal passes: bypasses per-permission checks inside its own
+     * tenant, but is denied platform-only Ops endpoints and anything in a module the tenant's plan
+     * does not entitle.
+     *
+     * <p>The plan match is enforcement, not decoration. Neither principal holds static nav grants, so
+     * the downgrade cleanup has nothing to strip for either, and their snapshot's permission set — the
+     * set matched here — is the only thing standing between a direct call and a dropped module's
+     * endpoints.
+     *
+     * <p><b>An unregistered endpoint still bypasses.</b> That is what this path has always been for:
+     * plenty of endpoints carry no permission mapping at all, and refusing those would turn a billing
+     * gate into a broad outage. It is also why the coverage validator exists — the mapping gap is the
+     * thing to close, not this allowance.
+     *
+     * @param principal which of the built-in roles is calling — named in the logs by its role code,
+     *                  and the one input to {@link #deniedPlatformOnly}
+     */
+    private boolean planBoundedBypass(PermissionInfo pi, Context ctx, String uri, String method,
+                                      BuiltinRole principal) {
+        if (deniedPlatformOnly(principal) && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied to {} — userId={}, uri={} {}",
+                    principal, ctx.getUserId(), method, uri);
+            throw new PermissionException("Platform-admin only: " + method + " " + uri);
+        }
+        Set<String> candidates = endpointIndex.lookup(uri, method);
+        if (candidates != null && !candidates.isEmpty()
+                && Collections.disjoint(pi.getPermissions(), candidates)) {
+            log.warn("Module not entitled for {} — userId={}, uri={} {}, required any of: {}",
+                    principal, ctx.getUserId(), method, uri, candidates);
+            throw new PermissionException("Missing permission for " + method + " " + uri);
+        }
+        return true;
+    }
+
+    /**
+     * Whether the platform-only endpoints — billing, plan, provisioning, the consultant models — are
+     * barred to this principal.
+     *
+     * <p>Exactly one is exempt: the platform administrator, who is who those endpoints exist FOR.
+     * Everyone INSIDE a tenant is barred, a tenant admin and a consultant alike; refusing the
+     * platform here would deny it its console and leave nobody able to provision anything.
+     *
+     * <p>Written as "not the platform" rather than as a list of the barred, so that a built-in role
+     * added later is barred until somebody decides otherwise — fail-closed, which is the right
+     * default for a whitelist of the platform's own operations. Package-private for the test that
+     * pins this over every value of {@link BuiltinRole}.
+     *
+     * <p>This used to be a private enum beside this method, carrying a log label and this flag per
+     * principal. {@link BuiltinRole} now names the same three in the framework's base, so the enum
+     * was a second copy of an identity that already had one home — and the flag reduces to one
+     * comparison. The logs now print the role code itself, which is also what {@code role.code}
+     * and a user's {@code roleCodes} carry, so one term greps across all three.
+     */
+    static boolean deniedPlatformOnly(BuiltinRole principal) {
+        return principal != BuiltinRole.SUPER_ADMIN;
     }
 
     private boolean matchAny(List<String> patterns, String uri) {

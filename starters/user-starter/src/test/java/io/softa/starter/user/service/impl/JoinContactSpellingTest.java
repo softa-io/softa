@@ -28,6 +28,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * The first-time invitee whose work contact HR typed with surrounding whitespace.
@@ -60,6 +61,8 @@ class JoinContactSpellingTest {
     JoinContactSpellingTest() {
         ReflectionTestUtils.setField(profileService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "proofGuard", proofGuard);
         doReturn(PROFILE).when(profileService).createOne(any(UserProfile.class));
