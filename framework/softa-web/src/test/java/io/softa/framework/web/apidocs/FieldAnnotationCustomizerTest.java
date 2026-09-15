@@ -91,6 +91,14 @@ class FieldAnnotationCustomizerTest {
             @Override public String columnName() { return ""; }
             @Override public int length() { return length; }
             @Override public int scale() { return 0; }
+            @Override public String min() { return ""; }
+            @Override public String max() { return ""; }
+            @Override public String pattern() { return ""; }
+            @Override public String constraintMessage() { return ""; }
+            @Override public String requiredWhen() { return ""; }
+            @Override public String hiddenWhen() { return ""; }
+            @Override public String readonlyWhen() { return ""; }
+            @Override public String invalidWhen() { return ""; }
             @Override public boolean required() { return false; }
             @Override public boolean readonly() { return readonly; }
             @Override public boolean translatable() { return false; }

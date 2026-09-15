@@ -3,6 +3,7 @@ package io.softa.framework.orm.meta;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -29,6 +30,7 @@ import io.softa.framework.orm.utils.GraphUtils;
 /**
  * Model Manager, maintaining model metadata and field metadata in memory.
  */
+@Slf4j
 @Component
 public class ModelManager {
 
@@ -259,6 +261,44 @@ public class ModelManager {
             if (metaField.isAutoSequence()) {
                 verifyAutoSequenceAttribute(metaField);
             }
+            if (metaField.getConstraints() != null) {
+                verifyFieldConstraints(metaField);
+            }
+        }
+    }
+
+    /**
+     * Check a field's {@code constraints} against the loaded model and index the conditional ones.
+     *
+     * <p>The annotation lane has already run the same {@link FieldConstraints#validate} at scan time
+     * and failed the boot on a mistake; a declaration reaching here with a problem came from the
+     * studio lane or a hand-written row. That is logged and <b>dropped</b>, not thrown — one bad row
+     * must not make every write to the model fail, and the drift audit is the channel for the row.
+     * Runs after {@code verifyDynamicAttribute} so the final dynamic state is what is checked.
+     */
+    private static void verifyFieldConstraints(MetaField metaField) {
+        FieldConstraints constraints = metaField.getConstraints();
+        String modelName = metaField.getModelName();
+        try {
+            List<String> warnings = constraints.validate(metaField.getFieldType(), metaField.isDynamic(),
+                    modelName + "." + metaField.getFieldName(),
+                    field -> {
+                        MetaField sibling = getModelFieldOrNull(modelName, field);
+                        return sibling == null ? null : sibling.getFieldType();
+                    });
+            warnings.forEach(log::warn);
+        } catch (RuntimeException e) {
+            log.error("Field constraints on {}.{} are invalid and will be ignored: {}",
+                    modelName, metaField.getFieldName(), e.getMessage());
+            metaField.setConstraints(null);
+            return;
+        }
+        if (metaField.isRequired() && constraints.requiredWhen() != null) {
+            log.warn("Field {}.{} declares both required = true and requiredWhen; the condition never"
+                    + " applies because the static flag always wins.", modelName, metaField.getFieldName());
+        }
+        if (constraints.hasConditions()) {
+            modelMap().get(modelName).addConditionalField(metaField);
         }
     }
 

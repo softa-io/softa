@@ -114,6 +114,24 @@ extends `AuditableModel`.
 | `columnName` | String | `""` | `columnName` | empty → `snake_case(fieldName)` |
 | `length` | int | `0` | `length` | `0` → type default: STRING/OPTION 64, MULTI_STRING/ORDERS 256, DOUBLE 24 (measurements), BIG_DECIMAL 32 (money); declare explicitly for anything else. On `TEXT` fields length is optional — purely an app-level guard (the column is unbounded). Legacy: MySQL renders STRING `length > 16383` as TEXT (64KB bytes; prefer `fieldType = TEXT`) |
 | `scale` | int | `0` | `scale` | `0` → type default: DOUBLE 2, BIG_DECIMAL 8 (DECIMAL scale) |
+| `min` / `max` | String | `""` | `constraints` | **value domain**, not a column width — inclusive bounds enforced on every write by `ValueConstraints` (see below); numeric field types only, decimal literals (`"0"`, `"-1.5"`) so a `BigDecimal` bound stays exact. Parsed at scan time: a malformed literal or `min > max` fails the boot |
+| `pattern` | String | `""` | `constraints` | regex the **whole** value must match (`Pattern.matches`, not `find`); STRING / TEXT only, compiled at scan time. Keep to syntax Java and JavaScript agree on — the frontend evaluates the same string |
+| `constraintMessage` | String | `""` | `constraints` (`message`) | sentence shown as written when `min` / `max` / `pattern` / `invalidWhen` rejects a value; its own i18n key, like `@Index(message)`, not a `{0}` pattern. Optional for a bound ("must be at least 0" composes itself), effectively required for a `pattern` or an `invalidWhen` |
+| `requiredWhen` | String | `""` | `constraints` | filter expression over the same row under which the field is required, or `"true"` for application-level required on a nullable column (see below) |
+| `hiddenWhen` / `readonlyWhen` | String | `""` | `constraints` | filter expressions under which the field is hidden (and not judged) / rejects an assignment |
+| `invalidWhen` | String | `""` | `constraints` | filter expression that, when it holds, rejects the write with `constraintMessage` |
+
+A condition is written as an expression — `reason = "Others"` — which in a Java text block needs no
+escapes; the full declaration is shown in [entities.md](../../docs/ai/authoring/entities.md) and the
+grammar is below under "The expression grammar". The JSON spelling
+(`[["reason", "=", "Others"]]`) parses to the same tree and is kept for `IS SET` / `IS NOT SET`, which
+the expression grammar cannot parse — write those as a three-element unit,
+`[["terminationDate", "IS NOT SET", null]]`. The grammar names fields as `[a-z][a-zA-Z0-9]*`, so a
+related row's attribute is reached through a `cascadedField` declared on this model rather than a
+dotted path, and values are numbers, booleans or double-quoted strings. A value is a constant, a
+reference to this row (`{{ @startDate }}`) or an environment token (`{{ TODAY }}`) — see
+[placeholders.md](../../docs/ai/authoring/placeholders.md). Compare an option by its item code: a
+wrong code never fires and never reports.
 | `required` | boolean | `false` | `required` | NOT NULL constraint |
 | `readonly` | boolean | `false` | `readonly` | UI hint |
 | `translatable` | boolean | `false` | `translatable` | i18n-aware column |
@@ -149,6 +167,219 @@ value-preserving rename would have carried wrong values.
 | (scanner sets) | — | — | `appCode` / `id` | |
 | (FK fixup post-init) | — | — | `modelId` | |
 | (not exposed via `@Field`) | — | — | `hidden` | UI-only flag set via Studio |
+
+#### Field constraints (`constraints` — one column, eight attributes)
+
+`length` says how wide the column is; the eight attributes above say **which values** the field
+accepts and **when** it applies. They travel together as one `FieldConstraints` record in the single
+`sys_field.constraints` column (`FieldType.DTO`, canonical JSON, NULL when nothing is declared) and are
+served unchanged on `MetaFieldDTO.constraints`, so the frontend evaluates the same object against the
+form. Three kinds of key, told apart by one criterion — does the rule look at other fields, and what
+does it conclude:
+
+| | Value domain | Field state | Validity |
+|---|---|---|---|
+| keys | `min` / `max` / `pattern` (+ `message`) | `requiredWhen` / `hiddenWhen` / `readonlyWhen` | `invalidWhen` (+ `message`) |
+| looks at other fields | no | yes | yes — it compares them |
+| concludes | reject | required / hidden / readonly | reject |
+| enforced by | `NumericProcessor` (after coercion) / `StringProcessor` (after trim) via `ValueConstraints` | `FieldConstraintsEnforcer`, before the processor chain, on the raw row | same |
+
+```java
+@Field(label = "Active Employees", min = "0", constraintMessage = "Headcount cannot be negative.")
+private Integer activeEmpCount;
+
+@Field(requiredWhen = """
+        reason = "Others"
+        """)
+private String reasonDescription;
+
+@Field(label = "End Date", invalidWhen = """
+        endDate < "{{ @startDate }}"
+        """,
+       constraintMessage = "End date cannot precede start date.")
+private LocalDate endDate;
+
+// more than one condition: AND binds tighter than OR, parentheses override it
+@Field(invalidWhen = """
+        endDate < "{{ @startDate }}" OR (grade = 1 AND amount > 1000)
+        """,
+       constraintMessage = "Check the dates, or the amount against the grade.")
+private BigDecimal amount;
+
+@Field(label = "Cost Centre", requiredWhen = "true")     // application-level required, column stays nullable
+private Long costCentreId;
+```
+
+A condition is an expression in a text block, so nothing is escaped; the grammar — operators, value
+forms, `AND` / `OR` precedence, and the shapes it refuses — is below under "The expression grammar".
+The JSON spelling parses to the same tree but has
+**no precedence**: a group mixing `AND` and `OR` is refused rather than guessed, so it has to be nested
+by hand.
+
+Every write reaches the database through the pipeline that checks them — create, update, batch,
+import, seed loading, flow write nodes — so one declaration covers all of them. **No `CHECK` is
+rendered and no DDL changes**: a rule is tightened by redeploying, rows written before it stay valid.
+
+Rules worth knowing before declaring one:
+
+- **Bounds are inclusive, null passes, a blank string is not matched.** Absence is what `required` /
+  `requiredWhen` are for; a bounded optional field has to stay leavable empty.
+- **The pattern matches the whole value**, `STRING` / `TEXT` only; bounds are decimal literals on
+  numeric types only. Keep the regex to the syntax Java and JavaScript agree on.
+- **Conditions are filter expressions** (`Filters` syntax, 16 of the 18 operators — `PARENT OF` /
+  `CHILD OF` need a query and are refused). Values may be literals, `{{ @field }}` (another field of the
+  row), `{{ TODAY }}` / `{{ YESTERDAY }}` / `{{ NOW }}` / `{{ USER_ID }}`, and any of those with an
+  ISO-8601 offset: `{{ TODAY - P13Y }}`, `{{ @hireDate + P6M }}`, `{{ NOW - PT2H }}`. In the field slot,
+  `@mode` (`create` / `update`) and `@userId` read the context.
+- **Semantics both ends share** (`FilterEvaluator`): null and `""` are the same value; equality is
+  value equality (`["country", "!=", "SG"]` is *true* for an empty country, unlike SQL); ordering
+  operators need two values, their negations answer the opposite; values coerce by the field's type
+  (a stored date arrives as text, a patch as `LocalDate`); options compare by item code, relations by
+  id, a multi-value field is a set.
+- **Static flags win, conditions add.** `effectiveRequired = required || requiredWhen`; declaring both
+  is logged at boot. `requiredWhen` renders no `NOT NULL` — that is its point. "Required by default,
+  optional in one case" is written as `required = false` + the negated condition.
+- **`requiredWhen = "true"`** is application-level required on a column that must stay nullable
+  (`ProjectTeam.costCentreId`): demanded on create and when the field is sent — clearing is rejected,
+  omitting is not. Only `requiredWhen` has the always-form.
+- **On update, a condition is evaluated only when the patch touches the field or a field it reads**,
+  on the patch merged onto the stored row. `DataUpdatePipeline` registers the referenced columns into
+  `differFields` in both directions so they are fetched — without that, `PATCH {reason: Others}` would
+  slip past a rule that lives on `reasonDescription`. **Hidden fields (`hidden` / `hiddenWhen`) are not
+  judged.** `readonlyWhen` rejects an assignment (a changed value), not the value itself.
+- **Everything is validated at scan time** against the field's type and the sibling fields a condition
+  names: malformed literal, `min > max`, uncompilable regex, wrong field type, unknown sibling,
+  incomparable types (`DATE` vs `STRING`), a time offset on a calendar day, a condition on a `dynamic`
+  field ⇒ boot failure. A studio / hand-written row failing the same check is logged and dropped at
+  catalog load — one bad row must not stop a model from being written.
+
+What the object cannot express — a query, another row, external configuration (`CountryAddressFormat`),
+a collection, a permission — goes to the **`ModelWriteValidator` SPI** (`io.softa.framework.orm.service.validation`):
+
+```java
+@Component
+@Order(110)
+public class CountryAddressRuleValidator implements ModelWriteValidator {
+    @Override public boolean supports(String modelName) { return "Company".equals(modelName); }
+    @Override public void validateCreate(WriteContext ctx) { check(ctx.row(), ctx); }
+    @Override public void validateUpdate(WriteContext ctx) { check(ctx.mergedRow(), ctx); }  // patch merged onto the stored row
+    private void check(Map<String, Object> row, WriteContext ctx) {
+        … ctx.reject("postalCode", "Postal Code is required");   // accumulates; thrown once as WriteValidationException
+    }
+}
+```
+
+Business code never calls a validator: `ModelWriteValidatorChain` runs every bean whose `supports`
+answers true, in `@Order` (bands: 0–99 preconditions with `ctx.fail`, 100–199 field / configuration
+rules, 200–299 collection / cross-row, 300+ batch-wide and expensive), at the three write roots of
+`ModelServiceImpl` — `createList` / `updateList` / `deleteByIds` — so the generic endpoint, a custom
+endpoint, the import, a flow write node and a direct `service.createOne` are all covered. Per validator
+the batch method runs first, then the rows; values are the caller's, before the pipeline coerces them.
+
+##### The expression grammar
+
+`Filters.of` picks the form by the first character: a leading `[` is the list form, anything else is
+parsed as an expression. Both produce the same tree; the expression form is what a `@Field` condition
+should use, because in a text block it needs no escapes.
+
+```java
+Filters.of("status = \"ACTIVE\"")
+Filters.of("status = \"ACTIVE\" AND grade >= 6")
+Filters.of("title = \"PM\" OR (code = \"A010\" AND grade = 1)")
+```
+
+
+| Part | Accepts |
+|---|---|
+| field | `[a-z][a-zA-Z0-9]*` — **no dots, no underscores**; reach a related row's attribute through a `cascadedField` declared on this model |
+| operator | `=` `!=` `>` `>=` `<` `<=` `CONTAINS` `NOT CONTAINS` `START WITH` `NOT START WITH` `IN` `NOT IN` `BETWEEN` `NOT BETWEEN` `IS SET` `IS NOT SET` `PARENT OF` `CHILD OF` |
+| value | a number, `true` / `false`, or a **double-quoted** string (single quotes are not a string); a list as `["a", "b"]` |
+| combining | `AND` / `OR`, grouped with parentheses to any depth; **`AND` binds tighter**, so `a AND b OR c` is `(a AND b) OR c` |
+| whitespace | ignored, so a text block's trailing newline is harmless |
+
+Combining more than two conditions is the case where the two forms genuinely differ. The expression
+form has precedence, so a mixed rule needs no nesting — and parentheses override it where the default
+reading is not what you meant:
+
+```java
+@Field(requiredWhen = """
+        reason = "Others" AND status = "Draft"
+        """)
+
+@Field(invalidWhen = """
+        endDate < "{{ @startDate }}" OR (grade = 1 AND amount > 1000)
+        """)
+```
+
+The **list form has no precedence at all**, so a group that mixes `AND` and `OR` is refused rather
+than guessed — `The logic operator is not unique` — and you have to nest the groups by hand:
+
+```
+[[["a", "=", 1], "AND", ["b", "=", 2]], "OR", ["c", "=", 3]]
+```
+
+Two limits worth knowing before you choose the form:
+
+- **`IS SET` / `IS NOT SET` have no expression form.** They take no value, and the visitor demands
+  one, so they throw. Write those in the list form, and give the unit a third element that the
+  operator then ignores: `[["terminationDate", "IS NOT SET", null]]`.
+- **`PARENT OF` / `CHILD OF` need a query**, so they are refused in a field constraint (a constraint
+  is evaluated against one row in hand). They are available in a query's own filters.
+
+Both forms parse to the same `Filters` tree; a test pins that equivalence.
+
+##### Keeping a second evaluator in step
+
+These rules are evaluated **twice** — here on write, and by whatever renders the form, against the
+values the user is typing. The feature only works while the two agree, and they did not: auditing the
+first such implementation found **seven** declarations where the same row produced opposite answers,
+and three review rounds found fifteen defects in that evaluator, each one a sentence of this contract
+read differently. Prose does not hold that line; a reader implements what they understood and nothing
+fails until a user meets it.
+
+What holds it is a **corpus**: a data file of `(declaration, row, expected)` rows, generated by running
+every case through `FilterEvaluator` itself, that a second implementation runs as a test.
+
+```json
+[
+  { "case": "null and empty text are one value",
+    "condition": "reason = \"\"",
+    "fieldTypes": { "reason": "Option" },
+    "row": { "reason": null },
+    "expected": true }
+]
+```
+
+`expected` is never hand-written, so it cannot drift from this code. The cases worth carrying are the
+ones that have actually caught something:
+
+| Group | The case that catches a naive implementation |
+|---|---|
+| emptiness | `country != ""` with `country: null` → **false** (two empties are equal, so their inequality is not) |
+| emptiness | `tags IS SET` with `tags: []` → **false**; `IS NOT SET` → true |
+| ordering | `endDate < "{{ @startDate }}"` on an empty row → **false** (or a blank create form refuses itself) |
+| ordering | `NOT BETWEEN` with an empty left side → **true** |
+| coercion | `code = "7"` with `code: "007"` on a **String** field → **false** |
+| coercion | `amount = 10` with `amount: "10.00"` on a numeric field → true |
+| coercion | a **Date** truncates the time away: a field holding today is not "before now" at 10am |
+| coercion | a **Time** keeps its fraction: `09:00:00.500` is not `09:00:00` |
+| coercion | a relation compares as **text**: `managerId > 100` with `42` → true |
+| sets | `tags = "a"` with `["a","b"]` → true (membership, not equality) |
+| context | `@mode` / `@userId` read the write, not the row |
+
+`TODAY` / `NOW` resolve on the server's clock here and on the browser's clock in a form. The corpus
+supplies the instant per case rather than reading a real clock, so it tests the arithmetic; the
+timezone difference is a known open question it cannot settle.
+
+Three rules live in `FieldConstraintsEnforcer` rather than in the expression, and a client rendering a
+form mirrors those too: a hidden field is not judged at all; a conditional rule is evaluated on update
+only when the patch touches the field or something it reads; and `requiredWhen = "true"` fires on
+create but on update **only when the write names the field** — rendered as a plain required field it
+makes every row written before the rule unsaveable.
+
+Add a case whenever a defect is found in any implementation, named after the rule it protects rather
+than the bug. It is worth more here than in one codebase's test file, because it then constrains every
+implementation.
 
 #### Delete strategy (`onDelete`)
 

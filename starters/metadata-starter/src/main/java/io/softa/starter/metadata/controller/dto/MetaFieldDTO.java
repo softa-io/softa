@@ -8,6 +8,7 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.MaskingType;
 import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.enums.WidgetType;
+import io.softa.framework.orm.meta.FieldConstraints;
 
 /**
  * MetaFieldDTO
@@ -55,4 +56,11 @@ public class MetaFieldDTO {
      * employee form, the import column picker — are asking for this model's fields anyway.
      */
     private List<String> countries;
+
+    /**
+     * Value domain and conditional rules, exactly as stored — the frontend evaluates the same object
+     * against the form (zod bounds and pattern, star / visibility / readonly from the conditions,
+     * date-picker bounds derived from {@code invalidWhen}). Null when the field declares none.
+     */
+    private FieldConstraints constraints;
 }

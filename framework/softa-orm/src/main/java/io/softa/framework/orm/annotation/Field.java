@@ -63,6 +63,81 @@ public @interface Field {
     /** Scale (DOUBLE / BIG_DECIMAL); 0 = scanner picks type-specific default. */
     int scale() default 0;
 
+    /**
+     * Smallest value this field accepts, as a decimal literal — {@code "0"}, {@code "-1.5"}.
+     * Numeric field types only; blank means unbounded below.
+     *
+     * <p>A literal rather than a {@code double} because {@code BigDecimal} fields are exact and an
+     * annotation attribute can only be a constant: {@code min = "0.01"} survives the round trip,
+     * {@code 0.01d} does not. It parses at scan time, so a malformed bound fails the boot rather
+     * than the first save.
+     *
+     * <p>This is a <b>value domain</b>, not a column width — it is enforced in the application
+     * (every write path shares one field-processor pipeline) and renders no CHECK constraint.
+     * Stored, together with the other constraint attributes below, in the single
+     * {@code sys_field.constraints} column as a {@link io.softa.framework.orm.meta.FieldConstraints}.
+     */
+    String min() default "";
+
+    /** Largest value this field accepts, as a decimal literal. See {@link #min()}. */
+    String max() default "";
+
+    /**
+     * Regex the whole value must match. String-like field types only; blank means no pattern.
+     *
+     * <p>Compiled once at scan time — an invalid regex fails the boot. Keep to the syntax Java and
+     * JavaScript agree on (character classes, quantifiers, anchors, groups): the same pattern is
+     * served in the field metadata and applied by the browser before a value is ever submitted, and
+     * a construct only one side understands makes the two disagree about the same value.
+     */
+    String pattern() default "";
+
+    /**
+     * Shown when {@link #min()} / {@link #max()} / {@link #pattern()} / {@link #invalidWhen()}
+     * rejects a value; its own i18n key, like {@code @Index(message)}.
+     *
+     * <p>Optional for a bound — "must be at least 0" writes itself. All but mandatory for a pattern
+     * or an {@code invalidWhen}: a regex or a condition cannot be turned into a sentence the person
+     * filling the form can act on.
+     */
+    String constraintMessage() default "";
+
+    /**
+     * Condition under which the field is required, as a filter expression over the same row —
+     * {@code "[[\"reason\", \"=\", \"Others\"]]"} — or the literal {@code "true"} for
+     * "always required at the application level" on a column that must stay nullable.
+     *
+     * <p>Unlike {@link #required()} this renders no {@code NOT NULL}: it is a business rule, evaluated
+     * by both ends against the row's other values ({@code {{ @field }}} references, {@code TODAY} /
+     * {@code NOW} / {@code USER_ID} tokens, ISO-8601 offsets such as {@code {{ TODAY - P13Y }}}). On
+     * update it is evaluated only when the field itself or a field it references is in the patch.
+     * Declaring it together with {@code required = true} is redundant and logged at boot.
+     */
+    String requiredWhen() default "";
+
+    /**
+     * Condition under which the field is hidden. While hidden, {@link #requiredWhen()} and
+     * {@link #invalidWhen()} are not evaluated — what the form does not show it cannot demand.
+     * Same expression language as {@link #requiredWhen()}; the literal {@code "true"} is rejected
+     * (use {@code hidden} metadata for an unconditional flag).
+     */
+    String hiddenWhen() default "";
+
+    /**
+     * Condition under which the field is readonly: a write that assigns a new value while the
+     * condition holds is rejected. Same expression language as {@link #requiredWhen()}; the literal
+     * {@code "true"} is rejected (use {@link #readonly()}).
+     */
+    String readonlyWhen() default "";
+
+    /**
+     * Condition that, when it holds for the row, makes the value <b>invalid</b> and rejects the write
+     * with {@link #constraintMessage()} — {@code "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]"}.
+     * Reads the other fields of the same row; compare a relation by id, an option by its item code.
+     * Same expression language as {@link #requiredWhen()}.
+     */
+    String invalidWhen() default "";
+
     /** Required (NOT NULL). Default reflects Java primitive (true) vs wrapper (false). */
     boolean required() default false;
 

@@ -69,7 +69,29 @@ public class DataUpdatePipeline extends DataPipeline {
         // Add the affected cascaded fields and computed fields to this.fields
         this.updateEffectedFields();
         this.updateDifferFields();
+        this.registerConstraintDependencies();
         this.processorChain = buildFieldProcessorChain();
+    }
+
+    /**
+     * Make the update read the columns the conditional constraints need.
+     *
+     * <p>The original row is fetched by {@code differFields} only, so a condition such as
+     * {@code reasonDescription.requiredWhen = [["reason", "=", "Others"]]} would otherwise see
+     * neither {@code reason} (when the patch carries only {@code reasonDescription}) nor
+     * {@code reasonDescription} (when the patch carries only {@code reason}). Both directions are
+     * registered, the same way a computed field registers its dependencies above; reading a few more
+     * columns in the one {@code IN} query that already runs is the whole cost. Fields registered here
+     * but absent from {@code fields} get no processor and are never written — their merged value is
+     * the stored one, so the diff sees no change.
+     */
+    private void registerConstraintDependencies() {
+        MetaModel metaModel = ModelManager.getModel(modelName);
+        if (metaModel.getConditionalFields().isEmpty()) {
+            return;
+        }
+        this.differFields.addAll(FieldConstraintsEnforcer.columnsToRead(metaModel, this.fields,
+                field -> ModelManager.getModelFieldOrNull(modelName, field)));
     }
 
     /**
@@ -173,21 +195,28 @@ public class DataUpdatePipeline extends DataPipeline {
 
     /**
      * Combine the dependent fields of cascaded fields and computed fields with the request data,
-     * by overwriting the original data with the request data.
+     * by overwriting the original data with the request data. Each merged row is checked against
+     * the conditional constraints as it is built — before the processor chain, so the conditions
+     * read the raw values (create does the same).
      *
      * @param newRows request data to be updated
      * @return merged result data
      */
     private List<Map<String, Object>> mergeToOriginalData(Collection<Map<String, Object>> newRows, Map<Serializable, Map<String, Object>> originalRowsMap) {
         // TODO: Skip when there no affected cascaded fields and computed fields.
+        FieldConstraintsEnforcer enforcer = FieldConstraintsEnforcer.forModel(modelName, accessType);
         List<Map<String, Object>> mergedRows = new ArrayList<>();
         newRows.forEach(newRow -> {
             Serializable pKey = (Serializable) newRow.get(primaryKey);
             // Ignore the update data when the id does not exist
             if (originalRowsMap.containsKey(pKey)) {
+                Map<String, Object> originalRow = originalRowsMap.get(pKey);
                 Map<String, Object> mergedRow = new HashMap<>();
-                mergedRow.putAll(originalRowsMap.get(pKey));
+                mergedRow.putAll(originalRow);
                 mergedRow.putAll(newRow);
+                if (enforcer != null) {
+                    enforcer.enforceUpdate(mergedRow, newRow, originalRow);
+                }
                 mergedRows.add(mergedRow);
             }
         });

@@ -18,6 +18,7 @@ import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.entity.FileRecord;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.meta.FieldConstraints;
 import io.softa.starter.metadata.entity.*;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -367,6 +368,207 @@ class AnnotationParserTest {
         assertTrue(ex.getMessage().contains("OversizedFieldDescriptionIsRejected.remark"));
         assertTrue(ex.getMessage().contains("513"));
         assertTrue(ex.getMessage().contains("512"));
+    }
+
+    // ------- field constraints: one column, eight attributes ------------
+    // A declaration is read once, at boot. Every mistake here is a mistake in
+    // something written by hand and compiled — so it fails the startup that
+    // reads it, in front of the person who wrote it, rather than the first save
+    // months later in front of a tenant.
+
+    @Model
+    static class ConstraintsAreCarried extends AuditableModel {
+        @Field(min = "0", max = "100", constraintMessage = "Must be a percentage.")
+        private Integer completion;
+        @Field(pattern = "[A-Z]{2}\\d{6}", constraintMessage = "Two letters and six digits.") private String code;
+        @Field private String reason;
+        @Field(requiredWhen = "[[\"reason\", \"=\", \"Others\"]]") private String reasonDescription;
+        @Field private LocalDate startDate;
+        @Field(invalidWhen = "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]",
+               constraintMessage = "End date cannot precede start date.") private LocalDate endDate;
+        @Field(requiredWhen = "true") private Long costCentreId;
+        @Field private String plain;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void constraints_reachTheCatalogRowAsOneObject() {
+        AnnotationScanResult result = parser.parse(List.of(ConstraintsAreCarried.class), List.of());
+
+        FieldConstraints completion = byFieldName(result.fields(), "completion").getConstraints();
+        assertEquals("0", completion.min());
+        assertEquals("100", completion.max());
+        assertEquals("Must be a percentage.", completion.message());
+        assertEquals("[A-Z]{2}\\d{6}", byFieldName(result.fields(), "code").getConstraints().pattern());
+        FieldConstraints description = byFieldName(result.fields(), "reasonDescription").getConstraints();
+        assertEquals(Set.of("reason"), description.referencedFields());
+        assertTrue(byFieldName(result.fields(), "costCentreId").getConstraints().requiredWhen().isAlways());
+        assertEquals(Set.of("endDate", "startDate"), byFieldName(result.fields(), "endDate").getConstraints().referencedFields());
+    }
+
+    @Test
+    void anUndeclaredConstraint_staysNullRatherThanEmpty() {
+        // Null on both sides is what makes this column need no backfill: FIELD_ATTRS is reflective,
+        // so the cross-lane checksum picks the attribute up immediately, and "{}" would not equal the
+        // NULL an existing row carries.
+        AnnotationScanResult result = parser.parse(List.of(ConstraintsAreCarried.class), List.of());
+        assertNull(byFieldName(result.fields(), "plain").getConstraints());
+        assertNull(byFieldName(result.fields(), "id").getConstraints());
+    }
+
+    @Model
+    static class BoundOnAStringIsRejected extends AuditableModel {
+        @Field(min = "0") private String name;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void bound_onANonNumericField_isRejectedAtParse() {
+        // Silently ignoring it is the harmful option: to whoever wrote the line, an ignored bound
+        // and an enforced one look exactly the same.
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(BoundOnAStringIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("BoundOnAStringIsRejected.name"));
+        assertTrue(ex.getMessage().contains("numeric"));
+    }
+
+    @Model
+    static class InvertedBoundsAreRejected extends AuditableModel {
+        @Field(min = "100", max = "0") private Integer count;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aMinAboveItsMax_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(InvertedBoundsAreRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("no value can satisfy"));
+    }
+
+    @Model
+    static class UncompilablePatternIsRejected extends AuditableModel {
+        @Field(pattern = "[A-Z") private String code;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aPatternThatDoesNotCompile_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(UncompilablePatternIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("UncompilablePatternIsRejected.code"));
+        assertTrue(ex.getMessage().contains("valid regular expression"));
+    }
+
+    @Model
+    static class ConditionNamesAnUnknownSibling extends AuditableModel {
+        @Field private String country;
+        @Field(requiredWhen = "[[\"contry\", \"=\", \"SG\"]]") private String postalCode;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aCondition_onAnUnknownSibling_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(ConditionNamesAnUnknownSibling.class), List.of()));
+        assertTrue(ex.getMessage().contains("`contry`"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("ConditionNamesAnUnknownSibling.postalCode"), ex.getMessage());
+    }
+
+    @Model
+    static class ConditionDeclaredBeforeItsSibling extends AuditableModel {
+        // the sibling is declared AFTER the field that names it — the cross-field pass must not
+        // depend on declaration order
+        @Field(hiddenWhen = "[[\"checkInStatus\", \"=\", \"Normal\"]]") private Integer lateMinutes;
+        @Field private String checkInStatus;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aCondition_mayNameASiblingDeclaredLater() {
+        AnnotationScanResult result = parser.parse(List.of(ConditionDeclaredBeforeItsSibling.class), List.of());
+        assertNotNull(byFieldName(result.fields(), "lateMinutes").getConstraints().hiddenWhen());
+    }
+
+    @Model
+    static class HiddenWhenTrueIsRejected extends AuditableModel {
+        @Field(hiddenWhen = "true") private String secret;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void onlyRequiredWhen_hasAnAlwaysForm() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(HiddenWhenTrueIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("does not accept \"true\""), ex.getMessage());
+    }
+
+    @Model
+    static class ConditionOnADynamicFieldIsRejected extends AuditableModel {
+        @Field private String reason;
+        @Field(dynamic = true, requiredWhen = "[[\"reason\", \"=\", \"Others\"]]") private String note;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aCondition_onADynamicField_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(ConditionOnADynamicFieldIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("dynamic"), ex.getMessage());
+    }
+
+    @Model
+    static class ConditionOnAToManyFieldIsRejected extends AuditableModel {
+        @Field private Boolean active;
+        @Field(fieldType = FieldType.ONE_TO_MANY, relatedField = "deptId",
+               requiredWhen = "[[\"active\", \"=\", true]]") private List<AuditableModel> empIds;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aCondition_onAToManyField_isRejectedAtParse_notDroppedAtLoad() {
+        // the catalog load forces dynamic on TO_MANY fields and would drop the condition silently;
+        // the boot check must judge the state the field ends up in
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(ConditionOnAToManyFieldIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("dynamic"), ex.getMessage());
+    }
+
+    @Model
+    static class DefaultValueOutsideItsOwnBoundIsRejected extends AuditableModel {
+        @Field(min = "1", defaultValue = "0") private Integer headcount;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Model
+    static class DefaultValueAgainstItsOwnPatternIsRejected extends AuditableModel {
+        @Field(pattern = "[A-Z]{2}", constraintMessage = "Two capitals.", defaultValue = "n/a") private String code;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Model
+    static class PatternOnANonTextFieldIsRejectedByItsOwnCheck extends AuditableModel {
+        @Field(pattern = "^\\d{4}$", defaultValue = "0") private Integer year;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void aDomainDeclaredAgainstTheWrongTypeIsReportedByTheDomainCheckNotTheDefaultValueCheck() {
+        // the type mismatch is the earlier, better-worded failure; the defaultValue check never sees it
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(PatternOnANonTextFieldIsRejectedByItsOwnCheck.class), List.of()));
+        assertTrue(ex.getMessage().contains("applies to STRING and"), ex.getMessage());
+    }
+
+    @Test
+    void aDefaultValue_itsOwnDomainRejects_failsTheBoot() {
+        // the create path fills the default without running the domain check, so such a row is stored
+        // and then rejected the first time anything sends the field back
+        IllegalStateException bound = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(DefaultValueOutsideItsOwnBoundIsRejected.class), List.of()));
+        assertTrue(bound.getMessage().contains("defaultValue"), bound.getMessage());
+        IllegalStateException pattern = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(DefaultValueAgainstItsOwnPatternIsRejected.class), List.of()));
+        assertTrue(pattern.getMessage().contains("defaultValue"), pattern.getMessage());
     }
 
     // ------- OPTION / MULTI_OPTION are forward-inferred only ------------

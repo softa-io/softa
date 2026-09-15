@@ -181,6 +181,40 @@ public enum CustomerTier {
   64KB **bytes** while validation counts characters — new code uses `TEXT`.
   This is sound for the annotation lane: it always renders DDL via the
   builtin resolver; the studio (no-code) lane keeps per-flavor defaults.
+- **Field constraints — one column, eight attributes.** `min` / `max` / `pattern`
+  (+ `constraintMessage`) declare a field's **value domain**; `requiredWhen` /
+  `hiddenWhen` / `readonlyWhen` / `invalidWhen` declare **conditions over the same
+  row** (filter expressions — `"[[\"reason\", \"=\", \"Others\"]]"`, nested AND/OR,
+  `{{ @field }}` references, `TODAY` / `NOW` / `USER_ID` tokens, ISO-8601 offsets
+  such as `{{ TODAY - P13Y }}`, reserved `@mode` / `@userId`). `AnnotationParser`
+  packs all eight into one `FieldConstraints` record stored in the single
+  `sys_field.constraints` column (`FieldType.DTO`, canonical JSON via
+  `Codecs.dto`; NULL when nothing is declared, never `{}`) and served unchanged on
+  `MetaFieldDTO.constraints` — the frontend evaluates the same object. Enforced in
+  the application, **no `CHECK`, no DDL**: the value domain in `NumericProcessor`
+  (after coercion) / `StringProcessor` (after trim) via `ValueConstraints`; the
+  conditions by `FieldConstraintsEnforcer` **before** the processor chain, on the
+  raw row — on update the patch merged onto the stored row, with the columns a
+  condition reads registered into `differFields` in both directions
+  (`DataUpdatePipeline.registerConstraintDependencies`), and only when the patch
+  touches the field or a field it reads. Semantics both ends share (`FilterEvaluator`):
+  null ≡ `""`, value equality (not SQL three-valued), ordering needs two values,
+  hidden fields are not judged, options compare by item code, relations by id.
+  `requiredWhen = "true"` = application-level required on a nullable column; only
+  `requiredWhen` has that form. `PARENT OF` / `CHILD OF` are refused. Everything is
+  validated at scan time against the field's type and the sibling fields it names
+  (malformed literal, `min > max`, uncompilable regex, wrong field type, unknown
+  sibling, incomparable types, bad offset ⇒ boot failure; a studio / hand-written
+  row failing the same check is logged and dropped at catalog load). Rules the
+  object cannot express (a query, another row, external configuration, a
+  collection) go to the **`ModelWriteValidator` SPI** — a Spring bean with
+  `@Order`, run by `ModelWriteValidatorChain` at the three write roots of
+  `ModelServiceImpl` (`createList` / `updateList` / `deleteByIds`) before any
+  database work; `ctx.reject(field, message)` accumulates into one
+  `WriteValidationException` (400), `ctx.fail` aborts. The `sys_field` column
+  self-applies under a non-empty `scanner-scope`; an empty-scope environment and
+  `design_field` need the column added the way that deployment adds catalog
+  columns.
 - `id` is always emitted to `sys_field` as the PK; its type is inferred from the
   declared Java field (`Long` / `String`). **Convention: write an explicit
   `@Field(label = "ID")` on `id`** (consistent with "annotate every declared field");

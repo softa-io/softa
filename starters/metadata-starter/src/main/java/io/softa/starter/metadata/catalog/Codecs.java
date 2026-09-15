@@ -7,6 +7,7 @@ import java.util.Objects;
 
 import org.apache.commons.lang3.StringUtils;
 
+import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.starter.metadata.scanner.annotation.inference.JsonValueDeserializer;
@@ -86,6 +87,26 @@ public final class Codecs {
             return Objects.equals(sa, sb);
         }
     };
+
+    /**
+     * A {@code DTOFieldObject} &harr; its canonical JSON text ({@link CanonicalJson}): keys sorted,
+     * nulls dropped, an empty object stored as NULL. Read back into the declared class — the entity
+     * field's own type, so {@code sys_field.constraints} loads as a {@code FieldConstraints}.
+     * Equality is equality of the canonical text: two declarations that mean the same thing never
+     * register as a change however they were spelled.
+     */
+    public static Codec dto(Class<?> type) {
+        return new Codec() {
+            @Override public Object toDb(Object t) { return CanonicalJson.of(t); }
+            @Override public Object fromDb(ResultSet rs, String c) throws SQLException {
+                String s = rs.getString(c);
+                return StringUtils.isBlank(s) ? null : JsonUtils.stringToObject(s, type);
+            }
+            @Override public boolean typedEquals(Object a, Object b) {
+                return Objects.equals(CanonicalJson.of(a), CanonicalJson.of(b));
+            }
+        };
+    }
 
     /**
      * {@code Enum} &harr; its {@code @JsonValue} item-code string. Reuses the

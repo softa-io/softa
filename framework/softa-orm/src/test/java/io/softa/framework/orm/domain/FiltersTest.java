@@ -318,4 +318,23 @@ class FiltersTest {
         String expected = "[[[\"title\",\"=\",\"PM\"],\"OR\",[\"active\",\"=\",false]],\"AND\",[\"version\",\"=\",1]]";
         Assertions.assertEquals(expected, filters.toString());
     }
+
+    /**
+     * Combining conditions: `AND` binds tighter than `OR`, as the grammar's alternative order says,
+     * and the list form refuses a group that mixes the two — which is the practical reason to write a
+     * multi-condition rule as an expression.
+     */
+    @org.junit.jupiter.api.Test
+    void andBindsTighterThanOrAndTheListFormRefusesAMixedGroup() {
+        Filters precedence = Filters.of("a = 1 AND b = 2 OR c = 3");
+        Assertions.assertEquals(Filters.of("(a = 1 AND b = 2) OR c = 3").toString(), precedence.toString());
+        Assertions.assertEquals("[[[\"a\",\"=\",1],\"AND\",[\"b\",\"=\",2]],\"OR\",[\"c\",\"=\",3]]", precedence.toString());
+
+        Assertions.assertEquals("[[\"a\",\"=\",1],\"AND\",[[\"b\",\"=\",2],\"OR\",[\"c\",\"=\",3]]]",
+                Filters.of("a = 1 AND (b = 2 OR c = 3)").toString());
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> Filters.of("[[\"a\",\"=\",1], \"AND\", [\"b\",\"=\",2], \"OR\", [\"c\",\"=\",3]]"),
+                "the list form has no precedence, so a mixed group is refused rather than guessed");
+    }
 }

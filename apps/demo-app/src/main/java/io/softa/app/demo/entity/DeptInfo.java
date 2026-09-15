@@ -46,7 +46,11 @@ public class DeptInfo extends TimelineModel {
     @Field(label = "Employees", fieldType = FieldType.ONE_TO_MANY, relatedField = "deptId")
     private List<EmpInfo> empIds;
 
-    @Field(length = 256)
+    // Conditional state: a department taken out of service has to say why — required when active is false,
+    // evaluated against the whole row on create and on a partial update that flips `active`.
+    @Field(length = 256, requiredWhen = """
+            active = false
+            """)
     private String description;
 
     @Field

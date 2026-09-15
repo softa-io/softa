@@ -3,8 +3,12 @@ package io.softa.starter.metadata.scanner.annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.*;
+import java.math.BigDecimal;
 import java.util.regex.Pattern;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+
+import io.softa.framework.base.constant.EnvConstant;
 import org.jspecify.annotations.Nullable;
 
 import io.softa.framework.base.annotation.OptionItem;
@@ -15,6 +19,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.FieldConstraints;
 import io.softa.framework.orm.enums.IndexMethod;
 import io.softa.framework.orm.enums.StorageType;
 import io.softa.starter.metadata.ddl.SqlReservedWords;
@@ -52,6 +57,7 @@ import io.softa.starter.metadata.scanner.annotation.inference.TypeInference;
  *
  * <p>Pure POJO — no Spring dependency.
  */
+@Slf4j
 public final class AnnotationParser {
 
     /**
@@ -123,6 +129,7 @@ public final class AnnotationParser {
             guardProjectionDeclaresNoIndexes(clazz, model);
             modelIndexes.addAll(parseIndexes(clazz, sysModel.getTableName(), classFields));
             validateModelFieldRefs(clazz, model, classFields);
+            validateFieldConstraints(clazz, classFields);
         }
         guardSingleTableOwner(models);
 
@@ -570,6 +577,12 @@ public final class AnnotationParser {
                 f.setScale(typeDefault.scale());
             }
         }
+        // Packaged, not validated, here: a condition may name a sibling declared further down the
+        // class, so the cross-field checks run once the class's fields are all parsed
+        // (validateFieldConstraints). Filter syntax is checked now — it needs nothing else.
+        f.setConstraints(FieldConstraints.of(anno.min(), anno.max(), anno.pattern(), anno.constraintMessage(),
+                anno.requiredWhen(), anno.hiddenWhen(), anno.readonlyWhen(), anno.invalidWhen(),
+                modelName + "." + javaField.getName()));
         f.setRequired(anno.required() || javaField.getType().isPrimitive());
         f.setReadonly(anno.readonly());
         f.setTranslatable(anno.translatable());
@@ -1000,6 +1013,82 @@ public final class AnnotationParser {
             orderFields[i] = parts.length > 0 && !parts[0].isEmpty() ? parts[0] : orders[i];
         }
         checkFieldRefs(modelName, "defaultOrder", orderFields, fieldNames);
+    }
+
+    /**
+     * The cross-field half of a field's constraints: bounds against the field's own type, conditions
+     * against the sibling fields they name (existence, comparability, offsets). Everything here is a
+     * mistake in something written by hand and compiled, so it fails the boot in front of whoever
+     * wrote it — never the first save months later in front of a tenant. Warnings (a pattern without
+     * a message, a regex construct JavaScript lacks) are logged, not thrown.
+     */
+    private void validateFieldConstraints(Class<?> clazz, List<SysField> classFields) {
+        String modelName = clazz.getSimpleName();
+        Map<String, FieldType> typeByName = new HashMap<>();
+        for (SysField f : classFields) {
+            typeByName.put(f.getFieldName(), f.getFieldType());
+        }
+        for (SysField f : classFields) {
+            FieldConstraints constraints = f.getConstraints();
+            if (constraints == null) {
+                continue;
+            }
+            String where = modelName + "." + f.getFieldName();
+            // The catalog load forces dynamic on every TO_MANY field; check the state it will end up in,
+            // or a condition on such a field passes here and is dropped there without failing the boot.
+            boolean dynamic = Boolean.TRUE.equals(f.getDynamic()) || FieldType.TO_MANY_TYPES.contains(f.getFieldType());
+            List<String> warnings = constraints.validate(f.getFieldType(), dynamic, where, typeByName::get);
+            warnings.forEach(log::warn);
+            checkDefaultValueAgainstDomain(f, constraints, where);
+            if (Boolean.TRUE.equals(f.getRequired()) && constraints.requiredWhen() != null) {
+                log.warn("@Field on {} declares both required = true and requiredWhen; the condition never"
+                        + " applies because the static flag always wins.", where);
+            }
+        }
+    }
+
+    /**
+     * A field's own {@code defaultValue} must satisfy the value domain it declares. The create path
+     * fills the default without running the domain check — the value never passed through the request —
+     * so a default outside the bound is stored happily and then rejected the first time anything sends
+     * the field back, including a form that merely re-submits what it read. Caught here, where whoever
+     * wrote the two attributes can see both.
+     */
+    private void checkDefaultValueAgainstDomain(SysField f, FieldConstraints constraints, String where) {
+        String declared = f.getDefaultValue();
+        if (StringUtils.isBlank(declared) || EnvConstant.ENV_PARAMS.contains(declared.trim().toUpperCase())) {
+            return;
+        }
+        String value = declared.trim();
+        // Only where the runtime would actually apply the rule: a pattern runs in StringProcessor and a
+        // bound in NumericProcessor, so a domain declared against the wrong field type is a warning
+        // elsewhere in this validation and must not become a boot failure here.
+        if (constraints.pattern() != null && FieldConstraints.PATTERN_TYPES.contains(f.getFieldType())
+                && !Pattern.matches(constraints.pattern(), value)) {
+            throw new IllegalStateException("@Field(defaultValue) on " + where + " is `" + value
+                    + "`, which its own pattern `" + constraints.pattern() + "` rejects.");
+        }
+        if (!FieldType.NUMERIC_TYPES.contains(f.getFieldType())
+                || (constraints.min() == null && constraints.max() == null)) {
+            return;
+        }
+        BigDecimal actual;
+        BigDecimal min;
+        BigDecimal max;
+        try {
+            actual = new BigDecimal(value);
+            // A bound that does not parse is an inert state the runtime tolerates; it is reported by
+            // the bound's own validation, not by escaping as a raw NumberFormatException from here.
+            min = constraints.min() == null ? null : new BigDecimal(constraints.min());
+            max = constraints.max() == null ? null : new BigDecimal(constraints.max());
+        } catch (NumberFormatException e) {
+            return;   // not a number: the field type's own conversion is the authority on that
+        }
+        if ((min != null && actual.compareTo(min) < 0) || (max != null && actual.compareTo(max) > 0)) {
+            throw new IllegalStateException("@Field(defaultValue) on " + where + " is `" + value
+                    + "`, which its own bounds (min " + constraints.min() + ", max " + constraints.max()
+                    + ") reject.");
+        }
     }
 
     private void checkFieldRefs(String modelName, String attr, String[] refs, Set<String> fieldNames) {
