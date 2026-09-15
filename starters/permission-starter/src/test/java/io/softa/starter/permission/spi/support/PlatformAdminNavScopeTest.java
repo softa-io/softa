@@ -69,6 +69,61 @@ class PlatformAdminNavScopeTest {
         return n;
     }
 
+    private static DefaultPermissionSnapshotProvider.NavigationView nav(String id, String parentId) {
+        DefaultPermissionSnapshotProvider.NavigationView n = nav(id);
+        n.setParentId(parentId);
+        return n;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static DefaultPermissionSnapshotProvider providerOver(
+            List<DefaultPermissionSnapshotProvider.NavigationView> navs) {
+        ModelService<Long> modelService = mock(ModelService.class);
+        when(modelService.searchList(eq("UserRoleRel"), any(FlexQuery.class), any(Class.class)))
+                .thenReturn(List.of(rel()));
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class))).thenReturn(List.of());
+        when(modelService.searchList(eq("Role"), any(FlexQuery.class), any(Class.class)))
+                .thenReturn(List.of(role("SUPER_ADMIN")));
+        when(modelService.searchList(eq("Navigation"), any(FlexQuery.class), any(Class.class)))
+                .thenReturn(navs);
+        when(modelService.searchList(eq("Permission"), any(FlexQuery.class), any(Class.class)))
+                .thenReturn(List.of());
+        return new DefaultPermissionSnapshotProvider(null, modelService, null, () -> null,
+                PLATFORM, SHARED);
+    }
+
+    @Test
+    void theGroupRowsAboveAReachablePageComeBackToo() {
+        // The set has to answer the same question the ui-context build answers, and that one expands
+        // ancestors. A prefix like `navigation.users.people.` admits the pages without the module row
+        // above them, so a caller asking about that row would have been told no by one assembly and
+        // yes by the other — two answers to one question, which is how a sidebar and a gate drift.
+        PermissionInfo info = providerOver(List.of(
+                nav("navigation.system"),
+                nav("navigation.system.tenant-data", "navigation.system"),
+                nav("navigation.system.tenant-data.tenant-info", "navigation.system.tenant-data")))
+                .doLoadFromDb(7L, 42L);
+
+        assertThat(info.getNavigations()).contains(
+                "navigation.system", "navigation.system.tenant-data",
+                "navigation.system.tenant-data.tenant-info");
+    }
+
+    @Test
+    void anAncestorOutsideTheBoundaryIsStillNotReached() {
+        // The paired case: expansion must not become a way in. A tenant module's own group row is an
+        // ancestor of nothing the platform may reach, so it stays out.
+        PermissionInfo info = providerOver(List.of(
+                nav("navigation.payroll"),
+                nav("navigation.payroll.pay-item", "navigation.payroll"),
+                nav("navigation.system"),
+                nav("navigation.system.tenant-data", "navigation.system")))
+                .doLoadFromDb(7L, 42L);
+
+        assertThat(info.getNavigations())
+                .doesNotContain("navigation.payroll", "navigation.payroll.pay-item");
+    }
+
     @Test
     void thePlatformAdminGetsItsOwnModulesAndTheSharedOnes() {
         PermissionInfo info = providerOver(

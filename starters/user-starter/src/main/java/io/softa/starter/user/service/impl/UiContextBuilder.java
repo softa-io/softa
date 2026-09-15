@@ -25,6 +25,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Filters;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.orm.service.ConsultantMemberships;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.starter.user.constant.RoleConstant;
@@ -147,7 +148,7 @@ public class UiContextBuilder {
 
         // Derived, never stored — see BuiltinRole.CONSULTANT. Added before the branches below so
         // it reaches the FE in roleCodes as well as steering this build.
-        if (isConsultantMembership(userId)) {
+        if (ConsultantMemberships.isConsultant(modelService, userId)) {
             roleCodes.add(BuiltinRole.CONSULTANT.getCode());
         }
 
@@ -247,16 +248,6 @@ public class UiContextBuilder {
     }
 
     /**
-     * Consultant grants — every navigation the tenant's plan entitles, exactly like a tenant admin's.
-     *
-     * <p>Delegates rather than sharing the branch above, and that is the point: these are two rules
-     * that happen to agree today, not one rule. The requirement defines a consultant's reach as "the
-     * tenant's current subscription, in full", and a tenant admin's is computed the same way — but
-     * narrowing consultants later (the platform deciding they should not see payroll, say) needs no
-     * new role-configuration surface, only a different body here. Merged into one branch there would
-     * be nothing to change without unpicking the two apart first.
-     */
-    /**
      * Platform administrator: every platform navigation, and no tenant module.
      *
      * <p>The mirror of {@link #tenantAdminGrants} — that one takes everything EXCEPT the platform
@@ -293,29 +284,18 @@ public class UiContextBuilder {
         return out;
     }
 
+    /**
+     * Consultant grants — every navigation the tenant's plan entitles, exactly like a tenant admin's.
+     *
+     * <p>Delegates rather than sharing the branch above, and that is the point: these are two rules
+     * that happen to agree today, not one rule. The requirement defines a consultant's reach as "the
+     * tenant's current subscription, in full", and a tenant admin's is computed the same way — but
+     * narrowing consultants later (the platform deciding they should not see payroll, say) needs no
+     * new role-configuration surface, only a different body here. Merged into one branch there would
+     * be nothing to change without unpicking the two apart first.
+     */
     private UiContext consultantGrants(UiContext out, Long tenantId) {
         return tenantAdminGrants(out, tenantId);
-    }
-
-    /**
-     * True when this membership was minted for a consultant.
-     *
-     * <p>Read generically, mirroring {@code DefaultPermissionSnapshotProvider.isConsultantMembership}
-     * — the two builds have to answer this identically or the menus the FE draws stop matching the
-     * endpoints the gate allows.
-     */
-    private boolean isConsultantMembership(Long userId) {
-        if (userId == null) {
-            return false;
-        }
-        List<Map<String, Object>> rows = modelService.searchList("UserAccount",
-                new FlexQuery(List.of("consultant"), new Filters().eq("id", userId)));
-        if (rows.isEmpty()) {
-            return false;
-        }
-        Object flag = rows.get(0).get("consultant");
-        // Boolean or 1/0, depending on how the driver maps the column.
-        return Boolean.TRUE.equals(flag) || (flag instanceof Number n && n.intValue() == 1);
     }
 
     private static UiContext emptyGrants(UiContext out) {
