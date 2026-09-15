@@ -27,7 +27,6 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.CacheService;
-import io.softa.framework.orm.service.ConsultantMemberships;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.base.utils.NavIds;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
@@ -81,6 +80,8 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     private static final String M_ROLE_SFS = "RoleSensitiveFieldSet";
     private static final String M_NAV = "Navigation";
     private static final String M_PERMISSION = "Permission";
+    private static final String M_USER_ACCOUNT = "UserAccount";
+    private static final String F_CONSULTANT = "consultant";
 
     private final CacheService cacheService;
     private final ModelService<?> modelService;
@@ -325,7 +326,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 .map(RoleView::getCode)
                 .filter(c -> c != null && !c.isEmpty())
                 .collect(Collectors.toCollection(HashSet::new));
-        if (ConsultantMemberships.isConsultant(modelService, userId)) {
+        if (isConsultantMembership(userId)) {
             roleCodes.add(BuiltinRole.CONSULTANT.getCode());
         }
 
@@ -416,6 +417,40 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         info.setGrantedCompanyIds(grantedCompanyIds);
         info.setGrantedCountries(grantedCountries);
         return info;
+    }
+
+    /**
+     * True when the acting membership was minted for a consultant.
+     *
+     * <p>The consultant role code is <b>derived from the account, never stored as a role row</b>, for
+     * the same two reasons the consultant's menus are derived. A real {@code Role} would show up in
+     * the tenant's own role management, which the consultant role is explicitly not supposed to be
+     * visible in — let alone editable. And the entitlement cleanup hard-deletes role grants on a plan
+     * downgrade and never restores them: one downgrade would strip every consultant in that tenant
+     * permanently, with no role left anywhere for anyone to put back.
+     *
+     * <p>Read generically by model name, like the RBAC reads around it — this module also gates
+     * deployments that do not carry user-starter, and {@link #loadFromDb} fails closed when the model
+     * is absent. One by-primary-key read, on the cache-miss path only.
+     *
+     * <p>{@code UiContextBuilder} asks the same question of the same column, and the two are NOT
+     * shared. They cannot be without a type in the framework, which would put a business concept
+     * there to save eight lines — and the rule being duplicated is "this column is true", which does
+     * not drift: rename the column and both sides stop compiling. What went wrong once was the
+     * ui-context build not asking at all, and nothing shared prevents forgetting to call something.
+     */
+    private boolean isConsultantMembership(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        List<Map<String, Object>> rows = modelService.searchList(M_USER_ACCOUNT,
+                new FlexQuery(List.of(F_CONSULTANT), new Filters().eq(ModelConstant.ID, userId)));
+        if (rows.isEmpty()) {
+            return false;
+        }
+        Object flag = rows.get(0).get(F_CONSULTANT);
+        // Boolean or 1/0, depending on how the driver maps the column.
+        return Boolean.TRUE.equals(flag) || (flag instanceof Number n && n.intValue() == 1);
     }
 
     /** Roles for a user, filtered to active=true (inactive roles revoke their

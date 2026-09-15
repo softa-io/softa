@@ -25,7 +25,6 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Filters;
 import tools.jackson.databind.JsonNode;
 
-import io.softa.framework.orm.service.ConsultantMemberships;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.starter.user.constant.RoleConstant;
@@ -148,7 +147,7 @@ public class UiContextBuilder {
 
         // Derived, never stored — see BuiltinRole.CONSULTANT. Added before the branches below so
         // it reaches the FE in roleCodes as well as steering this build.
-        if (ConsultantMemberships.isConsultant(modelService, userId)) {
+        if (isConsultantMembership(userId)) {
             roleCodes.add(BuiltinRole.CONSULTANT.getCode());
         }
 
@@ -296,6 +295,29 @@ public class UiContextBuilder {
      */
     private UiContext consultantGrants(UiContext out, Long tenantId) {
         return tenantAdminGrants(out, tenantId);
+    }
+
+    /**
+     * True when this membership was minted for a consultant.
+     *
+     * <p>The same question {@code DefaultPermissionSnapshotProvider} asks of the same column, and
+     * deliberately not shared with it: the two starters are independent, so sharing would mean a type
+     * in the framework, and "consultant" is not a concept every deployment of the framework has. The
+     * duplicated rule is "this column is true" — rename the column and both sides stop compiling.
+     * What actually went wrong once was this build not asking at all, which no shared helper fixes.
+     */
+    private boolean isConsultantMembership(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        List<Map<String, Object>> rows = modelService.searchList("UserAccount",
+                new FlexQuery(List.of("consultant"), new Filters().eq("id", userId)));
+        if (rows.isEmpty()) {
+            return false;
+        }
+        Object flag = rows.get(0).get("consultant");
+        // Boolean or 1/0, depending on how the driver maps the column.
+        return Boolean.TRUE.equals(flag) || (flag instanceof Number n && n.intValue() == 1);
     }
 
     private static UiContext emptyGrants(UiContext out) {
