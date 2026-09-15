@@ -10,6 +10,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.user.dto.ConsultantProfileDTO;
 import io.softa.starter.user.entity.ConsultantProfile;
 import io.softa.starter.user.entity.UserAccount;
@@ -52,6 +53,7 @@ class ConsultantBasicInfoSaveTest {
     private UserIdentityService identityService;
     private UserAccountService accountService;
     private ConsultantAuthorizationService authorizationService;
+    private CacheService cacheService;
 
     @BeforeEach
     void setUp() {
@@ -60,6 +62,8 @@ class ConsultantBasicInfoSaveTest {
         identityService = mock(UserIdentityService.class);
         accountService = mock(UserAccountService.class);
         authorizationService = mock(ConsultantAuthorizationService.class);
+        cacheService = mock(CacheService.class);
+        ReflectionTestUtils.setField(service, "cacheService", cacheService);
         ReflectionTestUtils.setField(service, "profileService", profileService);
         ReflectionTestUtils.setField(service, "identityService", identityService);
         ReflectionTestUtils.setField(service, "accountService", accountService);
@@ -151,6 +155,44 @@ class ConsultantBasicInfoSaveTest {
         service.save(form("Old Name", "old@zingkey.com", null));
 
         verify(profileService, never()).updateOne(any(UserProfile.class));
+        verify(identityService, never()).updateOne(any(UserIdentity.class));
+    }
+
+    @Test
+    void aMobileIsStoredInTheSpellingTheLoginQueryAsksFor() {
+        // The form lets an operator type a number however they like, and this used to store it that
+        // way. Every lookup normalises first, so a row written as "+65 9123-4567" is one the login
+        // query — which asks for "+6591234567" — cannot find: the consultant simply cannot sign in
+        // by mobile, and no migration rewrites such a row.
+        service.save(form("Old Name", "old@zingkey.com", "+65 9123-4567"));
+
+        ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
+        verify(identityService).updateOne(saved.capture());
+        assertThat(saved.getValue().getLoginMobile()).isEqualTo("+6591234567");
+    }
+
+    @Test
+    void anEmailIsStoredLowercasedLikeEverySpellingTheLookupsUse() {
+        service.save(form("Old Name", "Ada@ZingKey.com", null));
+
+        ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
+        verify(identityService).updateOne(saved.capture());
+        assertThat(saved.getValue().getLoginEmail()).isEqualTo("ada@zingkey.com");
+    }
+
+    @Test
+    void reTypingTheSameMobileInAnotherSpellingWritesNothing() {
+        // The paired case for the fix above: comparing what was typed against what is stored would
+        // call an unchanged number a change and rewrite the credential on every save.
+        UserIdentity identity = new UserIdentity();
+        identity.setId(11L);
+        identity.setProfileId(PROFILE);
+        identity.setLoginEmail("old@zingkey.com");
+        identity.setLoginMobile("+6591234567");
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
+
+        service.save(form("Old Name", "old@zingkey.com", "+65 9123 4567"));
+
         verify(identityService, never()).updateOne(any(UserIdentity.class));
     }
 

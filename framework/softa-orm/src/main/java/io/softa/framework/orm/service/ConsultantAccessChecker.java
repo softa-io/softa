@@ -8,11 +8,12 @@ package io.softa.framework.orm.service;
  * starters are deliberately independent of each other. Optional — a deployment with no consultants
  * installs no implementation and the gate skips the question.
  *
- * <p><b>Asked per request, not cached alongside the permission snapshot.</b> A consultant's access
- * ends on a DATE: nobody edits anything when a grant lapses at midnight, so an answer cached for a
- * snapshot's TTL would keep a lapsed consultant inside a customer's tenant for the rest of it. The
- * price is one read per request from a population of a handful of platform staff — the right trade
- * against a stale answer about somebody else's data.
+ * <p><b>Asked per request, and deliberately NOT cached alongside the permission snapshot.</b> A
+ * consultant's access ends on a DATE: nobody edits anything when a grant lapses at midnight, so an
+ * answer cached for a snapshot's hour would keep a lapsed consultant inside a customer's tenant for
+ * the rest of it. An implementation may still hold a much shorter answer of its own — what matters
+ * to this contract is that the window be small enough to be an implementation detail rather than a
+ * second, slower definition of when access ends.
  */
 @FunctionalInterface
 public interface ConsultantAccessChecker {

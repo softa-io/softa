@@ -1,10 +1,12 @@
 package io.softa.starter.user.service.impl;
 
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -21,6 +23,7 @@ import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.entity.ConsultantProfile;
@@ -34,8 +37,10 @@ import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.ConsultantProfileDTO;
 import io.softa.starter.user.dto.ConsultantRowDTO;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
+import io.softa.starter.user.util.LoginIdentifiers;
 
 /**
  * Consultants — see {@link ConsultantService} for what they are.
@@ -66,6 +71,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
 
     @Autowired
     private UserProfileService profileService;
+
+    /** Only ever used to drop {@link ConsultantAccessCheckerImpl}'s per-membership answers — see
+     *  {@link #forgetEntryAnswers}. Reached through the cache rather than through that bean, which
+     *  depends on this service: a bean cycle here would fail the context outright. */
+    @Autowired
+    private CacheService cacheService;
 
     /** Optional: the list shows company names; absent tenant-starter → the id alone. */
     @Autowired(required = false)
@@ -199,16 +210,6 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     }
 
     /**
-     * The person behind this email / mobile — the one who already exists, or a new one.
-     *
-     * <p>Reusing an existing person is not a convenience, it is the only correct answer: login
-     * identifiers are globally unique, so a second profile carrying this address cannot be created,
-     * and the person who holds it IS the consultant being described. It is also what lets someone be
-     * an employee at one company and a consultant for another — one person, two kinds of membership,
-     * one picker. Matching on either channel, because the operator may type whichever they know.
-     */
-
-    /**
      * Write back what the form says about the PERSON — the half of this screen that is not about the
      * consultancy at all.
      *
@@ -244,16 +245,24 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             });
         }
 
+        // Canonical spelling, never what was typed. LoginIdentifiers is the one rule for a stored,
+        // looked-up or hashed identifier, and everything that LOOKS a person up applies it — so a
+        // mobile written here as "+65 9123-4567" is a row the login query, which asks for
+        // "+6591234567", cannot find. The person then simply cannot sign in by mobile, and no
+        // migration rewrites such a row: the class says so itself. The comparison is against the
+        // canonical form too, or an unchanged number would be rewritten on every save.
+        String canonicalEmail = LoginIdentifiers.normalize(email);
+        String canonicalMobile = LoginIdentifiers.normalize(mobile);
         identityService.findByProfile(profileId).ifPresent(identity -> {
             boolean changed = false;
-            if (email != null && !email.isEmpty() && !email.equalsIgnoreCase(identity.getLoginEmail())) {
-                requireClaimable(email, profileId);
-                identity.setLoginEmail(email);
+            if (canonicalEmail != null && !canonicalEmail.equals(identity.getLoginEmail())) {
+                requireClaimable(canonicalEmail, profileId);
+                identity.setLoginEmail(canonicalEmail);
                 changed = true;
             }
-            if (mobile != null && !mobile.isEmpty() && !mobile.equals(identity.getLoginMobile())) {
-                requireClaimable(mobile, profileId);
-                identity.setLoginMobile(mobile);
+            if (canonicalMobile != null && !canonicalMobile.equals(identity.getLoginMobile())) {
+                requireClaimable(canonicalMobile, profileId);
+                identity.setLoginMobile(canonicalMobile);
                 changed = true;
             }
             if (changed) {
@@ -270,6 +279,15 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         }
     }
 
+    /**
+     * The person behind this email / mobile — the one who already exists, or a new one.
+     *
+     * <p>Reusing an existing person is not a convenience, it is the only correct answer: login
+     * identifiers are globally unique, so a second profile carrying this address cannot be created,
+     * and the person who holds it IS the consultant being described. It is also what lets someone be
+     * an employee at one company and a consultant for another — one person, two kinds of membership,
+     * one picker. Matching on either channel, because the operator may type whichever they know.
+     */
     private Long resolveOrCreatePerson(String email, String mobile) {
         Optional<Long> byEmail = identityService.findByLoginIdentifier(email)
                 .map(UserIdentity::getProfileId);
@@ -282,13 +300,49 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 email != null && !email.isBlank() ? email : mobile));
     }
 
+    /**
+     * The Consultant Profiles list.
+     *
+     * <p>Four reads for the whole page, not four per row. Each row shows the person's name, their
+     * login identifiers and the companies whose grant covers today — three satellites of the
+     * profile — and asking for them one consultant at a time made the list cost 3n+1 queries against
+     * a platform-wide table with no upper bound on its size. The three satellites are fetched for
+     * every consultant at once and matched up in memory.
+     *
+     * <p>The search still runs here rather than in the query, and that is not laziness: it matches
+     * name and email, which live on {@code UserProfile} and {@code UserIdentity}, while the rows
+     * being filtered are {@code ConsultantProfile}s. No single query spans the three, so the choice
+     * is between filtering after the join or issuing the same three reads twice.
+     */
     @SkipPermissionCheck
     @CrossTenant
     @Override
     public List<ConsultantRowDTO> list(String search) {
         String needle = search == null ? "" : search.trim().toLowerCase();
-        return this.searchList(new Filters()).stream()
-                .map(this::toRow)
+        List<ConsultantProfile> profiles = this.searchList(new Filters());
+        if (profiles.isEmpty()) {
+            return List.of();
+        }
+        List<Long> profileIds = profiles.stream().map(ConsultantProfile::getProfileId)
+                .filter(Objects::nonNull).distinct().toList();
+
+        // The person, not their name: Collectors.toMap rejects a null VALUE, and a consultant
+        // created through /join carries no full name until somebody types one.
+        Map<Long, UserProfile> personByProfile = profileService
+                .searchList(new Filters().in(UserProfile::getId, profileIds)).stream()
+                .filter(person -> person.getId() != null)
+                .collect(Collectors.toMap(UserProfile::getId, Function.identity(), (a, b) -> a));
+        Map<Long, UserIdentity> identityByProfile = identityService
+                .searchList(new Filters().in(UserIdentity::getProfileId, profileIds)).stream()
+                .filter(identity -> identity.getProfileId() != null)
+                .collect(Collectors.toMap(UserIdentity::getProfileId, Function.identity(), (a, b) -> a));
+        Map<Long, List<ConsultantAuthorization>> grantsByProfile = authorizationService
+                .searchList(new Filters().in(ConsultantAuthorization::getProfileId, profileIds)).stream()
+                .filter(grant -> grant.getProfileId() != null)
+                .collect(Collectors.groupingBy(ConsultantAuthorization::getProfileId));
+
+        return profiles.stream()
+                .map(profile -> toRow(profile, personByProfile, identityByProfile, grantsByProfile))
                 .filter(row -> needle.isEmpty()
                         || (row.getUsername() != null && row.getUsername().toLowerCase().contains(needle))
                         || (row.getEmail() != null && row.getEmail().toLowerCase().contains(needle)))
@@ -332,7 +386,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         }
         // One read for the page's consultants, not one per row.
         List<Long> profileIds = consultants.stream().map(UserAccount::getProfileId)
-                .filter(java.util.Objects::nonNull).distinct().toList();
+                .filter(Objects::nonNull).distinct().toList();
         Map<Long, String> emailByProfile = profileIds.isEmpty() ? Map.of()
                 : identityService.searchList(new Filters()
                                 .in(UserIdentity::getProfileId, profileIds)).stream()
@@ -341,7 +395,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                                 UserIdentity::getProfileId,
                                 identity -> identity.getLoginEmail() == null ? "" : identity.getLoginEmail(),
                                 (a, b) -> a));
-        Map<Long, String> out = new java.util.HashMap<>();
+        Map<Long, String> out = new HashMap<>();
         for (UserAccount account : consultants) {
             String email = emailByProfile.get(account.getProfileId());
             out.put(account.getId(), email == null || email.isEmpty() ? null : email);
@@ -349,20 +403,26 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         return out;
     }
 
-    private ConsultantRowDTO toRow(ConsultantProfile profile) {
+    /** One list row, assembled from the page-wide satellite maps {@link #list} has already read. */
+    private ConsultantRowDTO toRow(ConsultantProfile profile,
+                                   Map<Long, UserProfile> personByProfile,
+                                   Map<Long, UserIdentity> identityByProfile,
+                                   Map<Long, List<ConsultantAuthorization>> grantsByProfile) {
         ConsultantRowDTO row = new ConsultantRowDTO();
         Long profileId = profile.getProfileId();
         row.setProfileId(profileId);
         row.setActive(profile.getActive());
-        profileService.getById(profileId).ifPresent(p -> row.setUsername(p.getFullName()));
-        identityService.findByProfile(profileId).ifPresent(identity -> {
+        UserProfile person = personByProfile.get(profileId);
+        row.setUsername(person == null ? null : person.getFullName());
+        UserIdentity identity = identityByProfile.get(profileId);
+        if (identity != null) {
             row.setEmail(identity.getLoginEmail());
             row.setMobile(identity.getLoginMobile());
-        });
+        }
         // Live grants only — the badges must agree with the switcher the consultant will see. The
         // enabled check is answered from the row already in hand rather than by re-reading it.
         Set<Long> live = Boolean.TRUE.equals(profile.getActive())
-                ? authorizationsOf(profileId).stream().filter(this::coversToday)
+                ? grantsByProfile.getOrDefault(profileId, List.of()).stream().filter(this::coversToday)
                         .map(ConsultantAuthorization::getTenantId).collect(Collectors.toSet())
                 : Set.of();
         row.setAuthorizedTenants(live.stream().map(tenantId -> {
@@ -385,6 +445,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 .orElseThrow(() -> new BusinessException("That person is not a consultant."));
         profile.setActive(active);
         this.updateOne(profile);
+        forgetEntryAnswers(profileId);
         log.info("Consultant {} {}.", profileId, active ? "enabled" : "disabled");
     }
 
@@ -416,8 +477,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 want.setProfileId(profileId);
                 authorizationService.createOne(want);
                 mintMembership(profileId, want.getTenantId());
-            } else if (!have.getStartDate().equals(want.getStartDate())
-                    || !have.getEndDate().equals(want.getEndDate())) {
+            } else if (!Objects.equals(have.getStartDate(), want.getStartDate())
+                    || !Objects.equals(have.getEndDate(), want.getEndDate())) {
+                // Objects.equals, not a.equals(b): the row in hand came from the database, and the
+                // platform's generic CRUD on this model can write one with no dates at all. Reaching
+                // through a null there would answer an edit with a NullPointerException — and the
+                // repair for such a row is exactly this save.
                 have.setStartDate(want.getStartDate());
                 have.setEndDate(want.getEndDate());
                 authorizationService.updateOne(have);
@@ -432,6 +497,23 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             log.info("Consultant {} authorization for tenant {} revoked; membership kept for audit.",
                     profileId, gone.getTenantId());
         });
+        forgetEntryAnswers(profileId);
+    }
+
+    /**
+     * Drop the gate's cached "may this membership still be entered" answers for this person.
+     *
+     * <p>Disabling a consultant and revoking a grant are decisions somebody takes, and they have to
+     * bite on the next request rather than whenever a minute happens to be up — a consultant removed
+     * because of an incident must stop working now. Expiry by date is the case with nothing to hook,
+     * and the cache's short TTL is what bounds that one; see {@link ConsultantAccessCheckerImpl}.
+     *
+     * <p>Every membership, not just the ones whose grant changed: a save rewrites the whole
+     * authorization table, and the cheap over-eviction costs one re-read each.
+     */
+    private void forgetEntryAnswers(Long profileId) {
+        accountService.listMembershipsOf(profileId).forEach(account ->
+                cacheService.clear(ConsultantAccessCheckerImpl.cacheKey(account.getId())));
     }
 
     /**
