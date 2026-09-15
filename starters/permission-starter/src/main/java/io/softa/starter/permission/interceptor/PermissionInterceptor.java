@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -20,8 +21,8 @@ import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.enums.SystemRole;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.ConfigurationException;
-import io.softa.framework.orm.service.ConsultantAccessChecker;
 import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.orm.service.ConsultantAccessChecker;
 import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import io.softa.starter.permission.index.EndpointIndex;
@@ -51,7 +52,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
      *  Optional — a deployment without consultants installs no
      *  implementation, and the consultant branch never fires there anyway. Field-injected: the
      *  constructor is RequiredArgs over finals. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private ConsultantAccessChecker consultantAccessChecker;
     private final EndpointIndex endpointIndex;
     private final PermissionSnapshotProvider snapshotProvider;

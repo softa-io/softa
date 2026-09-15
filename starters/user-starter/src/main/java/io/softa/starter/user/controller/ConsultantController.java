@@ -1,6 +1,7 @@
 package io.softa.starter.user.controller;
 
 import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -94,7 +95,7 @@ public class ConsultantController {
      */
     @Operation(summary = "Flag which acting accounts are consultants, with their login email, for audit attribution")
     @PostMapping("/actors")
-    public ApiResponse<java.util.Map<Long, String>> actors(@RequestBody java.util.List<Long> accountIds) {
+    public ApiResponse<Map<Long, String>> actors(@RequestBody List<Long> accountIds) {
         return ApiResponse.success(consultantService.consultantActors(accountIds));
     }
 

@@ -309,9 +309,10 @@ public class LoginController {
     }
 
     /**
-     * Leave the tenant this session is in and return to the company step, still authenticated
-     * The client calls this when a request inside a tenant answered 414 — the
-     * consultant's authorization there ended — instead of signing the person out.
+     * Leave the tenant this session is in and return to the company step, still authenticated.
+     *
+     * <p>The client calls this when a request inside a tenant answered 414 — the consultant's
+     * authorization there ended — instead of signing the person out.
      *
      * <p>Authorized by the CURRENT SESSION, like {@link #switchTenant}. The session is dropped only
      * after the service has answered, so a refusal (nothing left to enter) leaves the caller
