@@ -1,5 +1,6 @@
 package io.softa.starter.user.service.impl;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +37,8 @@ class MustSetMyPasswordTest {
     private final ConsultantService consultantService =
             mock(ConsultantService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    /** The memberships the exemption is decided from — see {@code holdsOnlyConsultantMemberships}. */
+    private final UserAccountService memberships = mock(UserAccountService.class);
 
     /**
      * A REAL LoginServiceImpl over the mocked credential store, not a stubbed rule.
@@ -48,6 +52,7 @@ class MustSetMyPasswordTest {
         LoginServiceImpl loginService = new LoginServiceImpl();
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "consultantService", consultantService);
+        ReflectionTestUtils.setField(loginService, "accountService", memberships);
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
         ReflectionTestUtils.setField(accountService, "loginService", loginService);
     }
@@ -57,6 +62,15 @@ class MustSetMyPasswordTest {
         Context context = new Context();
         context.setUserId(userId);
         return ContextHolder.callWith(context, accountService::mustSetMyPassword);
+    }
+
+    /** One membership of the given kind, for the exemption's "every membership" question. */
+    private static UserAccount membership(boolean consultant) {
+        UserAccount account = new UserAccount();
+        account.setId(USER);
+        account.setProfileId(PROFILE);
+        account.setConsultant(consultant);
+        return account;
     }
 
     private static UserAccount account(Long profileId) {
@@ -113,7 +127,24 @@ class MustSetMyPasswordTest {
         doReturn(Optional.of(account(PROFILE))).when(accountService).getById(USER);
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity(null)));
         when(consultantService.isConsultant(PROFILE)).thenReturn(true);
+        when(memberships.listMembershipsOf(PROFILE)).thenReturn(List.of(membership(true)));
 
         assertThat(asUser(USER)).isFalse();
+    }
+
+    @Test
+    void aConsultantWhoIsALSOAnEmployee_stillOwesOne() {
+        // The exemption is about consultancy, but it was asked of the PERSON: one call to
+        // isConsultant and anybody who consults anywhere was excused. Somebody can be an employee at
+        // one company and a consultant for another — the design says so — and the employee half is
+        // exactly the half that cannot come back without a password. So a dual-hat person keeps the
+        // forced step; only somebody whose every membership is a consultancy is excused.
+        doReturn(Optional.of(account(PROFILE))).when(accountService).getById(USER);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity(null)));
+        when(consultantService.isConsultant(PROFILE)).thenReturn(true);
+        when(memberships.listMembershipsOf(PROFILE))
+                .thenReturn(List.of(membership(true), membership(false)));
+
+        assertThat(asUser(USER)).isTrue();
     }
 }

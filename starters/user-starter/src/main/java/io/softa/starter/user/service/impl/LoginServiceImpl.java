@@ -697,11 +697,31 @@ public class LoginServiceImpl implements LoginService {
      * being FORCED, not from having one.
      */
     private boolean mustSetPasswordFor(UserIdentity identity) {
-        if (consultantService.isConsultant(identity.getProfileId())) {
-            return false;
+        if (StringUtils.isNotBlank(identity.getPassword())) {
+            return false;   // asked first: the common answer, and it costs no read
         }
-        return StringUtils.isBlank(identity.getPassword());
+        return !holdsOnlyConsultantMemberships(identity.getProfileId(),
+                accountService.listMembershipsOf(identity.getProfileId()));
     }
+
+    /**
+     * Whether every membership this person holds is a consultant's.
+     *
+     * <p>The question the two rules below actually want, and not the same as "is this person a
+     * consultant". Somebody can be an employee at one company and a consultant for another — the
+     * design says so explicitly — and each hat carries its own rule. The exemptions are written
+     * against the whole person because both are asked before a company is chosen, so the safe
+     * reading is the one that keeps the employee half intact: a dual-hat person is still forced to
+     * set a password, and is still told what an employee would be told.
+     *
+     * <p>An empty list answers true for a consultant, which is the state a consultant whose grants
+     * have all lapsed is in — exactly the case the wording exists for.
+     */
+    private boolean holdsOnlyConsultantMemberships(Long profileId, List<UserAccount> memberships) {
+        return consultantService.isConsultant(profileId)
+                && memberships.stream().allMatch(account -> Boolean.TRUE.equals(account.getConsultant()));
+    }
+
     @Override
     public List<MembershipOption> listTenants(String authToken) {
         // Reads the person from the token, not the request: listing another person's tenants is
@@ -712,7 +732,8 @@ public class LoginServiceImpl implements LoginService {
     /**
      * Why a row cannot be entered even though the membership behind it is intact.
      *
-     * <p>Asked for consultant rows only — see the call site. Only the company's own availability today. One neutral phrase rather than the tenant's
+     * <p>Asked for consultant rows only — see the call site — and about one thing only: whether the
+     * company itself is available today. One neutral phrase rather than the tenant's
      * actual status: whether a customer is suspended or closed is that customer's business, and the
      * person reading this row needs to know they cannot go in, not why the company stopped paying.
      */
@@ -772,8 +793,7 @@ public class LoginServiceImpl implements LoginService {
         // person is a consultant AND holds no employment does this apply — someone who is both gets
         // the employee wording, which is the half they can still act on.
         List<UserAccount> memberships = accountService.listMembershipsOf(profileId);
-        if (consultantService.isConsultant(profileId)
-                && memberships.stream().allMatch(account -> Boolean.TRUE.equals(account.getConsultant()))) {
+        if (holdsOnlyConsultantMemberships(profileId, memberships)) {
             return new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
         }
         boolean invited = memberships.stream()
