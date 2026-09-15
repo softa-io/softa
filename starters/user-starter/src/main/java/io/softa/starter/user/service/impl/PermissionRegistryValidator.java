@@ -186,6 +186,18 @@ public class PermissionRegistryValidator {
             if (!seenPermIds.add(p.getId())) {
                 errors.add("Permission.id duplicated: '" + p.getId() + "'");
             }
+            // A permission must name a navigation. Both admin snapshots build their permission set
+            // by collecting the permissions of the navigations they may reach, so one with no
+            // navigation is in nobody's set — and since the endpoint gate treats a REGISTERED
+            // endpoint as gated, its endpoints become unreachable for the platform administrator and
+            // the tenant administrator alike. Silently: the row looks fine, the endpoints are
+            // indexed, and the only symptom is a 403 nobody can explain. Said here because this is
+            // where the seed is checked, and the fix is always in the seed.
+            if (p.getNavigationId() == null) {
+                errors.add("Permission[" + p.getId() + "].navigationId is null — its endpoints would "
+                        + "be unreachable for every admin, whose permission sets are built from the "
+                        + "navigations they may reach");
+            }
             permNavById.put(p.getId(), p.getNavigationId());
         }
         return permNavById;
