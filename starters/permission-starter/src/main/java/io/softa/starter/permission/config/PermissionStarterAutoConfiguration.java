@@ -22,6 +22,7 @@ import io.softa.starter.permission.spi.support.DbSensitiveFieldSetSource;
 import io.softa.starter.permission.spi.support.DefaultPermissionSnapshotProvider;
 import io.softa.starter.permission.index.EndpointIndex;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
+import io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.service.PermissionServiceImpl;
@@ -71,9 +72,12 @@ public class PermissionStarterAutoConfiguration {
             // ModelManager — leaving the index empty. Deferring the resolve to first use keeps the
             // index's construction after the catalog is ready. The index is genuinely optional; a
             // deployment without it answers "granted" for the file endpoints.
-            ObjectProvider<EndpointIndex> endpointIndex) {
+            ObjectProvider<EndpointIndex> endpointIndex,
+            // Same lazy treatment, same reason: the rewriter reads ModelManager, which AppStartup
+            // loads after this bean is built.
+            ObjectProvider<DepartmentSubtreeFilterRewriter> subtreeRewriter) {
         return new PermissionServiceImpl(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability,
-                endpointIndex::getIfAvailable);
+                endpointIndex::getIfAvailable, subtreeRewriter::getIfAvailable);
     }
 
     /**

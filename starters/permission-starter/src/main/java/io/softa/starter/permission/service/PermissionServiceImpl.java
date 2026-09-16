@@ -21,6 +21,7 @@ import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.index.EndpointIndex;
+import io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
@@ -95,6 +96,13 @@ public class PermissionServiceImpl implements PermissionService {
      *  unregistered pair means anyway. */
     private final Supplier<EndpointIndex> endpointIndexSupplier;
 
+    /** Expands `deptField CHILD OF ids` onto Department.idPath — see
+     *  {@link io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter}. Supplied the same
+     *  lazy way as the endpoint index, and for the same reason: the rewriter reads ModelManager, so
+     *  resolving it while this bean is built would touch an unloaded catalog. A null supplier (the
+     *  older constructors, and every unit test) simply means no rewrite. */
+    private final Supplier<DepartmentSubtreeFilterRewriter> subtreeRewriterSupplier;
+
     public PermissionServiceImpl(PermissionSnapshotProvider snapshotProvider,
             ScopeRuleCompiler scopeCompiler,
             SensitiveFieldSetCache sfsCache,
@@ -109,18 +117,37 @@ public class PermissionServiceImpl implements PermissionService {
             ModelService<?> modelService,
             ScopeApplicabilityResolver applicability,
             Supplier<EndpointIndex> endpointIndexSupplier) {
+        this(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability,
+                endpointIndexSupplier, () -> null);
+    }
+
+    public PermissionServiceImpl(PermissionSnapshotProvider snapshotProvider,
+            ScopeRuleCompiler scopeCompiler,
+            SensitiveFieldSetCache sfsCache,
+            ModelService<?> modelService,
+            ScopeApplicabilityResolver applicability,
+            Supplier<EndpointIndex> endpointIndexSupplier,
+            Supplier<DepartmentSubtreeFilterRewriter> subtreeRewriterSupplier) {
         this.snapshotProvider = snapshotProvider;
         this.scopeCompiler = scopeCompiler;
         this.sfsCache = sfsCache;
         this.modelService = modelService;
         this.applicability = applicability;
         this.endpointIndexSupplier = endpointIndexSupplier == null ? () -> null : endpointIndexSupplier;
+        this.subtreeRewriterSupplier =
+                subtreeRewriterSupplier == null ? () -> null : subtreeRewriterSupplier;
     }
 
     // ─────────────────────── row-scope ───────────────────────
 
     @Override
     public Filters appendScopeAccessFilters(String model, Filters originalFilters) {
+        // Before every early return below, deliberately. This is a rewrite of what the caller asked
+        // for, not a restriction added on top: `CHILD OF` on a department reference has to become an
+        // idPath condition or it compiles to a LIKE against an id and matches by coincidence. An
+        // admin, and anything running under @SkipPermissionCheck, asks the same question and needs
+        // the same answer — placing it after the bypass would leave exactly them with the broken one.
+        originalFilters = rewriteDepartmentSubtrees(model, originalFilters);
         if (shouldBypass()) return originalFilters;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.isAdmin(pi)) return originalFilters;
@@ -137,6 +164,12 @@ public class PermissionServiceImpl implements PermissionService {
             return combineAnd(originalFilters, scope);
         }
         return scopeWithoutGrant(model, pi, originalFilters);
+    }
+
+    /** No-op when the rewriter is absent (older constructors, unit tests) or nothing matches. */
+    private Filters rewriteDepartmentSubtrees(String model, Filters filters) {
+        DepartmentSubtreeFilterRewriter rewriter = subtreeRewriterSupplier.get();
+        return rewriter == null ? filters : rewriter.rewrite(model, filters);
     }
 
     /**

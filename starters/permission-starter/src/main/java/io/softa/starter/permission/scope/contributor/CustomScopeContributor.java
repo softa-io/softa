@@ -5,6 +5,7 @@ import tools.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter;
 import io.softa.starter.permission.scope.ScopeEnvGuard;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
@@ -35,6 +36,19 @@ import io.softa.starter.permission.spi.ScopeContributor;
 @Component
 public class CustomScopeContributor implements ScopeContributor {
 
+    /**
+     * A CUSTOM rule is authored in the same dialog as a runtime filter, so it can name
+     * {@code CHILD OF} on a department reference too — and it needs the same rewrite onto
+     * {@code idPath}. It cannot ride on the one in {@code PermissionServiceImpl}: that runs on the
+     * caller's filters, and this rule is compiled afterwards and AND-ed on, so it would never be
+     * seen there.
+     */
+    private final DepartmentSubtreeFilterRewriter subtreeRewriter;
+
+    public CustomScopeContributor(DepartmentSubtreeFilterRewriter subtreeRewriter) {
+        this.subtreeRewriter = subtreeRewriter;
+    }
+
     @Override
     public ScopeType scopeType() {
         return ScopeType.CUSTOM;
@@ -57,7 +71,7 @@ public class CustomScopeContributor implements ScopeContributor {
             if (!ScopeEnvGuard.contextSatisfies(parsed)) {
                 return new Filters();
             }
-            return parsed;
+            return subtreeRewriter.rewrite(modelName, parsed);
         } catch (Throwable t) {
             log.warn("CustomScope — failed to parse scopeExpr; degrading to empty", t);
             return new Filters();
