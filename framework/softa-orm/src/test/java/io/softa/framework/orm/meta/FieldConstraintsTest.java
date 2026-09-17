@@ -76,6 +76,16 @@ class FieldConstraintsTest {
                 reason = "Others" AND status = "Draft"
                 """)).isEqualTo(Filters.of(
                         "[[\"reason\", \"=\", \"Others\"], \"AND\", [\"status\", \"=\", \"Draft\"]]"));
+        // The shape a rule takes once the "only while shown" part is said on the rule instead of in
+        // `hiddenWhen` — a plain value on the left, a placeholder on the right, joined by AND.
+        assertThat(Filters.of("""
+                type = "CompanyProvided" AND endDate < "{{ @startDate }}"
+                """)).isEqualTo(Filters.of(
+                        "[[\"type\", \"=\", \"CompanyProvided\"], \"AND\", [\"endDate\", \"<\", \"{{ @startDate }}\"]]"));
+        assertThat(Filters.of("""
+                relationship = "Spouse" AND dateOfMarriage > "{{ TODAY }}"
+                """)).isEqualTo(Filters.of(
+                        "[[\"relationship\", \"=\", \"Spouse\"], \"AND\", [\"dateOfMarriage\", \">\", \"{{ TODAY }}\"]]"));
         // grouping to depth, which is what a complex rule actually needs
         assertThat(Filters.of("""
                 title = "PM" OR (code = "A010" AND grade = 1)
