@@ -151,25 +151,36 @@ public record FieldConstraints(
     }
 
     /**
-     * The fields of the same row the conditions read: every field in the field slot (minus the
-     * reserved {@code @mode} / {@code @userId}) and every {@code {{ @field }}} reference in the value
-     * slot. This is what the update pipeline fetches from the stored row so a condition sees the full
-     * picture when the patch carries only part of it.
+     * Whether a write has anything to check here. {@code hiddenWhen} is absent on purpose: whether a
+     * field is shown is a property of a view and a write has no view, so the server never evaluates it
+     * — the declaration travels to the frontend and is acted on there. A field carrying only
+     * {@code hiddenWhen} therefore builds no enforcer and costs a write nothing.
+     */
+    public boolean hasEnforcedConditions() {
+        return requiredWhen != null || readonlyWhen != null || invalidWhen != null;
+    }
+
+    /**
+     * The fields of the same row the <b>enforced</b> conditions read: every field in the field slot
+     * (minus the reserved {@code @mode} / {@code @userId}) and every {@code {{ @field }}} reference in
+     * the value slot. This is what the update pipeline fetches from the stored row so a condition sees
+     * the full picture when the patch carries only part of it — and why {@code hiddenWhen}'s references
+     * are not in it: nothing on this side reads them. The frontend collects its own list, which does
+     * include them, because it is the side that evaluates the rule.
      */
     public Set<String> referencedFields() {
         Set<String> fields = new LinkedHashSet<>();
-        for (Filters condition : conditions()) {
+        for (Filters condition : enforcedConditions()) {
             collectReferences(condition, fields);
         }
         return fields;
     }
 
-    private List<Filters> conditions() {
-        List<Filters> out = new ArrayList<>(4);
+    private List<Filters> enforcedConditions() {
+        List<Filters> out = new ArrayList<>(3);
         if (requiredWhen != null && requiredWhen.getFilters() != null) {
             out.add(requiredWhen.getFilters());
         }
-        if (hiddenWhen != null) out.add(hiddenWhen);
         if (readonlyWhen != null) out.add(readonlyWhen);
         if (invalidWhen != null) out.add(invalidWhen);
         return out;

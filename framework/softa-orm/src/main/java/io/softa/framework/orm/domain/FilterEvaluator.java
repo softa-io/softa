@@ -36,8 +36,9 @@ import io.softa.framework.orm.enums.LogicOperator;
  * Evaluates a {@link Filters} tree against one row held in memory — the counterpart of
  * {@code FilterUnitParser}, which compiles the same tree into SQL.
  *
- * <p>Exists for the field constraints ({@code requiredWhen} / {@code hiddenWhen} / {@code readonlyWhen}
- * / {@code invalidWhen}): the row being written is in hand and has not been stored yet, so asking the
+ * <p>Exists for the field constraints ({@code requiredWhen} / {@code readonlyWhen} /
+ * {@code invalidWhen} on this side, and {@code hiddenWhen} too on the frontend's): the row being
+ * written is in hand and has not been stored yet, so asking the
  * database is not an option, and the frontend evaluates the identical expression against the form
  * values with its own evaluator. The two evaluators must agree, so the semantics below are written
  * down rather than inherited from SQL where the two differ:

@@ -34,8 +34,8 @@ import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.utils.ReflectTool;
 
 /**
- * Applies the conditional field constraints — {@code requiredWhen} / {@code hiddenWhen} /
- * {@code readonlyWhen} / {@code invalidWhen} — to the rows of one write.
+ * Applies the conditional field constraints — {@code requiredWhen} / {@code readonlyWhen} /
+ * {@code invalidWhen} — to the rows of one write.
  *
  * <p>Runs <b>before</b> the field-processor chain, on the raw values: on create the request row with
  * the declared {@code defaultValue}s filled in (the chain fills them later, and a condition reading
@@ -46,11 +46,17 @@ import io.softa.framework.orm.utils.ReflectTool;
  * same picture. The value domain ({@code min} / {@code max} / {@code pattern}) is the opposite case
  * and stays in the processors: it needs the coerced value.
  *
+ * <p><b>{@code hiddenWhen} is not enforced here at all.</b> Whether a field is shown is a property of
+ * a view, not of the row: the same field is hidden in a list and shown in a form, and a write has no
+ * view. The declaration still travels to the frontend, which is the only side that can act on it; this
+ * side judges what the value <i>is</i>, never whether it would have been on screen. So a field carrying
+ * only {@code hiddenWhen} is not a conditional field here — no enforcer is built for it, and its
+ * references are not fetched. "Only when the field is shown" is spelled as a condition on the rule
+ * itself ({@code requiredWhen = type = "CompanyProvided"}), which says the same thing about the data
+ * and needs no notion of a screen.
+ *
  * <p>Rules, written down because the frontend evaluator must give the same answers:
  * <ol>
- *   <li><b>Hidden fields are not checked.</b> {@code hidden} or a matching {@code hiddenWhen} skips the
- *       field's required / readonly / invalid rules — what the form does not show it cannot demand,
- *       otherwise a record with a hidden required field could never be saved.</li>
  *   <li><b>On update, a field is evaluated only when the patch touches it</b> — the field itself, or a
  *       field one of its conditions reads. A row whose {@code reasonDescription} is legitimately empty
  *       is not rejected by an unrelated edit; changing {@code reason} to {@code Others} is.
@@ -65,8 +71,8 @@ import io.softa.framework.orm.utils.ReflectTool;
  *       the row carries — once per FK value per write — and laid over a working copy of the row
  *       before the conditions run. A stored cascaded field is a column and needs nothing.</li>
  * </ol>
- * The static {@code required} check stays in the processors — a {@code NOT NULL} column cannot be
- * skipped by hiding the field, the database would reject the row anyway.
+ * The static {@code required} check stays in the processors — a {@code NOT NULL} column is the
+ * database's own rule and is not conditional on anything.
  */
 public final class FieldConstraintsEnforcer {
 
@@ -382,19 +388,12 @@ public final class FieldConstraintsEnforcer {
                          @Nullable Map<String, Object> originalRow) {
         FieldConstraints c = field.getConstraints();
         String name = field.getFieldName();
-        // Checked before the hidden exemption: hiding a field excuses it from being *demanded*, it does
-        // not license *writing* it. One request that both hides the field and assigns it would otherwise
-        // slip a value past readonly for good — nothing re-checks an assignment once it is stored, so
-        // un-hiding the field afterwards would not catch it.
         // Looks at what the request assigned, not at the evaluation view (which on create may hold the
         // field's own default).
         if (c.readonlyWhen() != null && patch.containsKey(name) && matches(c.readonlyWhen(), row)
                 && assigned(field, patch.get(name), originalRow == null ? null : originalRow.get(name))) {
             throw WriteValidationException.forField(name,
                     "Model field {0}:{1} is readonly in its current state and cannot be assigned!", modelName, name);
-        }
-        if (field.isHidden() || matches(c.hiddenWhen(), row)) {
-            return;
         }
         Object value = row.get(name);
         if (requiredNow(c.requiredWhen(), row) && FilterEvaluator.isBlank(value)) {

@@ -118,7 +118,7 @@ extends `AuditableModel`.
 | `pattern` | String | `""` | `constraints` | regex the **whole** value must match (`Pattern.matches`, not `find`); STRING / TEXT only, compiled at scan time. Keep to syntax Java and JavaScript agree on — the frontend evaluates the same string |
 | `constraintMessage` | String | `""` | `constraints` (`message`) | sentence shown as written when `min` / `max` / `pattern` / `invalidWhen` rejects a value; its own i18n key, like `@Index(message)`, not a `{0}` pattern. Optional for a bound ("must be at least 0" composes itself), effectively required for a `pattern` or an `invalidWhen` |
 | `requiredWhen` | String | `""` | `constraints` | filter expression over the same row under which the field is required, or `"true"` for application-level required on a nullable column (see below) |
-| `hiddenWhen` / `readonlyWhen` | String | `""` | `constraints` | filter expressions under which the field is hidden (and not judged) / rejects an assignment |
+| `hiddenWhen` / `readonlyWhen` | String | `""` | `constraints` | filter expressions under which the field is hidden (**frontend only** — the server carries it and never acts on it) / rejects an assignment |
 | `invalidWhen` | String | `""` | `constraints` | filter expression that, when it holds, rejects the write with `constraintMessage` |
 
 A condition is written as an expression — `reason = "Others"` — which in a Java text block needs no
@@ -179,10 +179,10 @@ does it conclude:
 
 | | Value domain | Field state | Validity |
 |---|---|---|---|
-| keys | `min` / `max` / `pattern` (+ `message`) | `requiredWhen` / `hiddenWhen` / `readonlyWhen` | `invalidWhen` (+ `message`) |
+| keys | `min` / `max` / `pattern` (+ `message`) | `requiredWhen` / `readonlyWhen` (and `hiddenWhen`, frontend only) | `invalidWhen` (+ `message`) |
 | looks at other fields | no | yes | yes — it compares them |
-| concludes | reject | required / hidden / readonly | reject |
-| enforced by | `NumericProcessor` (after coercion) / `StringProcessor` (after trim) via `ValueConstraints` | `FieldConstraintsEnforcer`, before the processor chain, on the raw row | same |
+| concludes | reject | required / readonly (/ hidden, on screen) | reject |
+| enforced by | `NumericProcessor` (after coercion) / `StringProcessor` (after trim) via `ValueConstraints` | `FieldConstraintsEnforcer`, before the processor chain, on the raw row — `hiddenWhen` by the form alone | same |
 
 ```java
 @Field(label = "Active Employees", min = "0", constraintMessage = "Headcount cannot be negative.")
@@ -248,6 +248,13 @@ Rules worth knowing before declaring one:
   operators need two values, their negations answer the opposite; values coerce by the field's type
   (a stored date arrives as text, a patch as `LocalDate`); options compare by item code, relations by
   id, a multi-value field is a set.
+- **`hiddenWhen` is the frontend's rule, not this side's.** Whether a field is shown is a property of a
+  view and a write has no view — the same field is hidden in a list and shown in a form. The server
+  parses and validates the declaration, ships it with the metadata, and never evaluates it: a hidden
+  field that arrives with a value is judged like any other. So "this rule applies only while the field
+  is shown" is said **on the rule**, as a condition about the row — `requiredWhen = 'type =
+  "CompanyProvided"'`, not `required = true` plus a `hiddenWhen` that negates it. A field carrying only
+  `hiddenWhen` is not a conditional field here at all: no enforcer, no extra columns fetched.
 - **Static flags win, conditions add.** `effectiveRequired = required || requiredWhen`; declaring both
   is logged at boot. `requiredWhen` renders no `NOT NULL` — that is its point. "Required by default,
   optional in one case" is written as `required = false` + the negated condition — but see the next
@@ -265,8 +272,8 @@ Rules worth knowing before declaring one:
 - **On update, a condition is evaluated only when the patch touches the field or a field it reads**,
   on the patch merged onto the stored row. `DataUpdatePipeline` registers the referenced columns into
   `differFields` in both directions so they are fetched — without that, `PATCH {reason: Others}` would
-  slip past a rule that lives on `reasonDescription`. **Hidden fields (`hidden` / `hiddenWhen`) are not
-  judged.** `readonlyWhen` rejects an assignment (a changed value), not the value itself.
+  slip past a rule that lives on `reasonDescription`. `readonlyWhen` rejects an assignment (a changed
+  value), not the value itself.
 - **Everything is validated at scan time** against the field's type and the sibling fields a condition
   names: malformed literal, `min > max`, uncompilable regex, wrong field type, unknown sibling,
   incomparable types (`DATE` vs `STRING`), a time offset on a calendar day, a condition on a `dynamic`
@@ -391,11 +398,11 @@ ones that have actually caught something:
 supplies the instant per case rather than reading a real clock, so it tests the arithmetic; the
 timezone difference is a known open question it cannot settle.
 
-Three rules live in `FieldConstraintsEnforcer` rather than in the expression, and a client rendering a
-form mirrors those too: a hidden field is not judged at all; a conditional rule is evaluated on update
-only when the patch touches the field or something it reads; and `requiredWhen = "true"` fires on
-create but on update **only when the write names the field** — rendered as a plain required field it
-makes every row written before the rule unsaveable.
+Two rules live in `FieldConstraintsEnforcer` rather than in the expression, and a client rendering a
+form mirrors those too: a conditional rule is evaluated on update only when the patch touches the field
+or something it reads; and `requiredWhen = "true"` fires on create but on update **only when the write
+names the field** — rendered as a plain required field it makes every row written before the rule
+unsaveable. A third belongs only to the form: `hiddenWhen` is evaluated there and nowhere else.
 
 Add a case whenever a defect is found in any implementation, named after the rule it protects rather
 than the bug. It is worth more here than in one codebase's test file, because it then constrains every

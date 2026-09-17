@@ -91,10 +91,11 @@ public class MetaModel implements Serializable {
     private List<MetaField> storedCascadedFields = new ArrayList<>();
 
     /**
-     * Fields whose {@code constraints} carry a condition ({@code requiredWhen} / {@code hiddenWhen} /
-     * {@code readonlyWhen} / {@code invalidWhen}). The write pipelines walk this list instead of every
-     * field: on create to evaluate each, on update to register the fields a condition reads into the
-     * columns fetched from the stored row. Populated by {@code ModelManager.verifyFieldConstraints()}.
+     * Fields whose {@code constraints} carry a condition this side enforces ({@code requiredWhen} /
+     * {@code readonlyWhen} / {@code invalidWhen} — {@code hiddenWhen} is the frontend's). The write
+     * pipelines walk this list instead of every field: on create to evaluate each, on update to register
+     * the fields a condition reads into the columns fetched from the stored row. Populated by
+     * {@code ModelManager.verifyFieldConstraints()}.
      */
     @Setter(AccessLevel.NONE)
     private List<MetaField> conditionalFields = new ArrayList<>();

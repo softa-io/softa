@@ -148,11 +148,11 @@ class FieldConstraintsEnforcerTest {
     }
 
     @Test
-    void oneRequestCannotHideAFieldAndAssignItPastReadonly() {
-        // `amount` is readonly once approved and hidden for a contractor. A request that flips both at
-        // once must not get the value in: nothing re-checks an assignment after it is stored, so the
-        // row would keep a value readonly should have refused, visible again the moment the type flips
-        // back.
+    void hidingAFieldDoesNotChangeWhatAWriteAccepts() {
+        // `amount` is readonly once approved, and hidden for a contractor. Hiding is the frontend's
+        // business — a write has no view — so the request that flips both at once is judged exactly as
+        // the one that flips only readonly would be. It has to be: nothing re-checks an assignment once
+        // it is stored, so a value that slipped through while hidden would stay for good.
         MetaField amount = field("amount", c(null, "[[\"reason\", \"=\", \"Contractor\"]]",
                 "[[\"status\", \"=\", \"Approved\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, amount);
@@ -193,12 +193,31 @@ class FieldConstraintsEnforcerTest {
     }
 
     @Test
-    void hiddenFieldsAreNotJudged() {
+    void aHiddenFieldIsJudgedLikeAnyOther() {
+        // `hiddenWhen` says nothing about the data — the same field is hidden in a list and shown in a
+        // form, and a write has no view. So it is carried to the frontend and never read here: the rule
+        // on `lateMinutes` fires whatever `checkInStatus` says. "Only while the field is shown" belongs
+        // on the rule itself, as a condition about the row.
         MetaField lateMinutes = field("lateMinutes",
                 c("true", "[[\"checkInStatus\", \"=\", \"Normal\"]]", null, null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.CREATE, lateMinutes);
-        assertThatCode(() -> e.enforceCreate(row("checkInStatus", "Normal"))).doesNotThrowAnyException();
+        assertThatThrownBy(() -> e.enforceCreate(row("checkInStatus", "Normal"))).hasMessageContaining("lateMinutes");
         assertThatThrownBy(() -> e.enforceCreate(row("checkInStatus", "Late"))).hasMessageContaining("lateMinutes");
+
+        // said as a condition about the row instead, it holds exactly where it is meant to
+        MetaField whenLate = field("lateMinutes", c("[[\"checkInStatus\", \"=\", \"Late\"]]", null, null, null, null));
+        FieldConstraintsEnforcer onlyWhenLate = enforcer(AccessType.CREATE, whenLate);
+        assertThatCode(() -> onlyWhenLate.enforceCreate(row("checkInStatus", "Normal"))).doesNotThrowAnyException();
+        assertThatThrownBy(() -> onlyWhenLate.enforceCreate(row("checkInStatus", "Late"))).hasMessageContaining("lateMinutes");
+    }
+
+    @Test
+    void aFieldCarryingOnlyHiddenWhenIsNotAConditionalFieldAtAll() {
+        // nothing for a write to check, so the model builds no enforcer for it and fetches no columns
+        assertThat(FieldConstraints.of(null, null, null, null, null,
+                "[[\"checkInStatus\", \"=\", \"Normal\"]]", null, null, "M.f").hasEnforcedConditions()).isFalse();
+        assertThat(FieldConstraints.of(null, null, null, null, null,
+                "[[\"checkInStatus\", \"=\", \"Normal\"]]", null, null, "M.f").referencedFields()).isEmpty();
     }
 
     @Test

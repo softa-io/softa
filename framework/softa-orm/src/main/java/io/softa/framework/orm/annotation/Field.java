@@ -127,9 +127,19 @@ public @interface Field {
     String requiredWhen() default "";
 
     /**
-     * Condition under which the field is hidden. While hidden, {@link #requiredWhen()} and
-     * {@link #invalidWhen()} are not evaluated — what the form does not show it cannot demand.
-     * Same expression language as {@link #requiredWhen()}; the literal {@code "true"} is rejected
+     * Condition under which the field is hidden. <b>Evaluated by the frontend only.</b> Whether a field
+     * is shown is a property of a view, not of the row — the same field is hidden in a list and shown
+     * in a form, and a write has no view — so the server carries this declaration to the client and
+     * never acts on it. It changes nothing about what a write accepts: a hidden field that arrives with
+     * a value is judged like any other, by {@link #requiredWhen()} / {@link #readonlyWhen()} /
+     * {@link #invalidWhen()} and by the value domain.
+     *
+     * <p>So "this rule only applies while the field is shown" is said on the rule, not through this:
+     * {@code requiredWhen = "type = \"CompanyProvided\""} rather than {@code required} plus a
+     * {@code hiddenWhen} that negates it. That spelling says something about the data, which is what
+     * both ends can agree on.
+     *
+     * <p>Same expression language as {@link #requiredWhen()}; the literal {@code "true"} is rejected
      * (use {@code hidden} metadata for an unconditional flag).
      */
     String hiddenWhen() default "";

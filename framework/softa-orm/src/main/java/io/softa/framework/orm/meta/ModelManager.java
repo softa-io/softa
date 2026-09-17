@@ -297,7 +297,7 @@ public class ModelManager {
             log.warn("Field {}.{} declares both required = true and requiredWhen; the condition never"
                     + " applies because the static flag always wins.", modelName, metaField.getFieldName());
         }
-        if (constraints.hasConditions()) {
+        if (constraints.hasEnforcedConditions()) {
             modelMap().get(modelName).addConditionalField(metaField);
         }
     }

@@ -352,9 +352,14 @@ redeploy rather than a migration and existing rows are not retroactively invalid
   equality, and the frontend answers the same. Right for `hiddenWhen` (nothing chosen yet ⇒ show the
   field), rarely right for `requiredWhen` / `invalidWhen`, where it fires on a row nobody has filled in
   yet. Pair it with the field being set, or list the cases positively with `IN`.
+- **`hiddenWhen` is evaluated by the frontend only.** Being shown is a property of a view and a write
+  has no view, so the server ships the rule and never acts on it — a hidden field that arrives with a
+  value is judged like any other. Say "only while the field is shown" on the rule itself
+  (`requiredWhen = "type = \"CompanyProvided\""`), not as `required` plus a `hiddenWhen` that negates
+  it: that spelling is about the data, which is what both ends can agree on.
 - On update a condition is evaluated only when the patch touches the field or a field it reads, on
-  the patch merged onto the stored row; **hidden fields are not judged**; `readonlyWhen` rejects an
-  assignment. Static `required` / `readonly` / `hidden` always win — do not declare both.
+  the patch merged onto the stored row; `readonlyWhen` rejects an assignment. Static `required` /
+  `readonly` / `hidden` always win — do not declare both.
 - `constraintMessage` is what the user sees, as written (its own i18n key, not a `{0}` pattern).
   Optional on a bound — "must be at least 0" composes itself; always write one for a `pattern` or
   an `invalidWhen`.
