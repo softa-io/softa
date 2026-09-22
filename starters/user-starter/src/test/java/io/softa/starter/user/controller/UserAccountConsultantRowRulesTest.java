@@ -42,20 +42,24 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * A consultant's membership is invisible to a tenant's by-id operations, not only to its lists.
+ * What a tenant may and may not do to a consultant's membership.
  *
- * <p>The roster scope hid consultant rows from searchPage / searchList; getById, freeze and the
- * generic fall-through endpoints resolved the row through the ORM's tenant filter alone, which a
- * consultant's membership in that tenant passes. So the page said "no such member" while the by-id
- * surface froze, re-roled, unmasked or deleted them — and the id is printed beside every change a
- * consultant makes, in the tenant's own audit panel.
+ * <p>A consultant IS on the customer's roster, and deliberately: the customer may suspend one
+ * without going through the platform, which they cannot do to a row they cannot see. That is a
+ * veto, not ownership — entry needs the platform's grant AND this account's status, and each side
+ * can say no on its own.
  *
- * <p>Driven through {@code modelService.count}: every by-id path now asks it with the roster
- * predicate, and what is pinned is (a) that the predicate carries the consultant exclusion and (b)
- * that a short count refuses BEFORE the operation runs. The refusal is the same "User not found." a
- * nonexistent id gets, so it confirms nothing about the id it hides.
+ * <p>So the line is not visibility, it is which operations are the tenant's. Suspending is; editing
+ * the row, re-roling it and deleting it are not — a consultant's reach comes from the subscription
+ * rather than from any role, the contacts on the row are PLATFORM login identifiers, and the
+ * account is the actor the tenant's own audit log points at.
+ *
+ * <p>Every by-id path resolves the row first and refuses before the operation runs. Two different
+ * refusals, on purpose: another tenant's row is "User not found." (confirming nothing about an id
+ * it hides), while a consultant in THIS tenant is told plainly whose account it is — the page just
+ * listed it, so pretending it does not exist would only puzzle the operator.
  */
-class UserAccountByIdHidesConsultantsTest {
+class UserAccountConsultantRowRulesTest {
 
     private static final long TENANT = 2L;
     private static final long ADMIN = 1L;
@@ -109,9 +113,21 @@ class UserAccountByIdHidesConsultantsTest {
         }
     }
 
-    /** What the roster count answers for the ids being acted on. */
-    private void rosterSees(long count) {
-        when(modelService.count(eq("UserAccount"), any(Filters.class))).thenReturn(count);
+    /** What the roster read answers for the ids being acted on. */
+    private void rosterSees(Map<String, Object>... rows) {
+        when(modelService.searchList(eq("UserAccount"), any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenReturn(List.of(rows));
+        // getById keeps its own count-based visibility check — it reads one row and has no second
+        // question to ask of it.
+        when(modelService.count(eq("UserAccount"), any(Filters.class))).thenReturn((long) rows.length);
+    }
+
+    private static Map<String, Object> ordinaryRow(long id) {
+        return Map.of("id", id, "consultant", false);
+    }
+
+    private static Map<String, Object> consultantRow(long id) {
+        return Map.of("id", id, "consultant", true);
     }
 
     private static FreezeAccountDTO reason() {
@@ -120,26 +136,90 @@ class UserAccountByIdHidesConsultantsTest {
         return dto;
     }
 
-    // ─── the predicate ───
+    // ─── the one operation that IS the tenant's ───
 
     @Test
-    void theRosterCountCarriesTheConsultantExclusion() {
-        rosterSees(1);
+    void aTenantMaySuspendAConsultant() {
+        // The whole reason the row is on their roster. A customer who wants a consultant out today
+        // should not have to raise a ticket with the platform and wait.
+        rosterSees(consultantRow(CONSULTANT_ROW));
         asTenantAdmin(() -> {
             controller.freezeAccount(CONSULTANT_ROW, reason());
             return null;
         });
 
-        ArgumentCaptor<Filters> asked = ArgumentCaptor.forClass(Filters.class);
-        verify(modelService).count(eq("UserAccount"), asked.capture());
-        assertThat(asked.getValue().toString().toLowerCase()).contains("consultant");
+        verify(service).freezeAccount(eq(CONSULTANT_ROW), any());
     }
 
-    // ─── refused before the operation runs ───
+    @Test
+    void aTenantMayLiftItsOwnSuspension() {
+        rosterSees(consultantRow(CONSULTANT_ROW));
+        asTenantAdmin(() -> {
+            controller.unfreezeAccount(CONSULTANT_ROW, reason());
+            return null;
+        });
+
+        verify(service).unfreezeAccount(eq(CONSULTANT_ROW), any());
+    }
+
+    // ─── everything else on a consultant is refused, and says why ───
 
     @Test
-    void freezingAHiddenRowIsRefusedAsIfItDidNotExist() {
-        rosterSees(0);
+    void deletingAConsultantIsRefused() {
+        // It is the actor the tenant's own audit log points at. Removing it blanks the authorship of
+        // every change the consultant made while they had access.
+        rosterSees(consultantRow(CONSULTANT_ROW));
+        withIds(() -> asTenantAdmin(() -> {
+            assertThatThrownBy(() -> controller.deleteByIds(List.of(CONSULTANT_ROW)))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("managed by the platform");
+            return null;
+        }));
+        verify(modelService, never()).deleteByIds(eq("UserAccount"), any());
+    }
+
+    @Test
+    void editingAConsultantIsRefused() {
+        rosterSees(consultantRow(CONSULTANT_ROW));
+        Map<String, Object> row = new HashMap<>(Map.of("id", CONSULTANT_ROW, "nickname", "Renamed"));
+        withIds(() -> asTenantAdmin(() -> {
+            assertThatThrownBy(() -> controller.updateOne(row))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("managed by the platform");
+            return null;
+        }));
+        verify(modelService, never()).updateOne(eq("UserAccount"), anyMap());
+    }
+
+    @Test
+    void theRefusalNamesTheAccountRatherThanPretendingItIsMissing() {
+        // Distinct from the other-tenant refusal on purpose: the roster page just listed this row,
+        // so "User not found." would only make an operator doubt the page.
+        rosterSees(consultantRow(CONSULTANT_ROW));
+        Map<String, Object> row = new HashMap<>(Map.of("id", CONSULTANT_ROW, "nickname", "Renamed"));
+        withIds(() -> asTenantAdmin(() -> {
+            assertThatThrownBy(() -> controller.updateOne(row))
+                    .hasMessageContaining("suspend");
+            return null;
+        }));
+    }
+
+    @Test
+    void anOrdinaryMemberIsUntouchedByAnyOfThis() {
+        rosterSees(ordinaryRow(ADMIN));
+        Map<String, Object> row = new HashMap<>(Map.of("id", ADMIN, "nickname", "Renamed"));
+        when(modelService.updateOne(eq("UserAccount"), anyMap())).thenReturn(true);
+
+        withIds(() -> asTenantAdmin(() -> controller.updateOne(row)));
+
+        verify(modelService).updateOne(eq("UserAccount"), anyMap());
+    }
+
+    // ─── another tenant's row is still nothing at all ───
+
+    @Test
+    void anotherTenantsRowIsRefusedAsIfItDidNotExist() {
+        rosterSees();   // the roster read returns nothing for this id
         asTenantAdmin(() -> {
             assertThatThrownBy(() -> controller.freezeAccount(CONSULTANT_ROW, reason()))
                     .isInstanceOf(BusinessException.class)
@@ -150,8 +230,8 @@ class UserAccountByIdHidesConsultantsTest {
     }
 
     @Test
-    void readingAHiddenRowByIdAnswersNothing() {
-        rosterSees(0);
+    void readingAnotherTenantsRowByIdAnswersNothing() {
+        rosterSees();
         GetByIdParams params = new GetByIdParams();
         params.setId(CONSULTANT_ROW);
 
@@ -159,31 +239,6 @@ class UserAccountByIdHidesConsultantsTest {
 
         assertThat(row).isNull();
         verify(modelService, never()).getById(eq("UserAccount"), any(), any(), any(), any());
-    }
-
-    @Test
-    void deletingAHiddenRowIsRefused() {
-        rosterSees(0);
-        withIds(() -> asTenantAdmin(() -> {
-            assertThatThrownBy(() -> controller.deleteByIds(List.of(CONSULTANT_ROW)))
-                    .isInstanceOf(BusinessException.class)
-                    .hasMessage("User not found.");
-            return null;
-        }));
-        verify(modelService, never()).deleteByIds(eq("UserAccount"), any());
-    }
-
-    @Test
-    void updatingAHiddenRowIsRefused() {
-        rosterSees(0);
-        Map<String, Object> row = new HashMap<>(Map.of("id", CONSULTANT_ROW, "status", "FROZEN"));
-        withIds(() -> asTenantAdmin(() -> {
-            assertThatThrownBy(() -> controller.updateOne(row))
-                    .isInstanceOf(BusinessException.class)
-                    .hasMessage("User not found.");
-            return null;
-        }));
-        verify(modelService, never()).updateOne(eq("UserAccount"), anyMap());
     }
 
     // ─── the bounds the generic endpoint applied, kept by its shadow ───
@@ -215,21 +270,11 @@ class UserAccountByIdHidesConsultantsTest {
         verify(modelService, never()).deleteByIds(eq("UserAccount"), any());
     }
 
-    // ─── the paired negatives: a visible row still works ───
+    // ─── reading one is fine: that is what puts it on the roster ───
 
     @Test
-    void freezingAVisibleRowStillRuns() {
-        rosterSees(1);
-        asTenantAdmin(() -> {
-            controller.freezeAccount(CONSULTANT_ROW, reason());
-            return null;
-        });
-        verify(service).freezeAccount(CONSULTANT_ROW, "test");
-    }
-
-    @Test
-    void readingAVisibleRowStillAnswers() {
-        rosterSees(1);
+    void aTenantReadsAConsultantRowByIdLikeAnyOther() {
+        rosterSees(consultantRow(CONSULTANT_ROW));
         when(modelService.getById(eq("UserAccount"), any(), any(), any(), any()))
                 // Mutable: the controller stamps the derived lock badge onto the row it hands back.
                 .thenReturn(Optional.of(new HashMap<>(Map.of("id", CONSULTANT_ROW))));
@@ -246,11 +291,13 @@ class UserAccountByIdHidesConsultantsTest {
     @Test
     void anInboundWriteCannotSetOrClearTheConsultantFlag() {
         // Set once when the platform mints the membership. A tenant-side write carrying it would turn
-        // an employee into a row nobody in the tenant can find again, or a consultant into a visible
-        // employment they can then freeze — so it is dropped, silently, like the derived lock.
-        rosterSees(1);
+        // an employee into a consultant the tenant may no longer edit, or a consultant into an
+        // ordinary employment it may — so it is dropped, silently, like the derived lock. Asserted
+        // on an ORDINARY row, because a consultant row is refused before the payload is written and
+        // would pass this for the wrong reason.
+        rosterSees(ordinaryRow(ADMIN));
         when(modelService.updateOne(eq("UserAccount"), anyMap())).thenReturn(true);
-        Map<String, Object> row = new HashMap<>(Map.of("id", CONSULTANT_ROW, "consultant", true, "nickname", "x"));
+        Map<String, Object> row = new HashMap<>(Map.of("id", ADMIN, "consultant", true, "nickname", "x"));
 
         withIds(() -> asTenantAdmin(() -> controller.updateOne(row)));
 

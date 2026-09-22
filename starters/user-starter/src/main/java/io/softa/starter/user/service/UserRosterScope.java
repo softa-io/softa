@@ -83,30 +83,33 @@ public class UserRosterScope {
      * Single-tenant deployments are untouched.
      */
     public Filters scopeByTenant(Filters filters) {
-        // Consultant memberships are hidden from every roster read, before anything else narrows.
-        // A tenant does not administer them: they are minted, dated and revoked by the platform, and
-        // a tenant admin who could see one could try to freeze or off-board it, which would leave the
-        // platform's grant saying yes while the membership said no. Applied HERE rather than at each
-        // endpoint because that is the property that matters — a roster query added next year is
-        // covered without its author knowing consultants exist.
-        Filters scoped = hideConsultants(filters);
         if (!SystemConfig.env.isEnableMultiTenancy()) {
-            return scoped;   // single-tenant: no tenant dimension
+            return filters;   // single-tenant: no tenant dimension
         }
         if (!isPlatformSuperAdmin()) {
-            return scoped;   // non-super-admin: the ORM already auto-filters reads to the caller's tenant
+            return filters;   // non-super-admin: the ORM already auto-filters reads to the caller's tenant
         }
-        return scopeToAdminAccounts(scoped);
+        return scopeToAdminAccounts(filters);
     }
 
     /**
-     * Exclude consultant memberships from a roster read.
+     * Exclude consultant memberships from a read.
+     *
+     * <p><b>Consultants are visible on the account roster</b>, and deliberately so: the customer may
+     * suspend one without going through the platform, which they cannot do to a row they cannot see.
+     * Entry then needs both parties to agree — the platform's grant and this account's own status —
+     * and each can say no on its own.
+     *
+     * <p>What that does NOT open is administration. A consultant's reach comes from the tenant's
+     * subscription, not from any role, so offering one as a candidate for a role grant would invite
+     * an administrator to configure something that decides nothing. The screens that pick PEOPLE TO
+     * CONFIGURE apply this; the screens that LIST THE ROSTER do not.
      *
      * <p>Matches rows where the flag is false OR unset: every membership that existed before
      * consultants did carries null there, and a bare {@code eq(false)} would hide the entire
-     * existing roster the moment this shipped.
+     * existing roster.
      */
-    private Filters hideConsultants(Filters filters) {
+    public Filters excludeConsultants(Filters filters) {
         Filters base = filters == null ? new Filters() : filters;
         return base.and(Filters.or()
                 .eq(UserAccount::getConsultant, false)

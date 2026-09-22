@@ -102,6 +102,8 @@ class UserAccountControllerTest {
      * cases rely on the mock's default 0 to assert the refusal.
      */
     private void rosterSeesTheRow() {
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 1L)));
         when(modelService.count(eq("UserAccount"), any())).thenReturn(1L);
     }
 
@@ -497,6 +499,8 @@ class UserAccountControllerTest {
         // the roster check (not the caller's tenant) is what bounds it.
         UserAccountService accountService = accountServiceHolding(7L, 9L);
         installRosterScope(roleServiceReturningNoAdminRoles());
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 1L)));
         when(modelService.count(eq("UserAccount"), any())).thenReturn(1L);
 
         asCallerIn(2L, Set.of(RoleConstant.CODE_SUPER_ADMIN), () -> controller.rehire(7L));

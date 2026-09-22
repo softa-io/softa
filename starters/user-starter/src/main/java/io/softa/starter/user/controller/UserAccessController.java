@@ -93,17 +93,17 @@ public class UserAccessController {
         q.setFields(List.of(
                 "id", "nickname", "username", "email", "mobile",
                 "status", "createdTime", "updatedTime"));
-        // Through the roster scope, like every other UserAccount roster read. This one was reading
-        // the model raw, which is how consultant memberships — hidden from the User Accounts page
-        // since they were introduced — still turned up in the Add-Members and Assign-Roles dialogs.
-        // A tenant does not administer its consultants, and offering one as a candidate invites an
-        // administrator to grant a role to somebody they cannot even see.
+        // Through the roster scope, like every other UserAccount read — and additionally without
+        // consultants, which is the one place that distinction matters.
         //
-        // Routing it here rather than filtering consultants out on the spot is the point of that
-        // class: the dialogs and the page they open from now compute their bounds from one place,
-        // which is what stops a panel from listing a user the page itself will not open.
+        // A consultant IS listed on the account roster, so the customer can suspend one. This is a
+        // different question: who may be GRANTED A ROLE. A consultant's reach comes from the
+        // tenant's subscription and not from any role, so offering one here would invite an
+        // administrator to configure something that decides nothing, and then to wonder why it had
+        // no effect. Reading the model raw is what used to put them in the Add-Members and
+        // Assign-Roles dialogs.
         List<Map<String, Object>> users = rosterScope.call(() -> {
-            q.setFilters(rosterScope.scopeByTenant(q.getFilters()));
+            q.setFilters(rosterScope.excludeConsultants(rosterScope.scopeByTenant(q.getFilters())));
             return modelService.searchList("UserAccount", q);
         });
 

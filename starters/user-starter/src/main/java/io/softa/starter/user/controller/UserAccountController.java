@@ -441,7 +441,15 @@ public class UserAccountController extends EntityController<UserAccountService, 
         dropConsultantFlag(values);
         ContextHolder.getContext().setEffectiveDate(bulkUpdateParams.getEffectiveDate());
         return ApiResponse.success(rosterScope.call(() -> modelService.updateByFilter(MODEL,
-                rosterScope.scopeByTenant(bulkUpdateParams.getFilters()), values)));
+                // Consultants excluded rather than refused, and this is the one write where that is
+                // right: the caller named a FILTER, not rows, so it never asked to touch a
+                // consultant and a refusal would fail a bulk edit over somebody else's row. The
+                // by-id paths, where the caller did name the row, refuse instead.
+                rosterScope.isPlatformSuperAdmin()
+                        ? rosterScope.scopeByTenant(bulkUpdateParams.getFilters())
+                        : rosterScope.excludeConsultants(
+                                rosterScope.scopeByTenant(bulkUpdateParams.getFilters())),
+                values)));
     }
 
     @Operation(summary = "Delete one UserAccount — roster-scoped")
@@ -742,7 +750,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
     public ApiResponse<Void> freezeAccount(@RequestParam @NotNull Long id,
                                            @RequestBody FreezeAccountDTO freezeAccountDTO) {
         validateNotSelf(id, "freeze");
-        onRosterAccounts(List.of(id), () -> service.freezeAccount(id, freezeAccountDTO.getReason()));
+        onRosterAccountsIncludingConsultants(List.of(id), () -> service.freezeAccount(id, freezeAccountDTO.getReason()));
         return ApiResponse.success();
     }
 
@@ -751,7 +759,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
     public ApiResponse<Void> unfreezeAccount(@RequestParam @NotNull Long id,
                                            @RequestBody FreezeAccountDTO freezeAccountDTO) {
         validateNotSelf(id, "unfreeze");
-        onRosterAccounts(List.of(id), () -> service.unfreezeAccount(id, freezeAccountDTO.getReason()));
+        onRosterAccountsIncludingConsultants(List.of(id), () -> service.unfreezeAccount(id, freezeAccountDTO.getReason()));
         return ApiResponse.success();
     }
 
@@ -763,7 +771,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         if (currentUserId != null && userIds.contains(currentUserId)) {
             throw new BusinessException("You cannot unfreeze your own account.");
         }
-        onRosterAccounts(userIds, () -> service.unfreezeAccounts(userIds, freezeAccountsDTO.getReason()));
+        onRosterAccountsIncludingConsultants(userIds, () -> service.unfreezeAccounts(userIds, freezeAccountsDTO.getReason()));
         return ApiResponse.success();
     }
 
@@ -849,22 +857,81 @@ public class UserAccountController extends EntityController<UserAccountService, 
 
     /** The value-returning twin, for the reads that need the same reach as the operations. */
     private <T> T onRosterAccounts(List<Long> ids, Supplier<T> op) {
+        return onRosterAccounts(ids, op, false);
+    }
+
+    /**
+     * The same bounds, for the two operations a tenant IS allowed to perform on a consultant.
+     *
+     * <p>Suspending one is the customer's own decision and the whole point of letting them see the
+     * row; everything else on this controller stays refused. Named at the call site rather than
+     * inferred, so the allowance is a list of two you can read, not a property of whichever handler
+     * happens to reach here.
+     */
+    private <T> T onRosterAccountsIncludingConsultants(List<Long> ids, Supplier<T> op) {
+        return onRosterAccounts(ids, op, true);
+    }
+
+    private void onRosterAccountsIncludingConsultants(List<Long> ids, Runnable op) {
+        this.onRosterAccountsIncludingConsultants(ids, () -> {
+            op.run();
+            return null;
+        });
+    }
+
+    private <T> T onRosterAccounts(List<Long> ids, Supplier<T> op, boolean consultantsAllowed) {
         return rosterScope.call(() -> {
-            // For everyone, not the super-admin alone. The roster scope hides consultant memberships
-            // from every LIST read; a by-id operation that skipped it let a tenant admin freeze,
-            // re-role or delete a row the same page had just said does not exist — and freezing one
-            // is exactly the drift UserRosterScope warns about: the platform's grant saying yes while
-            // the membership says no. scopeByTenant carries the consultant predicate for every caller
-            // and the roster bounds for the super-admin; for an ordinary caller the count also runs
-            // under the ORM's tenant filter, so an id from another company gets the same answer here
-            // as a nonexistent one.
-            long visible = modelService.count(MODEL,
-                    rosterScope.scopeByTenant(new Filters().in(ModelConstant.ID, ids)));
-            if (visible != ids.stream().distinct().count()) {
+            // One read, two questions. For everyone, not the super-admin alone: for an ordinary
+            // caller this runs under the ORM's tenant filter, so an id from another company gets the
+            // same answer as a nonexistent one; for the super-admin scopeByTenant carries the roster
+            // bounds.
+            //
+            // The rows rather than a count, because the second question is about them. Asked as two
+            // queries the pair could disagree — a row visible to the first and not to the second —
+            // and the failure that produces is a refusal nobody can reproduce.
+            List<Map<String, Object>> visible = modelService.searchList(MODEL,
+                    new FlexQuery(List.of(ModelConstant.ID, CONSULTANT_FIELD),
+                            rosterScope.scopeByTenant(new Filters().in(ModelConstant.ID, ids))));
+            if (visible.size() != ids.stream().distinct().count()) {
                 throw new BusinessException("User not found.");
+            }
+            if (!consultantsAllowed) {
+                refuseTenantSideConsultantWrite(visible);
             }
             return op.get();
         });
+    }
+
+    /**
+     * A tenant may suspend a consultant's membership. It may not otherwise administer it.
+     *
+     * <p>Consultants are on the roster so the customer can say no to one without calling the
+     * platform — that is a veto, not ownership. Everything else this controller offers would be the
+     * tenant editing a row the platform minted, dated and will revoke: re-roling it decides nothing
+     * (a consultant's reach comes from the subscription), re-addressing it changes a PLATFORM login
+     * identifier, and deleting it destroys the actor the tenant's own audit log points at.
+     *
+     * <p>Refused rather than silently ignored, unlike the consultant FLAG on an inbound payload: a
+     * form that round-trips a row it read must not fail for carrying a field it never edited, but an
+     * operator who clicked Delete on a consultant has asked for something specific and deserves to
+     * be told it is not theirs to do.
+     *
+     * <p>The platform super-admin is exempt — these rows are its own, and the consultant screens
+     * reach them through here.
+     */
+    private void refuseTenantSideConsultantWrite(List<Map<String, Object>> rows) {
+        if (rosterScope.isPlatformSuperAdmin()) {
+            return;
+        }
+        boolean anyConsultant = rows.stream().anyMatch(row -> {
+            Object flag = row.get(CONSULTANT_FIELD);
+            // Boolean or 1/0, depending on how the driver maps the column.
+            return Boolean.TRUE.equals(flag) || (flag instanceof Number n && n.intValue() == 1);
+        });
+        if (anyConsultant) {
+            throw new BusinessException("This is a consultant's account, managed by the platform. "
+                    + "You can suspend it, but not change or remove it.");
+        }
     }
 
     /**

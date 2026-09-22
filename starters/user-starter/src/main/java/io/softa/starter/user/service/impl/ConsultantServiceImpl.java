@@ -513,15 +513,42 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             }
         }
 
-        // Whatever the form no longer lists is revoked. The grant row goes; the account it minted
-        // stays, because the tenant's audit log names it as the actor of what was done while the
-        // access lasted — deleting it would blank that history.
+        // Whatever the form no longer lists is revoked: the grant row goes and the membership is
+        // CLOSED, not deleted.
+        //
+        // Closed rather than deleted because the account is the actor this tenant's audit log points
+        // at, and removing it blanks the authorship of everything the consultant did while they had
+        // access. DEACTIVATED gets the clearing-out that asked for it anyway — listMembershipsOf
+        // already hides those rows, so the consultant stops seeing the company and the tenant's
+        // roster stops listing it, with no rule written for consultants specifically.
+        //
+        // It is also the only version that survives being re-authorized: (tenantId, profileId) is
+        // unique, so a deleted-then-re-granted consultant would need a NEW account, and the tenant's
+        // history of that person would split in two with no way to join them back up.
         existing.values().forEach(gone -> {
             authorizationService.deleteById(gone.getId());
-            log.info("Consultant {} authorization for tenant {} revoked; membership kept for audit.",
+            closeMembership(profileId, gone.getTenantId());
+            log.info("Consultant {} authorization for tenant {} revoked; membership closed.",
                     profileId, gone.getTenantId());
         });
         forgetEntryAnswers(profileId);
+    }
+
+    /**
+     * Close the membership a revoked grant had minted, leaving the row and its history in place.
+     *
+     * <p>Only ever a consultant's own membership: this person may also be a genuine employee of that
+     * company — the design says so explicitly — and revoking a consultancy must not touch the
+     * employment. The flag is what tells the two apart.
+     */
+    private void closeMembership(Long profileId, Long tenantId) {
+        accountService.findMembershipInTenant(tenantId, profileId)
+                .filter(account -> Boolean.TRUE.equals(account.getConsultant()))
+                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED)
+                .ifPresent(account -> {
+                    account.setStatus(AccountStatus.DEACTIVATED);
+                    accountService.updateOne(account);
+                });
     }
 
     /**
@@ -555,7 +582,22 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         Optional<UserAccount> held = accountService.findMembershipInTenant(tenantId, profileId);
         if (held.isPresent()) {
             if (Boolean.TRUE.equals(held.get().getConsultant())) {
-                return;   // already a consultant here: the grant was re-added, the account stands
+                // Re-authorized. The membership is the same one, revived rather than replaced:
+                // (tenantId, profileId) is unique, so a second row is not even insertable — and it
+                // is the actor this tenant's audit log already points at, so a new one would split
+                // one person's history into two identities with a gap between them.
+                //
+                // Revived only from the state REVOKING left it in. A membership the CUSTOMER
+                // suspended stays suspended: re-authorizing is the platform answering its own
+                // question, and it does not get to overturn the tenant's.
+                UserAccount membership = held.get();
+                if (membership.getStatus() == AccountStatus.DEACTIVATED) {
+                    membership.setStatus(AccountStatus.ACTIVE);
+                    accountService.updateOne(membership);
+                    log.info("Consultant {} re-authorized for tenant {} — membership revived.",
+                            profileId, tenantId);
+                }
+                return;
             }
             throw new BusinessException("This person already has an account in that company, so "
                     + "they cannot be authorized as a consultant there.");

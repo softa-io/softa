@@ -10,6 +10,7 @@ import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ConsultantAccessChecker;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
 
@@ -17,10 +18,15 @@ import io.softa.starter.user.service.UserAccountService;
  * Whether a consultant's authorization still stands, answered from the membership the session holds.
  *
  * <p>The gate knows the request's {@code userId} — a membership — while the grant is a fact about the
- * person and the company. This resolves the one to the other and hands the whole question to
- * {@link ConsultantService#canEnter}, so "still authorized" cannot drift from what the login and the
- * tenant picker already decided; there is one definition of a live consultancy, asked from three
- * places.
+ * person and the company. This resolves the one to the other and hands the grant half of the
+ * question to {@link ConsultantService#canEnter}, so "still authorized" cannot drift from what the
+ * login and the tenant picker already decided; there is one definition of a live consultancy, asked
+ * from three places.
+ *
+ * <p><b>Two parties, either of which can say no.</b> The platform authorizes and the customer's own
+ * administrator may suspend the account, and entry needs both to hold. Neither is the other's
+ * override: the platform cannot un-suspend from its console, and suspending does not revoke the
+ * grant — re-activating restores exactly the access that was there.
  *
  * <p>Answers true for a membership that is not a consultant's at all. This is only ever consulted for
  * a caller the snapshot already identified as a consultant, but a checker that failed closed on an
@@ -91,6 +97,18 @@ public class ConsultantAccessCheckerImpl implements ConsultantAccessChecker {
         if (account.isEmpty() || !Boolean.TRUE.equals(account.get().getConsultant())) {
             return true;
         }
-        return consultantService.canEnter(account.get().getProfileId(), account.get().getTenantId());
+        UserAccount membership = account.get();
+        // The customer's own veto, asked before the platform's grant. A tenant administrator may
+        // suspend a consultant without going through the platform, and a suspension that only took
+        // effect at the next login would leave the person working inside the company that just
+        // stopped them — for as long as they keep the tab open.
+        //
+        // Any status but ACTIVE closes it, rather than a list of the ones that do: a membership that
+        // is not active is not a membership somebody works under, whatever the reason, and a list
+        // would silently admit the next status added to the enum.
+        if (membership.getStatus() != AccountStatus.ACTIVE) {
+            return false;
+        }
+        return consultantService.canEnter(membership.getProfileId(), membership.getTenantId());
     }
 }

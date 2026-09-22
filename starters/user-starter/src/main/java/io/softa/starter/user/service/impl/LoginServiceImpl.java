@@ -751,15 +751,17 @@ public class LoginServiceImpl implements LoginService {
                 .map(identityService::isPasswordLocked).orElse(false);
         return accountService.listMembershipsOf(profileId).stream()
                 // Two kinds of membership, two rules. An EMPLOYMENT that cannot be entered is still
-                // shown greyed — it is a standing relationship the person can ask about. A lapsed
-                // CONSULTANCY is simply absent: it is not access on hold, it is access they no
-                // longer have, and listing it would invite them to ask a tenant that never granted
-                // it. That is grantStands, not canEnter: canEnter also folds in the COMPANY's own
+                // shown greyed — it is a standing relationship the person can ask about. A
+                // CONSULTANCY that is off is simply absent, whichever side turned it off: a lapsed
+                // grant is access they no longer have, and an account the customer suspended is the
+                // customer saying not now. Listing either would invite them to ask a tenant about a
+                // decision that tenant did not make, or has deliberately made. That is grantStands, not canEnter: canEnter also folds in the COMPANY's own
                 // state, and a live grant into a frozen company is the one consultant row that does
                 // stay — greyed, carrying the reason (the picker's row rules and the frozen-company
                 // rule are about different causes, not in conflict).
                 .filter(account -> Boolean.TRUE.equals(account.getConsultant())
                         ? consultantService.grantStands(profileId, account.getTenantId())
+                                && account.getStatus() == AccountStatus.ACTIVE
                         : COUNTED_STATUSES.contains(account.getStatus()))
                 .map(account -> new MembershipOption(
                         account.getId(), account.getTenantId(),

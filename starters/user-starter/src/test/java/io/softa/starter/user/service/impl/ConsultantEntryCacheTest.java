@@ -11,6 +11,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.user.entity.ConsultantProfile;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
 
@@ -24,6 +25,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -64,8 +66,36 @@ class ConsultantEntryCacheTest {
         account.setProfileId(PROFILE);
         account.setTenantId(TENANT);
         account.setConsultant(Boolean.TRUE);
+        // Entry needs both sides: the customer's account active AND the platform's grant standing.
+        account.setStatus(AccountStatus.ACTIVE);
         when(accountService.getById(ACCOUNT)).thenReturn(Optional.of(account));
         when(consultantService.canEnter(PROFILE, TENANT)).thenReturn(true);
+    }
+
+    @Test
+    void aSuspendedMembershipIsRefusedWithoutAskingTheGrant() {
+        // The customer's veto. Asked before the platform's grant and on its own — a tenant
+        // administrator who suspends a consultant must not have to wait for the next login, and the
+        // platform cannot un-suspend from its own console by extending the grant.
+        UserAccount frozen = new UserAccount();
+        frozen.setId(ACCOUNT);
+        frozen.setProfileId(PROFILE);
+        frozen.setTenantId(TENANT);
+        frozen.setConsultant(Boolean.TRUE);
+        frozen.setStatus(AccountStatus.FROZEN);
+        when(accountService.getById(ACCOUNT)).thenReturn(Optional.of(frozen));
+
+        assertThat(checker.stillAuthorized(ACCOUNT)).isFalse();
+        verify(consultantService, never()).canEnter(anyLong(), anyLong());
+    }
+
+    @Test
+    void aGrantThatNoLongerStandsIsRefusedEvenOnAnActiveAccount() {
+        // The other half of the same pair: the platform's own no, on an account the customer is
+        // perfectly happy with. Either side alone closes it.
+        when(consultantService.canEnter(PROFILE, TENANT)).thenReturn(false);
+
+        assertThat(checker.stillAuthorized(ACCOUNT)).isFalse();
     }
 
     @Test
