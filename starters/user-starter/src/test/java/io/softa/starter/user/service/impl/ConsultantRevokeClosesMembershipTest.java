@@ -180,6 +180,22 @@ class ConsultantRevokeClosesMembershipTest {
     }
 
     @Test
+    void revokingLeavesACustomersSuspensionExactlyAsTheySetIt() {
+        // The two-step hole this closes: revoke used to overwrite FROZEN with DEACTIVATED, and
+        // re-authorizing revives exactly that — so a platform operator could undo a customer's
+        // suspension by revoking and re-granting, with nothing on either screen saying so. The
+        // guard on the revival exists to stop that and was being reached with the evidence gone.
+        when(accountService.findMembershipInTenant(TENANT, PROFILE))
+                .thenReturn(Optional.of(membership(AccountStatus.FROZEN)));
+
+        service.replaceAuthorizations(PROFILE, List.of());
+
+        verify(authorizationService).deleteById(11L);
+        // The grant goes; the customer's state is not the platform's to clear.
+        verify(accountService, never()).updateOne(any(UserAccount.class));
+    }
+
+    @Test
     void reAuthorizingRevivesTheSameMembership() {
         UserAccount closedRow = membership(AccountStatus.DEACTIVATED);
         when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.of(closedRow));

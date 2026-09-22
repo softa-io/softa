@@ -550,7 +550,15 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     private void closeMembership(Long profileId, Long tenantId) {
         accountService.findMembershipInTenant(tenantId, profileId)
                 .filter(account -> Boolean.TRUE.equals(account.getConsultant()))
-                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED)
+                // Only a LIVE membership is closed. A row the customer suspended keeps their state:
+                // revoking is the platform withdrawing its own yes, not an occasion to erase theirs.
+                //
+                // Overwriting it was a hole with two steps in it. Revoke turned FROZEN into
+                // DEACTIVATED, and re-authorizing revives exactly that — so a platform operator
+                // could undo a customer's suspension by revoking and re-granting, silently, with
+                // nothing on either screen saying it had happened. The guard on the revival was
+                // written to stop precisely that and was reached with the evidence already gone.
+                .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
                 .ifPresent(account -> {
                     account.setStatus(AccountStatus.DEACTIVATED);
                     accountService.updateOne(account);
