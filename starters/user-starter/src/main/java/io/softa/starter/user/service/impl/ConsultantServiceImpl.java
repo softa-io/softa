@@ -268,9 +268,14 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                     // the entry expires a month later, to somebody just told the change was saved.
                     accountService.listMembershipsOf(profileId)
                             .forEach(account -> profileService.evictUserInfo(account.getId()));
-                    refreshConsultantNicknames(profileId, name);
                 }
             });
+            // Outside the rename branch, deliberately. A membership minted before it carried a name
+            // has an empty one for good, and its name never "changes" — so hanging this off a rename
+            // would leave exactly the rows that need it untouched, on a screen whose whole job is to
+            // let the customer identify them. Idempotent: it compares per membership and writes only
+            // where they differ.
+            refreshConsultantNicknames(profileId, name);
         }
 
         // Canonical spelling, never what was typed. LoginIdentifiers is the one rule for a stored,

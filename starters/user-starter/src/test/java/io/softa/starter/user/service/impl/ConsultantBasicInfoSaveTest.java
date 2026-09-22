@@ -110,6 +110,27 @@ class ConsultantBasicInfoSaveTest {
     }
 
     @Test
+    void aMembershipMintedBeforeNamesExistedGetsOneOnTheNextSave() {
+        // The rows that need this most are the ones whose name never changes: minted empty, and an
+        // operator saving the form without touching the username would have left them empty for
+        // good. The roster shows those as a line of em dashes, which is the state the customer
+        // cannot act on.
+        UserAccount stale = new UserAccount();
+        stale.setId(501L);
+        stale.setProfileId(PROFILE);
+        stale.setTenantId(9L);
+        stale.setConsultant(Boolean.TRUE);
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(stale));
+
+        // "Old Name" is what the person is already called, so nothing about them changes.
+        service.save(form("Old Name", "old@zingkey.com", null));
+
+        ArgumentCaptor<UserAccount> named = ArgumentCaptor.forClass(UserAccount.class);
+        verify(accountService).updateOne(named.capture());
+        assertThat(named.getValue().getNickname()).isEqualTo("Old Name");
+    }
+
+    @Test
     void theUsernameReachesThePerson() {
         service.save(form("Ada Lovelace", "old@zingkey.com", null));
 
