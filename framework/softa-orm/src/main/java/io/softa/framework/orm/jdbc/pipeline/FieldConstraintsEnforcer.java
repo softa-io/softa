@@ -46,14 +46,12 @@ import io.softa.framework.orm.utils.ReflectTool;
  * same picture. The value domain ({@code min} / {@code max} / {@code pattern}) is the opposite case
  * and stays in the processors: it needs the coerced value.
  *
- * <p><b>{@code hiddenWhen} is not enforced here at all.</b> Whether a field is shown is a property of
- * a view, not of the row: the same field is hidden in a list and shown in a form, and a write has no
- * view. The declaration still travels to the frontend, which is the only side that can act on it; this
- * side judges what the value <i>is</i>, never whether it would have been on screen. So a field carrying
- * only {@code hiddenWhen} is not a conditional field here — no enforcer is built for it, and its
- * references are not fetched. "Only when the field is shown" is spelled as a condition on the rule
- * itself ({@code requiredWhen = type = "CompanyProvided"}), which says the same thing about the data
- * and needs no notion of a screen.
+ * <p><b>Visibility is not among the constraints.</b> Whether a field is shown is a property of a
+ * view, not of the row — the same field is hidden in a list and shown in a form, and a write has no
+ * view — so a page says it, with a condition of its own. This side judges what the value <i>is</i>,
+ * never whether it would have been on screen: a field that arrives with a value is judged like any
+ * other. "Only when the field is shown" is spelled as a condition on the rule itself
+ * ({@code requiredWhen = type = "CompanyProvided"}), which says the same thing about the data.
  *
  * <p>Rules, written down because the frontend evaluator must give the same answers:
  * <ol>

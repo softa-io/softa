@@ -96,7 +96,6 @@ class FieldAnnotationCustomizerTest {
             @Override public String pattern() { return ""; }
             @Override public String constraintMessage() { return ""; }
             @Override public String requiredWhen() { return ""; }
-            @Override public String hiddenWhen() { return ""; }
             @Override public String readonlyWhen() { return ""; }
             @Override public String invalidWhen() { return ""; }
             @Override public boolean required() { return false; }

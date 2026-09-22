@@ -46,9 +46,12 @@ import io.softa.framework.orm.enums.FilterType;
  *   <li><b>Value domain</b> ({@code min} / {@code max} / {@code pattern}): looks at this value only,
  *       concludes reject. Enforced by the numeric and string processors after coercion / trim
  *       ({@link ValueConstraints}).</li>
- *   <li><b>Field state</b> ({@code requiredWhen} / {@code hiddenWhen} / {@code readonlyWhen}): looks at
- *       other fields, concludes required / hidden / readonly. {@code requiredWhen} may also be the JSON
- *       literal {@code true} — application-level required on a nullable column.</li>
+ *   <li><b>Field state</b> ({@code requiredWhen} / {@code readonlyWhen}): looks at other fields,
+ *       concludes required / readonly. {@code requiredWhen} may also be the JSON literal {@code true}
+ *       — application-level required on a nullable column. <b>Visibility is deliberately not here</b>:
+ *       whether a field is shown is a property of a view, not of the row — the same field is hidden in
+ *       a list and shown in a form — so a page says it, with a condition of its own. "This rule applies
+ *       only while the field is shown" is said on the rule instead, as a condition about the row.</li>
  *   <li><b>Validity</b> ({@code invalidWhen}): looks at other fields, concludes reject, with
  *       {@code message}.</li>
  * </ul>
@@ -65,7 +68,6 @@ import io.softa.framework.orm.enums.FilterType;
  * @param pattern regex the whole value must match; STRING / TEXT only
  * @param message shown when a bound, the pattern or {@code invalidWhen} rejects; its own i18n key
  * @param requiredWhen when the field is required; {@code true} for always (application level)
- * @param hiddenWhen when the field is hidden — and its required / invalid rules not evaluated
  * @param readonlyWhen when assigning the field is rejected
  * @param invalidWhen when the row's values make this field invalid
  */
@@ -77,7 +79,6 @@ public record FieldConstraints(
         @Nullable String pattern,
         @Nullable String message,
         @Nullable FieldCondition requiredWhen,
-        @Nullable Filters hiddenWhen,
         @Nullable Filters readonlyWhen,
         @Nullable Filters invalidWhen) implements DTOFieldObject, Serializable {
 
@@ -92,12 +93,11 @@ public record FieldConstraints(
      *         literal {@code "true"} is used where only {@code requiredWhen} accepts it
      */
     public static @Nullable FieldConstraints of(String min, String max, String pattern, String message,
-                                                String requiredWhen, String hiddenWhen,
-                                                String readonlyWhen, String invalidWhen, String where) {
+                                                String requiredWhen, String readonlyWhen,
+                                                String invalidWhen, String where) {
         FieldConstraints constraints = new FieldConstraints(
                 blankToNull(min), blankToNull(max), blankToNull(pattern), blankToNull(message),
                 parseCondition("requiredWhen", requiredWhen, where),
-                parseFilters("hiddenWhen", hiddenWhen, where),
                 parseFilters("readonlyWhen", readonlyWhen, where),
                 parseFilters("invalidWhen", invalidWhen, where));
         return constraints.isEmpty() ? null : constraints;
@@ -142,41 +142,29 @@ public record FieldConstraints(
     @JsonIgnore   // getter-shaped, but not a key: the JSON is the eight attributes and nothing else
     public boolean isEmpty() {
         return min == null && max == null && pattern == null && message == null
-                && requiredWhen == null && hiddenWhen == null && readonlyWhen == null && invalidWhen == null;
+                && requiredWhen == null && readonlyWhen == null && invalidWhen == null;
     }
 
-    /** Whether any of the four conditions is declared — the part that reads other fields. */
+    /** Whether any of the three conditions is declared — the part that reads other fields. */
     public boolean hasConditions() {
-        return requiredWhen != null || hiddenWhen != null || readonlyWhen != null || invalidWhen != null;
-    }
-
-    /**
-     * Whether a write has anything to check here. {@code hiddenWhen} is absent on purpose: whether a
-     * field is shown is a property of a view and a write has no view, so the server never evaluates it
-     * — the declaration travels to the frontend and is acted on there. A field carrying only
-     * {@code hiddenWhen} therefore builds no enforcer and costs a write nothing.
-     */
-    public boolean hasEnforcedConditions() {
         return requiredWhen != null || readonlyWhen != null || invalidWhen != null;
     }
 
     /**
-     * The fields of the same row the <b>enforced</b> conditions read: every field in the field slot
-     * (minus the reserved {@code @mode} / {@code @userId}) and every {@code {{ @field }}} reference in
-     * the value slot. This is what the update pipeline fetches from the stored row so a condition sees
-     * the full picture when the patch carries only part of it — and why {@code hiddenWhen}'s references
-     * are not in it: nothing on this side reads them. The frontend collects its own list, which does
-     * include them, because it is the side that evaluates the rule.
+     * The fields of the same row the conditions read: every field in the field slot (minus the
+     * reserved {@code @mode} / {@code @userId}) and every field reference in the value slot. This is
+     * what the update pipeline fetches from the stored row so a condition sees the full picture when
+     * the patch carries only part of it.
      */
     public Set<String> referencedFields() {
         Set<String> fields = new LinkedHashSet<>();
-        for (Filters condition : enforcedConditions()) {
+        for (Filters condition : conditions()) {
             collectReferences(condition, fields);
         }
         return fields;
     }
 
-    private List<Filters> enforcedConditions() {
+    private List<Filters> conditions() {
         List<Filters> out = new ArrayList<>(3);
         if (requiredWhen != null && requiredWhen.getFilters() != null) {
             out.add(requiredWhen.getFilters());
@@ -252,7 +240,6 @@ public record FieldConstraints(
         if (requiredWhen != null && !requiredWhen.isAlways()) {
             validateCondition("requiredWhen", requiredWhen.getFilters(), where, fieldOf);
         }
-        if (hiddenWhen != null) validateCondition("hiddenWhen", hiddenWhen, where, fieldOf);
         if (readonlyWhen != null) validateCondition("readonlyWhen", readonlyWhen, where, fieldOf);
         if (invalidWhen != null) {
             validateCondition("invalidWhen", invalidWhen, where, fieldOf);
@@ -513,7 +500,7 @@ public record FieldConstraints(
             // rule, never the rest of its declaration, and never the catalog load.
             FieldConstraints c = of(
                     text(node, "min"), text(node, "max"), text(node, "pattern"), text(node, "message"),
-                    member(node, "requiredWhen"), member(node, "hiddenWhen"),
+                    member(node, "requiredWhen"),
                     member(node, "readonlyWhen"), member(node, "invalidWhen"), "stored constraints");
             return c == null || c.isEmpty() ? null : c;
         }

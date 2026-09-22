@@ -121,7 +121,7 @@ Annotate **every declared field**. Most-used attributes:
 | `fieldType` | inferred from the Java type (see §3) | override only when the Java type is ambiguous |
 | `length` | type default (`String` → 64, see §3) | column width; declare only to override |
 | `min` / `max` / `pattern` | `""` | which **values** the field accepts, as opposed to how wide the column is — see §5 |
-| `requiredWhen` / `hiddenWhen` / `readonlyWhen` / `invalidWhen` | `""` | conditions over the same row (filter expressions) — see §5 |
+| `requiredWhen` / `readonlyWhen` / `invalidWhen` | `""` | conditions over the same row (filter expressions) — see §5 |
 | `required` | `false` (primitives auto-`true`) | NOT NULL |
 | `readonly` / `unsearchable` | `false` | UI behavior |
 | `copyable` | `true` | `false` = value not carried when a row is duplicated (keys, secrets, runtime state) |
@@ -273,7 +273,7 @@ Restart your dev app → the column is added automatically.
 Flip `required = true`. **First check for existing NULL rows** — if any exist,
 backfill them before you flip it, or the tightened NOT NULL will fail.
 
-### Constrain a field (`min` / `max` / `pattern`, `requiredWhen` / `hiddenWhen` / `readonlyWhen` / `invalidWhen`)
+### Constrain a field (`min` / `max` / `pattern`, `requiredWhen` / `readonlyWhen` / `invalidWhen`)
 `length` is how wide the column is; these are which values it accepts and when it applies. All eight
 attributes are stored together in the single `sys_field.constraints` column and served to the frontend
 unchanged, which evaluates the same rules in the form.
@@ -352,14 +352,9 @@ redeploy rather than a migration and existing rows are not retroactively invalid
   [placeholders.md](placeholders.md#filters--comparing-one-field-to-another). Options compare by item code,
   relations by id; null and `""` are the same value.
 - A **negated operator answers true for an empty field** (`!=`, `NOT IN`, `NOT BETWEEN`) — value
-  equality, and the frontend answers the same. Right for `hiddenWhen` (nothing chosen yet ⇒ show the
-  field), rarely right for `requiredWhen` / `invalidWhen`, where it fires on a row nobody has filled in
-  yet. Pair it with the field being set, or list the cases positively with `IN`.
-- **`hiddenWhen` is evaluated by the frontend only.** Being shown is a property of a view and a write
-  has no view, so the server ships the rule and never acts on it — a hidden field that arrives with a
-  value is judged like any other. Say "only while the field is shown" on the rule itself
-  (`requiredWhen = "type = \"CompanyProvided\""`), not as `required` plus a `hiddenWhen` that negates
-  it: that spelling is about the data, which is what both ends can agree on.
+  equality, and the frontend answers the same. Rarely right for `requiredWhen` / `invalidWhen`, where
+  it fires on a row nobody has filled in yet. Pair it with the field being set, or list the cases
+  positively with `IN`.
 - On update a condition is evaluated only when the patch touches the field or a field it reads, on
   the patch merged onto the stored row; `readonlyWhen` rejects an assignment. Static `required` /
   `readonly` / `hidden` always win — do not declare both.

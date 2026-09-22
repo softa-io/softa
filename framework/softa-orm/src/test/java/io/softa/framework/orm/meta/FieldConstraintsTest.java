@@ -36,8 +36,8 @@ class FieldConstraintsTest {
     private static final Function<String, FieldConstraints.FieldRef> FIELD_OF =
             name -> SIBLINGS.containsKey(name) ? self(SIBLINGS.get(name)) : null;
 
-    private static FieldConstraints of(String requiredWhen, String hiddenWhen, String readonlyWhen, String invalidWhen) {
-        return FieldConstraints.of("", "", "", "", requiredWhen, hiddenWhen, readonlyWhen, invalidWhen, "M.f");
+    private static FieldConstraints of(String requiredWhen, String readonlyWhen, String invalidWhen) {
+        return FieldConstraints.of("", "", "", "", requiredWhen, readonlyWhen, invalidWhen, "M.f");
     }
 
     @Test
@@ -56,7 +56,7 @@ class FieldConstraintsTest {
         assertThat(back).isEqualTo(c);
         assertThat(back.requiredWhen().isAlways()).isTrue();
 
-        FieldConstraints conditional = of("[[\"reason\", \"=\", \"Others\"]]", null, null, null);
+        FieldConstraints conditional = of("[[\"reason\", \"=\", \"Others\"]]", null, null);
         FieldConstraints back2 = JsonUtils.stringToObject(JsonUtils.objectToString(conditional), FieldConstraints.class);
         assertThat(back2.requiredWhen().getFilters())
                 .isEqualTo(Filters.of("[[\"reason\", \"=\", \"Others\"]]"));
@@ -100,7 +100,7 @@ class FieldConstraintsTest {
                 """)).isEqualTo(Filters.of(
                         "[[\"reason\", \"=\", \"Others\"], \"AND\", [\"status\", \"=\", \"Draft\"]]"));
         // The shape a rule takes once the "only while shown" part is said on the rule instead of in
-        // `hiddenWhen` — a plain value on the left, a placeholder on the right, joined by AND.
+        // a guard — a plain value on the left, a placeholder on the right, joined by AND.
         assertThat(Filters.of("""
                 type = "CompanyProvided" AND endDate < "{{ @startDate }}"
                 """)).isEqualTo(Filters.of(
@@ -138,10 +138,9 @@ class FieldConstraintsTest {
 
     @Test
     void referencedFieldsCoverBothSlotsAndSkipReservedVariables() {
-        FieldConstraints c = of("[[\"reason\", \"=\", \"Others\"], [\"@mode\", \"=\", \"update\"]]",
-                null, null, "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]");
+        FieldConstraints c = of("[[\"reason\", \"=\", \"Others\"], [\"@mode\", \"=\", \"update\"]]", null, "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]");
         assertThat(c.referencedFields()).containsExactlyInAnyOrder("reason", "endDate", "startDate");
-        assertThat(of("true", null, null, null).referencedFields()).isEmpty();
+        assertThat(of("true", null, null).referencedFields()).isEmpty();
     }
 
     @Test
@@ -168,41 +167,41 @@ class FieldConstraintsTest {
 
     @Test
     void conditionsAreCheckedAgainstTheSiblings() {
-        assertThatThrownBy(() -> of("[[\"contry\", \"=\", \"SG\"]]", null, null, null)
+        assertThatThrownBy(() -> of("[[\"contry\", \"=\", \"SG\"]]", null, null)
                 .validate(self(FieldType.STRING), "M.f", FIELD_OF))
                 .hasMessageContaining("`contry`").hasMessageContaining("does not exist");
-        assertThatThrownBy(() -> of(null, null, null, "[[\"endDate\", \"<\", \"{{ @name }}\"]]")
+        assertThatThrownBy(() -> of(null, null, "[[\"endDate\", \"<\", \"{{ @name }}\"]]")
                 .validate(self(FieldType.DATE), "M.endDate", FIELD_OF))
                 .hasMessageContaining("not comparable");
-        assertThatThrownBy(() -> of(null, null, null, "[[\"endDate\", \"<\", \"{{ @amount }}\"]]")
+        assertThatThrownBy(() -> of(null, null, "[[\"endDate\", \"<\", \"{{ @amount }}\"]]")
                 .validate(self(FieldType.DATE), "M.endDate", FIELD_OF))
                 .hasMessageContaining("not comparable");
-        assertThatThrownBy(() -> of("[[\"reason\", \"PARENT OF\", [\"1\"]]]", null, null, null)
+        assertThatThrownBy(() -> of("[[\"reason\", \"PARENT OF\", [\"1\"]]]", null, null)
                 .validate(self(FieldType.STRING), "M.f", FIELD_OF))
                 .hasMessageContaining("PARENT OF");
-        assertThatThrownBy(() -> of(null, null, null, "[[\"endDate\", \"<\", \"{{ TODAY - PT2H }}\"]]")
+        assertThatThrownBy(() -> of(null, null, "[[\"endDate\", \"<\", \"{{ TODAY - PT2H }}\"]]")
                 .validate(self(FieldType.DATE), "M.endDate", FIELD_OF))
                 .hasMessageContaining("calendar day");
-        assertThatThrownBy(() -> of(null, null, null, "[[\"name\", \"<\", \"{{ @name + P1D }}\"]]")
+        assertThatThrownBy(() -> of(null, null, "[[\"name\", \"<\", \"{{ @name + P1D }}\"]]")
                 .validate(self(FieldType.STRING), "M.name", FIELD_OF))
                 .hasMessageContaining("date base");
-        assertThatThrownBy(() -> of(null, null, null, "[[\"endDate\", \"<\", \"{{ SOMEWHERE }}\"]]")
+        assertThatThrownBy(() -> of(null, null, "[[\"endDate\", \"<\", \"{{ SOMEWHERE }}\"]]")
                 .validate(self(FieldType.DATE), "M.endDate", FIELD_OF))
                 .hasMessageContaining("unknown placeholder");
-        assertThatThrownBy(() -> of("[[\"reason\", \"=\", \"Others\"]]", null, null, null)
+        assertThatThrownBy(() -> of("[[\"reason\", \"=\", \"Others\"]]", null, null)
                 .validate(self(FieldType.STRING, true, false), "M.f", FIELD_OF))
                 .hasMessageContaining("dynamic");
         // a relation id compares with a number, and a field compares with itself shifted
-        assertThatCode(() -> of(null, null, null,
+        assertThatCode(() -> of(null, null,
                 "[[\"reportsTo\", \"=\", \"{{ @id }}\"], [\"endDate\", \">\", \"{{ @hireDate + P6M }}\"]]")
                 .validate(self(FieldType.MANY_TO_ONE), "M.reportsTo", FIELD_OF)).doesNotThrowAnyException();
     }
 
     @Test
     void onlyRequiredWhenHasAnAlwaysForm() {
-        assertThatThrownBy(() -> of(null, "true", null, null)).hasMessageContaining("does not accept \"true\"");
-        assertThatThrownBy(() -> of(null, null, "true", null)).hasMessageContaining("does not accept \"true\"");
-        assertThatThrownBy(() -> of(null, null, null, "[]")).hasMessageContaining("empty condition");
+        assertThatThrownBy(() -> of(null, null, null)).hasMessageContaining("does not accept \"true\"");
+        assertThatThrownBy(() -> of(null, "true", null)).hasMessageContaining("does not accept \"true\"");
+        assertThatThrownBy(() -> of(null, null, "[]")).hasMessageContaining("empty condition");
         assertThatThrownBy(() -> of("[[\"reason\", \"=\"", null, null, null)).hasMessageContaining("not a filter expression");
     }
 
@@ -218,21 +217,21 @@ class FieldConstraintsTest {
             assertThat(c.max()).isEqualTo("100");
             assertThat(c.requiredWhen()).isNull();
         }
-        FieldConstraints hidden = JsonUtils.stringToObject("{\"min\":\"0\",\"hiddenWhen\":[]}", FieldConstraints.class);
-        assertThat(hidden).isNotNull();
-        assertThat(hidden.min()).isEqualTo("0");
-        assertThat(hidden.hiddenWhen()).isNull();
+        FieldConstraints empty = JsonUtils.stringToObject("{\"min\":\"0\",\"readonlyWhen\":[]}", FieldConstraints.class);
+        assertThat(empty).isNotNull();
+        assertThat(empty.min()).isEqualTo("0");
+        assertThat(empty.readonlyWhen()).isNull();
     }
 
     @Test
     void aConditionThatDoesNotParseCostsTheFieldThatRuleAndNothingElse() {
         // the value domain is a separate declaration; one bad condition must not silently switch it off
         FieldConstraints always = JsonUtils.stringToObject(
-                "{\"min\":\"0\",\"pattern\":\"^[A-Z]{2}$\",\"hiddenWhen\":true}", FieldConstraints.class);
+                "{\"min\":\"0\",\"pattern\":\"^[A-Z]{2}$\",\"readonlyWhen\":true}", FieldConstraints.class);
         assertThat(always).isNotNull();
         assertThat(always.min()).isEqualTo("0");
         assertThat(always.pattern()).isEqualTo("^[A-Z]{2}$");
-        assertThat(always.hiddenWhen()).isNull();
+        assertThat(always.readonlyWhen()).isNull();
 
         FieldConstraints malformed = JsonUtils.stringToObject(
                 "{\"min\":\"0\",\"requiredWhen\":[[\"reason\", \"=\"]]}", FieldConstraints.class);
@@ -245,17 +244,17 @@ class FieldConstraintsTest {
     void aStoredRowThatDoesNotParseReadsAsNoConstraintsInsteadOfFailingTheLoad() {
         // hand-written rows and older studio payloads must not stop the catalog from loading
         // nothing else declared, so dropping the unusable rule leaves nothing at all
-        assertThat(JsonUtils.stringToObject("{\"hiddenWhen\":true}", FieldConstraints.class)).isNull();
+        assertThat(JsonUtils.stringToObject("{\"readonlyWhen\":true}", FieldConstraints.class)).isNull();
         assertThat(JsonUtils.stringToObject("{\"requiredWhen\":[[\"reason\", \"=\"]]}", FieldConstraints.class)).isNull();
         assertThat(JsonUtils.stringToObject("{}", FieldConstraints.class)).isNull();
         // and a valid row of every shape still reads
         FieldConstraints c = JsonUtils.stringToObject(
-                "{\"min\":\"0\",\"requiredWhen\":true,\"invalidWhen\":[\"endDate\",\"<\",\"{{ @startDate }}\"],\"hiddenWhen\":\"[[\\\"a\\\", \\\"=\\\", 1]]\"}",
+                "{\"min\":\"0\",\"requiredWhen\":true,\"invalidWhen\":[\"endDate\",\"<\",\"{{ @startDate }}\"],\"readonlyWhen\":\"[[\\\"a\\\", \\\"=\\\", 1]]\"}",
                 FieldConstraints.class);
         assertThat(c.min()).isEqualTo("0");
         assertThat(c.requiredWhen().isAlways()).isTrue();
         assertThat(c.invalidWhen()).isEqualTo(Filters.of("[[\"endDate\",\"<\",\"{{ @startDate }}\"]]"));
-        assertThat(c.hiddenWhen()).isEqualTo(Filters.of("[[\"a\", \"=\", 1]]"));
+        assertThat(c.readonlyWhen()).isEqualTo(Filters.of("[[\"a\", \"=\", 1]]"));
     }
 
     @Test
@@ -266,7 +265,7 @@ class FieldConstraintsTest {
         assertThatThrownBy(() -> FieldConstraints.of("0", null, null, null, null, null, null, null, "M.total")
                 .validate(self(FieldType.BIG_DECIMAL, false, true), "M.total", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("computed field");
-        assertThatThrownBy(() -> of("true", null, null, null)
+        assertThatThrownBy(() -> of("true", null, null)
                 .validate(self(FieldType.BIG_DECIMAL, false, true), "M.total", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("computed field");
     }
@@ -275,19 +274,19 @@ class FieldConstraintsTest {
     void anOrderingOperatorNeedsAFieldThatHasAnOrder() {
         // An option is compared by item code and a relation by id, both as text, so "10" sorts before
         // "3" — the opposite of what anyone writing `grade > 3` means.
-        assertThatThrownBy(() -> of(null, "[[\"reason\", \">\", \"3\"]]", null, null)
+        assertThatThrownBy(() -> of(null, null, null)
                 .validate(self(FieldType.STRING), "M.f", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("has no order");
-        assertThatThrownBy(() -> of(null, null, null, "[[\"reportsTo\", \"BETWEEN\", [1, 100]]]")
+        assertThatThrownBy(() -> of(null, null, "[[\"reportsTo\", \"BETWEEN\", [1, 100]]]")
                 .validate(self(FieldType.STRING), "M.f", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("has no order");
         // dates, numbers and text keep their order
-        assertThatCode(() -> of(null, null, null, "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]")
+        assertThatCode(() -> of(null, null, "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]")
                 .validate(self(FieldType.DATE), "M.endDate", FIELD_OF)).doesNotThrowAnyException();
-        assertThatCode(() -> of(null, null, null, "[[\"amount\", \">\", 0]]")
+        assertThatCode(() -> of(null, null, "[[\"amount\", \">\", 0]]")
                 .validate(self(FieldType.BIG_DECIMAL), "M.amount", FIELD_OF)).doesNotThrowAnyException();
         // equality on an option is exactly what options are for
-        assertThatCode(() -> of("[[\"reason\", \"=\", \"Others\"]]", null, null, null)
+        assertThatCode(() -> of("[[\"reason\", \"=\", \"Others\"]]", null, null)
                 .validate(self(FieldType.STRING), "M.f", FIELD_OF)).doesNotThrowAnyException();
     }
 
@@ -301,10 +300,10 @@ class FieldConstraintsTest {
             case "headcount" -> self(FieldType.INTEGER, true, true);
             default -> FIELD_OF.apply(name);
         };
-        assertThatThrownBy(() -> of(null, "[[\"children\", \"IS SET\", null]]", null, null)
+        assertThatThrownBy(() -> of(null, null, null)
                 .validate(self(FieldType.STRING), "M.f", withOddSiblings))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("no value on the row");
-        assertThatThrownBy(() -> of(null, "[[\"headcount\", \"=\", 0]]", null, null)
+        assertThatThrownBy(() -> of(null, null, null)
                 .validate(self(FieldType.STRING), "M.f", withOddSiblings))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("dynamic field");
     }

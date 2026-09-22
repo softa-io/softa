@@ -28,8 +28,8 @@ import io.softa.framework.orm.domain.Filters;
  *
  * <p>{@code ALWAYS} exists for one case the two static flags cannot express: a field that must be
  * filled in at the application level while its column stays nullable ({@code required = true} renders
- * {@code NOT NULL}, and a condition language has no tautology). {@code hiddenWhen} / {@code readonlyWhen}
- * / {@code invalidWhen} do not take it — an unconditional hidden or readonly is the plain flag, and an
+ * {@code NOT NULL}, and a condition language has no tautology). {@code readonlyWhen} /
+ * {@code invalidWhen} do not take it — an unconditional readonly is the plain flag, and an
  * unconditionally invalid field is a mistake — which is why they are typed as {@link Filters} and only
  * {@code requiredWhen} as this.
  */

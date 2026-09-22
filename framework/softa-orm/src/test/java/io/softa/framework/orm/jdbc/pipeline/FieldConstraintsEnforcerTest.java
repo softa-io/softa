@@ -51,8 +51,8 @@ class FieldConstraintsEnforcerTest {
         return f;
     }
 
-    private static FieldConstraints c(String requiredWhen, String hiddenWhen, String readonlyWhen, String invalidWhen, String message) {
-        return FieldConstraints.of(null, null, null, message, requiredWhen, hiddenWhen, readonlyWhen, invalidWhen, "EmpChangeRequest.x");
+    private static FieldConstraints c(String requiredWhen, String readonlyWhen, String invalidWhen, String message) {
+        return FieldConstraints.of(null, null, null, message, requiredWhen, readonlyWhen, invalidWhen, "EmpChangeRequest.x");
     }
 
     /** The fields the model declares {@code readonly} — a form echoes them back, the write drops them. */
@@ -87,7 +87,7 @@ class FieldConstraintsEnforcerTest {
     }
 
     private static final MetaField REASON_DESCRIPTION =
-            field("reasonDescription", c("[[\"reason\", \"=\", \"Others\"]]", null, null, null, null));
+            field("reasonDescription", c("[[\"reason\", \"=\", \"Others\"]]", null, null, null));
 
     @Test
     void onCreateAConditionalRequiredFieldIsDemandedOnlyWhenItsConditionHolds() {
@@ -116,7 +116,7 @@ class FieldConstraintsEnforcerTest {
         // before the write and `columnsToRead` never registers them, so the update does not fetch what
         // the rule reads: `lateMinutes` comes back null from a row that has one, and a filled field is
         // reported empty. The echo must not wake the rule.
-        MetaField lateMinutes = field("lateMinutes", c("[[\"checkInStatus\", \"=\", \"Late\"]]", null, null, null, null));
+        MetaField lateMinutes = field("lateMinutes", c("[[\"checkInStatus\", \"=\", \"Late\"]]", null, null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, lateMinutes);
         Map<String, Object> patch = row("id", 7L, "status", "Approved", "checkInStatus", "Late");
         // `lateMinutes` and `checkInStatus` were never fetched — the registration did not ask for them.
@@ -131,7 +131,7 @@ class FieldConstraintsEnforcerTest {
         // A relation is read as {id, displayName} and sent back the same way — `XToOneProcessor` unwraps
         // it to the id, but that is the chain, which runs after this. Comparing the object with the
         // stored id would read an untouched relation as reassigned and reject the write.
-        MetaField companyId = field("companyId", c(null, null, "[[\"status\", \"=\", \"Approved\"]]", null, null));
+        MetaField companyId = field("companyId", c(null, "[[\"status\", \"=\", \"Approved\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, companyId);
         Map<String, Object> original = row("id", 7L, "status", "Approved", "companyId", 5L);
         Map<String, Object> patch = row("id", 7L, "companyId", row("id", "5", "displayName", "ACME Pte Ltd"));
@@ -153,7 +153,7 @@ class FieldConstraintsEnforcerTest {
         // business — a write has no view — so the request that flips both at once is judged exactly as
         // the one that flips only readonly would be. It has to be: nothing re-checks an assignment once
         // it is stored, so a value that slipped through while hidden would stay for good.
-        MetaField amount = field("amount", c(null, "[[\"reason\", \"=\", \"Contractor\"]]",
+        MetaField amount = field("amount", c(null,
                 "[[\"status\", \"=\", \"Approved\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, amount);
         Map<String, Object> original = row("id", 7L, "status", "Approved", "reason", "Relocation", "amount", new java.math.BigDecimal("1000"));
@@ -176,7 +176,7 @@ class FieldConstraintsEnforcerTest {
 
     @Test
     void requiredWhenTrueCannotBeClearedButMayBeOmitted() {
-        MetaField costCentre = field("costCentreId", c("true", null, null, null, null));
+        MetaField costCentre = field("costCentreId", c("true", null, null, null));
         FieldConstraintsEnforcer create = enforcer(AccessType.CREATE, costCentre);
         assertThatThrownBy(() -> create.enforceCreate(row("status", "Draft"))).hasMessageContaining("costCentreId");
 
@@ -193,38 +193,21 @@ class FieldConstraintsEnforcerTest {
     }
 
     @Test
-    void aHiddenFieldIsJudgedLikeAnyOther() {
-        // `hiddenWhen` says nothing about the data — the same field is hidden in a list and shown in a
-        // form, and a write has no view. So it is carried to the frontend and never read here: the rule
-        // on `lateMinutes` fires whatever `checkInStatus` says. "Only while the field is shown" belongs
-        // on the rule itself, as a condition about the row.
-        MetaField lateMinutes = field("lateMinutes",
-                c("true", "[[\"checkInStatus\", \"=\", \"Normal\"]]", null, null, null));
-        FieldConstraintsEnforcer e = enforcer(AccessType.CREATE, lateMinutes);
-        assertThatThrownBy(() -> e.enforceCreate(row("checkInStatus", "Normal"))).hasMessageContaining("lateMinutes");
+    void visibilityIsSaidOnTheRule() {
+        // Being shown is a property of a view and a write has no view, so the constraints carry no
+        // visibility at all — a page says that, with a condition of its own. "Only while the field is
+        // shown" is therefore written as a condition about the row, and it holds exactly there.
+        MetaField whenLate = field("lateMinutes", c("[[\"checkInStatus\", \"=\", \"Late\"]]", null, null, null));
+        FieldConstraintsEnforcer e = enforcer(AccessType.CREATE, whenLate);
+        assertThatCode(() -> e.enforceCreate(row("checkInStatus", "Normal"))).doesNotThrowAnyException();
         assertThatThrownBy(() -> e.enforceCreate(row("checkInStatus", "Late"))).hasMessageContaining("lateMinutes");
-
-        // said as a condition about the row instead, it holds exactly where it is meant to
-        MetaField whenLate = field("lateMinutes", c("[[\"checkInStatus\", \"=\", \"Late\"]]", null, null, null, null));
-        FieldConstraintsEnforcer onlyWhenLate = enforcer(AccessType.CREATE, whenLate);
-        assertThatCode(() -> onlyWhenLate.enforceCreate(row("checkInStatus", "Normal"))).doesNotThrowAnyException();
-        assertThatThrownBy(() -> onlyWhenLate.enforceCreate(row("checkInStatus", "Late"))).hasMessageContaining("lateMinutes");
-    }
-
-    @Test
-    void aFieldCarryingOnlyHiddenWhenIsNotAConditionalFieldAtAll() {
-        // nothing for a write to check, so the model builds no enforcer for it and fetches no columns
-        assertThat(FieldConstraints.of(null, null, null, null, null,
-                "[[\"checkInStatus\", \"=\", \"Normal\"]]", null, null, "M.f").hasEnforcedConditions()).isFalse();
-        assertThat(FieldConstraints.of(null, null, null, null, null,
-                "[[\"checkInStatus\", \"=\", \"Normal\"]]", null, null, "M.f").referencedFields()).isEmpty();
     }
 
     @Test
     void onCreateAConditionReadsTheDefaultsTheChainWillFillIn() {
         // status defaults to Draft; a form that never sends it must be judged as Draft, not as empty
         MetaField statusWithDefault = field("status", null, "Draft");
-        MetaField amount = field("amount", c("[[\"status\", \"=\", \"Draft\"]]", null, null, null, null));
+        MetaField amount = field("amount", c("[[\"status\", \"=\", \"Draft\"]]", null, null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.CREATE,
                 name -> "status".equals(name) ? statusWithDefault : fieldOf(name), (m, p, id) -> null, amount);
         assertThatThrownBy(() -> e.enforceCreate(row("reason", "Others"))).hasMessageContaining("required");
@@ -238,7 +221,7 @@ class FieldConstraintsEnforcerTest {
 
     @Test
     void readonlyWhenComparesTheAssignedValueUnderTheFieldType() {
-        MetaField amount = field("amount", c(null, null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
+        MetaField amount = field("amount", c(null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, amount);
         Map<String, Object> original = row("id", 1L, "status", "Approved", "amount", "10.00");
         Map<String, Object> sameAmount = row("id", 1L, "amount", 10);
@@ -250,7 +233,7 @@ class FieldConstraintsEnforcerTest {
     @Test
     void anUnchangedMultiValueFieldIsNotAnAssignment() {
         // the plain case: both sides already the same list object-for-object
-        MetaField tags = field("tags", c(null, null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
+        MetaField tags = field("tags", c(null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, tags);
         Map<String, Object> original = row("id", 1L, "status", "Approved", "tags", List.of("a", "b"));
         Map<String, Object> same = row("id", 1L, "tags", List.of("a", "b"));
@@ -266,7 +249,7 @@ class FieldConstraintsEnforcerTest {
     @Test
     void aMultiValueFieldIsComparedAsASetAcrossItsTwoShapes() {
         // the patch carries a list, the stored row the comma-joined text the write produced
-        MetaField tags = field("tags", c(null, null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
+        MetaField tags = field("tags", c(null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, tags);
         Map<String, Object> original = row("id", 1L, "status", "Approved", "tags", "a,b");
         for (Object unchanged : List.of(List.of("a", "b"), List.of("b", "a"))) {
@@ -281,7 +264,7 @@ class FieldConstraintsEnforcerTest {
         mergedChanged.putAll(changed);
         assertThatThrownBy(() -> e.enforceUpdate(mergedChanged, changed, original)).hasMessageContaining("readonly");
         // and an untouched multi-select that submits an empty list against a stored null is no assignment
-        MetaField tags2 = field("tags", c(null, null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
+        MetaField tags2 = field("tags", c(null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
         FieldConstraintsEnforcer e2 = enforcer(AccessType.UPDATE, tags2);
         Map<String, Object> emptyOriginal = row("id", 1L, "status", "Approved", "tags", null);
         Map<String, Object> emptyPatch = row("id", 1L, "tags", List.of());
@@ -292,7 +275,7 @@ class FieldConstraintsEnforcerTest {
 
     @Test
     void theDeclaredMessageIsShownAsWrittenNotAsAFormatPattern() {
-        MetaField endDate = field("endDate", c(null, null, null,
+        MetaField endDate = field("endDate", c(null, null,
                 "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]", "Use the form {CC}-{NNNN}; it's the end date's rule."));
         FieldConstraintsEnforcer e = enforcer(AccessType.CREATE, endDate);
         assertThatThrownBy(() -> e.enforceCreate(row("startDate", "2026-07-01", "endDate", "2026-01-01")))
@@ -302,7 +285,7 @@ class FieldConstraintsEnforcerTest {
 
     @Test
     void readonlyWhenRejectsAnAssignmentNotAnUnchangedValue() {
-        MetaField amount = field("amount", c(null, null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
+        MetaField amount = field("amount", c(null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, amount);
         Map<String, Object> original = row("id", 1L, "status", "Approved", "amount", "100");
         Map<String, Object> change = row("id", 1L, "amount", 200);
@@ -320,7 +303,7 @@ class FieldConstraintsEnforcerTest {
 
     @Test
     void invalidWhenRejectsWithTheDeclaredMessageAndReadsTheMergedRow() {
-        MetaField endDate = field("endDate", c(null, null, null,
+        MetaField endDate = field("endDate", c(null, null,
                 "[[\"endDate\", \"<\", \"{{ @startDate }}\"]]", "End date cannot precede start date."));
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, endDate);
         // the patch moves startDate past the stored endDate — the rule wakes because startDate is referenced
@@ -362,7 +345,7 @@ class FieldConstraintsEnforcerTest {
     }
 
     private static final MetaField ORGANISATION_ID =
-            field("organisationId", c("[[\"bankCode\", \"=\", \"DBS\"]]", null, null, null, null));
+            field("organisationId", c("[[\"bankCode\", \"=\", \"DBS\"]]", null, null, null));
 
     private static MetaField bankName() {
         MetaField f = field("bankName", null);
@@ -387,7 +370,7 @@ class FieldConstraintsEnforcerTest {
     void twoCascadedReferencesToTheSameRelatedRowEachReadTheirOwnAttribute() {
         // the read selects one attribute, so the cache must not answer a second reference from the
         // row fetched for the first — it would find the column missing and resolve to null
-        MetaField branchNote = field("branchNote", c(null, null, null,
+        MetaField branchNote = field("branchNote", c(null, null,
                 "[[\"bankName\", \"=\", \"DBS Bank Ltd\"]]", "Branch note does not apply to this bank."));
         List<String> reads = new java.util.ArrayList<>();
         FieldConstraintsEnforcer.RelatedRowReader reader = (model, path, id) -> {
@@ -444,7 +427,7 @@ class FieldConstraintsEnforcerTest {
     void onCreateAnEmptyStringIsNotAnAssignment() {
         // A form that serialises every field sends the untouched ones as "". Blank is "nothing there"
         // everywhere else in these rules, and the update path already compares it as null.
-        MetaField approvedBy = field("reasonDescription", c(null, null, "[[\"@mode\", \"=\", \"create\"]]", null, null));
+        MetaField approvedBy = field("reasonDescription", c(null, "[[\"@mode\", \"=\", \"create\"]]", null, null));
         FieldConstraintsEnforcer e = enforcer(AccessType.CREATE, approvedBy);
         assertThatCode(() -> e.enforceCreate(row("status", "Draft", "reasonDescription", ""))).doesNotThrowAnyException();
         assertThatThrownBy(() -> e.enforceCreate(row("status", "Draft", "reasonDescription", "me")))
@@ -455,7 +438,7 @@ class FieldConstraintsEnforcerTest {
     void aJsonFieldIsNotComparedAsCommaJoinedMembers() {
         // a JSON column also arrives as a list and stores as its own text; splitting it on commas
         // would make an untouched resubmission look like an assignment
-        MetaField payload = field("payload", c(null, null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
+        MetaField payload = field("payload", c(null, "[[\"status\", \"!=\", \"Draft\"]]", null, null));
         ReflectionTestUtils.setField(payload, "fieldType", FieldType.JSON);
         FieldConstraintsEnforcer e = enforcer(AccessType.UPDATE, payload);
         Map<String, Object> original = row("id", 1L, "status", "Approved", "payload", "[\"a\",\"b\"]");

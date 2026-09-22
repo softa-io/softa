@@ -581,7 +581,7 @@ public final class AnnotationParser {
         // class, so the cross-field checks run once the class's fields are all parsed
         // (validateFieldConstraints). Filter syntax is checked now — it needs nothing else.
         f.setConstraints(FieldConstraints.of(anno.min(), anno.max(), anno.pattern(), anno.constraintMessage(),
-                anno.requiredWhen(), anno.hiddenWhen(), anno.readonlyWhen(), anno.invalidWhen(),
+                anno.requiredWhen(), anno.readonlyWhen(), anno.invalidWhen(),
                 modelName + "." + javaField.getName()));
         f.setRequired(anno.required() || javaField.getType().isPrimitive());
         f.setReadonly(anno.readonly());

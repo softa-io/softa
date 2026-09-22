@@ -142,7 +142,7 @@ plain-text bodies and SMS are not HTML and are never escaped.
 | Computed field | `@Field(computed = true, expression = "…")` — bare AviatorScript |
 | Default value | `@Field(defaultValue = "…")` — expression evaluated on insert |
 | Filter field-to-field | `{{ @otherField }}` inside a filter value |
-| Field constraint condition | the same value forms, inside `@Field(requiredWhen / hiddenWhen / readonlyWhen / invalidWhen)` |
+| Field constraint condition | the same value forms, inside `@Field(requiredWhen / readonlyWhen / invalidWhen)` |
 | Message / document templates | `{{ variable }}` in the template text |
 
 ---

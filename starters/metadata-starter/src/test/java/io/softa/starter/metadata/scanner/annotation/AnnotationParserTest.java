@@ -478,7 +478,7 @@ class AnnotationParserTest {
     static class ConditionDeclaredBeforeItsSibling extends AuditableModel {
         // the sibling is declared AFTER the field that names it — the cross-field pass must not
         // depend on declaration order
-        @Field(hiddenWhen = "[[\"checkInStatus\", \"=\", \"Normal\"]]") private Integer lateMinutes;
+        @Field(requiredWhen = "[[\"checkInStatus\", \"=\", \"Late\"]]") private Integer lateMinutes;
         @Field private String checkInStatus;
         @Override public Serializable getId() { return null; }
     }
@@ -486,19 +486,19 @@ class AnnotationParserTest {
     @Test
     void aCondition_mayNameASiblingDeclaredLater() {
         AnnotationScanResult result = parser.parse(List.of(ConditionDeclaredBeforeItsSibling.class), List.of());
-        assertNotNull(byFieldName(result.fields(), "lateMinutes").getConstraints().hiddenWhen());
+        assertNotNull(byFieldName(result.fields(), "lateMinutes").getConstraints().requiredWhen());
     }
 
     @Model
-    static class HiddenWhenTrueIsRejected extends AuditableModel {
-        @Field(hiddenWhen = "true") private String secret;
+    static class ReadonlyWhenTrueIsRejected extends AuditableModel {
+        @Field(readonlyWhen = "true") private String secret;
         @Override public Serializable getId() { return null; }
     }
 
     @Test
     void onlyRequiredWhen_hasAnAlwaysForm() {
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> parser.parse(List.of(HiddenWhenTrueIsRejected.class), List.of()));
+                () -> parser.parse(List.of(ReadonlyWhenTrueIsRejected.class), List.of()));
         assertTrue(ex.getMessage().contains("does not accept \"true\""), ex.getMessage());
     }
 
