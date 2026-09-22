@@ -154,7 +154,7 @@ public @interface Field {
 
     /**
      * Condition that, when it holds for the row, makes the value <b>invalid</b> and rejects the write
-     * with {@link #constraintMessage()} — {@code endDate < "{{ @startDate }}"}.
+     * with {@link #constraintMessage()} — {@code endDate < startDate}.
      * Reads the other fields of the same row; compare a relation by id, an option by its item code.
      * Same expression language as {@link #requiredWhen()}.
      */
