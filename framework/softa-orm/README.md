@@ -128,10 +128,18 @@ grammar is below under "The expression grammar". The JSON spelling
 the expression grammar cannot parse — write those as a three-element unit,
 `[["terminationDate", "IS NOT SET", null]]`. The grammar names fields as `[a-z][a-zA-Z0-9]*`, so a
 related row's attribute is reached through a `cascadedField` declared on this model rather than a
-dotted path, and values are numbers, booleans or double-quoted strings. A value is a constant, a
-reference to this row (`{{ @startDate }}`) or an environment token (`{{ TODAY }}`) — see
-[placeholders.md](../../docs/ai/authoring/placeholders.md). Compare an option by its item code: a
-wrong code never fires and never reports.
+dotted path. A value is a number, a boolean, a double-quoted string, a **bare name** — another field
+of the same row — or an environment token (`{{ TODAY }}`, see
+[placeholders.md](../../docs/ai/authoring/placeholders.md)).
+
+The quotes are what separate the two kinds of name: `endDate < startDate` compares two fields,
+`reason = "startDate"` compares a field with the text. Neither typo can pass quietly — a bare name
+that is no field of the model fails the boot-time existence check, and a literal written without its
+quotes is either an unknown field or, option codes being PascalCase, not a name the lexer accepts at
+all. The older spelling `endDate < "{{ @startDate }}"` still parses and produces the identical tree;
+it remains what the JSON form and the stored row carry, since only the authoring layer changed.
+
+Compare an option by its item code: a wrong code never fires and never reports.
 | `required` | boolean | `false` | `required` | NOT NULL constraint |
 | `readonly` | boolean | `false` | `readonly` | UI hint |
 | `translatable` | boolean | `false` | `translatable` | i18n-aware column |
@@ -193,15 +201,16 @@ private Integer activeEmpCount;
         """)
 private String reasonDescription;
 
+// a bare name on the right is another field of this row; a literal keeps its quotes
 @Field(label = "End Date", invalidWhen = """
-        endDate < "{{ @startDate }}"
+        endDate < startDate
         """,
        constraintMessage = "End date cannot precede start date.")
 private LocalDate endDate;
 
 // more than one condition: AND binds tighter than OR, parentheses override it
 @Field(invalidWhen = """
-        endDate < "{{ @startDate }}" OR (grade = 1 AND amount > 1000)
+        endDate < startDate OR (grade = 1 AND amount > 1000)
         """,
        constraintMessage = "Check the dates, or the amount against the grade.")
 private BigDecimal amount;

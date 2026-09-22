@@ -1,33 +1,31 @@
 package io.softa.framework.orm.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
 /**
- * A boolean right-hand side works in the JSON form and not in the expression form.
+ * A boolean right-hand side, in both spellings.
  *
- * <p>The grammar declares {@code BOOLEAN: 'true' | 'false'} and the visitor handles it, but the
- * rule sits below {@code FIELD: [a-z][a-zA-Z0-9]*} in the lexer. Both match {@code true} at the
- * same length, ANTLR breaks that tie by declaration order, so the literal lexes as a field name and
- * the unit never reaches a value. Moving BOOLEAN above FIELD fixes it, but the generated lexer is
- * committed to the repository and there is no build plugin to regenerate it, so the fix needs the
- * ANTLR tool run by hand. Until then this test records what actually works, so nobody writes a
- * declaration against the grammar file and finds out at boot.
+ * <p>It used to work only in the JSON form: {@code BOOLEAN} sat below {@code FIELD} in the lexer, both
+ * match {@code true} at the same length, and ANTLR breaks that tie by declaration order — so the
+ * literal lexed as a field name and the unit never reached a value. Harmless while a bare name was not
+ * a legal value (it was a syntax error), and not harmless at all once one is, which is why the order
+ * had to be fixed in the same change.
  */
 class BooleanLiteralExpressionTest {
 
     @Test
-    void theJsonFormAcceptsABooleanRightHandSide() {
-        assertThat(Filters.of("[[\"hasProbation\", \"!=\", true]]")).isNotNull();
-        assertThat(Filters.of("[[\"policyEnableEntitlement\", \"=\", false]]")).isNotNull();
+    void bothSpellingsAcceptABooleanRightHandSide() {
+        assertThat(Filters.of("hasProbation != true"))
+                .isEqualTo(Filters.of("[[\"hasProbation\", \"!=\", true]]"));
+        assertThat(Filters.of("policyEnableEntitlement = false"))
+                .isEqualTo(Filters.of("[[\"policyEnableEntitlement\", \"=\", false]]"));
     }
 
     @Test
-    void theExpressionFormDoesNotYet() {
-        assertThatThrownBy(() -> Filters.of("hasProbation != true"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Unsupported value context");
+    void aBooleanIsTheLiteralAndNotAFieldNamedTrue() {
+        // the whole point of the lexer order: `true` must not read as "the field named true"
+        assertThat(Filters.of("hasProbation != true").getFilterUnit().getValue()).isEqualTo(true);
     }
 }

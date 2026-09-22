@@ -69,6 +69,23 @@ class FieldConstraintsTest {
         assertThat(Filters.of("""
                 endDate < "{{ @startDate }}"
                 """)).isEqualTo(Filters.of("[[\"endDate\", \"<\", \"{{ @startDate }}\"]]"));
+        // A bare name on the right is the same reference, written the way one reads: the tree it
+        // produces — and so the stored row and everything the frontend sees — is identical.
+        assertThat(Filters.of("""
+                endDate < startDate
+                """)).isEqualTo(Filters.of("[[\"endDate\", \"<\", \"{{ @startDate }}\"]]"));
+        assertThat(Filters.of("""
+                type = "CompanyProvided" AND endDate < startDate
+                """)).isEqualTo(Filters.of(
+                        "[[\"type\", \"=\", \"CompanyProvided\"], \"AND\", [\"endDate\", \"<\", \"{{ @startDate }}\"]]"));
+        // Quotes are what separates the two, so a literal keeps them and means itself
+        assertThat(Filters.of("""
+                reason = "startDate"
+                """)).isEqualTo(Filters.of("[[\"reason\", \"=\", \"startDate\"]]"));
+        // and a list takes either kind
+        assertThat(Filters.of("""
+                grade IN [minGrade, 3, "A"]
+                """)).isEqualTo(Filters.of("[[\"grade\", \"IN\", [\"{{ @minGrade }}\", 3, \"A\"]]]"));
         assertThat(Filters.of("""
                 dateOfBirth > "{{ TODAY - P13Y }}"
                 """)).isEqualTo(Filters.of("[[\"dateOfBirth\", \">\", \"{{ TODAY - P13Y }}\"]]"));

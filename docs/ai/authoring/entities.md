@@ -292,9 +292,10 @@ private String code;
         """)
 private String reasonDescription;
 
-// compares two fields of the row; {{ @field }} reads a sibling, TODAY / NOW / USER_ID read the context
+// compares two fields of the row: a bare name is a sibling field, a quoted string is a literal.
+// TODAY / NOW / USER_ID read the context and keep their braces.
 @Field(invalidWhen = """
-        endDate < "{{ @startDate }}"
+        endDate < startDate
         """,
        constraintMessage = "End date cannot precede start date.")
 private LocalDate endDate;
@@ -316,7 +317,7 @@ private String activeOnlyNote;
 
 // more than one condition: AND binds tighter than OR, parentheses override it
 @Field(invalidWhen = """
-        endDate < "{{ @startDate }}" OR (grade = 1 AND amount > 1000)
+        endDate < startDate OR (grade = 1 AND amount > 1000)
         """,
        constraintMessage = "Check the dates, or the amount against the grade.")
 private BigDecimal amount;
@@ -340,10 +341,12 @@ redeploy rather than a migration and existing rows are not retroactively invalid
   use it only for `IS SET` / `IS NOT SET`, which the expression grammar cannot parse, and give those
   units a third element (`null`). The expression grammar names fields as `[a-z][a-zA-Z0-9]*` — no dots
   and no underscores — so a related row's attribute is reached by declaring a `cascadedField` on this
-  model and referencing it by its own name. Compare an option by its **item code**, never its display
-  label: a wrong code makes the condition silently never fire.
+  model and referencing it by its own name. On the right-hand side a **bare name is that sibling
+  field** and a **quoted string is a literal**; forgetting the quotes on an option code fails the boot
+  rather than comparing against a field that does not exist. Compare an option by its **item code**,
+  never its display label: a wrong code makes the condition silently never fire.
 - Conditions are filter expressions: nested AND/OR, 16 operators (`PARENT OF` / `CHILD OF` refused),
-  `{{ @field }}`, `{{ TODAY }}` / `{{ NOW }}` / `{{ USER_ID }}` with optional ISO-8601 offsets
+  a bare sibling name (or the older `{{ @field }}`), `{{ TODAY }}` / `{{ NOW }}` / `{{ USER_ID }}` with optional ISO-8601 offsets
   (`P13Y`, `P6M`, `PT2H`), `@mode` / `@userId` in the field slot — what each form means, and which
   mistakes fail the boot rather than failing silently, is in
   [placeholders.md](placeholders.md#filters--comparing-one-field-to-another). Options compare by item code,

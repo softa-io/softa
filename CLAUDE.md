@@ -185,8 +185,9 @@ public enum CustomerTier {
   (+ `constraintMessage`) declare a field's **value domain**; `requiredWhen` /
   `hiddenWhen` / `readonlyWhen` / `invalidWhen` declare **conditions over the same
   row** (filter expressions in a text block — `reason = "Others"`, nested AND/OR,
-  `{{ @field }}` references, `TODAY` / `NOW` / `USER_ID` tokens, ISO-8601 offsets
-  such as `{{ TODAY - P13Y }}`, reserved `@mode` / `@userId`). `AnnotationParser`
+  a bare name for a sibling field (`endDate < startDate`) against a quoted literal,
+  `TODAY` / `NOW` / `USER_ID` tokens, ISO-8601 offsets such as `{{ TODAY - P13Y }}`,
+  reserved `@mode` / `@userId`). `AnnotationParser`
   packs all eight into one `FieldConstraints` record stored in the single
   `sys_field.constraints` column (`FieldType.DTO`, canonical JSON via
   `Codecs.dto`; NULL when nothing is declared, never `{}`) and served unchanged on
@@ -199,7 +200,10 @@ public enum CustomerTier {
   (`DataUpdatePipeline.registerConstraintDependencies`), and only when the patch
   touches the field or a field it reads. Semantics both ends share (`FilterEvaluator`):
   null ≡ `""`, value equality (not SQL three-valued), ordering needs two values,
-  hidden fields are not judged, options compare by item code, relations by id.
+  options compare by item code, relations by id. `hiddenWhen` is the **frontend's
+  alone** — being shown is a property of a view and a write has no view, so the
+  server ships the rule and never evaluates it; "only while the field is shown"
+  goes on the rule itself, as a condition about the row.
   `requiredWhen = "true"` = application-level required on a nullable column; only
   `requiredWhen` has that form. `PARENT OF` / `CHILD OF` are refused. Everything is
   validated at scan time against the field's type and the sibling fields it names

@@ -119,8 +119,9 @@ public @interface Field {
      * text block as well; reach for the form only when an expression cannot say the rule.
      *
      * <p>Unlike {@link #required()} this renders no {@code NOT NULL}: it is a business rule, evaluated
-     * by both ends against the row's other values ({@code {{ @field }}} references, {@code TODAY} /
-     * {@code NOW} / {@code USER_ID} tokens, ISO-8601 offsets such as {@code {{ TODAY - P13Y }}}). On
+     * by both ends against the row's other values — a bare name on the right is a sibling field
+     * ({@code endDate < startDate}), a quoted string is a literal, and {@code TODAY} / {@code NOW} /
+     * {@code USER_ID} keep their braces, with ISO-8601 offsets such as {@code {{ TODAY - P13Y }}}. On
      * update it is evaluated only when the field itself or a field it references is in the patch.
      * Declaring it together with {@code required = true} is redundant and logged at boot.
      */
