@@ -270,13 +270,13 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                             .forEach(account -> profileService.evictUserInfo(account.getId()));
                 }
             });
-            // Outside the rename branch, deliberately. A membership minted before it carried a name
-            // has an empty one for good, and its name never "changes" — so hanging this off a rename
-            // would leave exactly the rows that need it untouched, on a screen whose whole job is to
-            // let the customer identify them. Idempotent: it compares per membership and writes only
-            // where they differ.
-            refreshConsultantNicknames(profileId, name);
         }
+        // Outside the rename branch, and outside the name check entirely: a membership minted before
+        // it carried these details has them empty for good, and nothing about the person "changes" to
+        // trigger a refresh. Hanging this off an edit would leave exactly the rows that need it
+        // untouched, on a screen whose whole job is to let the customer identify them. Idempotent —
+        // it compares per membership and writes only where something differs.
+        refreshConsultantDisplay(profileId);
 
         // Canonical spelling, never what was typed. LoginIdentifiers is the one rule for a stored,
         // looked-up or hashed identifier, and everything that LOOKS a person up applies it — so a
@@ -612,16 +612,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             UserAccount account = new UserAccount();
             account.setProfileId(profileId);
             account.setConsultant(Boolean.TRUE);
-            // The name the customer will see. Without it the roster shows a row of em dashes — every
-            // business column on a consultant's membership is empty, because they are all the
-            // tenant's own data about its own staff — and "you may suspend this" means nothing
-            // against a record nobody can identify.
-            //
-            // Only the name. UserAccount.email is a WORK CONTACT, HR's data about somebody employed
-            // here; a consultant's address is a platform login identifier and belongs in a different
-            // kind of column. It also carries a (tenantId, email) unique index that an employee of
-            // this company sharing the address would collide with.
-            account.setNickname(displayNameOf(profileId));
+            stampDisplayIdentity(account, profileId, tenantId);
             // ACTIVE because nothing about the membership itself is pending — there is no invitation
             // to accept and no password to set for it. Whether it may be ENTERED is the grant's
             // question, asked live; status is not where a consultant's access is decided.
@@ -632,25 +623,67 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         log.info("Consultant {} granted access to tenant {} — membership minted.", profileId, tenantId);
     }
 
-    /** The person's name, for the tenant-facing display column on a minted membership. */
-    private String displayNameOf(Long profileId) {
-        return profileService.getById(profileId).map(UserProfile::getFullName).orElse(null);
+    /**
+     * What a tenant sees on a consultant's membership: who this is, and how to name them.
+     *
+     * <p>Every OTHER business column on the row is the tenant's own data about its own staff —
+     * activation, security policy, work contacts HR typed — and the platform fills none of them. Left
+     * at that, the roster shows a line of em dashes, and "you may suspend this" means nothing against
+     * a record nobody can identify.
+     *
+     * <p><b>The email is written only when it is free in that company.</b> {@code UserAccount.email}
+     * carries a {@code (tenantId, email)} unique index, and a consultant's address is a platform
+     * login identifier that some unrelated employee of this customer may already hold as their work
+     * contact. Writing it blindly would make THAT collision refuse the authorization — a consultant
+     * blocked out of a company for a reason that has nothing to do with them. The name and username
+     * carry no index and are always written, so the row is identifiable either way.
+     *
+     * @return true when anything changed, so a refresh can skip a write that would say nothing
+     */
+    private boolean stampDisplayIdentity(UserAccount account, Long profileId, Long tenantId) {
+        String name = profileService.getById(profileId).map(UserProfile::getFullName).orElse(null);
+        String loginEmail = identityService.findByProfile(profileId)
+                .map(UserIdentity::getLoginEmail).orElse(null);
+
+        boolean changed = false;
+        if (name != null && !name.equals(account.getNickname())) {
+            account.setNickname(name);
+            changed = true;
+        }
+        if (loginEmail != null && !loginEmail.equals(account.getUsername())) {
+            account.setUsername(loginEmail);
+            changed = true;
+        }
+        if (loginEmail != null && !loginEmail.equals(account.getEmail())
+                && workEmailIsFree(tenantId, loginEmail, account.getId())) {
+            account.setEmail(loginEmail);
+            changed = true;
+        }
+        return changed;
+    }
+
+    /** Whether this company's roster already has that address as somebody else's work contact. */
+    private boolean workEmailIsFree(Long tenantId, String email, Long exceptAccountId) {
+        return accountService.searchList(new Filters()
+                        .eq(UserAccount::getTenantId, tenantId)
+                        .eq(UserAccount::getEmail, email)).stream()
+                .allMatch(other -> Objects.equals(other.getId(), exceptAccountId));
     }
 
     /**
-     * Carry a renamed person onto the memberships the tenant reads.
+     * Carry the person's current details onto the memberships the tenant reads.
      *
      * <p>Consultant memberships only. A person may also be genuinely employed somewhere, and the
-     * nickname on THAT row is the employer's own data about their own staff — renaming the person on
+     * contacts on THAT row are the employer's own data about their own staff — editing the person on
      * the platform's console must not reach into it.
      */
-    private void refreshConsultantNicknames(Long profileId, String name) {
+    private void refreshConsultantDisplay(Long profileId) {
         accountService.listMembershipsOf(profileId).stream()
                 .filter(account -> Boolean.TRUE.equals(account.getConsultant()))
-                .filter(account -> !name.equals(account.getNickname()))
                 .forEach(account -> {
-                    account.setNickname(name);
-                    accountService.updateOne(account);
+                    if (stampDisplayIdentity(account, profileId, account.getTenantId())) {
+                        accountService.updateOne(account);
+                    }
                 });
     }
 

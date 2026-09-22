@@ -13,9 +13,11 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.entity.ConsultantProfile;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.UserAccountService;
+import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,6 +57,7 @@ class ConsultantRevokeClosesMembershipTest {
     private ConsultantAuthorizationService authorizationService;
     private UserAccountService accountService;
     private UserProfileService profileService;
+    private UserIdentityService identityService;
 
     @BeforeEach
     void setUp() {
@@ -62,7 +65,9 @@ class ConsultantRevokeClosesMembershipTest {
         authorizationService = mock(ConsultantAuthorizationService.class);
         accountService = mock(UserAccountService.class);
         profileService = mock(UserProfileService.class);
+        identityService = mock(UserIdentityService.class);
         ReflectionTestUtils.setField(service, "profileService", profileService);
+        ReflectionTestUtils.setField(service, "identityService", identityService);
         ReflectionTestUtils.setField(service, "authorizationService", authorizationService);
         ReflectionTestUtils.setField(service, "accountService", accountService);
         ReflectionTestUtils.setField(service, "cacheService", mock(CacheService.class));
@@ -91,6 +96,10 @@ class ConsultantRevokeClosesMembershipTest {
         person.setId(PROFILE);
         person.setFullName("Ada Lovelace");
         when(profileService.getById(PROFILE)).thenReturn(Optional.of(person));
+        UserIdentity identity = new UserIdentity();
+        identity.setProfileId(PROFILE);
+        identity.setLoginEmail("ada@zingkey.com");
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
         when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.empty());
         when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of());
 
@@ -101,9 +110,44 @@ class ConsultantRevokeClosesMembershipTest {
         ArgumentCaptor<UserAccount> minted = ArgumentCaptor.forClass(UserAccount.class);
         verify(accountService).createOne(minted.capture());
         assertThat(minted.getValue().getNickname()).isEqualTo("Ada Lovelace");
-        // The name only. email is a WORK CONTACT — the tenant's data about somebody employed here —
-        // and it carries a (tenantId, email) unique index a real employee would collide with.
+        assertThat(minted.getValue().getUsername()).isEqualTo("ada@zingkey.com");
+        // Free in this company, so it is written. The guarded case has its own test below.
+        assertThat(minted.getValue().getEmail()).isEqualTo("ada@zingkey.com");
+    }
+
+    @Test
+    void theWorkEmailIsLeftBlankRatherThanCollideWithAnEmployeeWhoHoldsIt() {
+        // UserAccount.email is unique per (tenantId, email). A consultant's address is a PLATFORM
+        // login identifier, and some unrelated employee of this customer may already carry it as
+        // their work contact — writing it blindly would make that collision refuse the
+        // authorization, blocking a consultant out of a company for a reason nothing to do with
+        // them. The name and username carry no index, so the row is still identifiable.
+        UserProfile person = new UserProfile();
+        person.setId(PROFILE);
+        person.setFullName("Ada Lovelace");
+        when(profileService.getById(PROFILE)).thenReturn(Optional.of(person));
+        UserIdentity identity = new UserIdentity();
+        identity.setProfileId(PROFILE);
+        identity.setLoginEmail("shared@acme.com");
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
+        when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.empty());
+        when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of());
+
+        UserAccount employeeHoldingIt = new UserAccount();
+        employeeHoldingIt.setId(999L);
+        employeeHoldingIt.setTenantId(TENANT);
+        employeeHoldingIt.setEmail("shared@acme.com");
+        when(accountService.searchList(any(Filters.class))).thenReturn(List.of(employeeHoldingIt));
+
+        ConsultantAuthorization wanted = new ConsultantAuthorization();
+        wanted.setTenantId(TENANT);
+        service.replaceAuthorizations(PROFILE, List.of(wanted));
+
+        ArgumentCaptor<UserAccount> minted = ArgumentCaptor.forClass(UserAccount.class);
+        verify(accountService).createOne(minted.capture());
         assertThat(minted.getValue().getEmail()).isNull();
+        assertThat(minted.getValue().getNickname()).isEqualTo("Ada Lovelace");
+        assertThat(minted.getValue().getUsername()).isEqualTo("shared@acme.com");
     }
 
     @Test
