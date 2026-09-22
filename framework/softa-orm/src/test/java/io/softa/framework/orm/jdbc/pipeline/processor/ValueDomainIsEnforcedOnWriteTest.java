@@ -39,7 +39,7 @@ class ValueDomainIsEnforcedOnWriteTest {
     }
 
     private static FieldConstraints domain(String min, String max, String pattern, String message) {
-        return FieldConstraints.of(min, max, pattern, message, null, null, null, null, "Department.x");
+        return FieldConstraints.of(min, max, pattern, message, null, null, null, "Department.x");
     }
 
     private static Map<String, Object> row(String fieldName, Object value) {

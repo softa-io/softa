@@ -24,7 +24,7 @@ class ValueConstraintsTest {
     }
 
     private static FieldConstraints c(String min, String max, String pattern, String message) {
-        return FieldConstraints.of(min, max, pattern, message, null, null, null, null, "EmpChangeRequest.x");
+        return FieldConstraints.of(min, max, pattern, message, null, null, null, "EmpChangeRequest.x");
     }
 
     @Test

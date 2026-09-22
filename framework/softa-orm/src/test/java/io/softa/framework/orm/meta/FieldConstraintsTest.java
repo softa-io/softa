@@ -42,13 +42,13 @@ class FieldConstraintsTest {
 
     @Test
     void nothingDeclaredIsNullNotAnEmptyObject() {
-        assertThat(FieldConstraints.of("", "", "", "", "", "", "", "", "M.f")).isNull();
+        assertThat(FieldConstraints.of("", "", "", "", "", "", "", "M.f")).isNull();
     }
 
     @Test
     void jsonRoundTripIsCompactAndKeepsTheAlwaysForm() {
         FieldConstraints c = FieldConstraints.of("0", null, null, "Headcount cannot be negative.",
-                "true", null, null, null, "Department.activeEmpCount");
+                "true", null, null, "Department.activeEmpCount");
         String json = JsonUtils.objectToString(c);
         assertThat(json).contains("\"min\":\"0\"").contains("\"requiredWhen\":true").doesNotContain("max")
                 .doesNotContain("empty");   // isEmpty() is a query, not a key the frontend should see
@@ -127,10 +127,10 @@ class FieldConstraintsTest {
         // The JSON spelling needs an escaped quote per token; the expression spelling needs none at
         // all when it is written as a text block, which is what an entity should be able to declare.
         FieldConstraints json = FieldConstraints.of(null, null, null, null,
-                "[[\"reason\", \"=\", \"Others\"]]", null, null, null, "X.y");
+                "[[\"reason\", \"=\", \"Others\"]]", null, null, "X.y");
         FieldConstraints expression = FieldConstraints.of(null, null, null, null, """
                 reason = "Others"
-                """, null, null, null, "X.y");
+                """, null, null, "X.y");
         assertThat(expression).isNotNull();
         assertThat(expression.requiredWhen().getFilters()).isEqualTo(json.requiredWhen().getFilters());
         assertThat(expression.referencedFields()).containsExactly("reason");
@@ -145,22 +145,22 @@ class FieldConstraintsTest {
 
     @Test
     void valueDomainIsCheckedAgainstTheFieldType() {
-        assertThatThrownBy(() -> FieldConstraints.of("0", "", "", "", "", "", "", "", "M.name")
+        assertThatThrownBy(() -> FieldConstraints.of("0", "", "", "", "", "", "", "M.name")
                 .validate(self(FieldType.STRING), "M.name", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("numeric");
-        assertThatThrownBy(() -> FieldConstraints.of("", "", "\\d+", "", "", "", "", "", "M.n")
+        assertThatThrownBy(() -> FieldConstraints.of("", "", "\\d+", "", "", "", "", "M.n")
                 .validate(self(FieldType.INTEGER), "M.n", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("STRING");
-        assertThatThrownBy(() -> FieldConstraints.of("100", "1", "", "", "", "", "", "", "M.n")
+        assertThatThrownBy(() -> FieldConstraints.of("100", "1", "", "", "", "", "", "M.n")
                 .validate(self(FieldType.INTEGER), "M.n", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("no value can satisfy");
-        assertThatThrownBy(() -> FieldConstraints.of("zero", "", "", "", "", "", "", "", "M.n")
+        assertThatThrownBy(() -> FieldConstraints.of("zero", "", "", "", "", "", "", "M.n")
                 .validate(self(FieldType.INTEGER), "M.n", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("decimal literal");
-        assertThatThrownBy(() -> FieldConstraints.of("", "", "[A-Z", "", "", "", "", "", "M.name")
+        assertThatThrownBy(() -> FieldConstraints.of("", "", "[A-Z", "", "", "", "", "M.name")
                 .validate(self(FieldType.STRING), "M.name", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("valid regular expression");
-        List<String> warnings = FieldConstraints.of("", "", "[A-Z]{2}", "", "", "", "", "", "M.name")
+        List<String> warnings = FieldConstraints.of("", "", "[A-Z]{2}", "", "", "", "", "M.name")
                 .validate(self(FieldType.STRING), "M.name", FIELD_OF);
         assertThat(warnings).anyMatch(w -> w.contains("constraintMessage"));
     }
@@ -199,10 +199,10 @@ class FieldConstraintsTest {
 
     @Test
     void onlyRequiredWhenHasAnAlwaysForm() {
-        assertThatThrownBy(() -> of(null, null, null)).hasMessageContaining("does not accept \"true\"");
         assertThatThrownBy(() -> of(null, "true", null)).hasMessageContaining("does not accept \"true\"");
+        assertThatThrownBy(() -> of(null, null, "true")).hasMessageContaining("does not accept \"true\"");
         assertThatThrownBy(() -> of(null, null, "[]")).hasMessageContaining("empty condition");
-        assertThatThrownBy(() -> of("[[\"reason\", \"=\"", null, null, null)).hasMessageContaining("not a filter expression");
+        assertThatThrownBy(() -> of("[[\"reason\", \"=\"", null, null)).hasMessageContaining("not a filter expression");
     }
 
     @Test
@@ -262,7 +262,7 @@ class FieldConstraintsTest {
         // The chain computes the value after both the enforcer and the processors' value-domain check
         // have run. A bound would never be applied; `requiredWhen` would see null on every write and
         // make the model unwritable. Neither fails loudly at runtime, so it has to fail here.
-        assertThatThrownBy(() -> FieldConstraints.of("0", null, null, null, null, null, null, null, "M.total")
+        assertThatThrownBy(() -> FieldConstraints.of("0", null, null, null, null, null, null, "M.total")
                 .validate(self(FieldType.BIG_DECIMAL, false, true), "M.total", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("computed field");
         assertThatThrownBy(() -> of("true", null, null)
@@ -274,7 +274,7 @@ class FieldConstraintsTest {
     void anOrderingOperatorNeedsAFieldThatHasAnOrder() {
         // An option is compared by item code and a relation by id, both as text, so "10" sorts before
         // "3" — the opposite of what anyone writing `grade > 3` means.
-        assertThatThrownBy(() -> of(null, null, null)
+        assertThatThrownBy(() -> of(null, "[[\"reason\", \">\", \"3\"]]", null)
                 .validate(self(FieldType.STRING), "M.f", FIELD_OF))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("has no order");
         assertThatThrownBy(() -> of(null, null, "[[\"reportsTo\", \"BETWEEN\", [1, 100]]]")
@@ -300,10 +300,10 @@ class FieldConstraintsTest {
             case "headcount" -> self(FieldType.INTEGER, true, true);
             default -> FIELD_OF.apply(name);
         };
-        assertThatThrownBy(() -> of(null, null, null)
+        assertThatThrownBy(() -> of(null, "[[\"children\", \"IS SET\", null]]", null)
                 .validate(self(FieldType.STRING), "M.f", withOddSiblings))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("no value on the row");
-        assertThatThrownBy(() -> of(null, null, null)
+        assertThatThrownBy(() -> of(null, "[[\"headcount\", \"=\", 0]]", null)
                 .validate(self(FieldType.STRING), "M.f", withOddSiblings))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("dynamic field");
     }

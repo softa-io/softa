@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DtoColumnCodecTest {
 
     private static final FieldConstraints DECLARED = FieldConstraints.of(
-            "0", null, null, "Headcount cannot be negative.", null, null, null, null, "Department.activeEmpCount");
+            "0", null, null, "Headcount cannot be negative.", null, null, null, "Department.activeEmpCount");
 
     @Test
     void sysFieldConstraintsColumnGetsTheDtoCodec() {
@@ -42,9 +42,9 @@ class DtoColumnCodecTest {
         assertNull(codec.toDb(null));
         // a condition keeps its array order — order is semantic in a filter tree
         FieldConstraints conditional = FieldConstraints.of(null, null, null, null,
-                "[[\"reason\", \"=\", \"Others\"], [\"@mode\", \"=\", \"update\"]]", null, null, null, "M.f");
+                "[[\"reason\", \"=\", \"Others\"], [\"@mode\", \"=\", \"update\"]]", null, null, "M.f");
         assertEquals("{\"requiredWhen\":[[\"reason\",\"=\",\"Others\"],\"AND\",[\"@mode\",\"=\",\"update\"]]}", codec.toDb(conditional));
-        FieldConstraints always = FieldConstraints.of(null, null, null, null, "true", null, null, null, "M.f");
+        FieldConstraints always = FieldConstraints.of(null, null, null, null, "true", null, null, "M.f");
         assertEquals("{\"requiredWhen\":true}", codec.toDb(always));
     }
 
