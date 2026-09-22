@@ -163,25 +163,17 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @CrossTenant
     @Override
     public List<ConsultantGrantDTO> grantsOf(Long profileId) {
-        List<ConsultantAuthorization> grants = authorizationsOf(profileId);
-        if (grants.isEmpty()) {
-            return List.of();
-        }
-        // One read for the page's memberships, not one per grant. Keyed by tenant because that is
-        // what a grant names, and a person holds at most one membership per tenant by unique index.
-        Map<Long, AccountStatus> statusByTenant = accountService
-                .listMembershipsOf(profileId).stream()
-                .filter(account -> account.getTenantId() != null)
-                .collect(Collectors.toMap(UserAccount::getTenantId, UserAccount::getStatus,
-                        (a, b) -> a));
-        return grants.stream().map(grant -> {
+        // One read. The grant names the membership it minted, and the status rides along as a
+        // cascaded field, so the two halves of "may this consultant get in" arrive together instead
+        // of being read separately and matched up in memory by (profileId, tenantId).
+        return authorizationsOf(profileId).stream().map(grant -> {
             ConsultantGrantDTO row = new ConsultantGrantDTO();
             row.setId(grant.getId());
             row.setTenantId(grant.getTenantId());
             row.setTenantName(tenantInfoService == null ? null
                     : tenantInfoService.getTenantName(grant.getTenantId()));
             row.setEndDate(grant.getEndDate());
-            row.setAccountStatus(statusByTenant.get(grant.getTenantId()));
+            row.setAccountStatus(grant.getAccountStatus());
             return row;
         }).toList();
     }
@@ -508,13 +500,24 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             ConsultantAuthorization have = existing.remove(want.getTenantId());
             if (have == null) {
                 want.setProfileId(profileId);
+                // Minted FIRST, so the grant can be written already pointing at it. The other order
+                // needs a second write to fill the link in, and a failure between the two leaves a
+                // grant that names no membership — the state the form calls "Missing".
+                want.setAccountId(mintMembership(profileId, want.getTenantId()));
                 authorizationService.createOne(want);
-                mintMembership(profileId, want.getTenantId());
-            } else if (!Objects.equals(have.getEndDate(), want.getEndDate())) {
+            } else if (!Objects.equals(have.getEndDate(), want.getEndDate())
+                    || have.getAccountId() == null) {
                 // Objects.equals, not a.equals(b): an open-ended grant carries no end date at all,
                 // so both sides are legitimately null and reaching through one would answer an edit
                 // with a NullPointerException.
                 have.setEndDate(want.getEndDate());
+                if (have.getAccountId() == null) {
+                    // A grant written before this link existed. Filled on the next save rather than
+                    // by a migration: the membership is findable from the pair either way, and a
+                    // grant that names no account reads on the form as one that minted nothing.
+                    have.setAccountId(accountService.findMembershipInTenant(
+                            have.getTenantId(), profileId).map(UserAccount::getId).orElse(null));
+                }
                 authorizationService.updateOne(have);
             }
         }
@@ -533,7 +536,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         // history of that person would split in two with no way to join them back up.
         existing.values().forEach(gone -> {
             authorizationService.deleteById(gone.getId());
-            closeMembership(profileId, gone.getTenantId());
+            closeMembership(profileId, gone);
             log.info("Consultant {} authorization for tenant {} revoked; membership closed.",
                     profileId, gone.getTenantId());
         });
@@ -547,8 +550,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
      * company — the design says so explicitly — and revoking a consultancy must not touch the
      * employment. The flag is what tells the two apart.
      */
-    private void closeMembership(Long profileId, Long tenantId) {
-        accountService.findMembershipInTenant(tenantId, profileId)
+    private void closeMembership(Long profileId, ConsultantAuthorization gone) {
+        // The grant names its membership, so there is nothing to look up — except for a grant
+        // written before the link existed, which still has to be found by the pair.
+        (gone.getAccountId() != null
+                ? accountService.getById(gone.getAccountId())
+                : accountService.findMembershipInTenant(gone.getTenantId(), profileId))
                 .filter(account -> Boolean.TRUE.equals(account.getConsultant()))
                 // Only a LIVE membership is closed. A row the customer suspended keeps their state:
                 // revoking is the platform withdrawing its own yes, not an occasion to erase theirs.
@@ -592,7 +599,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
      * company is a case the requirement declines to define, and quietly turning their employment into
      * a consultancy — or attaching a second one — would decide it by accident.
      */
-    private void mintMembership(Long profileId, Long tenantId) {
+    private Long mintMembership(Long profileId, Long tenantId) {
         Optional<UserAccount> held = accountService.findMembershipInTenant(tenantId, profileId);
         if (held.isPresent()) {
             if (Boolean.TRUE.equals(held.get().getConsultant())) {
@@ -611,12 +618,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                     log.info("Consultant {} re-authorized for tenant {} — membership revived.",
                             profileId, tenantId);
                 }
-                return;
+                return membership.getId();
             }
             throw new BusinessException("This person already has an account in that company, so "
                     + "they cannot be authorized as a consultant there.");
         }
-        inTenantContext(tenantId, () -> {
+        Long accountId = inTenantContext(tenantId, () -> {
             UserAccount account = new UserAccount();
             account.setProfileId(profileId);
             account.setConsultant(Boolean.TRUE);
@@ -625,10 +632,10 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             // to accept and no password to set for it. Whether it may be ENTERED is the grant's
             // question, asked live; status is not where a consultant's access is decided.
             account.setStatus(AccountStatus.ACTIVE);
-            accountService.createOne(account);
-            return null;
+            return accountService.createOne(account);
         });
         log.info("Consultant {} granted access to tenant {} — membership minted.", profileId, tenantId);
+        return accountId;
     }
 
     /**

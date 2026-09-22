@@ -116,6 +116,30 @@ class ConsultantRevokeClosesMembershipTest {
     }
 
     @Test
+    void aNewGrantIsWrittenAlreadyNamingTheMembershipItMinted() {
+        // Minted first, so the grant can be created with the link in place. Creating the grant
+        // first needs a second write to fill it in, and a failure between the two leaves a grant
+        // that names no membership — which the form reads as one that minted nothing.
+        UserProfile person = new UserProfile();
+        person.setId(PROFILE);
+        person.setFullName("Ada Lovelace");
+        when(profileService.getById(PROFILE)).thenReturn(Optional.of(person));
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
+        when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.empty());
+        when(accountService.createOne(any(UserAccount.class))).thenReturn(500L);
+        when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of());
+
+        ConsultantAuthorization wanted = new ConsultantAuthorization();
+        wanted.setTenantId(TENANT);
+        service.replaceAuthorizations(PROFILE, List.of(wanted));
+
+        ArgumentCaptor<ConsultantAuthorization> written =
+                ArgumentCaptor.forClass(ConsultantAuthorization.class);
+        verify(authorizationService).createOne(written.capture());
+        assertThat(written.getValue().getAccountId()).isEqualTo(500L);
+    }
+
+    @Test
     void theWorkEmailIsLeftBlankRatherThanCollideWithAnEmployeeWhoHoldsIt() {
         // UserAccount.email is unique per (tenantId, email). A consultant's address is a PLATFORM
         // login identifier, and some unrelated employee of this customer may already carry it as

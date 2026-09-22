@@ -11,7 +11,6 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.ConsultantGrantDTO;
 import io.softa.starter.user.entity.ConsultantAuthorization;
-import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.UserAccountService;
 
@@ -32,6 +31,11 @@ import static org.mockito.Mockito.when;
  * may suspend the account — and only the first of those is visible from the grant. Without the
  * second, an operator reading "authorized until December" answers a consultant's "I cannot get in"
  * with "but you are authorized", and there is nothing on the screen that could correct them.
+ *
+ * <p>The grant names the membership it minted, so the status arrives with it as a cascaded field.
+ * It used to be read separately and matched up in memory by {@code (profileId, tenantId)}; the
+ * relation says the same thing to the database, which is why these cases assert on what the grant
+ * carries and pin that the memberships are not read at all.
  */
 class ConsultantGrantStatusTest {
 
@@ -59,10 +63,9 @@ class ConsultantGrantStatusTest {
 
     @Test
     void eachGrantCarriesItsMembershipStatus() {
-        when(authorizationService.searchList(any(Filters.class)))
-                .thenReturn(List.of(grant(10L, LocalDate.of(2026, 12, 31)), grant(11L, null)));
-        when(accountService.listMembershipsOf(PROFILE))
-                .thenReturn(List.of(account(10L, AccountStatus.ACTIVE), account(11L, AccountStatus.FROZEN)));
+        when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of(
+                grant(10L, LocalDate.of(2026, 12, 31), AccountStatus.ACTIVE),
+                grant(11L, null, AccountStatus.FROZEN)));
 
         assertThat(service.grantsOf(PROFILE))
                 .extracting(ConsultantGrantDTO::getTenantId, ConsultantGrantDTO::getTenantName,
@@ -77,8 +80,7 @@ class ConsultantGrantStatusTest {
     @Test
     void aGrantWithNoMembershipReportsNoStatusRatherThanAPlausibleOne() {
         when(authorizationService.searchList(any(Filters.class)))
-                .thenReturn(List.of(grant(12L, null)));
-        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of());
+                .thenReturn(List.of(grant(12L, null, null)));
 
         // Null is a real state: a grant whose account was never minted, or was removed out of band,
         // is exactly what an operator needs to see. Defaulting it to ACTIVE would hide the one row
@@ -90,45 +92,38 @@ class ConsultantGrantStatusTest {
     }
 
     @Test
-    void theMembershipsAreReadOnceForThePage_notOncePerGrant() {
-        when(authorizationService.searchList(any(Filters.class)))
-                .thenReturn(List.of(grant(10L, null), grant(11L, null), grant(12L, null)));
-        when(accountService.listMembershipsOf(PROFILE))
-                .thenReturn(List.of(account(10L, AccountStatus.ACTIVE), account(11L, AccountStatus.ACTIVE),
-                        account(12L, AccountStatus.ACTIVE)));
+    void theMembershipsAreNotReadAtAll() {
+        when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of(
+                grant(10L, null, AccountStatus.ACTIVE),
+                grant(11L, null, AccountStatus.ACTIVE),
+                grant(12L, null, AccountStatus.ACTIVE)));
 
         service.grantsOf(PROFILE);
 
-        verify(accountService).listMembershipsOf(PROFILE);
-        // The per-grant lookup this replaces. Asserted as "never" rather than as a count, because a
-        // count would also pass for a version that batched two of the three reads and not the third.
+        // The grant names its membership, so the status rides along on the same read. Asserted as
+        // "never" rather than as a count, because a count would also pass for a version that had
+        // gone back to reading them and simply batched it.
+        verify(accountService, never()).listMembershipsOf(anyLong());
         verify(accountService, never()).findMembershipInTenant(anyLong(), anyLong());
     }
 
     @Test
-    void noGrantsReadsNoMembershipsAtAll() {
+    void noGrantsReadsNothingAndReturnsNothing() {
         when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of());
 
         assertThat(service.grantsOf(PROFILE)).isEmpty();
         verify(accountService, never()).listMembershipsOf(anyLong());
     }
 
-    private static ConsultantAuthorization grant(Long tenantId, LocalDate end) {
+    private static ConsultantAuthorization grant(Long tenantId, LocalDate end, AccountStatus status) {
         ConsultantAuthorization grant = new ConsultantAuthorization();
         grant.setId(tenantId);
         grant.setProfileId(PROFILE);
         grant.setTenantId(tenantId);
         grant.setEndDate(end);
+        // What the cascaded field resolves to on a real read; null is "this grant minted nothing".
+        grant.setAccountId(status == null ? null : tenantId * 100);
+        grant.setAccountStatus(status);
         return grant;
-    }
-
-    private static UserAccount account(Long tenantId, AccountStatus status) {
-        UserAccount account = new UserAccount();
-        account.setId(tenantId * 100);
-        account.setProfileId(PROFILE);
-        account.setTenantId(tenantId);
-        account.setConsultant(Boolean.TRUE);
-        account.setStatus(status);
-        return account;
     }
 }

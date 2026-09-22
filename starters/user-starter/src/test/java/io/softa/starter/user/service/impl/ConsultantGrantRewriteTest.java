@@ -6,14 +6,17 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.entity.ConsultantProfile;
+import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.service.UserAccountService;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -39,12 +42,13 @@ class ConsultantGrantRewriteTest {
 
     private ConsultantServiceImpl service;
     private ConsultantAuthorizationService authorizationService;
+    private UserAccountService accountService;
 
     @BeforeEach
     void setUp() {
         service = spy(new ConsultantServiceImpl());
         authorizationService = mock(ConsultantAuthorizationService.class);
-        UserAccountService accountService = mock(UserAccountService.class);
+        accountService = mock(UserAccountService.class);
         ReflectionTestUtils.setField(service, "authorizationService", authorizationService);
         ReflectionTestUtils.setField(service, "accountService", accountService);
         ReflectionTestUtils.setField(service, "cacheService", mock(CacheService.class));
@@ -63,6 +67,11 @@ class ConsultantGrantRewriteTest {
         grant.setProfileId(PROFILE);
         grant.setTenantId(TENANT);
         grant.setEndDate(end);
+        // A stored grant names the membership it minted. A null there means one written before the
+        // link existed, which the save fills in — its own case below.
+        if (id != null) {
+            grant.setAccountId(500L);
+        }
         return grant;
     }
 
@@ -92,6 +101,27 @@ class ConsultantGrantRewriteTest {
 
         verify(authorizationService, never()).updateOne(any(ConsultantAuthorization.class));
         verify(authorizationService, never()).createOne(any(ConsultantAuthorization.class));
+    }
+
+    @Test
+    void aGrantWrittenBeforeTheLinkExistedGetsItOnTheNextSave() {
+        // Filled on the next save rather than by a migration: the membership is findable from
+        // (profileId, tenantId) either way, and until it is filled the form reads the grant as one
+        // that minted nothing — the badge meant for genuinely broken rows.
+        LocalDate end = LocalDate.of(2026, 12, 31);
+        ConsultantAuthorization unlinked = grant(50L, null, end);
+        unlinked.setAccountId(null);
+        when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of(unlinked));
+        UserAccount minted = new UserAccount();
+        minted.setId(500L);
+        when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.of(minted));
+
+        service.replaceAuthorizations(PROFILE, List.of(grant(null, null, end)));
+
+        ArgumentCaptor<ConsultantAuthorization> linked =
+                ArgumentCaptor.forClass(ConsultantAuthorization.class);
+        verify(authorizationService).updateOne(linked.capture());
+        assertThat(linked.getValue().getAccountId()).isEqualTo(500L);
     }
 
     @Test

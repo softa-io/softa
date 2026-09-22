@@ -12,6 +12,7 @@ import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.enums.OnDelete;
+import io.softa.starter.user.enums.AccountStatus;
 
 /**
  * One consultant's permission to work inside one company, for a bounded period.
@@ -67,6 +68,38 @@ public class ConsultantAuthorization extends AuditableModel {
                     + "relation: tenant directory rows live outside this starter, and a consultant "
                     + "grant must survive being read without one")
     private Long tenantId;
+
+    /**
+     * The membership this grant minted, which is what the consultant actually signs in as.
+     *
+     * <p>The pair is also derivable from {@code (profileId, tenantId)} — both models are unique on
+     * it — and it used to be resolved that way, by reading the memberships and matching them up in
+     * memory. The relation says the same thing to the database, so a grant can be read together with
+     * the state of its account instead of beside it.
+     *
+     * <p><b>No {@code onDelete}.</b> Revoking deletes the grant and deliberately keeps the account —
+     * the tenant's audit log points at it — so a cascade here would destroy exactly what the revoke
+     * rules were written to preserve. Re-authorizing points a new grant back at the same row.
+     *
+     * <p>Null is a real state: a grant whose membership was never minted. The form shows it, because
+     * an authorization that created nothing is the one row worth looking at.
+     */
+    @Field(fieldType = FieldType.ONE_TO_ONE, relatedModel = UserAccount.class,
+            description = "The membership this grant minted — the account the consultant signs in as")
+    private Long accountId;
+
+    /**
+     * That membership's status, joined at query time rather than stored.
+     *
+     * <p>Entry needs the platform's grant AND the customer's own account to agree, and only the first
+     * is editable from the platform's screen. {@code dynamic} so it takes no column: a copy would be
+     * a second answer to a question the account already answers, and the two would drift the first
+     * time a tenant suspended somebody.
+     */
+    @Field(cascadedField = "accountId.status", dynamic = true,
+            description = "The minted membership's status — the customer's half of whether this "
+                    + "grant admits today")
+    private AccountStatus accountStatus;
 
     /**
      * Last day the grant admits, inclusive — or <b>null for open-ended</b>.
