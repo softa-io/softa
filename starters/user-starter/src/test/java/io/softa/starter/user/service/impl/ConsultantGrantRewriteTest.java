@@ -62,7 +62,6 @@ class ConsultantGrantRewriteTest {
         grant.setId(id);
         grant.setProfileId(PROFILE);
         grant.setTenantId(TENANT);
-        grant.setStartDate(start);
         grant.setEndDate(end);
         return grant;
     }

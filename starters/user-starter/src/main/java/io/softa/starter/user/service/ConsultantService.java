@@ -9,6 +9,7 @@ import java.util.Set;
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.entity.ConsultantProfile;
+import io.softa.starter.user.dto.ConsultantGrantDTO;
 import io.softa.starter.user.dto.ConsultantProfileDTO;
 import io.softa.starter.user.dto.ConsultantRowDTO;
 
@@ -138,6 +139,16 @@ public interface ConsultantService extends EntityService<ConsultantProfile, Long
 
     /** This consultant's grants, live or not, for the platform's own screens. */
     List<ConsultantAuthorization> authorizationsOf(Long profileId);
+
+    /**
+     * The same grants, assembled for the platform's form: company name and the state of the
+     * membership each grant minted, neither of which the grant row itself carries.
+     *
+     * <p>Separate from {@link #authorizationsOf} rather than replacing it: that one answers the
+     * access questions on this interface and must stay a plain read of one table, while this one
+     * joins two more and exists only for a screen.
+     */
+    List<ConsultantGrantDTO> grantsOf(Long profileId);
 
     /**
      * Today, as the grants are read against. One method so a test can pin it and so every caller

@@ -34,6 +34,7 @@ import io.softa.starter.user.service.UserAccountService;
 
 import static io.softa.framework.base.context.ContextUtils.inTenantContext;
 import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.user.dto.ConsultantGrantDTO;
 import io.softa.starter.user.dto.ConsultantProfileDTO;
 import io.softa.starter.user.dto.ConsultantRowDTO;
 import io.softa.starter.user.entity.UserIdentity;
@@ -161,6 +162,33 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @SkipPermissionCheck
     @CrossTenant
     @Override
+    public List<ConsultantGrantDTO> grantsOf(Long profileId) {
+        List<ConsultantAuthorization> grants = authorizationsOf(profileId);
+        if (grants.isEmpty()) {
+            return List.of();
+        }
+        // One read for the page's memberships, not one per grant. Keyed by tenant because that is
+        // what a grant names, and a person holds at most one membership per tenant by unique index.
+        Map<Long, AccountStatus> statusByTenant = accountService
+                .listMembershipsOf(profileId).stream()
+                .filter(account -> account.getTenantId() != null)
+                .collect(Collectors.toMap(UserAccount::getTenantId, UserAccount::getStatus,
+                        (a, b) -> a));
+        return grants.stream().map(grant -> {
+            ConsultantGrantDTO row = new ConsultantGrantDTO();
+            row.setId(grant.getId());
+            row.setTenantId(grant.getTenantId());
+            row.setTenantName(tenantInfoService == null ? null
+                    : tenantInfoService.getTenantName(grant.getTenantId()));
+            row.setEndDate(grant.getEndDate());
+            row.setAccountStatus(statusByTenant.get(grant.getTenantId()));
+            return row;
+        }).toList();
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
     @Transactional
     public Long save(ConsultantProfileDTO form) {
         Assert.notNull(form, "A consultant profile is required");
@@ -201,7 +229,6 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 : form.getAuthorizations()).stream().map(row -> {
                     ConsultantAuthorization grant = new ConsultantAuthorization();
                     grant.setTenantId(row.getTenantId());
-                    grant.setStartDate(row.getStartDate());
                     grant.setEndDate(row.getEndDate());
                     return grant;
                 }).toList();
@@ -477,13 +504,10 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 want.setProfileId(profileId);
                 authorizationService.createOne(want);
                 mintMembership(profileId, want.getTenantId());
-            } else if (!Objects.equals(have.getStartDate(), want.getStartDate())
-                    || !Objects.equals(have.getEndDate(), want.getEndDate())) {
-                // Objects.equals, not a.equals(b): the row in hand came from the database, and the
-                // platform's generic CRUD on this model can write one with no dates at all. Reaching
-                // through a null there would answer an edit with a NullPointerException — and the
-                // repair for such a row is exactly this save.
-                have.setStartDate(want.getStartDate());
+            } else if (!Objects.equals(have.getEndDate(), want.getEndDate())) {
+                // Objects.equals, not a.equals(b): an open-ended grant carries no end date at all,
+                // so both sides are legitimately null and reaching through one would answer an edit
+                // with a NullPointerException.
                 have.setEndDate(want.getEndDate());
                 authorizationService.updateOne(have);
             }
@@ -558,19 +582,23 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         return this.searchOne(new Filters().eq(ConsultantProfile::getProfileId, profileId));
     }
 
-    /** Inclusive on both ends — a grant is live on its start day and on its end day. */
+    /**
+     * Whether this grant admits today.
+     *
+     * <p>Inclusive on its end day, and <b>open-ended when it carries no end date</b> — a grant with
+     * no agreed finish is the common case, and the absence of a date means "until somebody says
+     * otherwise", never "expired". Reading an empty end as expired would silently lock out every
+     * consultant on an open engagement.
+     *
+     * <p>There is no start day to check: a grant admits from the moment it is saved.
+     */
     private boolean coversToday(ConsultantAuthorization a) {
-        LocalDate now = today();
-        return a.getStartDate() != null && a.getEndDate() != null
-                && !now.isBefore(a.getStartDate()) && !now.isAfter(a.getEndDate());
+        return a.getEndDate() == null || !today().isAfter(a.getEndDate());
     }
 
     private void validate(ConsultantAuthorization a) {
-        if (a.getTenantId() == null || a.getStartDate() == null || a.getEndDate() == null) {
-            throw new BusinessException("Every authorization needs a tenant, a start date and an end date.");
-        }
-        if (a.getEndDate().isBefore(a.getStartDate())) {
-            throw new BusinessException("An authorization cannot end before it starts.");
+        if (a.getTenantId() == null) {
+            throw new BusinessException("Every authorization needs a company.");
         }
         // The company has to exist before a membership is minted under it. The picker only offers
         // real tenants, but the API took any number, and mintMembership would then create an

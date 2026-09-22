@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.ConsultantProfileDTO;
-import io.softa.starter.user.entity.ConsultantAuthorization;
+import io.softa.starter.user.dto.ConsultantGrantDTO;
 import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.dto.ConsultantRowDTO;
 
@@ -71,14 +71,18 @@ public class ConsultantController {
     /**
      * This consultant's grants, live or lapsed.
      *
-     * <p>Deliberately unfiltered, unlike the tenant switcher: the platform's own form edits dates,
-     * so it has to show a grant that has expired — that is the row an operator extends.
+     * <p>Deliberately unfiltered, unlike the tenant switcher: the platform's own form edits the end
+     * date, so it has to show a grant that has expired — that is the row an operator extends.
+     *
+     * <p>Each row also carries the state of the membership it minted. Entry needs the platform's
+     * grant and the customer's own account to agree, and only one of those two is visible from here;
+     * without the second, an operator answers "I cannot get in" with "but you are authorized".
      */
     @Operation(summary = "List a consultant's authorizations, including lapsed ones")
     @PostMapping("/authorizations")
-    public ApiResponse<List<ConsultantAuthorization>> authorizations(
+    public ApiResponse<List<ConsultantGrantDTO>> authorizations(
             @RequestParam @NotNull Long profileId) {
-        return ApiResponse.success(consultantService.authorizationsOf(profileId));
+        return ApiResponse.success(consultantService.grantsOf(profileId));
     }
 
     /**

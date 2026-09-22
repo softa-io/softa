@@ -67,13 +67,15 @@ public class ConsultantProfileDTO {
     @Data
     public static class AuthorizationRow {
 
-        @NotNull(message = "Every authorization needs a tenant, a start date and an end date")
+        @NotNull(message = "Every authorization needs a company")
         private Long tenantId;
 
-        @NotNull(message = "Every authorization needs a tenant, a start date and an end date")
-        private LocalDate startDate;
-
-        @NotNull(message = "Every authorization needs a tenant, a start date and an end date")
+        /**
+         * Last day this grant admits, inclusive — <b>empty means open-ended</b>.
+         *
+         * <p>Optional, and there is no start date: a grant admits from the moment it is saved. See
+         * {@code ConsultantAuthorization.endDate} for why both of those are the way they are.
+         */
         private LocalDate endDate;
     }
 }

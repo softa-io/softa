@@ -76,11 +76,10 @@ class ConsultantAccessTest {
         doReturn(Optional.of(profile)).when(consultantService).searchOne(any(Filters.class));
     }
 
-    private void givenGrant(LocalDate start, LocalDate end) {
+    private void givenGrant(LocalDate end) {
         ConsultantAuthorization grant = new ConsultantAuthorization();
         grant.setProfileId(PROFILE);
         grant.setTenantId(TENANT);
-        grant.setStartDate(start);
         grant.setEndDate(end);
         doReturn(Optional.of(grant)).when(authorizationService).searchOne(any(Filters.class));
         doReturn(List.of(grant)).when(authorizationService).searchList(any(Filters.class));
@@ -89,26 +88,26 @@ class ConsultantAccessTest {
     @Test
     void aLiveGrantAdmits() {
         givenConsultant(true);
-        givenGrant(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30));
+        givenGrant(LocalDate.of(2026, 9, 30));
 
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isTrue();
         assertThat(consultantService.enterableTenantIds(PROFILE)).containsExactly(TENANT);
     }
 
     @Test
-    void bothEndsAreInclusive() {
+    void theEndDateIsInclusive() {
         givenConsultant(true);
-        givenGrant(LocalDate.of(2026, 9, 3), LocalDate.of(2026, 9, 3));
+        givenGrant(LocalDate.of(2026, 9, 3));   // today
 
-        // A one-day grant admits on its one day — the boundary is where an off-by-one would lock
-        // someone out of the day they were given.
+        // A grant ending today admits today — the boundary is where an off-by-one would lock
+        // someone out of the last day they were given.
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isTrue();
     }
 
     @Test
     void anExpiredGrantStopsAdmittingWithNothingHavingRun() {
         givenConsultant(true);
-        givenGrant(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 2));   // ended yesterday
+        givenGrant(LocalDate.of(2026, 9, 2));   // ended yesterday
 
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isFalse();
         // Absent, not present-and-unselectable: a lapsed consultancy is not access on hold.
@@ -116,17 +115,31 @@ class ConsultantAccessTest {
     }
 
     @Test
-    void aGrantThatHasNotStartedDoesNotAdmitEarly() {
+    void aGrantWithNoEndDateIsOpenEnded() {
         givenConsultant(true);
-        givenGrant(LocalDate.of(2026, 9, 4), LocalDate.of(2026, 9, 30));
+        givenGrant(null);
 
+        // The common engagement has no agreed finish. Reading an empty end as "expired" would lock
+        // out every consultant on one, which is the failure this pins — and it is the reason the
+        // field is optional rather than defaulted to some far-off date nobody chose.
+        assertThat(consultantService.canEnter(PROFILE, TENANT)).isTrue();
+        assertThat(consultantService.enterableTenantIds(PROFILE)).containsExactly(TENANT);
+    }
+
+    @Test
+    void anOpenEndedGrantStillAnswersToTheEnableSwitch() {
+        givenConsultant(false);
+        givenGrant(null);
+
+        // Open-ended is not unconditional: disabling the consultant still closes every company,
+        // which is what makes the switch the one lever that works on an engagement with no end.
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isFalse();
     }
 
     @Test
     void disablingStopsEveryCompanyAtOnce_withoutTouchingTheGrants() {
         givenConsultant(false);
-        givenGrant(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30));   // still live on paper
+        givenGrant(LocalDate.of(2026, 9, 30));   // still live on paper
 
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isFalse();
         assertThat(consultantService.enterableTenantIds(PROFILE)).isEmpty();
@@ -137,7 +150,7 @@ class ConsultantAccessTest {
     @Test
     void someoneWhoIsNotAConsultantNeverEnters() {
         givenConsultant(null);
-        givenGrant(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30));
+        givenGrant(LocalDate.of(2026, 9, 30));
 
         // A stray grant without a consultant record must not admit — the three checks are AND, not OR.
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isFalse();
@@ -158,7 +171,7 @@ class ConsultantAccessTest {
         // principal who would otherwise walk straight in: their data access is unrestricted and
         // their menus come from the plan, so nothing further down the stack would stop them.
         givenConsultant(true);
-        givenGrant(TODAY.minusDays(1), TODAY.plusDays(1));
+        givenGrant(TODAY.plusDays(1));
         when(tenantInfoService.isTenantActive(TENANT)).thenReturn(false);
 
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isFalse();
@@ -170,7 +183,7 @@ class ConsultantAccessTest {
         // because the question cannot be asked would close the door on the whole feature.
         ReflectionTestUtils.setField(consultantService, "tenantInfoService", null);
         givenConsultant(true);
-        givenGrant(TODAY.minusDays(1), TODAY.plusDays(1));
+        givenGrant(TODAY.plusDays(1));
 
         assertThat(consultantService.canEnter(PROFILE, TENANT)).isTrue();
     }

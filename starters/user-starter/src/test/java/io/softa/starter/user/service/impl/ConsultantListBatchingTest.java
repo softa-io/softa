@@ -93,7 +93,6 @@ class ConsultantListBatchingTest {
         ConsultantAuthorization grant = new ConsultantAuthorization();
         grant.setProfileId(profileId);
         grant.setTenantId(tenantId);
-        grant.setStartDate(LocalDate.now().minusDays(1));
         grant.setEndDate(LocalDate.now().plusDays(1));
         return grant;
     }

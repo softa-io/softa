@@ -118,7 +118,6 @@ class ConsultantSaveTest {
         ConsultantProfileDTO f = form("fresh@acme.com", "+8613800138001");
         ConsultantProfileDTO.AuthorizationRow row = new ConsultantProfileDTO.AuthorizationRow();
         row.setTenantId(100L);
-        row.setStartDate(LocalDate.of(2026, 9, 1));
         row.setEndDate(LocalDate.of(2026, 9, 30));
         f.setAuthorizations(List.of(row));
 

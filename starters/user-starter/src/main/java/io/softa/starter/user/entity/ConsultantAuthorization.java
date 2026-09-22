@@ -25,9 +25,9 @@ import io.softa.framework.orm.enums.OnDelete;
  * the tenant it grants — a tenant-scoped model would make the platform's own list invisible to
  * itself and let a tenant see who was authorized into it, which is a platform matter.
  *
- * <p><b>Why the dates and not a status column.</b> The grant expires by the calendar, with nobody
- * pressing anything: {@code start <= today <= end} is evaluated when access is used, so expiry needs
- * no job and no flip, and extending it is one date edit. Reusing {@link io.softa.starter.user.enums.AccountStatus}
+ * <p><b>Why a date and not a status column.</b> The grant expires by the calendar, with nobody
+ * pressing anything: {@code today <= end} is evaluated when access is used, so expiry needs no job
+ * and no flip, and extending it is one date edit. An empty end date is an open-ended grant. Reusing {@link io.softa.starter.user.enums.AccountStatus}
  * for "authorization ended" would collide head-on with off-boarding, which owns DEACTIVATED and whose
  * {@code rehire} refuses anything else — a consultant whose grant lapsed would look like a leaver.
  *
@@ -68,12 +68,24 @@ public class ConsultantAuthorization extends AuditableModel {
                     + "grant must survive being read without one")
     private Long tenantId;
 
-    @Field(required = true, label = "Authorization Start",
-            description = "First day the grant admits, inclusive")
-    private LocalDate startDate;
-
-    @Field(required = true, label = "Authorization End",
-            description = "Last day the grant admits, inclusive. Past this date access stops on its "
-                    + "own — extending it is editing this date, not re-creating the grant")
+    /**
+     * Last day the grant admits, inclusive — or <b>null for open-ended</b>.
+     *
+     * <p>There is deliberately no start date. A grant is made in order to be used, so it admits from
+     * the moment it is saved; a start date only ever said "not yet", which nobody had a use for and
+     * which turned every authorization into two fields to get right instead of one.
+     *
+     * <p>Optional because the common case is an engagement with no agreed end, and requiring a date
+     * there bought nothing but a recurring errand: somebody has to notice the lapse and re-authorize,
+     * and until they do the consultant is locked out of work they are supposed to be doing. An
+     * open-ended grant is ended the way it was made — by an operator deciding so.
+     *
+     * <p>Past this date access stops on its own, with nobody pressing anything. Extending is editing
+     * this date, never re-creating the grant.
+     */
+    @Field(label = "Authorization End",
+            description = "Last day the grant admits, inclusive. Empty means open-ended. Past this "
+                    + "date access stops on its own — extending it is editing this date, not "
+                    + "re-creating the grant")
     private LocalDate endDate;
 }
