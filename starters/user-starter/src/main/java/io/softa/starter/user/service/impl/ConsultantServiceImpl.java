@@ -268,6 +268,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                     // the entry expires a month later, to somebody just told the change was saved.
                     accountService.listMembershipsOf(profileId)
                             .forEach(account -> profileService.evictUserInfo(account.getId()));
+                    refreshConsultantNicknames(profileId, name);
                 }
             });
         }
@@ -606,6 +607,16 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             UserAccount account = new UserAccount();
             account.setProfileId(profileId);
             account.setConsultant(Boolean.TRUE);
+            // The name the customer will see. Without it the roster shows a row of em dashes — every
+            // business column on a consultant's membership is empty, because they are all the
+            // tenant's own data about its own staff — and "you may suspend this" means nothing
+            // against a record nobody can identify.
+            //
+            // Only the name. UserAccount.email is a WORK CONTACT, HR's data about somebody employed
+            // here; a consultant's address is a platform login identifier and belongs in a different
+            // kind of column. It also carries a (tenantId, email) unique index that an employee of
+            // this company sharing the address would collide with.
+            account.setNickname(displayNameOf(profileId));
             // ACTIVE because nothing about the membership itself is pending — there is no invitation
             // to accept and no password to set for it. Whether it may be ENTERED is the grant's
             // question, asked live; status is not where a consultant's access is decided.
@@ -614,6 +625,28 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             return null;
         });
         log.info("Consultant {} granted access to tenant {} — membership minted.", profileId, tenantId);
+    }
+
+    /** The person's name, for the tenant-facing display column on a minted membership. */
+    private String displayNameOf(Long profileId) {
+        return profileService.getById(profileId).map(UserProfile::getFullName).orElse(null);
+    }
+
+    /**
+     * Carry a renamed person onto the memberships the tenant reads.
+     *
+     * <p>Consultant memberships only. A person may also be genuinely employed somewhere, and the
+     * nickname on THAT row is the employer's own data about their own staff — renaming the person on
+     * the platform's console must not reach into it.
+     */
+    private void refreshConsultantNicknames(Long profileId, String name) {
+        accountService.listMembershipsOf(profileId).stream()
+                .filter(account -> Boolean.TRUE.equals(account.getConsultant()))
+                .filter(account -> !name.equals(account.getNickname()))
+                .forEach(account -> {
+                    account.setNickname(name);
+                    accountService.updateOne(account);
+                });
     }
 
     private boolean isEnabled(Long profileId) {

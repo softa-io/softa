@@ -13,8 +13,10 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.entity.ConsultantProfile;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.UserAccountService;
+import io.softa.starter.user.service.UserProfileService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,12 +54,15 @@ class ConsultantRevokeClosesMembershipTest {
     private ConsultantServiceImpl service;
     private ConsultantAuthorizationService authorizationService;
     private UserAccountService accountService;
+    private UserProfileService profileService;
 
     @BeforeEach
     void setUp() {
         service = spy(new ConsultantServiceImpl());
         authorizationService = mock(ConsultantAuthorizationService.class);
         accountService = mock(UserAccountService.class);
+        profileService = mock(UserProfileService.class);
+        ReflectionTestUtils.setField(service, "profileService", profileService);
         ReflectionTestUtils.setField(service, "authorizationService", authorizationService);
         ReflectionTestUtils.setField(service, "accountService", accountService);
         ReflectionTestUtils.setField(service, "cacheService", mock(CacheService.class));
@@ -75,6 +80,30 @@ class ConsultantRevokeClosesMembershipTest {
         standing.setTenantId(TENANT);
         when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of(standing));
         when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(membership(AccountStatus.ACTIVE)));
+    }
+
+    @Test
+    void aMintedMembershipCarriesTheConsultantsNameForTheTenantToRead() {
+        // Every other business column on a consultant's membership is empty — they are all the
+        // tenant's own data about its own staff — so without the name the roster shows a row of em
+        // dashes, and "you may suspend this" means nothing against a record nobody can identify.
+        UserProfile person = new UserProfile();
+        person.setId(PROFILE);
+        person.setFullName("Ada Lovelace");
+        when(profileService.getById(PROFILE)).thenReturn(Optional.of(person));
+        when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.empty());
+        when(authorizationService.searchList(any(Filters.class))).thenReturn(List.of());
+
+        ConsultantAuthorization wanted = new ConsultantAuthorization();
+        wanted.setTenantId(TENANT);
+        service.replaceAuthorizations(PROFILE, List.of(wanted));
+
+        ArgumentCaptor<UserAccount> minted = ArgumentCaptor.forClass(UserAccount.class);
+        verify(accountService).createOne(minted.capture());
+        assertThat(minted.getValue().getNickname()).isEqualTo("Ada Lovelace");
+        // The name only. email is a WORK CONTACT — the tenant's data about somebody employed here —
+        // and it carries a (tenantId, email) unique index a real employee would collide with.
+        assertThat(minted.getValue().getEmail()).isNull();
     }
 
     @Test
