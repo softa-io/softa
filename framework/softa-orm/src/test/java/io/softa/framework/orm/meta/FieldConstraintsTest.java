@@ -78,6 +78,12 @@ class FieldConstraintsTest {
                 type = "CompanyProvided" AND endDate < startDate
                 """)).isEqualTo(Filters.of(
                         "[[\"type\", \"=\", \"CompanyProvided\"], \"AND\", [\"endDate\", \"<\", \"{{ @startDate }}\"]]"));
+        // two bare names under an OR — the shape a "must fall inside the term" rule takes
+        assertThat(Filters.of("""
+                terminateDate < startTime OR terminateDate > endTime
+                """)).isEqualTo(Filters.of(
+                        "[[\"terminateDate\", \"<\", \"{{ @startTime }}\"], \"OR\","
+                                + " [\"terminateDate\", \">\", \"{{ @endTime }}\"]]"));
         // Quotes are what separates the two, so a literal keeps them and means itself
         assertThat(Filters.of("""
                 reason = "startDate"
