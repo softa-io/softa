@@ -38,7 +38,7 @@ public class CustomScopeContributor implements ScopeContributor {
 
     /**
      * A CUSTOM rule is authored in the same dialog as a runtime filter, so it can name
-     * {@code CHILD OF} on a department reference too — and it needs the same rewrite onto
+     * {@code CHILD OF} on a reference to a tree too — and it needs the same rewrite onto
      * {@code idPath}. It cannot ride on the one in {@code PermissionServiceImpl}: that runs on the
      * caller's filters, and this rule is compiled afterwards and AND-ed on, so it would never be
      * seen there.

@@ -95,9 +95,10 @@ public class SubtreeFilterRewriter {
 
     /**
      * @param modelName the model being queried, used to resolve the named field's metadata
-     * @param filters the caller's filters, returned untouched when they carry no department subtree
-     *     condition — which is almost every query
-     * @return filters with each department {@code CHILD_OF} expanded onto {@code idPath}
+     * @param filters the caller's filters, returned untouched when they carry no subtree condition
+     *     — which is almost every query
+     * @return filters with each {@code CHILD_OF} on a tree reference expanded onto that tree's
+     *     {@code idPath}
      */
     public Filters rewrite(String modelName, Filters filters) {
         if (modelName == null || filters == null || Filters.isEmpty(filters)) {
