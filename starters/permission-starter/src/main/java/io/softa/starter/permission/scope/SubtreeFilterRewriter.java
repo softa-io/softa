@@ -232,11 +232,17 @@ public class SubtreeFilterRewriter {
     /**
      * The roots' paths.
      *
-     * <p>Read straight rather than through a cache. The cached tree that {@code DEPT_SUBTREE} uses
-     * holds one model and loads all of it, which earns its keep on a scope evaluated every request;
-     * this reads the handful of rows the caller named, on the rare query that names any. Permission
-     * checks are waived for the same reason they are on any id-to-display-value lookup: the caller
-     * already named these ids, and the rows the filter goes on to select answer to their own scope.
+     * <p>Read straight rather than through a cache, and that is a cost as well as a saving. From the
+     * filter bar the operator is rare, so this is one primary-key {@code IN} on the odd query. From a
+     * CUSTOM data scope it is not rare at all: the rule is compiled on every scoped read of the model
+     * it guards, so every holder of that role pays this query on every list, count, export and
+     * display expansion. That is accepted. A cache keyed by tenant and model would need an eviction
+     * hook from every tree's own move logic — {@code DEPT_SUBTREE} has one only because the HR app
+     * calls {@code DepartmentIdPathResolver.evict} — and its staleness window would answer from a
+     * subtree's old position after a move, the very failure that keeps path resolution server-side.
+     * Permission checks are waived for the same reason they are on any id-to-display-value lookup:
+     * the caller already named these ids, and the rows the filter goes on to select answer to their
+     * own scope.
      * Re-entry is not a concern — the query issued here carries no {@code CHILD_OF}, so the scan at
      * the top of {@link #rewrite} returns immediately.
      */
