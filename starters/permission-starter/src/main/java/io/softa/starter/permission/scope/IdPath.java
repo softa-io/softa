@@ -1,5 +1,8 @@
 package io.softa.starter.permission.scope;
 
+import io.softa.framework.base.enums.Operator;
+import io.softa.framework.orm.domain.Filters;
+
 /**
  * The shape a model uses to store where one of its rows sits in a tree: a materialized path of
  * ancestor ids, root first, in a string field named {@code idPath}.
@@ -33,6 +36,27 @@ public final class IdPath {
      */
     public static String fieldOn(String cascadePath) {
         return cascadePath == null || cascadePath.isEmpty() ? FIELD : cascadePath + "." + FIELD;
+    }
+
+    /**
+     * A condition selecting a whole subtree: the row at {@code rootPath}, and everything under it.
+     *
+     * <p>Two branches rather than one prefix match. A segment carries no trailing separator, so
+     * {@code LIKE '1/12%'} also matches {@code 1/120} — a different branch that merely starts with
+     * the same digits. Forcing the separator excludes it, and in doing so excludes the root itself,
+     * which the equality branch puts back.
+     *
+     * <p>Both halves are load-bearing and each fails quietly on its own: without the separator the
+     * filter returns rows from unrelated branches, without the equality it returns everything under
+     * the node the caller named except that node.
+     *
+     * @param pathField where the path is stored on the model being filtered — see {@link #fieldOn}
+     * @param rootPath  the subtree root's own stored path
+     */
+    public static Filters subtreeOf(String pathField, String rootPath) {
+        return Filters.or(
+                Filters.of(pathField, Operator.EQUAL, rootPath),
+                new Filters().childOf(pathField, rootPath + SEPARATOR));
     }
 
     private IdPath() {

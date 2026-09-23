@@ -170,9 +170,7 @@ public class SubtreeFilterRewriter {
             if (rootPath == null || rootPath.isEmpty()) {
                 continue;
             }
-            branches.add(Filters.or(
-                    Filters.of(pathField, Operator.EQUAL, rootPath),
-                    new Filters().childOf(pathField, rootPath + IdPath.SEPARATOR)));
+            branches.add(IdPath.subtreeOf(pathField, rootPath));
         }
         if (branches.isEmpty()) {
             // Every id was unknown / soft-deleted / another tenant's. Match nothing rather than

@@ -2,7 +2,6 @@ package io.softa.starter.permission.scope.contributor;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
-import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
@@ -77,15 +76,10 @@ public class ManagedDepartmentsScopeContributor implements ScopeContributor {
         if (resolvedPaths.isEmpty()) return new Filters();
 
         String field = DepartmentCascadePathResolver.idPathField(path.get());
-        // For each idPath emit (field = path OR field CHILD_OF path + "/"),
-        // then OR-merge across all managed depts. Two-branch avoids the
-        // "1/12 matches 1/120" prefix collision idPath has because
-        // segments carry no trailing separator.
+        // One subtree per managed department, OR-merged.
         List<Filters> parts = new ArrayList<>(resolvedPaths.size());
         for (String p : resolvedPaths) {
-            Filters selfPart = Filters.of(field, Operator.EQUAL, p);
-            Filters descendantsPart = new Filters().childOf(field, p + IdPath.SEPARATOR);
-            parts.add(Filters.or(selfPart, descendantsPart));
+            parts.add(IdPath.subtreeOf(field, p));
         }
         if (parts.size() == 1) return parts.getFirst();
         Filters combined = parts.getFirst();

@@ -2,7 +2,6 @@ package io.softa.starter.permission.scope.contributor;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
-import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
@@ -80,12 +79,7 @@ public class DepartmentSubtreeScopeContributor implements ScopeContributor {
         String rootPath = rootPathOpt.get();
         String field = DepartmentCascadePathResolver.idPathField(path.get());
 
-        // Two-branch form to avoid the "1/12 matches 1/120" prefix collision:
-        //   field = rootPath                        ← the root itself
-        //   OR field CHILD_OF (rootPath + "/")      ← LIKE 'rootPath/%'
-        Filters selfPart = Filters.of(field, Operator.EQUAL, rootPath);
-        Filters descendantsPart = new Filters().childOf(field, rootPath + IdPath.SEPARATOR);
-        return Filters.or(selfPart, descendantsPart);
+        return IdPath.subtreeOf(field, rootPath);
     }
 
     /** Admin-fixed root from {@code scopeExpr.deptId}, or null when absent —
