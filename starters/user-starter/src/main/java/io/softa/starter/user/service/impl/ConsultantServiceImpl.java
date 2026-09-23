@@ -22,7 +22,10 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.user.entity.ConsultantAuthorization;
@@ -344,7 +347,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     @Override
     public List<ConsultantRowDTO> list(String search) {
         String needle = search == null ? "" : search.trim().toLowerCase();
-        List<ConsultantProfile> profiles = this.searchList(new Filters());
+        // Newest first, like every other list in the product. Unordered, the page came back in
+        // whatever order the database happened to return, so a consultant created a minute ago
+        // could surface anywhere in it — and the row an operator is looking for right after
+        // creating it is the one they just made.
+        List<ConsultantProfile> profiles = this.searchList(
+                new FlexQuery(new Filters(), Orders.ofDesc(ModelConstant.CREATED_TIME)));
         if (profiles.isEmpty()) {
             return List.of();
         }

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.starter.user.dto.ConsultantRowDTO;
 import io.softa.starter.user.entity.ConsultantAuthorization;
 import io.softa.starter.user.entity.ConsultantProfile;
@@ -56,8 +57,10 @@ class ConsultantListBatchingTest {
         ReflectionTestUtils.setField(service, "identityService", identityService);
         ReflectionTestUtils.setField(service, "authorizationService", authorizationService);
 
+        // The list reads through the FlexQuery overload now, because it carries the newest-first
+        // ordering; the Filters overload it used to call takes no orders.
         doReturn(List.of(consultant(1L), consultant(2L), consultant(3L)))
-                .when(service).searchList(any(Filters.class));
+                .when(service).searchList(any(FlexQuery.class));
         when(profileService.searchList(any(Filters.class)))
                 .thenReturn(List.of(person(1L, "Ada"), person(2L, "Grace"), person(3L, "Alan")));
         when(identityService.searchList(any(Filters.class)))
@@ -154,7 +157,7 @@ class ConsultantListBatchingTest {
 
     @Test
     void noConsultantsReadsNoSatellitesAtAll() {
-        doReturn(List.of()).when(service).searchList(any(Filters.class));
+        doReturn(List.of()).when(service).searchList(any(FlexQuery.class));
 
         assertThat(service.list(null)).isEmpty();
         verify(profileService, never()).searchList(any(Filters.class));
