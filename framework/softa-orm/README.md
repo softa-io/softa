@@ -176,9 +176,9 @@ value-preserving rename would have carried wrong values.
 | (FK fixup post-init) | — | — | `modelId` | |
 | (not exposed via `@Field`) | — | — | `hidden` | UI-only flag set via Studio |
 
-#### Field constraints (`constraints` — one column, eight attributes)
+#### Field constraints (`constraints` — one column, seven attributes)
 
-`length` says how wide the column is; the eight attributes above say **which values** the field
+`length` says how wide the column is; the seven attributes above say **which values** the field
 accepts and **when** it applies. They travel together as one `FieldConstraints` record in the single
 `sys_field.constraints` column (`FieldType.DTO`, canonical JSON, NULL when nothing is declared) and are
 served unchanged on `MetaFieldDTO.constraints`, so the frontend evaluates the same object against the
