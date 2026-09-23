@@ -176,8 +176,8 @@ source of physical truth.
 
 ## Field constraints (`sys_field.constraints`)
 
-`@Field(min / max / pattern / constraintMessage / requiredWhen / hiddenWhen / readonlyWhen /
-invalidWhen)` are packed by `AnnotationParser` into one `FieldConstraints` record and stored in the
+`@Field(min / max / pattern / constraintMessage / requiredWhen / readonlyWhen / invalidWhen)`
+are packed by `AnnotationParser` into one `FieldConstraints` record and stored in the
 single `sys_field.constraints` column (`FieldType.DTO`, canonical JSON via `Codecs.dto` +
 `CanonicalJson`; `NULL` when nothing is declared). The parser validates the declaration against the
 field's type and the sibling fields it names once the class is fully parsed (boot failure on a

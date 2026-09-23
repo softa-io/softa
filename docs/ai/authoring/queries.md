@@ -47,8 +47,8 @@ with the `Filters` builder.)
 ### Filters as an expression
 
 The same condition can be written as an expression instead of nested lists — `status = "ACTIVE"`,
-`status = "ACTIVE" AND grade >= 6` — which is the form `@Field(requiredWhen / hiddenWhen /
-readonlyWhen / invalidWhen)` should use, because in a Java text block it needs no escapes.
+`status = "ACTIVE" AND grade >= 6` — which is the form `@Field(requiredWhen / readonlyWhen /
+invalidWhen)` should use, because in a Java text block it needs no escapes.
 `Filters.of` picks the form by the first character: a leading `[` is the list form, anything else is
 parsed as an expression, and both produce the same tree.
 
