@@ -85,10 +85,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class SubtreeFilterRewriter {
 
-    private static final String ID_PATH_FIELD = "idPath";
-    private static final String ID_PATH_SUFFIX = "." + ID_PATH_FIELD;
     private static final String ID_FIELD = "id";
-    private static final String PATH_SEPARATOR = "/";
 
     private final ModelService<Serializable> modelService;
 
@@ -166,7 +163,7 @@ public class SubtreeFilterRewriter {
             return ScopeRuleCompiler.matchNone();
         }
 
-        String pathField = field + ID_PATH_SUFFIX;
+        String pathField = IdPath.fieldOn(field);
         List<Filters> branches = new ArrayList<>();
         for (String rootPath : idPathsOf(treeModel, rootIds)) {
             if (rootPath == null || rootPath.isEmpty()) {
@@ -174,7 +171,7 @@ public class SubtreeFilterRewriter {
             }
             branches.add(Filters.or(
                     Filters.of(pathField, Operator.EQUAL, rootPath),
-                    new Filters().childOf(pathField, rootPath + PATH_SEPARATOR)));
+                    new Filters().childOf(pathField, rootPath + IdPath.SEPARATOR)));
         }
         if (branches.isEmpty()) {
             // Every id was unknown / soft-deleted / another tenant's. Match nothing rather than
@@ -210,7 +207,7 @@ public class SubtreeFilterRewriter {
         if (modelName == null || !ModelManager.existModel(modelName)) {
             return false;
         }
-        MetaField path = ModelManager.getModelFieldOrNull(modelName, ID_PATH_FIELD);
+        MetaField path = ModelManager.getModelFieldOrNull(modelName, IdPath.FIELD);
         if (path == null || path.getFieldType() != FieldType.STRING) {
             return false;
         }
@@ -234,11 +231,11 @@ public class SubtreeFilterRewriter {
         Context isolated = ContextHolder.getContext().copy();
         isolated.setSkipPermissionCheck(true);
         List<Map<String, Object>> rows = ContextHolder.callWith(isolated,
-                () -> modelService.searchList(treeModel, new FlexQuery(List.of(ID_PATH_FIELD),
+                () -> modelService.searchList(treeModel, new FlexQuery(List.of(IdPath.FIELD),
                         Filters.of(ID_FIELD, Operator.IN, rootIds))));
         List<String> paths = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
-            if (row.get(ID_PATH_FIELD) instanceof CharSequence path && !path.isEmpty()) {
+            if (row.get(IdPath.FIELD) instanceof CharSequence path && !path.isEmpty()) {
                 paths.add(path.toString());
             }
         }

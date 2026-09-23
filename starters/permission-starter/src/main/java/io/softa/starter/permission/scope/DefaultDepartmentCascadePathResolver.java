@@ -56,7 +56,6 @@ public class DefaultDepartmentCascadePathResolver implements DepartmentCascadePa
     private static final String EMPLOYEE_MODEL = "Employee";
     private static final String DEPT_FIELD = "departmentId";
     private static final String EMPLOYEE_FIELD = "employeeId";
-    private static final String ID_PATH_FIELD = "idPath";
     private static final String SELF_PATH = DepartmentCascadePathResolver.SELF_PATH;
 
     private final ConcurrentMap<String, Optional<String>> cache = new ConcurrentHashMap<>();
@@ -73,7 +72,7 @@ public class DefaultDepartmentCascadePathResolver implements DepartmentCascadePa
         // than on the name alone — the empty path is only meaningful for a model the subtree
         // filter can be written against, and idPath is what makes that true.
         if (DEPT_MODEL.equals(modelName)
-                && ModelManager.getModelFieldOrNull(modelName, ID_PATH_FIELD) != null) {
+                && ModelManager.getModelFieldOrNull(modelName, IdPath.FIELD) != null) {
             return Optional.of(SELF_PATH);
         }
         MetaField dept = ModelManager.getModelFieldOrNull(modelName, DEPT_FIELD);

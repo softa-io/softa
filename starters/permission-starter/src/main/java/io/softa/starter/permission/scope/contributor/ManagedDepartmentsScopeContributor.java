@@ -8,6 +8,7 @@ import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 import io.softa.starter.permission.scope.DepartmentCascadePathResolver;
 import io.softa.starter.permission.scope.DepartmentIdPathResolver;
+import io.softa.starter.permission.scope.IdPath;
 import io.softa.starter.permission.spi.ScopeContributor;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -33,7 +34,6 @@ import java.util.Set;
 public class ManagedDepartmentsScopeContributor implements ScopeContributor {
 
     private static final String DEPT_FIELD = "departmentId";
-    private static final String PATH_SEPARATOR = "/";
     private static final String SCOPE_EXPR_DEPT_IDS = "deptIds";
 
     private final DepartmentCascadePathResolver cascadePath;
@@ -84,7 +84,7 @@ public class ManagedDepartmentsScopeContributor implements ScopeContributor {
         List<Filters> parts = new ArrayList<>(resolvedPaths.size());
         for (String p : resolvedPaths) {
             Filters selfPart = Filters.of(field, Operator.EQUAL, p);
-            Filters descendantsPart = new Filters().childOf(field, p + PATH_SEPARATOR);
+            Filters descendantsPart = new Filters().childOf(field, p + IdPath.SEPARATOR);
             parts.add(Filters.or(selfPart, descendantsPart));
         }
         if (parts.size() == 1) return parts.getFirst();
