@@ -1,44 +1,50 @@
 package io.softa.starter.permission.scope;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.enums.FilterType;
 import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.ModelService;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Turns {@code <deptField> CHILD OF <deptIds>} into a filter that actually means
- * "in that department or under it".
+ * Turns {@code <relationField> CHILD OF <ids>} into a filter that actually means
+ * "that row or anything under it".
  *
  * <h3>Why a rewrite, and not just letting the operator through</h3>
  *
  * {@link Operator#CHILD_OF} compiles to {@code LIKE '<value>%'} on the field it names. Pointed at a
- * ToOne column that holds a department <b>id</b>, that reads the id as though it were a path —
+ * ToOne column that holds an <b>id</b>, that reads the id as though it were a path —
  * {@code department_id LIKE '873%'} — which matches by numeric coincidence and nothing else. The
- * tree lives in {@code Department.idPath}, so the condition has to move onto that column, and the
- * ids have to become paths first.
+ * tree lives in the related model's {@code idPath}, so the condition has to move onto that column,
+ * and the ids have to become paths first.
  *
  * <p>Neither step is something a client can do. The browser does not know what {@code idPath} looks
- * like, that a separator has to be appended, or which column on this model leads to Department. So
+ * like, that a separator has to be appended, or that the tree lives on the related model at all. So
  * the UI sends the operator on the field the user actually picked, and this class is where it
  * becomes correct SQL.
  *
  * <h3>The separator is not cosmetic</h3>
  *
  * A path segment has no trailing separator, so {@code LIKE '1/12%'} also matches {@code 1/120} —
- * a different department that merely starts with the same digits. Every subtree filter is therefore
+ * a different node that merely starts with the same digits. Every subtree filter is therefore
  * two branches:
  *
  * <pre>
@@ -47,7 +53,17 @@ import lombok.extern.slf4j.Slf4j;
  * </pre>
  *
  * <p>The root <b>is</b> included, matching {@code DEPT_SUBTREE}. Were the two to differ, the same
- * department would select different rows in a role's data scope than in the filter bar.
+ * node would select different rows in a role's data scope than in the filter bar.
+
+ *
+ * <h3>Which relations qualify</h3>
+ *
+ * Any ToOne whose related model both points at itself and stores the resulting {@code idPath}. The
+ * two together are what make a prefix match mean "descendant of": a self-reference without a stored
+ * path would need a recursive walk instead, and a stray {@code idPath} on a flat model is a column
+ * name, not a tree. Nothing here names a particular model — which is deliberate, because a client
+ * offering this operator cannot ask a model whether it is a tree, and would otherwise be reduced to
+ * naming one.
  *
  * <h3>Which field, exactly</h3>
  *
@@ -67,16 +83,17 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-public class DepartmentSubtreeFilterRewriter {
+public class SubtreeFilterRewriter {
 
-    private static final String DEPARTMENT_MODEL = "Department";
-    private static final String ID_PATH_SUFFIX = ".idPath";
+    private static final String ID_PATH_FIELD = "idPath";
+    private static final String ID_PATH_SUFFIX = "." + ID_PATH_FIELD;
+    private static final String ID_FIELD = "id";
     private static final String PATH_SEPARATOR = "/";
 
-    private final DepartmentIdPathResolver idPathResolver;
+    private final ModelService<Serializable> modelService;
 
-    public DepartmentSubtreeFilterRewriter(DepartmentIdPathResolver idPathResolver) {
-        this.idPathResolver = idPathResolver;
+    public SubtreeFilterRewriter(ModelService<Serializable> modelService) {
+        this.modelService = modelService;
     }
 
     /**
@@ -106,7 +123,7 @@ public class DepartmentSubtreeFilterRewriter {
             return unit != null && Operator.CHILD_OF.equals(unit.getOperator());
         }
         if (node.getType() == FilterType.TREE && node.getChildren() != null) {
-            return node.getChildren().stream().anyMatch(DepartmentSubtreeFilterRewriter::containsChildOf);
+            return node.getChildren().stream().anyMatch(SubtreeFilterRewriter::containsChildOf);
         }
         return false;
     }
@@ -137,20 +154,21 @@ public class DepartmentSubtreeFilterRewriter {
             return leaf;
         }
         String field = unit.getField();
-        if (field == null || !pointsAtDepartment(modelName, field)) {
-            // CHILD_OF on something that is not a department reference — an idPath column being
+        String treeModel = field == null ? null : treeModelOf(modelName, field);
+        if (treeModel == null) {
+            // CHILD_OF on something that is not a reference to a tree — an idPath column being
             // filtered directly, most likely. Already correct; leave it alone.
             return leaf;
         }
 
-        List<Long> deptIds = departmentIds(unit.getValue());
-        if (deptIds.isEmpty()) {
+        List<Long> rootIds = rootIds(unit.getValue());
+        if (rootIds.isEmpty()) {
             return ScopeRuleCompiler.matchNone();
         }
 
         String pathField = field + ID_PATH_SUFFIX;
         List<Filters> branches = new ArrayList<>();
-        for (String rootPath : idPathResolver.idPathsOf(deptIds)) {
+        for (String rootPath : idPathsOf(treeModel, rootIds)) {
             if (rootPath == null || rootPath.isEmpty()) {
                 continue;
             }
@@ -161,24 +179,70 @@ public class DepartmentSubtreeFilterRewriter {
         if (branches.isEmpty()) {
             // Every id was unknown / soft-deleted / another tenant's. Match nothing rather than
             // dropping the condition, which would hand back rows the caller never asked for.
-            log.debug("Department subtree filter on {}.{} resolved no id paths; matching no rows",
+            log.debug("Subtree filter on {}.{} resolved no id paths; matching no rows",
                     modelName, field);
             return ScopeRuleCompiler.matchNone();
         }
         return branches.size() == 1 ? branches.get(0) : orAll(branches);
     }
 
-    /** True when the named field is a ToOne holding a Department id. */
-    private static boolean pointsAtDepartment(String modelName, String field) {
+    /** The tree the named field points at, or null when it points at something else. */
+    private static String treeModelOf(String modelName, String field) {
         MetaField metaField = resolveField(modelName, field);
         if (metaField == null) {
-            return false;
+            return null;
         }
         FieldType fieldType = metaField.getFieldType();
         if (fieldType != FieldType.MANY_TO_ONE && fieldType != FieldType.ONE_TO_ONE) {
+            return null;
+        }
+        String related = metaField.getRelatedModel();
+        return isPathTree(related) ? related : null;
+    }
+
+    /**
+     * A model is a tree this operator can address when it both points at itself and stores the
+     * resulting path. Either alone is not enough: a self-reference without a stored path would need
+     * a recursive walk rather than a prefix match, and an {@code idPath} on a model that references
+     * no parent is a column that happens to share the name.
+     */
+    private static boolean isPathTree(String modelName) {
+        if (modelName == null || !ModelManager.existModel(modelName)) {
             return false;
         }
-        return DEPARTMENT_MODEL.equals(metaField.getRelatedModel());
+        MetaField path = ModelManager.getModelFieldOrNull(modelName, ID_PATH_FIELD);
+        if (path == null || path.getFieldType() != FieldType.STRING) {
+            return false;
+        }
+        return ModelManager.getModelFields(modelName).stream().anyMatch(f ->
+                (f.getFieldType() == FieldType.MANY_TO_ONE || f.getFieldType() == FieldType.ONE_TO_ONE)
+                        && modelName.equals(f.getRelatedModel()));
+    }
+
+    /**
+     * The roots' paths.
+     *
+     * <p>Read straight rather than through a cache. The cached tree that {@code DEPT_SUBTREE} uses
+     * holds one model and loads all of it, which earns its keep on a scope evaluated every request;
+     * this reads the handful of rows the caller named, on the rare query that names any. Permission
+     * checks are waived for the same reason they are on any id-to-display-value lookup: the caller
+     * already named these ids, and the rows the filter goes on to select answer to their own scope.
+     * Re-entry is not a concern — the query issued here carries no {@code CHILD_OF}, so the scan at
+     * the top of {@link #rewrite} returns immediately.
+     */
+    private List<String> idPathsOf(String treeModel, List<Long> rootIds) {
+        Context isolated = ContextHolder.getContext().copy();
+        isolated.setSkipPermissionCheck(true);
+        List<Map<String, Object>> rows = ContextHolder.callWith(isolated,
+                () -> modelService.searchList(treeModel, new FlexQuery(List.of(ID_PATH_FIELD),
+                        Filters.of(ID_FIELD, Operator.IN, rootIds))));
+        List<String> paths = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            if (row.get(ID_PATH_FIELD) instanceof CharSequence path && !path.isEmpty()) {
+                paths.add(path.toString());
+            }
+        }
+        return paths;
     }
 
     /**
@@ -197,20 +261,20 @@ public class DepartmentSubtreeFilterRewriter {
     }
 
     /** The operator is collection-valued, but a single id round-trips as a scalar. */
-    private static List<Long> departmentIds(Object value) {
+    private static List<Long> rootIds(Object value) {
         Set<Long> ids = new LinkedHashSet<>();
         if (value instanceof Collection<?> collection) {
             for (Object item : collection) {
-                toDeptId(item).ifPresent(ids::add);
+                toRootId(item).ifPresent(ids::add);
             }
         } else {
-            toDeptId(value).ifPresent(ids::add);
+            toRootId(value).ifPresent(ids::add);
         }
         return new ArrayList<>(ids);
     }
 
     /** Ids arrive as Long from Java callers and as String from JSON; anything else is not an id. */
-    private static Optional<Long> toDeptId(Object raw) {
+    private static Optional<Long> toRootId(Object raw) {
         if (raw instanceof Number number) {
             return Optional.of(number.longValue());
         }

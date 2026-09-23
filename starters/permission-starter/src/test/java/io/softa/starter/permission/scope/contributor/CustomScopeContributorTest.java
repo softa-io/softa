@@ -12,8 +12,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.permission.spi.ScopeRule;
-import io.softa.starter.permission.scope.DepartmentIdPathResolver;
-import io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter;
+import io.softa.starter.permission.scope.SubtreeFilterRewriter;
 import io.softa.starter.permission.spi.ScopeType;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,7 +36,7 @@ class CustomScopeContributorTest {
         // A real rewriter, not a mock: it returns filters carrying no CHILD OF untouched, so every
         // assertion below is unaffected — and a mock returning null would hide that.
         contributor = new CustomScopeContributor(
-                new DepartmentSubtreeFilterRewriter(mock(DepartmentIdPathResolver.class)));
+                new SubtreeFilterRewriter(mock(io.softa.framework.orm.service.ModelService.class)));
     }
 
     @Test

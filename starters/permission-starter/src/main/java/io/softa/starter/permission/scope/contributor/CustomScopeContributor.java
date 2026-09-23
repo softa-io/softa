@@ -5,7 +5,7 @@ import tools.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter;
+import io.softa.starter.permission.scope.SubtreeFilterRewriter;
 import io.softa.starter.permission.scope.ScopeEnvGuard;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
@@ -43,9 +43,9 @@ public class CustomScopeContributor implements ScopeContributor {
      * caller's filters, and this rule is compiled afterwards and AND-ed on, so it would never be
      * seen there.
      */
-    private final DepartmentSubtreeFilterRewriter subtreeRewriter;
+    private final SubtreeFilterRewriter subtreeRewriter;
 
-    public CustomScopeContributor(DepartmentSubtreeFilterRewriter subtreeRewriter) {
+    public CustomScopeContributor(SubtreeFilterRewriter subtreeRewriter) {
         this.subtreeRewriter = subtreeRewriter;
     }
 

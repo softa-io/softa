@@ -22,7 +22,7 @@ import io.softa.starter.permission.spi.support.DbSensitiveFieldSetSource;
 import io.softa.starter.permission.spi.support.DefaultPermissionSnapshotProvider;
 import io.softa.starter.permission.index.EndpointIndex;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
-import io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter;
+import io.softa.starter.permission.scope.SubtreeFilterRewriter;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.service.PermissionServiceImpl;
@@ -75,7 +75,7 @@ public class PermissionStarterAutoConfiguration {
             ObjectProvider<EndpointIndex> endpointIndex,
             // Same lazy treatment, same reason: the rewriter reads ModelManager, which AppStartup
             // loads after this bean is built.
-            ObjectProvider<DepartmentSubtreeFilterRewriter> subtreeRewriter) {
+            ObjectProvider<SubtreeFilterRewriter> subtreeRewriter) {
         return new PermissionServiceImpl(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability,
                 endpointIndex::getIfAvailable, subtreeRewriter::getIfAvailable);
     }

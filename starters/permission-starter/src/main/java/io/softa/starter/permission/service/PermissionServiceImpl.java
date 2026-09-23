@@ -21,7 +21,7 @@ import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.index.EndpointIndex;
-import io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter;
+import io.softa.starter.permission.scope.SubtreeFilterRewriter;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
@@ -97,11 +97,11 @@ public class PermissionServiceImpl implements PermissionService {
     private final Supplier<EndpointIndex> endpointIndexSupplier;
 
     /** Expands `deptField CHILD OF ids` onto Department.idPath — see
-     *  {@link io.softa.starter.permission.scope.DepartmentSubtreeFilterRewriter}. Supplied the same
+     *  {@link io.softa.starter.permission.scope.SubtreeFilterRewriter}. Supplied the same
      *  lazy way as the endpoint index, and for the same reason: the rewriter reads ModelManager, so
      *  resolving it while this bean is built would touch an unloaded catalog. A null supplier (the
      *  older constructors, and every unit test) simply means no rewrite. */
-    private final Supplier<DepartmentSubtreeFilterRewriter> subtreeRewriterSupplier;
+    private final Supplier<SubtreeFilterRewriter> subtreeRewriterSupplier;
 
     public PermissionServiceImpl(PermissionSnapshotProvider snapshotProvider,
             ScopeRuleCompiler scopeCompiler,
@@ -127,7 +127,7 @@ public class PermissionServiceImpl implements PermissionService {
             ModelService<?> modelService,
             ScopeApplicabilityResolver applicability,
             Supplier<EndpointIndex> endpointIndexSupplier,
-            Supplier<DepartmentSubtreeFilterRewriter> subtreeRewriterSupplier) {
+            Supplier<SubtreeFilterRewriter> subtreeRewriterSupplier) {
         this.snapshotProvider = snapshotProvider;
         this.scopeCompiler = scopeCompiler;
         this.sfsCache = sfsCache;
@@ -147,7 +147,7 @@ public class PermissionServiceImpl implements PermissionService {
         // idPath condition or it compiles to a LIKE against an id and matches by coincidence. An
         // admin, and anything running under @SkipPermissionCheck, asks the same question and needs
         // the same answer — placing it after the bypass would leave exactly them with the broken one.
-        originalFilters = rewriteDepartmentSubtrees(model, originalFilters);
+        originalFilters = rewriteSubtrees(model, originalFilters);
         if (shouldBypass()) return originalFilters;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.isAdmin(pi)) return originalFilters;
@@ -167,8 +167,8 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /** No-op when the rewriter is absent (older constructors, unit tests) or nothing matches. */
-    private Filters rewriteDepartmentSubtrees(String model, Filters filters) {
-        DepartmentSubtreeFilterRewriter rewriter = subtreeRewriterSupplier.get();
+    private Filters rewriteSubtrees(String model, Filters filters) {
+        SubtreeFilterRewriter rewriter = subtreeRewriterSupplier.get();
         return rewriter == null ? filters : rewriter.rewrite(model, filters);
     }
 
