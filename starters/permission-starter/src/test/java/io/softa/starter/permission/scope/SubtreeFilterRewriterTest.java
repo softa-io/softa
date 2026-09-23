@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
@@ -72,6 +74,23 @@ class SubtreeFilterRewriterTest {
         modelManager.close();
     }
 
+    /** Every real caller is a request or a scoped job; the rewriter fails closed outside one. */
+    private Filters rewrite(Filters filters) {
+        return ContextHolder.callWith(new Context(), () -> rewriter.rewrite(MODEL, filters));
+    }
+
+    @Test
+    @DisplayName("matches no rows outside any request context, where no tenant is bound")
+    void failsClosedOutsideAContext() {
+        // A scheduler or queue thread. Resolving paths here would read a multi-tenant model with
+        // no tenant bound, so the rewriter answers the way the department resolvers do: nothing —
+        // and without touching the database to find that out.
+        Filters result = rewriter.rewrite(MODEL, childOf("departmentId", "12"));
+
+        assertEquals(ScopeRuleCompiler.matchNone().toString(), result.toString());
+        verifyNoInteractions(modelService);
+    }
+
     @Test
     @DisplayName("a relation to a model that stores no path is left alone")
     void leavesNonTreeRelationsAlone() {
@@ -81,7 +100,7 @@ class SubtreeFilterRewriterTest {
         // onto a column that does not exist.
         Filters original = childOf("jobPositionId", "7");
 
-        Filters out = rewriter.rewrite(MODEL, original);
+        Filters out = rewrite(original);
 
         assertSame(original, out);
         verifyNoInteractions(modelService);
@@ -127,7 +146,7 @@ class SubtreeFilterRewriterTest {
     void appendsSeparatorToDescendantBranch() {
         stubPaths("1/12");
 
-        String sql = rewriter.rewrite(MODEL, childOf("departmentId", "12")).toString();
+        String sql = rewrite(childOf("departmentId", "12")).toString();
 
         // '1/12/' — without the trailing slash this also matches department 1/120.
         assertTrue(sql.contains("1/12/"), () -> "descendant branch lost its separator: " + sql);
@@ -138,7 +157,7 @@ class SubtreeFilterRewriterTest {
     void includesTheRootDepartment() {
         stubPaths("1/12");
 
-        String sql = rewriter.rewrite(MODEL, childOf("departmentId", "12")).toString();
+        String sql = rewrite(childOf("departmentId", "12")).toString();
 
         // Two branches: equality on the root, prefix on its descendants.
         assertTrue(sql.contains("departmentId.idPath"), () -> "condition did not move onto idPath: " + sql);
@@ -150,7 +169,7 @@ class SubtreeFilterRewriterTest {
     void staysOnTheFieldTheCallerNamed() {
         stubPaths("1/12");
 
-        String sql = rewriter.rewrite(MODEL, childOf("additionalDepartmentId", "12")).toString();
+        String sql = rewrite(childOf("additionalDepartmentId", "12")).toString();
 
         // Employee reaches Department through departmentId, but the caller asked about the other
         // one. Resolving the model's anchor here would answer a different question.
@@ -164,7 +183,7 @@ class SubtreeFilterRewriterTest {
         // Unknown / soft-deleted / another tenant's — the resolver returns nothing.
         stubPaths();
 
-        Filters result = rewriter.rewrite(MODEL, childOf("departmentId", "999"));
+        Filters result = rewrite(childOf("departmentId", "999"));
 
         assertEquals(ScopeRuleCompiler.matchNone().toString(), result.toString(),
                 "an unresolvable department must not widen the result to everything");
@@ -175,19 +194,10 @@ class SubtreeFilterRewriterTest {
     void combinesSeveralDepartments() {
         stubPaths("1/12", "1/34");
 
-        String sql = rewriter.rewrite(MODEL, childOf("departmentId", List.of("12", "34"))).toString();
+        String sql = rewrite(childOf("departmentId", List.of("12", "34"))).toString();
 
         assertTrue(sql.contains("1/12/"), () -> sql);
         assertTrue(sql.contains("1/34/"), () -> sql);
-    }
-
-    @Test
-    @DisplayName("leaves CHILD OF alone when the field is not a department reference")
-    void ignoresNonDepartmentFields() {
-        Filters original = childOf("jobPositionId", "7");
-
-        assertSame(original, rewriter.rewrite(MODEL, original));
-        verifyNoInteractions(modelService);
     }
 
     @Test
@@ -196,7 +206,7 @@ class SubtreeFilterRewriterTest {
         // A scope contributor emits exactly this; rewriting it again would append a second .idPath.
         Filters original = childOf("idPath", "1/12/");
 
-        assertSame(original, rewriter.rewrite(MODEL, original));
+        assertSame(original, rewrite(original));
         verifyNoInteractions(modelService);
     }
 
@@ -205,7 +215,7 @@ class SubtreeFilterRewriterTest {
     void leavesOrdinaryFiltersUntouched() {
         Filters original = Filters.of("name", io.softa.framework.base.enums.Operator.EQUAL, "Ada");
 
-        assertSame(original, rewriter.rewrite(MODEL, original));
+        assertSame(original, rewrite(original));
         verifyNoInteractions(modelService);
     }
 
@@ -218,7 +228,7 @@ class SubtreeFilterRewriterTest {
                 Filters.of("name", io.softa.framework.base.enums.Operator.EQUAL, "Ada"),
                 childOf("departmentId", "12"));
 
-        String sql = rewriter.rewrite(MODEL, nested).toString();
+        String sql = rewrite(nested).toString();
 
         assertTrue(sql.contains("departmentId.idPath"), () -> sql);
         assertTrue(sql.contains("Ada"), () -> "the sibling condition was lost: " + sql);

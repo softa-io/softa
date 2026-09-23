@@ -3,6 +3,11 @@ package io.softa.starter.permission.scope;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.domain.Filters;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+
 /**
  * The shape a model uses to store where one of its rows sits in a tree: a materialized path of
  * ancestor ids, root first, in a string field named {@code idPath}.
@@ -57,6 +62,30 @@ public final class IdPath {
         return Filters.or(
                 Filters.of(pathField, Operator.EQUAL, rootPath),
                 new Filters().childOf(pathField, rootPath + SEPARATOR));
+    }
+
+    /**
+     * The union of several subtrees on one field: any row at or under any of the roots.
+     *
+     * <p>What an empty set of roots means is the caller's call — the filter rewriter matches
+     * nothing, a scope contributor emits no restriction — so this insists on at least one rather
+     * than deciding for them.
+     */
+    public static Filters subtreesOf(String pathField, Collection<String> rootPaths) {
+        Iterator<String> roots = rootPaths.iterator();
+        if (!roots.hasNext()) {
+            throw new IllegalArgumentException("subtreesOf needs at least one root path");
+        }
+        Filters first = subtreeOf(pathField, roots.next());
+        if (!roots.hasNext()) {
+            return first;
+        }
+        Filters second = subtreeOf(pathField, roots.next());
+        List<Filters> rest = new ArrayList<>();
+        while (roots.hasNext()) {
+            rest.add(subtreeOf(pathField, roots.next()));
+        }
+        return Filters.or(first, second, rest.toArray(new Filters[0]));
     }
 
     private IdPath() {

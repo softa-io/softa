@@ -134,8 +134,16 @@ public class SubtreeFilterRewriter {
             return node;
         }
         List<Filters> rewritten = new ArrayList<>(node.getChildren().size());
+        boolean changed = false;
         for (Filters child : node.getChildren()) {
-            rewritten.add(rewriteNode(modelName, child));
+            Filters out = rewriteNode(modelName, child);
+            changed |= out != child;
+            rewritten.add(out);
+        }
+        if (!changed) {
+            // Nothing under here was ours: an idPath column filtered directly, or our own output
+            // meeting a second pass. The caller's node goes back as is, not a copy of it.
+            return node;
         }
         // Rebuilt rather than mutated: the caller's Filters may be a scope rule's compiled output,
         // which is cached and shared across requests.
@@ -158,6 +166,13 @@ public class SubtreeFilterRewriter {
             // filtered directly, most likely. Already correct; leave it alone.
             return leaf;
         }
+        if (!ContextHolder.existContext()) {
+            // A scheduler or queue thread, with no request behind it. The path read below would
+            // then run with no tenant bound, and on a multi-tenant model that either fails or
+            // answers from the wrong tenant. Match nothing, as the department resolvers do.
+            log.debug("Subtree filter on {}.{} outside any context; matching no rows", modelName, field);
+            return ScopeRuleCompiler.matchNone();
+        }
 
         List<Long> rootIds = rootIds(unit.getValue());
         if (rootIds.isEmpty()) {
@@ -165,21 +180,20 @@ public class SubtreeFilterRewriter {
         }
 
         String pathField = IdPath.fieldOn(field);
-        List<Filters> branches = new ArrayList<>();
+        List<String> rootPaths = new ArrayList<>();
         for (String rootPath : idPathsOf(treeModel, rootIds)) {
-            if (rootPath == null || rootPath.isEmpty()) {
-                continue;
+            if (rootPath != null && !rootPath.isEmpty()) {
+                rootPaths.add(rootPath);
             }
-            branches.add(IdPath.subtreeOf(pathField, rootPath));
         }
-        if (branches.isEmpty()) {
+        if (rootPaths.isEmpty()) {
             // Every id was unknown / soft-deleted / another tenant's. Match nothing rather than
             // dropping the condition, which would hand back rows the caller never asked for.
             log.debug("Subtree filter on {}.{} resolved no id paths; matching no rows",
                     modelName, field);
             return ScopeRuleCompiler.matchNone();
         }
-        return branches.size() == 1 ? branches.get(0) : orAll(branches);
+        return IdPath.subtreesOf(pathField, rootPaths);
     }
 
     /** The tree the named field points at, or null when it points at something else. */
@@ -284,11 +298,4 @@ public class SubtreeFilterRewriter {
         return Optional.empty();
     }
 
-    private static Filters orAll(List<Filters> branches) {
-        Filters combined = branches.get(0);
-        for (int i = 1; i < branches.size(); i++) {
-            combined = Filters.or(combined, branches.get(i));
-        }
-        return combined;
-    }
 }

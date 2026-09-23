@@ -76,17 +76,7 @@ public class ManagedDepartmentsScopeContributor implements ScopeContributor {
         if (resolvedPaths.isEmpty()) return new Filters();
 
         String field = DepartmentCascadePathResolver.idPathField(path.get());
-        // One subtree per managed department, OR-merged.
-        List<Filters> parts = new ArrayList<>(resolvedPaths.size());
-        for (String p : resolvedPaths) {
-            parts.add(IdPath.subtreeOf(field, p));
-        }
-        if (parts.size() == 1) return parts.getFirst();
-        Filters combined = parts.getFirst();
-        for (int i = 1; i < parts.size(); i++) {
-            combined = Filters.or(combined, parts.get(i));
-        }
-        return combined;
+        return IdPath.subtreesOf(field, resolvedPaths);
     }
 
     /** Static deptIds from {@code scopeExpr.deptIds} (rule-encoded string ids).
