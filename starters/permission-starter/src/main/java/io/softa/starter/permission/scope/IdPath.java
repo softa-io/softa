@@ -29,6 +29,10 @@ public final class IdPath {
      * What separates two ids inside a path, and therefore what has to be appended to a path before
      * it is used as a prefix match: without it {@code 1/12} is a prefix of {@code 1/120}, and a
      * subtree query would pull in unrelated branches whose ids merely start with the same digits.
+     *
+     * <p>Not the only copy in the codebase: the ORM splits on the same character to compile
+     * {@code PARENT_OF} back into a set of ids, which sits below this starter and cannot reach
+     * this constant. Changing one means changing the other.
      */
     public static final String SEPARATOR = "/";
 

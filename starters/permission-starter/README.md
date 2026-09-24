@@ -193,8 +193,24 @@ It runs **before** the early returns below, not after. The rewrite answers what 
 does not restrict. An administrator and anything under `@SkipPermissionCheck` ask the same question
 and need the same answer, so placing it after the bypass would leave exactly them with the broken one.
 
-`IdPath` holds what a materialized path looks like — the field name, the separator, and the rule for
-appending the suffix to a cascade path — shared with the contributors so the two cannot drift.
+`IdPath` holds what a materialized path looks like — the field name, the separator, the rule for
+appending the suffix to a cascade path, and the two-branch condition itself — shared with the
+contributors so they cannot drift. The ORM keeps its own copy of the separator for `PARENT_OF`
+(`StringTools.splitIdPath` splits on it to turn a path back into ids), which is below this starter
+and not reachable from here; the two have to be changed together.
+
+**What a model must do to be a tree, and what nothing does for it.** The recognition above is the
+whole contract: a `STRING idPath`, and a ToOne to itself. Nothing registers, and no annotation says
+"tree". But nothing maintains `idPath` either — this starter only ever reads it. The model that owns
+the tree computes it on create and, which is the part that gets forgotten, **rebuilds the whole
+subtree when a node moves**. A stale path is not detected here; the filter simply answers about the
+branch the node used to sit under. A prefix index on the column is likewise the model's business.
+
+**Getting the name wrong fails silently.** `idpath`, `id_path`, `pathIds` — the shape check does not
+match, no rewrite happens, and there is no warning. The `CHILD_OF` then reaches the database as
+written, as a `LIKE` on the id column, and returns whatever shares leading digits. That is the cost
+of recognising a tree by convention rather than by declaration, and the reason the name cannot be a
+setting: recognition is built on it.
 
 ### No grant: what happens then
 
