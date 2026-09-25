@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.meta.FieldConstraints;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
@@ -106,6 +107,12 @@ public class DesignField extends AuditableModel {
 
     @Field
     private Integer scale;
+
+    // Structural mirror of sys_field.constraints (one DTO column). FIELD_ATTRS is reflective, so the
+    // cross-lane checksum reads it the moment it exists; an undeclared constraint is null on both
+    // sides, so no backfill is needed for the aggregate to agree.
+    @Field(description = "Value domain and conditional state / validity rules; see FieldConstraints")
+    private FieldConstraints constraints;
 
     @Field(label = "Is Required")
     private Boolean required;

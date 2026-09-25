@@ -123,6 +123,7 @@ class SysJdbcRoundtripTest {
                   default_value VARCHAR(256),
                   length INT,
                   scale INT,
+                  constraints TEXT,
                   required TINYINT,
                   readonly TINYINT,
                   hidden TINYINT,

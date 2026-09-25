@@ -44,6 +44,17 @@ Each condition is `[field, operator, value]`, e.g. `["status", "=", "ACTIVE"]`.
 Combine multiple in the `filters` list. (In service code the same is expressed
 with the `Filters` builder.)
 
+### Filters as an expression
+
+The same condition can be written as an expression instead of nested lists — `status = "ACTIVE"`,
+`status = "ACTIVE" AND grade >= 6` — which is the form `@Field(requiredWhen / readonlyWhen /
+invalidWhen)` should use, because in a Java text block it needs no escapes.
+`Filters.of` picks the form by the first character: a leading `[` is the list form, anything else is
+parsed as an expression, and both produce the same tree.
+
+The grammar in full — operators, value forms, `AND` / `OR` precedence, and the two shapes it refuses —
+is in [softa-orm's README](../../../framework/softa-orm/README.md) under Field constraints.
+
 ### Orders format
 List form `[["createdTime", "DESC"], ["name", "ASC"]]` or string form
 `"createdTime DESC, name ASC"`.

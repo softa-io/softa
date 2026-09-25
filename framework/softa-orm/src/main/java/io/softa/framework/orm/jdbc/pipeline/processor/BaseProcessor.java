@@ -9,6 +9,7 @@ import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.PatchType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.service.validation.WriteValidationException;
 
 /**
  * Base field processor class
@@ -57,7 +58,8 @@ public abstract class BaseProcessor implements FieldProcessor {
                 && !field.isComputed()
                 && !(field.isAutoSequence() && AccessType.CREATE.equals(accessType))
                 && StringUtils.isBlank(field.getCascadedField())) {
-            throw new IllegalArgumentException("Model field {0}:{1} is a readonly field and cannot be assigned!",
+            throw WriteValidationException.forField(field.getFieldName(),
+                    "Model field {0}:{1} is a readonly field and cannot be assigned!",
                     field.getModelName(), field.getFieldName());
         }
     }
@@ -72,7 +74,8 @@ public abstract class BaseProcessor implements FieldProcessor {
     /** Same check against a named field — see {@link #checkReadonly(MetaField, boolean)} for why. */
     protected void checkRequired(MetaField field, Object value) {
         if (field.isRequired() && value == null) {
-            throw new IllegalArgumentException("Model field {0}:{1} is a required field and cannot be null!",
+            throw WriteValidationException.forField(field.getFieldName(),
+                    "Model field {0}:{1} is a required field and cannot be null!",
                     field.getModelName(), field.getFieldName());
         }
     }
@@ -82,7 +85,8 @@ public abstract class BaseProcessor implements FieldProcessor {
      */
     protected void checkNotBlank(Object value) {
         if (metaField.isRequired() && (value == null || StringUtils.isBlank(value.toString()))) {
-            throw new IllegalArgumentException("Model required field {0}:{1} cannot be empty!", metaField.getModelName(), fieldName);
+            throw WriteValidationException.forField(fieldName,
+                    "Model required field {0}:{1} cannot be empty!", metaField.getModelName(), fieldName);
         }
     }
 

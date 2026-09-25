@@ -174,6 +174,23 @@ byte-identical to the owner's columns it exposes (type / length / required),
 and make everything else `dynamic` — the shared table then has exactly one
 source of physical truth.
 
+## Field constraints (`sys_field.constraints`)
+
+`@Field(min / max / pattern / constraintMessage / requiredWhen / readonlyWhen / invalidWhen)`
+are packed by `AnnotationParser` into one `FieldConstraints` record and stored in the
+single `sys_field.constraints` column (`FieldType.DTO`, canonical JSON via `Codecs.dto` +
+`CanonicalJson`; `NULL` when nothing is declared). The parser validates the declaration against the
+field's type and the sibling fields it names once the class is fully parsed (boot failure on a
+mistake); `ModelManager` runs the same `FieldConstraints.validate` on load for studio / hand-written
+rows and drops a bad one with an ERROR instead of failing the boot — a row whose JSON does not even
+parse is read as "no constraints" the same way. `design_field.constraints` is the structural twin the
+cross-lane checksum requires (`SysDesignAttributeParityTest`). Enforcement and the expression language
+are documented in [framework/softa-orm/README.md](../../framework/softa-orm/README.md) §Field
+constraints. The `sys_field` column self-applies at boot under a non-empty `scanner-scope` (the
+catalog reconcile runs before the strict read). An empty-scope environment — the production shape —
+and `design_field`, which no deployment here keeps in scope, need the column added however that
+deployment applies catalog DDL.
+
 ## Runtime catalog identity (`app_code`)
 
 The runtime `sys_model` / `sys_field` / `sys_option_set` /

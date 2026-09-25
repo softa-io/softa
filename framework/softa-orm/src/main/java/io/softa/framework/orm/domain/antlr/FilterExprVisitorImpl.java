@@ -79,6 +79,11 @@ public class FilterExprVisitorImpl extends FilterExprBaseVisitor<Filters> {
         } else if (singleValue.QUOTED_STRING() != null) {
             String text = singleValue.QUOTED_STRING().getText();
             return text.substring(1, text.length() - 1); // Remove the surrounding quotes
+        } else if (singleValue.FIELD() != null) {
+            // A bare name on the right is another field of the same row, written out in the reference
+            // form the tree already carries. Only the spelling an author types changes: what is stored,
+            // what the JSON form says and what the frontend receives stay exactly as they were.
+            return "{{ @" + singleValue.FIELD().getText() + " }}";
         }
         throw new IllegalArgumentException("Unsupported single value context");
     }

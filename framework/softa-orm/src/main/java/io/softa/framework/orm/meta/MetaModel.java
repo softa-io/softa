@@ -90,6 +90,15 @@ public class MetaModel implements Serializable {
     @Setter(AccessLevel.NONE)
     private List<MetaField> storedCascadedFields = new ArrayList<>();
 
+    /**
+     * Fields whose {@code constraints} carry a condition ({@code requiredWhen} / {@code readonlyWhen} /
+     * {@code invalidWhen}). The write pipelines walk this list instead of every field: on create to
+     * evaluate each, on update to register the fields a condition reads into the columns fetched from
+     * the stored row. Populated by {@code ModelManager.verifyFieldConstraints()}.
+     */
+    @Setter(AccessLevel.NONE)
+    private List<MetaField> conditionalFields = new ArrayList<>();
+
     @Setter(AccessLevel.NONE)
     private Set<String> auditCreateFields = new HashSet<>();
 
@@ -128,6 +137,10 @@ public class MetaModel implements Serializable {
         this.storedCascadedFields.add(metaField);
     }
 
+    protected void addConditionalField(MetaField metaField) {
+        this.conditionalFields.add(metaField);
+    }
+
     protected void addAuditCreateField(String fieldName) {
         this.auditCreateFields.add(fieldName);
     }
@@ -151,6 +164,7 @@ public class MetaModel implements Serializable {
     protected void sealModelFields() {
         this.storedComputedFields = Collections.unmodifiableList(this.storedComputedFields);
         this.storedCascadedFields = Collections.unmodifiableList(this.storedCascadedFields);
+        this.conditionalFields = Collections.unmodifiableList(this.conditionalFields);
         this.auditCreateFields = Collections.unmodifiableSet(this.auditCreateFields);
         this.auditUpdateFields = Collections.unmodifiableSet(this.auditUpdateFields);
         this.childModels = Collections.unmodifiableSet(this.childModels);

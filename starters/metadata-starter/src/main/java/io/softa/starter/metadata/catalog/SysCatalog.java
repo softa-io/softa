@@ -15,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.dto.DTOFieldObject;
 import io.softa.framework.orm.enums.FieldType;
 
 /**
@@ -140,6 +141,7 @@ public final class SysCatalog {
         if (type.isEnum()) return Codecs.enumCodec(type);
         if (List.class.isAssignableFrom(type)) return Codecs.STRING_LIST;
         if (type == Orders.class) return Codecs.ORDERS;
+        if (DTOFieldObject.class.isAssignableFrom(type)) return Codecs.dto(type);
         throw new IllegalStateException("No Codec for @Field type " + type.getName());
     }
 

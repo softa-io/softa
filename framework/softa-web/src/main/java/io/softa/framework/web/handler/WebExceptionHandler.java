@@ -26,6 +26,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BaseException;
+import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.web.response.ApiResponseErrorDetails;
@@ -156,6 +157,23 @@ public class WebExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleException(MaxUploadSizeExceededException e) {
         String message = "Maximum upload size exceeded";
         return handler(ResponseCode.BAD_REQUEST, e, message);
+    }
+
+    /**
+     * A write refused by field constraints or the {@code ModelWriteValidator} chain: a 400 like any
+     * rejected input, but the body also carries {@code fieldErrors} so a form can place each sentence
+     * on its field. Declared before the {@code BaseException} handler resolves it — Spring picks the
+     * most specific exception type, so this one wins for the subclass.
+     *
+     * @param e Exception
+     * @return ResponseEntity
+     */
+    @ExceptionHandler(value = WriteValidationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(WriteValidationException e) {
+        String exceptionMessage = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+        log.warn(exceptionMessage + messageHandler.getRequestInfo(), e);
+        ApiResponse<Void> response = ApiResponseErrorDetails.exception(e.getResponseCode(), exceptionMessage, e.fieldErrors());
+        return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
     /**

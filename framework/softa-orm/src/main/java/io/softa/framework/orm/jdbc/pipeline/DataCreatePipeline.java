@@ -114,6 +114,11 @@ public class DataCreatePipeline extends DataPipeline {
      */
     @Override
     public List<Map<String, Object>> processCreateData(List<Map<String, Object>> rows, LocalDateTime createdTime) {
+        // Conditional constraints read the raw row, before any field is coerced — see the enforcer.
+        FieldConstraintsEnforcer enforcer = FieldConstraintsEnforcer.forModel(modelName, accessType);
+        if (enforcer != null) {
+            rows.forEach(enforcer::enforceCreate);
+        }
         // Format the field data of the current model
         processorChain.processInputRows(rows);
         // Fill in the audit fields

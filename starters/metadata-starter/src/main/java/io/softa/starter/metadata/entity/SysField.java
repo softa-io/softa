@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.meta.FieldConstraints;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
@@ -103,6 +104,14 @@ public class SysField extends AuditableModel {
 
     @Field
     private Integer scale;
+
+    // One column for the whole declaration — value domain (min / max / pattern / message) and the
+    // four conditions — as a FieldType.DTO (MEDIUMTEXT / TEXT holding canonical JSON). Sparse and
+    // growing declarations do not earn a column each; a new kind of constraint is a new key here,
+    // not a migration. NULL when nothing is declared, never "{}". Enforced by the write pipeline
+    // every path shares; served unchanged to the frontend.
+    @Field(description = "Value domain and conditional state / validity rules; see FieldConstraints")
+    private FieldConstraints constraints;
 
     @Field(label = "Is Required")
     private Boolean required;

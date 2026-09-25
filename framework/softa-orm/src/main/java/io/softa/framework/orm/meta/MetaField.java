@@ -73,6 +73,14 @@ public class MetaField implements Serializable {
 
     private Integer scale;
 
+    /**
+     * Value domain and conditional state / validity rules, from {@code sys_field.constraints}
+     * (one DTO column, JSON). Null when the field declares none — the common case. The value domain
+     * is enforced by the numeric / string processors, the conditions by
+     * {@code FieldConstraintsEnforcer} before the processor chain runs.
+     */
+    private FieldConstraints constraints;
+
     private boolean required;
 
     private boolean readonly;

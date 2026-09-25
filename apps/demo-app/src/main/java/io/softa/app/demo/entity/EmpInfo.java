@@ -9,6 +9,7 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.WidgetType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.OnDelete;
 
@@ -32,7 +33,10 @@ public class EmpInfo extends AuditableModel {
     @Field(copyable = false)
     private String code;
 
-    @Field(length = 128)
+    // Value domain: the pattern is enforced on every write path and served to the UI as the input's own
+    // check. widgetType only picks the control — there is no email validation anywhere but here.
+    @Field(length = 128, widgetType = WidgetType.EMAIL,
+            pattern = "[^@\\s]+@[^@\\s]+\\.[^@\\s]+", constraintMessage = "Enter a valid email address.")
     private String email;
 
     // onDelete = RESTRICT: a department that still has employees cannot be deleted.

@@ -1,5 +1,7 @@
 package io.softa.framework.web.response;
 
+import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -32,6 +34,15 @@ public class ApiResponseErrorDetails<T> extends ApiResponse<T> {
 
     @Schema(description = "Server-side trace ID for log correlation")
     private String traceId;
+
+    /**
+     * Field-level rejections, field name → sentence, when a write was refused by field constraints or
+     * a {@code ModelWriteValidator}. Lets a form put each message on its field instead of one toast;
+     * absent (null) for every other error, so existing clients see the same body they always did.
+     */
+    @Schema(description = "Field-level rejections: field name -> message; present only for validation failures")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Map<String, String> fieldErrors;
 
     private ApiResponseErrorDetails(Integer code, String message, T data, String error) {
         super(code, message, data);
@@ -67,5 +78,18 @@ public class ApiResponseErrorDetails<T> extends ApiResponse<T> {
         Integer code = responseCode.getCode();
         String message = responseCode.getMessage();
         return new ApiResponseErrorDetails<>(code, message, data, error);
+    }
+
+    /**
+     * Exception response carrying field-level rejections next to the joined error message.
+     *
+     * @param responseCode response code object.
+     * @param error the joined error message (every rejection in one sentence, for clients that read only that).
+     * @param fieldErrors field name → message, as collected by the validators.
+     */
+    public static ApiResponseErrorDetails<Void> exception(ResponseCode responseCode, String error, Map<String, String> fieldErrors) {
+        ApiResponseErrorDetails<Void> response = exception(responseCode, error);
+        response.setFieldErrors(fieldErrors == null || fieldErrors.isEmpty() ? null : fieldErrors);
+        return response;
     }
 }

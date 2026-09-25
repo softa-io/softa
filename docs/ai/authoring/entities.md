@@ -120,6 +120,8 @@ Annotate **every declared field**. Most-used attributes:
 | `description` | `""` | shown in UI; **≤512 chars** (parse-time enforced) — concise user-facing summary, design notes go in Javadoc |
 | `fieldType` | inferred from the Java type (see §3) | override only when the Java type is ambiguous |
 | `length` | type default (`String` → 64, see §3) | column width; declare only to override |
+| `min` / `max` / `pattern` | `""` | which **values** the field accepts, as opposed to how wide the column is — see §5 |
+| `requiredWhen` / `readonlyWhen` / `invalidWhen` | `""` | conditions over the same row (filter expressions) — see §5 |
 | `required` | `false` (primitives auto-`true`) | NOT NULL |
 | `readonly` / `unsearchable` | `false` | UI behavior |
 | `copyable` | `true` | `false` = value not carried when a row is duplicated (keys, secrets, runtime state) |
@@ -270,6 +272,108 @@ Restart your dev app → the column is added automatically.
 ### Make a field required
 Flip `required = true`. **First check for existing NULL rows** — if any exist,
 backfill them before you flip it, or the tightened NOT NULL will fail.
+
+### Constrain a field (`min` / `max` / `pattern`, `requiredWhen` / `readonlyWhen` / `invalidWhen`)
+`length` is how wide the column is; these are which values it accepts and when it applies. All eight
+attributes are stored together in the single `sys_field.constraints` column and served to the frontend
+unchanged, which evaluates the same rules in the form.
+
+```java
+@Field(label = "Active Employees", min = "0", constraintMessage = "Headcount cannot be negative.")
+private Integer activeEmpCount;
+
+@Field(pattern = "[A-Z]{2}\\d{6}", constraintMessage = "Employee code must be two letters and six digits.")
+private String code;
+
+// required only when the reason is "Others" — the frontend shows the star from the same rule.
+// A text block keeps the expression free of escapes; write conditions this way.
+@Field(requiredWhen = """
+        reason = "Others"
+        """)
+private String reasonDescription;
+
+// compares two fields of the row: a bare name is a sibling field, a quoted string is a literal.
+// TODAY / NOW / USER_ID read the context and keep their braces.
+@Field(invalidWhen = """
+        endDate < startDate
+        """,
+       constraintMessage = "End date cannot precede start date.")
+private LocalDate endDate;
+
+@Field(invalidWhen = """
+        dateOfBirth > "{{ TODAY - P13Y }}"
+        """,
+       constraintMessage = "Date of Birth must be at least 13 years before today.")
+private LocalDate dateOfBirth;
+
+// IS SET / IS NOT SET take no value, which the expression grammar cannot parse — those stay in the
+// JSON spelling, and the unit needs its third element even though the operator ignores it. Still a
+// text block: the JSON form is the fallback for what an expression cannot say, not a reason to
+// start escaping quotes.
+@Field(requiredWhen = """
+        [["terminationDate", "IS NOT SET", null]]
+        """)
+private String activeOnlyNote;
+
+// more than one condition: AND binds tighter than OR, parentheses override it
+@Field(invalidWhen = """
+        endDate < startDate OR (grade = 1 AND amount > 1000)
+        """,
+       constraintMessage = "Check the dates, or the amount against the grade.")
+private BigDecimal amount;
+
+// application-level required on a column that must stay nullable (no NOT NULL is rendered)
+@Field(label = "Cost Centre", requiredWhen = "true")
+private Long costCentreId;   // label: humanize gives "Cost Centre Id"
+```
+
+Enforced on **every** write — API, batch, import, seed loading, flow write nodes — because they all
+share the pipeline that checks them. No `CHECK` constraint is generated, so tightening a rule is a
+redeploy rather than a migration and existing rows are not retroactively invalid.
+
+- Bounds are **inclusive**, numeric field types only, written as decimal literals (`min = "0.01"`).
+  `pattern` matches the **whole** value, `STRING` / `TEXT` only, Java/JavaScript-shared syntax.
+- **Empty passes** the value domain. Use `required` (NOT NULL) or `requiredWhen` for "must be filled in".
+- Conditions are written as an **expression in a text block** — `reason = "Others"`, no escapes. The
+  grammar (operators, value forms, grouping, and the two shapes it refuses) is in
+  [softa-orm's README](../../../framework/softa-orm/README.md) under Field constraints.
+  The same rule in the JSON spelling (`[["reason", "=", "Others"]]`) parses to exactly the same tree;
+  use it only for `IS SET` / `IS NOT SET`, which the expression grammar cannot parse, and give those
+  units a third element (`null`). The expression grammar names fields as `[a-z][a-zA-Z0-9]*` — no dots
+  and no underscores — so a related row's attribute is reached by declaring a `cascadedField` on this
+  model and referencing it by its own name. On the right-hand side a **bare name is that sibling
+  field** and a **quoted string is a literal**; forgetting the quotes on an option code fails the boot
+  rather than comparing against a field that does not exist. Compare an option by its **item code**,
+  never its display label: a wrong code makes the condition silently never fire.
+- Conditions are filter expressions: nested AND/OR, 16 operators (`PARENT OF` / `CHILD OF` refused),
+  a bare sibling name (or the older `{{ @field }}`), `{{ TODAY }}` / `{{ NOW }}` / `{{ USER_ID }}` with optional ISO-8601 offsets
+  (`P13Y`, `P6M`, `PT2H`), `@mode` / `@userId` in the field slot — what each form means, and which
+  mistakes fail the boot rather than failing silently, is in
+  [placeholders.md](placeholders.md#filters--comparing-one-field-to-another). Options compare by item code,
+  relations by id; null and `""` are the same value.
+- A **negated operator answers true for an empty field** (`!=`, `NOT IN`, `NOT BETWEEN`) — value
+  equality, and the frontend answers the same. Rarely right for `requiredWhen` / `invalidWhen`, where
+  it fires on a row nobody has filled in yet. Pair it with the field being set, or list the cases
+  positively with `IN`.
+- On update a condition is evaluated only when the patch touches the field or a field it reads, on
+  the patch merged onto the stored row; `readonlyWhen` rejects an assignment. Static `required` /
+  `readonly` / `hidden` always win — do not declare both.
+- `constraintMessage` is what the user sees, as written (its own i18n key, not a `{0}` pattern).
+  Optional on a bound — "must be at least 0" composes itself; always write one for a `pattern` or
+  an `invalidWhen`.
+
+A bad declaration fails the boot, not the first save: an unparseable literal, `min` above `max`, an
+uncompilable regex, the attribute on the wrong field type, a condition naming a sibling that does not
+exist or comparing a `DATE` to a `STRING`, a time offset on a calendar day.
+
+**What the object cannot express** — a query, another row, external configuration, a collection —
+is a `ModelWriteValidator` bean (`io.softa.framework.orm.service.validation`): implement `supports` +
+`validateCreate` / `validateUpdate` / `validateDelete` / `validateBatch`, annotate `@Order`, and the
+framework runs it at the write roots for every path; `ctx.reject(field, message)` accumulates,
+`ctx.fail(message)` aborts. Business code never calls it. **A lookup the rows share belongs in
+`validateBatch`, not in the row method** — see "Writing a validator" in
+[softa-orm's README](../../../framework/softa-orm/README.md), which also covers what a batch costs
+and why the import's `skipException` fallback undoes it.
 
 ### Remove a field safely
 Delete the field. The framework will **not** drop the column automatically — it

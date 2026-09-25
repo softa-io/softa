@@ -37,6 +37,7 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.scope.MultiCountryScope;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.relation.RelationDeleteHandler;
+import io.softa.framework.orm.service.validation.ModelWriteValidatorChain;
 import io.softa.framework.orm.service.versioning.VersioningStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
 import io.softa.framework.orm.utils.BeanTool;
@@ -64,6 +65,13 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
 
     @Autowired
     private RelationDeleteHandler relationDeleteHandler;
+
+    /**
+     * The code-layer validators, run at the three write roots below before any database work.
+     * Optional so a hand-constructed service (tests) without a Spring context simply has none.
+     */
+    @Autowired(required = false)
+    private ModelWriteValidatorChain writeValidators;
 
     /**
      * Reject writes on a projection model ({@code @Model(projection = true)}): its rows live
@@ -139,6 +147,10 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             permissionService.checkWritePayload(modelName, row);
         }
         this.checkTenantId(modelName, rows);
+        // Code-layer rules see the caller's rows before the pipeline coerces them.
+        if (writeValidators != null) {
+            writeValidators.validateCreate(modelName, rows);
+        }
         // Extracts a set of assigned fields for checking field-level permissions
         Set<String> assignedFields = new HashSet<>();
         rows.forEach(row -> assignedFields.addAll(row.keySet()));
@@ -871,6 +883,22 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // identity models use the rows' own ids.
         Collection<Serializable> targetIds = strategy.resolveTargetIds(modelName, rows);
         permissionService.checkIdsFieldsAccess(modelName, targetIds, toUpdateFields, AccessType.UPDATE);
+        // Code-layer rules see each patch merged onto its stored row. The stored rows are read here,
+        // whole, only when a validator applies — the pipeline's own read fetches just the changed columns.
+        if (writeValidators != null && writeValidators.supports(modelName)) {
+            List<Map<String, Object>> originals = jdbcService.selectByIds(modelName,
+                    Cast.of(new ArrayList<>(targetIds)), Collections.emptyList(), ConvertType.ORIGINAL);
+            // Keyed by logical id and, for a timeline model, by the physical sliceId the patch names —
+            // the chain looks a timeline patch up by sliceId, since every slice shares the id.
+            Map<Serializable, Map<String, Object>> originalsById = new HashMap<>();
+            originals.forEach(row -> {
+                originalsById.put((Serializable) row.get(ModelConstant.ID), row);
+                if (row.get(ModelConstant.SLICE_ID) != null) {
+                    originalsById.put((Serializable) row.get(ModelConstant.SLICE_ID), row);
+                }
+            });
+            writeValidators.validateUpdate(modelName, toUpdateRows, originalsById);
+        }
         Integer updateCount = strategy.update(modelName, rows, toUpdateFields);
         return updateCount > 0;
     }
@@ -1083,6 +1111,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             return deleted;
         }
         permissionService.checkIdsAccess(modelName, ids, AccessType.DELETE);
+        if (writeValidators != null) {
+            writeValidators.validateDelete(modelName, ids);
+        }
         // Get the pre-delete data, to check whether the ids data have been deleted and collect changeLogs.
         List<Map<String, Object>> originalRows = jdbcService.selectByIds(modelName, ids, Collections.emptyList(), ConvertType.ORIGINAL);
         List<Map<String, Object>> deletableRows = originalRows.stream().filter(row -> {

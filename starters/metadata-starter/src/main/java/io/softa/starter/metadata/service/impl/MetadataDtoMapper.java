@@ -49,6 +49,7 @@ public final class MetadataDtoMapper {
         fieldDTO.setWidgetType(metaField.getWidgetType());
         fieldDTO.setCountries(metaField.getCountries());
         fieldDTO.setOnDelete(metaField.getOnDelete());
+        fieldDTO.setConstraints(metaField.getConstraints());
         return fieldDTO;
     }
 

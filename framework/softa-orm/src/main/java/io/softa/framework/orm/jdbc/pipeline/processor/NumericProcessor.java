@@ -7,6 +7,7 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ValueConstraints;
 
 /**
  * Numeric field processor.
@@ -39,7 +40,11 @@ public class NumericProcessor extends BaseProcessor {
         checkReadonly(isContain);
         Object value = row.get(fieldName);
         if (isContain && value != null) {
-            row.put(fieldName, formatInputNumeric(value));
+            Object formatted = formatInputNumeric(value);
+            // After coercion, not before: `min = "0"` has to compare against the Long a String "5"
+            // became, not against the String.
+            ValueConstraints.checkRange(metaField, formatted);
+            row.put(fieldName, formatted);
         } else if (AccessType.CREATE.equals(accessType)) {
             checkRequired(null);
             row.computeIfAbsent(fieldName, k -> metaField.getDefaultValueObject());
