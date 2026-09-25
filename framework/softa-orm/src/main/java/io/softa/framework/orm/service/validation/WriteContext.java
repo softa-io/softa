@@ -54,8 +54,19 @@ public final class WriteContext {
     /** A context with the request patch separate from the merged row. */
     public static WriteContext of(String modelName, AccessType accessType, Map<String, Object> row,
                                   Map<String, Object> patch, @Nullable Map<String, Object> originalRow) {
+        return of(modelName, accessType, row, patch, originalRow, new HashMap<>());
+    }
+
+    /**
+     * A context sharing one scratch map with the rest of its write — what a test builds when the
+     * thing under test is the batch path: hand the same map to {@code validateBatch} and to every
+     * row, as the chain does, and the row that asks second finds what the first one loaded.
+     */
+    public static WriteContext of(String modelName, AccessType accessType, Map<String, Object> row,
+                                  Map<String, Object> patch, @Nullable Map<String, Object> originalRow,
+                                  Map<String, Object> scratch) {
         return new WriteContext(modelName, accessType, 0, row, patch, originalRow,
-                new WriteValidationErrors(), new HashMap<>());
+                new WriteValidationErrors(), scratch);
     }
 
     public String modelName() {
