@@ -434,11 +434,17 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @PostMapping("/updateByFilter")
     public ApiResponse<Integer> updateByFilter(@RequestBody BulkUpdateParams bulkUpdateParams) {
         Map<String, Object> values = bulkUpdateParams.getValues();
-        Assert.notEmpty(values, "The updated data cannot be empty!");
+        // Null first, so the drops below have a map to work on; emptiness is judged after them.
+        Assert.notNull(values, "The updated data cannot be empty!");
         Assert.notTrue(values.containsKey(ROLES_FIELD),
                 "Roles are assigned per account, not by filter.");
         dropDerivedLock(values);
         dropConsultantFlag(values);
+        // Emptiness is judged on what SURVIVES the derived-field drops, not on what arrived. A
+        // payload of nothing but `consultant` or `locked` passed the old order and then reached the
+        // ORM with an empty SET clause — an error about SQL, or a count implying rows had been
+        // updated. The caller asked for nothing writable; say so in those terms.
+        Assert.notEmpty(values, "The updated data cannot be empty!");
         ContextHolder.getContext().setEffectiveDate(bulkUpdateParams.getEffectiveDate());
         return ApiResponse.success(rosterScope.call(() -> modelService.updateByFilter(MODEL,
                 // Consultants excluded rather than refused, and this is the one write where that is
@@ -920,9 +926,12 @@ public class UserAccountController extends EntityController<UserAccountService, 
      * reach them through here.
      */
     private void refuseTenantSideConsultantWrite(List<Map<String, Object>> rows) {
-        if (rosterScope.isPlatformSuperAdmin()) {
-            return;
-        }
+        // No platform exemption, because there is nothing here for one to exempt. A consultant's
+        // membership holds no role rows and lives in the customer's tenant, so it is outside the
+        // super-admin's roster (UserRosterScope#scopeToAdminAccounts) and onRosterAccounts has
+        // already refused it with "User not found." above. An exemption written here read as a
+        // supported platform path and was never reachable; a future screen that needs one has to
+        // widen the roster, not this.
         boolean anyConsultant = rows.stream().anyMatch(row -> {
             Object flag = row.get(CONSULTANT_FIELD);
             // Boolean or 1/0, depending on how the driver maps the column.

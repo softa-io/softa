@@ -50,11 +50,19 @@ public class ConsultantProfileDTO {
     @NotBlank(message = "Username is required")
     private String username;
 
-    @NotBlank(message = "Email is required")
+    /**
+     * Either this or {@link #mobile} — the service requires one, not both.
+     *
+     * <p>{@code @NotBlank} here made a whole class of consultant unsaveable. A person who joined by
+     * mobile alone has no email, and this screen does not write one onto somebody who already
+     * exists, so the field is read-only and empty: the operator could neither supply it nor do
+     * without it, and extending that consultant's grant or disabling them was impossible. The
+     * either-or rule needs both fields to see it, so it lives in the service rather than here.
+     */
     @Email(message = "Please enter a valid email address")
     private String email;
 
-    @NotBlank(message = "Mobile is required")
+    /** Either this or {@link #email}. */
     private String mobile;
 
     /** Defaults to enabled on create — a consultant is made in order to be used. */

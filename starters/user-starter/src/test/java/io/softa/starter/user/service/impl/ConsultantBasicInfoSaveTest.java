@@ -146,6 +146,62 @@ class ConsultantBasicInfoSaveTest {
         return f;
     }
 
+    /**
+     * The create form is not a back door into somebody else's grant table.
+     *
+     * <p>It shows only the grants just typed, while the save applies that table as a whole SET. Going
+     * on would delete every grant the person already holds and close the memberships behind them —
+     * with nothing on screen having named any of them, and the operator believing they had created
+     * something.
+     */
+    @Test
+    void creatingOverSomebodyWhoIsAlreadyAConsultantIsRefused() {
+        UserIdentity held = new UserIdentity();
+        held.setProfileId(PROFILE);
+        when(identityService.findByLoginIdentifier("jane@zingkey.com")).thenReturn(Optional.of(held));
+        // The fixture's searchOne already answers with an existing ConsultantProfile for PROFILE.
+
+        ConsultantProfileDTO f = form("Jane", "jane@zingkey.com", null);
+        f.setProfileId(null);
+
+        assertThatThrownBy(() -> service.save(f))
+                .hasMessageContaining("already a consultant");
+        // Nothing was written on the way to the refusal — above all not the grant table.
+        verify(service, never()).replaceAuthorizations(anyLong(), any());
+    }
+
+    @Test
+    void anEmployeeWhoIsNotYetAConsultantIsStillReachable() {
+        // The one-person-two-hats case the lookup exists for: an employee of company A becoming a
+        // consultant for company B is found, not refused.
+        UserIdentity held = new UserIdentity();
+        held.setProfileId(PROFILE);
+        when(identityService.findByLoginIdentifier("employee@zingkey.com")).thenReturn(Optional.of(held));
+        doReturn(Optional.empty()).when(service).searchOne(any(Filters.class));
+        doReturn(1L).when(service).createOne(any(ConsultantProfile.class));
+
+        ConsultantProfileDTO f = form("Employee", "employee@zingkey.com", null);
+        f.setProfileId(null);
+
+        assertThat(service.save(f)).isEqualTo(PROFILE);
+    }
+
+    @Test
+    void aMobileOnlyConsultantCanBeSaved() {
+        // The person who has no email at all. Requiring one made their profile unsaveable: this
+        // screen will not write an email onto somebody who already exists, so the field is read-only
+        // and blank, and extending their grant or disabling them became impossible.
+        service.save(form("Old Name", null, "+6591234567"));
+
+        verify(service).replaceAuthorizations(eq(PROFILE), any());
+    }
+
+    @Test
+    void aFormWithNeitherChannelIsRefused() {
+        assertThatThrownBy(() -> service.save(form("Old Name", null, null)))
+                .hasMessageContaining("email or a mobile");
+    }
+
     @Test
     void anExistingPersonIsNotRenamedByThisScreen() {
         service.save(form("Ada Lovelace", "old@zingkey.com", null));
@@ -185,6 +241,11 @@ class ConsultantBasicInfoSaveTest {
         victim.setLoginMobile("+6591234567");
         when(identityService.findByLoginIdentifier("attacker@evil.com")).thenReturn(Optional.empty());
         when(identityService.findByLoginIdentifier("+6591234567")).thenReturn(Optional.of(victim));
+        // An ordinary employee, so the "already a consultant" refusal does not fire and the request
+        // reaches the credential write it is really aimed at. Both doors matter: one of them closing
+        // is not a reason to stop asserting the other.
+        doReturn(Optional.empty()).when(service).searchOne(any(Filters.class));
+        doReturn(1L).when(service).createOne(any(ConsultantProfile.class));
 
         ConsultantProfileDTO f = form("Attacker", "attacker@evil.com", "+6591234567");
         f.setProfileId(null);   // the id is not needed — the mobile finds them
@@ -283,9 +344,15 @@ class ConsultantBasicInfoSaveTest {
     @Test
     void aBlankFieldMeansNotSuppliedRatherThanClearMyLogin() {
         // One cleared by accident locks the person out, and nothing on this screen would explain why.
-        service.save(form("  ", "", "  "));
+        // The mobile carries the save — blanking every channel is refused outright, which is a
+        // different rule, asserted on its own above.
+        service.save(freshPerson(form("  ", "", "+6591234567")));
 
         verify(profileService, never()).updateOne(any(UserProfile.class));
-        verify(identityService, never()).updateOne(any(UserIdentity.class));
+        ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
+        verify(identityService).updateOne(saved.capture());
+        // Written because it was supplied; the blank email is left exactly as it was.
+        assertThat(saved.getValue().getLoginMobile()).isEqualTo("+6591234567");
+        assertThat(saved.getValue().getLoginEmail()).isEqualTo("old@zingkey.com");
     }
 }

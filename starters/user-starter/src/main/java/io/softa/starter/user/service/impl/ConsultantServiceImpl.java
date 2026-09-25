@@ -190,6 +190,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         Assert.notNull(form, "A consultant profile is required");
         String email = form.getEmail() == null ? null : form.getEmail().trim();
         String mobile = form.getMobile() == null ? null : form.getMobile().trim();
+        // One channel is the requirement, not both. A person who joined by mobile alone has no email
+        // to send back, and demanding one locked their profile out of this form for good: the field
+        // is read-only for somebody who already exists, so the operator could neither supply it nor
+        // do without it, and extending a grant or disabling them became impossible.
+        Assert.isTrue((email != null && !email.isEmpty()) || (mobile != null && !mobile.isEmpty()),
+                "A consultant needs an email or a mobile.");
 
         Long profileId;
         boolean personIsNew;
@@ -203,6 +209,16 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             personIsNew = false;
         } else {
             Long existing = findPerson(email, mobile).orElse(null);
+            // Already a consultant, reached from the CREATE form — refuse instead of editing them.
+            // The form shows only the grants just typed, while the save applies the table as a whole
+            // SET: going on would delete every grant this person already holds and close the
+            // memberships behind them, with nothing on screen ever having named them. A person who
+            // is merely an employee is fine to go on with — that is the one-person-two-hats case the
+            // lookup exists for.
+            if (existing != null) {
+                Assert.notTrue(findProfile(existing).isPresent(),
+                        "That person is already a consultant — open their profile to change it.");
+            }
             personIsNew = existing == null;
             profileId = personIsNew
                     ? profileService.createPersonForJoin(
@@ -594,6 +610,12 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 .ifPresent(account -> {
                     account.setStatus(AccountStatus.DEACTIVATED);
                     accountService.updateOne(account);
+                    // Evicted HERE, because after this write the row is invisible to the sweep that
+                    // follows: forgetEntryAnswers reads listMembershipsOf, which hides DEACTIVATED
+                    // rows on purpose. The one membership a revoke is actually about was therefore
+                    // the one membership whose cached "yes" survived — for up to a minute, on the
+                    // path taken when somebody has to be cut off now.
+                    cacheService.clear(ConsultantAccessCheckerImpl.cacheKey(account.getId()));
                 });
     }
 
@@ -607,6 +629,10 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
      *
      * <p>Every membership, not just the ones whose grant changed: a save rewrites the whole
      * authorization table, and the cheap over-eviction costs one re-read each.
+     *
+     * <p>Every LIVE membership, to be exact — this reads {@code listMembershipsOf}, which hides
+     * deactivated rows. A membership a revoke just closed is therefore not reachable from here, and
+     * {@link #closeMembership} evicts it itself at the moment it writes the status.
      */
     private void forgetEntryAnswers(Long profileId) {
         accountService.listMembershipsOf(profileId).forEach(account ->
