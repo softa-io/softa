@@ -1,6 +1,7 @@
 package io.softa.framework.orm.service.validation;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -83,9 +84,12 @@ public class ModelWriteValidatorChain {
         }
         WriteValidationErrors errors = new WriteValidationErrors();
         for (ModelWriteValidator validator : applicable) {
-            validator.validateBatch(modelName, rows, AccessType.CREATE);
+            // One per validator, not one for the write: two validators cannot then pick the same key,
+            // so neither has to namespace what it puts here. Dropped with this loop iteration.
+            Map<String, Object> scratch = new HashMap<>();
+            validator.validateBatch(modelName, rows, AccessType.CREATE, scratch);
             for (int i = 0; i < rows.size(); i++) {
-                validator.validateCreate(new WriteContext(modelName, AccessType.CREATE, i, rows.get(i), rows.get(i), null, errors));
+                validator.validateCreate(new WriteContext(modelName, AccessType.CREATE, i, rows.get(i), rows.get(i), null, errors, scratch));
             }
         }
         throwIfRejected(errors);
@@ -106,7 +110,8 @@ public class ModelWriteValidatorChain {
         }
         WriteValidationErrors errors = new WriteValidationErrors();
         for (ModelWriteValidator validator : applicable) {
-            validator.validateBatch(modelName, patches, AccessType.UPDATE);
+            Map<String, Object> scratch = new HashMap<>();
+            validator.validateBatch(modelName, patches, AccessType.UPDATE, scratch);
             for (int i = 0; i < patches.size(); i++) {
                 Map<String, Object> patch = patches.get(i);
                 // A timeline patch names the slice it edits — its id is the logical key shared by every
@@ -117,9 +122,9 @@ public class ModelWriteValidatorChain {
                 if (original == null) {
                     continue;
                 }
-                Map<String, Object> merged = new java.util.HashMap<>(original);
+                Map<String, Object> merged = new HashMap<>(original);
                 merged.putAll(patch);
-                validator.validateUpdate(new WriteContext(modelName, AccessType.UPDATE, i, merged, patch, original, errors));
+                validator.validateUpdate(new WriteContext(modelName, AccessType.UPDATE, i, merged, patch, original, errors, scratch));
             }
         }
         throwIfRejected(errors);

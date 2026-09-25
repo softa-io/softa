@@ -324,27 +324,35 @@ method it is one query per distinct value for the whole write:
 @Component
 @Order(310)                                        // 300+ — batch-wide and expensive
 public class ContractTermValidator implements ModelWriteValidator {
-    // A validator is a singleton shared by concurrent requests, so what one write learns cannot
-    // live in a field. The chain calls validateBatch and then every row of that same write on one
-    // thread, which is exactly the scope this needs.
-    private final ThreadLocal<Map<String, Policy>> policiesOfThisWrite = new ThreadLocal<>();
 
-    @Override public void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType at) {
-        policiesOfThisWrite.set(new HashMap<>());  // empty, so nothing is inherited from the last write
+    @Override public void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType at,
+                                        Map<String, Object> scratch) {
+        scratch.put("policies", new HashMap<String, Policy>());
     }
 
     @Override public void validateCreate(WriteContext ctx) {
-        Policy policy = policiesOfThisWrite.get()  // filled lazily: on update the value often comes
-                .computeIfAbsent(countryOf(ctx), this::load);   // from the stored row, not the patch
+        @SuppressWarnings("unchecked")
+        Map<String, Policy> policies = (Map<String, Policy>) ctx.scratch().get("policies");
+        Policy policy = policies.computeIfAbsent(countryOf(ctx), this::load);   // one query per country
         …
     }
 }
 ```
 
+`scratch` is the same map in both methods and in every row of that write, and the chain owns it: one
+per validator per write, dropped when the write's validation ends. A validator therefore names its
+own keys without namespacing them — no other validator is handed this map — and has nothing to clean
+up. A context built by `WriteContext.of` (a unit test calling the validator directly) carries an
+empty map of its own, so nothing special is needed to test a validator that uses it.
+
 Fill it lazily rather than scanning the rows up front: on update the value a row is judged by often
 comes from the stored row rather than from the patch, and the batch method is handed the patches.
-Call `remove()` when the write ends if the map is large — the next write re-`set`s it, so nothing
-stale is read, but a pooled thread holds the last one until then.
+
+Do not park this on a `ThreadLocal` instead. That the batch method and its rows run on one thread is
+how the chain works today, not something this interface promises — a validator that keeps its answers
+on the thread reads another write's map the day the row loop is parallelised, and there is no hook at
+which it could clear them (the chain opens a write with `validateBatch` and closes it with nothing;
+`WriteContext` carries the row's index, not the batch's size, so no row recognises itself as last).
 
 **What a batch costs.** A model with no validator pays nothing — the chain returns before touching
 the rows. A model with one pays, per batch and not per row: `supports` once, the batch method once,
@@ -354,13 +362,13 @@ for it). A query in a row method is the only per-row cost, and it is the one to 
 
 ⚠️ **The import's `skipException` mode defeats all of this.** It first writes the sheet as one
 batch; if any row is rejected it rolls back and re-writes the rows *one call per row*. Each of those
-calls is a batch of one: the batch method runs again, the `ThreadLocal` is replaced, and a lookup
-that was one query for the sheet becomes one query per row. Rows that fail validation are exactly
+calls is a batch of one: the batch method runs again, `scratch` is a fresh map, and a lookup that was
+one query for the sheet becomes one query per row. Rows that fail validation are exactly
 what triggers it, so a template that declares constraints makes the slow path more likely, not less.
 Keep the per-row work in a validator cheap enough that this fallback is survivable.
 
-**The batch method can only throw.** It is handed the rows and nothing else — no `WriteContext`, no
-error collector — so a batch-level rejection aborts the write immediately. Row-level rejections
+**The batch method can only throw.** It is handed the rows and its scratch map — no `WriteContext`,
+no error collector — so a batch-level rejection aborts the write immediately. Row-level rejections
 accumulate and are reported together, which means the caller sees every bad row of a sheet but only
 the first cross-row collision. Put a rule in the row method whenever it can be attributed to a row.
 

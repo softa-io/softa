@@ -2,6 +2,7 @@ package io.softa.framework.orm.service.validation;
 
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
@@ -25,9 +26,11 @@ public final class WriteContext {
     private final Map<String, Object> patch;
     private final @Nullable Map<String, Object> originalRow;
     private final WriteValidationErrors errors;
+    private final Map<String, Object> scratch;
 
     WriteContext(String modelName, AccessType accessType, int rowIndex, Map<String, Object> row,
-                 Map<String, Object> patch, @Nullable Map<String, Object> originalRow, WriteValidationErrors errors) {
+                 Map<String, Object> patch, @Nullable Map<String, Object> originalRow,
+                 WriteValidationErrors errors, Map<String, Object> scratch) {
         this.modelName = modelName;
         this.accessType = accessType;
         this.rowIndex = rowIndex;
@@ -35,6 +38,7 @@ public final class WriteContext {
         this.patch = patch;
         this.originalRow = originalRow;
         this.errors = errors;
+        this.scratch = scratch;
     }
 
     /**
@@ -50,7 +54,8 @@ public final class WriteContext {
     /** A context with the request patch separate from the merged row. */
     public static WriteContext of(String modelName, AccessType accessType, Map<String, Object> row,
                                   Map<String, Object> patch, @Nullable Map<String, Object> originalRow) {
-        return new WriteContext(modelName, accessType, 0, row, patch, originalRow, new WriteValidationErrors());
+        return new WriteContext(modelName, accessType, 0, row, patch, originalRow,
+                new WriteValidationErrors(), new HashMap<>());
     }
 
     public String modelName() {
@@ -117,5 +122,25 @@ public final class WriteContext {
     /** Everything rejected in this write so far — what a validator's unit test reads back. */
     public List<WriteValidationException.FieldError> errors() {
         return errors.errors();
+    }
+
+    /**
+     * Somewhere to keep what this validator worked out for this batch — the same map its
+     * {@code validateBatch} was handed, and the same one every other row of this write sees.
+     *
+     * <p>The chain owns it: one map per validator per write, created before the batch method and
+     * dropped when the write's validation ends. That is what makes it safe to put a lookup here
+     * that would otherwise be repeated per row. Nothing else reads it — a validator names its own
+     * keys and no other validator is given this map — and nothing has to clean it up.
+     *
+     * <p>Not a {@code ThreadLocal}: the batch method and the rows happening to run on one thread is
+     * how the chain works today, not something the interface promises, and a validator that parked
+     * its answers on the thread would read another write's map the day the row loop is parallelised.
+     *
+     * <p>A context built by {@link #of} — a unit test calling a validator directly — gets an empty
+     * map of its own, so a validator that uses this needs no special setup to be tested.
+     */
+    public Map<String, Object> scratch() {
+        return scratch;
     }
 }

@@ -47,10 +47,31 @@ class ModelWriteValidatorChainTest {
     @Order(120)
     static class NameRule implements ModelWriteValidator {
         @Override public boolean supports(String modelName) { return "Company".equals(modelName); }
-        @Override public void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType accessType) { CALLS.add("name-batch"); }
+        @Override public void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType accessType,
+                                            Map<String, Object> scratch) {
+            CALLS.add("name-batch");
+            scratch.put("owner", "NameRule");   // ScratchRule must not find this
+        }
         @Override public void validateCreate(WriteContext ctx) {
             CALLS.add("name");
             if (ctx.row().get("name") == null) ctx.reject("name", "Name is required");
+        }
+    }
+
+    /** Puts one thing in the scratch map and reads it back from every row. */
+    @Order(130)
+    static class ScratchRule implements ModelWriteValidator {
+        static final List<Object> SEEN = new ArrayList<>();
+        /** What a validator ordered before this one left behind — must always be null. */
+        static final List<Object> FOREIGN = new ArrayList<>();
+        @Override public boolean supports(String modelName) { return "Company".equals(modelName); }
+        @Override public void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType accessType,
+                                            Map<String, Object> scratch) {
+            scratch.put("loaded", rows.size());
+        }
+        @Override public void validateCreate(WriteContext ctx) {
+            SEEN.add(ctx.scratch().get("loaded"));
+            FOREIGN.add(ctx.scratch().get("owner"));
         }
     }
 
@@ -79,6 +100,32 @@ class ModelWriteValidatorChainTest {
                 });
         // per validator: batch first, then the rows; validators in @Order
         assertThat(CALLS).containsExactly("pre", "pre", "address", "address", "name-batch", "name", "name");
+    }
+
+    @Test
+    void whatTheBatchWorkedOutReachesEveryRowOfThatWrite() {
+        ScratchRule.SEEN.clear();
+        ScratchRule.FOREIGN.clear();
+        ModelWriteValidatorChain chain = chain(new ScratchRule());
+        chain.validateCreate("Company", List.of(Map.of("name", "a"), Map.of("name", "b"), Map.of("name", "c")));
+        assertThat(ScratchRule.SEEN).containsExactly(3, 3, 3);
+
+        // And the next write starts empty: nothing is inherited from the one before.
+        ScratchRule.SEEN.clear();
+        chain.validateCreate("Company", List.of(Map.of("name", "a")));
+        assertThat(ScratchRule.SEEN).containsExactly(1);
+    }
+
+    @Test
+    void oneValidatorCannotReadAnothersScratch() {
+        ScratchRule.SEEN.clear();
+        ScratchRule.FOREIGN.clear();
+        // NameRule runs first and leaves "owner" behind. ScratchRule never writes that key, so a
+        // map shared between validators is the only way it could read anything back.
+        ModelWriteValidatorChain chain = chain(new NameRule(), new ScratchRule());
+        chain.validateCreate("Company", List.of(Map.of("name", "a")));
+        assertThat(ScratchRule.SEEN).containsExactly(1);
+        assertThat(ScratchRule.FOREIGN).containsExactly((Object) null);
     }
 
     @Test

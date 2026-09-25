@@ -57,8 +57,17 @@ public interface ModelWriteValidator {
     default void validateDelete(String modelName, List<? extends Serializable> ids) {}
 
     /**
-     * The whole batch before the rows are visited one by one — for rules between rows of the same
-     * request (a duplicate code within one import). Reject by throwing.
+     * The whole batch before the rows are visited one by one. Two kinds of rule need it: one between
+     * rows of the same request (a duplicate code within one import), which no row can see on its own;
+     * and one lookup the rows share, which done here is a query per distinct value for the write
+     * instead of a query per row. Reject by throwing — this method is handed no error collector, so
+     * a rule that can be attributed to a row belongs in the row method, where rejections accumulate.
+     *
+     * @param scratch somewhere to keep what this batch worked out, handed back to every row of this
+     *                write as {@link WriteContext#scratch()}. The chain owns it: one map per
+     *                validator per write, dropped when the write's validation ends, so there is
+     *                nothing to clean up and no other validator to collide with.
      */
-    default void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType accessType) {}
+    default void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType accessType,
+                               Map<String, Object> scratch) {}
 }
