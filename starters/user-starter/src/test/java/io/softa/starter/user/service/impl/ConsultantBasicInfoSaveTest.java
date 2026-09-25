@@ -34,15 +34,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The Basic information card has to actually be saved.
+ * What the Basic information card may write, and about whom.
  *
- * <p>It was not. {@code save} read the email and mobile into locals, used them only to find or create
- * the person, and wrote them nowhere; the username it never read at all. Every edit to that card was
- * accepted and discarded — the form said it saved, the list came back unchanged, and nothing in
- * between reported anything.
+ * <p>Two failures meet here, and fixing the first produced the second. Originally the card was read
+ * into locals and written nowhere — every edit accepted and discarded. Writing it then applied the
+ * form's name, email and mobile to whichever person the lookup landed on, which for an existing
+ * person is an account takeover: the lookup matches on EITHER channel, so a victim's mobile plus the
+ * attacker's email finds the victim and moves their login address, and a code login then arrives as
+ * them.
  *
- * <p>The tests assert on what reaches the person and the credential, not on what the endpoint
- * returns: {@code save} answered with the right profile id the whole time it was dropping the data.
+ * <p>So the line is not "does it save" but "whose row is this". A person this save CREATED is seeded
+ * from the form; a person who already existed is left alone, name included. Tests on both sides of
+ * that line, because each half looks correct on its own.
  */
 class ConsultantBasicInfoSaveTest {
 
@@ -130,41 +133,101 @@ class ConsultantBasicInfoSaveTest {
         assertThat(named.getValue().getNickname()).isEqualTo("Old Name");
     }
 
-    @Test
-    void theUsernameReachesThePerson() {
-        service.save(form("Ada Lovelace", "old@zingkey.com", null));
-
-        ArgumentCaptor<UserProfile> saved = ArgumentCaptor.forClass(UserProfile.class);
-        verify(profileService).updateOne(saved.capture());
-        assertThat(saved.getValue().getFullName()).isEqualTo("Ada Lovelace");
+    /**
+     * The same form, on the create path — no id, and nobody holds either identifier yet.
+     *
+     * <p>Canonical spelling only matters where a credential is written at all, and after the
+     * takeover fix that is a person this save just made.
+     */
+    private ConsultantProfileDTO freshPerson(ConsultantProfileDTO f) {
+        when(identityService.findByLoginIdentifier(any())).thenReturn(Optional.empty());
+        when(profileService.createPersonForJoin(any())).thenReturn(PROFILE);
+        f.setProfileId(null);
+        return f;
     }
 
     @Test
-    void renamingEvictsEveryMembershipsCachedUserInfo() {
-        // The cache holds the name and nothing evicts it on a bare update. Keyed per membership, so
-        // missing one leaves that tenant serving the old name for a month — to somebody who was just
-        // told the change was saved.
+    void anExistingPersonIsNotRenamedByThisScreen() {
         service.save(form("Ada Lovelace", "old@zingkey.com", null));
 
-        verify(profileService).evictUserInfo(100L);
+        // The name is global — it is what every company this person belongs to displays. A form about
+        // a consultancy does not get to change who somebody is.
+        verify(profileService, never()).updateOne(any(UserProfile.class));
     }
 
+
+
     @Test
-    void aChangedEmailReachesTheCredential() {
+    void anExistingPersonsLoginAddressIsNotMoved() {
+        // This used to be asserted the other way round, which is how the takeover was pinned as
+        // intended behaviour: submit somebody else's address and their credential followed.
         service.save(form("Old Name", "ada@zingkey.com", null));
 
-        ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
-        verify(identityService).updateOne(saved.capture());
-        assertThat(saved.getValue().getLoginEmail()).isEqualTo("ada@zingkey.com");
+        verify(identityService, never()).updateOne(any(UserIdentity.class));
+    }
+
+    /**
+     * The takeover, written out as the request that performs it.
+     *
+     * <p>No profile id is supplied and no password is needed. The lookup tries the email first, finds
+     * nobody — it is the attacker's own — and then tries the mobile, which is the victim's. From
+     * there the form's email is the victim's new login address, and a code login arrives as them.
+     *
+     * <p>The one check that existed cannot catch it: "does this address belong to someone else" is
+     * asked about the address being moved TO, and the attacker owns it.
+     */
+    @Test
+    void avictimFoundByMobileKeepsTheirLoginAddress() {
+        UserIdentity victim = new UserIdentity();
+        victim.setId(11L);
+        victim.setProfileId(PROFILE);
+        victim.setLoginEmail("victim@zingkey.com");
+        victim.setLoginMobile("+6591234567");
+        when(identityService.findByLoginIdentifier("attacker@evil.com")).thenReturn(Optional.empty());
+        when(identityService.findByLoginIdentifier("+6591234567")).thenReturn(Optional.of(victim));
+
+        ConsultantProfileDTO f = form("Attacker", "attacker@evil.com", "+6591234567");
+        f.setProfileId(null);   // the id is not needed — the mobile finds them
+        service.save(f);
+
+        verify(identityService, never()).updateOne(any(UserIdentity.class));
+        verify(profileService, never()).updateOne(any(UserProfile.class));
+    }
+
+    @Test
+    void aPersonThisSaveCreatedIsSeededFromTheForm() {
+        // The other side of the line. Nothing is being taken from anyone — without this the
+        // consultant's name comes back as the email address createPersonForJoin names them with.
+        when(identityService.findByLoginIdentifier(any())).thenReturn(Optional.empty());
+        when(profileService.createPersonForJoin("fresh@zingkey.com")).thenReturn(PROFILE);
+
+        ConsultantProfileDTO f = form("Ada Lovelace", "fresh@zingkey.com", null);
+        f.setProfileId(null);
+        service.save(f);
+
+        ArgumentCaptor<UserProfile> named = ArgumentCaptor.forClass(UserProfile.class);
+        verify(profileService).updateOne(named.capture());
+        assertThat(named.getValue().getFullName()).isEqualTo("Ada Lovelace");
+
+        ArgumentCaptor<UserIdentity> credential = ArgumentCaptor.forClass(UserIdentity.class);
+        verify(identityService).updateOne(credential.capture());
+        assertThat(credential.getValue().getLoginEmail()).isEqualTo("fresh@zingkey.com");
+
+        // The cache holds the name per MEMBERSHIP, and nothing evicts it on a bare update.
+        verify(profileService).evictUserInfo(100L);
     }
 
     @Test
     void anIdentifierBelongingToSomebodyElseIsRefusedBeforeTheDatabaseRefusesIt() {
         // Globally unique by index, so this would otherwise surface as a constraint name. The
         // operator's real mistake — typing a live person's address — deserves a sentence.
+        when(identityService.findByLoginIdentifier(any())).thenReturn(Optional.empty());
+        when(profileService.createPersonForJoin("taken@zingkey.com")).thenReturn(PROFILE);
         when(identityService.isIdentifierClaimable(eq("taken@zingkey.com"), eq(PROFILE))).thenReturn(false);
 
-        assertThatThrownBy(() -> service.save(form("Old Name", "taken@zingkey.com", null)))
+        ConsultantProfileDTO fresh = form("Old Name", "taken@zingkey.com", null);
+        fresh.setProfileId(null);
+        assertThatThrownBy(() -> service.save(fresh))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("already belongs to someone else");
     }
@@ -185,7 +248,7 @@ class ConsultantBasicInfoSaveTest {
         // way. Every lookup normalises first, so a row written as "+65 9123-4567" is one the login
         // query — which asks for "+6591234567" — cannot find: the consultant simply cannot sign in
         // by mobile, and no migration rewrites such a row.
-        service.save(form("Old Name", "old@zingkey.com", "+65 9123-4567"));
+        service.save(freshPerson(form("Old Name", "old@zingkey.com", "+65 9123-4567")));
 
         ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
         verify(identityService).updateOne(saved.capture());
@@ -194,7 +257,7 @@ class ConsultantBasicInfoSaveTest {
 
     @Test
     void anEmailIsStoredLowercasedLikeEverySpellingTheLookupsUse() {
-        service.save(form("Old Name", "Ada@ZingKey.com", null));
+        service.save(freshPerson(form("Old Name", "Ada@ZingKey.com", null)));
 
         ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
         verify(identityService).updateOne(saved.capture());

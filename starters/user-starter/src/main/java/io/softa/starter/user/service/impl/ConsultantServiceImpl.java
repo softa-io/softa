@@ -192,19 +192,24 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         String mobile = form.getMobile() == null ? null : form.getMobile().trim();
 
         Long profileId;
+        boolean personIsNew;
         if (form.getProfileId() != null) {
             // A supplied id names a person who must exist. Without this a mistyped id made a
             // consultant record pointing at nobody — saveable, listable with blank columns, and
-            // impossible to fix from the form, whose person lookups all come back empty. Only the
-            // client-supplied id is checked: resolveOrCreatePerson answers with a person it just
-            // found or made.
+            // impossible to fix from the form, whose person lookups all come back empty.
             Assert.isTrue(profileService.getById(form.getProfileId()).isPresent(),
                     "No person exists with id {0}.", form.getProfileId());
             profileId = form.getProfileId();
+            personIsNew = false;
         } else {
-            profileId = resolveOrCreatePerson(email, mobile);
+            Long existing = findPerson(email, mobile).orElse(null);
+            personIsNew = existing == null;
+            profileId = personIsNew
+                    ? profileService.createPersonForJoin(
+                            email != null && !email.isBlank() ? email : mobile)
+                    : existing;
         }
-        applyBasicInformation(profileId, form.getUsername(), email, mobile);
+        applyBasicInformation(profileId, form.getUsername(), email, mobile, personIsNew);
 
         // The consultant record itself: created on first save, and its Enabled/Disabled switch is
         // whatever the form says. Defaulting to enabled on create — a consultant is made in order
@@ -236,24 +241,32 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
      * Write back what the form says about the PERSON — the half of this screen that is not about the
      * consultancy at all.
      *
-     * <p>It was missing entirely: {@code save} read the email and mobile into locals, used them only
-     * to find or create the person, and never wrote them anywhere; the username it did not read at
-     * all. So every edit to the Basic information card was accepted and silently discarded, and even
-     * on create the username was dropped — which is why a consultant's name comes back as their email
-     * address, the identifier {@code createPersonForJoin} seeds the person with.
+     * <p><b>Only for a person this save just created.</b> The form describes a consultancy; it does
+     * not get to say who somebody already is. Writing these onto a person who already existed was an
+     * account takeover with no exploit in it: the lookup matches on EITHER channel, so submitting a
+     * victim's mobile together with the attacker's email found the victim and moved their login
+     * address, after which a code login arrives as them. No id needed, no password needed, and the
+     * one check — that the new address belongs to nobody else — passes by construction, because the
+     * attacker owns the address they are moving it to. The permission that reaches this endpoint is
+     * grantable to platform roles that are not the super administrator.
      *
-     * <p>A blank field means "not supplied", never "clear it". These are login identifiers: one
-     * cleared by accident locks the person out of the product, and there is no screen here that would
-     * explain why. The form requires all three anyway.
+     * <p>It is also the misoperation: the mobile is required by the form, so making an existing
+     * employee a consultant rewrote the number they sign in with everywhere, silently.
      *
-     * <p>Changing an identifier is checked against every other person, not just consultants. They are
-     * globally unique by index, so taking one that belongs to somebody else would fail at the database
-     * with a constraint name instead of a sentence — and the operator's actual mistake (typing a real
-     * person's address) deserves to be said out loud.
+     * <p>Changing a login identifier is a credential operation. It belongs on the person's own
+     * account-security screen, behind proof that they hold the old one — not on an administrator's
+     * form for describing somebody else. The screen shows these read-only for a person who already
+     * exists, and this is what makes that more than a hint.
+     *
+     * <p>For a newly created person the values are seeded rather than changed: nothing is being taken
+     * from anyone, and without them the consultant's name comes back as their email address, which is
+     * the identifier {@code createPersonForJoin} names them with. A blank field means "not supplied",
+     * never "clear it" — the form requires all three anyway.
      */
-    private void applyBasicInformation(Long profileId, String username, String email, String mobile) {
+    private void applyBasicInformation(Long profileId, String username, String email, String mobile,
+                                       boolean personIsNew) {
         String name = username == null ? null : username.trim();
-        if (name != null && !name.isEmpty()) {
+        if (personIsNew && name != null && !name.isEmpty()) {
             profileService.getById(profileId).ifPresent(person -> {
                 if (!name.equals(person.getFullName())) {
                     person.setFullName(name);
@@ -280,6 +293,9 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         // "+6591234567", cannot find. The person then simply cannot sign in by mobile, and no
         // migration rewrites such a row: the class says so itself. The comparison is against the
         // canonical form too, or an unchanged number would be rewritten on every save.
+        if (!personIsNew) {
+            return;
+        }
         String canonicalEmail = LoginIdentifiers.normalize(email);
         String canonicalMobile = LoginIdentifiers.normalize(mobile);
         identityService.findByProfile(profileId).ifPresent(identity -> {
@@ -309,24 +325,24 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     }
 
     /**
-     * The person behind this email / mobile — the one who already exists, or a new one.
+     * The person behind this email / mobile, when one already holds either.
      *
      * <p>Reusing an existing person is not a convenience, it is the only correct answer: login
      * identifiers are globally unique, so a second profile carrying this address cannot be created,
      * and the person who holds it IS the consultant being described. It is also what lets someone be
      * an employee at one company and a consultant for another — one person, two kinds of membership,
      * one picker. Matching on either channel, because the operator may type whichever they know.
+     *
+     * <p>It no longer creates: whether a person was FOUND or MADE decides whether this screen may
+     * write their credentials, so the caller has to be able to tell the two apart.
      */
-    private Long resolveOrCreatePerson(String email, String mobile) {
+    private Optional<Long> findPerson(String email, String mobile) {
         Optional<Long> byEmail = identityService.findByLoginIdentifier(email)
                 .map(UserIdentity::getProfileId);
         if (byEmail.isPresent()) {
-            return byEmail.get();
+            return byEmail;
         }
-        Optional<Long> byMobile = identityService.findByLoginIdentifier(mobile)
-                .map(UserIdentity::getProfileId);
-        return byMobile.orElseGet(() -> profileService.createPersonForJoin(
-                email != null && !email.isBlank() ? email : mobile));
+        return identityService.findByLoginIdentifier(mobile).map(UserIdentity::getProfileId);
     }
 
     /**
