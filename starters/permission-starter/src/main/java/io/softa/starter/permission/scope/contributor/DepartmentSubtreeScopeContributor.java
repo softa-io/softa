@@ -2,12 +2,12 @@ package io.softa.starter.permission.scope.contributor;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
-import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 import io.softa.starter.permission.scope.DepartmentCascadePathResolver;
 import io.softa.starter.permission.scope.DepartmentIdPathResolver;
+import io.softa.starter.permission.scope.IdPath;
 import io.softa.starter.permission.spi.ScopeContributor;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -33,7 +33,6 @@ import java.util.Optional;
 public class DepartmentSubtreeScopeContributor implements ScopeContributor {
 
     private static final String DEPT_FIELD = "departmentId";
-    private static final String PATH_SEPARATOR = "/";
     private static final String SCOPE_EXPR_DEPT_ID = "deptId";
 
     private final DepartmentCascadePathResolver cascadePath;
@@ -80,12 +79,7 @@ public class DepartmentSubtreeScopeContributor implements ScopeContributor {
         String rootPath = rootPathOpt.get();
         String field = DepartmentCascadePathResolver.idPathField(path.get());
 
-        // Two-branch form to avoid the "1/12 matches 1/120" prefix collision:
-        //   field = rootPath                        ← the root itself
-        //   OR field CHILD_OF (rootPath + "/")      ← LIKE 'rootPath/%'
-        Filters selfPart = Filters.of(field, Operator.EQUAL, rootPath);
-        Filters descendantsPart = new Filters().childOf(field, rootPath + PATH_SEPARATOR);
-        return Filters.or(selfPart, descendantsPart);
+        return IdPath.subtreeOf(field, rootPath);
     }
 
     /** Admin-fixed root from {@code scopeExpr.deptId}, or null when absent —

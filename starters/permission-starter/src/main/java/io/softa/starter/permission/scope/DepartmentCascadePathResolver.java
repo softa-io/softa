@@ -90,11 +90,11 @@ public interface DepartmentCascadePathResolver {
     /**
      * The field a department scope filters on, given a resolved path.
      *
-     * <p>Lives here rather than in each contributor because {@link #SELF_PATH} makes the join
-     * conditional: every other path appends {@code ".idPath"}, the empty one must not, or the
-     * filter would name {@code ".idPath"} and match nothing while looking well-formed.
+     * <p>A name for {@link IdPath#fieldOn} in this interface's own terms: {@link #SELF_PATH} is
+     * how a resolver says "the model is Department itself", and that is the one case the join has
+     * to leave alone.
      */
     static String idPathField(String cascadePath) {
-        return SELF_PATH.equals(cascadePath) ? "idPath" : cascadePath + ".idPath";
+        return IdPath.fieldOn(cascadePath);
     }
 }

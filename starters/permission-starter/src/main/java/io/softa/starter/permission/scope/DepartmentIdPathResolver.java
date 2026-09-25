@@ -66,7 +66,6 @@ public class DepartmentIdPathResolver {
 
     private static final String DEPARTMENT_MODEL = "Department";
     private static final String FIELD_ID = "id";
-    private static final String FIELD_ID_PATH = "idPath";
 
     /** Per-tenant cache key prefix: {@code dept-idpath:{tenantId}}. HR-domain
      *  key, kept out of softa's RedisConstant. */
@@ -160,11 +159,11 @@ public class DepartmentIdPathResolver {
         if (ctx != null) ctx.setSkipPermissionCheck(true);
         try {
             List<Map<String, Object>> rows = modelService.searchList(
-                    DEPARTMENT_MODEL, new FlexQuery(List.of(FIELD_ID, FIELD_ID_PATH)));
+                    DEPARTMENT_MODEL, new FlexQuery(List.of(FIELD_ID, IdPath.FIELD)));
             Map<Long, String> tree = new HashMap<>(rows.size());
             for (Map<String, Object> row : rows) {
                 Long id = coerceLong(row.get(FIELD_ID));
-                Object path = row.get(FIELD_ID_PATH);
+                Object path = row.get(IdPath.FIELD);
                 if (id != null && path instanceof CharSequence cs && !cs.isEmpty()) {
                     tree.put(id, cs.toString());
                 }

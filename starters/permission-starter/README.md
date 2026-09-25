@@ -89,6 +89,7 @@ spi/support/  AbstractCacheAsideSnapshotProvider · RedisPermissionSnapshotProvi
 scope/        ScopeRuleCompiler · ScopeApplicabilityResolver · IdentityScopeCompiler · ScopeFilterTemplates
               DataScopeType (+ data-system/DataScopeType.Builtin.json) · DataScopeTypeReader
               + org-scope support (EmployeeContextEnricher, Department*Resolver, PermissionScopeConfig)
+              SubtreeFilterRewriter · IdPath   (a caller-written CHILD_OF → the target's idPath)
 scope/contributor/  Custom · DepartmentSubtree · ManagedDepartments
 index/        EndpointIndex · EndpointCoverageValidator
 sensitive/    SensitiveFieldSetCache
@@ -170,6 +171,46 @@ Scope **types are data**; their compilation is **code only where it must be**.
 `ScopeContributor` → its `compile` → the `IdentityScopeCompiler` data path →
 fail-closed. Fail-closed for an inapplicable / empty rule is `WHERE 1=0`
 (`ScopeRuleCompiler.matchNone()`), never "no filter".
+
+### A subtree operator in the caller's own filter
+
+Everything below narrows what a caller may see. `appendScopeAccessFilters` does one thing before any
+of that, to the filter the caller *wrote*: a `CHILD_OF` naming a ToOne is rewritten onto the target's
+`idPath`.
+
+Left alone it is wrong rather than merely unsupported. `CHILD_OF` compiles to a `LIKE` on the column
+it names, and that column holds an id, so `department_id LIKE '873%'` matches by numeric coincidence
+rather than by tree position. `SubtreeFilterRewriter` moves the condition to where the tree actually
+is and splits it into root + descendants — the same two branches `DepartmentSubtree` emits, and for
+the same reason (a segment has no trailing separator, so `1/12` is otherwise a prefix of `1/120`).
+
+A relation qualifies by **shape**, not by name: the target has a `STRING` field named `idPath` and a
+ToOne back to itself. A second tree therefore works without an edit here, and a plain reference is
+left exactly as the caller wrote it. Ids that resolve to nothing — unknown, soft-deleted, another
+tenant's — become `matchNone()`, never a dropped condition.
+
+It runs **before** the early returns below, not after. The rewrite answers what the caller asked; it
+does not restrict. An administrator and anything under `@SkipPermissionCheck` ask the same question
+and need the same answer, so placing it after the bypass would leave exactly them with the broken one.
+
+`IdPath` holds what a materialized path looks like — the field name, the separator, the rule for
+appending the suffix to a cascade path, and the two-branch condition itself — shared with the
+contributors so they cannot drift. The ORM keeps its own copy of the separator for `PARENT_OF`
+(`StringTools.splitIdPath` splits on it to turn a path back into ids), which is below this starter
+and not reachable from here; the two have to be changed together.
+
+**What a model must do to be a tree, and what nothing does for it.** The recognition above is the
+whole contract: a `STRING idPath`, and a ToOne to itself. Nothing registers, and no annotation says
+"tree". But nothing maintains `idPath` either — this starter only ever reads it. The model that owns
+the tree computes it on create and, which is the part that gets forgotten, **rebuilds the whole
+subtree when a node moves**. A stale path is not detected here; the filter simply answers about the
+branch the node used to sit under. A prefix index on the column is likewise the model's business.
+
+**Getting the name wrong fails silently.** `idpath`, `id_path`, `pathIds` — the shape check does not
+match, no rewrite happens, and there is no warning. The `CHILD_OF` then reaches the database as
+written, as a `LIKE` on the id column, and returns whatever shares leading digits. That is the cost
+of recognising a tree by convention rather than by declaration, and the reason the name cannot be a
+setting: recognition is built on it.
 
 ### No grant: what happens then
 
