@@ -40,6 +40,7 @@ import io.softa.starter.user.enums.InvitationStatus;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
+import io.softa.starter.user.constant.LoginMessages;
 import io.softa.starter.user.util.LoginIdentifiers;
 
 /**
@@ -241,11 +242,21 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (StringUtils.isBlank(email)) {
             return;
         }
-        Optional<ResetTarget> target = resolveResetTarget(email);
+        // Existence is answered, and only existence. The code-send entry points now refuse an
+        // address no identity holds, and this one starts the same errand from the same screen; a
+        // silence here after a refusal there would say "exists" just as loudly, only by omission,
+        // and would leave whoever mistyped waiting for a mail that was never going to come. The
+        // link, like a code, reaches nothing but the address itself, so naming an unknown address
+        // hands an attacker no list to guess passwords against.
+        UserIdentity identity = identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(email))
+                .orElseThrow(() -> new BusinessException(LoginMessages.EMAIL_NOT_LINKED));
+        Optional<ResetTarget> target = resolveResetTarget(email, identity);
         if (target.isEmpty()) {
-            // One log line and one (empty) response for "unknown", "no password yet", "no active
-            // membership" and "not the person's own login email" alike — telling them apart would
-            // make this an oracle over who is registered where.
+            // The OTHER three reasons this comes to nothing stay silent, deliberately: no password
+            // yet, no confirmed membership, an address that is not the person's own login. Each is
+            // a fact about somebody who does exist — which company they are in, how far through
+            // joining they are, which address is really theirs — and none of them is a typo the
+            // sender could fix by being told. One log line and one empty response for all three.
             log.info("forgotPassword for an identifier with nothing to reset — ignored (no enumeration).");
             return;
         }
@@ -263,8 +274,8 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     /**
      * The membership a self-service reset may be issued against, or empty when nothing may be.
      *
-     * <p>Resolved as the PERSON, by login identifier — the same lookup and spelling login uses —
-     * never as "the account whose work email this is". The password is global: whoever receives
+     * <p>The identity arrives already resolved as the PERSON, by login identifier — the same lookup
+     * and spelling login uses — never as "the account whose work email this is". The password is global: whoever receives
      * the link sets the credential that opens every company the identity belongs to. A work
      * mailbox is the company's, not the person's — it is reissued, and a re-hired leaver's revived
      * row carries it while still PENDING, with the person's own login elsewhere. Matching that row
@@ -292,17 +303,15 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
      * one no longer changes where the mail lands. A mobile login identifier resolves the person but
      * has no mailbox to prove, so it gets nothing.
      */
-    private Optional<ResetTarget> resolveResetTarget(String identifier) {
-        String typed = LoginIdentifiers.typedForm(identifier);
-        Optional<UserIdentity> identity = identityService.findByLoginIdentifier(typed);
-        if (identity.isEmpty() || StringUtils.isBlank(identity.get().getPassword())) {
+    private Optional<ResetTarget> resolveResetTarget(String identifier, UserIdentity identity) {
+        if (StringUtils.isBlank(identity.getPassword())) {
             return Optional.empty();
         }
         String canonical = LoginIdentifiers.normalize(identifier);
-        if (!canonical.equals(LoginIdentifiers.normalize(identity.get().getLoginEmail()))) {
+        if (!canonical.equals(LoginIdentifiers.normalize(identity.getLoginEmail()))) {
             return Optional.empty();
         }
-        List<UserAccount> active = accountService.listMembershipsOf(identity.get().getProfileId()).stream()
+        List<UserAccount> active = accountService.listMembershipsOf(identity.getProfileId()).stream()
                 .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
                 .toList();
         return active.stream()

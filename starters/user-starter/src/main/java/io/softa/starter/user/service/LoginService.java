@@ -14,14 +14,21 @@ import io.softa.starter.user.dto.MembershipOption;
 public interface LoginService {
 
     /**
-     * Send email verification code
+     * Send an email verification code to an address that an account can sign in with.
+     *
+     * <p>Refuses an address no login identifier resolves to, rather than reporting success for a
+     * code nobody will receive. The refusal names the reason, which does disclose whether an
+     * address is in use — see the implementation for why that is the deliberate choice here.
+     *
+     * <p>Not the path for /join: an invitee may legitimately have no identity yet.
      *
      * @param email Email address
      */
     void sendEmailCode(String email);
 
     /**
-     * Send mobile verification code
+     * Send a mobile verification code. The mobile twin of {@link #sendEmailCode(String)}, with the
+     * same existence guard and the same caveats.
      *
      * @param mobile Mobile number
      */

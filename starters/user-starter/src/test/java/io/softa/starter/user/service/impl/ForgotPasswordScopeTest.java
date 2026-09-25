@@ -9,6 +9,7 @@ import org.springframework.context.ApplicationEventPublisher;
 
 import io.softa.framework.base.message.MailRequestMessage;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
@@ -17,6 +18,7 @@ import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
@@ -109,9 +111,12 @@ class ForgotPasswordScopeTest {
         when(identityService.findByLoginIdentifier(WORK_EMAIL)).thenReturn(Optional.empty());
         when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(revived));
 
-        service.forgotPassword(WORK_EMAIL);
+        assertThatThrownBy(() -> service.forgotPassword(WORK_EMAIL))
+                .isInstanceOf(BusinessException.class);
 
         // Load-bearing: no token row, no mail — the work column is never consulted for a reset.
+        // The refusal is the same one an unknown address gets, which is the point: a work mailbox
+        // is not a login identifier, and nothing about the answer says the row exists.
         nothingIssued();
     }
 
@@ -229,10 +234,15 @@ class ForgotPasswordScopeTest {
     }
 
     @Test
-    void anUnknownIdentifier_getsNothing_andIsIndistinguishable() {
+    void anUnknownIdentifier_isRefusedByName() {
+        // Existence is the one fact this path now answers, matching the code-send entry points:
+        // starting the same errand from the same screen must not say "exists" by omission, and
+        // whoever mistyped is left waiting for a mail that was never going to come.
         when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
 
-        service.forgotPassword("nobody@example.test");
+        assertThatThrownBy(() -> service.forgotPassword("nobody@example.test"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("This email is not linked to any account. Please contact your administrator.");
 
         nothingIssued();
         verify(accountService, never()).listMembershipsOf(any());

@@ -29,6 +29,7 @@ import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.user.constant.LoginMessages;
 import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.dto.JoinContacts;
 import io.softa.starter.user.dto.JoinVerification;
@@ -216,6 +217,56 @@ public class LoginServiceImpl implements LoginService {
 
     @Override
     public void sendEmailCode(String email) {
+        requireIdentifierLinked(email, LoginMessages.EMAIL_NOT_LINKED);
+        this.deliverEmailCode(email);
+    }
+
+    @Override
+    public void sendMobileCode(String mobile) {
+        requireIdentifierLinked(mobile, LoginMessages.MOBILE_NOT_LINKED);
+        this.deliverMobileCode(mobile);
+    }
+
+    /**
+     * Refuse a code for an address no account can sign in with.
+     *
+     * <p>Without this the request answered "sent" for anything well-formed, and the person waited
+     * for a code that was generated, stored, and addressed to a mailbox or handset nobody reading
+     * this screen controls — a typo in a phone number was indistinguishable from a working one.
+     *
+     * <p>Deliberately NOT anti-enumeration: the refusal says which identifiers exist, and the
+     * endpoint is unauthenticated. The trade is sound where the identifiers are contacts the
+     * organisation issued and already holds, and the alternative — a friendly lie — leaves the
+     * person with no way to tell a typo from an outage. The password path decided the opposite
+     * for itself and stays as it is: there, a distinct "no such account" would be a free filter
+     * over the list an attacker then guesses passwords against, and that list is exactly what
+     * this endpoint cannot help them with, because a code only reaches the address itself.
+     *
+     * <p>An app where the identifiers are self-chosen public addresses wants the opposite default
+     * and should not use these entry points as they stand.
+     *
+     * <p>Asked BEFORE the rate check, so a refusal neither spends the address's send budget nor
+     * overwrites a code its real owner may still be typing.
+     *
+     * <p>The lookup gets the TYPED form, as every other identifier lookup here does: a row seeded
+     * with the separators the person still writes is found too (see {@link LoginIdentifiers}).
+     */
+    private void requireIdentifierLinked(String identifier, String message) {
+        if (identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier)).isEmpty()) {
+            throw new BusinessException(message);
+        }
+    }
+
+    /**
+     * Send a code to an address that has ALREADY been established as the right one to send to —
+     * by a login identifier that resolves, or by an invitation that named it.
+     *
+     * <p>Separate from {@link #sendEmailCode} because /join legitimately sends to someone who has
+     * no identity yet: the invitation is the authority there, and the address came from the
+     * invitation rather than from the caller, so an existence check would refuse every first-time
+     * joiner.
+     */
+    private void deliverEmailCode(String email) {
         // Normalised once, here, and the normalised value is what the code is keyed by AND sent to:
         // the verify step normalises its identifier the same way, so the two meet on one key
         // however the person spelt the address on either screen.
@@ -229,8 +280,8 @@ public class LoginServiceImpl implements LoginService {
                 Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), null, MessageScope.PLATFORM));
     }
 
-    @Override
-    public void sendMobileCode(String mobile) {
+    /** The mobile twin of {@link #deliverEmailCode}; see there for why it is separate. */
+    private void deliverMobileCode(String mobile) {
         mobile = LoginIdentifiers.normalize(mobile);
         String code = this.generateNumericCode(mobile);
         eventPublisher.publishEvent(new SmsRequestMessage(
@@ -442,10 +493,13 @@ public class LoginServiceImpl implements LoginService {
         // The address never crosses the wire in either direction: the caller sends a token, the
         // invitation service resolves it, and the code goes out to what IT stored.
         String address = invitationService.resolveJoinChannel(rawToken, channel);
+        // The delivery methods, not the public send* ones: an invitee may have no identity yet —
+        // that is what joining is — so the "is this linked to an account?" guard those carry would
+        // refuse exactly the person this path exists for. The invitation is the authority here.
         if ("mobile".equalsIgnoreCase(channel)) {
-            this.sendMobileCode(address);
+            this.deliverMobileCode(address);
         } else {
-            this.sendEmailCode(address);
+            this.deliverEmailCode(address);
         }
     }
 
