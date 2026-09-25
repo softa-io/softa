@@ -370,7 +370,10 @@ exist or comparing a `DATE` to a `STRING`, a time offset on a calendar day.
 is a `ModelWriteValidator` bean (`io.softa.framework.orm.service.validation`): implement `supports` +
 `validateCreate` / `validateUpdate` / `validateDelete` / `validateBatch`, annotate `@Order`, and the
 framework runs it at the write roots for every path; `ctx.reject(field, message)` accumulates,
-`ctx.fail(message)` aborts. Business code never calls it.
+`ctx.fail(message)` aborts. Business code never calls it. **A lookup the rows share belongs in
+`validateBatch`, not in the row method** — see "Writing a validator" in
+[softa-orm's README](../../../framework/softa-orm/README.md), which also covers what a batch costs
+and why the import's `skipException` fallback undoes it.
 
 ### Remove a field safely
 Delete the field. The framework will **not** drop the column automatically — it

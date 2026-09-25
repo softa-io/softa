@@ -309,6 +309,61 @@ rules, 200–299 collection / cross-row, 300+ batch-wide and expensive), at the 
 endpoint, the import, a flow write node and a direct `service.createOne` are all covered. Per validator
 the batch method runs first, then the rows; values are the caller's, before the pipeline coerces them.
 
+##### Writing a validator
+
+The example above only implements the row methods, which is the right shape for a rule that reads
+one row. Two things need the batch method instead.
+
+**A rule between rows of one request.** A duplicate code inside one import file is legal on every
+row taken alone; only the whole batch shows the collision. The row method cannot see its siblings.
+
+**A lookup the rows share.** Done in the row method it is one query per row. Done once in the batch
+method it is one query per distinct value for the whole write:
+
+```java
+@Component
+@Order(310)                                        // 300+ — batch-wide and expensive
+public class ContractTermValidator implements ModelWriteValidator {
+    // A validator is a singleton shared by concurrent requests, so what one write learns cannot
+    // live in a field. The chain calls validateBatch and then every row of that same write on one
+    // thread, which is exactly the scope this needs.
+    private final ThreadLocal<Map<String, Policy>> policiesOfThisWrite = new ThreadLocal<>();
+
+    @Override public void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType at) {
+        policiesOfThisWrite.set(new HashMap<>());  // empty, so nothing is inherited from the last write
+    }
+
+    @Override public void validateCreate(WriteContext ctx) {
+        Policy policy = policiesOfThisWrite.get()  // filled lazily: on update the value often comes
+                .computeIfAbsent(countryOf(ctx), this::load);   // from the stored row, not the patch
+        …
+    }
+}
+```
+
+Fill it lazily rather than scanning the rows up front: on update the value a row is judged by often
+comes from the stored row rather than from the patch, and the batch method is handed the patches.
+Call `remove()` when the write ends if the map is large — the next write re-`set`s it, so nothing
+stale is read, but a pooled thread holds the last one until then.
+
+**What a batch costs.** A model with no validator pays nothing — the chain returns before touching
+the rows. A model with one pays, per batch and not per row: `supports` once, the batch method once,
+and on update one read of the stored rows *whole* (the pipeline's own read fetches only the columns
+the write changes; a validator is handed the patch merged onto the full row, so that read is made
+for it). A query in a row method is the only per-row cost, and it is the one to move.
+
+⚠️ **The import's `skipException` mode defeats all of this.** It first writes the sheet as one
+batch; if any row is rejected it rolls back and re-writes the rows *one call per row*. Each of those
+calls is a batch of one: the batch method runs again, the `ThreadLocal` is replaced, and a lookup
+that was one query for the sheet becomes one query per row. Rows that fail validation are exactly
+what triggers it, so a template that declares constraints makes the slow path more likely, not less.
+Keep the per-row work in a validator cheap enough that this fallback is survivable.
+
+**The batch method can only throw.** It is handed the rows and nothing else — no `WriteContext`, no
+error collector — so a batch-level rejection aborts the write immediately. Row-level rejections
+accumulate and are reported together, which means the caller sees every bad row of a sheet but only
+the first cross-row collision. Put a rule in the row method whenever it can be attributed to a row.
+
 ##### The expression grammar
 
 `Filters.of` picks the form by the first character: a leading `[` is the list form, anything else is
