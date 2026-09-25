@@ -12,6 +12,7 @@ import io.softa.framework.base.message.SmsRequestMessage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * The verification code has to actually leave the building (finding #3).
@@ -29,6 +30,8 @@ class VerificationCodeDeliveryTest {
 
     VerificationCodeDeliveryTest() {
         ReflectionTestUtils.setField(loginService, "eventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "codeGuard", codeGuard);
     }
 

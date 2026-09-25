@@ -19,9 +19,15 @@ import io.softa.starter.user.enums.AccountStatus;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
+// copyable = false: a membership is not a thing to duplicate — (tenantId, profileId) is unique, so a
+// copy could only ever fail at the index — and, more to the point, it closes the four generic copy
+// endpoints without a shadow each. UserAccountController shadows every OTHER generic endpoint so the
+// roster scope applies to by-id reads and writes; copy is the one family the framework refuses on
+// its own once this is false.
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         multiTenant = true,
+        copyable = false,
         searchName = {"nickname", "username"}
 )
 /**
@@ -59,6 +65,20 @@ public class UserAccount extends AuditableModel {
                     + "direction: closing one company's account must not remove the person, and "
                     + "deleting a person is not something a tenant-scoped action may do")
     private Long profileId;
+
+    /**
+     * Denormalised from {@code ConsultantAuthorization} on purpose.
+     *
+     * <p>The tenant's account list has to hide these rows on <i>every</i> read, and a join back to
+     * the platform's consultant records on each of those reads would be both slower and easy to
+     * forget in a query written next year.
+     *
+     * <p>It also outlives what the grant does not: a revoked grant is deleted while the account is
+     * kept, and the tenant's audit log still has to be able to name its actor as a consultant.
+     */
+    @Field(description = "Whether this membership is a consultant's rather than an employment. "
+            + "Set when the account is minted; never edited by a tenant")
+    private Boolean consultant;
 
     @Field
     private String nickname;

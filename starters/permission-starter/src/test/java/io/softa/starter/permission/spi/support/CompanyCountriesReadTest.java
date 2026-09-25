@@ -48,7 +48,10 @@ class CompanyCountriesReadTest {
         modelManager = Mockito.mockStatic(ModelManager.class);
         modelManager.when(() -> ModelManager.existModel(COMPANY_MODEL)).thenReturn(true);
         modelService = mockModelService();
-        provider = new DefaultPermissionSnapshotProvider(null, modelService, null, null, List.of());
+        // Sixth argument: the shared-nav prefixes. Empty here — this suite is about the company
+        // country read, and no nav is shared in it.
+        provider = new DefaultPermissionSnapshotProvider(null, modelService, null, null,
+                List.of(), List.of());
     }
 
     @SuppressWarnings("unchecked")

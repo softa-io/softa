@@ -34,6 +34,7 @@ import io.softa.starter.user.service.UserRosterScope;
 import io.softa.starter.user.service.impl.UiContextBuilder;
 import io.softa.starter.user.util.ModelRefIds;
 import io.softa.starter.user.util.PermissionSnapshotKey;
+import io.softa.framework.base.enums.BuiltinRole;
 
 /**
  * Read-only admin API for the user-access (RBAC) management UI — the endpoints
@@ -92,7 +93,19 @@ public class UserAccessController {
         q.setFields(List.of(
                 "id", "nickname", "username", "email", "mobile",
                 "status", "createdTime", "updatedTime"));
-        List<Map<String, Object>> users = modelService.searchList("UserAccount", q);
+        // Through the roster scope, like every other UserAccount read — and additionally without
+        // consultants, which is the one place that distinction matters.
+        //
+        // A consultant IS listed on the account roster, so the customer can suspend one. This is a
+        // different question: who may be GRANTED A ROLE. A consultant's reach comes from the
+        // tenant's subscription and not from any role, so offering one here would invite an
+        // administrator to configure something that decides nothing, and then to wonder why it had
+        // no effect. Reading the model raw is what used to put them in the Add-Members and
+        // Assign-Roles dialogs.
+        List<Map<String, Object>> users = rosterScope.call(() -> {
+            q.setFilters(rosterScope.excludeConsultants(rosterScope.scopeByTenant(q.getFilters())));
+            return modelService.searchList("UserAccount", q);
+        });
 
         Map<Long, EmployeeOrgView> ctxByUser = loadOrgContext(users);
 
@@ -241,6 +254,6 @@ public class UserAccessController {
     }
 
     private static boolean holdsSuperAdmin(Set<String> roleCodes) {
-        return roleCodes != null && roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 }

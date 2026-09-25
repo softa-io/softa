@@ -12,9 +12,11 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
+import io.softa.framework.base.enums.BuiltinRole;
 
 /**
  * The platform super-admin's cross-tenant account roster: who it may reach, and the window that lets
@@ -45,7 +47,7 @@ public class UserRosterScope {
     public boolean isPlatformSuperAdmin() {
         Context context = ContextHolder.getContext();
         Set<String> roleCodes = context == null ? null : context.getRoleCodes();
-        return roleCodes != null && roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        return BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
     }
 
     /**
@@ -88,6 +90,30 @@ public class UserRosterScope {
             return filters;   // non-super-admin: the ORM already auto-filters reads to the caller's tenant
         }
         return scopeToAdminAccounts(filters);
+    }
+
+    /**
+     * Exclude consultant memberships from a read.
+     *
+     * <p><b>Consultants are visible on the account roster</b>, and deliberately so: the customer may
+     * suspend one without going through the platform, which they cannot do to a row they cannot see.
+     * Entry then needs both parties to agree — the platform's grant and this account's own status —
+     * and each can say no on its own.
+     *
+     * <p>What that does NOT open is administration. A consultant's reach comes from the tenant's
+     * subscription, not from any role, so offering one as a candidate for a role grant would invite
+     * an administrator to configure something that decides nothing. The screens that pick PEOPLE TO
+     * CONFIGURE apply this; the screens that LIST THE ROSTER do not.
+     *
+     * <p>Matches rows where the flag is false OR unset: every membership that existed before
+     * consultants did carries null there, and a bare {@code eq(false)} would hide the entire
+     * existing roster.
+     */
+    public Filters excludeConsultants(Filters filters) {
+        Filters base = filters == null ? new Filters() : filters;
+        return base.and(Filters.or()
+                .eq(UserAccount::getConsultant, false)
+                .isNotSet(UserAccount::getConsultant));
     }
 
     /**

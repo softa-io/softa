@@ -44,6 +44,7 @@ import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * UserAccount Model Service Implementation
@@ -74,6 +75,15 @@ public class LoginServiceImpl implements LoginService {
 
     private static final String NO_COMPANY_MESSAGE =
             "Your account is not linked to any company. Please contact your administrator.";
+
+    /**
+     * A consultant whose grants have all lapsed. Distinct from NO_COMPANY_MESSAGE because
+     * the remedy is different and so is the person to ask: nothing is wrong with their account, an
+     * authorization simply ended, and it is the PLATFORM that extends it — telling them to contact
+     * "your administrator" would send them to a tenant that never granted the access.
+     */
+    private static final String CONSULTANT_NO_ACCESS_MESSAGE =
+            "No accessible tenant. Please contact the platform administrator.";
 
     /**
      * The first wrong password that is answered with a remaining-attempts count (PRD L3). Early
@@ -112,6 +122,10 @@ public class LoginServiceImpl implements LoginService {
     /** Send / attempt limits for one-time codes (PRD D2) — see the class for why each exists. */
     @Autowired
     private VerificationCodeGuard codeGuard;
+
+    /** Consultant access is a grant with dates, not a status — only this can say if it is live. */
+    @Autowired
+    private ConsultantService consultantService;
 
     /** Carries "the code was passed" into the anonymous set-password / confirm steps. */
     @Autowired
@@ -361,7 +375,7 @@ public class LoginServiceImpl implements LoginService {
      */
     private AuthenticationResult afterAuthentication(UserIdentity identity) {
         Long profileId = identity.getProfileId();
-        boolean mustSetPassword = StringUtils.isBlank(identity.getPassword());
+        boolean mustSetPassword = mustSetPasswordFor(identity);
         List<MembershipOption> options = this.resolveMemberships(profileId);
         List<MembershipOption> enterable = options.stream()
                 .filter(MembershipOption::selectable).toList();
@@ -662,15 +676,72 @@ public class LoginServiceImpl implements LoginService {
     @Override
     public boolean mustSetPassword(Long profileId) {
         return identityService.findByProfile(profileId)
-                .map(identity -> StringUtils.isBlank(identity.getPassword()))
+                .map(this::mustSetPasswordFor)
                 // Unknown person → do not claim they are fine; the caller fails elsewhere.
                 .orElse(Boolean.FALSE);
     }
+
+    /**
+     * Whether this person must set a password before going any further.
+     *
+     * <p>One rule, reached from both the id-only overload and {@link #afterAuthentication}, which
+     * holds the identity already and would otherwise pay a second read for it. It used to be inlined
+     * there as a bare blank-password test — so the exemption below applied when switching tenant and
+     * not when signing in, which is the one path every consultant takes.
+     *
+     * <p>Consultants are exempt. An employee is forced because they arrived by invitation
+     * and, without a password, could not come back through the password route at all. A consultant is
+     * created by the platform with no invitation and no welcome mail, and code login is their intended
+     * way in for as long as they like — forcing the step would block a login on a credential nobody
+     * asked them to create. They may still set one from Personal Settings, so this exempts them from
+     * being FORCED, not from having one.
+     */
+    private boolean mustSetPasswordFor(UserIdentity identity) {
+        if (StringUtils.isNotBlank(identity.getPassword())) {
+            return false;   // asked first: the common answer, and it costs no read
+        }
+        return !holdsOnlyConsultantMemberships(identity.getProfileId(),
+                accountService.listMembershipsOf(identity.getProfileId()));
+    }
+
+    /**
+     * Whether every membership this person holds is a consultant's.
+     *
+     * <p>The question the two rules below actually want, and not the same as "is this person a
+     * consultant". Somebody can be an employee at one company and a consultant for another — the
+     * design says so explicitly — and each hat carries its own rule. The exemptions are written
+     * against the whole person because both are asked before a company is chosen, so the safe
+     * reading is the one that keeps the employee half intact: a dual-hat person is still forced to
+     * set a password, and is still told what an employee would be told.
+     *
+     * <p>An empty list answers true for a consultant, which is the state a consultant whose grants
+     * have all lapsed is in — exactly the case the wording exists for.
+     */
+    private boolean holdsOnlyConsultantMemberships(Long profileId, List<UserAccount> memberships) {
+        return consultantService.isConsultant(profileId)
+                && memberships.stream().allMatch(account -> Boolean.TRUE.equals(account.getConsultant()));
+    }
+
     @Override
     public List<MembershipOption> listTenants(String authToken) {
         // Reads the person from the token, not the request: listing another person's tenants is
         // a smaller leak than taking over their session, but it is the same unauthenticated call.
         return resolveMemberships(resolvePreAuthToken(authToken));
+    }
+
+    /**
+     * Why a row cannot be entered even though the membership behind it is intact.
+     *
+     * <p>Asked for consultant rows only — see the call site — and about one thing only: whether the
+     * company itself is available today. One neutral phrase rather than the tenant's
+     * actual status: whether a customer is suspended or closed is that customer's business, and the
+     * person reading this row needs to know they cannot go in, not why the company stopped paying.
+     */
+    private String unavailableReason(Long tenantId) {
+        if (tenantInfoService == null || tenantInfoService.isTenantActive(tenantId)) {
+            return null;
+        }
+        return "Unavailable";
     }
 
     private List<MembershipOption> resolveMemberships(Long profileId) {
@@ -679,12 +750,30 @@ public class LoginServiceImpl implements LoginService {
         boolean locked = identityService.findByProfile(profileId)
                 .map(identityService::isPasswordLocked).orElse(false);
         return accountService.listMembershipsOf(profileId).stream()
-                .filter(account -> COUNTED_STATUSES.contains(account.getStatus()))
+                // Two kinds of membership, two rules. An EMPLOYMENT that cannot be entered is still
+                // shown greyed — it is a standing relationship the person can ask about. A
+                // CONSULTANCY that is off is simply absent, whichever side turned it off: a lapsed
+                // grant is access they no longer have, and an account the customer suspended is the
+                // customer saying not now. Listing either would invite them to ask a tenant about a
+                // decision that tenant did not make, or has deliberately made. That is grantStands, not canEnter: canEnter also folds in the COMPANY's own
+                // state, and a live grant into a frozen company is the one consultant row that does
+                // stay — greyed, carrying the reason (the picker's row rules and the frozen-company
+                // rule are about different causes, not in conflict).
+                .filter(account -> Boolean.TRUE.equals(account.getConsultant())
+                        ? consultantService.grantStands(profileId, account.getTenantId())
+                                && account.getStatus() == AccountStatus.ACTIVE
+                        : COUNTED_STATUSES.contains(account.getStatus()))
                 .map(account -> new MembershipOption(
                         account.getId(), account.getTenantId(),
                         tenantInfoService == null ? null
                                 : tenantInfoService.getTenantName(account.getTenantId()),
-                        account.getStatus(), locked))
+                        account.getStatus(), locked, Boolean.TRUE.equals(account.getConsultant()),
+                        // Consultant rows only. The frozen-company reason is about the consultant's switcher; an
+                        // employment into a frozen company already reads as such through its own
+                        // status badge, and giving it a second mechanism would change a path this
+                        // feature has no business changing.
+                        Boolean.TRUE.equals(account.getConsultant())
+                                ? unavailableReason(account.getTenantId()) : null))
                 // Selectable first: the common case is one usable company among some frozen ones,
                 // and making the person hunt for it in a mixed list is a needless step.
                 .sorted(Comparator.comparing(MembershipOption::selectable).reversed())
@@ -701,7 +790,15 @@ public class LoginServiceImpl implements LoginService {
      * login pays nothing for the distinction.
      */
     private BusinessException noCompanyRefusal(Long profileId) {
-        boolean invited = accountService.listMembershipsOf(profileId).stream()
+        // Asked first: a consultant with no live grant is not an employee with no company, and the
+        // generic wording would send them to a tenant administrator who cannot help. Only when the
+        // person is a consultant AND holds no employment does this apply — someone who is both gets
+        // the employee wording, which is the half they can still act on.
+        List<UserAccount> memberships = accountService.listMembershipsOf(profileId);
+        if (holdsOnlyConsultantMemberships(profileId, memberships)) {
+            return new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
+        }
+        boolean invited = memberships.stream()
                 .anyMatch(account -> account.getStatus() == AccountStatus.PENDING
                         || account.getStatus() == AccountStatus.INVITED);
         return new BusinessException(invited ? INVITATION_PENDING_MESSAGE : NO_COMPANY_MESSAGE);
@@ -772,6 +869,23 @@ public class LoginServiceImpl implements LoginService {
         // run the tenant and account gates on the TARGET membership.
         return AuthenticationResult.resolved(
                 profileId, profileService.getUserInfo(accountId), this.mustSetPassword(profileId));
+    }
+
+    @Override
+    public AuthenticationResult leaveTenant(Long currentAccountId) {
+        Long profileId = personBehind(currentAccountId);
+        List<MembershipOption> options = this.resolveMemberships(profileId);
+        // Nothing left to choose from: the same answer a login with nowhere to go gets, worded for
+        // who this is — a consultant whose grants have all lapsed is told to ask the platform,
+        // not "your administrator".
+        if (options.isEmpty()) {
+            throw noCompanyRefusal(profileId);
+        }
+        // Always the picker, even with a single company left. The person was just removed from
+        // somewhere; walking them silently into somewhere else would read as the refusal having
+        // failed, and the picker is where the reason is shown.
+        return AuthenticationResult.choicePending(
+                profileId, options, this.mustSetPassword(profileId), issuePreAuthToken(profileId));
     }
 
     /**

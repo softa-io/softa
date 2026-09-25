@@ -24,6 +24,14 @@ public enum ResponseCode {
     EMAIL_OR_PASSWORD_ERROR(411, "Email or password error"),
     VERIFICATION_EXCEPTION(412, "Verification exception"),
     TOKEN_EXPIRED(413, "Token invalid or expired"),
+    /**
+     * A consultant's authorization for the tenant they are inside has ended — disabled, revoked, or
+     * simply past its end date. Its own code because the client's response is specific: leave THIS
+     * tenant and go back to the picker, where the person's other memberships may still be waiting.
+     * Reported as a plain permission denial it would read as "you lack a permission here", which
+     * sends them to a tenant administrator who cannot grant it.
+     */
+    CONSULTANT_AUTHORIZATION_ENDED(414, "Your authorization for this tenant has ended."),
 
     BUSINESS_EXCEPTION(440, "Business exception"),
 

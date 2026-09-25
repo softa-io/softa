@@ -95,6 +95,18 @@ class UserAccountControllerTest {
         installRosterScope(mock(RoleService.class));
     }
 
+    /**
+     * Every by-id path now asks the roster count before acting — for everyone, consultant rows
+     * excluded (see UserAccountByIdHidesConsultantsTest). These cases are about what happens AFTER
+     * that gate, so the row is simply visible. Set per case rather than in setUp, because other
+     * cases rely on the mock's default 0 to assert the refusal.
+     */
+    private void rosterSeesTheRow() {
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 1L)));
+        when(modelService.count(eq("UserAccount"), any())).thenReturn(1L);
+    }
+
     private static Map<String, Object> row(Object id, boolean withRoles) {
         Map<String, Object> row = new HashMap<>();
         row.put("id", id);
@@ -105,6 +117,7 @@ class UserAccountControllerTest {
 
     @Test
     void updateOne_rolesChanged_evictsThatUser() {
+        rosterSeesTheRow();
         when(modelService.updateOne(eq("UserAccount"), any())).thenReturn(true);
 
         try (MockedStatic<IdUtils> ignored = Mockito.mockStatic(IdUtils.class)) {
@@ -116,6 +129,7 @@ class UserAccountControllerTest {
 
     @Test
     void updateOne_stringId_coercedAndEvicted() {
+        rosterSeesTheRow();
         when(modelService.updateOne(eq("UserAccount"), any())).thenReturn(true);
 
         try (MockedStatic<IdUtils> ignored = Mockito.mockStatic(IdUtils.class)) {
@@ -127,6 +141,7 @@ class UserAccountControllerTest {
 
     @Test
     void updateOne_noRolesInPayload_doesNotEvict() {
+        rosterSeesTheRow();
         when(modelService.updateOne(eq("UserAccount"), any())).thenReturn(true);
 
         try (MockedStatic<IdUtils> ignored = Mockito.mockStatic(IdUtils.class)) {
@@ -138,6 +153,7 @@ class UserAccountControllerTest {
 
     @Test
     void updateOneAndFetch_rolesChanged_evictsThatUser() {
+        rosterSeesTheRow();
         when(modelService.updateOneAndFetch(eq("UserAccount"), any(), any()))
                 .thenReturn(new HashMap<>());
 
@@ -166,6 +182,7 @@ class UserAccountControllerTest {
 
     @Test
     void updateOne_doesNotWriteTheDerivedLock_butKeepsEveryOtherKey() {
+        rosterSeesTheRow();
         when(modelService.updateOne(eq("UserAccount"), any())).thenReturn(true);
         ArgumentCaptor<Map<String, Object>> sent = ArgumentCaptor.forClass(Map.class);
 
@@ -183,6 +200,7 @@ class UserAccountControllerTest {
 
     @Test
     void updateOneAndFetch_doesNotWriteTheDerivedLock_butKeepsEveryOtherKey() {
+        rosterSeesTheRow();
         when(modelService.updateOneAndFetch(eq("UserAccount"), any(), any())).thenReturn(new HashMap<>());
         ArgumentCaptor<Map<String, Object>> sent = ArgumentCaptor.forClass(Map.class);
 
@@ -467,6 +485,7 @@ class UserAccountControllerTest {
 
     @Test
     void rehire_byATenantHR_onItsOwnTenantsRow_reachesTheService() {
+        rosterSeesTheRow();
         UserAccountService accountService = accountServiceHolding(7L, 2L);
 
         asCallerIn(2L, Set.of("HR"), () -> controller.rehire(7L));
@@ -480,6 +499,8 @@ class UserAccountControllerTest {
         // the roster check (not the caller's tenant) is what bounds it.
         UserAccountService accountService = accountServiceHolding(7L, 9L);
         installRosterScope(roleServiceReturningNoAdminRoles());
+        when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 1L)));
         when(modelService.count(eq("UserAccount"), any())).thenReturn(1L);
 
         asCallerIn(2L, Set.of(RoleConstant.CODE_SUPER_ADMIN), () -> controller.rehire(7L));
@@ -607,6 +628,7 @@ class UserAccountControllerTest {
 
     @Test
     void getById_withAnExplicitFieldList_stillBadgesTheLock_andHandsBackNoProfileId() {
+        rosterSeesTheRow();
         UserIdentityService identityService = mock(UserIdentityService.class);
         ReflectionTestUtils.setField(controller, "identityService", identityService);
         when(identityService.findPasswordLockedProfiles(any())).thenReturn(Set.of(1L));

@@ -38,6 +38,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.softa.starter.user.service.ConsultantService;
 
 /**
  * The proof that ties /join's two anonymous follow-up steps to a code that was actually passed.
@@ -74,6 +75,8 @@ class JoinProofTest {
 
     JoinProofTest() {
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
+        ReflectionTestUtils.setField(loginService, "consultantService",
+                mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "profileService", mock(UserProfileService.class));

@@ -26,6 +26,7 @@ import io.softa.framework.orm.domain.Filters;
 import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.EffectiveAccess;
 import io.softa.starter.user.dto.UiContext;
@@ -68,9 +69,14 @@ import io.softa.framework.base.utils.NavIds;
  * <h3>Consistency caveat</h3>
  * This is a SECOND assembly of "the user's effective nav / permissions" alongside the
  * engine's (which enforces). They derive from the same entities with the same rules
- * (active-role filter, SUPER_ADMIN short-circuit, ancestor expansion), but a future
- * change must touch both or the FE view drifts from enforcement — a UX/consistency
+ * (active-role filter, SUPER_ADMIN short-circuit, consultant derivation, ancestor expansion), but a
+ * future change must touch both or the FE view drifts from enforcement — a UX/consistency
  * risk, never a security one (the interceptor stays authoritative).
+ *
+ * <p>The consultant principal is what that caveat looks like when it is missed. It was added to the
+ * engine alone, where it made the gate and the row scope work; this build still fell through to
+ * empty grants, so the consultant passed every permission check and saw a shell with no menus in
+ * it — a drift that reads as broken seed data rather than as a half-applied change.
  *
  * <h3>{@code @SkipPermissionCheck}</h3>
  * {@link #build} reads RBAC config models that a normal user can't see under scope
@@ -95,6 +101,12 @@ public class UiContextBuilder {
      *  {@code permission.platform-nav-prefixes}. Field-injected — the ctor is RequiredArgs over finals. */
     @Value("${permission.platform-nav-prefixes:}")
     private String platformNavPrefixesCsv;
+
+    /** Prefixes a tenant AND the platform both work in (e.g. messaging, whose models are all
+     *  multiTenant so the platform reads the same menus on its own tier). Disjoint from the list
+     *  above: that one is what a tenant admin is kept out of, this is what both are let into. */
+    @Value("${permission.shared-nav-prefixes:}")
+    private String sharedNavPrefixesCsv;
 
     /** Plan (entitlement) gate — optional: a pure-enforce deployment without tenant-starter has none,
      *  in which case every module is treated as entitled (no plan narrowing). */
@@ -133,22 +145,42 @@ public class UiContextBuilder {
                 .filter(c -> c != null && !c.isEmpty())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
+        // Derived, never stored — see BuiltinRole.CONSULTANT. Added before the branches below so
+        // it reaches the FE in roleCodes as well as steering this build.
+        if (isConsultantMembership(userId)) {
+            roleCodes.add(BuiltinRole.CONSULTANT.getCode());
+        }
+
         UiContext out = new UiContext();
         out.setRoleCodes(roleCodes);
-        boolean superAdmin = roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN);
+        boolean superAdmin = BuiltinRole.SUPER_ADMIN.heldBy(roleCodes);
 
         List<Long> roleIds = activeRoles.stream().map(Role::getId).filter(Objects::nonNull).toList();
 
-        // SUPER_ADMIN (detected downstream by roleCodes) or no active roles →
-        // empty-grants shape, matching the engine's emptyGrantsSnapshot.
-        if (superAdmin || roleIds.isEmpty()) {
+        // SUPER_ADMIN → the platform's own navigations and nothing else, mirroring the
+        // engine's platformAdminSnapshot. It used to be the empty-grants shape, which was safe only
+        // while the gate bypassed a super-admin outright; that bypass is gone, and the two
+        // assemblies have to agree or the sidebar stops matching what the gate allows.
+        if (superAdmin) {
+            return platformAdminGrants(out);
+        }
+
+        // Consultant — ahead of the roleless check, which is the whole reason this branch exists.
+        // A consultant holds no role rows at all, so the check below would return empty grants and
+        // the FE would render a shell with no menus in it.
+        if (BuiltinRole.CONSULTANT.heldBy(roleCodes)) {
+            return consultantGrants(out, tenantId);
+        }
+
+        // No active roles → empty grants.
+        if (roleIds.isEmpty()) {
             return emptyGrants(out);
         }
 
         // TENANT_ADMIN → all tenant-facing navs (all minus platform-only prefixes) narrowed by the
         // tenant's plan, + their permissions, computed at runtime (mirrors
         // DefaultPermissionSnapshotProvider).
-        if (roleCodes.contains(RoleConstant.CODE_TENANT_ADMIN)) {
+        if (BuiltinRole.TENANT_ADMIN.heldBy(roleCodes)) {
             return tenantAdminGrants(out, tenantId);
         }
 
@@ -190,8 +222,7 @@ public class UiContextBuilder {
                 .map(Role::getCode)
                 .filter(c -> c != null && !c.isEmpty())
                 .collect(Collectors.toSet());
-        if (roleCodes.contains(RoleConstant.CODE_SUPER_ADMIN)
-                || roleCodes.contains(RoleConstant.CODE_TENANT_ADMIN)) {
+        if (BuiltinRole.anyHeldBy(roleCodes, BuiltinRole.SUPER_ADMIN, BuiltinRole.TENANT_ADMIN)) {
             return Map.of();
         }
         List<Long> roleIds = activeRoles.stream().map(Role::getId).filter(Objects::nonNull).toList();
@@ -213,6 +244,80 @@ public class UiContextBuilder {
             }
         }
         return out;
+    }
+
+    /**
+     * Platform administrator: every platform navigation, and no tenant module.
+     *
+     * <p>The mirror of {@link #tenantAdminGrants} — that one takes everything EXCEPT the platform
+     * prefixes. No plan narrowing: a platform module is not something a tenant buys, and there is no
+     * subscription on the platform's own tenant to read.
+     */
+    private UiContext platformAdminGrants(UiContext out) {
+        Collection<Navigation> allNavs = navigationModelResolver.allNavigations();
+        Set<String> navigations = new HashSet<>();
+        if (allNavs != null) {
+            for (Navigation n : allNavs) {
+                if (n != null && n.getId() != null && isPlatformAdminNav(n.getId())) {
+                    navigations.add(n.getId());
+                }
+            }
+        }
+        Set<String> permissions = new HashSet<>();
+        List<Map<String, Object>> perms = modelService.searchList("Permission",
+                new FlexQuery(List.of("id", "navigationId"), new Filters()));
+        for (Map<String, Object> p : perms) {
+            Object id = p.get("id");
+            Object navId = p.get("navigationId");
+            if (id != null && navId != null && navigations.contains(navId.toString())) {
+                permissions.add(id.toString());
+            }
+        }
+        // With ancestors, like the role-based build. A prefix such as `navigation.users.people.`
+        // admits the group's pages and not the `navigation.users` module row above them, and the
+        // sidebar asks about that row too — without this the FE had to keep its own copy of the
+        // prefix list to reconstruct what the server left out, a third place for one rule to drift.
+        out.setNavigations(expandAncestors(navigations));
+        out.setPermissions(permissions);
+        out.setModelSensitiveFieldSetsMap(Map.of());
+        return out;
+    }
+
+    /**
+     * Consultant grants — every navigation the tenant's plan entitles, exactly like a tenant admin's.
+     *
+     * <p>Delegates rather than sharing the branch above, and that is the point: these are two rules
+     * that happen to agree today, not one rule. The requirement defines a consultant's reach as "the
+     * tenant's current subscription, in full", and a tenant admin's is computed the same way — but
+     * narrowing consultants later (the platform deciding they should not see payroll, say) needs no
+     * new role-configuration surface, only a different body here. Merged into one branch there would
+     * be nothing to change without unpicking the two apart first.
+     */
+    private UiContext consultantGrants(UiContext out, Long tenantId) {
+        return tenantAdminGrants(out, tenantId);
+    }
+
+    /**
+     * True when this membership was minted for a consultant.
+     *
+     * <p>The same question {@code DefaultPermissionSnapshotProvider} asks of the same column, and
+     * deliberately not shared with it: the two starters are independent, so sharing would mean a type
+     * in the framework, and "consultant" is not a concept every deployment of the framework has. The
+     * duplicated rule is "this column is true" — rename the column and both sides stop compiling.
+     * What actually went wrong once was this build not asking at all, which no shared helper fixes.
+     */
+    private boolean isConsultantMembership(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        List<Map<String, Object>> rows = modelService.searchList("UserAccount",
+                new FlexQuery(List.of("consultant"), new Filters().eq("id", userId)));
+        if (rows.isEmpty()) {
+            return false;
+        }
+        Object flag = rows.get(0).get("consultant");
+        // Boolean or 1/0, depending on how the driver maps the column.
+        return Boolean.TRUE.equals(flag) || (flag instanceof Number n && n.intValue() == 1);
     }
 
     private static UiContext emptyGrants(UiContext out) {
@@ -261,10 +366,19 @@ public class UiContextBuilder {
 
     /** True when a nav id falls under a configured platform-only prefix (never tenant-facing). */
     private boolean isPlatformNav(String navId) {
-        if (platformNavPrefixesCsv == null || platformNavPrefixesCsv.isBlank()) {
+        return matchesPrefixCsv(navId, platformNavPrefixesCsv);
+    }
+
+    /** What a platform administrator may reach: the platform's own modules plus the shared ones. */
+    private boolean isPlatformAdminNav(String navId) {
+        return isPlatformNav(navId) || matchesPrefixCsv(navId, sharedNavPrefixesCsv);
+    }
+
+    private static boolean matchesPrefixCsv(String navId, String csv) {
+        if (csv == null || csv.isBlank()) {
             return false;
         }
-        for (String prefix : platformNavPrefixesCsv.split(",")) {
+        for (String prefix : csv.split(",")) {
             String p = prefix.trim();
             if (!p.isEmpty() && navId.startsWith(p)) {
                 return true;
