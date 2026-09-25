@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.CrossTenant;
@@ -735,6 +736,15 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     private void validate(ConsultantAuthorization a) {
         if (a.getTenantId() == null) {
             throw new BusinessException("Every authorization needs a company.");
+        }
+        // The platform's own tier is not a customer. It carries the operator's console and the
+        // seeded reference data, and a consultant admitted into it would hold full data access
+        // over the platform itself rather than over a company that asked for help.
+        //
+        // Guarded here and not only in the picker: the picker is a convenience, the endpoint took
+        // any id, and -1 is the one id somebody would reach for by hand.
+        if (BaseConstant.PLATFORM_TENANT_ID.equals(a.getTenantId())) {
+            throw new BusinessException("The platform is not a company a consultant can be authorized into.");
         }
         // The company has to exist before a membership is minted under it. The picker only offers
         // real tenants, but the API took any number, and mintMembership would then create an
