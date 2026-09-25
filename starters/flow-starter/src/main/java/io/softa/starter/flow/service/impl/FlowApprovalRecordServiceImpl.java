@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowApprovalRecord;
@@ -27,8 +28,15 @@ import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprovalRecord, Long>
         implements ApprovalActionLedger {
 
+    /**
+     * Engine bookkeeping write — exempt from the caller's row scope; see
+     * {@code FlowInstanceServiceImpl.saveInstance} for why the post-write scope re-read cannot
+     * succeed on a {@code Flow*} ledger table. On the proxy-visible method, since the
+     * {@code this.createList} below is a self-invocation the aspect would not see.
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @SkipPermissionCheck
     public void appendNewEntries(FlowExecutionState state) {
         if (state == null || state.getInstanceId() == null) {
             return;

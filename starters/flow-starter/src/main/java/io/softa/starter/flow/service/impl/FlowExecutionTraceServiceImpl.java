@@ -8,6 +8,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowExecutionTrace;
@@ -26,8 +27,15 @@ public class FlowExecutionTraceServiceImpl
         extends EntityServiceImpl<FlowExecutionTrace, Long>
         implements FlowExecutionTraceService {
 
+    /**
+     * Engine bookkeeping write — exempt from the caller's row scope; see
+     * {@code FlowInstanceServiceImpl.saveInstance} for why the post-write scope re-read cannot
+     * succeed on a {@code Flow*} ledger table. On the proxy-visible method, since the
+     * {@code this.createList} below is a self-invocation the aspect would not see.
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @SkipPermissionCheck
     public void appendNewEntries(FlowExecutionState state) {
         if (state == null || state.getInstanceId() == null) {
             return;
@@ -76,7 +84,14 @@ public class FlowExecutionTraceServiceImpl
                 .toList();
     }
 
+    /**
+     * Read exemption for the incremental trace endpoint: {@code FlowRuntimeController} calls this
+     * only after {@code requireInstanceViewer} has admitted the caller, but by then the guard's
+     * exemption window has closed, and trace rows carry no column any per-row rule could key on
+     * for an approver — a scoped read returns nothing for every non-admin participant.
+     */
     @Override
+    @SkipPermissionCheck
     public List<FlowExecutionTrace> findByInstanceIdSince(String instanceId, long sinceSequence) {
         Filters filters = new Filters()
                 .eq(FlowExecutionTrace::getInstanceId, instanceId)

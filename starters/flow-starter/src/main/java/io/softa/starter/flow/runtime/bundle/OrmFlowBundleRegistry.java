@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
@@ -19,6 +20,16 @@ import io.softa.starter.flow.service.FlowBundleService;
  * <p>
  * A secondary {@code designId → bundleId} index enables O(1) "start latest" resolution
  * without any flowCode involvement.
+ * </p>
+ * <p>
+ * The read methods are {@code @SkipPermissionCheck}: a cache miss falls through to the
+ * database in whatever request context triggered it — a submitting employee resolving the
+ * active bundle, an approver resuming execution — and {@code flow_bundle} is engine
+ * configuration nobody holds a row scope over, so the scoped read comes back empty and the
+ * engine misreports a published flow as "no active published revision". Whether the caller
+ * may RUN the flow is decided by the endpoints above (permission points, instance guards),
+ * not by bundle row visibility. Writes ({@code register*}) stay scoped — they only run from
+ * design publish, which carries its own permission.
  * </p>
  */
 @Slf4j
@@ -125,6 +136,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     }
 
     @Override
+    @SkipPermissionCheck
     public Optional<CompiledFlowDefinition> getByBundleId(Long bundleId) {
         CompiledFlowDefinition cached = bundleCache.get(bundleId);
         if (cached != null) {
@@ -139,6 +151,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     }
 
     @Override
+    @SkipPermissionCheck
     public Optional<CompiledFlowDefinition> getActiveByDesignId(Long designId) {
         Long bundleId = activeBundleIndex.get(designId);
         if (bundleId != null) {
@@ -156,6 +169,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     }
 
     @Override
+    @SkipPermissionCheck
     public List<CompiledFlowDefinition> listRevisionsByDesignId(Long designId) {
         return bundleService.listRevisionsByDesignId(designId).stream()
                 .map(entity -> {
@@ -170,6 +184,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     }
 
     @Override
+    @SkipPermissionCheck
     public Collection<CompiledFlowDefinition> list() {
         if (bundleCache.isEmpty()) {
             warmUpCache();

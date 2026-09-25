@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowBundle;
@@ -16,7 +17,17 @@ import io.softa.starter.flow.service.FlowBundleService;
 public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
         implements FlowBundleService {
 
+    /**
+     * By-id read, exempt from row scope for the same reason as the registry reads (see
+     * {@code OrmFlowBundleRegistry}): a bundle is engine configuration nobody holds a row scope
+     * over, and this is what backs {@code GET /flow/bundles/{bundleId}} — the canvas snapshot the
+     * instance detail renders. Unlike list reads, a scoped by-id read does not come back empty: the
+     * {@code checkIdsAccess} count comparison REFUSES it ("ids are outside your READ scope"), so an
+     * approver opening an instance they are fully entitled to view got a 403 on the canvas.
+     * Endpoint permissions decide who may call; the bundle carries no user data.
+     */
     @Override
+    @SkipPermissionCheck
     public Optional<FlowBundle> findById(Long id) {
         return super.getById(id);
     }
