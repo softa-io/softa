@@ -343,7 +343,10 @@ public class ContractTermValidator implements ModelWriteValidator {
 per validator per write, dropped when the write's validation ends. A validator therefore names its
 own keys without namespacing them — no other validator is handed this map — and has nothing to clean
 up. A context built by `WriteContext.of` (a unit test calling the validator directly) carries an
-empty map of its own, so nothing special is needed to test a validator that uses it.
+empty map of its own, so nothing special is needed to test a validator that uses it. A test of the
+batch path itself builds one map, hands it to `validateBatch` and then to every row through the
+`of(..., patch, originalRow, scratch)` overload — exactly what the chain does — so it can assert that
+the second row finds what the first one loaded.
 
 Fill it lazily rather than scanning the rows up front: on update the value a row is judged by often
 comes from the stored row rather than from the patch, and the batch method is handed the patches.
