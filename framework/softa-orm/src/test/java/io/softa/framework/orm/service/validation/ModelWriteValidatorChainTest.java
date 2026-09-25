@@ -64,14 +64,18 @@ class ModelWriteValidatorChainTest {
         static final List<Object> SEEN = new ArrayList<>();
         /** What a validator ordered before this one left behind — must always be null. */
         static final List<Object> FOREIGN = new ArrayList<>();
+        /** Per batch method call: whether a row of an EARLIER write had already been here. */
+        static final List<Boolean> INHERITED = new ArrayList<>();
         @Override public boolean supports(String modelName) { return "Company".equals(modelName); }
         @Override public void validateBatch(String modelName, List<Map<String, Object>> rows, AccessType accessType,
                                             Map<String, Object> scratch) {
+            INHERITED.add(scratch.containsKey("touched"));   // only a row method ever writes this key
             scratch.put("loaded", rows.size());
         }
         @Override public void validateCreate(WriteContext ctx) {
             SEEN.add(ctx.scratch().get("loaded"));
             FOREIGN.add(ctx.scratch().get("owner"));
+            ctx.scratch().put("touched", true);
         }
     }
 
@@ -106,14 +110,16 @@ class ModelWriteValidatorChainTest {
     void whatTheBatchWorkedOutReachesEveryRowOfThatWrite() {
         ScratchRule.SEEN.clear();
         ScratchRule.FOREIGN.clear();
+        ScratchRule.INHERITED.clear();
         ModelWriteValidatorChain chain = chain(new ScratchRule());
         chain.validateCreate("Company", List.of(Map.of("name", "a"), Map.of("name", "b"), Map.of("name", "c")));
         assertThat(ScratchRule.SEEN).containsExactly(3, 3, 3);
 
-        // And the next write starts empty: nothing is inherited from the one before.
-        ScratchRule.SEEN.clear();
+        // The next write starts from an empty map: the rows of the first one wrote "touched", and a
+        // batch method that found it would be reading the previous write's map. (Asserting on
+        // "loaded" alone would not tell — the batch method overwrites it either way.)
         chain.validateCreate("Company", List.of(Map.of("name", "a")));
-        assertThat(ScratchRule.SEEN).containsExactly(1);
+        assertThat(ScratchRule.INHERITED).containsExactly(false, false);
     }
 
     @Test

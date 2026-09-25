@@ -86,6 +86,9 @@ public class ModelWriteValidatorChain {
         for (ModelWriteValidator validator : applicable) {
             // One per validator, not one for the write: two validators cannot then pick the same key,
             // so neither has to namespace what it puts here. Dropped with this loop iteration.
+            // A plain HashMap because the rows run one after another; the day this loop is
+            // parallelised, this is the one line that changes (to a ConcurrentHashMap) — which is
+            // the point of the chain owning the map rather than each validator keeping its own.
             Map<String, Object> scratch = new HashMap<>();
             validator.validateBatch(modelName, rows, AccessType.CREATE, scratch);
             for (int i = 0; i < rows.size(); i++) {
