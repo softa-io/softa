@@ -102,6 +102,19 @@ class TenantSeedScopeTest {
         assertThat(noModels(() -> scope.missingFiles(TENANT))).isEmpty();
     }
 
+    @Test
+    void aPackageTheTenantOnlyStillHoldsIsListedLastAndNotEntitled() {
+        // Downgraded from a plan with overtime: its rows are still there.
+        when(entitlement.entitledModules(TENANT)).thenReturn(Set.of("leave"));
+        holds("MailTemplate.Default.json", "OvertimePolicy.Default.json");
+
+        List<TenantSeedPackage> packages = noModels(() -> scope.packagesOf(TENANT));
+
+        assertThat(packages).extracting(TenantSeedPackage::key).containsExactly("base", "leave", "overtime");
+        assertThat(packages).extracting(TenantSeedPackage::entitled).containsExactly(true, true, false);
+        assertThat(packages.get(1).files()).containsExactly("LeaveType.Default.json");
+    }
+
     /** The tenant has bindings from these files, every one recording its file. */
     private void holds(String... files) {
         when(preDataService.getDistinctFieldValue(any(), any(Filters.class))).thenReturn(List.of(files));

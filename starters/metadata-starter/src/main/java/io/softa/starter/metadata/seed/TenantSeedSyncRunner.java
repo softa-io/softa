@@ -1,8 +1,10 @@
 package io.softa.starter.metadata.seed;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,6 +21,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
@@ -51,6 +54,8 @@ public class TenantSeedSyncRunner {
     static final String TENANT_MODEL = "TenantInfo";
     /** Tenants a sync brings up to date. A tenant still being set up loads the current files itself. */
     static final List<String> SYNCED_TENANT_STATUSES = List.of("Active", "Suspended");
+    /** The field of the tenant record pointing at its latest seed sync task, when the application has it. */
+    static final String LATEST_TASK_FIELD = "lastSeedSyncTaskId";
 
     private final ObjectProvider<SeedManifest> manifestProvider;
     private final SysPreDataService preDataService;
@@ -177,6 +182,61 @@ public class TenantSeedSyncRunner {
             }
             batchService.updateOne(patch);
         });
+    }
+
+    /**
+     * Point the tenant's record at the task — its latest seed sync, which the tenant list shows with the
+     * task's status. Nothing when the application's tenant record has no such field. A failure here is only
+     * logged: the list showing an older sync is no reason to hold the sync itself back.
+     */
+    public void recordLatestTask(Long tenantId, Long taskId) {
+        if (!ModelManager.existField(TENANT_MODEL, LATEST_TASK_FIELD)) {
+            return;
+        }
+        // Mutable: the update pipeline normalises the row in place.
+        Map<String, Object> row = new HashMap<>();
+        row.put(ModelConstant.ID, tenantId);
+        row.put(LATEST_TASK_FIELD, taskId);
+        try {
+            asSystem(() -> modelService.updateOne(TENANT_MODEL, row));
+        } catch (RuntimeException e) {
+            log.warn("Could not point tenant {} at its latest seed sync task {}", tenantId, taskId, e);
+        }
+    }
+
+    /**
+     * Fail the tasks that have not finished in time — waiting for a message that was lost, or running on an
+     * instance that stopped — and close their batches, so a stuck tenant shows as failed and can be retried,
+     * and does not hold every later sync back. A task that was in fact still running and finishes after all
+     * records its real result over this one.
+     *
+     * @return the number of tasks failed
+     */
+    public int failStaleTasks(Duration timeout) {
+        LocalDateTime cutoff = LocalDateTime.now().minus(timeout);
+        List<SeedSyncTask> stale = asSystem(() -> taskService.searchList(new Filters()
+                .in(SeedSyncTask::getStatus, List.of(SeedSyncTaskStatus.PENDING, SeedSyncTaskStatus.RUNNING))))
+                .stream()
+                .filter(task -> {
+                    LocalDateTime since = task.getStatus() == SeedSyncTaskStatus.RUNNING && task.getStartTime() != null
+                            ? task.getStartTime() : task.getCreatedTime();
+                    return since != null && since.isBefore(cutoff);
+                })
+                .toList();
+        for (SeedSyncTask task : stale) {
+            String why = task.getStatus() == SeedSyncTaskStatus.RUNNING
+                    ? "was still running" : "never started — its message was not delivered";
+            asSystem(() -> updateTask(task.getId(), t -> {
+                t.setStatus(SeedSyncTaskStatus.FAILED);
+                t.setEndTime(LocalDateTime.now());
+                t.setErrorSummary("Timed out after " + timeout.toMinutes() + " minutes: the task " + why
+                        + ". Retry it from the batch.");
+            }));
+            log.warn("Seed sync task {} of batch {} for tenant {} timed out ({})", task.getId(), task.getBatchId(),
+                    task.getTenantId(), why);
+        }
+        stale.stream().map(SeedSyncTask::getBatchId).distinct().forEach(this::finishBatchIfDone);
+        return stale.size();
     }
 
     /** Whether the batch still has tenants waiting or running. */

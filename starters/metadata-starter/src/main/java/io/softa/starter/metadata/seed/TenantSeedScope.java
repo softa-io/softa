@@ -2,6 +2,7 @@ package io.softa.starter.metadata.seed;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -138,6 +139,35 @@ public class TenantSeedScope {
         return manifest.packages().stream()
                 .filter(p -> byPackage.containsKey(p.key()))
                 .map(p -> new SeedPackagePreview(p.key(), p.name(), p.module(), byPackage.get(p.key())))
+                .toList();
+    }
+
+    /**
+     * The packages the tenant is reached with, with their files: those it is due, then those it only still
+     * holds — in manifest order either way.
+     */
+    public List<TenantSeedPackage> packagesOf(Long tenantId) {
+        SeedManifest manifest = manifestProvider.getObject();
+        Set<String> due = new LinkedHashSet<>(dueFiles(tenantId));
+        Set<String> reached = new LinkedHashSet<>(due);
+        reached.addAll(heldFiles(tenantId));
+        Map<String, List<String>> byPackage = new LinkedHashMap<>();
+        Set<String> entitled = new LinkedHashSet<>();
+        for (String name : manifest.loadOrder(SeedLevel.TENANT)) {
+            if (!reached.contains(name)) {
+                continue;
+            }
+            SeedFile file = manifest.file(name).orElseThrow();
+            byPackage.computeIfAbsent(file.packageKey(), k -> new ArrayList<>()).add(name);
+            if (due.contains(name)) {
+                entitled.add(file.packageKey());
+            }
+        }
+        return manifest.packages().stream()
+                .filter(p -> byPackage.containsKey(p.key()))
+                .map(p -> new TenantSeedPackage(p.key(), p.name(), p.module(), byPackage.get(p.key()),
+                        entitled.contains(p.key())))
+                .sorted(Comparator.comparing(p -> !p.entitled()))
                 .toList();
     }
 

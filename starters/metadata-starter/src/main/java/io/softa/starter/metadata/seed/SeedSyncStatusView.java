@@ -13,7 +13,10 @@ import java.util.List;
  *                              and changes no tenant
  * @param platformPendingCount  pending platform files — loaded once, for everyone
  * @param tenantPendingCount    pending tenant files — brought up to date in every synced tenant
- * @param affectedTenants       tenants a sync brings up to date (active or suspended)
+ * @param affectedTenants       tenants a sync would give a task — every active or suspended one when a pending
+ *                              tenant file adds rows or removes invalid columns, else none
+ * @param tenantImpacts         what each pending tenant file would do to the tenants set up before it; empty
+ *                              while a sync runs or when the next sync records the baseline
  * @param runningBatchId        the batch in progress, or null
  * @param loadedFiles           platform files the batch in progress has loaded so far
  * @param totalFiles            platform files the batch in progress set out to load
@@ -27,6 +30,7 @@ import java.util.List;
  */
 public record SeedSyncStatusView(List<SeedFileState> files, int pendingCount, int rolledBackCount,
                                  boolean tenantBaseline, int platformPendingCount, int tenantPendingCount, long affectedTenants,
+                                 List<TenantFileImpact> tenantImpacts,
                                  Long runningBatchId, Integer loadedFiles, Integer totalFiles,
                                  Integer finishedTenants, Integer totalTenants, boolean canSync, String blockReason,
                                  String tenantCreationBlocker, String appVersion, LocalDateTime buildTime) {

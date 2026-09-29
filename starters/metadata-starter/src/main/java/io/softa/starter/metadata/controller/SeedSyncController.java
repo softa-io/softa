@@ -14,6 +14,7 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.entity.SeedSyncBatch;
 import io.softa.starter.metadata.seed.SeedSyncService;
 import io.softa.starter.metadata.seed.SeedPackagePreview;
+import io.softa.starter.metadata.seed.TenantSeedPackage;
 import io.softa.starter.metadata.seed.SeedSyncStatusView;
 import io.softa.starter.metadata.seed.TenantSeedScope;
 
@@ -48,11 +49,12 @@ public class SeedSyncController {
         return ApiResponse.success(seedSyncService.sync(tenantIds).map(SeedSyncBatch::getId).orElse(null));
     }
 
-    @Operation(summary = "Re-run the tenants a batch failed on, as a new batch; returns its id, or null when the "
-            + "batch has no failed tenant")
+    @Operation(summary = "Re-run tenants a batch failed on — the given ones, or every one — as a new batch; returns "
+            + "its id, or null when none of them failed in the batch")
     @PostMapping("/retry")
-    public ApiResponse<Long> retry(@RequestParam Long batchId) {
-        return ApiResponse.success(seedSyncService.retry(batchId).map(SeedSyncBatch::getId).orElse(null));
+    public ApiResponse<Long> retry(@RequestParam Long batchId,
+                                   @RequestParam(required = false) List<Long> tenantIds) {
+        return ApiResponse.success(seedSyncService.retry(batchId, tenantIds).map(SeedSyncBatch::getId).orElse(null));
     }
 
     @Operation(summary = "The tenant seed packages, with their files, a tenant on this plan in this country is set up with")
@@ -60,5 +62,12 @@ public class SeedSyncController {
     public ApiResponse<List<SeedPackagePreview>> packagePreview(@RequestParam(required = false) String planId,
                                                                 @RequestParam(required = false) String country) {
         return ApiResponse.success(tenantSeedScope.preview(planId, country));
+    }
+
+    @Operation(summary = "The tenant seed packages a tenant is reached with, with their files: those its plan and "
+            + "countries call for, then those it only still holds")
+    @GetMapping("/tenantPackages")
+    public ApiResponse<List<TenantSeedPackage>> tenantPackages(@RequestParam Long tenantId) {
+        return ApiResponse.success(tenantSeedScope.packagesOf(tenantId));
     }
 }

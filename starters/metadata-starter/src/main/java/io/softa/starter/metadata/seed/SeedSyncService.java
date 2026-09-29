@@ -22,6 +22,7 @@ import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -43,6 +44,7 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.metadata.entity.SeedFileVersion;
 import io.softa.starter.metadata.entity.SeedSyncBatch;
 import io.softa.starter.metadata.entity.SeedSyncTask;
+import io.softa.starter.metadata.entity.SysPreData;
 import io.softa.starter.metadata.enums.SeedSyncStatus;
 import io.softa.starter.metadata.enums.SeedSyncTaskStatus;
 import io.softa.starter.metadata.enums.SeedSyncTriggerType;
@@ -107,6 +109,8 @@ public class SeedSyncService implements PlatformSeedState {
     private final ClusterBroadcaster broadcaster;
     private final String appVersion;
     private final LocalDateTime buildTime;
+    /** How long a tenant task may wait or run before it is failed as timed out. */
+    private final Duration taskTimeout;
 
     /** File name → SHA-256. The classpath does not change while the application runs. */
     private volatile Map<String, String> checksums;
@@ -122,7 +126,9 @@ public class SeedSyncService implements PlatformSeedState {
                            CacheService cacheService,
                            StringRedisTemplate redisTemplate,
                            ClusterBroadcaster broadcaster,
-                           ObjectProvider<BuildProperties> buildProperties) {
+                           ObjectProvider<BuildProperties> buildProperties,
+                           @Value("${softa.seed-sync.task-timeout:30m}") Duration taskTimeout) {
+        this.taskTimeout = taskTimeout;
         this.manifestProvider = manifestProvider;
         this.preDataService = preDataService;
         this.versionService = versionService;
@@ -145,7 +151,7 @@ public class SeedSyncService implements PlatformSeedState {
     public SeedSyncStatusView status() {
         SeedManifest manifest = manifestProvider.getIfAvailable();
         if (manifest == null) {
-            return new SeedSyncStatusView(List.of(), 0, 0, false, 0, 0, 0, null, null, null, null, null, false,
+            return new SeedSyncStatusView(List.of(), 0, 0, false, 0, 0, 0, List.of(), null, null, null, null, null, false,
                     "The application ships no seed manifest.", null, appVersion, buildTime);
         }
         return asSystem(() -> {
@@ -155,11 +161,15 @@ public class SeedSyncService implements PlatformSeedState {
             Integer finishedTenants = running == null || running.getTotalTenants() == null ? null
                     : nullToZero(running.getSucceededTenants()) + nullToZero(running.getFailedTenants())
                     + nullToZero(running.getSkippedTenants());
+            boolean baseline = tenantBaseline(manifest);
+            // Worked out only between syncs: the page polls while one runs, and a running one has decided.
+            List<TenantFileImpact> impacts = running != null || baseline ? List.of() : impactsOf(manifest, files);
+            long affected = impacts.stream().anyMatch(i -> !i.onlyNewTenants()) ? runner.syncedTenantIds().size() : 0;
             return new SeedSyncStatusView(files, count(files, State.PENDING), count(files, State.ROLLED_BACK),
-                    tenantBaseline(manifest),
+                    baseline,
                     (int) pendingOf(files).stream().filter(f -> PLATFORM_LEVELS.contains(f.level())).count(),
                     (int) pendingOf(files).stream().filter(f -> f.level() == SeedLevel.TENANT).count(),
-                    runner.syncedTenantIds().size(),
+                    affected, impacts,
                     running == null ? null : running.getId(),
                     running == null ? null : running.getLoadedFiles(),
                     running == null ? null : running.getTotalFiles(),
@@ -167,6 +177,26 @@ public class SeedSyncService implements PlatformSeedState {
                     running == null ? null : running.getTotalTenants(),
                     blockReason == null, blockReason, creationBlocker(files), appVersion, buildTime);
         });
+    }
+
+    /** What each pending tenant file would do to the tenants that have it, from its rows against its last version. */
+    private List<TenantFileImpact> impactsOf(SeedManifest manifest, List<SeedFileState> files) {
+        List<SeedFileState> pending = pendingOf(files).stream().filter(f -> f.level() == SeedLevel.TENANT).toList();
+        if (pending.isEmpty()) {
+            return List.of();
+        }
+        List<Long> synced = runner.syncedTenantIds();
+        List<TenantFileImpact> impacts = new ArrayList<>();
+        for (SeedFileState file : pending) {
+            TenantFileChange change = changeOf(file);
+            SeedPushScope push = manifest.file(file.file()).map(SeedFile::push).orElse(SeedPushScope.NONE);
+            long holders = synced.isEmpty() ? 0 : preDataService.getDistinctFieldValue(SysPreData::getTenantId,
+                    new Filters().eq(SysPreData::getSourceFile, file.file()).in(SysPreData::getTenantId, synced)).size();
+            boolean removesColumns = push == SeedPushScope.INVALID_COLUMNS && !change.removed().isEmpty();
+            impacts.add(new TenantFileImpact(file.file(), change.added().size(), change.removed().size(), push,
+                    holders, change.added().isEmpty() && !removesColumns));
+        }
+        return impacts;
     }
 
     @Override
@@ -336,20 +366,25 @@ public class SeedSyncService implements PlatformSeedState {
     }
 
     /**
-     * Re-run the tenants a finished batch failed on, with the tenant files that batch applied, as a new
+     * Re-run tenants a finished batch failed on, each with the tenant files its task applied, as a new
      * ManualRetry batch.
      *
-     * @return the new batch, or empty when the batch has no failed tenant
+     * @param tenantIds the failed tenants to re-run; null or empty for every one
+     * @return the new batch, or empty when none of them failed in the batch
      */
-    public Optional<SeedSyncBatch> retry(Long batchId) {
+    public Optional<SeedSyncBatch> retry(Long batchId, List<Long> tenantIds) {
         requireManifest();
         return withLock(lockKey -> {
             SeedSyncBatch original = batchService.getById(batchId)
                     .orElseThrow(() -> new BusinessException("Seed sync batch " + batchId + " does not exist."));
             Map<Long, List<TenantFileChange>> failedTenants = new LinkedHashMap<>();
-            taskService.searchList(new Filters()
-                            .eq(SeedSyncTask::getBatchId, batchId)
-                            .eq(SeedSyncTask::getStatus, SeedSyncTaskStatus.FAILED))
+            Filters failed = new Filters()
+                    .eq(SeedSyncTask::getBatchId, batchId)
+                    .eq(SeedSyncTask::getStatus, SeedSyncTaskStatus.FAILED);
+            if (tenantIds != null && !tenantIds.isEmpty()) {
+                failed.in(SeedSyncTask::getTenantId, tenantIds);
+            }
+            taskService.searchList(failed)
                     .forEach(task -> failedTenants.put(task.getTenantId(), StringUtils.isBlank(task.getChanges()) ? null
                             : JsonUtils.stringToObject(task.getChanges(), new TypeReference<List<TenantFileChange>>() {})));
             if (failedTenants.isEmpty()) {
@@ -551,6 +586,7 @@ public class SeedSyncService implements PlatformSeedState {
             task.setAttempt(1);
             task.setStartTime(LocalDateTime.now());
             task.setId(taskService.createOne(task));
+            runner.recordLatestTask(tenantId, task.getId());
             return task;
         });
     }
@@ -612,6 +648,7 @@ public class SeedSyncService implements PlatformSeedState {
                 task.setAttempt(0);
                 task.setChanges(changes == null ? null : JsonUtils.objectToString(changes));
                 task.setId(taskService.createOne(task));
+                runner.recordLatestTask(tenantId, task.getId());
                 created.add(task);
             });
             return created;
@@ -783,6 +820,7 @@ public class SeedSyncService implements PlatformSeedState {
      * one that never got past its platform step is marked failed.
      */
     private void closeStaleBatches() {
+        runner.failStaleTasks(taskTimeout);
         for (SeedSyncBatch batch : batchService.searchList(
                 new Filters().eq(SeedSyncBatch::getStatus, SeedSyncStatus.RUNNING))) {
             if (runner.hasUnfinishedTasks(batch.getId())) {
@@ -797,6 +835,11 @@ public class SeedSyncService implements PlatformSeedState {
                 batchService.updateOne(batch);
             }
         }
+    }
+
+    /** Fail the tenant tasks that have not finished within the configured time. */
+    public int failStaleTasks() {
+        return runner.failStaleTasks(taskTimeout);
     }
 
     /** Record the file's version and return its row keys. */
