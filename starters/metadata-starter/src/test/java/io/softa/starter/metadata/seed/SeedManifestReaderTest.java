@@ -235,4 +235,25 @@ class SeedManifestReaderTest {
                 .hasMessageContaining("file 'A.json' has no level")
                 .hasMessageContaining("file 'B.json' depends on 'Missing.json'");
     }
+
+    @Test
+    void aTenantGetsTheFilesOfItsCountryAndThoseOfNone() {
+        SeedManifest manifest = read("""
+                - key: leave
+                  files:
+                    - file: LeaveType.SG.json
+                      level: TENANT
+                      countries: [SG]
+                    - file: LeaveType.NZ.json
+                      level: TENANT
+                      countries: [NZ]
+                    - file: MailTemplate.Default.json
+                      level: TENANT
+                """);
+
+        assertThat(manifest.loadOrder(SeedLevel.TENANT, "SG")).containsExactly("LeaveType.SG.json", "MailTemplate.Default.json");
+        assertThat(manifest.loadOrder(SeedLevel.TENANT, "AE")).containsExactly("MailTemplate.Default.json");
+        // No country known: only what is for everyone.
+        assertThat(manifest.loadOrder(SeedLevel.TENANT, null)).containsExactly("MailTemplate.Default.json");
+    }
 }

@@ -1,0 +1,10 @@
+{
+  "Widget": [
+    { "id": "widget.bound", "code": "B", "label": "Bound" },
+    { "id": "widget.claim", "code": "C", "label": "Claim" },
+    { "id": "widget.new", "code": "N", "label": "New" }
+  ],
+  "Gadget": [
+    { "id": "gadget.orphan", "name": "Under a deleted widget", "widgetId": "widget.bound" }
+  ]
+}

@@ -25,6 +25,14 @@ public record SeedFile(String file, SeedLevel level, List<String> countries, Lis
         retired = List.copyOf(retired);
     }
 
+    /**
+     * Whether the file is for a tenant of this country: a file that names countries is only for tenants of
+     * one of them; one that names none is for every tenant.
+     */
+    public boolean appliesToCountry(String country) {
+        return countries.isEmpty() || (country != null && countries.contains(country));
+    }
+
     /** Classpath location of the file, e.g. {@code data-tenant/LeaveType.SG.json}. */
     public String path() {
         return level.getDataDir() + file;

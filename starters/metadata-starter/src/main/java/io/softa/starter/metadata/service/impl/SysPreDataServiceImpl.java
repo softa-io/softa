@@ -3,6 +3,7 @@ package io.softa.starter.metadata.service.impl;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.*;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -28,6 +29,9 @@ import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.orm.utils.FileUtils;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.metadata.entity.SysPreData;
+import io.softa.starter.metadata.seed.SeedPushScope;
+import io.softa.starter.metadata.seed.SyncErrors;
+import io.softa.starter.metadata.seed.TenantSeedFileResult;
 import io.softa.starter.metadata.service.SysPreDataService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -57,6 +61,12 @@ import static io.softa.framework.orm.constant.ModelConstant.TIMELINE_FIELDS;
 @Slf4j
 @Service
 public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> implements SysPreDataService {
+
+    /**
+     * The file whose rows are being loaded, stamped on every binding written for them, so a binding says
+     * which file brought its row. Bound around one file's load; unbound outside one.
+     */
+    private static final ScopedValue<String> SOURCE_FILE = ScopedValue.newInstance();
 
     private final ModelService<Serializable> modelService;
     private final PreDataFormatParser formatParser = new PreDataFormatParser();
@@ -190,7 +200,308 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param fileObject fileObject with the file content
      */
     private void loadFileObject(FileObject fileObject) {
-        formatParser.parse(fileObject).forEach(this::processModelData);
+        ScopedValue.where(SOURCE_FILE, fileObject.getFileName())
+                .run(() -> formatParser.parse(fileObject).forEach(this::processModelData));
+    }
+
+    // ─────────────────────── bringing a tenant's copy up to date ───────────────────────
+
+    /** Model and fields of the one push that removes rows: import template columns. */
+    private static final String TEMPLATE_MODEL = "ImportTemplate";
+    private static final String TEMPLATE_COLUMN_MODEL = "ImportTemplateField";
+
+    @Override
+    public Set<String> rowKeysOf(String dataDir, String fileName) {
+        Set<String> keys = new LinkedHashSet<>();
+        formatParser.parse(FileUtils.getFileObjectByPath(dataDir, fileName)).forEach((model, data) ->
+                collectRowKeys(model, rowsOf(model, data), keys));
+        return keys;
+    }
+
+    private void collectRowKeys(String model, List<Map<String, Object>> rows, Set<String> keys) {
+        for (Map<String, Object> row : rows) {
+            keys.add(rowKey(model, (String) row.get(ID)));
+            row.forEach((field, value) -> {
+                if (value instanceof Collection<?> items && !items.isEmpty()
+                        && FieldType.ONE_TO_MANY.equals(ModelManager.getModelField(model, field).getFieldType())) {
+                    collectRowKeys(ModelManager.getModelField(model, field).getRelatedModel(),
+                            rowsOf(model, new ArrayList<>(items)), keys);
+                }
+            });
+        }
+    }
+
+    private static String rowKey(String model, String preId) {
+        return model + "/" + preId;
+    }
+
+    @Override
+    public TenantSeedFileResult applyNewRows(String fileName, SeedPushScope push, Set<String> added,
+                                             Set<String> removed) {
+        Assert.notNull(ContextHolder.getContext().getTenantId(),
+                "Bringing tenant seed file {0} up to date needs a tenant context.", fileName);
+        Tally tally = new Tally(fileName);
+        if (added.isEmpty() && (push != SeedPushScope.INVALID_COLUMNS || removed.isEmpty())) {
+            return tally.result();
+        }
+        FileObject fileObject = FileUtils.getFileObjectByPath(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileName);
+        Map<String, Object> parsed = formatParser.parse(fileObject);
+        ScopedValue.where(SOURCE_FILE, fileName).run(() -> {
+            parsed.forEach((model, data) -> applyNewRowsOf(model, rowsOf(model, data), push, added, tally));
+            if (push == SeedPushScope.INVALID_COLUMNS) {
+                removeInvalidColumns(removed, tally);
+            }
+        });
+        return tally.result();
+    }
+
+    /**
+     * One model's rows of the file that the release added, against the tenant's bindings. A row the tenant
+     * has a binding for is the tenant's already — it was set up after the row was added — and is left
+     * alone; only a row it never got is written.
+     */
+    private void applyNewRowsOf(String model, List<Map<String, Object>> rows, SeedPushScope push,
+                                Set<String> added, Tally tally) {
+        ModelManager.validateModel(model);
+        validateSeedScope(model);
+        List<Map<String, Object>> newRows = rows.stream()
+                .filter(row -> added.contains(rowKey(model, (String) row.get(ID))))
+                .toList();
+        Map<String, SysPreData> bound = new HashMap<>();
+        getScopedBindings(model, preIdsOf(model, rows), bindingScopeOf(model))
+                .forEach(binding -> bound.putIfAbsent(binding.getPreId(), binding));
+        if (push == SeedPushScope.NEW_NESTED_ITEMS) {
+            // The push reaches the rows the tenant already has, whether or not the release touched them.
+            for (Map<String, Object> row : rows) {
+                SysPreData binding = bound.get((String) row.get(ID));
+                if (binding != null) {
+                    pushNewNestedItems(model, row, binding, added, tally);
+                }
+            }
+        }
+        for (Map<String, Object> row : newRows) {
+            String preId = (String) row.get(ID);
+            if (bound.containsKey(preId)) {
+                tally.skipped++;
+                continue;
+            }
+            Map<String, Object> mainRow = mainFieldsOf(model, row);
+            String deletedReference = deletedReference(model, mainRow);
+            if (deletedReference != null) {
+                // Creating it would hang it off a row the tenant removed — a template column under a
+                // template that is gone.
+                tally.notes.add(preId + " not created: it refers to " + deletedReference
+                        + ", which this tenant deleted");
+                tally.skipped++;
+                continue;
+            }
+            Serializable existingId = findByBusinessKey(model, resolveReferencedPreIds(model, mainRow));
+            if (existingId != null) {
+                // The tenant already has this row under its business key — typically inserted by a
+                // release script before the seed carried it. Adopt it as is.
+                generatePreData(model, preId, existingId);
+                tally.claimed++;
+                continue;
+            }
+            createNewRow(model, row);
+            tally.created++;
+        }
+    }
+
+    /**
+     * Create a row the tenant does not have. A failure names the row: the database's message alone says
+     * which constraint broke, not which seed row broke it. A unique key the tenant already holds without a
+     * binding is not adopted — only a declared business key is — so it fails here, for someone to decide.
+     */
+    private void createNewRow(String model, Map<String, Object> row) {
+        try {
+            handlePredefinedData(model, row);
+        } catch (DuplicateKeyException e) {
+            throw new IllegalStateException("Row " + row.get(ID) + " of " + model + " could not be created: the "
+                    + "tenant already has a " + model + " with the same unique key and no binding to this seed "
+                    + "row. " + SyncErrors.rootMessage(e), e);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Row " + row.get(ID) + " of " + model + " could not be created: "
+                    + SyncErrors.rootMessage(e), e);
+        }
+    }
+
+    /**
+     * Add the nested items a row the tenant already has does not have yet — a new option under an
+     * existing option set. Items the tenant has, or had and deleted, are left alone, and so are the ones
+     * it added itself: unlike a load, nothing the file no longer declares is removed.
+     */
+    private void pushNewNestedItems(String model, Map<String, Object> row, SysPreData binding, Set<String> added,
+                                    Tally tally) {
+        Serializable parentId = IdUtils.formatId(model, binding.getRowId());
+        if (!modelService.exist(model, parentId)) {
+            return;
+        }
+        row.forEach((field, value) -> {
+            MetaField relation = ModelManager.getModelField(model, field);
+            if (!FieldType.ONE_TO_MANY.equals(relation.getFieldType()) || !(value instanceof Collection<?> items)) {
+                return;
+            }
+            String childModel = relation.getRelatedModel();
+            List<Map<String, Object>> children = new ArrayList<>();
+            for (Object item : items) {
+                Map<String, Object> child = new LinkedHashMap<>(Cast.<Map<String, Object>>of(item));
+                child.put(relation.getRelatedField(), parentId);
+                children.add(child);
+            }
+            Set<String> boundChildren = new HashSet<>();
+            getScopedBindings(childModel, preIdsOf(childModel, children), bindingScopeOf(childModel))
+                    .forEach(childBinding -> boundChildren.add(childBinding.getPreId()));
+            for (Map<String, Object> child : children) {
+                String childPreId = (String) child.get(ID);
+                if (!added.contains(rowKey(childModel, childPreId)) || boundChildren.contains(childPreId)) {
+                    continue;
+                }
+                Serializable existingId = findByBusinessKey(childModel,
+                        resolveReferencedPreIds(childModel, mainFieldsOf(childModel, child)));
+                if (existingId != null) {
+                    generatePreData(childModel, childPreId, existingId);
+                    tally.claimed++;
+                } else {
+                    createNewRow(childModel, child);
+                    tally.pushed++;
+                }
+            }
+        });
+    }
+
+    /**
+     * Remove the tenant's copies of the import template columns the release dropped from the file, when
+     * the field a column reads no longer exists on the template's model: such a column fails every
+     * download of the template. Removed even if the tenant renamed its header. A dropped column whose field
+     * still exists is kept — it still works — and columns the tenant added are never considered: they have
+     * no binding.
+     */
+    private void removeInvalidColumns(Set<String> removed, Tally tally) {
+        if (!ModelManager.existModel(TEMPLATE_COLUMN_MODEL) || !ModelManager.existModel(TEMPLATE_MODEL)) {
+            return;
+        }
+        String prefix = TEMPLATE_COLUMN_MODEL + "/";
+        List<String> dropped = removed.stream().filter(key -> key.startsWith(prefix))
+                .map(key -> key.substring(prefix.length())).toList();
+        if (dropped.isEmpty()) {
+            return;
+        }
+        for (SysPreData binding : getScopedBindings(TEMPLATE_COLUMN_MODEL, dropped, bindingScopeOf(TEMPLATE_COLUMN_MODEL))) {
+            Serializable columnId = IdUtils.formatId(TEMPLATE_COLUMN_MODEL, binding.getRowId());
+            Map<String, Object> column = readRow(TEMPLATE_COLUMN_MODEL, columnId, "fieldName", "templateId");
+            if (column == null) {
+                continue;
+            }
+            Object templateId = column.get("templateId");
+            Map<String, Object> template = templateId == null ? null
+                    : readRow(TEMPLATE_MODEL, IdUtils.formatId(TEMPLATE_MODEL, (Serializable) templateId), "modelName");
+            String fieldName = (String) column.get("fieldName");
+            String modelName = template == null ? null : (String) template.get("modelName");
+            if (modelName == null || fieldName == null
+                    || ModelManager.existField(modelName, fieldName.split("\\.")[0])) {
+                continue;
+            }
+            modelService.deleteById(TEMPLATE_COLUMN_MODEL, columnId);
+            deleteBindings(TEMPLATE_COLUMN_MODEL, List.of(columnId));
+            tally.removed++;
+        }
+    }
+
+    /**
+     * The first reference of a row that points at a seed row the tenant has deleted, as {@code Model:preId},
+     * or null. A reference with no binding at all is not this case: it fails the load, as it always has.
+     */
+    private String deletedReference(String model, Map<String, Object> mainRow) {
+        for (Map.Entry<String, Object> entry : mainRow.entrySet()) {
+            if (!(entry.getValue() instanceof String preId)) {
+                continue;
+            }
+            MetaField field = ModelManager.getModelField(model, entry.getKey());
+            if (!FieldType.TO_ONE_TYPES.contains(field.getFieldType())) {
+                continue;
+            }
+            String related = field.getRelatedModel();
+            Optional<SysPreData> binding = getScopedBindings(related, List.of(preId), referenceScopeOf(related))
+                    .stream().findFirst();
+            if (binding.isPresent()
+                    && !modelService.exist(related, IdUtils.formatId(related, binding.get().getRowId()))) {
+                return related + ":" + preId;
+            }
+        }
+        return null;
+    }
+
+    /** The id of the row with the same business key, or null when the model declares none or none matches. */
+    private Serializable findByBusinessKey(String model, Map<String, Object> resolved) {
+        List<String> businessKey = ModelManager.getModel(model).getBusinessKey();
+        if (CollectionUtils.isEmpty(businessKey)) {
+            return null;
+        }
+        Filters filters = new Filters();
+        for (String field : businessKey) {
+            Object value = resolved.get(field);
+            if (value == null) {
+                return null;
+            }
+            filters.eq(field, value);
+        }
+        List<Serializable> ids = modelService.getIds(model, filters);
+        return ids.isEmpty() ? null : ids.getFirst();
+    }
+
+    private Map<String, Object> readRow(String model, Serializable id, String... fields) {
+        List<String> selected = new ArrayList<>(List.of(fields));
+        selected.add(ID);
+        List<Map<String, Object>> rows = modelService.searchList(model,
+                new FlexQuery(selected, new Filters().eq(ID, id)));
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    /** A row's own fields, without the OneToMany lists nested in it. */
+    private static Map<String, Object> mainFieldsOf(String model, Map<String, Object> row) {
+        Map<String, Object> main = new LinkedHashMap<>();
+        row.forEach((field, value) -> {
+            if (!FieldType.ONE_TO_MANY.equals(ModelManager.getModelField(model, field).getFieldType())) {
+                main.put(field, value);
+            }
+        });
+        return main;
+    }
+
+    /** A model's data in a file as a list of rows: the file may give one row as a map. */
+    private static List<Map<String, Object>> rowsOf(String model, Object data) {
+        if (data instanceof Map<?, ?> single) {
+            return List.of(Cast.of(single));
+        }
+        Assert.isTrue(data instanceof List<?>, "Model predefined data only supports Map or List<Map> format {0}: {1}",
+                model, data);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Object row : (List<?>) data) {
+            Assert.isTrue(row instanceof Map, "When defining model data in List structure, the internal data only "
+                    + "supports Map format {0}: {1}", model, data);
+            rows.add(Cast.of(row));
+        }
+        return rows;
+    }
+
+    /** Counts of one file's application, turned into its result at the end. */
+    private static final class Tally {
+        private final String file;
+        private int created;
+        private int claimed;
+        private int skipped;
+        private int pushed;
+        private int removed;
+        private final List<String> notes = new ArrayList<>();
+
+        private Tally(String file) {
+            this.file = file;
+        }
+
+        private TenantSeedFileResult result() {
+            return new TenantSeedFileResult(file, created, claimed, skipped, pushed, removed, notes);
+        }
     }
 
     /**
@@ -444,6 +755,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                     return recreateBoundRow(model, resolved, preData);
                 }
                 writeTimelineVersion(model, rowId, preData.getPreId(), resolved);
+                restampSource(preData);
                 return rowId;
             }
             // The update payload is `resolved` plus a null for every updatable field the file leaves
@@ -471,6 +783,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 // false when nothing changed, which is why the row is probed before recreating.
                 return recreateBoundRow(model, resolved, preData);
             }
+            restampSource(preData);
             // The typed id, not `preData.getRowId()` — that column is a String. The caller injects this
             // value into each OneToMany child as the back-reference, and resolveReferencedPreIds reads a
             // String on a to-one field as a preId: a raw row id would be looked up in sys_pre_data, found
@@ -497,8 +810,28 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         }
         Serializable recreatedId = modelService.createOne(model, resolved);
         preData.setRowId(String.valueOf(recreatedId));
+        if (currentSourceFile() != null) {
+            preData.setSourceFile(currentSourceFile());
+        }
         this.updateOne(preData);
         return recreatedId;
+    }
+
+    /**
+     * Point a binding at the file its row was just loaded from, when that is not the one it names — a
+     * binding written before files were recorded, or a row that moved to another file with its preId.
+     */
+    /** The file being loaded, or null outside a file's load. ({@code ScopedValue.orElse} refuses a null.) */
+    private static String currentSourceFile() {
+        return SOURCE_FILE.isBound() ? SOURCE_FILE.get() : null;
+    }
+
+    private void restampSource(SysPreData preData) {
+        String sourceFile = currentSourceFile();
+        if (sourceFile != null && !sourceFile.equals(preData.getSourceFile())) {
+            preData.setSourceFile(sourceFile);
+            this.updateOne(preData);
+        }
     }
 
     /**
@@ -721,6 +1054,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         // Stamp the scope of the model being bound — exactly what fillTenantFieldForInsert put on the
         // seeded row itself, so the binding and the row it points at cannot land in different scopes.
         preData.setTenantId(bindingScopeOf(model));
+        preData.setSourceFile(currentSourceFile());
         this.createOne(preData);
     }
 }

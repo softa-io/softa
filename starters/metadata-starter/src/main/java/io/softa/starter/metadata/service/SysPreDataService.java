@@ -1,10 +1,13 @@
 package io.softa.starter.metadata.service;
 
 import java.util.List;
+import java.util.Set;
 import org.springframework.web.multipart.MultipartFile;
 
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.metadata.entity.SysPreData;
+import io.softa.starter.metadata.seed.SeedPushScope;
+import io.softa.starter.metadata.seed.TenantSeedFileResult;
 
 /**
  * SysPreData Model Service Interface
@@ -63,4 +66,29 @@ public interface SysPreDataService extends EntityService<SysPreData, Long> {
      */
     void loadPreSystemData(MultipartFile file);
 
+    /**
+     * The rows a seed file declares, as {@code Model/preId} keys — its top-level rows and the rows nested
+     * in them. What a version of the file is recorded as, so the next version's added and removed rows can
+     * be told apart without keeping the file.
+     *
+     * @param dataDir  the level's directory, e.g. {@code data-tenant/}
+     * @param fileName file name
+     * @return the row keys, in file order
+     */
+    Set<String> rowKeysOf(String dataDir, String fileName);
+
+    /**
+     * Bring the current tenant's copy of a tenant seed file up to date with one release's change to it,
+     * without changing what the tenant already has: the rows the release added are created where the
+     * tenant does not have them, and only the declared push reaches into rows it has. Rows the release did
+     * not add are not visited at all — a gap the tenant had before is not filled. Never reloads the file.
+     * Runs in the caller's tenant context and transaction.
+     *
+     * @param fileName file under data-tenant/
+     * @param push     the change the manifest declares must still reach tenants that loaded the file
+     * @param added    row keys ({@link #rowKeysOf}) the release added to the file
+     * @param removed  row keys the release removed from it
+     * @return what it did in the tenant
+     */
+    TenantSeedFileResult applyNewRows(String fileName, SeedPushScope push, Set<String> added, Set<String> removed);
 }

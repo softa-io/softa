@@ -56,6 +56,16 @@ public final class SeedManifest {
      * The file names of one level in the order they can be loaded: every file after the files it depends
      * on, and otherwise in manifest order — so a manifest without dependencies loads exactly as written.
      */
+    /**
+     * The files of a level a tenant of this country gets, in load order: those naming no country, and those
+     * naming this one.
+     */
+    public List<String> loadOrder(SeedLevel level, String country) {
+        return loadOrder(level).stream()
+                .filter(name -> file(name).map(seedFile -> seedFile.appliesToCountry(country)).orElse(false))
+                .toList();
+    }
+
     public List<String> loadOrder(SeedLevel level) {
         List<SeedFile> pending = new ArrayList<>(files(level));
         Set<String> loaded = new LinkedHashSet<>();

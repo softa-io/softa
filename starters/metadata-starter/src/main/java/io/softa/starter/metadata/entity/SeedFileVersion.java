@@ -18,7 +18,8 @@ import io.softa.framework.orm.enums.IdStrategy;
  * holds now; a running application whose file hashes differ has changes still to sync.
  *
  * <p>One row per distinct content. Content that comes back — a later release restoring an earlier
- * version of the file — updates the existing row rather than adding one.
+ * version of the file — updates the existing row rather than adding one. The file itself is not kept,
+ * only which rows it declared.
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -46,6 +47,11 @@ public class SeedFileVersion extends AuditableModel {
 
     @Field(label = "Changelog", fieldType = FieldType.TEXT, description = "Changelog of the file's package")
     private String changelog;
+
+    @Field(label = "Rows", fieldType = FieldType.TEXT,
+            description = "The rows this version declares, as Model/preId keys (JSON) — what the next version is "
+                    + "compared with to tell the rows it added and removed")
+    private String rowKeys;
 
     @Field(label = "Synced Time")
     private LocalDateTime syncedTime;

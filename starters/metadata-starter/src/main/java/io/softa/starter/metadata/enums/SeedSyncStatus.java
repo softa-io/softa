@@ -13,11 +13,15 @@ import lombok.Getter;
 @AllArgsConstructor
 @OptionSet
 public enum SeedSyncStatus {
+    // The platform step, or tenants still being brought up to date.
     RUNNING("Running"),
     SUCCEEDED("Succeeded"),
-    // A file failed to load, or the instance running the batch stopped before it finished. Files loaded
-    // before that point are recorded as synced; the failed one and those after it stay pending.
+    // The platform step failed: a file failed to load, or the instance running it stopped before it
+    // finished. Files loaded before that point are recorded as synced; the failed one and those after it
+    // stay pending, and no tenant is touched.
     FAILED("Failed"),
+    // The platform step succeeded and at least one tenant failed; the other tenants are done.
+    FINISHED_WITH_FAILURES("FinishedWithFailures"),
     ;
 
     @JsonValue
