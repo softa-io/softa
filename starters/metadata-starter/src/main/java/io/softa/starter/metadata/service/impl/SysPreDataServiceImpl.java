@@ -13,6 +13,7 @@ import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
@@ -68,6 +69,12 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      */
     private static final ScopedValue<String> SOURCE_FILE = ScopedValue.newInstance();
 
+    /** The model tenants are recorded in, when the application has one, and its lifecycle field. */
+    private static final String TENANT_MODEL = "TenantInfo";
+    private static final String TENANT_STATUS = "status";
+    /** A setup that has not finished: the tenant is created and not built yet, or being built. */
+    private static final Set<String> SETUP_STATUSES = Set.of("Draft", "Initializing");
+
     private final ModelService<Serializable> modelService;
     private final PreDataFormatParser formatParser = new PreDataFormatParser();
 
@@ -111,7 +118,23 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             Assert.notNull(tenantId,
                     "Loading tenant predefined data requires a tenant id when multi-tenancy is enabled!");
         }
+        // A whole load writes every row of the files over the tenant's copy, emptying the fields a file leaves
+        // out. Before the tenant is set up there is nothing of its own to lose; after, there is.
+        Assert.isTrue(isSettingUp(tenantId), "Tenant {0} has finished its setup, so its seed files are not "
+                + "loaded into it again: that would overwrite what the tenant changed. A seed sync adds what a "
+                + "release brings; a tenant whose setup failed is rebuilt from Draft.", tenantId);
         loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId);
+    }
+
+    @Override
+    public boolean isSettingUp(Long tenantId) {
+        if (tenantId == null || !ModelManager.existModel(TENANT_MODEL)) {
+            return true;
+        }
+        List<Map<String, Object>> rows = ContextUtils.inSystemContext(() -> modelService.searchList(TENANT_MODEL,
+                new FlexQuery(List.of(TENANT_STATUS), new Filters().eq(ID, tenantId))));
+        // No record of the tenant: nothing of its own to protect.
+        return rows.isEmpty() || SETUP_STATUSES.contains(String.valueOf(rows.getFirst().get(TENANT_STATUS)));
     }
 
     /**

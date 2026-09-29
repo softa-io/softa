@@ -30,10 +30,24 @@ public interface SysPreDataService extends EntityService<SysPreData, Long> {
      * i.e., main model and subModel, but they will be created separately when loading.
      * The main model is created first to generate the main model id, then the subModel data is created.
      *
+     * <p>Setting a tenant up only — its provisioning, or rebuilding a setup that failed. Refused once the
+     * tenant is set up ({@link #isSettingUp}), since a whole load overwrites what the tenant changed; a seed
+     * sync brings such a tenant up to date instead.
+     *
      * @param fileNames List of relative directory tenant data file names to load
      * @param tenantId tenant id to which the data will be loaded
      */
     void loadPreTenantData(List<String> fileNames, Long tenantId);
+
+    /**
+     * Whether the tenant is still being set up — created and not built yet, or being built — so its seed
+     * files may be loaded into it whole. True as well when the application keeps no tenant records, or none
+     * for this tenant.
+     *
+     * @param tenantId tenant id
+     * @return true while its setup has not finished
+     */
+    boolean isSettingUp(Long tenantId);
 
     /**
      * Load the specified list of predefined platform-tier data files from the root directory:

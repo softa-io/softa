@@ -33,6 +33,7 @@ import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.broadcast.ClusterBroadcaster;
 import io.softa.framework.orm.broadcast.ClusterEvents;
@@ -248,6 +249,55 @@ public class SeedSyncService implements PlatformSeedState {
                 }
             });
         });
+    }
+
+    /**
+     * Load the named platform files of one level, whether or not they changed — a platform file is what its
+     * rows are, so loading it again puts back what someone edited. Otherwise it is a sync of those files: a
+     * batch of its own, their versions recorded, the permissions and entitlements cached from the old rows
+     * cleared, and, when plan rows were among them, tenants given the files their plan now entitles them to.
+     * Tenant files are out of reach here: a tenant is only ever given what it does not have.
+     *
+     * @param fileNames the files, each in the manifest at {@code level}
+     * @param level     {@link SeedLevel#PLATFORM_GLOBAL} or {@link SeedLevel#PLATFORM_TENANT}
+     * @return the batch now running in the background
+     */
+    public SeedSyncBatch loadFiles(List<String> fileNames, SeedLevel level) {
+        Assert.isTrue(PLATFORM_LEVELS.contains(level), "Only platform files are loaded by name, not {0} ones.", level);
+        SeedManifest manifest = requireManifest();
+        Set<String> requested = new LinkedHashSet<>(fileNames);
+        return withLock(lockKey -> {
+            List<SeedFileState> all = classify(manifest);
+            List<String> problems = new ArrayList<>();
+            for (String name : requested) {
+                SeedFileState file = all.stream().filter(f -> f.file().equals(name)).findFirst().orElse(null);
+                if (file == null) {
+                    problems.add(name + " is not in the seed manifest");
+                } else if (file.level() != level) {
+                    problems.add(name + " is a " + file.level() + " file, not a " + level + " one");
+                } else if (file.state() == State.ROLLED_BACK) {
+                    problems.add(name + " is older than the data already synced from it; deploy the current "
+                            + "release first");
+                }
+            }
+            if (!problems.isEmpty()) {
+                throw new BusinessException("Nothing was loaded: " + String.join("; ", problems) + ".");
+            }
+            // In manifest order, whatever order they were named in: a file is loaded after those it depends on.
+            List<SeedFileState> files = all.stream().filter(f -> requested.contains(f.file())).toList();
+            SeedSyncBatch batch = createBatch(SeedSyncTriggerType.API, null, files, List.of(), null);
+            return new Plan(batch, () -> {
+                PlatformStep step = loadPlatformFiles(batch, files, lockKey);
+                if (step.succeeded()) {
+                    startTenantStep(batch, List.of(), List.of(), null, false, step.plansChanged());
+                }
+            });
+        }).orElseThrow();
+    }
+
+    /** Whether the application ships a seed manifest, without which nothing is synced. */
+    public boolean hasManifest() {
+        return manifestProvider.getIfAvailable() != null;
     }
 
     /**

@@ -22,6 +22,8 @@ public enum SeedSyncTriggerType {
     PLAN_CHANGE("PlanChange"),
     // A tenant has a company in a country it had no files for.
     COUNTRY_ADDED("CountryAdded"),
+    // Named platform files were loaded through the seed data API.
+    API("Api"),
     ;
 
     @JsonValue
