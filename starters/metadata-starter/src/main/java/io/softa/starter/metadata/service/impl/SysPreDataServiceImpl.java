@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.service.impl;
 
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,8 +15,10 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
+import io.softa.framework.base.utils.DateUtils;
 import io.softa.framework.orm.domain.FileObject;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.meta.MetaField;
@@ -28,7 +31,11 @@ import io.softa.starter.metadata.entity.SysPreData;
 import io.softa.starter.metadata.service.SysPreDataService;
 import lombok.extern.slf4j.Slf4j;
 
+import static io.softa.framework.orm.constant.ModelConstant.EFFECTIVE_END_DATE;
+import static io.softa.framework.orm.constant.ModelConstant.EFFECTIVE_START_DATE;
 import static io.softa.framework.orm.constant.ModelConstant.ID;
+import static io.softa.framework.orm.constant.ModelConstant.SLICE_ID;
+import static io.softa.framework.orm.constant.ModelConstant.TIMELINE_FIELDS;
 
 /**
  * SysPreData Model Service Implementation
@@ -429,6 +436,16 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             SysPreData preData = optionalPreData.get();
             // Update the data and return the data ID
             Serializable rowId = IdUtils.formatId(model, preData.getRowId());
+            if (ModelManager.isTimelineModel(model)) {
+                // A timeline entity is several rows — one per version, each with its own sliceId — and
+                // the binding names the entity, not a version. The seed row says which version it is by
+                // its effective start date.
+                if (!modelService.exist(model, rowId)) {
+                    return recreateBoundRow(model, resolved, preData);
+                }
+                writeTimelineVersion(model, rowId, preData.getPreId(), resolved);
+                return rowId;
+            }
             // The update payload is `resolved` plus a null for every updatable field the file leaves
             // out — "clear what the seed no longer says". Held apart from `resolved` because the
             // recreate path below must not inherit those nulls: a default value is filled only when
@@ -452,20 +469,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 //
                 // `result` alone is not enough to conclude the row is missing: updateOne also returns
                 // false when nothing changed, which is why the row is probed before recreating.
-                log.warn("Predefined data for model {} ({}) was physically deleted; recreating it and "
-                        + "re-pointing the binding.", model, preData.getRowId());
-                // Same id rule as the create branch above: an EXTERNAL_ID model's id IS its primary
-                // key (code-as-id), so the recreated row keeps the id the binding already names. Every
-                // other strategy assigns a fresh surrogate, which the binding is re-pointed to.
-                if (ModelManager.getIdStrategy(model) == IdStrategy.EXTERNAL_ID) {
-                    resolved.put(ID, rowId);
-                } else {
-                    resolved.remove(ID);
-                }
-                Serializable recreatedId = modelService.createOne(model, resolved);
-                preData.setRowId(String.valueOf(recreatedId));
-                this.updateOne(preData);
-                return recreatedId;
+                return recreateBoundRow(model, resolved, preData);
             }
             // The typed id, not `preData.getRowId()` — that column is a String. The caller injects this
             // value into each OneToMany child as the back-reference, and resolveReferencedPreIds reads a
@@ -474,6 +478,81 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             // the untyped value, so a seed carrying children loaded once and failed on every re-run.
             return rowId;
         }
+    }
+
+    /**
+     * Re-create a row whose binding outlived it, and re-point the binding at the new row.
+     *
+     * <p>Same id rule as the create branch: an EXTERNAL_ID model's id IS its primary key (code-as-id),
+     * so the recreated row keeps the id the binding already names. Every other strategy assigns a fresh
+     * surrogate, which the binding is re-pointed to.
+     */
+    private Serializable recreateBoundRow(String model, Map<String, Object> resolved, SysPreData preData) {
+        log.warn("Predefined data for model {} ({}) was physically deleted; recreating it and "
+                + "re-pointing the binding.", model, preData.getRowId());
+        if (ModelManager.getIdStrategy(model) == IdStrategy.EXTERNAL_ID) {
+            resolved.put(ID, IdUtils.formatId(model, preData.getRowId()));
+        } else {
+            resolved.remove(ID);
+        }
+        Serializable recreatedId = modelService.createOne(model, resolved);
+        preData.setRowId(String.valueOf(recreatedId));
+        this.updateOne(preData);
+        return recreatedId;
+    }
+
+    /**
+     * Apply a seed row to the version of a timeline entity it describes.
+     *
+     * <p>A timeline seed file carries one row per entity: its latest version. The row's effective start
+     * date decides what that means for the versions already stored —
+     * <ul>
+     *   <li>the start date of a stored version: that version is overwritten with the file's values;</li>
+     *   <li>later than every stored version: a new version is added from that date, and the one before it
+     *       is cut to end the day before (the framework's version insert does both);</li>
+     *   <li>anything else — earlier than the latest version and matching none: refused. Versions added
+     *       or re-dated since the file was written sit in the way, and whether the file or they are
+     *       right is not the loader's call.</li>
+     * </ul>
+     * Versions the file does not describe are left as they are.
+     *
+     * <p>Fields the file leaves out are cleared, as on any re-load, except the timeline's own: the end
+     * date is computed from the next version, so clearing it would make a version that was cut short
+     * run on under the next one.
+     */
+    private void writeTimelineVersion(String model, Serializable rowId, String preId, Map<String, Object> resolved) {
+        LocalDate startDate = DateUtils.dateToLocalDate(resolved.get(EFFECTIVE_START_DATE));
+        Assert.notNull(startDate, "Timeline model {0}: seed row {1} has no effectiveStartDate. A timeline "
+                + "seed row describes one version and must say from when it applies.", model, preId);
+        List<LocalDate> storedStarts = versionStartDates(model, rowId);
+        LocalDate latestStart = storedStarts.stream().max(Comparator.naturalOrder()).orElse(null);
+        boolean sameVersion = storedStarts.contains(startDate);
+        boolean newVersion = latestStart == null || startDate.isAfter(latestStart);
+        Assert.isTrue(sameVersion || newVersion, "Timeline model {0}: seed row {1} starts on {2}, which is "
+                + "before its latest stored version ({3}) and matches no stored version. Change a version by "
+                + "keeping its start date, or add one by giving a date after {3}; a version that has to move "
+                + "is a data correction, not a seed change.", model, preId, startDate, latestStart);
+        Map<String, Object> version = new LinkedHashMap<>(resolved);
+        version.put(ID, rowId);
+        version.put(EFFECTIVE_START_DATE, startDate);
+        version.remove(SLICE_ID);
+        version.remove(EFFECTIVE_END_DATE);
+        Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
+        clearedFields.removeAll(version.keySet());
+        clearedFields.removeAll(TIMELINE_FIELDS);
+        clearedFields.forEach(fieldName -> version.put(fieldName, null));
+        // Same start date: the stored version is corrected in place. Later: a version is inserted after it.
+        modelService.addVersion(model, version);
+    }
+
+    /** Start dates of every stored version of a timeline entity. */
+    private List<LocalDate> versionStartDates(String model, Serializable rowId) {
+        FlexQuery query = new FlexQuery(Set.of(SLICE_ID, EFFECTIVE_START_DATE), new Filters().eq(ID, rowId))
+                .acrossTimelineData();
+        return modelService.searchList(model, query).stream()
+                .map(row -> DateUtils.dateToLocalDate(row.get(EFFECTIVE_START_DATE)))
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /**
