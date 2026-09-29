@@ -2,6 +2,7 @@ package io.softa.starter.permission.index;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 
@@ -169,5 +170,51 @@ class EndpointIndexTest {
         Set<String> hit = idx.lookup("/X/list", "POST");
         // Only the exact match returns; pattern isn't consulted.
         assertThat(hit).containsExactly("perm.exact");
+    }
+
+    // ─── reload ───
+
+    @Test
+    void reloadPicksUpPermissionRowsAddedAfterStartup() {
+        AtomicReference<List<PermissionEndpointDef>> rows = new AtomicReference<>(
+                List.of(explicit("report.view", "POST /Report/searchPage")));
+        EndpointIndex idx = new EndpointIndex(rows::get);
+        idx.init();
+        assertThat(idx.lookup("/Report/export", "POST")).isEmpty();
+
+        rows.set(List.of(explicit("report.view", "POST /Report/searchPage"),
+                explicit("report.export", "POST /Report/export", "GET /Report/{id}/file")));
+        idx.reload();
+
+        assertThat(idx.lookup("/Report/export", "POST")).containsExactly("report.export");
+        assertThat(idx.lookup("/Report/42/file", "GET")).containsExactly("report.export");
+        assertThat(idx.lookup("/Report/searchPage", "POST")).containsExactly("report.view");
+    }
+
+    @Test
+    void reloadDropsEndpointsWhosePermissionIsGone() {
+        AtomicReference<List<PermissionEndpointDef>> rows = new AtomicReference<>(
+                List.of(explicit("report.export", "POST /Report/export")));
+        EndpointIndex idx = new EndpointIndex(rows::get);
+        idx.init();
+
+        rows.set(List.of());
+        idx.reload();
+
+        assertThat(idx.lookup("/Report/export", "POST")).isEmpty();
+    }
+
+    @Test
+    void aFailedReloadKeepsThePreviousIndex() {
+        AtomicReference<List<PermissionEndpointDef>> rows = new AtomicReference<>(
+                List.of(explicit("report.view", "POST /Report/searchPage")));
+        EndpointIndex idx = new EndpointIndex(rows::get);
+        idx.init();
+
+        rows.set(List.of(explicit("report.view", "POST /Report/searchPage"),
+                explicit("bad", "POST Report/export")));
+        assertThatThrownBy(idx::reload).isInstanceOf(IllegalStateException.class);
+
+        assertThat(idx.lookup("/Report/searchPage", "POST")).containsExactly("report.view");
     }
 }
