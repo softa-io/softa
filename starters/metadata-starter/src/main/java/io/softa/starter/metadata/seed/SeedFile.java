@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.seed;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * One seed file as the manifest registers it.
@@ -26,11 +27,11 @@ public record SeedFile(String file, SeedLevel level, List<String> countries, Lis
     }
 
     /**
-     * Whether the file is for a tenant of this country: a file that names countries is only for tenants of
-     * one of them; one that names none is for every tenant.
+     * Whether the file is for a tenant in these countries: a file that names countries is only for tenants
+     * in one of them; one that names none is for every tenant.
      */
-    public boolean appliesToCountry(String country) {
-        return countries.isEmpty() || (country != null && countries.contains(country));
+    public boolean appliesToCountries(Set<String> tenantCountries) {
+        return countries.isEmpty() || countries.stream().anyMatch(tenantCountries::contains);
     }
 
     /** Classpath location of the file, e.g. {@code data-tenant/LeaveType.SG.json}. */

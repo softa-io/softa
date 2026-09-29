@@ -13,7 +13,9 @@ import org.springframework.web.bind.annotation.RestController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.entity.SeedSyncBatch;
 import io.softa.starter.metadata.seed.SeedSyncService;
+import io.softa.starter.metadata.seed.SeedPackagePreview;
 import io.softa.starter.metadata.seed.SeedSyncStatusView;
+import io.softa.starter.metadata.seed.TenantSeedScope;
 
 /**
  * The platform admin's view of the seed data, and the one way to apply a release's changes: the platform
@@ -26,9 +28,11 @@ import io.softa.starter.metadata.seed.SeedSyncStatusView;
 public class SeedSyncController {
 
     private final SeedSyncService seedSyncService;
+    private final TenantSeedScope tenantSeedScope;
 
-    public SeedSyncController(SeedSyncService seedSyncService) {
+    public SeedSyncController(SeedSyncService seedSyncService, TenantSeedScope tenantSeedScope) {
         this.seedSyncService = seedSyncService;
+        this.tenantSeedScope = tenantSeedScope;
     }
 
     @Operation(summary = "Seed files of the running release against what the database has recorded")
@@ -49,5 +53,12 @@ public class SeedSyncController {
     @PostMapping("/retry")
     public ApiResponse<Long> retry(@RequestParam Long batchId) {
         return ApiResponse.success(seedSyncService.retry(batchId).map(SeedSyncBatch::getId).orElse(null));
+    }
+
+    @Operation(summary = "The tenant seed packages, with their files, a tenant on this plan in this country is set up with")
+    @GetMapping("/packagePreview")
+    public ApiResponse<List<SeedPackagePreview>> packagePreview(@RequestParam(required = false) String planId,
+                                                                @RequestParam(required = false) String country) {
+        return ApiResponse.success(tenantSeedScope.preview(planId, country));
     }
 }

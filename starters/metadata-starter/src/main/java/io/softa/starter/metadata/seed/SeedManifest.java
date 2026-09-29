@@ -57,13 +57,33 @@ public final class SeedManifest {
      * on, and otherwise in manifest order — so a manifest without dependencies loads exactly as written.
      */
     /**
-     * The files of a level a tenant of this country gets, in load order: those naming no country, and those
-     * naming this one.
+     * The tenant files a tenant is due, in load order: those of the packages its plan entitles — a package
+     * with no module is for every plan — that are for its countries.
+     *
+     * @param modules   the modules the tenant's plan entitles; null when entitlement is not in use, which
+     *                  makes every package due
+     * @param countries the tenant's countries
      */
-    public List<String> loadOrder(SeedLevel level, String country) {
-        return loadOrder(level).stream()
-                .filter(name -> file(name).map(seedFile -> seedFile.appliesToCountry(country)).orElse(false))
+    public List<String> tenantFiles(Set<String> modules, Set<String> countries) {
+        return loadOrder(SeedLevel.TENANT).stream()
+                .map(name -> file(name).orElseThrow())
+                .filter(seedFile -> isEntitled(seedFile, modules) && seedFile.appliesToCountries(countries))
+                .map(SeedFile::file)
                 .toList();
+    }
+
+    /** Whether the plan entitles the file's package. */
+    public boolean isEntitled(SeedFile seedFile, Set<String> modules) {
+        if (modules == null) {
+            return true;
+        }
+        String module = packageOf(seedFile).module();
+        return module == null || module.isBlank() || modules.contains(module);
+    }
+
+    /** The package the file is registered in. */
+    public SeedPackage packageOf(SeedFile seedFile) {
+        return packages.stream().filter(p -> p.key().equals(seedFile.packageKey())).findFirst().orElseThrow();
     }
 
     public List<String> loadOrder(SeedLevel level) {

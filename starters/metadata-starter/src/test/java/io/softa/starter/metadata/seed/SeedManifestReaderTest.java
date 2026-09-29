@@ -3,6 +3,7 @@ package io.softa.starter.metadata.seed;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
@@ -237,9 +238,14 @@ class SeedManifestReaderTest {
     }
 
     @Test
-    void aTenantGetsTheFilesOfItsCountryAndThoseOfNone() {
+    void aTenantIsDueThePackagesOfItsPlanForItsCountries() {
         SeedManifest manifest = read("""
+                - key: base
+                  files:
+                    - file: MailTemplate.Default.json
+                      level: TENANT
                 - key: leave
+                  module: leave
                   files:
                     - file: LeaveType.SG.json
                       level: TENANT
@@ -247,13 +253,23 @@ class SeedManifestReaderTest {
                     - file: LeaveType.NZ.json
                       level: TENANT
                       countries: [NZ]
-                    - file: MailTemplate.Default.json
+                - key: overtime
+                  module: overtime
+                  files:
+                    - file: OvertimePolicy.SG.json
                       level: TENANT
+                      countries: [SG]
                 """);
 
-        assertThat(manifest.loadOrder(SeedLevel.TENANT, "SG")).containsExactly("LeaveType.SG.json", "MailTemplate.Default.json");
-        assertThat(manifest.loadOrder(SeedLevel.TENANT, "AE")).containsExactly("MailTemplate.Default.json");
-        // No country known: only what is for everyone.
-        assertThat(manifest.loadOrder(SeedLevel.TENANT, null)).containsExactly("MailTemplate.Default.json");
+        assertThat(manifest.tenantFiles(Set.of("leave"), Set.of("SG")))
+                .containsExactly("MailTemplate.Default.json", "LeaveType.SG.json");
+        assertThat(manifest.tenantFiles(Set.of("leave", "overtime"), Set.of("SG", "NZ")))
+                .containsExactly("MailTemplate.Default.json", "LeaveType.SG.json", "LeaveType.NZ.json",
+                        "OvertimePolicy.SG.json");
+        // A country no file names: only what is for everyone.
+        assertThat(manifest.tenantFiles(Set.of("leave", "overtime"), Set.of("AE"))).containsExactly("MailTemplate.Default.json");
+        // Entitlement not in use: every package, still by country.
+        assertThat(manifest.tenantFiles(null, Set.of("SG")))
+                .containsExactly("MailTemplate.Default.json", "LeaveType.SG.json", "OvertimePolicy.SG.json");
     }
 }

@@ -58,6 +58,7 @@ public class TenantSeedSyncRunner {
     private final SeedSyncTaskService taskService;
     private final ModelService<?> modelService;
     private final CacheService cacheService;
+    private final TenantSeedScope scope;
     private final TransactionTemplate transaction;
 
     public TenantSeedSyncRunner(ObjectProvider<SeedManifest> manifestProvider,
@@ -66,6 +67,7 @@ public class TenantSeedSyncRunner {
                                 SeedSyncTaskService taskService,
                                 ModelService<?> modelService,
                                 CacheService cacheService,
+                                TenantSeedScope scope,
                                 PlatformTransactionManager transactionManager) {
         this.manifestProvider = manifestProvider;
         this.preDataService = preDataService;
@@ -73,6 +75,7 @@ public class TenantSeedSyncRunner {
         this.taskService = taskService;
         this.modelService = modelService;
         this.cacheService = cacheService;
+        this.scope = scope;
         this.transaction = new TransactionTemplate(transactionManager);
     }
 
@@ -103,8 +106,8 @@ public class TenantSeedSyncRunner {
             finishBatchIfDone(batch.getId());
             return;
         }
-        List<TenantFileChange> changes = changesOf(batch);
-        String country = countryOf(tenantId);
+        List<TenantFileChange> changes = changesOf(task, batch);
+        Set<String> reached = scope.reachedFiles(tenantId);
         List<TenantSeedFileResult> results = new ArrayList<>();
         String[] current = new String[1];
         try {
@@ -114,7 +117,7 @@ public class TenantSeedSyncRunner {
                         for (TenantFileChange change : changes) {
                             current[0] = change.file();
                             SeedFile file = manifestProvider.getObject().file(change.file()).orElse(null);
-                            if (file == null || !file.appliesToCountry(country)) {
+                            if (file == null || !reached.contains(file.file())) {
                                 continue;
                             }
                             results.add(preDataService.applyNewRows(file.file(), file.push(),
@@ -201,37 +204,19 @@ public class TenantSeedSyncRunner {
     }
 
     /**
-     * The batch's changes to tenant files, in manifest load order, so a file's new rows are created after
-     * the rows of the files they depend on.
+     * The task's changes to tenant files — its own when it has them, else the batch's — in manifest load
+     * order, so a file's new rows are created after the rows of the files they depend on.
      */
-    private List<TenantFileChange> changesOf(SeedSyncBatch batch) {
-        if (StringUtils.isBlank(batch.getTenantChanges())) {
+    private List<TenantFileChange> changesOf(SeedSyncTask task, SeedSyncBatch batch) {
+        String json = StringUtils.isNotBlank(task.getChanges()) ? task.getChanges() : batch.getTenantChanges();
+        if (StringUtils.isBlank(json)) {
             return List.of();
         }
-        List<TenantFileChange> changes = JsonUtils.stringToObject(batch.getTenantChanges(),
-                new TypeReference<List<TenantFileChange>>() {});
+        List<TenantFileChange> changes = JsonUtils.stringToObject(json, new TypeReference<List<TenantFileChange>>() {});
         List<String> order = manifestProvider.getObject().loadOrder(SeedLevel.TENANT);
         return changes.stream().filter(TenantFileChange::reachesTenants)
                 .sorted(Comparator.comparingInt(change -> order.indexOf(change.file())))
                 .toList();
-    }
-
-    /** The tenant's country — its default country, which is what a tenant's files are chosen by. */
-    String countryOf(Long tenantId) {
-        if (!ModelManager.existModel(TENANT_MODEL)) {
-            return null;
-        }
-        return asSystem(() -> modelService.searchList(TENANT_MODEL,
-                        new FlexQuery(List.of("id", "defaultCountry"), new Filters().eq("id", tenantId)))
-                .stream().findFirst().map(row -> codeOf(row.get("defaultCountry"))).orElse(null));
-    }
-
-    private static String codeOf(Object value) {
-        if (value instanceof Map<?, ?> reference) {
-            Object id = reference.get("id");
-            return id == null ? null : String.valueOf(id);
-        }
-        return value == null ? null : String.valueOf(value);
     }
 
     /**

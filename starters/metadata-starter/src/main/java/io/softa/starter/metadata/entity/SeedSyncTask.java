@@ -50,6 +50,11 @@ public class SeedSyncTask extends AuditableModel {
     @Field(label = "Pushed", description = "Changes the manifest pushes into rows the tenant already had")
     private Integer pushedCount;
 
+    @Field(label = "Changes", fieldType = FieldType.TEXT,
+            description = "This tenant's own tenant file changes (JSON), when they differ from the batch's: the "
+                    + "batch's plus files it is due and never had, loaded whole")
+    private String changes;
+
     @Field(label = "File Results", fieldType = FieldType.TEXT,
             description = "Per file: rows created, adopted, skipped, pushed, removed, and rows not applied (JSON)")
     private String fileResults;

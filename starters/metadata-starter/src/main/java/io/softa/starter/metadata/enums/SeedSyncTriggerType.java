@@ -16,6 +16,12 @@ public enum SeedSyncTriggerType {
     MANUAL("Manual"),
     // The platform admin re-ran the tenants a batch failed on.
     MANUAL_RETRY("ManualRetry"),
+    // A tenant was set up (or rebuilt) with the tenant files it is due.
+    PROVISION("Provision"),
+    // A tenant's plan now entitles packages it never had.
+    PLAN_CHANGE("PlanChange"),
+    // A tenant has a company in a country it had no files for.
+    COUNTRY_ADDED("CountryAdded"),
     ;
 
     @JsonValue

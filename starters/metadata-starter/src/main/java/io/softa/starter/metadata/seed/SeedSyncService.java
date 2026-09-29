@@ -86,6 +86,11 @@ public class SeedSyncService implements PlatformSeedState {
      * prefix the permission engine writes them under) and the per-tenant entitlements.
      */
     private static final List<String> DERIVED_CACHE_PREFIXES = List.of("perm:", RedisConstant.ENTITLEMENT);
+    /**
+     * The models whose rows decide which modules a plan entitles — so which packages its tenants are due.
+     * A sync that loads them checks every tenant for packages it never had.
+     */
+    private static final Set<String> PLAN_MODELS = Set.of("Plan", "PlanEntitlement");
     private static final Set<SeedLevel> PLATFORM_LEVELS = Set.of(SeedLevel.PLATFORM_GLOBAL, SeedLevel.PLATFORM_TENANT);
 
     private final ObjectProvider<SeedManifest> manifestProvider;
@@ -94,6 +99,7 @@ public class SeedSyncService implements PlatformSeedState {
     private final SeedSyncBatchService batchService;
     private final SeedSyncTaskService taskService;
     private final TenantSeedSyncRunner runner;
+    private final TenantSeedScope scope;
     private final TenantSeedSyncPublisher publisher;
     private final CacheService cacheService;
     private final StringRedisTemplate redisTemplate;
@@ -110,6 +116,7 @@ public class SeedSyncService implements PlatformSeedState {
                            SeedSyncBatchService batchService,
                            SeedSyncTaskService taskService,
                            TenantSeedSyncRunner runner,
+                           TenantSeedScope scope,
                            TenantSeedSyncPublisher publisher,
                            CacheService cacheService,
                            StringRedisTemplate redisTemplate,
@@ -121,6 +128,7 @@ public class SeedSyncService implements PlatformSeedState {
         this.batchService = batchService;
         this.taskService = taskService;
         this.runner = runner;
+        this.scope = scope;
         this.publisher = publisher;
         this.cacheService = cacheService;
         this.redisTemplate = redisTemplate;
@@ -234,8 +242,9 @@ public class SeedSyncService implements PlatformSeedState {
                     .toList();
             SeedSyncBatch batch = createBatch(SeedSyncTriggerType.MANUAL, null, platform, changes, selected);
             return new Plan(batch, () -> {
-                if (loadPlatformFiles(batch, platform, lockKey)) {
-                    startTenantStep(batch, tenant, changes, selected, baseline);
+                PlatformStep step = loadPlatformFiles(batch, platform, lockKey);
+                if (step.succeeded()) {
+                    startTenantStep(batch, tenant, changes, selected, baseline, step.plansChanged());
                 }
             });
         });
@@ -287,10 +296,12 @@ public class SeedSyncService implements PlatformSeedState {
         return withLock(lockKey -> {
             SeedSyncBatch original = batchService.getById(batchId)
                     .orElseThrow(() -> new BusinessException("Seed sync batch " + batchId + " does not exist."));
-            List<Long> failedTenants = taskService.searchList(new Filters()
+            Map<Long, List<TenantFileChange>> failedTenants = new LinkedHashMap<>();
+            taskService.searchList(new Filters()
                             .eq(SeedSyncTask::getBatchId, batchId)
                             .eq(SeedSyncTask::getStatus, SeedSyncTaskStatus.FAILED))
-                    .stream().map(SeedSyncTask::getTenantId).toList();
+                    .forEach(task -> failedTenants.put(task.getTenantId(), StringUtils.isBlank(task.getChanges()) ? null
+                            : JsonUtils.stringToObject(task.getChanges(), new TypeReference<List<TenantFileChange>>() {})));
             if (failedTenants.isEmpty()) {
                 return null;
             }
@@ -353,13 +364,21 @@ public class SeedSyncService implements PlatformSeedState {
     }
 
     /**
-     * The platform step: load the pending platform files, then make them take effect.
+     * How the platform step went.
      *
-     * @return whether it succeeded — the tenants are not touched when it did not
+     * @param succeeded    whether it did — the tenants are not touched when it did not
+     * @param plansChanged whether it loaded plan rows, which may entitle tenants to packages they never had
      */
-    private boolean loadPlatformFiles(SeedSyncBatch batch, List<SeedFileState> files, String lockKey) {
+    private record PlatformStep(boolean succeeded, boolean plansChanged) {}
+
+    /**
+     * The platform step: load the pending platform files, then make them take effect. Whether any of them
+     * carried plan rows is read off the row keys recorded for their versions, not from the files again.
+     */
+    private PlatformStep loadPlatformFiles(SeedSyncBatch batch, List<SeedFileState> files, String lockKey) {
         int loaded = 0;
         String error = null;
+        Set<String> loadedKeys = new LinkedHashSet<>();
         for (SeedFileState file : files) {
             try {
                 if (file.level() == SeedLevel.PLATFORM_TENANT) {
@@ -367,7 +386,7 @@ public class SeedSyncService implements PlatformSeedState {
                 } else {
                     preDataService.loadPreSystemData(List.of(file.file()));
                 }
-                asSystem(() -> recordVersion(file, batch.getId()));
+                loadedKeys.addAll(asSystem(() -> recordVersion(file, batch.getId())));
             } catch (RuntimeException e) {
                 log.error("Seed sync batch {} failed on {}", batch.getId(), file.file(), e);
                 error = file.file() + ": " + messageOf(e);
@@ -390,39 +409,161 @@ public class SeedSyncService implements PlatformSeedState {
             }));
             log.info("Seed sync batch {} stopped at the platform step: {} of {} file(s) loaded, error: {}",
                     batch.getId(), loaded, files.size(), failure);
-            return false;
+            return new PlatformStep(false, false);
         }
-        log.info("Seed sync batch {}: {} platform file(s) loaded", batch.getId(), loaded);
-        return true;
+        boolean plansChanged = loadedKeys.stream()
+                .anyMatch(key -> PLAN_MODELS.stream().anyMatch(model -> key.startsWith(model + "/")));
+        log.info("Seed sync batch {}: {} platform file(s) loaded{}", batch.getId(), loaded,
+                plansChanged ? ", plans among them" : "");
+        return new PlatformStep(true, plansChanged);
     }
 
     /**
      * The tenant step. A sync that reaches every tenant records the tenant files' versions — the change is
      * now this batch's to deliver, to a failed tenant through a retry — and a limited one leaves them
-     * pending. Then every tenant the change reaches gets a task; the baseline reaches none.
+     * pending. Then each tenant the change reaches gets a task. When the platform step loaded plans, a plan
+     * may now entitle packages its tenants never had, so each tenant is also checked for files it is due and
+     * never had, loaded whole in the same task. A tenant's own plan or country change is handled when it
+     * happens ({@link #reconcile}); only a change to the plans themselves is found here.
      */
     private void startTenantStep(SeedSyncBatch batch, List<SeedFileState> files, List<TenantFileChange> changes,
-                                 List<Long> selected, boolean baseline) {
+                                 List<Long> selected, boolean baseline, boolean plansChanged) {
         if (baseline || selected == null) {
             asSystem(() -> files.forEach(file -> recordVersion(file, batch.getId())));
         }
-        boolean reachesTenants = !baseline && changes.stream().anyMatch(TenantFileChange::reachesTenants);
-        List<Long> tenants = !reachesTenants ? List.of() : selected != null ? selected : runner.syncedTenantIds();
-        dispatchTenants(batch, tenants);
+        List<TenantFileChange> delivered = baseline ? List.of()
+                : changes.stream().filter(TenantFileChange::reachesTenants).toList();
+        Map<Long, List<TenantFileChange>> own = new LinkedHashMap<>();
+        for (Long tenantId : selected != null ? selected : runner.syncedTenantIds()) {
+            List<TenantFileChange> whole = plansChanged ? wholeFileChanges(scope.missingFiles(tenantId)) : List.of();
+            if (!whole.isEmpty()) {
+                own.put(tenantId, merge(delivered, whole));
+            } else if (!delivered.isEmpty()) {
+                own.put(tenantId, null);
+            }
+        }
+        dispatchTenants(batch, own);
     }
 
-    private void dispatchTenants(SeedSyncBatch batch, List<Long> tenantIds) {
+    /**
+     * Give tenants the tenant files they are due and never had — their plan now entitles more, or they have
+     * a company in a new country — as a batch of its own. Only active or suspended tenants whose bindings
+     * all record their file; nothing when a sync's platform step is running, whose tenant step does the same.
+     *
+     * @return the batch, or empty when no tenant was missing anything
+     */
+    public Optional<SeedSyncBatch> reconcile(List<Long> tenantIds, SeedSyncTriggerType triggerType) {
+        if (manifestProvider.getIfAvailable() == null || platformStepRunning()) {
+            return Optional.empty();
+        }
+        List<Long> synced = runner.syncedTenantIds();
+        Map<Long, List<TenantFileChange>> own = new LinkedHashMap<>();
+        for (Long tenantId : tenantIds) {
+            if (synced.contains(tenantId)) {
+                List<TenantFileChange> whole = wholeFileChanges(scope.missingFiles(tenantId));
+                if (!whole.isEmpty()) {
+                    own.put(tenantId, whole);
+                }
+            }
+        }
+        if (own.isEmpty()) {
+            return Optional.empty();
+        }
+        SeedSyncBatch batch = asSystem(() -> {
+            Set<String> fileNames = new LinkedHashSet<>();
+            own.values().forEach(list -> list.forEach(change -> fileNames.add(change.file())));
+            SeedSyncBatch created = newBatch(triggerType);
+            created.setTenantFileNames(String.join(",", fileNames));
+            created.setId(batchService.createOne(created));
+            return created;
+        });
+        log.info("Seed sync batch {} ({}): {} tenant(s) due files they never had", batch.getId(), triggerType,
+                own.size());
+        dispatchTenants(batch, own);
+        return Optional.of(batch);
+    }
+
+    /**
+     * Record a tenant's setup as a batch of its own, around the load that does it — so the tenant's first
+     * seed data shows up among its syncs, with the files it was given.
+     *
+     * @return the task to finish with {@link #finishProvision}
+     */
+    public SeedSyncTask startProvision(Long tenantId, List<String> files) {
+        return asSystem(() -> {
+            SeedSyncBatch batch = newBatch(SeedSyncTriggerType.PROVISION);
+            batch.setTenantFileNames(String.join(",", files));
+            batch.setId(batchService.createOne(batch));
+            SeedSyncTask task = new SeedSyncTask();
+            task.setBatchId(batch.getId());
+            task.setTenantId(tenantId);
+            task.setStatus(SeedSyncTaskStatus.RUNNING);
+            task.setAttempt(1);
+            task.setStartTime(LocalDateTime.now());
+            task.setId(taskService.createOne(task));
+            return task;
+        });
+    }
+
+    /** Close a setup recorded by {@link #startProvision}: succeeded, or failed with why. */
+    public void finishProvision(SeedSyncTask task, RuntimeException failure) {
+        asSystem(() -> {
+            SeedSyncTask patch = new SeedSyncTask();
+            patch.setId(task.getId());
+            patch.setStatus(failure == null ? SeedSyncTaskStatus.SUCCEEDED : SeedSyncTaskStatus.FAILED);
+            patch.setEndTime(LocalDateTime.now());
+            patch.setErrorSummary(failure == null ? null : truncate(messageOf(failure)));
+            taskService.updateOne(patch);
+        });
+        runner.finishBatchIfDone(task.getBatchId());
+    }
+
+    /** Loading a file whole: every row of it counts as added. */
+    private List<TenantFileChange> wholeFileChanges(List<String> files) {
+        return files.stream()
+                .map(file -> new TenantFileChange(file,
+                        List.copyOf(preDataService.rowKeysOf(SeedLevel.TENANT.getDataDir(), file)), List.of()))
+                .toList();
+    }
+
+    /** A batch's changes plus files loaded whole; a file in both is loaded whole. */
+    private static List<TenantFileChange> merge(List<TenantFileChange> delivered, List<TenantFileChange> whole) {
+        Map<String, TenantFileChange> byFile = new LinkedHashMap<>();
+        delivered.forEach(change -> byFile.put(change.file(), change));
+        whole.forEach(change -> byFile.put(change.file(), change));
+        return List.copyOf(byFile.values());
+    }
+
+    private SeedSyncBatch newBatch(SeedSyncTriggerType triggerType) {
+        SeedSyncBatch batch = new SeedSyncBatch();
+        batch.setStatus(SeedSyncStatus.RUNNING);
+        batch.setTriggerType(triggerType);
+        batch.setTotalFiles(0);
+        batch.setLoadedFiles(0);
+        batch.setAppVersion(appVersion);
+        batch.setBuildTime(buildTime);
+        batch.setStartTime(LocalDateTime.now());
+        return batch;
+    }
+
+    /**
+     * Give each tenant a task and hand the tasks out.
+     *
+     * @param own per tenant, its own changes — or null to take the batch's
+     */
+    private void dispatchTenants(SeedSyncBatch batch, Map<Long, List<TenantFileChange>> own) {
         List<SeedSyncTask> tasks = asSystem(() -> {
             List<SeedSyncTask> created = new ArrayList<>();
-            for (Long tenantId : tenantIds) {
+            own.forEach((tenantId, changes) -> {
                 SeedSyncTask task = new SeedSyncTask();
                 task.setBatchId(batch.getId());
                 task.setTenantId(tenantId);
                 task.setStatus(SeedSyncTaskStatus.PENDING);
                 task.setAttempt(0);
+                task.setChanges(changes == null ? null : JsonUtils.objectToString(changes));
                 task.setId(taskService.createOne(task));
                 created.add(task);
-            }
+            });
             return created;
         });
         runner.finishBatchIfDone(batch.getId());
@@ -608,7 +749,8 @@ public class SeedSyncService implements PlatformSeedState {
         }
     }
 
-    private void recordVersion(SeedFileState file, Long batchId) {
+    /** Record the file's version and return its row keys. */
+    private Set<String> recordVersion(SeedFileState file, Long batchId) {
         SeedFileVersion version = versionService.searchOne(new Filters()
                         .eq(SeedFileVersion::getFileName, file.file())
                         .eq(SeedFileVersion::getChecksum, file.checksum()))
@@ -618,7 +760,8 @@ public class SeedSyncService implements PlatformSeedState {
         version.setAppVersion(appVersion);
         version.setBuildTime(buildTime);
         version.setChangelog(file.changelog());
-        version.setRowKeys(JsonUtils.objectToString(preDataService.rowKeysOf(file.level().getDataDir(), file.file())));
+        Set<String> rowKeys = preDataService.rowKeysOf(file.level().getDataDir(), file.file());
+        version.setRowKeys(JsonUtils.objectToString(rowKeys));
         version.setSyncedTime(LocalDateTime.now());
         version.setBatchId(batchId);
         if (version.getId() == null) {
@@ -626,6 +769,7 @@ public class SeedSyncService implements PlatformSeedState {
         } else {
             versionService.updateOne(version);
         }
+        return rowKeys;
     }
 
     private void updateBatch(Long batchId, Consumer<SeedSyncBatch> change) {
