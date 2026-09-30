@@ -8,12 +8,14 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -376,6 +378,7 @@ public class SeedSyncService implements PlatformSeedState {
                     : String.join(",", selected.stream().map(String::valueOf).toList()));
             batch.setTenantFileNames(String.join(",", dueFiles));
             describe(batch, selected == null, !due.isEmpty(), dueFiles.size());
+            batch.setName(SeedSyncBatchNames.trace(selected == null ? null : selected.size(), due.size()));
             batch.setId(batchService.createOne(batch));
             return new Plan(batch, () -> {
                 int platform = selected == null ? asSystem(() -> tracePlatform()) : 0;
@@ -519,6 +522,7 @@ public class SeedSyncService implements PlatformSeedState {
             batch.setTenantFileNames(original.getTenantFileNames());
             batch.setTenantChanges(original.getTenantChanges());
             describe(batch, false, true, namesOf(original.getTenantFileNames()).size());
+            batch.setName(SeedSyncBatchNames.retry(failedTenants.size(), batchId));
             batch.setAppVersion(appVersion);
             batch.setBuildTime(buildTime);
             batch.setStartTime(LocalDateTime.now());
@@ -681,6 +685,8 @@ public class SeedSyncService implements PlatformSeedState {
             SeedSyncBatch created = newBatch(triggerType);
             created.setTenantFileNames(String.join(",", fileNames));
             describe(created, false, true, fileNames.size());
+            created.setName(SeedSyncBatchNames.reconcile(triggerType,
+                    codesOf(own.keySet()), fileNames.size()));
             created.setId(batchService.createOne(created));
             return created;
         });
@@ -701,11 +707,13 @@ public class SeedSyncService implements PlatformSeedState {
             SeedSyncBatch batch = newBatch(SeedSyncTriggerType.PROVISION);
             batch.setTenantFileNames(String.join(",", files));
             describe(batch, false, true, files.size());
+            String code = scope.tenantCodes(List.of(tenantId)).get(tenantId);
+            batch.setName(SeedSyncBatchNames.provision(code == null ? String.valueOf(tenantId) : code, files.size()));
             batch.setId(batchService.createOne(batch));
             SeedSyncTask task = new SeedSyncTask();
             task.setBatchId(batch.getId());
             task.setTenantId(tenantId);
-            task.setTenantCode(scope.tenantCodes(List.of(tenantId)).get(tenantId));
+            task.setTenantCode(code);
             task.setStatus(SeedSyncTaskStatus.RUNNING);
             task.setAttempt(1);
             task.setStartTime(LocalDateTime.now());
@@ -747,6 +755,12 @@ public class SeedSyncService implements PlatformSeedState {
         delivered.forEach(change -> byFile.put(change.file(), change));
         whole.forEach(change -> byFile.put(change.file(), change));
         return List.copyOf(byFile.values());
+    }
+
+    /** Each tenant's code, or its id where the app has no tenant model to read the code from. */
+    private List<String> codesOf(Collection<Long> tenantIds) {
+        Map<Long, String> codes = scope.tenantCodes(tenantIds);
+        return tenantIds.stream().map(id -> Objects.requireNonNullElse(codes.get(id), String.valueOf(id))).toList();
     }
 
     /** A batch's comma-separated file names as a list; empty for none. */
@@ -930,6 +944,10 @@ public class SeedSyncService implements PlatformSeedState {
         batch.setTenantFileNames(String.join(",", reaching.stream().map(TenantFileChange::file).toList()));
         batch.setTenantChanges(JsonUtils.objectToString(reaching));
         describe(batch, !platform.isEmpty(), !changes.isEmpty(), reaching.size());
+        batch.setName(triggerType == SeedSyncTriggerType.API
+                ? SeedSyncBatchNames.load(platform.stream().map(SeedFileState::file).toList())
+                : SeedSyncBatchNames.sync(platform.size(), reaching.size(), changes.size() - reaching.size(),
+                        selected == null ? null : selected.size()));
         batch.setSelectedTenantIds(selected == null ? null
                 : String.join(",", selected.stream().map(String::valueOf).toList()));
         batch.setAppVersion(appVersion);

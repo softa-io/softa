@@ -21,7 +21,7 @@ import io.softa.starter.metadata.enums.SeedSyncTriggerType;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(label = "Seed Sync Batch", idStrategy = IdStrategy.DISTRIBUTED_LONG)
+@Model(label = "Seed Sync Batch", idStrategy = IdStrategy.DISTRIBUTED_LONG, defaultOrder = "id:desc")
 public class SeedSyncBatch extends AuditableModel {
 
     @Serial
@@ -29,6 +29,9 @@ public class SeedSyncBatch extends AuditableModel {
 
     @Field(label = "ID")
     private Long id;
+
+    @Field(label = "Name", length = 256, description = "What the batch does, in a line")
+    private String name;
 
     @Field(required = true)
     private SeedSyncStatus status;
