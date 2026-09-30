@@ -713,7 +713,6 @@ public class SeedSyncService implements PlatformSeedState {
             SeedSyncTask task = new SeedSyncTask();
             task.setBatchId(batch.getId());
             task.setTenantId(tenantId);
-            task.setTenantCode(code);
             task.setStatus(SeedSyncTaskStatus.RUNNING);
             task.setAttempt(1);
             task.setStartTime(LocalDateTime.now());
@@ -798,12 +797,10 @@ public class SeedSyncService implements PlatformSeedState {
     private void dispatchTenants(SeedSyncBatch batch, Map<Long, List<TenantFileChange>> own) {
         List<SeedSyncTask> tasks = asSystem(() -> {
             List<SeedSyncTask> created = new ArrayList<>();
-            Map<Long, String> codes = scope.tenantCodes(own.keySet());
             own.forEach((tenantId, changes) -> {
                 SeedSyncTask task = new SeedSyncTask();
                 task.setBatchId(batch.getId());
                 task.setTenantId(tenantId);
-                task.setTenantCode(codes.get(tenantId));
                 task.setStatus(SeedSyncTaskStatus.PENDING);
                 task.setAttempt(0);
                 task.setChanges(changes == null ? null : JsonUtils.objectToString(changes));

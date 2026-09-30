@@ -17,8 +17,9 @@ import io.softa.starter.metadata.enums.SeedSyncTaskStatus;
  * One tenant in a seed sync batch: the tenant seed files of the batch brought up to date in that tenant,
  * in one transaction. The unit a failure rolls back and a retry re-runs.
  *
- * <p>Shared (not multi-tenant): written by the platform about every tenant, and {@code tenantId} is a plain
- * column.
+ * <p>Shared (not multi-tenant): written by the platform about every tenant. {@code tenantId} refers to the
+ * tenant record by model name, since the tenant model lives in tenant-starter, which this starter does not
+ * depend on; an application using this model therefore needs the tenant model as well.
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -35,11 +36,8 @@ public class SeedSyncTask extends AuditableModel {
     @Field(label = "Batch", fieldType = FieldType.MANY_TO_ONE, relatedModel = SeedSyncBatch.class)
     private Long batchId;
 
-    @Field(label = "Tenant ID")
+    @Field(label = "Tenant ID", fieldType = FieldType.MANY_TO_ONE, relatedModelName = "TenantInfo")
     private Long tenantId;
-
-    @Field(label = "Tenant", length = 64, description = "The tenant's code when the task was created")
-    private String tenantCode;
 
     @Field(required = true)
     private SeedSyncTaskStatus status;
