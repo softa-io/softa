@@ -30,6 +30,7 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -45,6 +46,7 @@ import io.softa.starter.metadata.entity.SeedFileVersion;
 import io.softa.starter.metadata.entity.SeedSyncBatch;
 import io.softa.starter.metadata.entity.SeedSyncTask;
 import io.softa.starter.metadata.entity.SysPreData;
+import io.softa.starter.metadata.enums.SeedSyncScope;
 import io.softa.starter.metadata.enums.SeedSyncStatus;
 import io.softa.starter.metadata.enums.SeedSyncTaskStatus;
 import io.softa.starter.metadata.enums.SeedSyncTriggerType;
@@ -151,7 +153,7 @@ public class SeedSyncService implements PlatformSeedState {
     public SeedSyncStatusView status() {
         SeedManifest manifest = manifestProvider.getIfAvailable();
         if (manifest == null) {
-            return new SeedSyncStatusView(List.of(), 0, 0, false, 0, 0, 0, List.of(), null, null, null, null, null, false,
+            return new SeedSyncStatusView(List.of(), 0, 0, false, 0, 0, 0, List.of(), 0, 0, null, null, null, null, null, null, false,
                     "The application ships no seed manifest.", null, appVersion, buildTime);
         }
         return asSystem(() -> {
@@ -165,11 +167,15 @@ public class SeedSyncService implements PlatformSeedState {
             // Worked out only between syncs: the page polls while one runs, and a running one has decided.
             List<TenantFileImpact> impacts = running != null || baseline ? List.of() : impactsOf(manifest, files);
             long affected = impacts.stream().anyMatch(i -> !i.onlyNewTenants()) ? runner.syncedTenantIds().size() : 0;
+            int untracedTenants = running != null ? 0 : untracedTenantIds().size();
+            long untracedPlatform = running != null ? 0 : untracedPlatformBindings();
+            String traceBlockReason = running != null ? "A seed sync is running. Trace once it finishes."
+                    : traceBlocker(files);
             return new SeedSyncStatusView(files, count(files, State.PENDING), count(files, State.ROLLED_BACK),
                     baseline,
                     (int) pendingOf(files).stream().filter(f -> PLATFORM_LEVELS.contains(f.level())).count(),
                     (int) pendingOf(files).stream().filter(f -> f.level() == SeedLevel.TENANT).count(),
-                    affected, impacts,
+                    affected, impacts, untracedTenants, untracedPlatform, traceBlockReason,
                     running == null ? null : running.getId(),
                     running == null ? null : running.getLoadedFiles(),
                     running == null ? null : running.getTotalFiles(),
@@ -325,6 +331,120 @@ public class SeedSyncService implements PlatformSeedState {
         }).orElseThrow();
     }
 
+    // ─────────────────────────── tracing ───────────────────────────
+
+    /**
+     * Once, after the release that starts recording which file brought each row: trace every binding that
+     * does not record its file yet to the file that declares its row — or mark it untraced — and give each
+     * tenant set up before what it is due and does not have: the files it never had, whole, and the rows of
+     * the files it has that it has no binding for. A row the tenant already has a binding for is left as it
+     * is; one it has under the same business key is claimed; one that would break a unique key fails the
+     * tenant, for someone to decide. The shared rows are traced first, then one task per tenant, through the
+     * MQ. Refused while seed files are pending: tracing reads the files as synced.
+     *
+     * @param tenantIds limit the tracing to these tenants, to try it on a few first; the shared rows are then
+     *                  left for the tracing that reaches every tenant. Null or empty for every tenant
+     * @return the batch now running, or empty when nothing is left to trace
+     */
+    public Optional<SeedSyncBatch> trace(List<Long> tenantIds) {
+        List<Long> selected = tenantIds == null || tenantIds.isEmpty() ? null : List.copyOf(new LinkedHashSet<>(tenantIds));
+        SeedManifest manifest = requireManifest();
+        return withLock(lockKey -> {
+            String blocker = traceBlocker(classify(manifest));
+            if (blocker != null) {
+                throw new BusinessException(blocker);
+            }
+            List<Long> untraced = untracedTenantIds();
+            List<Long> tenants = untraced;
+            if (selected != null) {
+                List<Long> unknown = selected.stream().filter(id -> !untraced.contains(id)).toList();
+                if (!unknown.isEmpty()) {
+                    throw new BusinessException("Tenants " + unknown + " have nothing to trace: they are not active "
+                            + "or suspended, or their seed data is traced already.");
+                }
+                tenants = selected;
+            }
+            if (tenants.isEmpty() && (selected != null || untracedPlatformBindings() == 0)) {
+                return null;
+            }
+            Map<Long, List<String>> due = new LinkedHashMap<>();
+            tenants.forEach(tenantId -> due.put(tenantId, scope.dueFiles(tenantId)));
+            Set<String> dueFiles = new LinkedHashSet<>();
+            due.values().forEach(dueFiles::addAll);
+            SeedSyncBatch batch = newBatch(SeedSyncTriggerType.INITIALIZE);
+            batch.setSelectedTenantIds(selected == null ? null
+                    : String.join(",", selected.stream().map(String::valueOf).toList()));
+            batch.setTenantFileNames(String.join(",", dueFiles));
+            describe(batch, selected == null, !due.isEmpty(), dueFiles.size());
+            batch.setId(batchService.createOne(batch));
+            return new Plan(batch, () -> {
+                int platform = selected == null ? asSystem(() -> tracePlatform()) : 0;
+                log.info("Seed sync batch {}: {} shared binding(s) traced; {} tenant(s) to trace", batch.getId(),
+                        platform, due.size());
+                Map<Long, List<TenantFileChange>> own = new LinkedHashMap<>();
+                due.forEach((tenantId, files) -> own.put(tenantId, wholeFileChanges(files)));
+                dispatchTenants(batch, own);
+            });
+        });
+    }
+
+    /** What {@link #trace} would do to each tenant it reaches — the given ones, or every one. */
+    public List<TenantTracePreview> tracePreview(List<Long> tenantIds) {
+        requireManifest();
+        return asSystem(() -> {
+            List<Long> untraced = untracedTenantIds();
+            return scope.tracePreview(tenantIds == null || tenantIds.isEmpty() ? untraced
+                    : tenantIds.stream().filter(untraced::contains).distinct().toList());
+        });
+    }
+
+    /** The shared rows' bindings and the platform tenant's, each against the files of its own level. */
+    private int tracePlatform() {
+        int traced = 0;
+        for (TenantSeedFileResult r : preDataService.traceSources(scope.fileOfRowKey(SeedLevel.PLATFORM_GLOBAL), null)) {
+            traced += r.traced();
+        }
+        for (TenantSeedFileResult r : preDataService.traceSources(scope.fileOfRowKey(SeedLevel.PLATFORM_TENANT),
+                BaseConstant.PLATFORM_TENANT_ID)) {
+            traced += r.traced();
+        }
+        return traced;
+    }
+
+    /**
+     * Active or suspended tenants whose bindings do not all record their file — or that have none, set up
+     * before bindings were written at all.
+     */
+    private List<Long> untracedTenantIds() {
+        List<Long> synced = runner.syncedTenantIds();
+        if (synced.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> untraced = new LinkedHashSet<>(preDataService.getDistinctFieldValue(SysPreData::getTenantId,
+                new Filters().in(SysPreData::getTenantId, synced).isNotSet(SysPreData::getSourceFile)));
+        Set<Long> withBindings = new LinkedHashSet<>(preDataService.getDistinctFieldValue(SysPreData::getTenantId,
+                new Filters().in(SysPreData::getTenantId, synced)));
+        return synced.stream().filter(id -> untraced.contains(id) || !withBindings.contains(id)).toList();
+    }
+
+    private long untracedPlatformBindings() {
+        return preDataService.count(new Filters().isNotSet(SysPreData::getTenantId).isNotSet(SysPreData::getSourceFile))
+                + preDataService.count(new Filters().eq(SysPreData::getTenantId, BaseConstant.PLATFORM_TENANT_ID)
+                        .isNotSet(SysPreData::getSourceFile));
+    }
+
+    /** Why seed data cannot be traced now, or null: every file must be synced, as the tracing reads them. */
+    private String traceBlocker(List<SeedFileState> files) {
+        List<String> rolledBack = names(files, State.ROLLED_BACK);
+        if (!rolledBack.isEmpty()) {
+            return rollbackMessage(rolledBack);
+        }
+        if (count(files, State.PENDING) > 0) {
+            return "Sync the pending seed files first: seed data is traced against the files as synced.";
+        }
+        return null;
+    }
+
     /** Whether the application ships a seed manifest, without which nothing is synced. */
     public boolean hasManifest() {
         return manifestProvider.getIfAvailable() != null;
@@ -398,6 +518,7 @@ public class SeedSyncService implements PlatformSeedState {
             batch.setLoadedFiles(0);
             batch.setTenantFileNames(original.getTenantFileNames());
             batch.setTenantChanges(original.getTenantChanges());
+            describe(batch, false, true, namesOf(original.getTenantFileNames()).size());
             batch.setAppVersion(appVersion);
             batch.setBuildTime(buildTime);
             batch.setStartTime(LocalDateTime.now());
@@ -559,6 +680,7 @@ public class SeedSyncService implements PlatformSeedState {
             own.values().forEach(list -> list.forEach(change -> fileNames.add(change.file())));
             SeedSyncBatch created = newBatch(triggerType);
             created.setTenantFileNames(String.join(",", fileNames));
+            describe(created, false, true, fileNames.size());
             created.setId(batchService.createOne(created));
             return created;
         });
@@ -578,10 +700,12 @@ public class SeedSyncService implements PlatformSeedState {
         return asSystem(() -> {
             SeedSyncBatch batch = newBatch(SeedSyncTriggerType.PROVISION);
             batch.setTenantFileNames(String.join(",", files));
+            describe(batch, false, true, files.size());
             batch.setId(batchService.createOne(batch));
             SeedSyncTask task = new SeedSyncTask();
             task.setBatchId(batch.getId());
             task.setTenantId(tenantId);
+            task.setTenantCode(scope.tenantCodes(List.of(tenantId)).get(tenantId));
             task.setStatus(SeedSyncTaskStatus.RUNNING);
             task.setAttempt(1);
             task.setStartTime(LocalDateTime.now());
@@ -598,6 +722,11 @@ public class SeedSyncService implements PlatformSeedState {
             patch.setId(task.getId());
             patch.setStatus(failure == null ? SeedSyncTaskStatus.SUCCEEDED : SeedSyncTaskStatus.FAILED);
             patch.setEndTime(LocalDateTime.now());
+            if (failure == null) {
+                // Its files were loaded whole: every row of them, nested ones included, is new to the tenant.
+                String files = batchService.getById(task.getBatchId()).map(SeedSyncBatch::getTenantFileNames).orElse(null);
+                patch.setNewRowCount(preDataService.rowCountOf(SeedLevel.TENANT.getDataDir(), namesOf(files)));
+            }
             patch.setErrorSummary(failure == null ? null : truncate(messageOf(failure)));
             taskService.updateOne(patch);
         });
@@ -620,6 +749,21 @@ public class SeedSyncService implements PlatformSeedState {
         return List.copyOf(byFile.values());
     }
 
+    /** A batch's comma-separated file names as a list; empty for none. */
+    private static List<String> namesOf(String fileNames) {
+        return StringUtils.isBlank(fileNames) ? List.of() : List.of(fileNames.split(","));
+    }
+
+    /**
+     * Record what the batch covers, for the sync history to say at a glance: whether it loads platform files
+     * (or, tracing, the shared bindings), whether it reaches tenants, and how many tenant files it brings them.
+     */
+    static void describe(SeedSyncBatch batch, boolean platform, boolean tenants, int tenantFiles) {
+        batch.setTenantFileCount(tenantFiles);
+        batch.setScope(platform && tenants ? SeedSyncScope.PLATFORM_AND_TENANTS
+                : platform ? SeedSyncScope.PLATFORM : SeedSyncScope.TENANTS);
+    }
+
     private SeedSyncBatch newBatch(SeedSyncTriggerType triggerType) {
         SeedSyncBatch batch = new SeedSyncBatch();
         batch.setStatus(SeedSyncStatus.RUNNING);
@@ -640,10 +784,12 @@ public class SeedSyncService implements PlatformSeedState {
     private void dispatchTenants(SeedSyncBatch batch, Map<Long, List<TenantFileChange>> own) {
         List<SeedSyncTask> tasks = asSystem(() -> {
             List<SeedSyncTask> created = new ArrayList<>();
+            Map<Long, String> codes = scope.tenantCodes(own.keySet());
             own.forEach((tenantId, changes) -> {
                 SeedSyncTask task = new SeedSyncTask();
                 task.setBatchId(batch.getId());
                 task.setTenantId(tenantId);
+                task.setTenantCode(codes.get(tenantId));
                 task.setStatus(SeedSyncTaskStatus.PENDING);
                 task.setAttempt(0);
                 task.setChanges(changes == null ? null : JsonUtils.objectToString(changes));
@@ -783,6 +929,7 @@ public class SeedSyncService implements PlatformSeedState {
         List<TenantFileChange> reaching = changes.stream().filter(TenantFileChange::reachesTenants).toList();
         batch.setTenantFileNames(String.join(",", reaching.stream().map(TenantFileChange::file).toList()));
         batch.setTenantChanges(JsonUtils.objectToString(reaching));
+        describe(batch, !platform.isEmpty(), !changes.isEmpty(), reaching.size());
         batch.setSelectedTenantIds(selected == null ? null
                 : String.join(",", selected.stream().map(String::valueOf).toList()));
         batch.setAppVersion(appVersion);

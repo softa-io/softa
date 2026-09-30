@@ -11,6 +11,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.metadata.enums.SeedSyncScope;
 import io.softa.starter.metadata.enums.SeedSyncStatus;
 import io.softa.starter.metadata.enums.SeedSyncTriggerType;
 
@@ -35,21 +36,27 @@ public class SeedSyncBatch extends AuditableModel {
     @Field
     private SeedSyncTriggerType triggerType;
 
+    @Field(description = "Which seed data the batch covers: the platform files, the tenants, or both")
+    private SeedSyncScope scope;
+
     @Field(label = "Retry Of", fieldType = FieldType.MANY_TO_ONE, relatedModel = SeedSyncBatch.class,
             description = "The batch whose failed tenants this one re-runs")
     private Long retryOfBatchId;
 
-    @Field(label = "Files", fieldType = FieldType.TEXT,
+    @Field(label = "Platform File Names", fieldType = FieldType.TEXT,
             description = "Platform files to load, comma-separated, in load order")
     private String fileNames;
 
-    @Field(label = "Total Files")
+    @Field(label = "Platform Files")
     private Integer totalFiles;
 
-    @Field(label = "Loaded Files")
+    @Field(label = "Platform Files Loaded")
     private Integer loadedFiles;
 
-    @Field(label = "Tenant Files", fieldType = FieldType.TEXT,
+    @Field(label = "Tenant Files", description = "How many tenant files the batch brings to tenants")
+    private Integer tenantFileCount;
+
+    @Field(label = "Tenant File Names", fieldType = FieldType.TEXT,
             description = "Tenant files whose added or removed rows reach tenants, comma-separated, in load order")
     private String tenantFileNames;
 

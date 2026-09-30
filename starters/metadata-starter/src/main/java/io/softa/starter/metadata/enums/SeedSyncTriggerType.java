@@ -24,6 +24,9 @@ public enum SeedSyncTriggerType {
     COUNTRY_ADDED("CountryAdded"),
     // Named platform files were loaded through the seed data API.
     API("Api"),
+    // Once after the release that starts recording sources: every binding traced to its file, and each
+    // tenant set up before given what it is due and does not have.
+    INITIALIZE("Initialize"),
     ;
 
     @JsonValue

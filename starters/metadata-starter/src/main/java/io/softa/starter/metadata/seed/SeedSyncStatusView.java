@@ -17,6 +17,9 @@ import java.util.List;
  *                              tenant file adds rows or removes invalid columns, else none
  * @param tenantImpacts         what each pending tenant file would do to the tenants set up before it; empty
  *                              while a sync runs or when the next sync records the baseline
+ * @param untracedTenants       active or suspended tenants whose seed data is not traced to its files yet
+ * @param untracedPlatformBindings bindings of the shared rows and the platform tenant not traced yet
+ * @param traceBlockReason      why seed data cannot be traced now, or null when it can
  * @param runningBatchId        the batch in progress, or null
  * @param loadedFiles           platform files the batch in progress has loaded so far
  * @param totalFiles            platform files the batch in progress set out to load
@@ -30,7 +33,8 @@ import java.util.List;
  */
 public record SeedSyncStatusView(List<SeedFileState> files, int pendingCount, int rolledBackCount,
                                  boolean tenantBaseline, int platformPendingCount, int tenantPendingCount, long affectedTenants,
-                                 List<TenantFileImpact> tenantImpacts,
+                                 List<TenantFileImpact> tenantImpacts, int untracedTenants,
+                                 long untracedPlatformBindings, String traceBlockReason,
                                  Long runningBatchId, Integer loadedFiles, Integer totalFiles,
                                  Integer finishedTenants, Integer totalTenants, boolean canSync, String blockReason,
                                  String tenantCreationBlocker, String appVersion, LocalDateTime buildTime) {

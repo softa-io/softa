@@ -127,6 +127,40 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     @Override
+    public List<TenantSeedFileResult> traceSources(Map<String, String> fileOfRowKey, Long tenantId) {
+        Filters filters = new Filters().isNotSet(SysPreData::getSourceFile);
+        if (tenantId == null) {
+            filters.isNotSet(SysPreData::getTenantId);
+        } else {
+            filters.eq(SysPreData::getTenantId, tenantId);
+        }
+        Map<String, List<SysPreData>> byFile = new LinkedHashMap<>();
+        for (SysPreData binding : this.searchList(filters)) {
+            String file = fileOfRowKey.get(rowKey(binding.getModel(), binding.getPreId()));
+            if (file == null) {
+                // A preId a file retired is listed without its model.
+                file = fileOfRowKey.getOrDefault("*/" + binding.getPreId(), UNTRACED_SOURCE);
+            }
+            byFile.computeIfAbsent(file, k -> new ArrayList<>()).add(binding);
+        }
+        List<TenantSeedFileResult> results = new ArrayList<>();
+        byFile.forEach((file, bindings) -> {
+            List<SysPreData> patches = bindings.stream().map(binding -> {
+                SysPreData patch = new SysPreData();
+                patch.setId(binding.getId());
+                patch.setSourceFile(file);
+                return patch;
+            }).toList();
+            this.updateList(patches);
+            List<String> notes = UNTRACED_SOURCE.equals(file)
+                    ? bindings.stream().map(b -> rowKey(b.getModel(), b.getPreId())).toList()
+                    : List.of();
+            results.add(TenantSeedFileResult.tracedTo(file, bindings.size(), notes));
+        });
+        return results;
+    }
+
+    @Override
     public boolean isSettingUp(Long tenantId) {
         if (tenantId == null || !ModelManager.existModel(TENANT_MODEL)) {
             return true;
@@ -241,6 +275,20 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         return keys;
     }
 
+    @Override
+    public int rowCountOf(String dataDir, List<String> fileNames) {
+        int count = 0;
+        for (String fileName : fileNames) {
+            for (Map.Entry<String, Object> entry
+                    : formatParser.parse(FileUtils.getFileObjectByPath(dataDir, fileName)).entrySet()) {
+                for (Map<String, Object> row : rowsOf(entry.getKey(), entry.getValue())) {
+                    count += 1 + nestedRowCount(entry.getKey(), row);
+                }
+            }
+        }
+        return count;
+    }
+
     private void collectRowKeys(String model, List<Map<String, Object>> rows, Set<String> keys) {
         for (Map<String, Object> row : rows) {
             keys.add(rowKey(model, (String) row.get(ID)));
@@ -252,6 +300,21 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 }
             });
         }
+    }
+
+    /** The rows nested in a seed row, at any depth: what loading it creates besides the row itself. */
+    private int nestedRowCount(String model, Map<String, Object> row) {
+        int count = 0;
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            if (entry.getValue() instanceof Collection<?> items && !items.isEmpty()
+                    && FieldType.ONE_TO_MANY.equals(ModelManager.getModelField(model, entry.getKey()).getFieldType())) {
+                String childModel = ModelManager.getModelField(model, entry.getKey()).getRelatedModel();
+                for (Map<String, Object> child : rowsOf(model, new ArrayList<>(items))) {
+                    count += 1 + nestedRowCount(childModel, child);
+                }
+            }
+        }
+        return count;
     }
 
     private static String rowKey(String model, String preId) {
@@ -327,7 +390,8 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 continue;
             }
             createNewRow(model, row);
-            tally.created++;
+            // A new row brings the rows nested in it along, all of them new too.
+            tally.created += 1 + nestedRowCount(model, row);
         }
     }
 
@@ -523,7 +587,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         }
 
         private TenantSeedFileResult result() {
-            return new TenantSeedFileResult(file, created, claimed, skipped, pushed, removed, notes);
+            return new TenantSeedFileResult(file, created, claimed, skipped, pushed, removed, 0, notes);
         }
     }
 

@@ -15,6 +15,7 @@ import io.softa.starter.metadata.entity.SeedSyncBatch;
 import io.softa.starter.metadata.seed.SeedSyncService;
 import io.softa.starter.metadata.seed.SeedPackagePreview;
 import io.softa.starter.metadata.seed.TenantSeedPackage;
+import io.softa.starter.metadata.seed.TenantTracePreview;
 import io.softa.starter.metadata.seed.SeedSyncStatusView;
 import io.softa.starter.metadata.seed.TenantSeedScope;
 
@@ -55,6 +56,20 @@ public class SeedSyncController {
     public ApiResponse<Long> retry(@RequestParam Long batchId,
                                    @RequestParam(required = false) List<Long> tenantIds) {
         return ApiResponse.success(seedSyncService.retry(batchId, tenantIds).map(SeedSyncBatch::getId).orElse(null));
+    }
+
+    @Operation(summary = "Once, after the release that starts recording seed sources: trace every binding to its "
+            + "file and give each tenant set up before — or only the given ones — what it is due and does not have; "
+            + "returns the batch id, or null when nothing is left to trace")
+    @PostMapping("/trace")
+    public ApiResponse<Long> trace(@RequestParam(required = false) List<Long> tenantIds) {
+        return ApiResponse.success(seedSyncService.trace(tenantIds).map(SeedSyncBatch::getId).orElse(null));
+    }
+
+    @Operation(summary = "What tracing would do to each tenant it reaches, before it runs")
+    @GetMapping("/tracePreview")
+    public ApiResponse<List<TenantTracePreview>> tracePreview(@RequestParam(required = false) List<Long> tenantIds) {
+        return ApiResponse.success(seedSyncService.tracePreview(tenantIds));
     }
 
     @Operation(summary = "The tenant seed packages, with their files, a tenant on this plan in this country is set up with")

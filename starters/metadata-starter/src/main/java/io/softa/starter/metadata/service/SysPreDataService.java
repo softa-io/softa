@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -38,6 +39,25 @@ public interface SysPreDataService extends EntityService<SysPreData, Long> {
      * @param tenantId tenant id to which the data will be loaded
      */
     void loadPreTenantData(List<String> fileNames, Long tenantId);
+
+    /**
+     * The marker a binding's source file takes when no current seed file declares its row: the row came
+     * from a file or a row since removed, or was renamed. It says the binding was traced, and found nothing.
+     */
+    String UNTRACED_SOURCE = "(untraced)";
+
+    /**
+     * Stamp the source file on the bindings of one scope that do not record it — those written before
+     * bindings recorded their file. A binding takes the file whose rows include its {@code Model/preId}, or
+     * {@link #UNTRACED_SOURCE} when none does. Bindings that record a file are left as they are.
+     *
+     * @param fileOfRowKey the file declaring each {@code Model/preId}, for the scope's level; a preId a file
+     *                     retired, keyed {@code * /preId} (no space) whatever its model
+     * @param tenantId     the scope: a tenant, the platform tenant, or null for the shared rows
+     * @return per file, how many bindings were traced to it; the untraced ones under
+     *         {@link #UNTRACED_SOURCE}, with their keys as notes
+     */
+    List<TenantSeedFileResult> traceSources(Map<String, String> fileOfRowKey, Long tenantId);
 
     /**
      * Whether the tenant is still being set up — created and not built yet, or being built — so its seed
@@ -90,6 +110,14 @@ public interface SysPreDataService extends EntityService<SysPreData, Long> {
      * @return the row keys, in file order
      */
     Set<String> rowKeysOf(String dataDir, String fileName);
+
+    /**
+     * How many rows loading these files whole creates: each row, and the rows nested in it at any depth.
+     *
+     * @param dataDir   the level's seed directory
+     * @param fileNames the files, as the manifest names them
+     */
+    int rowCountOf(String dataDir, List<String> fileNames);
 
     /**
      * Bring the current tenant's copy of a tenant seed file up to date with one release's change to it,

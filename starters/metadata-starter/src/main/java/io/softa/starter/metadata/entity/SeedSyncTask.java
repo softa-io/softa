@@ -38,6 +38,9 @@ public class SeedSyncTask extends AuditableModel {
     @Field(label = "Tenant ID")
     private Long tenantId;
 
+    @Field(label = "Tenant", length = 64, description = "The tenant's code when the task was created")
+    private String tenantCode;
+
     @Field(required = true)
     private SeedSyncTaskStatus status;
 

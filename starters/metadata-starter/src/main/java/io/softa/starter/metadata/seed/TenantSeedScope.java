@@ -2,13 +2,16 @@ package io.softa.starter.metadata.seed;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
@@ -38,7 +41,12 @@ import static io.softa.starter.metadata.seed.SyncSupport.asSystem;
 public class TenantSeedScope {
 
     private static final String TENANT_MODEL = "TenantInfo";
+    /** Key prefix of a retired preId in {@link #fileOfRowKey}: it is listed without its model. */
+    public static final String RETIRED_KEY_PREFIX = "*/";
     private static final String PLAN_ENTITLEMENT_MODEL = "PlanEntitlement";
+
+    /** Per level, the file declaring each row. The classpath does not change while the application runs. */
+    private final Map<SeedLevel, Map<String, String>> fileOfRowKey = new ConcurrentHashMap<>();
 
     private final ObjectProvider<SeedManifest> manifestProvider;
     private final ObjectProvider<EntitlementService> entitlementService;
@@ -169,6 +177,82 @@ public class TenantSeedScope {
                         entitled.contains(p.key())))
                 .sorted(Comparator.comparing(p -> !p.entitled()))
                 .toList();
+    }
+
+    /**
+     * The file of this level that declares each row, keyed {@code Model/preId} — its rows and the rows nested
+     * in them — and {@code * /preId} (no space) for a preId a file lists as retired, whatever its model. A row
+     * two files declare belongs to the first in load order.
+     */
+    public Map<String, String> fileOfRowKey(SeedLevel level) {
+        return fileOfRowKey.computeIfAbsent(level, l -> {
+            SeedManifest manifest = manifestProvider.getObject();
+            Map<String, String> files = new LinkedHashMap<>();
+            for (String name : manifest.loadOrder(l)) {
+                preDataService.rowKeysOf(l.getDataDir(), name).forEach(key -> files.putIfAbsent(key, name));
+                manifest.file(name).ifPresent(file ->
+                        file.retired().forEach(preId -> files.putIfAbsent(RETIRED_KEY_PREFIX + preId, name)));
+            }
+            return Map.copyOf(files);
+        });
+    }
+
+    /** Each of these tenants' code, for the records that name them; empty when the app has no tenant model. */
+    public Map<Long, String> tenantCodes(Collection<Long> tenantIds) {
+        Map<Long, String> codes = new LinkedHashMap<>();
+        tenantRows(tenantIds).forEach((id, row) -> codes.put(id, Objects.toString(row.get("code"), null)));
+        return codes;
+    }
+
+    private Map<Long, Map<String, Object>> tenantRows(Collection<Long> tenantIds) {
+        Map<Long, Map<String, Object>> tenants = new LinkedHashMap<>();
+        if (ModelManager.existModel(TENANT_MODEL) && !tenantIds.isEmpty()) {
+            asSystem(() -> modelService.searchList(TENANT_MODEL, new FlexQuery(List.of(ModelConstant.ID, "code", "name"),
+                            new Filters().in(ModelConstant.ID, List.copyOf(tenantIds)))))
+                    .forEach(row -> tenants.put(Long.valueOf(String.valueOf(row.get(ModelConstant.ID))), row));
+        }
+        return tenants;
+    }
+
+    /**
+     * What tracing each of these tenants would do: its bindings without a file, the files it is due and has
+     * nothing from, and the rows of its due files it has no binding for.
+     */
+    public List<TenantTracePreview> tracePreview(List<Long> tenantIds) {
+        Map<String, List<String>> keysOfFile = new LinkedHashMap<>();
+        fileOfRowKey(SeedLevel.TENANT).forEach((key, file) -> {
+            if (!key.startsWith(RETIRED_KEY_PREFIX)) {
+                keysOfFile.computeIfAbsent(file, k -> new ArrayList<>()).add(key);
+            }
+        });
+        Map<Long, Map<String, Object>> tenants = tenantRows(tenantIds);
+        List<TenantTracePreview> previews = new ArrayList<>();
+        for (Long tenantId : tenantIds) {
+            List<SysPreData> bindings = asSystem(() -> preDataService.searchList(
+                    new Filters().eq(SysPreData::getTenantId, tenantId)));
+            Set<String> bound = new HashSet<>();
+            long untraced = 0;
+            for (SysPreData binding : bindings) {
+                bound.add(binding.getModel() + "/" + binding.getPreId());
+                if (binding.getSourceFile() == null) {
+                    untraced++;
+                }
+            }
+            List<String> neverHad = new ArrayList<>();
+            int withoutBinding = 0;
+            for (String file : dueFiles(tenantId)) {
+                List<String> keys = keysOfFile.getOrDefault(file, List.of());
+                long missing = keys.stream().filter(key -> !bound.contains(key)).count();
+                if (!keys.isEmpty() && missing == keys.size()) {
+                    neverHad.add(file);
+                }
+                withoutBinding += (int) missing;
+            }
+            Map<String, Object> tenant = tenants.getOrDefault(tenantId, Map.of());
+            previews.add(new TenantTracePreview(tenantId, Objects.toString(tenant.get("code"), null),
+                    Objects.toString(tenant.get("name"), null), untraced, neverHad, withoutBinding));
+        }
+        return previews;
     }
 
     /** The modules a plan entitles, or null when plans are not in use. */

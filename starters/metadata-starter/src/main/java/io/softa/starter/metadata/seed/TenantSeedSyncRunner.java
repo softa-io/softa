@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,7 @@ import io.softa.starter.metadata.entity.SeedSyncBatch;
 import io.softa.starter.metadata.entity.SeedSyncTask;
 import io.softa.starter.metadata.enums.SeedSyncStatus;
 import io.softa.starter.metadata.enums.SeedSyncTaskStatus;
+import io.softa.starter.metadata.enums.SeedSyncTriggerType;
 import io.softa.starter.metadata.service.SeedSyncBatchService;
 import io.softa.starter.metadata.service.SeedSyncTaskService;
 import io.softa.starter.metadata.service.SysPreDataService;
@@ -113,12 +115,18 @@ public class TenantSeedSyncRunner {
         }
         List<TenantFileChange> changes = changesOf(task, batch);
         Set<String> reached = scope.reachedFiles(tenantId);
+        boolean traces = traces(batch);
         List<TenantSeedFileResult> results = new ArrayList<>();
         String[] current = new String[1];
         try {
             asInitiator(batch, () -> ContextUtils.inTenantContext(tenantId, () -> transaction.executeWithoutResult(
                     status -> {
                         results.clear();
+                        if (traces) {
+                            // First, so the rows the tenant already has count as had when its files are applied.
+                            current[0] = "(tracing its bindings)";
+                            results.addAll(preDataService.traceSources(scope.fileOfRowKey(SeedLevel.TENANT), tenantId));
+                        }
                         for (TenantFileChange change : changes) {
                             current[0] = change.file();
                             SeedFile file = manifestProvider.getObject().file(change.file()).orElse(null);
@@ -147,7 +155,7 @@ public class TenantSeedSyncRunner {
             t.setEndTime(LocalDateTime.now());
             t.setNewRowCount(newRows);
             t.setPushedCount(pushed);
-            t.setFileResults(JsonUtils.objectToString(results));
+            t.setFileResults(JsonUtils.objectToString(mergeByFile(results)));
         }));
         if (newRows + pushed > 0) {
             // A new role or grant changes what this tenant's users may do; their cached snapshots go.
@@ -182,6 +190,32 @@ public class TenantSeedSyncRunner {
             }
             batchService.updateOne(patch);
         });
+    }
+
+    /**
+     * Whether the batch traces its tenants' bindings before applying their files: a batch initializing the
+     * tenants set up before sources were recorded, or a retry of one.
+     */
+    private boolean traces(SeedSyncBatch batch) {
+        SeedSyncBatch current = batch;
+        for (int hop = 0; current != null && hop < 20; hop++) {
+            if (current.getTriggerType() == SeedSyncTriggerType.INITIALIZE) {
+                return true;
+            }
+            if (current.getTriggerType() != SeedSyncTriggerType.MANUAL_RETRY || current.getRetryOfBatchId() == null) {
+                return false;
+            }
+            Long retryOf = current.getRetryOfBatchId();
+            current = asSystem(() -> batchService.getById(retryOf).orElse(null));
+        }
+        return false;
+    }
+
+    /** One result per file, in the order the files first appear: tracing and applying a file are one line. */
+    private static List<TenantSeedFileResult> mergeByFile(List<TenantSeedFileResult> results) {
+        Map<String, TenantSeedFileResult> byFile = new LinkedHashMap<>();
+        results.forEach(result -> byFile.merge(result.file(), result, TenantSeedFileResult::plus));
+        return List.copyOf(byFile.values());
     }
 
     /**

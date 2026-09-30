@@ -28,6 +28,7 @@ import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.metadata.entity.SysPreData;
+import io.softa.starter.metadata.seed.SeedLevel;
 import io.softa.starter.metadata.seed.SeedPushScope;
 import io.softa.starter.metadata.seed.TenantSeedFileResult;
 
@@ -35,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -187,6 +189,29 @@ class SysPreDataApplyNewRowsTest {
         // Unlike a load, the box's other items — the tenant's own among them — are not reconciled away.
         verify(modelService, never()).deleteByFilters(eq("Item"), any(Filters.class));
         verify(modelService, never()).updateOne(eq("Box"), anyMap());
+    }
+
+    @Test
+    void aNewRowCountsTheRowsNestedInIt() {
+        // The tenant never got the box: it is created with its three items, and all four count as created.
+        when(modelService.getIds(any(String.class), any(Filters.class))).thenReturn(List.of());
+        when(modelService.createOne(eq("Box"), anyMap())).thenReturn(10L);
+        when(modelService.createList(eq("Item"), anyList())).thenReturn(List.of(21L, 22L, 23L));
+        when(modelService.createOne(eq("Item"), anyMap())).thenReturn(21L, 22L, 23L);
+
+        TenantSeedFileResult result = apply("SeedApplyTest.Nested.json", SeedPushScope.NONE,
+                Set.of("Box/box.x", "Item/item.old", "Item/item.claim", "Item/item.new"));
+
+        assertEquals(4, result.created());
+    }
+
+    @Test
+    void loadingFilesWholeCountsEveryRowAndTheRowsNestedInThem() {
+        // Three widgets and a gadget; a box with its three items.
+        int rows = withMetadata(() -> service.rowCountOf(SeedLevel.TENANT.getDataDir(),
+                List.of("SeedApplyTest.Rows.json", "SeedApplyTest.Nested.json")));
+
+        assertEquals(8, rows);
     }
 
     @Test
