@@ -19,6 +19,7 @@ import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.event.RoleNavigationChangedEvent;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -142,7 +143,7 @@ class RoleServiceImplTest {
 
         assertThatThrownBy(() -> svc.updateOne(patch))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Cannot edit system role");
+                .hasMessageContaining("Cannot edit administrator role");
     }
 
     @Test
@@ -156,7 +157,7 @@ class RoleServiceImplTest {
 
         assertThatThrownBy(() -> svc.updateOne(patch))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Cannot edit system role");
+                .hasMessageContaining("Cannot edit administrator role");
     }
 
     @Test
@@ -170,7 +171,7 @@ class RoleServiceImplTest {
 
         assertThatThrownBy(() -> svc.updateOne(patch))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Cannot edit system role");
+                .hasMessageContaining("Cannot edit administrator role");
     }
 
     @Test
@@ -186,13 +187,12 @@ class RoleServiceImplTest {
 
         assertThatThrownBy(() -> svc.updateOne(patch))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Cannot edit system role");
+                .hasMessageContaining("Cannot edit administrator role");
     }
 
     @Test
     void updateOne_editDescriptionOfSystemRole_throws() {
-        // Tightened: built-in roles are fully immutable — even a benign description edit is rejected
-        // (previously only rename / deactivate / code / dynamicFilter were blocked).
+        // An administrator role accepts no edit at all — even a benign description change is refused.
         Role persisted = superAdminRole();
         doReturn(Optional.of(persisted)).when(svc).getById(1L);
 
@@ -202,7 +202,7 @@ class RoleServiceImplTest {
 
         assertThatThrownBy(() -> svc.updateOne(patch))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Cannot edit system role");
+                .hasMessageContaining("Cannot edit administrator role");
     }
 
     @Test
@@ -259,7 +259,7 @@ class RoleServiceImplTest {
 
         assertThatThrownBy(() -> svc.updateOne(patch))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Cannot edit system role");
+                .hasMessageContaining("Cannot edit administrator role");
     }
 
     // ─── cache eviction: Role write publishes a per-role event ───
@@ -301,6 +301,84 @@ class RoleServiceImplTest {
     }
 
     // ─── helpers ───
+
+    // ─── business built-in roles: editable, but the code is fixed and they cannot be deleted ───
+
+    @Test
+    void updateOne_businessBuiltInRole_nameStatusRuleAndDescriptionAreEditable() {
+        ModelService<Long> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(svc, "modelService", modelService);
+        when(modelService.updateOne(eq("Role"), anyMap())).thenReturn(true);
+        doReturn(Optional.of(businessBuiltInRole())).when(svc).getById(3L);
+
+        Role patch = new Role();
+        patch.setId(3L);
+        patch.setName("Sales Team");
+        patch.setDescription("Front-line sales");
+        patch.setActive(false);
+        patch.setCode("SALES");   // repeating the stored code is not a change
+
+        assertThat(svc.updateOne(patch)).isTrue();
+        verify(modelService).updateOne(eq("Role"), anyMap());
+    }
+
+    @Test
+    void updateOne_businessBuiltInRole_changeCode_throws() {
+        doReturn(Optional.of(businessBuiltInRole())).when(svc).getById(3L);
+
+        Role patch = new Role();
+        patch.setId(3L);
+        patch.setCode("SALES_V2");
+
+        assertThatThrownBy(() -> svc.updateOne(patch))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot be changed");
+    }
+
+    @Test
+    void updateOne_businessBuiltInRole_clearingTheCodeWhenNullsAreWritten_throws() {
+        doReturn(Optional.of(businessBuiltInRole())).when(svc).getById(3L);
+
+        Role patch = new Role();
+        patch.setId(3L);
+        patch.setName("Sales");   // code left null, and ignoreNull=false writes that null
+
+        assertThatThrownBy(() -> svc.updateOne(patch, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot be changed");
+    }
+
+    @Test
+    void updateOne_businessBuiltInRole_nullCodeLeftAloneWhenNullsAreIgnored_allowed() {
+        ModelService<Long> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(svc, "modelService", modelService);
+        when(modelService.updateOne(eq("Role"), anyMap())).thenReturn(true);
+        doReturn(Optional.of(businessBuiltInRole())).when(svc).getById(3L);
+
+        Role patch = new Role();
+        patch.setId(3L);
+        patch.setName("Sales");
+
+        assertThat(svc.updateOne(patch, true)).isTrue();
+    }
+
+    @Test
+    void deleteById_businessBuiltInRole_throws() {
+        doReturn(List.of(businessBuiltInRole())).when(svc).searchList(any(Filters.class));
+
+        assertThatThrownBy(() -> svc.deleteById(3L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Delete is not allowed on system role");
+    }
+
+    private static Role businessBuiltInRole() {
+        Role r = new Role();
+        r.setId(3L);
+        r.setName("Sales");
+        r.setCode("SALES");
+        r.setActive(true);
+        return r;
+    }
 
     private static Role superAdminRole() {
         Role r = new Role();

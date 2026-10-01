@@ -6,57 +6,65 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.SystemUser;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.SwitchUser;
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.entity.SysPreData;
+import io.softa.starter.metadata.seed.SeedLevel;
+import io.softa.starter.metadata.seed.SeedSyncService;
 import io.softa.starter.metadata.service.SysPreDataService;
 
 /**
- * SysPreData Model Controller
+ * SysPreData Model Controller.
+ *
+ * <p>Platform files are loaded by name through the seed sync, so the load is recorded like any other. Tenant
+ * files are not loaded from here at all: a tenant is set up with them when it is provisioned, and brought up to
+ * date by a seed sync, which only adds what it does not have — loading them whole would overwrite what the
+ * tenant changed.
  */
 @Tag(name = "SysPreData")
 @RestController
 @RequestMapping("/SysPreData")
 public class SysPreDataController extends EntityController<SysPreDataService, SysPreData, Long> {
 
-    @Operation(summary = "loadPreSystemData", description = """
-            Load the specified list of predefined system data files from the root directory resources/data-system,
-            supporting data files in JSON, XML, and CSV formats.
-            """)
-    @PostMapping("/loadPreSystemData")
-    public ApiResponse<Boolean> loadPreSystemData(@RequestBody List<String> fileNames) {
-        Assert.allNotBlank(fileNames, "The filename of the data to be loaded cannot be empty!");
-        service.loadPreSystemData(fileNames);
-        return ApiResponse.success(true);
+    private final SeedSyncService seedSyncService;
+
+    public SysPreDataController(SeedSyncService seedSyncService) {
+        this.seedSyncService = seedSyncService;
     }
 
-    @Operation(summary = "loadPreTenantData", description = """
-            Load the predefined tenant data from resources/data-tenant for the current tenant.
-            supporting data files in JSON, XML, and CSV formats.
+    @Operation(summary = "loadPreSystemData", description = """
+            Load the named platform-global seed files from resources/data-system as a seed sync batch, whether
+            or not they changed, and return the batch id; its progress shows on the seed sync page. Each file
+            must be in the seed manifest at that level. Without a seed manifest the files are loaded here and
+            no batch is returned.
             """)
-    @PostMapping("/loadPreTenantData")
-    public ApiResponse<Boolean> loadPreTenantData(@RequestBody List<String> fileNames) {
+    @PostMapping("/loadPreSystemData")
+    public ApiResponse<Long> loadPreSystemData(@RequestBody List<String> fileNames) {
         Assert.allNotBlank(fileNames, "The filename of the data to be loaded cannot be empty!");
-        // Get tenant id from current user in API call
-        Long tenantId = ContextHolder.getContext().getTenantId();
-        service.loadPreTenantData(fileNames, tenantId);
-        return ApiResponse.success(true);
+        if (!seedSyncService.hasManifest()) {
+            service.loadPreSystemData(fileNames);
+            return ApiResponse.success(null);
+        }
+        return ApiResponse.success(seedSyncService.loadFiles(fileNames, SeedLevel.PLATFORM_GLOBAL).getId());
     }
 
     @Operation(summary = "loadPrePlatformData", description = """
-            Load the predefined platform-tier data from resources/data-platform.
-            Rows land on the platform tier (tenantId = -1) of multiTenant models,
-            supporting data files in JSON, XML, and CSV formats.
+            Load the named platform-tier seed files from resources/data-platform — rows on the platform tier
+            (tenantId = -1) of multiTenant models — as a seed sync batch, whether or not they changed, and return
+            the batch id. Each file must be in the seed manifest at that level. Without a seed manifest the files
+            are loaded here and no batch is returned.
             """)
     @PostMapping("/loadPrePlatformData")
-    public ApiResponse<Boolean> loadPrePlatformData(@RequestBody List<String> fileNames) {
+    public ApiResponse<Long> loadPrePlatformData(@RequestBody List<String> fileNames) {
         Assert.allNotBlank(fileNames, "The filename of the data to be loaded cannot be empty!");
-        service.loadPrePlatformData(fileNames);
-        return ApiResponse.success(true);
+        if (!seedSyncService.hasManifest()) {
+            service.loadPrePlatformData(fileNames);
+            return ApiResponse.success(null);
+        }
+        return ApiResponse.success(seedSyncService.loadFiles(fileNames, SeedLevel.PLATFORM_TENANT).getId());
     }
 
     @Operation(summary = "loadSystemDataByUpload", description = """

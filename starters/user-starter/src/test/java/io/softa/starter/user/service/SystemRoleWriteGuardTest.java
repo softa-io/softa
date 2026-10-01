@@ -25,18 +25,20 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
 
 /**
- * A built-in role (one carrying a {@code code}) is immutable through the write API, and its grants are
- * too — which is the half that was reachable before this guard: the grant tables are ordinary models
- * with their own generic CRUD, so nothing on the {@code Role} row stood in the way.
+ * What may be written to a role and its grants: a role's {@code code} never changes, a built-in role is
+ * never deleted or copied, and the administrator roles accept no edit — while every other built-in role
+ * is open to the same edits as one the tenant created. The grant tables are ordinary models with their
+ * own generic CRUD, so the role behind a grant row has to be read back before the rules can apply.
  *
- * <p>Cases are written against the aspect's advice rather than through a proxy, because what needs
+ * <p>Cases are written against the guard directly rather than through a proxy, because what needs
  * pinning is the argument-shape reasoning: which of the dozen {@code ModelService} write signatures
  * names its rows in the payload, which by id, which by filter, and which by all three.
  */
 class SystemRoleWriteGuardTest {
 
-    private static final long BUILT_IN = 1L;      // code = EMPLOYEE
+    private static final long BUILT_IN = 1L;      // code = EMPLOYEE — a business built-in role
     private static final long ORDINARY = 2L;      // code = null (admin-created)
+    private static final long ADMIN = 3L;         // code = TENANT_ADMIN — access computed at runtime
 
     private ModelService<?> modelService;
     private SystemRoleWriteGuard guard;
@@ -47,7 +49,7 @@ class SystemRoleWriteGuardTest {
         modelService = mock(ModelService.class);
         guard = new SystemRoleWriteGuard(modelService);
 
-        // Role lookups: 1 is built-in, 2 is not. Filtered by whichever ids the guard asks about, so a
+        // Role lookups: 1 is a business built-in, 2 is ordinary, 3 an administrator role. Filtered by whichever ids the guard asks about, so a
         // case that resolves the wrong rows fails instead of quietly passing.
         when(modelService.searchList(eq("Role"), any(FlexQuery.class)))
                 .thenAnswer(inv -> {
@@ -58,68 +60,74 @@ class SystemRoleWriteGuardTest {
                     if (askedAbout(inv.getArgument(1), ORDINARY)) {
                         out.add(role(ORDINARY, null, "Payroll Clerk"));
                     }
+                    if (askedAbout(inv.getArgument(1), ADMIN)) {
+                        out.add(role(ADMIN, "TENANT_ADMIN", "Tenant Admin"));
+                    }
                     return out;
                 });
     }
 
-    // ── the grants: the surface that had nothing guarding it ──────────────────────────────────────
+    // ── the grants of an administrator role: closed ────────────────────────────────────────────
 
     @Test
-    void refusesANewGrantOnABuiltInRole() {
-        stubRows("RoleNavigation");
-
-        assertThatThrownBy(() -> guard.guardCreate("RoleNavigation", List.of(row("roleId", BUILT_IN))))
+    void refusesANewGrantOnAnAdminRole() {
+        assertThatThrownBy(() -> guard.guardCreate("RoleNavigation", List.of(row("roleId", ADMIN))))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Employee")
-                .hasMessageContaining("EMPLOYEE");
+                .hasMessageContaining("Tenant Admin")
+                .hasMessageContaining("TENANT_ADMIN");
     }
 
     @Test
-    void refusesWideningTheRowScopeOfABuiltInRole() {
-        // The sharpest case, and the reason this exists: one updateOne flipping EMPLOYEE's scope on the
-        // Employee model from SELF to ALL makes every employee in the tenant readable by every other.
+    void refusesEditingAnAdminRolesGrantNamedOnlyById() {
         // The payload names only the grant row's id, so the role is only visible by reading it back.
-        stubRows("RoleDataScope", row("roleId", BUILT_IN));
+        stubRows("RoleDataScope", row("roleId", ADMIN));
 
         assertThatThrownBy(() -> guard.guardUpdate("RoleDataScope", List.of(row("id", 99L, "dataScopes", "[{\"scopeType\":\"ALL\"}]"))))
                 .isInstanceOf(BusinessException.class);
     }
 
     @Test
-    void refusesDraggingAGrantOntoABuiltInRole() {
+    void refusesDraggingAGrantOntoAnAdminRole() {
         // Stored row belongs to an ordinary role; the payload re-points it. Checking only the stored
         // side would let this through.
         stubRows("RoleSensitiveFieldSet", row("roleId", ORDINARY));
 
-        assertThatThrownBy(() -> guard.guardUpdate("RoleSensitiveFieldSet", List.of(row("id", 99L, "roleId", BUILT_IN))))
+        assertThatThrownBy(() -> guard.guardUpdate("RoleSensitiveFieldSet", List.of(row("id", 99L, "roleId", ADMIN))))
                 .isInstanceOf(BusinessException.class);
     }
 
     @Test
-    void refusesStrippingABuiltInRolesGrants() {
-        stubRows("RoleNavigation", row("roleId", BUILT_IN));
+    void refusesDeletingAnAdminRolesGrants() {
+        stubRows("RoleNavigation", row("roleId", ADMIN));
 
         assertThatThrownBy(() -> guard.guardByIds("RoleNavigation", List.of(7L, 8L)))
                 .isInstanceOf(BusinessException.class);
     }
 
     @Test
-    void refusesADeleteWhoseStoredRowBelongsToABuiltInRole() {
-        // The payload names only row ids; which role they belong to is read back before the delete.
-        stubRows("RoleDataScope", row("roleId", BUILT_IN));
-
-        assertThatThrownBy(() -> guard.guardByIds("RoleDataScope", List.of(11L, 12L)))
-                .isInstanceOf(BusinessException.class);
-    }
-
-    @Test
     void readsTheRowsAnUpdateByFilterSelects() {
         // Three-argument signature: the rows come from the filter, the new values from the third arg.
-        stubRows("RoleNavigation", row("roleId", BUILT_IN));
+        stubRows("RoleNavigation", row("roleId", ADMIN));
 
         assertThatThrownBy(() -> guard.guardUpdateByFilter("RoleNavigation",
                 new Filters().eq("navigationId", "navigation.payroll"), row("permissionIds", "[]")))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    // ── the grants of any other role: the tenant's to reshape ───────────────────────────────────
+
+    @Test
+    void letsABusinessBuiltInRolesGrantsBeAddedChangedAndRemoved() {
+        stubRows("RoleDataScope", row("roleId", BUILT_IN));
+
+        assertThatCode(() -> guard.guardCreate("RoleNavigation", List.of(row("roleId", BUILT_IN))))
+                .doesNotThrowAnyException();
+        // Widening EMPLOYEE's row scope is now a tenant's decision, gated by the role-management
+        // endpoint permission like any other role edit.
+        assertThatCode(() -> guard.guardUpdate("RoleDataScope", List.of(row("id", 99L, "dataScopes", "[{\"scopeType\":\"ALL\"}]"))))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> guard.guardByIds("RoleDataScope", List.of(11L, 12L)))
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -133,15 +141,69 @@ class SystemRoleWriteGuardTest {
     // ── the Role row itself ───────────────────────────────────────────────────────────────────────
 
     @Test
-    void refusesEditingTheBuiltInRoleRow() {
-        assertThatThrownBy(() -> guard.guardUpdate("Role", List.of(row("id", BUILT_IN, "name", "Renamed"))))
+    void refusesEditingAnAdminRoleRow() {
+        assertThatThrownBy(() -> guard.guardUpdate("Role", List.of(row("id", ADMIN, "name", "Renamed"))))
                 .isInstanceOf(BusinessException.class);
     }
 
     @Test
+    void letsABusinessBuiltInRoleBeRenamedAndDisabled() {
+        // The id may arrive as a string; the stored role must still be found, or the rules are skipped.
+        assertThatCode(() -> guard.guardUpdate("Role", List.of(
+                row("id", String.valueOf(BUILT_IN), "name", "Staff", "active", false, "code", "EMPLOYEE"))))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void refusesChangingABuiltInRolesCode() {
+        assertThatThrownBy(() -> guard.guardUpdate("Role", List.of(row("id", String.valueOf(BUILT_IN), "code", "STAFF"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot be changed");
+    }
+
+    @Test
+    void refusesClearingABuiltInRolesCode() {
+        // Clearing it would turn the role into an ordinary one — and an ordinary role can be deleted.
+        assertThatThrownBy(() -> guard.guardUpdate("Role", List.of(row("id", BUILT_IN, "code", null))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot be changed");
+    }
+
+    @Test
+    void refusesGivingAnOrdinaryRoleACode() {
+        // Otherwise any role could be made undeletable after it was created.
+        assertThatThrownBy(() -> guard.guardUpdate("Role", List.of(row("id", ORDINARY, "code", "EMPLOYEE_2"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("reserved");
+    }
+
+    @Test
+    void refusesAnUpdateByFilterThatRewritesCodes() {
+        when(modelService.searchList(eq("Role"), any(FlexQuery.class)))
+                .thenReturn(List.of(role(BUILT_IN, "EMPLOYEE", "Employee")));
+
+        assertThatThrownBy(() -> guard.guardUpdateByFilter("Role",
+                new Filters().eq("active", true), row("code", "STAFF")))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void refusesDeletingOrCopyingABuiltInRole() {
+        assertThatThrownBy(() -> guard.guardByIds("Role", List.of(BUILT_IN)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Cannot delete or copy built-in role");
+    }
+
+    @Test
+    void letsAnOrdinaryRoleBeDeleted() {
+        assertThatCode(() -> guard.guardByIds("Role", List.of(ORDINARY)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void refusesMintingARoleThatClaimsACode() {
-        // Otherwise the guard is self-defeating: anyone who can name their own code can declare a role
-        // untouchable, and the generic /Role/createOne skips RoleController's own check.
+        // Otherwise anyone who can name their own code can declare a role untouchable, and the generic
+        // /Role/createOne skips RoleController's own check.
         assertThatThrownBy(() -> guard.guardCreate("Role", List.of(row("name", "Mine", "code", "EMPLOYEE"))))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("reserved");
@@ -174,12 +236,12 @@ class SystemRoleWriteGuardTest {
     @Test
     void letsSeedingAndSystemMaintenanceWrite() {
         // Pre-data loading and the entitlement downgrade cleanup both run permission-skipped, and both
-        // legitimately write a built-in role's grants. A user request never carries this flag.
+        // legitimately write any role's grants. A user request never carries this flag.
         Context system = new Context();
         system.setSkipPermissionCheck(true);
 
         assertThatCode(() -> ContextHolder.runWith(system,
-                () -> guard.guardCreate("RoleNavigation", List.of(row("roleId", BUILT_IN)))))
+                () -> guard.guardCreate("RoleNavigation", List.of(row("roleId", ADMIN)))))
                 .doesNotThrowAnyException();
         verify(modelService, never()).searchList(eq("Role"), any(FlexQuery.class));
     }
