@@ -9,14 +9,15 @@ import org.junit.jupiter.api.Test;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.SystemRole;
+import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
-import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.state.ReturnedApprovalContext;
+import io.softa.starter.flow.runtime.store.FlowInstanceStore;
 import io.softa.starter.flow.service.FlowInstanceService;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -31,13 +32,15 @@ import static org.mockito.Mockito.when;
 class FlowInstanceAccessGuardTest {
 
     private final FlowInstanceService instanceService = mock(FlowInstanceService.class);
+    private final FlowInstanceStore instanceStore = mock(FlowInstanceStore.class);
     private final FlowInstanceAccessGuard guard = new FlowInstanceAccessGuard(instanceService,
-            new ApprovalAuditReader(new NoopApprovalActionLedger()));
+            new ApprovalAuditReader(new NoopApprovalActionLedger()), instanceStore);
 
-    private FlowInstance instanceInitiatedBy(String initiatorId) {
-        FlowInstance instance = new FlowInstance();
-        instance.setInitiatorId(initiatorId);
-        return instance;
+    private FlowExecutionState stateInitiatedBy(String initiatorId) {
+        return FlowExecutionState.builder()
+                .instanceId("i1")
+                .initiatorId(initiatorId)
+                .build();
     }
 
     @Test
@@ -48,19 +51,36 @@ class FlowInstanceAccessGuardTest {
 
     @Test
     void initiatorIsAllowedEvenWhenNotInResult() {
-        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("u1")));
+        when(instanceStore.get("i1")).thenReturn(Optional.of(stateInitiatedBy("u1")));
+        assertDoesNotThrow(() -> guard.requireInstanceViewer("i1", "u1", false));
+    }
+
+    @Test
+    void pendingApproverNotYetInResultIsAllowed() {
+        // A pending approver has no approval-record row yet, so the records-derived
+        // participantInResult is false for exactly the caller whose task sits in the inbox —
+        // the runtime-state fallback must admit them via the pending approvals.
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("i1")
+                .initiatorId("initiator")
+                .pendingApprovals(List.of(PendingApproval.builder()
+                        .approvers(List.of("u1"))
+                        .build()))
+                .build();
+        when(instanceStore.get("i1")).thenReturn(Optional.of(state));
+
         assertDoesNotThrow(() -> guard.requireInstanceViewer("i1", "u1", false));
     }
 
     @Test
     void nonParticipantNonInitiatorIsDenied() {
-        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
+        when(instanceStore.get("i1")).thenReturn(Optional.of(stateInitiatedBy("someoneElse")));
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false));
     }
 
     @Test
     void missingInstanceIsDenied() {
-        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.empty());
+        when(instanceStore.get("i1")).thenReturn(Optional.empty());
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false));
     }
 
@@ -155,7 +175,9 @@ class FlowInstanceAccessGuardTest {
                         .approvers(List.of("approver"))
                         .build()))
                 .build();
-        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("initiator")));
+        FlowInstance entity = new FlowInstance();
+        entity.setInitiatorId("initiator");
+        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(entity));
 
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(state, "outsider"));
     }
@@ -188,7 +210,7 @@ class FlowInstanceAccessGuardTest {
 
     @Test
     void nonAdminRoleIsStillDenied() {
-        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
+        when(instanceStore.get("i1")).thenReturn(Optional.of(stateInitiatedBy("someoneElse")));
         Context ctx = contextWithRoles(Set.of("SomeOtherRole"));
         ContextHolder.runWith(ctx, () ->
                 assertThrows(FlowAuthorizationException.class,
@@ -198,7 +220,7 @@ class FlowInstanceAccessGuardTest {
     @Test
     void absentRoleProviderFailsClosed() {
         // A bound context without permission info — e.g. no role provider wired by the host app.
-        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
+        when(instanceStore.get("i1")).thenReturn(Optional.of(stateInitiatedBy("someoneElse")));
         ContextHolder.runWith(new Context(), () ->
                 assertThrows(FlowAuthorizationException.class,
                         () -> guard.requireInstanceViewer("i1", "u1", false)));
