@@ -339,6 +339,9 @@ public class OneToManyProcessor extends BaseProcessor {
         // count subQuery on the join model
         FlexQuery relatedFlexQuery = new FlexQuery(List.of(metaField.getRelatedField()), filters);
         relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        // The same rows the expansion would return, counted: a count that clamps to today while the
+        // list it stands in for does not would disagree with it.
+        applyAcrossTimeline(relatedFlexQuery);
         // Count is automatically added during the groupBy operation
         relatedFlexQuery.setGroupBy(metaField.getRelatedField());
         List<Map<String, Object>> countRows = ReflectTool.searchListIgnoringRowScope(metaField.getRelatedModel(), relatedFlexQuery);
@@ -368,6 +371,13 @@ public class OneToManyProcessor extends BaseProcessor {
         relatedFlexQuery.select(metaField.getRelatedField());
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());
         return ReflectTool.searchName(metaField.getRelatedModel(), relatedFlexQuery);
+    }
+
+    /** Lifts the as-of clamp when the sub query asked for every slice. See {@link SubQuery#getAcrossTimeline()}. */
+    private void applyAcrossTimeline(FlexQuery relatedFlexQuery) {
+        if (subQuery != null && Boolean.TRUE.equals(subQuery.getAcrossTimeline())) {
+            relatedFlexQuery.acrossTimelineData();
+        }
     }
 
     /**
@@ -409,6 +419,7 @@ public class OneToManyProcessor extends BaseProcessor {
         }
         relatedFlexQuery.setConvertType(flexQuery.getConvertType());
         relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        applyAcrossTimeline(relatedFlexQuery);
         // When get the related model rows of OneToMany field, the `relatedField` field of the related model is only
         // needed to get the ID for GroupBy, which might be a ManyToOne field defined in the related model.
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());

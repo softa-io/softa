@@ -55,6 +55,23 @@ public class SubQuery implements Serializable {
     @Schema(description = "Sub queries for relational fields: {fieldName: SubQuery}", example = "{}")
     private Map<String, SubQuery> subQueries;
 
+    /**
+     * OneToMany onto a timeline model: return every slice of the related rows, not only the one in
+     * effect today.
+     *
+     * <p>A related timeline model is read like any other, so the expansion is clamped to today the
+     * same way a top-level read is — and a child table showing the versions of something then shows
+     * only the current one. A version that starts next month, the very thing such a table is opened
+     * to check, is silently absent. The top-level query already has this switch; a sub query had no
+     * way to ask for it.
+     *
+     * <p>Opt-in rather than inferred from the related model being a timeline: a child list that wants
+     * the current state of each related entity is just as legitimate, and existing readers rely on
+     * that being the default.
+     */
+    @Schema(description = "OneToMany onto a timeline model: return all slices instead of the one in effect today.")
+    private Boolean acrossTimeline;
+
     public SubQuery(List<String> fields) {
         this.fields = fields;
     }
