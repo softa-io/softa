@@ -64,8 +64,9 @@ public interface ModelService<K extends Serializable> {
      *
      * @param modelName the name of the model
      * @param rows the list of data rows to create or update
+     * @return which rows were inserted and which were written onto a stored row
      */
-    void createOrUpdate(String modelName, List<Map<String, Object>> rows);
+    CreateOrUpdateResult createOrUpdate(String modelName, List<Map<String, Object>> rows);
 
     /**
      * Creates or updates rows by unique constraint fields.
@@ -73,8 +74,31 @@ public interface ModelService<K extends Serializable> {
      * @param modelName the name of the model
      * @param rows      the list of data rows to create or update
      * @param uniqueConstraints the list of unique constraint fields
+     * @return which rows were inserted and which were written onto a stored row
      */
-    void createOrUpdate(String modelName, List<Map<String, Object>> rows, List<String> uniqueConstraints);
+    CreateOrUpdateResult createOrUpdate(String modelName, List<Map<String, Object>> rows,
+                                        List<String> uniqueConstraints);
+
+    /**
+     * Which of these rows match stored data by their unique constraint fields, and which do not —
+     * decided without writing anything.
+     *
+     * <p>{@link #createOrUpdate} answers the same question on its way to writing both sides, which
+     * is all a caller needs when both sides are wanted. A caller for which one side is an ERROR
+     * cannot use it: by the time the split exists the rows are already written, and the write is
+     * one transaction that has committed before the caller sees anything. Asking first is the only
+     * ordering that lets such a caller refuse.
+     *
+     * <p>Matched rows come back carrying the stored id, exactly as the write would have put it
+     * there, so a caller that goes on to update them has nothing further to resolve.
+     *
+     * @param modelName the name of the model
+     * @param rows the list of data rows to test
+     * @param uniqueConstraints the list of unique constraint fields
+     * @return the rows that matched nothing, and the rows that matched
+     */
+    CreateOrUpdateResult splitByExistence(String modelName, List<Map<String, Object>> rows,
+                                          List<String> uniqueConstraints);
 
     /**
      * Get a row by its ID. By default, all accessible fields are returned.

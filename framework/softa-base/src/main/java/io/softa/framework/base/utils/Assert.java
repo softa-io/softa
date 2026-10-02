@@ -85,14 +85,26 @@ public abstract class Assert {
 
     /** Object[] does not contain null. */
     public static void allNotNull(@Nullable Object[] objects, String message, Object... args) {
-        if (objects == null || Arrays.asList(objects).contains(null)) {
+        if (objects == null || Arrays.stream(objects).anyMatch(Objects::isNull)) {
             throwException(message, args);
         }
     }
 
-    /** Collection does not contain null. */
+    /**
+     * Collection does not contain null.
+     *
+     * <p>Scanned rather than asked with {@code contains(null)}: an immutable collection — anything
+     * from {@code List.of} — answers that question by throwing NullPointerException, whatever it
+     * actually holds. So the check meant to produce a readable assertion produced an NPE instead,
+     * from inside the assertion, for a collection that was perfectly valid.
+     *
+     * <p>The framework hands itself exactly such a collection. The import pipeline's row-by-row
+     * fallback persists {@code List.of(row)}, so every ONLY_CREATE template failed there — and the
+     * NPE also masked whatever the batch attempt had failed on, leaving the importer with "an
+     * unexpected error" and the real cause nowhere to be found.
+     */
     public static void allNotNull(@Nullable Collection<?> objects, String message, Object... args) {
-        if (objects == null || objects.isEmpty() || objects.contains(null)) {
+        if (objects == null || objects.isEmpty() || objects.stream().anyMatch(Objects::isNull)) {
             throwException(message, args);
         }
     }

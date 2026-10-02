@@ -212,8 +212,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void createOrUpdate(String modelName, List<Map<String, Object>> rows) {
-        this.createOrUpdate(modelName, rows, List.of(ModelConstant.ID));
+    public CreateOrUpdateResult createOrUpdate(String modelName, List<Map<String, Object>> rows) {
+        return this.createOrUpdate(modelName, rows, List.of(ModelConstant.ID));
     }
 
     /**
@@ -224,10 +224,10 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * @param uniqueConstraints the list of unique constraint fields
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void createOrUpdate(String modelName, List<Map<String, Object>> rows, List<String> uniqueConstraints) {
+    public CreateOrUpdateResult splitByExistence(String modelName, List<Map<String, Object>> rows,
+                                                 List<String> uniqueConstraints) {
         if (CollectionUtils.isEmpty(rows)) {
-            return;
+            return CreateOrUpdateResult.empty();
         }
         Assert.notEmpty(uniqueConstraints, "The unique constraints of model {0} cannot be empty.", modelName);
         List<Map<String, Object>> createDataList = new ArrayList<>();
@@ -268,13 +268,28 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
                 createDataList.add(row);
             }
         }
-        // Step 4: Execute the create or update operation
-        if (!updateDataList.isEmpty()) {
-            this.updateList(modelName, updateDataList);
+        return new CreateOrUpdateResult(createDataList, updateDataList);
+    }
+
+    /**
+     * Creates or updates rows by unique constraint fields.
+     *
+     * @param modelName the name of the model
+     * @param rows      the list of data rows to create or update
+     * @param uniqueConstraints the list of unique constraint fields
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public CreateOrUpdateResult createOrUpdate(String modelName, List<Map<String, Object>> rows,
+                                               List<String> uniqueConstraints) {
+        CreateOrUpdateResult split = this.splitByExistence(modelName, rows, uniqueConstraints);
+        if (!split.updated().isEmpty()) {
+            this.updateList(modelName, split.updated());
         }
-        if (!createDataList.isEmpty()) {
-            this.createList(modelName, createDataList);
+        if (!split.created().isEmpty()) {
+            this.createList(modelName, split.created());
         }
+        return split;
     }
 
     /**
