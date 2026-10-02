@@ -241,15 +241,20 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (StringUtils.isBlank(email)) {
             return;
         }
-        Optional<ResetTarget> target = resolveResetTarget(email);
-        if (target.isEmpty()) {
-            // One log line and one (empty) response for "unknown", "no password yet", "no active
-            // membership" and "not the person's own login email" alike — telling them apart would
-            // make this an oracle over who is registered where.
-            log.info("forgotPassword for an identifier with nothing to reset — ignored (no enumeration).");
-            return;
-        }
-        issue(target.get().row(), InvitationPurpose.PASSWORD_RESET, null, null, target.get().address());
+        // Held to a floor for the same reason the response is uniform: issuing a reset mints a
+        // token and publishes a mail, and returning without doing any of that is measurably
+        // quicker. The silence below is only as good as the time it takes to say it.
+        ResponseFloor.hold(() -> {
+            Optional<ResetTarget> target = resolveResetTarget(email);
+            if (target.isEmpty()) {
+                // One log line and one (empty) response for "unknown", "no password yet", "no active
+                // membership" and "not the person's own login email" alike — telling them apart would
+                // make this an oracle over who is registered where.
+                log.info("forgotPassword for an identifier with nothing to reset — ignored (no enumeration).");
+                return;
+            }
+            issue(target.get().row(), InvitationPurpose.PASSWORD_RESET, null, null, target.get().address());
+        });
     }
 
     /**

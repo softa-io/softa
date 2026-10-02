@@ -230,6 +230,91 @@ public class LoginServiceImpl implements LoginService {
 
     @Override
     public void sendEmailCode(String email) {
+        ResponseFloor.hold(() -> {
+            if (identifierLinked(email)) {
+                this.deliverEmailCode(email);
+            }
+        });
+    }
+
+    @Override
+    public void sendMobileCode(String mobile) {
+        ResponseFloor.hold(() -> {
+            if (identifierLinked(mobile)) {
+                this.deliverMobileCode(mobile);
+            }
+        });
+    }
+
+    /**
+     * Whether any account can sign in with this identifier — asked without ever saying so.
+     *
+     * <p>A code sent to an address no identity holds reaches a mailbox or handset nobody reading
+     * this screen controls, and would be refused at the verify step anyway. So the send is skipped.
+     * What the caller is told does NOT change: both outcomes return normally, and the screen says
+     * the same thing either way.
+     *
+     * <p>That silence is the point. This endpoint is unauthenticated, so a distinct "no such
+     * account" answer is an oracle: ask it once per address and it returns a verified roster of the
+     * people an organisation employs — exactly the list a phishing campaign wants, and free,
+     * because nothing here costs the asker anything. Telling the truth on screen and telling it to
+     * an attacker are the same act; there is no way to do one without the other before sign-in.
+     *
+     * <p>Whoever simply mistyped is served by the message instead of by the response: it says a
+     * code is on its way IF the address is linked, and to check the address otherwise. They learn
+     * the same thing, one sentence later, and an enumerator learns nothing.
+     *
+     * <p>Three things have to stay identical for that to hold, and each is easy to lose:
+     *
+     * <ul>
+     *   <li><b>The send budget.</b> {@link #generateNumericCode} runs on both paths — see
+     *       {@link #burnSendBudget}. Skipping it for an unknown address would make the limiter
+     *       itself the oracle: the eleventh ask of one address is refused when it exists and
+     *       accepted when it does not.</li>
+     *   <li><b>The elapsed time.</b> The linked path generates, stores and publishes; this one
+     *       returns straight away. {@link ResponseFloor} holds both to one floor.</li>
+     *   <li><b>The status.</b> Neither path throws. A {@code BusinessException} on one of them
+     *       would restore the oracle however the message were worded.</li>
+     * </ul>
+     *
+     * <p>The lookup gets the TYPED form, as every other identifier lookup here does: a row seeded
+     * with the separators the person still writes is found too (see {@link LoginIdentifiers}).
+     */
+    private boolean identifierLinked(String identifier) {
+        boolean linked = identityService
+                .findByLoginIdentifier(LoginIdentifiers.typedForm(identifier)).isPresent();
+        if (!linked) {
+            burnSendBudget(identifier);
+        }
+        return linked;
+    }
+
+    /**
+     * Spend an unknown address's send allowance exactly as a real send would, and swallow the
+     * refusal when it runs out.
+     *
+     * <p>The refusal must not surface: an unknown address that starts answering "too many requests"
+     * while a linked one still answers "sent" — or the reverse — is the same oracle one step along.
+     */
+    private void burnSendBudget(String identifier) {
+        try {
+            this.generateNumericCode(LoginIdentifiers.normalize(identifier));
+        } catch (RuntimeException ignored) {
+            // Over the limit, or the cache is unavailable. Either way the caller hears nothing:
+            // this path exists to cost the same, not to report.
+        }
+    }
+
+    /**
+     * Send a code to an address that has ALREADY been established as the right one to send to —
+     * by a login identifier that resolves, or by an invitation that named it.
+     *
+     * <p>Separate from {@link #sendEmailCode} because /join legitimately sends to someone who has
+     * no identity yet: the invitation is the authority there, and the address came from the
+     * invitation rather than from the caller, so the linked check would skip every first-time
+     * joiner and the code would never go out.
+     */
+    private void deliverEmailCode(String email) {
         // Normalised once, here, and the normalised value is what the code is keyed by AND sent to:
         // the verify step normalises its identifier the same way, so the two meet on one key
         // however the person spelt the address on either screen.
@@ -243,8 +328,8 @@ public class LoginServiceImpl implements LoginService {
                 Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), null, MessageScope.PLATFORM));
     }
 
-    @Override
-    public void sendMobileCode(String mobile) {
+    /** The mobile twin of {@link #deliverEmailCode}; see there for why it is separate. */
+    private void deliverMobileCode(String mobile) {
         mobile = LoginIdentifiers.normalize(mobile);
         String code = this.generateNumericCode(mobile);
         eventPublisher.publishEvent(new SmsRequestMessage(
@@ -463,10 +548,12 @@ public class LoginServiceImpl implements LoginService {
         // The address never crosses the wire in either direction: the caller sends a token, the
         // invitation service resolves it, and the code goes out to what IT stored.
         String address = invitationService.resolveJoinChannel(rawToken, channel);
+        // deliver*, not send*: the invitee has no identity yet — that is what joining is — so the
+        // linked check the public entry points carry would silently skip every first-time joiner.
         if ("mobile".equalsIgnoreCase(channel)) {
-            this.sendMobileCode(address);
+            this.deliverMobileCode(address);
         } else {
-            this.sendEmailCode(address);
+            this.deliverEmailCode(address);
         }
     }
 

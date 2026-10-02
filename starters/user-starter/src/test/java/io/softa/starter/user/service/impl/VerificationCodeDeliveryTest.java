@@ -8,10 +8,16 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.softa.framework.base.message.MailRequestMessage;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.message.SmsRequestMessage;
+import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.service.UserIdentityService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.Optional;
 import io.softa.starter.user.service.ConsultantService;
 
 /**
@@ -26,6 +32,7 @@ class VerificationCodeDeliveryTest {
 
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
     private final VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
+    private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     VerificationCodeDeliveryTest() {
@@ -33,6 +40,11 @@ class VerificationCodeDeliveryTest {
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "codeGuard", codeGuard);
+        ReflectionTestUtils.setField(loginService, "identityService", identityService);
+        // These cases are about what a LINKED identifier gets; the unlinked half lives in
+        // UnknownIdentifierIsIndistinguishableTest.
+        when(identityService.findByLoginIdentifier(anyString()))
+                .thenReturn(Optional.of(new UserIdentity()));
     }
 
     @Test
