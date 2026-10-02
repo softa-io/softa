@@ -1,4 +1,4 @@
-package io.softa.starter.permission.scope;
+package io.softa.starter.permission.entity;
 
 import java.io.Serial;
 import java.util.List;
@@ -11,6 +11,8 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.permission.scope.IdentityScopeCompiler;
+import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 
 /**
  * Data-scope type registry — the single source of truth for "which data-scope

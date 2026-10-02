@@ -11,6 +11,7 @@ import tools.jackson.databind.JsonNode;
 import io.softa.framework.base.constant.EnvConstant;
 import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.permission.entity.DataScopeType;
 
 /**
  * Shared helpers for the {@link DataScopeType} filter templates (identity scopes),

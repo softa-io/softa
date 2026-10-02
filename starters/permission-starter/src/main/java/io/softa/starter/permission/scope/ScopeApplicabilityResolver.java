@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.starter.permission.entity.DataScopeType;
 import io.softa.starter.permission.spi.ScopeType;
 import static io.softa.starter.permission.scope.ScopeFilterTemplates.fieldRefs;
 
