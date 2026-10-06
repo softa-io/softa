@@ -25,6 +25,11 @@
             <artifactId>commons-csv</artifactId>
             <version>1.14.1</version>
         </dependency>
+        <!-- Reads seed-manifest.yml. Version managed by the Spring Boot parent. -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>com.h2database</groupId>

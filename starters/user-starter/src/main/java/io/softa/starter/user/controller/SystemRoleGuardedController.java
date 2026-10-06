@@ -30,12 +30,11 @@ import io.softa.starter.user.service.SystemRoleWriteGuard;
  * which is what puts the guard in front of it — an undeclared verb would simply keep going to the
  * generic controller, unguarded.
  *
- * <p>Concretely, what was reachable before any of this existed:
- * {@code POST /RoleDataScope/updateOne} naming the EMPLOYEE role's row on the {@code Employee} model
- * with {@code scopeType: ALL} — one call, and every employee in that tenant reads every colleague's
- * record. {@code SUPER_ADMIN} / {@code TENANT_ADMIN} are immune (their access is computed at runtime
- * and their static rows ignored), which is why the hole was easy to miss: the two roles an operator
- * would think to test are the two that do not react.
+ * <p>What the guard enforces — see {@link SystemRoleWriteGuard} for the full rules — is that a role's
+ * {@code code} never changes, a built-in role is never deleted or copied, and the two administrator
+ * roles, whose access is computed at runtime, accept no edit. Other built-in roles are open to the
+ * same edits as a role the tenant created. Without these declared verbs, the generic route would reach
+ * all four models with none of that checked.
  *
  * <h3>⚠️ This list must track the framework</h3>
  * These are the 15 write verbs {@code ModelController} exposes today. <b>When the framework adds one,

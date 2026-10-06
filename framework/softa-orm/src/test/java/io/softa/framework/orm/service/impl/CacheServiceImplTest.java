@@ -1,11 +1,17 @@
 package io.softa.framework.orm.service.impl;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -14,6 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.softa.framework.base.constant.RedisConstant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -85,5 +92,61 @@ class CacheServiceImplTest {
         ReflectionTestUtils.setField(cacheService, "rootKey", "");
 
         assertEquals("tenant:info:1", cacheService.getKeyPath("tenant:info:1"));
+    }
+
+    @Test
+    void clearByPrefixScansOnlyUnderTheRootKey() {
+        stubScan(List.of(ROOT_KEY + ":perm:1:user:1", ROOT_KEY + ":perm:1:user:2"));
+        when(stringRedisTemplate.unlink(ArgumentMatchers.<List<String>>any())).thenReturn(2L);
+
+        assertEquals(2L, cacheService.clearByPrefix("perm:"));
+
+        ArgumentCaptor<ScanOptions> options = ArgumentCaptor.forClass(ScanOptions.class);
+        verify(stringRedisTemplate).scan(options.capture());
+        assertEquals(ROOT_KEY + ":perm:*", options.getValue().getPattern());
+        verify(stringRedisTemplate).unlink(List.of(ROOT_KEY + ":perm:1:user:1", ROOT_KEY + ":perm:1:user:2"));
+    }
+
+    @Test
+    void clearByPrefixUnlinksInBatches() {
+        List<String> keys = IntStream.range(0, 2500).mapToObj(i -> ROOT_KEY + ":entl:" + i).toList();
+        stubScan(keys);
+        List<Integer> batchSizes = new ArrayList<>();
+        when(stringRedisTemplate.unlink(ArgumentMatchers.<List<String>>any())).thenAnswer(call -> {
+            List<String> batch = call.getArgument(0);
+            batchSizes.add(batch.size());
+            return (long) batch.size();
+        });
+
+        assertEquals(2500L, cacheService.clearByPrefix("entl:"));
+        assertEquals(List.of(1000, 1000, 500), batchSizes);
+    }
+
+    @Test
+    void clearByPrefixWithNothingToClearUnlinksNothing() {
+        stubScan(List.of());
+
+        assertEquals(0L, cacheService.clearByPrefix("perm:"));
+        verify(stringRedisTemplate, Mockito.never()).unlink(ArgumentMatchers.<List<String>>any());
+    }
+
+    @Test
+    void clearByPrefixRefusesABlankPrefix() {
+        assertThrows(RuntimeException.class, () -> cacheService.clearByPrefix(" "));
+        verify(stringRedisTemplate, Mockito.never()).scan(ArgumentMatchers.any(ScanOptions.class));
+    }
+
+    @Test
+    void globCharactersInAPrefixMatchOnlyThemselves() {
+        assertEquals("a\\*b\\?c\\[d\\]e\\\\f", CacheServiceImpl.escapeGlob("a*b?c[d]e\\f"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubScan(List<String> keys) {
+        Iterator<String> iterator = keys.iterator();
+        Cursor<String> cursor = Mockito.mock(Cursor.class);
+        when(cursor.hasNext()).thenAnswer(call -> iterator.hasNext());
+        when(cursor.next()).thenAnswer(call -> iterator.next());
+        when(stringRedisTemplate.scan(ArgumentMatchers.any(ScanOptions.class))).thenReturn(cursor);
     }
 }

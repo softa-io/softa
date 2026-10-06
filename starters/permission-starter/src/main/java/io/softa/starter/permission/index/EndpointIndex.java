@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -23,9 +24,10 @@ import io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpoi
 /**
  * System-wide reverse index of HTTP endpoint → set of permission ids.
  *
- * <p>Built once at startup by scanning the entire permission table; both
- * {@code exactIndex} and {@code patternEntries} are effectively immutable
- * after {@link #init()} and freely shared between request threads.
+ * <p>Built at startup by scanning the entire permission table, and rebuilt by
+ * {@link #reload()} when the permission rows change at runtime. Each build is
+ * an immutable {@link Snapshot} swapped in whole, so request threads share it
+ * freely and never see half of an old index and half of a new one.
  *
  * <h3>Per-row endpoint resolution</h3>
  * For each permission row:
@@ -39,7 +41,8 @@ import io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpoi
  * <p>All tenants share a single index in memory; the URI → permissionId
  * mapping is a system fact (tenant-independent), only "does this user
  * have any of the matched permissions" varies per user. Permission rows
- * are seed-only — redeploy to refresh; no runtime reload listener.
+ * are seed data: the process that re-applies the seeds tells every instance
+ * to {@link #reload()}.
  *
  * <h3>Request hot path</h3>
  * {@code PermissionInterceptor} calls {@link #lookup(String, String)} →
@@ -168,14 +171,33 @@ public class EndpointIndex {
      *  the department-tree side panel). The interceptor allows the call if
      *  the caller's permission set intersects this set.
      *
-     *  <p>Built once at startup in {@link #init()}; both fields are
-     *  effectively immutable after that and used freely from concurrent
-     *  request threads. No reload — seed-only data; redeploy to update. */
-    private Map<String, Set<String>> exactIndex = Map.of();
-    private List<PatternEntry> patternEntries = List.of();
+     *  <p>Pattern entries (URIs containing {@code {}}) are kept apart and
+     *  tried only after an exact miss. Both live in one snapshot, replaced
+     *  as a unit. */
+    private record Snapshot(Map<String, Set<String>> exactIndex, List<PatternEntry> patternEntries) {}
 
+    private final AtomicReference<Snapshot> current =
+            new AtomicReference<>(new Snapshot(Map.of(), List.of()));
+
+    /**
+     * Startup build. A malformed endpoint throws, so the application does not start with a permission
+     * that silently grants nothing.
+     */
     @PostConstruct
     void init() {
+        current.set(build());
+    }
+
+    /**
+     * Rebuild from the permission rows as they are now, and swap the result in. Requests keep reading
+     * the previous index until the new one is complete. If the build fails the previous index stays in
+     * place and the exception propagates — a running instance keeps a working index rather than none.
+     */
+    public synchronized void reload() {
+        current.set(build());
+    }
+
+    private Snapshot build() {
         Map<String, Set<String>> exact = new HashMap<>();
         List<PatternEntry> patterns = new ArrayList<>();
 
@@ -196,10 +218,9 @@ public class EndpointIndex {
         for (var entry : exact.entrySet()) {
             frozenExact.put(entry.getKey(), Set.copyOf(entry.getValue()));
         }
-        this.exactIndex = Collections.unmodifiableMap(frozenExact);
-        this.patternEntries = List.copyOf(patterns);
         log.info("EndpointIndex built: {} exact + {} pattern entries",
                 exact.size(), patterns.size());
+        return new Snapshot(Collections.unmodifiableMap(frozenExact), List.copyOf(patterns));
     }
 
 
@@ -212,14 +233,16 @@ public class EndpointIndex {
      */
     public Set<String> lookup(String uri, String method) {
         String key = method + " " + uri;
-        Set<String> hit = exactIndex.get(key);
+        // Read the snapshot once: a reload between the two lookups must not mix two indexes.
+        Snapshot snapshot = current.get();
+        Set<String> hit = snapshot.exactIndex().get(key);
         if (hit != null) return hit;
         // Patterns are checked after exact misses. Multiple patterns can
         // match the same URI (e.g. /Foo/{id}/preview registered under two
         // permissions) — collect every match so the interceptor can grant
         // access via any one of them.
         Set<String> matched = null;
-        for (PatternEntry p : patternEntries) {
+        for (PatternEntry p : snapshot.patternEntries()) {
             if (p.matches(key)) {
                 if (matched == null) matched = new HashSet<>();
                 matched.add(p.permissionId);

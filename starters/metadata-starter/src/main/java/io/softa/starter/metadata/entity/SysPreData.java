@@ -52,4 +52,8 @@ public class SysPreData extends AuditableModel {
 
     @Field(label = "Tenant ID")
     private Long tenantId;
+
+    @Field(label = "Source File", length = 128,
+            description = "Seed file the row was last loaded from; tells what a file brought to a scope before")
+    private String sourceFile;
 }

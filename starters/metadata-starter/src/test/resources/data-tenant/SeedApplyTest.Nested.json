@@ -1,0 +1,13 @@
+{
+  "Box": [
+    {
+      "id": "box.x",
+      "code": "X",
+      "items": [
+        { "id": "item.old", "boxCode": "X", "itemCode": "o", "label": "Old" },
+        { "id": "item.claim", "boxCode": "X", "itemCode": "c", "label": "Claim" },
+        { "id": "item.new", "boxCode": "X", "itemCode": "n", "label": "New" }
+      ]
+    }
+  ]
+}
