@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -13,8 +14,11 @@ import org.springframework.util.CollectionUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.domain.CreateOrUpdateResult;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.starter.file.dto.ImportDataDTO;
+import io.softa.starter.file.dto.ImportFieldDTO;
 import io.softa.starter.file.dto.ImportTemplateDTO;
 import io.softa.starter.file.enums.ImportRule;
 
@@ -128,7 +132,7 @@ public class ImportPersistenceService {
                 created.addAll(one.created());
                 updated.addAll(one.updated());
             } catch (RuntimeException ex) {
-                originalRow.put(FileConstant.FAILED_REASON, ex.getMessage());
+                originalRow.put(FileConstant.FAILED_REASON, failureReason(importTemplateDTO, row, ex));
                 failedRows.add(originalRow);
                 rowIterator.remove();
                 originalRowIterator.remove();
@@ -136,5 +140,60 @@ public class ImportPersistenceService {
         }
         importDataDTO.setFailedRows(failedRows);
         return new CreateOrUpdateResult(created, updated);
+    }
+
+    /**
+     * The row's Failed Reason, naming the sheet's column when the write refused a missing required
+     * value.
+     *
+     * <p>With {@code ignoreEmpty} on, the importer leaves the model's requiredness to the ORM (see
+     * {@code ImportHandlerFactory#promoteModelRequired}), so a create with a blank mandatory cell is
+     * refused here, as {@code Model field Company:name is a required field and cannot be null!} — a
+     * model and field name, on a sheet whose column is "Company Name". It is reworded to the message
+     * the importer's own check gives, so the reason reads the same whichever layer caught it. Only a
+     * refusal we can be sure is that one is reworded: the field is required on the model and the row
+     * carried no value for it. Anything else keeps the ORM's message.
+     */
+    static String failureReason(ImportTemplateDTO importTemplateDTO, Map<String, Object> row, RuntimeException ex) {
+        WriteValidationException writeError = findWriteValidationError(ex);
+        if (writeError != null) {
+            String modelName = importTemplateDTO.getModelName();
+            for (String field : writeError.fieldErrors().keySet()) {
+                if (row.get(field) != null
+                        || !ModelManager.existField(modelName, field)
+                        || !ModelManager.getModelField(modelName, field).isRequired()) {
+                    continue;
+                }
+                ImportFieldDTO column = columnFeeding(importTemplateDTO, field);
+                if (column != null) {
+                    String header = StringUtils.defaultIfBlank(column.getHeader(), column.getFieldName());
+                    return "The field `" + header + "` is required";
+                }
+            }
+        }
+        return ex.getMessage();
+    }
+
+    private static WriteValidationException findWriteValidationError(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof WriteValidationException writeError) {
+                return writeError;
+            }
+        }
+        return null;
+    }
+
+    /** The template column that writes {@code field}: the field itself, or a lookup path rooted at it. */
+    private static ImportFieldDTO columnFeeding(ImportTemplateDTO importTemplateDTO, String field) {
+        if (importTemplateDTO.getImportFields() == null) {
+            return null;
+        }
+        for (ImportFieldDTO column : importTemplateDTO.getImportFields()) {
+            String fieldName = column.getFieldName();
+            if (field.equals(fieldName) || (fieldName != null && fieldName.startsWith(field + "."))) {
+                return column;
+            }
+        }
+        return null;
     }
 }

@@ -115,6 +115,18 @@ Notes:
 - If `syncImport = true`, import is executed in-process.
 - If `syncImport = false`, an async import message is sent to MQ.
 
+Required columns — what a blank cell (with no `defaultValue`) does:
+
+| Column is | `ignoreEmpty = false` | `ignoreEmpty = true` |
+| --- | --- | --- |
+| `required` on the template | Refused by the importer | Refused by the importer |
+| Required on the model only | Refused by the importer (it would be written as null) | Dropped from the row; the ORM refuses a **create** without it, an **update** keeps the stored value |
+| Neither | Written as null | Dropped from the row |
+
+- A cell cannot tell a create from an update, so with `ignoreEmpty = true` the importer leaves the model's requiredness to the ORM, which can. That is what lets a file of corrections leave a mandatory column blank to mean "no change". The template's own `required` is a rule for every row and is never relaxed.
+- A create the ORM refuses for a missing value is reported with the importer's own message, naming the column (`The field \`Company Name\` is required`), not the model field.
+- The same rule applies to a relation lookup column (`deptId.code`) on a required relation. A OneToOne sub-field never inherits the sub-model's requiredness (see 1.1.1).
+
 ### 1.1 Relation Lookup Import (Cascaded Import)
 The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic import) supports **dotted-path relation lookup** via `RelationLookupResolver`. Instead of importing a raw FK id, you can import a human-readable business key of the related model, and the system will reverse-lookup the FK id automatically.
 

@@ -50,12 +50,32 @@ public class ImportHandlerFactory {
                 continue;
             }
             MetaField metaField = ModelManager.getModelField(modelName, fieldName);
-            if (!Boolean.TRUE.equals(importFieldDTO.getRequired())) {
-                importFieldDTO.setRequired(metaField.isRequired());
-            }
+            promoteModelRequired(importFieldDTO, metaField);
             handlers.add(createHandler(metaField, importFieldDTO));
         }
         return handlers;
+    }
+
+    /**
+     * Carry the model's requiredness onto a column the template left optional — but only when a blank
+     * cell would be written.
+     *
+     * <p>A cell-level check cannot tell a create from an update. With {@code ignoreEmpty} on, a blank
+     * cell is dropped from the row instead of written as null, which on an update means "keep the
+     * existing value" — and checking the model's requiredness here rejected exactly that, so a file
+     * of corrections had to restate every mandatory column of every row. The ORM still enforces the
+     * requirement where it can tell the two apart: a create without the field is refused, an update
+     * that does not carry it is not. With {@code ignoreEmpty} off the blank is written as null, the
+     * ORM would refuse it either way, and checking here only buys the column's own name in the error.
+     *
+     * <p>The template's own {@code required} is never relaxed: it is a rule the template states for
+     * every row, create or update.
+     */
+    private static void promoteModelRequired(ImportFieldDTO importFieldDTO, MetaField metaField) {
+        if (Boolean.TRUE.equals(importFieldDTO.getRequired()) || Boolean.TRUE.equals(importFieldDTO.getIgnoreEmpty())) {
+            return;
+        }
+        importFieldDTO.setRequired(metaField.isRequired());
     }
 
     /**
@@ -86,9 +106,7 @@ public class ImportHandlerFactory {
         if (metaField == null) {
             return null;
         }
-        if (!Boolean.TRUE.equals(importFieldDTO.getRequired())) {
-            importFieldDTO.setRequired(metaField.isRequired());
-        }
+        promoteModelRequired(importFieldDTO, metaField);
         if (!Boolean.TRUE.equals(importFieldDTO.getRequired())) {
             return null;
         }
