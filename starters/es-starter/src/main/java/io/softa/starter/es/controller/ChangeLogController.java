@@ -98,6 +98,8 @@ public class ChangeLogController {
      * @param id primary key id
      * @param relations one-to-one and one-to-many fields of the model whose rows' history belongs
      *                  with the record's; empty asks for the record alone
+     * @param referencing {@code Model.field} of many-to-one or one-to-one fields on other models that point at
+     *                    the record, whose rows' history belongs with it — deleted rows included
      * @param pageNumber current page number, default is 1
      * @param pageSize single page quantity, default is 50
      * @param order sort rule based on change time, default is reverse order, only support DESC, ASC string
@@ -112,6 +114,7 @@ public class ChangeLogController {
             @Parameter(name = "modelName", description = "Model name"),
             @Parameter(name = "id", description = "Primary key id"),
             @Parameter(name = "relations", description = "One-to-one / one-to-many field names, comma separated"),
+            @Parameter(name = "referencing", description = "Model.field of many-to-one / one-to-one fields pointing at the record, comma separated"),
             @Parameter(name = "pageNumber", description = "Current page number, default 1"),
             @Parameter(name = "pageSize", description = "Single page quantity, default 50"),
             @Parameter(name = "order", description = "DESC or ASC sort rule based on changeTime, default is DESC."),
@@ -121,6 +124,7 @@ public class ChangeLogController {
     public ApiResponse<Page<ChangeLog>> getRecordChangeLog(@RequestParam String modelName,
                                                            @RequestParam Serializable id,
                                                            @RequestParam(required = false) List<String> relations,
+                                                           @RequestParam(required = false) List<String> referencing,
                                                            @RequestParam(required = false) Integer pageNumber,
                                                            @RequestParam(required = false) Integer pageSize,
                                                            @RequestParam(required = false) String order,
@@ -128,7 +132,7 @@ public class ChangeLogController {
                                                            @RequestParam(required = false) Boolean dataMask) {
         Page<ChangeLog> page = this.initPageAndContext(pageNumber, pageSize, dataMask);
         order = Orders.ASC.equals(StringUtils.upperCase(order)) ? Orders.ASC : Orders.DESC;
-        page = changeLogService.getRecordChangeLog(modelName, id, relations, page, order,
+        page = changeLogService.getRecordChangeLog(modelName, id, relations, referencing, page, order,
                 Boolean.TRUE.equals(includeCreation));
         return ApiResponse.success(page);
     }

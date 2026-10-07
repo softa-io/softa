@@ -106,9 +106,11 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
 
     @Override
     public Page<ChangeLog> getRecordChangeLog(String modelName, Serializable id, List<String> relations,
-                                              Page<ChangeLog> page, String order, boolean includeCreation) {
+                                              List<String> referencing, Page<ChangeLog> page, String order,
+                                              boolean includeCreation) {
         permissionService.checkIdsFieldsAccess(modelName, Collections.singletonList(id), null, READ);
-        List<HistoryPart> parts = this.historyParts(modelName, id, relations == null ? List.of() : relations);
+        List<HistoryPart> parts = this.historyParts(modelName, id, relations == null ? List.of() : relations,
+                referencing == null ? List.of() : referencing);
 
         NativeQuery query = NativeQuery.builder()
                 .withQuery(this.historyQuery(parts, includeCreation))
@@ -138,6 +140,22 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
      * references at all.
      */
     List<HistoryPart> historyParts(String modelName, Serializable id, List<String> relations) {
+        return this.historyParts(modelName, id, relations, List.of());
+    }
+
+    /**
+     * As {@link #historyParts(String, Serializable, List)}, with the rows of other models that point
+     * at the record, each named {@code Model.field}.
+     *
+     * <p>For rows the record's model has no relation field to reach — a grant that points at a
+     * person through a many-to-one, on a model the person's own does not list. Asked like a
+     * one-to-many: by the reference every recent log carries, so a deleted row is found, and by
+     * the rows that point at the record now. A one-to-one is accepted too — the person's login
+     * identity — and found by its row alone: logs carry references for many-to-one fields only,
+     * and a row that lives and dies with the record has no deleted history to lose.
+     */
+    List<HistoryPart> historyParts(String modelName, Serializable id, List<String> relations,
+                                   List<String> referencing) {
         MetaModel metaModel = ModelManager.getModel(modelName);
         Assert.notTrue(metaModel.isTimeline(),
                 "The timeline model can only call the API to get the slice change log: getSliceChangeLog");
@@ -158,11 +176,25 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
             if (FieldType.ONE_TO_ONE.equals(field.getFieldType())) {
                 oneToOne.add(relation);
             } else {
-                List<String> current = this.logRowIds(field.getRelatedModel(),
-                        Filters.of(field.getRelatedField(), Operator.EQUAL, id), CURRENT_ROWS_ASKED_BY_ID + 1);
-                parts.add(new HistoryPart(field.getRelatedModel(),
-                        current.size() > CURRENT_ROWS_ASKED_BY_ID ? List.of() : current,
-                        field.getRelatedField() + "=" + rowId, visibleFieldsOf(field.getRelatedModel())));
+                parts.add(this.pointingPart(field.getRelatedModel(), field.getRelatedField(), id));
+            }
+        }
+        for (String reference : new LinkedHashSet<>(referencing)) {
+            int dot = reference.lastIndexOf('.');
+            Assert.isTrue(dot > 0 && dot < reference.length() - 1,
+                    "Reference {0} is not written as Model.field.", reference);
+            String model = reference.substring(0, dot);
+            String fieldName = reference.substring(dot + 1);
+            MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+            Assert.notNull(field, "Model {0} has no field {1}.", model, fieldName);
+            // Only a reference to this record's model: anything else would let one record's
+            // history read the logs of rows that have nothing to do with it.
+            Assert.isTrue((FieldType.MANY_TO_ONE.equals(field.getFieldType())
+                            || FieldType.ONE_TO_ONE.equals(field.getFieldType()))
+                            && modelName.equals(field.getRelatedModel()),
+                    "Field {0}.{1} is not a many-to-one or one-to-one to {2}.", model, fieldName, modelName);
+            if (mayRead(model)) {
+                parts.add(this.pointingPart(model, fieldName, id));
             }
         }
         if (!oneToOne.isEmpty()) {
@@ -181,6 +213,18 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
             }
         }
         return parts;
+    }
+
+    /**
+     * The rows of a model that point at the record through one of its fields: by the reference
+     * their logs carry, and by the rows that do now — past {@link #CURRENT_ROWS_ASKED_BY_ID}, by
+     * the reference alone.
+     */
+    private HistoryPart pointingPart(String model, String field, Serializable id) {
+        List<String> current = this.logRowIds(model,
+                Filters.of(field, Operator.EQUAL, id), CURRENT_ROWS_ASKED_BY_ID + 1);
+        return new HistoryPart(model, current.size() > CURRENT_ROWS_ASKED_BY_ID ? List.of() : current,
+                field + "=" + id, visibleFieldsOf(model));
     }
 
     /**

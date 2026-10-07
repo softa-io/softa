@@ -206,6 +206,81 @@ class ChangeLogRecordHistoryTest {
         assertThat(salary.visibleFields()).containsExactly("id", "employeeId", "note");
     }
 
+    /**
+     * Rows the record's model has no field to reach: an access card points at the employee, and
+     * the employee lists no cards. Revoking one deletes its row, and its history went with it.
+     */
+    @Test
+    void findsTheRowsOfAnotherModelThatPointAtTheRecordDeletedOnesIncluded() {
+        pointing("EmpAccessCard", "employeeId", "Employee");
+        when(modelService.getIds(eq("EmpAccessCard"), any(Filters.class), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(501L));
+
+        List<ChangeLogServiceImpl.HistoryPart> parts =
+                service.historyParts("Employee", EMPLOYEE, List.of(), List.of("EmpAccessCard.employeeId"));
+
+        assertThat(parts).containsExactly(
+                new ChangeLogServiceImpl.HistoryPart("Employee", List.of("100"), null, null),
+                new ChangeLogServiceImpl.HistoryPart("EmpAccessCard", List.of("501"), "employeeId=100", null));
+    }
+
+    @Test
+    void refusesAReferenceToAnotherModel() {
+        // A field that points elsewhere would let one record's history read the logs of rows that
+        // have nothing to do with it.
+        pointing("EmpAccessCard", "companyId", "Company");
+
+        assertThatThrownBy(() ->
+                service.historyParts("Employee", EMPLOYEE, List.of(), List.of("EmpAccessCard.companyId")))
+                .hasMessageContaining("not a many-to-one or one-to-one to Employee");
+    }
+
+    @Test
+    void findsAOneToOneThatPointsAtTheRecordByItsRow() {
+        // An employee's login identity points at them one-to-one: no reference in its logs, and no
+        // deleted history to lose — its current row is the whole answer.
+        MetaModel plain = mock(MetaModel.class);
+        when(plain.isTimeline()).thenReturn(false);
+        models.when(() -> ModelManager.getModel("EmpLogin")).thenReturn(plain);
+        models.when(() -> ModelManager.getModelFieldOrNull("EmpLogin", "employeeId"))
+                .thenReturn(relation("employeeId", FieldType.ONE_TO_ONE, "Employee", null));
+        when(modelService.getIds(eq("EmpLogin"), any(Filters.class), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(601L));
+
+        ChangeLogServiceImpl.HistoryPart login =
+                service.historyParts("Employee", EMPLOYEE, List.of(), List.of("EmpLogin.employeeId")).get(1);
+
+        assertThat(login.model()).isEqualTo("EmpLogin");
+        assertThat(login.rowIds()).containsExactly("601");
+    }
+
+    @Test
+    void refusesAReferenceThatIsNotModelDotField() {
+        assertThatThrownBy(() ->
+                service.historyParts("Employee", EMPLOYEE, List.of(), List.of("EmpAccessCard")))
+                .hasMessageContaining("Model.field");
+    }
+
+    @Test
+    void leavesOutReferencingRowsWhoseModelTheReaderCannotRead() {
+        pointing("EmpAccessCard", "employeeId", "Employee");
+        doThrow(new PermissionException("no read")).when(permissionService)
+                .checkModelAccess("EmpAccessCard", AccessType.READ);
+
+        List<ChangeLogServiceImpl.HistoryPart> parts =
+                service.historyParts("Employee", EMPLOYEE, List.of(), List.of("EmpAccessCard.employeeId"));
+
+        assertThat(parts).extracting(ChangeLogServiceImpl.HistoryPart::model).containsExactly("Employee");
+    }
+
+    private void pointing(String model, String field, String relatedModel) {
+        MetaModel plain = mock(MetaModel.class);
+        when(plain.isTimeline()).thenReturn(false);
+        models.when(() -> ModelManager.getModel(model)).thenReturn(plain);
+        models.when(() -> ModelManager.getModelFieldOrNull(model, field))
+                .thenReturn(relation(field, FieldType.MANY_TO_ONE, relatedModel, null));
+    }
+
     @Test
     void theQueryAsksEachPartByItsModelAndItsRows() {
         String query = service.historyQuery(List.of(

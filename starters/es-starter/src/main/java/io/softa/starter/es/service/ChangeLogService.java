@@ -61,9 +61,17 @@ public interface ChangeLogService extends ESService<ChangeLog> {
      * the table. Fields outside the reader's sensitive field sets are removed, and an update that
      * touched only those is not counted.
      *
+     * <p>{@code referencing} reaches rows the model has no relation field for: every row of
+     * another model that points at this record through a many-to-one or one-to-one, asked the same
+     * way as a one-to-many — so a grant that points at a person is listed with the person's history, the
+     * grants since revoked included.
+     *
      * @param relations one-to-one and one-to-many field names of the model; others are refused
+     * @param referencing {@code Model.field} of many-to-one or one-to-one fields to this record's
+     *                    model; others are refused
      */
     Page<ChangeLog> getRecordChangeLog(String modelName, Serializable id, List<String> relations,
-                                       Page<ChangeLog> page, String order, boolean includeCreation);
+                                       List<String> referencing, Page<ChangeLog> page, String order,
+                                       boolean includeCreation);
 
 }
