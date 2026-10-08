@@ -261,6 +261,9 @@ public class ModelManager {
             if (metaField.isAutoSequence()) {
                 verifyAutoSequenceAttribute(metaField);
             }
+            if (metaField.isCascadeParent()) {
+                verifyCascadeParentAttribute(metaField);
+            }
             if (metaField.getConstraints() != null) {
                 verifyFieldConstraints(metaField);
             }
@@ -300,6 +303,25 @@ public class ModelManager {
         if (constraints.hasConditions()) {
             modelMap().get(modelName).addConditionalField(metaField);
         }
+    }
+
+    /**
+     * A cascade parent is the row the field points at, so it has to be a many-to-one with a target.
+     * The annotation lane rejects anything else at scan time; this is the same gate for the rows that
+     * never pass through it — studio-authored {@code design_field} and hand-written SQL. Left
+     * unchecked, a flag on a STRING is a parent no column can ever match.
+     */
+    private static void verifyCascadeParentAttribute(MetaField metaField) {
+        String model = metaField.getModelName();
+        String field = metaField.getFieldName();
+        Assert.isTrue(FieldType.MANY_TO_ONE.equals(metaField.getFieldType()),
+                "Model field {0}:{1} is cascadeParent, which requires a MANY_TO_ONE field "
+                        + "(the parent is the row this one points at), but the field type is {2}!",
+                model, field, metaField.getFieldType());
+        Assert.notBlank(metaField.getRelatedModel(),
+                "Model field {0}:{1} is cascadeParent but names no relatedModel: "
+                        + "there is no parent model to narrow by!",
+                model, field);
     }
 
     /**

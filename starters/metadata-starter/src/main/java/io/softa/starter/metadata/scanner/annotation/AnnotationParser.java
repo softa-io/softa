@@ -610,6 +610,22 @@ public final class AnnotationParser {
         }
         f.setAutoSequence(anno.autoSequence());
 
+        // A cascade parent is the row this field points at, so it is a MANY_TO_ONE by definition.
+        // Rejected at scan time on anything else; a flag that can sit on a STRING would mean nothing
+        // and fail nowhere.
+        //
+        // Null, not false, when undeclared — unlike autoSequence. The column arrives empty on every
+        // existing sys_field and design_field row, and the checksum hashes null and false
+        // differently: emitting false would rewrite every row on the first boot and leave the
+        // studio lane reading every model aggregate as drifted until its rows were backfilled.
+        if (anno.cascadeParent() && resolved.fieldType() != FieldType.MANY_TO_ONE) {
+            throw new IllegalStateException(
+                    "@Field(cascadeParent = true) on " + modelName + "." + javaField.getName()
+                            + " requires a MANY_TO_ONE field (the parent is the row this one points at),"
+                            + " but the resolved field type is " + resolved.fieldType() + ".");
+        }
+        f.setCascadeParent(anno.cascadeParent() ? Boolean.TRUE : null);
+
         f.setMaskingType(firstOrNull(anno.maskingType()));
         f.setWidgetType(firstOrNull(anno.widgetType()));
         f.setCountries(checkedCountries(anno.countries(), modelName, javaField.getName()));

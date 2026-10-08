@@ -186,6 +186,17 @@ public @interface Field {
     boolean autoSequence() default false;
 
     /**
+     * Marks a MANY_TO_ONE as the parent a dependent dropdown narrows by — the level a track
+     * belongs to, not the country a track happens to be filed under. An import template that
+     * carries both the parent's column and this model's column offers, for each parent picked,
+     * only the rows that point at it, however the columns are addressed (name, code, id). Only a
+     * flagged relation pairs: a model's other relations — the person in charge of it, the company it
+     * books to — are never read as parents. One model may flag several parents; each pairs with its
+     * own column. Rejected at scan time on anything but a MANY_TO_ONE.
+     */
+    boolean cascadeParent() default false;
+
+    /**
      * Masking strategy when rendering. Empty array = no masking;
      * single element = explicit masking type.
      */

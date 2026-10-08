@@ -374,8 +374,8 @@ class OptionDropdownResolverTest {
 
     @Test
     void spotsThatOneColumnNarrowsAnother() {
-        // A track names the level it belongs to, so the tracks worth offering are the ones for the
-        // level already chosen. Both sides are code-as-id, so the track's foreign key holds exactly
+        // A track names the level it belongs to — declared as its cascade parent — so the tracks worth
+        // offering are the ones for the level already chosen. Both sides are code-as-id, so the track's foreign key holds exactly
         // the value the level column offers and the grouping needs no translation.
         withMetadata(mm -> {
             field("EmployeeProfile", "highestEducationLevel", FieldType.MANY_TO_ONE,
@@ -383,6 +383,7 @@ class OptionDropdownResolverTest {
             field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
                     "HighestEducationTrack", null, null);
             field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
+            cascadeParent("HighestEducationTrack", "level");
             model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
             model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
             stubRows("HighestEducationLevel", "id", List.of("SG_Bachelor", "SG_Master"));
@@ -442,6 +443,7 @@ class OptionDropdownResolverTest {
             field("HighestEducationLevel", "name", FieldType.STRING, null, null, null);
             field("HighestEducationTrack", "name", FieldType.STRING, null, null, null);
             field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
+            cascadeParent("HighestEducationTrack", "level");
             model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
             model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
             stubRowsByFields("HighestEducationLevel", Map.of(
@@ -467,10 +469,10 @@ class OptionDropdownResolverTest {
     }
 
     @Test
-    void theCountryAnchorIsNotAParent() {
-        // A track points at its level and at its country with the same kind of field. Read the second
-        // as a parent and the Nationality column starts narrowing the track column — and every other
-        // country-partitioned column on the sheet with it.
+    void anUndeclaredRelationIsNotAParent() {
+        // A track points at its level and at its country with the same kind of field. Only the level is
+        // declared; read the country as a parent and the Nationality column starts narrowing the track
+        // column — and every other country-partitioned column on the sheet with it.
         withMetadata(mm -> {
             field("EmployeeProfile", "nationality", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
             field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
@@ -478,6 +480,8 @@ class OptionDropdownResolverTest {
             field("CountryRegion", "name", FieldType.STRING, null, null, null);
             field("HighestEducationTrack", "name", FieldType.STRING, null, null, null);
             field("HighestEducationTrack", "country", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
+            field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
+            cascadeParent("HighestEducationTrack", "level");
             model("CountryRegion", false, IdStrategy.EXTERNAL_ID);
             model("HighestEducationTrack", true, IdStrategy.EXTERNAL_ID);
             fieldExists("HighestEducationTrack", "country");
@@ -496,15 +500,49 @@ class OptionDropdownResolverTest {
     }
 
     @Test
-    void aCountryRelationOnAModelThatIsNotPartitionedStillPairs() {
-        // The exclusion is about the partition axis, not about the word "country". A model that is not
-        // multi-country has no partition axis, so its relation onto a country is an ordinary parent.
+    void relationsBetweenEveryColumnOfASheetPairNothingUnlessDeclared() {
+        // The department template: a department points at the employee in charge of it, at its company
+        // and at its cost centre, and an employee points back at a department and a company. Every one
+        // of those columns sat next to another it relates to, and each was read as a parent — the
+        // Parent Department column offered only the departments of whichever employee was picked in the
+        // PIC column, which on a fresh row is nothing at all.
+        withMetadata(mm -> {
+            field("Department", "parentId", FieldType.MANY_TO_ONE, "Department", null, null);
+            field("Department", "picEmpId", FieldType.MANY_TO_ONE, "Employee", null, null);
+            field("Department", "companyId", FieldType.MANY_TO_ONE, "Company", null, null);
+            field("Department", "code", FieldType.STRING, null, null, null);
+            field("Employee", "departmentId", FieldType.MANY_TO_ONE, "Department", null, null);
+            field("Employee", "companyId", FieldType.MANY_TO_ONE, "Company", null, null);
+            field("Employee", "code", FieldType.STRING, null, null, null);
+            field("Company", "code", FieldType.STRING, null, null, null);
+            model("Department", false);
+            model("Employee", false);
+            model("Company", false);
+            stubRows("Department", "code", List.of("D1"));
+            stubRows("Employee", "code", List.of("E1"));
+            stubRows("Company", "code", List.of("C1"));
+
+            var resolution = resolveAll("Department", null, "parentId.code", "picEmpId.code", "companyId.code");
+
+            assertThat(resolution.cascadesByColumn()).isEmpty();
+            assertThat(resolution.optionsByColumn().get(0)).as("the parent column offers every department")
+                    .containsExactly("D1");
+            assertThat(capturedQuery("Department").getFields()).containsExactly("code");
+            assertThat(capturedQuery("Employee").getFields()).containsExactly("code");
+        });
+    }
+
+    @Test
+    void aDeclaredRelationPairsWhateverItPointsAt() {
+        // The declaration is the whole rule: a relation onto a country pairs like any other once the
+        // model says it is the parent. Nothing about the target model decides it.
         withMetadata(mm -> {
             field("Employee", "nationality", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
             field("Employee", "cityId", FieldType.MANY_TO_ONE, "City", null, null);
             field("CountryRegion", "name", FieldType.STRING, null, null, null);
             field("City", "name", FieldType.STRING, null, null, null);
             field("City", "country", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
+            cascadeParent("City", "country");
             model("CountryRegion", false, IdStrategy.EXTERNAL_ID);
             model("City", false, IdStrategy.EXTERNAL_ID);
             stubRowsByFields("CountryRegion", Map.of(
@@ -533,6 +571,7 @@ class OptionDropdownResolverTest {
             field("HighestEducationLevel", "name", FieldType.STRING, null, null, null);
             field("HighestEducationTrack", "name", FieldType.STRING, null, null, null);
             field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
+            cascadeParent("HighestEducationTrack", "level");
             model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
             model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
             stubRowsByFields("HighestEducationLevel", Map.of(
@@ -561,6 +600,7 @@ class OptionDropdownResolverTest {
             field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
                     "HighestEducationTrack", null, null);
             field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
+            cascadeParent("HighestEducationTrack", "level");
             model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
             model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
             stubRows("HighestEducationLevel", "id", List.of("SG_Bachelor"));
@@ -690,6 +730,11 @@ class OptionDropdownResolverTest {
         ReflectionTestUtils.setField(metaField, "optionSetCode", optionSetCode);
         ReflectionTestUtils.setField(metaField, "filters", filters);
         fields.put(modelName + "." + fieldName, metaField);
+    }
+
+    /** Declares an existing relation as its model's cascade parent, as {@code @Field(cascadeParent = true)} does. */
+    private void cascadeParent(String modelName, String fieldName) {
+        ReflectionTestUtils.setField(fields.get(modelName + "." + fieldName), "cascadeParent", true);
     }
 
     private void model(String modelName, boolean multiCountry) {

@@ -122,6 +122,14 @@ public class MetaField implements Serializable {
      */
     private boolean autoSequence;
 
+    /**
+     * Whether this MANY_TO_ONE is the parent a dependent dropdown narrows by. Backed by
+     * {@code sys_field.cascade_parent} — declared via {@code @Field(cascadeParent = true)}
+     * and reconciled by the scanner — and loaded here like the other flag columns.
+     * Consumed by the import-template dropdown resolver when it pairs two columns.
+     */
+    private boolean cascadeParent;
+
     private MaskingType maskingType;
 
     private WidgetType widgetType;

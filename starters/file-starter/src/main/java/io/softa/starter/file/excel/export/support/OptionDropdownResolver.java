@@ -196,17 +196,14 @@ public class OptionDropdownResolver {
     /**
      * Finds the columns of a sheet that narrow one another.
      *
-     * <p>Two columns form a pair when the child's model carries a many-to-one onto the parent's model:
-     * an education track names the level it belongs to, so the tracks worth offering are the ones for
-     * the level already chosen rather than every track in the country.
+     * <p>Two columns form a pair when the child's model carries a many-to-one onto the parent's model
+     * <b>and that many-to-one is declared {@code @Field(cascadeParent = true)}</b>: an education track
+     * names the level it belongs to, so the tracks worth offering are the ones for the level already
+     * chosen rather than every track in the country.
      *
-     * <p><b>However either column is addressed.</b> The pair used to be allowed only between two
-     * columns offering ids, because the child's foreign key then holds exactly the value the parent
-     * column shows and the grouping needs no translation. That restriction is what stopped a column
-     * being readable and cascaded at once: a template that addressed either side by name — which every
-     * other relation column on the employee sheet already does — silently lost the pairing, and the
-     * child offered every value in the country instead of the chosen parent's. The parent's key is
-     * translated instead, see {@link #parentKeysById}.
+     * <p><b>However either column is addressed.</b> The child's foreign key holds the parent's id, and
+     * the parent column may show a name or a code instead; the parent's key is translated, see
+     * {@link #parentKeysById}.
      *
      * <p>A column keeps looking through the later candidates when a pair yields nothing to offer, so
      * one empty parent does not cost it a working one.
@@ -235,37 +232,29 @@ public class OptionDropdownResolver {
     }
 
     /**
-     * The many-to-one on {@code childModel} that can act as its cascade parent onto {@code parentModel},
-     * or null when none does.
+     * The many-to-one on {@code childModel} declared as its cascade parent onto {@code parentModel},
+     * or null when none is.
      *
-     * <p><b>The country anchor is not a parent.</b> A track points at its level and at its country with
-     * the same kind of field, and only one of those narrows it in the sense a sheet means. The two are
-     * nevertheless distinguishable without anyone declaring which is which: a multi-country model is
-     * guaranteed to carry the second — {@code ModelManager.validateMultiCountry} asserts at startup
-     * that every {@code multiCountry} model has a {@code country} field onto {@code CountryRegion} —
-     * and its rows are already narrowed by it before any dropdown is built.
-     *
-     * <p>Reading it as a parent is what would let a Nationality column narrow the race,
-     * residence-status, ID-type, pass-type and education columns of the same sheet. Those escaped it
-     * only because they happen to be addressed by name, which the pairing rule used to exclude; with
-     * that restriction lifted, excluding the partition axis is what keeps them apart.
+     * <p><b>Declared, never inferred.</b> Any many-to-one between two models on the same sheet used to
+     * be taken for a parent. Structure cannot tell the relation that means "these rows are filed
+     * under that one" from every other relation a model carries: a track points at its level and at
+     * its country with the same kind of field, and a department points at its parent's company, its
+     * cost centre and the employee in charge of it. Read as parents, those turned a department
+     * template's Parent Department column into "the departments whose person in charge is the one
+     * picked in the PIC column" — empty until a column nobody fills first is filled — and paired the
+     * two employee columns of a company template with each other. Excluding the country anchor fixed
+     * one sheet; every other sheet with two related columns stayed exposed. Only the model knows which
+     * of its relations is a hierarchy, so it says so, and nothing else pairs.
      */
     private MetaField linkFieldOnto(String childModel, String parentModel) {
         if (!ModelManager.existModel(childModel)) {
             return null;
         }
         return ModelManager.getModelFields(childModel).stream()
-                .filter(f -> f.getFieldType() == FieldType.MANY_TO_ONE)
+                .filter(MetaField::isCascadeParent)
                 .filter(f -> parentModel.equals(f.getRelatedModel()))
-                .filter(f -> !isCountryAnchor(childModel, f))
                 .findFirst()
                 .orElse(null);
-    }
-
-    /** Whether the field is a multi-country model's partition axis rather than a parent of its rows. */
-    private static boolean isCountryAnchor(String modelName, MetaField field) {
-        return ModelManager.getModel(modelName).isMultiCountry()
-                && COUNTRY.equals(field.getFieldName());
     }
 
     /** The child column's values, grouped under the value the parent column shows for each one. */

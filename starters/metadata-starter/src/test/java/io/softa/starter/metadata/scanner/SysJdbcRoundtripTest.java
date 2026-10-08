@@ -135,6 +135,7 @@ class SysJdbcRoundtripTest {
                   dynamic TINYINT,
                   encrypted TINYINT,
                   auto_sequence TINYINT,
+                  cascade_parent TINYINT,
                   masking_type VARCHAR(64),
                   widget_type VARCHAR(64),
                   countries VARCHAR(256),

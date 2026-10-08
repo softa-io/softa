@@ -126,6 +126,7 @@ Annotate **every declared field**. Most-used attributes:
 | `readonly` / `unsearchable` | `false` | UI behavior |
 | `copyable` | `true` | `false` = value not carried when a row is duplicated (keys, secrets, runtime state) |
 | `autoSequence` | `false` | auto-fill from a sequence on INSERT when blank (document numbers) — see §5 |
+| `cascadeParent` | `false` | MANY_TO_ONE only: the parent a dependent import-template dropdown narrows by (pick a Level, get that Level's Tracks). Only flagged relations pair. Flag the hierarchy relation, not `country` or an ordinary reference |
 | `relatedModel` | — | related model **class**, e.g. `relatedModel = Country.class`, for relations |
 | `relatedField` | `""` | one-to-many: the child's FK column. To-one: leave empty (see §5) |
 | `onDelete` | KEEP | what happens to referrers when the target is deleted — see §5 |

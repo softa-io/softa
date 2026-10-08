@@ -150,6 +150,11 @@ public class SysField extends AuditableModel {
     @Field(label = "Auto Sequence")
     private Boolean autoSequence;
 
+    // The parent a dependent import-template dropdown narrows by; see OptionDropdownResolver.
+    // Declared via @Field(cascadeParent = true) on a MANY_TO_ONE and reconciled by the scanner.
+    @Field(label = "Cascade Parent")
+    private Boolean cascadeParent;
+
     @Field
     private MaskingType maskingType;
 
