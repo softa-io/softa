@@ -16,6 +16,21 @@ What this buys, with no application code involved: **every log line written insi
 
 Requests that skip context binding have no MDC either — `IdentifyType.NONE` and `OPENAPI` endpoints run outside a bound scope by design.
 
+## Record access
+
+Two model endpoints tell a form what to render before it renders it; both answer only about the caller's
+own access, never return business data, and are answered by `PermissionService` (all open when no
+permission module is present):
+
+| Endpoint | Answers |
+|---|---|
+| `POST /{model}/getRecordAccess` (body: ids) | per record: the sensitive field sets hidden on it, those visible but read-only, and which of `UPDATE` / `DELETE` the caller may perform |
+| `GET /{model}/getCreateAccess` | the sensitive field sets a new record's form must not show |
+
+A detail form hides Edit / Delete and the sections of hidden sets from the answer, and renders the
+sections of read-only sets read-only. The record's answer stands on its own: it overrides what the user
+holds through some other role.
+
 ## Option Sets
 Option sets provide a shared, ordered list of selectable values. The web module exposes an API to read option items
 and the ORM layer caches them for fast lookup.

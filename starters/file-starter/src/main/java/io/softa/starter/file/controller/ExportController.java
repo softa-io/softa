@@ -13,6 +13,9 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
+import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.service.AccessScope;
+import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.file.support.ImportTemplateCountryScope;
 import io.softa.starter.file.service.ExportService;
@@ -30,6 +33,30 @@ public class ExportController {
 
     @Autowired
     private ExportService exportService;
+
+    @Autowired
+    private ModelService<?> modelService;
+
+    /**
+     * How many of the rows the filters match the caller may export.
+     *
+     * <p>An export reads under the roles that hold the export action, which may reach fewer rows than
+     * the roles that let the caller see the list: a role seeing every employee and another exporting
+     * one department's leave the list showing hundreds and the file holding a handful. The export
+     * dialog asks here so the number it shows is the number the file will have.
+     *
+     * @param modelName the model to be exported
+     * @param exportParams the filters of the export; fields, orders and grouping are ignored
+     * @return the number of rows an export with these filters would hold
+     */
+    @Operation(description = "Count the rows the caller may export with these filters.")
+    @PostMapping(value = "/countExportable")
+    public ApiResponse<Long> countExportable(@RequestParam String modelName,
+                                             @RequestBody(required = false) ExportParams exportParams) {
+        FlexQuery flexQuery = ExportParams.convertParamsToFlexQuery(exportParams);
+        var filters = ImportTemplateCountryScope.forModel(modelName, flexQuery.getFilters());
+        return ApiResponse.success(AccessScope.callAs(AccessType.EXPORT, () -> modelService.count(modelName, filters)));
+    }
 
     /**
      * Export data by dynamic fields and ExportParams, without export template.

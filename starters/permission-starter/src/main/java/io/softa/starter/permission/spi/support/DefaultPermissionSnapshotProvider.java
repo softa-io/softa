@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,7 @@ import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
+import io.softa.starter.permission.spi.RoleGrant;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 
@@ -352,11 +354,20 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             return emptyGrantsSnapshot(roleCodes);
         }
 
+        // Every grant row is read with its role, so each role's pair can be kept apart (RoleGrant) as
+        // well as merged into the unions the menu plane reads.
+        Map<Long, RoleGrant> grantsByRole = new LinkedHashMap<>();
+        for (RoleView role : activeRoles) {
+            if (role.getId() != null) {
+                grantsByRole.put(role.getId(), newRoleGrant(role));
+            }
+        }
+
         // 3a. Navigation + permission grants.
         Set<String> navigations = new HashSet<>();
         Set<String> permissions = new HashSet<>();
         List<RoleNavigationView> navGrants = modelService.searchList(M_ROLE_NAV,
-                new FlexQuery(List.of("navigationId", "permissionIds"), new Filters().in("roleId", roleIds)),
+                new FlexQuery(List.of("roleId", "navigationId", "permissionIds"), new Filters().in("roleId", roleIds)),
                 RoleNavigationView.class);
         for (RoleNavigationView rn : navGrants) {
             if (rn.getNavigationId() == null) {
@@ -366,13 +377,18 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             List<String> pids = JsonUtils.toStringList(rn.getPermissionIds(), true);
             if (pids != null) {
                 permissions.addAll(pids);
+                RoleGrant grant = grantsByRole.get(rn.getRoleId());
+                if (grant != null) {
+                    grant.getPermissions().addAll(pids);
+                }
             }
         }
 
         // 3b. Row-scope grants, keyed by model.
         Map<String, List<ScopeRule>> modelScopeMap = new HashMap<>();
         List<RoleDataScopeView> scopeGrants = modelService.searchList(M_ROLE_SCOPE,
-                new FlexQuery(List.of("model", "dataScopes"), new Filters().in("roleId", roleIds)),
+                new FlexQuery(List.of("roleId", "model", "dataScopes", "scopeCondition"),
+                        new Filters().in("roleId", roleIds)),
                 RoleDataScopeView.class);
         for (RoleDataScopeView rds : scopeGrants) {
             String model = rds.getModel();
@@ -380,19 +396,30 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 continue;
             }
             List<ScopeRule> scopes = parseScopeRules(rds.getDataScopes());
+            RoleGrant grant = grantsByRole.get(rds.getRoleId());
             if (!scopes.isEmpty()) {
                 modelScopeMap.computeIfAbsent(model, k -> new ArrayList<>()).addAll(scopes);
+                if (grant != null) {
+                    grant.getModelScopeMap().computeIfAbsent(model, k -> new ArrayList<>()).addAll(scopes);
+                }
+            }
+            // A condition narrows the rules it sits beside; with no rule there is nothing to narrow.
+            if (grant != null && !scopes.isEmpty() && isCondition(rds.getScopeCondition())) {
+                grant.getModelScopeConditions().put(model, rds.getScopeCondition());
             }
         }
 
         // 3b-2. The company axis, derived from the scope just read for the company model, and the
-        // countries behind it.
+        // countries behind it. The union answers "my companies"; each role keeps its own for its pair.
         Set<Long> grantedCompanyIds = readGrantedCompanyIds(modelScopeMap);
         Set<String> grantedCountries = readGrantedCountries(grantedCompanyIds);
+        for (RoleGrant grant : grantsByRole.values()) {
+            grant.setGrantedCompanyIds(readGrantedCompanyIds(grant.getModelScopeMap()));
+        }
         // 3c. Sensitive-field-set grants, keyed by the SFS's canonical model.
         Map<String, Set<String>> modelSensitiveFieldSetsMap = new HashMap<>();
         List<RoleSfsView> sfsGrants = modelService.searchList(M_ROLE_SFS,
-                new FlexQuery(List.of("sensitiveFieldSetId"), new Filters().in("roleId", roleIds)),
+                new FlexQuery(List.of("roleId", "sensitiveFieldSetId"), new Filters().in("roleId", roleIds)),
                 RoleSfsView.class);
         for (RoleSfsView g : sfsGrants) {
             String sid = g.getSensitiveFieldSetId();
@@ -404,6 +431,10 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 continue;
             }
             modelSensitiveFieldSetsMap.computeIfAbsent(sfsModel, k -> new HashSet<>()).add(sid);
+            RoleGrant grant = grantsByRole.get(g.getRoleId());
+            if (grant != null) {
+                grant.getModelSensitiveFieldSetsMap().computeIfAbsent(sfsModel, k -> new HashSet<>()).add(sid);
+            }
         }
 
         Set<String> expandedNavigations = expandAncestors(navigations);
@@ -416,7 +447,25 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         info.setModelSensitiveFieldSetsMap(modelSensitiveFieldSetsMap);
         info.setGrantedCompanyIds(grantedCompanyIds);
         info.setGrantedCountries(grantedCountries);
+        info.setRoleGrants(new ArrayList<>(grantsByRole.values()));
         return info;
+    }
+
+    private static RoleGrant newRoleGrant(RoleView role) {
+        RoleGrant grant = new RoleGrant();
+        grant.setRoleId(role.getId());
+        grant.setRoleCode(role.getCode());
+        grant.setRoleName(role.getName());
+        grant.setPermissions(new HashSet<>());
+        grant.setModelScopeMap(new HashMap<>());
+        grant.setModelScopeConditions(new HashMap<>());
+        grant.setModelSensitiveFieldSetsMap(new HashMap<>());
+        return grant;
+    }
+
+    /** A stored condition worth AND-ing: a non-empty Filters array. Blank and {@code []} mean none. */
+    private static boolean isCondition(JsonNode condition) {
+        return condition != null && condition.isArray() && !condition.isEmpty();
     }
 
     /**
@@ -470,7 +519,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             return List.of();
         }
         return modelService.searchList(M_ROLE,
-                new FlexQuery(List.of("id", "code", "active"),
+                new FlexQuery(List.of("id", "code", "name", "active"),
                         new Filters().in("id", roleIds).eq("active", true)),
                 RoleView.class);
     }
@@ -720,6 +769,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     @Data public static class RoleView {
         private Long id;
         private String code;
+        private String name;
         private Boolean active;
     }
 
@@ -728,16 +778,20 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     }
 
     @Data public static class RoleNavigationView {
+        private Long roleId;
         private String navigationId;
         private JsonNode permissionIds;
     }
 
     @Data public static class RoleDataScopeView {
+        private Long roleId;
         private String model;
         private JsonNode dataScopes;
+        private JsonNode scopeCondition;
     }
 
     @Data public static class RoleSfsView {
+        private Long roleId;
         private String sensitiveFieldSetId;
     }
 

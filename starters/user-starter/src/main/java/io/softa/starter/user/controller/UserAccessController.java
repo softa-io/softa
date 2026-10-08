@@ -211,9 +211,14 @@ public class UserAccessController {
             }
             JsonNode cached =
                     cacheService.get(PermissionSnapshotKey.forUser(subjectTenantId, userId), JsonNode.class);
-            return cached != null ? fromSnapshot(cached)
+            EffectivePermissionsView view = cached != null ? fromSnapshot(cached)
                     : fromUiContext(uiContextBuilder.build(userId, subjectTenantId),
                             uiContextBuilder.modelScopeMapFor(userId));
+            if (view.getRoleGrants() == null) {
+                // A snapshot cached before per-role grants existed, or a rebuild: read them fresh.
+                view.setRoleGrants(uiContextBuilder.roleGrantsFor(userId));
+            }
+            return view;
         }));
     }
 

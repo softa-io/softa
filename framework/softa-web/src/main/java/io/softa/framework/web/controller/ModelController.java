@@ -21,6 +21,7 @@ import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.web.dto.*;
 import io.softa.framework.web.onchange.FieldOnChangeHandler;
@@ -46,6 +47,9 @@ public class ModelController<K extends Serializable> {
 
     @Autowired
     private FieldOnChangeRegistry fieldOnChangeRegistry;
+
+    @Autowired
+    private PermissionService permissionService;
 
     /**
      * The size of operation data in a single API call cannot exceed the MAX_BATCH_SIZE.
@@ -180,6 +184,35 @@ public class ModelController<K extends Serializable> {
         }
         return ApiResponse.success(modelService.getByIds(modelName, ids,
                 getByIdsParams.getFields(), subQueries, ConvertType.REFERENCE));
+    }
+
+    /**
+     * What the caller may do with each record: the sensitive field sets hidden or read-only on it, and
+     * the actions available on it — so a form can show the sections and buttons that will work.
+     *
+     * @param modelName      model name
+     * @param getByIdsParams the record ids; other parameters are ignored
+     * @return one entry per id
+     */
+    @PostMapping(value = "/getRecordAccess")
+    @Operation(description = "The caller's access to each record: hidden / read-only sensitive sets and available actions.")
+    public ApiResponse<List<RecordAccess>> getRecordAccess(@PathVariable String modelName,
+                                                           @RequestBody GetByIdsParams getByIdsParams) {
+        List<K> ids = IdUtils.formatIds(modelName, getByIdsParams.getIds());
+        this.validateIds(ids);
+        return ApiResponse.success(permissionService.getRecordAccess(modelName, ids));
+    }
+
+    /**
+     * Which sensitive field sets a form creating a record of this model must not show.
+     *
+     * @param modelName model name
+     * @return the hidden sets
+     */
+    @GetMapping("/getCreateAccess")
+    @Operation(description = "Sensitive field sets a create form must not show.")
+    public ApiResponse<CreateAccess> getCreateAccess(@PathVariable String modelName) {
+        return ApiResponse.success(permissionService.getCreateAccess(modelName));
     }
 
     /**

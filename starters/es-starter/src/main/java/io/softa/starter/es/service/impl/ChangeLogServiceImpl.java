@@ -21,6 +21,7 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.changelog.message.dto.ChangeLog;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -77,9 +78,19 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
                 page.getPageNumber(), page.getPageSize(), page.isCursorPage(), page.isCount());
         super.searchPage(ChangeLogDocument.class, filters, orders, docPage);
         page.setTotalCount(docPage.getTotalCount());
-        page.setRows(withoutBlockedFields(
-                docPage.getRows().stream().map(ChangeLogDocument::toChangeLog).toList()));
+        List<ChangeLog> logs = docPage.getRows().stream().map(ChangeLogDocument::toChangeLog).toList();
+        page.setRows(visibleToReader(logs));
         return page;
+    }
+
+    /**
+     * The logs as the reader may see them — what every read of the log returns. Per record first,
+     * then the fields hidden on every record: an update left with nothing the reader may see is then
+     * dropped whole by {@link #withoutBlockedFields}.
+     */
+    private List<ChangeLog> visibleToReader(List<ChangeLog> logs) {
+        maskInaccessibleFields(logs);
+        return withoutBlockedFields(logs);
     }
 
     /**
@@ -120,7 +131,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
         SearchHits<ChangeLogDocument> hits =
                 esOperations.search(query, ChangeLogDocument.class, IndexCoordinates.of(getIndexName()));
         page.setTotalCount(hits.getTotalHits());
-        page.setRows(withoutBlockedFields(hits.getSearchHits().stream()
+        page.setRows(visibleToReader(hits.getSearchHits().stream()
                 .map(SearchHit::getContent).map(ChangeLogDocument::toChangeLog).toList()));
         return this.processChangeLogData(modelName, page, ConvertType.REFERENCE);
     }
@@ -487,6 +498,59 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
         for (int i = 0; i < changeLogDataList.size(); i++) {
             changeLogDataList.get(i).keySet().retainAll(ownKeys.get(i));
         }
+    }
+
+    /**
+     * Drop from each entry the fields the caller may not see on that record — its before and after
+     * values alike, so the entry neither shows the value nor what it was changed from. Each entry is
+     * judged as a row of its own model, so a page mixing models is masked correctly.
+     *
+     * <p>Judged per record, exactly as a read of the record would be: the values are masked by the
+     * permission service as rows of the model, keyed by the record's id. A field hidden on either side
+     * is removed from both.
+     */
+    private void maskInaccessibleFields(List<ChangeLog> changeLogs) {
+        // One mask call per model for the whole page, not one per entry: each call may ask which of
+        // the rows the caller's roles reach.
+        Map<String, List<ChangeLog>> byModel = new LinkedHashMap<>();
+        for (ChangeLog changeLog : changeLogs) {
+            if (changeLog.getModel() != null) {
+                byModel.computeIfAbsent(changeLog.getModel(), k -> new ArrayList<>()).add(changeLog);
+            }
+        }
+        byModel.forEach((modelName, logs) -> {
+            List<List<Map<String, Object>>> sidesByLog = new ArrayList<>(logs.size());
+            List<Map<String, Object>> masked = new ArrayList<>();
+            for (ChangeLog changeLog : logs) {
+                List<Map<String, Object>> sides = new ArrayList<>(2);
+                if (changeLog.getDataBeforeChange() != null) sides.add(changeLog.getDataBeforeChange());
+                if (changeLog.getDataAfterChange() != null) sides.add(changeLog.getDataAfterChange());
+                sidesByLog.add(sides);
+                // Masked as copies carrying the record's id, so the stored maps are only ever pruned.
+                for (Map<String, Object> side : sides) {
+                    Map<String, Object> copy = new HashMap<>(side);
+                    copy.putIfAbsent(ModelConstant.ID, changeLog.getRowId());
+                    masked.add(copy);
+                }
+            }
+            if (masked.isEmpty()) return;
+            permissionService.maskRows(modelName, masked);
+            int next = 0;
+            for (List<Map<String, Object>> sides : sidesByLog) {
+                Set<String> hidden = new HashSet<>();
+                for (Map<String, Object> side : sides) {
+                    Map<String, Object> maskedSide = masked.get(next++);
+                    for (Map.Entry<String, Object> entry : side.entrySet()) {
+                        if (entry.getValue() != null && maskedSide.get(entry.getKey()) == null) {
+                            hidden.add(entry.getKey());
+                        }
+                    }
+                }
+                if (!hidden.isEmpty()) {
+                    sides.forEach(side -> side.keySet().removeAll(hidden));
+                }
+            }
+        });
     }
 
 }

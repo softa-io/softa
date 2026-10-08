@@ -37,6 +37,13 @@ public class SensitiveFieldSet extends AuditableModel {
     @Field(length = 128, description = "Display name (e.g. 'Employee Compensation')")
     private String name;
 
+    /**
+     * The short noun a refusal names these fields by — "IPA" for a set named "IPA Details", so the
+     * message reads "edit IPA fields". Optional; the name is used when absent.
+     */
+    @Field(length = 64, description = "Short noun used in permission messages (e.g. 'IPA' → 'IPA fields'); defaults to the name")
+    private String label;
+
     @Field(description = "Field codes covered by this set. Must be actual fields on the bound model (validated at startup)")
     private JsonNode fieldCodes;
 

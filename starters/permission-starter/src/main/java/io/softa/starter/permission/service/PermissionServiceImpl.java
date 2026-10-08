@@ -3,20 +3,30 @@ package io.softa.starter.permission.service;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.orm.domain.CreateAccess;
+import io.softa.framework.orm.domain.AggFunctions;
+import io.softa.framework.orm.domain.FilterUnit;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.Page;
+import io.softa.framework.orm.domain.RecordAccess;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.FilterType;
 import io.softa.framework.orm.meta.MetaField;
 import org.apache.commons.lang3.StringUtils;
 
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.AccessScope;
+import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.permission.spi.PermissionInfo;
+import io.softa.starter.permission.spi.RoleGrant;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
@@ -27,6 +37,7 @@ import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.databind.JsonNode;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -171,19 +182,224 @@ public class PermissionServiceImpl implements PermissionService {
         if (shouldBypass()) return originalFilters;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
-        // The company grant bounds every multi-company model, on its own axis: which legal entities a
-        // role may reach is a property of the role, so it does not ride the per-model rules below and
-        // is not waived by an ALL rule on some model. Admins are already past — a tenant admin sees
-        // every company in its tenant. The grant is unconditional and is the only company narrowing
-        // there is: nothing a client sends can reach outside the legal entities the role's step-2
-        // selection holds.
-        originalFilters = appendCompanyGrant(model, originalFilters, pi);
-        if (hasExplicitRules(pi, model)) {
-            Filters scope = scopeCompiler.compile(withDeclaredScope(rulesFor(pi, model), model), model);
-            if (scope == null) return originalFilters; // ALL rule → no restriction
-            return combineAnd(originalFilters, scope);
+        // A read performed for another action — the count behind "may I update these ids", an
+        // export — reaches the rows of the roles holding that action, not every role's.
+        AccessType access = AccessScope.current();
+        originalFilters = guardSensitiveConditions(pi, model, access, originalFilters);
+        Filters scope = rowScope(pi, model, access);
+        return scope == null ? originalFilters : combineAnd(originalFilters, scope);
+    }
+
+    /**
+     * A condition the caller wrote on a sensitive field matches only where the caller may see that
+     * field. Otherwise {@code salary > 5000} would sort the rows the caller cannot see the figure on
+     * into "above" and "not above" — the value, found out one question at a time.
+     *
+     * <p>Such a condition is AND-ed with the rows of the roles granting the field, and one on a field
+     * no role grants matches nothing. Rows outside are read as if the value were unknown, so they never
+     * match — {@code IS NULL} included, which is the conservative reading of "unknown". Only the
+     * model's own fields are guarded; a path into another model's sensitive field is not.
+     */
+    private Filters guardSensitiveConditions(PermissionInfo pi, String model, AccessType access, Filters filters) {
+        if (filters == null || Filters.isEmpty(filters)) return filters;
+        if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return filters;
+        FieldPlan plan = fieldPlan(pi, model, readAccess(access));
+        if (plan.isEmpty() || !mentionsAny(filters, plan)) return filters;
+        return guardNode(model, filters, plan);
+    }
+
+    private static boolean mentionsAny(Filters node, FieldPlan plan) {
+        if (node == null) return false;
+        if (node.getType() == FilterType.LEAF) {
+            FilterUnit unit = node.getFilterUnit();
+            String field = unit == null ? null : unit.getField();
+            return field != null && (plan.blocked().contains(field) || plan.conditional().contains(field));
         }
-        return scopeWithoutGrant(model, pi, originalFilters);
+        if (node.getType() == FilterType.TREE && node.getChildren() != null) {
+            for (Filters child : node.getChildren()) {
+                if (mentionsAny(child, plan)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Rebuilt rather than mutated: the caller's filters may be shared. */
+    private Filters guardNode(String model, Filters node, FieldPlan plan) {
+        if (node.getType() == FilterType.LEAF) {
+            FilterUnit unit = node.getFilterUnit();
+            String field = unit == null ? null : unit.getField();
+            if (field == null) return node;
+            if (plan.blocked().contains(field)) return ScopeRuleCompiler.matchNone();
+            if (!plan.conditional().contains(field)) return node;
+            List<Grant> granting = new ArrayList<>();
+            plan.readersByFields().forEach((fields, readers) -> {
+                if (fields.contains(field)) granting.addAll(readers);
+            });
+            Filters where = anyOf(granting.stream().map(g -> grantScope(g, model)).toList());
+            return where == null ? node : Filters.and(node, where);
+        }
+        if (node.getType() != FilterType.TREE || node.getChildren() == null) return node;
+        List<Filters> guarded = new ArrayList<>(node.getChildren().size());
+        for (Filters child : node.getChildren()) {
+            guarded.add(guardNode(model, child, plan));
+        }
+        Filters copy = new Filters();
+        copy.setType(FilterType.TREE);
+        copy.setLogicOperator(node.getLogicOperator());
+        copy.setChildren(guarded);
+        return copy;
+    }
+
+    // ─────────────────────── grant pairs ───────────────────────
+
+    /**
+     * The rows {@code access} reaches on {@code model}: the union, over the roles holding that action,
+     * of each role's own rows. {@code null} means unrestricted.
+     *
+     * <p>Each role is a grant pair, and its rows answer only for its own actions. A role that may view
+     * everyone and a role that may edit one department add up to viewing everyone and editing that
+     * department — not, as merging the rules of both used to make it, editing everyone.
+     */
+    Filters rowScope(PermissionInfo pi, String model, AccessType access) {
+        return anyOf(holders(pi, model, access).stream().map(g -> grantScope(g, model)).toList());
+    }
+
+    /**
+     * The grants that decide {@code access} on {@code model}: the roles holding that action.
+     *
+     * <p>Every role when the snapshot predates per-role grants (the unions, read as the one combined
+     * role they were written as), when the action is registered to no endpoint permission at all, or
+     * when none of the caller's roles holds it. The last two are the same case seen from two sides:
+     * nothing names who may perform the action, so whatever reached this read was authorized
+     * elsewhere — a flow, a service acting for the caller — and row scope stays what it was before
+     * actions had scopes of their own. Where a role does hold the action, only the holders count.
+     */
+    List<Grant> holders(PermissionInfo pi, String model, AccessType access) {
+        List<RoleGrant> roles = pi == null ? null : pi.getRoleGrants();
+        if (roles == null) {
+            return List.of(Grant.union(pi));
+        }
+        List<Grant> all = roles.stream().map(Grant::of).toList();
+        Set<String> candidates = actionPermissions(model, access);
+        if (candidates.isEmpty()) {
+            return all;
+        }
+        List<Grant> holding = all.stream()
+                .filter(g -> g.permissions().stream().anyMatch(candidates::contains))
+                .toList();
+        return holding.isEmpty() ? all : holding;
+    }
+
+    /**
+     * The permission ids that grant {@code access} on {@code model}; empty when none is registered.
+     *
+     * <p>Asked of the endpoint index by a URL the action always derives, the same way
+     * {@link #hasModelActionGrant} asks. An export has no such URL — its endpoints are shared by every
+     * model, the model riding in a parameter — so it is asked by model and action instead.
+     */
+    private Set<String> actionPermissions(String model, AccessType access) {
+        EndpointIndex index = endpointIndexSupplier.get();
+        if (index == null || model == null || access == null) {
+            return Set.of();
+        }
+        if (access == AccessType.EXPORT) {
+            return index.actionPermissions(model, "export");
+        }
+        String uri = CANONICAL_ACTION_URI.get(access);
+        return uri == null ? Set.of() : index.lookup("/" + model + uri, "POST");
+    }
+
+    /**
+     * One grant's rows on {@code model}: its company grant AND its row rules — or, where it holds no
+     * rule for the model, what the model resolves to without one. {@code null} means unrestricted.
+     *
+     * <p>The company grant bounds every multi-company model, on its own axis: which legal entities a
+     * role may reach is a property of the role, so it does not ride the per-model rules and is not
+     * waived by an ALL rule on some model. Admins never get here — a tenant admin sees every company
+     * in its tenant.
+     */
+    private Filters grantScope(Grant g, String model) {
+        Filters company = companyScope(model, g.companies());
+        Filters rows;
+        if (hasExplicitRules(g, model)) {
+            rows = scopeCompiler.compile(withDeclaredScope(g.rules(model), model), model);
+            rows = allOf(rows, conditionOf(g, model));
+        } else {
+            rows = scopeWithoutGrant(model, g);
+        }
+        return allOf(company, rows);
+    }
+
+    /**
+     * The grant's condition on {@code model}, compiled as a CUSTOM rule is — the same Filters JSON,
+     * the same placeholder guard and subtree rewrite — so an unreadable condition fails closed the way
+     * an unreadable rule does. {@code null} when there is none.
+     */
+    private Filters conditionOf(Grant g, String model) {
+        JsonNode condition = g.conditions().get(model);
+        if (condition == null || !condition.isArray() || condition.isEmpty()) {
+            return null;
+        }
+        ScopeRule rule = new ScopeRule();
+        rule.setScopeType(ScopeType.CUSTOM);
+        rule.setScopeExpr(condition);
+        return scopeCompiler.compile(List.of(rule), model);
+    }
+
+    /** AND of two scopes where {@code null} is "no restriction". */
+    private static Filters allOf(Filters a, Filters b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return Filters.and(a, b);
+    }
+
+    /** OR of the scopes; {@code null} (unrestricted) as soon as one is, match-none when there are none. */
+    private static Filters anyOf(List<Filters> scopes) {
+        if (scopes.isEmpty()) return ScopeRuleCompiler.matchNone();
+        List<Filters> parts = new ArrayList<>(scopes.size());
+        for (Filters scope : scopes) {
+            if (scope == null) return null;
+            parts.add(scope);
+        }
+        if (parts.size() == 1) return parts.getFirst();
+        Filters or = Filters.or();
+        or.setChildren(parts);
+        return or;
+    }
+
+    /**
+     * One role's grant, as the data plane reads it — or the snapshot's unions read as one role, for a
+     * snapshot that predates per-role grants. Never null-valued: a missing part is an empty one.
+     */
+    record Grant(Set<String> permissions, Map<String, List<ScopeRule>> scopes,
+                 Map<String, JsonNode> conditions, Map<String, Set<String>> sensitiveSets,
+                 Set<Long> companies) {
+
+        static Grant of(RoleGrant g) {
+            return new Grant(orEmpty(g.getPermissions()), orEmpty(g.getModelScopeMap()),
+                    orEmpty(g.getModelScopeConditions()), orEmpty(g.getModelSensitiveFieldSetsMap()),
+                    g.getGrantedCompanyIds());
+        }
+
+        static Grant union(PermissionInfo pi) {
+            if (pi == null) {
+                return new Grant(Set.of(), Map.of(), Map.of(), Map.of(), null);
+            }
+            return new Grant(orEmpty(pi.getPermissions()), orEmpty(pi.getModelScopeMap()), Map.of(),
+                    orEmpty(pi.getModelSensitiveFieldSetsMap()), pi.getGrantedCompanyIds());
+        }
+
+        List<ScopeRule> rules(String model) {
+            return scopes.get(model);
+        }
+
+        private static <T> Set<T> orEmpty(Set<T> set) {
+            return set == null ? Set.of() : set;
+        }
+
+        private static <K, V> Map<K, V> orEmpty(Map<K, V> map) {
+            return map == null ? Map.of() : map;
+        }
     }
 
     /** No-op when the rewriter is absent (older constructors, unit tests) or nothing matches. */
@@ -241,28 +457,25 @@ public class PermissionServiceImpl implements PermissionService {
      * <p>Cross-model display expansion never arrives here — it bypasses everything upstream via
      * {@code skipPermissionCheck}.
      */
-    private Filters scopeWithoutGrant(String model, PermissionInfo pi, Filters originalFilters) {
-        Referencer ref = findReferencer(model, pi);
+    private Filters scopeWithoutGrant(String model, Grant g) {
+        Referencer ref = findReferencer(model, g);
         if (ref != null && ref.kind() != Kind.SHARED) {
-            return followOwner(ref, originalFilters);
+            return followOwner(ref, g);
         }
         if (hasForwardAnchor(model)) {
-            return combineAnd(originalFilters, ScopeRuleCompiler.matchNone());
+            return ScopeRuleCompiler.matchNone();
         }
         ScopeType declared = declaredScope(model);
         if (declared != null) {
-            Filters scope = scopeCompiler.compile(List.of(ruleOf(declared)), model);
             // ALL compiles to no filter at all, which is not the same answer as "no declaration" —
             // hence the null check on the TYPE above rather than on the compiled filter here.
-            return scope == null ? originalFilters : combineAnd(originalFilters, scope);
+            return scopeCompiler.compile(List.of(ruleOf(declared)), model);
         }
         if (isCountryValueDomain(model)) {
-            return originalFilters;
+            return null;
         }
         // ref == null → nothing connects the caller to it; SHARED → shared reference/config, readable.
-        return ref == null
-                ? combineAnd(originalFilters, ScopeRuleCompiler.matchNone())
-                : originalFilters;
+        return ref == null ? ScopeRuleCompiler.matchNone() : null;
     }
 
     /**
@@ -319,78 +532,385 @@ public class PermissionServiceImpl implements PermissionService {
      * (parent strict ⇒ child strict) — nothing is widened, the child simply inherits the visibility
      * of the row that owns it.
      */
-    private Filters followOwner(Referencer ref, Filters originalFilters) {
-        return switch (ref.kind()) {
+    private Filters followOwner(Referencer ref, Grant g) {
+        if (ref.kind() == Kind.SHARED) {
             // Filtered out by the caller — an ownership edge is what reaches this method.
-            case SHARED -> originalFilters;
+            return null;
+        }
+        // The owner's rows under the SAME grant: a child is visible through the role that can see its
+        // owner, not through whichever of the caller's roles happens to.
+        Filters ownerScope = grantScope(g, ref.parentModel());
+        Filters owners = ownerScope == null ? new Filters() : ownerScope;
+        return switch (ref.kind()) {
+            case SHARED -> null;
             // ONE_TO_ONE owned child → the FK sits on the OWNER and holds the child's id,
             // so the visible child ids are the FK values of in-scope owner rows.
             case OWNED_ONE_TO_ONE -> {
-                List<Serializable> visible =
-                        modelService.getRelatedIds(ref.parentModel(), new Filters(), ref.fkField());
+                List<Serializable> visible = unscoped(() ->
+                        modelService.getRelatedIds(ref.parentModel(), owners, ref.fkField()));
                 yield visible.isEmpty()
-                        ? combineAnd(originalFilters, ScopeRuleCompiler.matchNone())
-                        : combineAnd(originalFilters, Filters.of(ModelConstant.ID, Operator.IN, visible));
+                        ? ScopeRuleCompiler.matchNone()
+                        : Filters.of(ModelConstant.ID, Operator.IN, visible);
             }
             // ONE_TO_MANY child → the FK sits on the CHILD and holds the parent's id, so we
             // constrain that back-reference column against the in-scope parent ids instead
             // of the child's own id.
             case CHILD_BY_BACKREF -> {
-                List<?> parents = modelService.getIds(ref.parentModel(), new Filters());
+                List<?> parents = unscoped(() -> modelService.getIds(ref.parentModel(), owners));
                 yield parents.isEmpty()
-                        ? combineAnd(originalFilters, ScopeRuleCompiler.matchNone())
-                        : combineAnd(originalFilters, Filters.of(ref.fkField(), Operator.IN, parents));
+                        ? ScopeRuleCompiler.matchNone()
+                        : Filters.of(ref.fkField(), Operator.IN, parents);
             }
         };
     }
 
+    /**
+     * Run a read with the caller's own row range switched off — for a read whose range this class has
+     * already computed and passes in as a filter. Re-entering the scope chain would apply every role
+     * of the caller on top of the one grant being asked about.
+     */
+    private static <T> T unscoped(Supplier<T> read) {
+        Context ctx = ContextHolder.cloneContext();
+        ctx.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(ctx, read::get);
+    }
+
     // ─────────────────────── field mask ───────────────────────
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Drops only the fields no reading role grants on any row. A field some reading role grants is
+     * kept in the SELECT even where the caller may not see it on every row: which rows show it is a
+     * per-row answer, given by {@link #maskResponseValue} once the rows are in hand.
+     */
     @Override
     public Collection<String> filterReadableFields(String model, Collection<String> requested, AccessType accessType) {
         if (requested == null || requested.isEmpty() || shouldBypass()) return requested;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return requested;
-        Set<String> blocked = blockedFields(pi, model);
+        Set<String> blocked = fieldPlan(pi, model, readAccess(accessType)).blocked();
         if (blocked.isEmpty()) return requested;
         List<String> out = new ArrayList<>(requested.size());
         for (String f : requested) if (!blocked.contains(f)) out.add(f);
         return out;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Per row: a sensitive field shows on a row when a role that reads the row grants the field's
+     * set. One role may see one department's salaries and another the whole staff list without them;
+     * in one list, the salary column is filled on the first rows and empty on the rest. A row without its {@code id} cannot be placed in any role's rows, so it shows only the
+     * fields every reading role grants.
+     */
     @Override
     public <T> T maskResponseValue(String model, T value, AccessType accessType) {
         if (value == null || shouldBypass()) return value;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return value;
-        Set<String> blocked = blockedFields(pi, model);
-        if (blocked.isEmpty()) return value;
-        maskInPlace(value, blocked);
+        FieldPlan plan = fieldPlan(pi, model, readAccess(accessType));
+        if (plan.isEmpty()) return value;
+        List<Map<String, Object>> rows = new ArrayList<>();
+        collectRows(value, rows);
+        maskRows(model, rows, plan);
         return value;
     }
 
-    private static void maskInPlace(Object value, Set<String> blocked) {
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Mask {@code rows} of {@code model} in place, as {@link #maskResponseValue} would — for rows
+     * read some other way, such as the before / after values of a change log entry.
+     */
+    @Override
+    public void maskRows(String model, List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty() || shouldBypass()) return;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return;
+        FieldPlan plan = fieldPlan(pi, model, readAccess(AccessType.READ));
+        if (!plan.isEmpty()) {
+            maskRows(model, rows, plan);
+        }
+    }
+
+    /** A read performed for an export masks by the exporting roles; any other read by the readers. */
+    private static AccessType readAccess(AccessType requested) {
+        AccessType bound = AccessScope.current();
+        return bound == AccessType.EXPORT ? bound : (requested == null ? AccessType.READ : requested);
+    }
+
+    private static void collectRows(Object value, List<Map<String, Object>> out) {
         if (value == null) return;
         if (value instanceof Optional<?> opt) {
-            opt.ifPresent(v -> maskInPlace(v, blocked));
+            opt.ifPresent(v -> collectRows(v, out));
             return;
         }
         if (value instanceof Page<?> page) {
-            maskInPlace(page.getRows(), blocked);
+            collectRows(page.getRows(), out);
             return;
         }
         if (value instanceof Collection<?> coll) {
-            for (Object el : coll) maskInPlace(el, blocked);
+            for (Object el : coll) collectRows(el, out);
             return;
         }
         if (value instanceof Map<?, ?> map) {
             @SuppressWarnings("unchecked")
             Map<String, Object> row = (Map<String, Object>) map;
-            for (String f : blocked) {
+            out.add(row);
+        }
+        // POJO / primitive → nothing to do here.
+    }
+
+    private void maskRows(String model, List<Map<String, Object>> rows, FieldPlan plan) {
+        for (Map<String, Object> row : rows) {
+            for (String f : plan.blocked()) {
                 if (row.containsKey(f)) row.put(f, null);
             }
         }
-        // POJO / primitive → nothing to do here.
+        if (plan.conditional().isEmpty()) return;
+        List<Serializable> ids = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            if (row.get(ModelConstant.ID) instanceof Serializable id && showsAny(row, plan.conditional())) {
+                ids.add(id);
+            }
+        }
+        // For each distinct set of conditional fields some readers grant, the rows those readers reach.
+        Map<Set<String>, Set<Object>> reachedBy = new java.util.HashMap<>();
+        if (!ids.isEmpty()) {
+            plan.readersByFields().forEach((fields, readers) ->
+                    reachedBy.put(fields, rowsReached(model, readers, ids)));
+        }
+        for (Map<String, Object> row : rows) {
+            Object id = row.get(ModelConstant.ID);
+            Set<String> visible = new java.util.HashSet<>();
+            reachedBy.forEach((fields, reached) -> {
+                if (id != null && reached.contains(normalizeId(id))) visible.addAll(fields);
+            });
+            for (String f : plan.conditional()) {
+                if (!visible.contains(f) && row.containsKey(f)) row.put(f, null);
+            }
+        }
+    }
+
+    private static boolean showsAny(Map<String, Object> row, Set<String> fields) {
+        for (String f : fields) {
+            if (row.get(f) != null) return true;
+        }
+        return false;
+    }
+
+    /** Which of {@code ids} the grants reach on {@code model}, as normalized ids. */
+    private Set<Object> rowsReached(String model, List<Grant> grants, List<Serializable> ids) {
+        Filters scope = anyOf(grants.stream().map(g -> grantScope(g, model)).toList());
+        if (scope == null) {
+            return ids.stream().map(PermissionServiceImpl::normalizeId).collect(Collectors.toSet());
+        }
+        Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, ids), scope);
+        List<?> reached = unscoped(() -> modelService.getIds(model, target));
+        return reached.stream().map(PermissionServiceImpl::normalizeId).collect(Collectors.toSet());
+    }
+
+    /** Ids compared as text: a row may carry a Long where the id query hands back an Integer. */
+    private static Object normalizeId(Object id) {
+        return id == null ? null : id.toString();
+    }
+
+    /**
+     * How {@code model}'s sensitive fields split for the caller under {@code access}.
+     *
+     * <ul>
+     *   <li><b>blocked</b> — no role holding the action grants the field: hidden on every row;</li>
+     *   <li><b>conditional</b> — some do, some do not: shown on the rows of the roles that do;</li>
+     *   <li>the rest — every holder grants it: shown wherever the row itself is.</li>
+     * </ul>
+     * A single role, or roles granting the same sets, leaves nothing conditional, and the mask is the
+     * model-wide one it always was — no per-row query.
+     */
+    private FieldPlan fieldPlan(PermissionInfo pi, String model, AccessType access) {
+        if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return FieldPlan.NONE;
+        Set<String> sensitive = sfsCache.allSensitiveFieldsOn(model);
+        List<Grant> holders = holders(pi, model, access);
+        Set<String> anyGrants = new java.util.HashSet<>();
+        Set<String> allGrant = null;
+        Map<Grant, Set<String>> grantedBy = new java.util.LinkedHashMap<>();
+        for (Grant g : holders) {
+            Set<String> granted = sfsCache.grantedFieldsFor(model, g.sensitiveSets().getOrDefault(model, Set.of()));
+            grantedBy.put(g, granted);
+            anyGrants.addAll(granted);
+            if (allGrant == null) {
+                allGrant = new java.util.HashSet<>(granted);
+            } else {
+                allGrant.retainAll(granted);
+            }
+        }
+        Set<String> blocked = new java.util.HashSet<>(sensitive);
+        blocked.removeAll(anyGrants);
+        Set<String> conditional = new java.util.HashSet<>(anyGrants);
+        if (allGrant != null) conditional.removeAll(allGrant);
+        conditional.retainAll(sensitive);
+        Map<Set<String>, List<Grant>> readersByFields = new java.util.HashMap<>();
+        if (!conditional.isEmpty()) {
+            grantedBy.forEach((g, granted) -> {
+                Set<String> fields = new java.util.HashSet<>(granted);
+                fields.retainAll(conditional);
+                if (!fields.isEmpty()) {
+                    readersByFields.computeIfAbsent(fields, k -> new ArrayList<>()).add(g);
+                }
+            });
+        }
+        return new FieldPlan(blocked, conditional, readersByFields);
+    }
+
+    /**
+     * @param blocked fields hidden on every row
+     * @param conditional fields shown only on the rows of the roles granting them
+     * @param readersByFields for each distinct set of conditional fields, the roles granting exactly it
+     */
+    private record FieldPlan(Set<String> blocked, Set<String> conditional,
+                             Map<Set<String>, List<Grant>> readersByFields) {
+        static final FieldPlan NONE = new FieldPlan(Set.of(), Set.of(), Map.of());
+
+        boolean isEmpty() {
+            return blocked.isEmpty() && conditional.isEmpty();
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>"Can't see on every row" is the field plan's blocked plus conditional: masked values sorted
+     * among visible ones would place each hidden figure between its neighbours. The sort is dropped
+     * rather than refused, as a list a user merely clicked a header on should still load; a grouping
+     * or aggregate is refused, since dropping it would change what the result means.
+     */
+    @Override
+    public void guardQuery(String model, FlexQuery flexQuery) {
+        if (flexQuery == null || shouldBypass()) return;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return;
+        FieldPlan plan = fieldPlan(pi, model, readAccess(AccessType.READ));
+        if (plan.isEmpty()) return;
+        Set<String> masked = new java.util.HashSet<>(plan.blocked());
+        masked.addAll(plan.conditional());
+        Orders orders = flexQuery.getOrders();
+        if (orders != null && orders.getFields().stream().anyMatch(masked::contains)) {
+            Orders kept = new Orders();
+            for (List<String> unit : orders.getOrderList()) {
+                if (unit.isEmpty() || masked.contains(unit.getFirst())) continue;
+                if (unit.size() > 1 && Orders.DESC.equalsIgnoreCase(unit.get(1))) {
+                    kept.addDesc(unit.getFirst());
+                } else {
+                    kept.addAsc(unit.getFirst());
+                }
+            }
+            flexQuery.setOrders(kept.isEmpty() ? null : kept);
+        }
+        List<String> grouped = new ArrayList<>();
+        if (flexQuery.getGroupBy() != null) grouped.addAll(flexQuery.getGroupBy());
+        if (flexQuery.getSplitBy() != null) grouped.addAll(flexQuery.getSplitBy());
+        if (!AggFunctions.isEmpty(flexQuery.getAggFunctions())) {
+            flexQuery.getAggFunctions().getFunctionList().forEach(f -> grouped.add(f.getField()));
+        }
+        for (String field : grouped) {
+            if (field != null && masked.contains(field)) {
+                throw new PermissionException("Records can't be grouped or summarised by "
+                        + fieldLabel(model, field) + ": it is hidden on some of them.");
+            }
+        }
+    }
+
+    private static String fieldLabel(String model, String field) {
+        return ModelManager.existField(model, field) ? ModelManager.getModelField(model, field).getLabel() : field;
+    }
+
+    // ─────────────────────── record-level access ───────────────────────
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Judged by the same grant pairs the reads and writes are. A sensitive set is <b>hidden</b> on a
+     * record no reading role that reaches it grants; <b>read-only</b> where some reading role grants it
+     * but no editing role that reaches the record does. An action is available where the caller holds it
+     * at all and a role holding it reaches the record. One query per role involved, whatever the number
+     * of records.
+     */
+    @Override
+    public List<RecordAccess> getRecordAccess(String model, Collection<? extends Serializable> ids) {
+        List<Serializable> idList = ids == null ? List.of() : ids.stream().distinct().collect(Collectors.toList());
+        Set<AccessType> held = EnumSet.noneOf(AccessType.class);
+        for (AccessType action : List.of(AccessType.UPDATE, AccessType.DELETE)) {
+            if (hasModelActionGrant(model, action)) held.add(action);
+        }
+        if (idList.isEmpty()) return List.of();
+        if (shouldBypass() || PermissionInfo.hasFullDataAccess(currentPi())) {
+            return idList.stream().map(id -> new RecordAccess(id, Set.of(), Set.of(), held)).toList();
+        }
+        PermissionInfo pi = currentPi();
+        // The model's own sets, and those of its owned children shown on its form (attachedTo) — a
+        // child row is reached through the record that owns it, so it follows that record's answer.
+        Set<String> owned = new java.util.TreeSet<>();
+        if (sfsCache != null) {
+            owned.addAll(sfsCache.setIdsOwnedBy(model));
+            owned.addAll(sfsCache.setIdsAttachedTo(model));
+        }
+        List<Grant> readers = holders(pi, model, AccessType.READ);
+        List<Grant> editors = holders(pi, model, AccessType.UPDATE);
+        List<Grant> deleters = holders(pi, model, AccessType.DELETE);
+        Map<Grant, Set<Object>> reach = new java.util.HashMap<>();
+        for (List<Grant> group : List.of(readers, editors, deleters)) {
+            for (Grant g : group) {
+                reach.computeIfAbsent(g, k -> rowsReached(model, List.of(k), idList));
+            }
+        }
+        List<RecordAccess> out = new ArrayList<>(idList.size());
+        for (Serializable id : idList) {
+            Object key = normalizeId(id);
+            List<Grant> reading = readers.stream().filter(g -> reach.get(g).contains(key)).toList();
+            if (reading.isEmpty()) {
+                // Not a record the caller can see at all: nothing of it shows and nothing can be done.
+                out.add(new RecordAccess(id, owned, Set.of(), Set.of()));
+                continue;
+            }
+            List<Grant> editing = held.contains(AccessType.UPDATE)
+                    ? editors.stream().filter(g -> reach.get(g).contains(key)).toList()
+                    : List.of();
+            Set<String> hidden = new java.util.TreeSet<>();
+            Set<String> readonly = new java.util.TreeSet<>();
+            for (String set : owned) {
+                if (reading.stream().noneMatch(g -> grantsSet(g, model, set))) {
+                    hidden.add(set);
+                } else if (editing.stream().noneMatch(g -> grantsSet(g, model, set))) {
+                    readonly.add(set);
+                }
+            }
+            Set<AccessType> actions = EnumSet.noneOf(AccessType.class);
+            if (!editing.isEmpty()) actions.add(AccessType.UPDATE);
+            if (held.contains(AccessType.DELETE) && deleters.stream().anyMatch(g -> reach.get(g).contains(key))) {
+                actions.add(AccessType.DELETE);
+            }
+            out.add(new RecordAccess(id, hidden, readonly, actions));
+        }
+        return out;
+    }
+
+    /** {@inheritDoc} — a set is shown on a create form when some role that may create the model grants it. */
+    @Override
+    public CreateAccess getCreateAccess(String model) {
+        if (shouldBypass() || sfsCache == null) return new CreateAccess(Set.of());
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return new CreateAccess(Set.of());
+        Set<String> hidden = new java.util.TreeSet<>(sfsCache.setIdsOwnedBy(model));
+        hidden.addAll(sfsCache.setIdsAttachedTo(model));
+        List<Grant> creators = holders(pi, model, AccessType.CREATE);
+        hidden.removeIf(set -> creators.stream().anyMatch(g -> grantsSet(g, model, set)));
+        return new CreateAccess(hidden);
+    }
+
+    /** Whether the grant holds {@code set}, wherever the set's own model is — {@code model} when unknown. */
+    private boolean grantsSet(Grant g, String model, String set) {
+        String setModel = sfsCache == null ? null : sfsCache.modelOf(set);
+        return g.sensitiveSets().getOrDefault(setModel != null ? setModel : model, Set.of()).contains(set);
     }
 
     // ─────────────────────── write guard ───────────────────────
@@ -400,7 +920,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (fields == null || fields.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
-        Set<String> blocked = blockedFields(pi, model);
+        Set<String> blocked = fieldPlan(pi, model, readAccess(accessType)).blocked();
         if (blocked.isEmpty()) return;
         for (String f : fields) {
             if (blocked.contains(f)) {
@@ -410,13 +930,80 @@ public class PermissionServiceImpl implements PermissionService {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>On a write, a sensitive field may only be written on the rows of a role that holds the write
+     * action AND grants the field's set — both in the same role. A role that may edit a department and
+     * a role that may see salaries do not add up to editing the department's salaries.
+     */
     @Override
     public void checkIdsFieldsAccess(String model,
                                      Collection<? extends Serializable> ids,
                                      Set<String> fields,
                                      AccessType accessType) {
-        checkModelFieldsAccess(model, fields, accessType);
-        checkIdsAccess(model, ids, accessType);
+        if (AccessType.CREATE.equals(accessType) || AccessType.UPDATE.equals(accessType)) {
+            // The rows first: an id the action cannot reach at all is refused for that, not for
+            // whichever sensitive field the payload happens to carry.
+            checkIdsAccess(model, ids, accessType);
+            checkSensitiveWrite(model, ids, fields, accessType);
+        } else {
+            checkModelFieldsAccess(model, fields, accessType);
+            checkIdsAccess(model, ids, accessType);
+        }
+    }
+
+    private void checkSensitiveWrite(String model, Collection<? extends Serializable> ids, Set<String> fields,
+                                     AccessType accessType) {
+        if (fields == null || fields.isEmpty() || shouldBypass()) return;
+        if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return;
+        Set<String> sensitive = sfsCache.allSensitiveFieldsOn(model);
+        List<Grant> writers = holders(pi, model, accessType);
+        // Fields written by the same roles are checked together: one count per distinct set of roles.
+        Map<List<Grant>, List<String>> fieldsByWriters = new java.util.LinkedHashMap<>();
+        for (String f : fields) {
+            if (!sensitive.contains(f)) continue;
+            List<Grant> grantingWriters = writers.stream()
+                    .filter(g -> sfsCache.grantedFieldsFor(model, g.sensitiveSets().getOrDefault(model, Set.of()))
+                            .contains(f))
+                    .toList();
+            if (grantingWriters.isEmpty()) {
+                throw sensitiveWriteDenied(model, f);
+            }
+            fieldsByWriters.computeIfAbsent(grantingWriters, k -> new ArrayList<>()).add(f);
+        }
+        if (fieldsByWriters.isEmpty() || ids == null || ids.isEmpty()) return;
+        List<Serializable> idList = ids.stream().distinct().collect(Collectors.toList());
+        fieldsByWriters.forEach((grantingWriters, written) -> {
+            Filters scope = anyOf(grantingWriters.stream().map(g -> grantScope(g, model)).toList());
+            if (scope == null) return;
+            Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, idList), scope);
+            long reached = unscoped(() -> modelService.count(model, target));
+            if (reached != idList.size()) {
+                throw sensitiveWriteDenied(model, written.getFirst());
+            }
+        });
+    }
+
+    /**
+     * Named the way a user sees them: the set's short label ("IPA") and the model ("employee") —
+     * "You don't have permission to edit IPA fields for this employee." A file import reads "update",
+     * since the uploader is not editing anything.
+     */
+    private PermissionException sensitiveWriteDenied(String model, String field) {
+        String set = sfsCache.setIdsContaining(model, field).stream()
+                .map(sfsCache::labelOf)
+                .filter(StringUtils::isNotBlank)
+                .sorted()
+                .findFirst()
+                .orElse(field);
+        String label = ModelManager.existModel(model) && StringUtils.isNotBlank(ModelManager.getModel(model).getLabel())
+                ? ModelManager.getModel(model).getLabel().toLowerCase()
+                : model;
+        String verb = ImportScope.isActive() ? "update" : "edit";
+        return new PermissionException("You don't have permission to " + verb + " " + set + " fields for this " + label + ".");
     }
 
     @Override
@@ -424,14 +1011,27 @@ public class PermissionServiceImpl implements PermissionService {
         if (payload == null || payload.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
-        Set<String> blocked = blockedFields(pi, model);
+        // Before the write, the rows are not known: refuse only what no role grants at all. Which rows
+        // a granted field may be written on is checked once the ids are (checkIdsFieldsAccess).
+        Set<String> blocked = blockedForAnyRole(pi, model);
         if (blocked.isEmpty()) return;
         for (String f : payload.keySet()) {
             if (blocked.contains(f)) {
-                throw new PermissionException(
-                        "No write permission for field " + model + "." + f);
+                throw sensitiveWriteDenied(model, f);
             }
         }
+    }
+
+    /** Sensitive fields on {@code model} that none of the caller's roles grants. */
+    private Set<String> blockedForAnyRole(PermissionInfo pi, String model) {
+        if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return Set.of();
+        Set<String> granted = new java.util.HashSet<>();
+        List<RoleGrant> roles = pi == null ? null : pi.getRoleGrants();
+        List<Grant> grants = roles == null ? List.of(Grant.union(pi)) : roles.stream().map(Grant::of).toList();
+        for (Grant g : grants) {
+            granted.addAll(g.sensitiveSets().getOrDefault(model, Set.of()));
+        }
+        return sfsCache.computeForbiddenFields(model, granted);
     }
 
     // ─────────────────────── model / id / route access ───────────────────────
@@ -460,14 +1060,13 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
-     * Enforce that every id is within the caller's row-scope.
+     * Enforce that every id is within the rows {@code accessType} reaches.
      *
-     * <p>Uses {@link io.softa.framework.orm.service.ModelService#count} which
-     * routes back through {@link #appendScopeAccessFilters} — the AND-ed
-     * scope makes any out-of-scope id disappear from the count. When the
-     * scope-restricted count differs from the caller's id list size, at
-     * least one id is either outside the scope OR non-existent; both cases
-     * are rejected without distinguishing (to avoid an info-leak channel).
+     * <p>Counts the ids back with the action's row range AND-ed on — computed here from the roles
+     * holding the action, and run with the caller's own range switched off so the other roles are not
+     * applied on top. When the count differs from the caller's id list size, at least one id is either
+     * outside the range OR non-existent; both cases are rejected without distinguishing (to avoid an
+     * info-leak channel).
      *
      * <p>Guards the direct-id write paths ({@code deleteByIds} /
      * {@code updateList}) — filter-based writes ({@code updateByFilter} /
@@ -489,67 +1088,81 @@ public class PermissionServiceImpl implements PermissionService {
         // the generic one used the raw size.
         List<Serializable> idList = ids.stream().distinct().collect(Collectors.toList());
 
-        // A model with no explicit grant is verified via metadata (follow the owner / allow shared
-        // config) rather than fail-closing to zero rows.
-        if (!hasExplicitRules(pi, model)) {
-            Referencer ref = findReferencer(model, pi);
-            Kind kind = ref == null ? null : ref.kind();
-
-            if (kind == Kind.OWNED_ONE_TO_ONE) {
-                // The FK is on the OWNER, so the child's own id column cannot be scoped
-                // directly — ask the owner instead: "are these ids all referenced by an owner
-                // row within my scope?" count() re-enters scope on the owner. Bounded by ids.
-                long ownedInScope = modelService.count(ref.parentModel(),
-                        Filters.of(ref.fkField(), Operator.IN, idList));
-                if (ownedInScope != idList.size()) {
-                    throw new PermissionException(
-                            "Some " + model + " ids are outside your " + accessType + " scope");
-                }
-                return;
-            }
-            // Ownership edges are resolved ahead of the anchor test, mirroring scopeWithoutGrant —
-            // see its javadoc for why the order decides whether one-to-many children work at all.
-            // The two branches below are the ones that must still ask about the anchor.
-            if (kind == Kind.SHARED && !hasForwardAnchor(model)) {
-                return; // shared reference/config (ManyToOne target) → readable, nothing to check
-            }
-            if (kind == null && !hasForwardAnchor(model)) {
-                // Nothing names this model and nothing references it: bookkeeping the runtime writes as
-                // a side effect of work it already authorized — a file record, an import or export
-                // history row, a login entry, a cron log.
-                //
-                // On CREATE the question is unanswerable rather than unanswered. The ids were minted by
-                // this very call, so there is no pre-existing row to expose, and no rule can ever put
-                // them "in scope" — the check cannot pass for any non-admin, ever, which makes it a wall
-                // rather than a control. What authorized the write is the action that caused it, and
-                // that was checked where it happened: the endpoint gate, the owning row for an
-                // attachment, the template for an import.
-                //
-                // Reading, updating and deleting such a model by id still fail closed. Those touch rows
-                // the caller did not just create, and refusing there costs nothing a caller with a
-                // legitimate path cannot get another way.
-                //
-                // The cost, stated plainly: a standalone business table nothing references and no rule
-                // can name qualifies too, so creating rows in one is bounded by the endpoint gate alone.
-                // That is the layer that authorized the call in the first place; row scope was never
-                // answering for such a model anyway.
-                if (AccessType.CREATE.equals(accessType)) {
-                    return;
-                }
-                throw new PermissionException(
-                        "Some " + model + " ids are outside your " + accessType + " scope");
-            }
-            // CHILD_BY_BACKREF falls through to the generic check below: the FK is on the
-            // child, so its own read scope already resolves to "back-reference lands on an
-            // in-scope parent" (see appendScopeAccessFilters) — counting visible rows by id
-            // is exactly the right question, and re-deriving it here would duplicate it.
+        // The ids must all lie in the rows the action reaches: the union of what each role holding it
+        // can reach, so a role that may only view never lends its rows to an update.
+        Filters scope = anyOf(holders(pi, model, accessType).stream()
+                .map(g -> idCheckScope(g, model, accessType))
+                .toList());
+        if (scope == null) {
+            return;
         }
-
-        long visible = modelService.count(model, Filters.of(ModelConstant.ID, Operator.IN, idList));
+        Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, idList), scope);
+        long visible = unscoped(() -> modelService.count(model, target));
         if (visible != idList.size()) {
-            throw new PermissionException(
-                    "Some " + model + " ids are outside your " + accessType + " scope");
+            throw outOfScope(model, accessType);
         }
+    }
+
+    /**
+     * Which of {@code model}'s rows one grant lets {@code accessType} name by id; {@code null} for all.
+     *
+     * <p>With rules for the model it is the grant's ordinary row range. Without, the model is checked
+     * by how the grant reaches it rather than fail-closed to nothing:
+     * <ul>
+     *   <li><b>owned one-to-one</b> — the FK is on the owner, so the ids are those an in-range owner
+     *       points at;</li>
+     *   <li><b>shared reference / config</b> without an anchor of its own — readable, nothing to check;</li>
+     *   <li><b>reached by nothing</b> and without an anchor — bookkeeping the runtime writes as a side
+     *       effect of work it already authorized: a file record, an import or export history row, a login
+     *       entry, a cron log. On CREATE the ids were minted by this very call, so there is no
+     *       pre-existing row to expose and no rule could ever put them "in scope" — the check would be a
+     *       wall rather than a control. What authorized the write is the action that caused it, checked
+     *       where it happened. Reading, updating and deleting such a row by id follow the scope the model
+     *       declares for every caller (its own rows, for a history), and fail closed without one;</li>
+     *   <li>anything else — a one-to-many child, or a model with an anchor nobody granted — is its
+     *       ordinary row range, which already resolves to "the back-reference lands on an in-range
+     *       parent" or to nothing.</li>
+     * </ul>
+     * Ownership edges are resolved ahead of the anchor test, mirroring {@link #scopeWithoutGrant} —
+     * see its javadoc for why the order decides whether one-to-many children work at all.
+     */
+    private Filters idCheckScope(Grant g, String model, AccessType accessType) {
+        if (hasExplicitRules(g, model)) {
+            return grantScope(g, model);
+        }
+        Referencer ref = findReferencer(model, g);
+        Kind kind = ref == null ? null : ref.kind();
+        if (kind == Kind.OWNED_ONE_TO_ONE) {
+            return followOwner(ref, g);
+        }
+        if (kind == Kind.SHARED && !hasForwardAnchor(model)) {
+            return null;
+        }
+        if (kind == null && !hasForwardAnchor(model)) {
+            if (AccessType.CREATE.equals(accessType)) {
+                return null;
+            }
+            // A model declaring a default scope says who its rows belong to — an import history row to
+            // whoever ran the import. Its own rows can then be named by id: the import that ran under
+            // the caller has to write its outcome back, and refusing that left the run "Processing".
+            ScopeType declared = declaredScope(model);
+            return declared == null
+                    ? ScopeRuleCompiler.matchNone()
+                    : scopeCompiler.compile(List.of(ruleOf(declared)), model);
+        }
+        return grantScope(g, model);
+    }
+
+    /**
+     * The refusal for ids outside the action's rows. A new record outside the creator's scope gets the
+     * sentence a user can act on; the others keep naming the model, for the logs they mostly end up in.
+     * Out of range and non-existent are not told apart — that would be an information leak.
+     */
+    private static PermissionException outOfScope(String model, AccessType accessType) {
+        if (AccessType.CREATE.equals(accessType)) {
+            return new PermissionException("The record is outside your data scope.");
+        }
+        return new PermissionException("Some " + model + " ids are outside your " + accessType + " scope");
     }
 
     @Override
@@ -564,7 +1177,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (shouldBypass()) return Set.of();
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return Set.of();
-        return blockedFields(pi, model);
+        return fieldPlan(pi, model, readAccess(accessType)).blocked();
     }
 
     // ─────────────────────── helpers ───────────────────────
@@ -578,19 +1191,6 @@ public class PermissionServiceImpl implements PermissionService {
     private PermissionInfo currentPi() {
         Context ctx = ContextHolder.getContext();
         return snapshotProvider.get(ctx.getTenantId(), ctx.getUserId());
-    }
-
-    private static List<ScopeRule> rulesFor(PermissionInfo pi, String model) {
-        if (pi == null || pi.getModelScopeMap() == null) return null;
-        return pi.getModelScopeMap().get(model);
-    }
-
-    private Set<String> blockedFields(PermissionInfo pi, String model) {
-        if (pi == null) return Set.of();
-        Set<String> granted = pi.getModelSensitiveFieldSetsMap() == null
-                ? Set.of()
-                : pi.getModelSensitiveFieldSetsMap().getOrDefault(model, Set.of());
-        return sfsCache.computeForbiddenFields(model, granted);
     }
 
     private static Filters combineAnd(Filters original, Filters scope) {
@@ -625,12 +1225,20 @@ public class PermissionServiceImpl implements PermissionService {
      */
     // Package-private for test: the empty-grant default and the path-anchored case both fail silently.
     Filters appendCompanyGrant(String model, Filters filters, PermissionInfo pi) {
-        Set<Long> granted = pi == null ? null : pi.getGrantedCompanyIds();
+        Filters scope = companyScope(model, pi == null ? null : pi.getGrantedCompanyIds());
+        return scope == null ? filters : combineAnd(filters, scope);
+    }
+
+    /**
+     * The company grant on {@code model} as a filter of its own, {@code null} when it does not narrow —
+     * see {@link #appendCompanyGrant}, which is this AND-ed onto a caller's filters.
+     */
+    private Filters companyScope(String model, Set<Long> granted) {
         if (granted == null) {
-            return filters;   // no company axis configured → unrestricted
+            return null;   // no company axis configured → unrestricted
         }
         if (model == null || !ModelManager.existModel(model)) {
-            return filters;
+            return null;
         }
         // The company model itself is bounded by its own id. It is deliberately NOT multiCompany
         // (self-scoping is rejected at boot: it has no company reference to anchor on), so without
@@ -640,19 +1248,19 @@ public class PermissionServiceImpl implements PermissionService {
                 ? ModelConstant.ID
                 : companyAnchorOf(model);
         if (companyField == null) {
-            return filters;
+            return null;
         }
         if (granted.isEmpty()) {
             // Configured to reach no company — distinct from unconfigured, handled above. Matching
             // nothing is the point: a role written this way (a self-service employee role) must not
             // see a multi-company row, and its own row scope is what still lets it see itself.
-            return combineAnd(filters, ScopeRuleCompiler.matchNone());
+            return ScopeRuleCompiler.matchNone();
         }
         // Sorted so the same grant renders the same SQL every time — set iteration order would vary
         // the statement text between requests and defeat statement caching.
         List<Serializable> ids = new ArrayList<>(granted);
         ids.sort(null);
-        return combineAnd(filters, Filters.of(companyField, Operator.IN, ids));
+        return Filters.of(companyField, Operator.IN, ids);
     }
 
     /**
@@ -666,8 +1274,8 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
 
-    private boolean hasExplicitRules(PermissionInfo pi, String model) {
-        List<ScopeRule> r = rulesFor(pi, model);
+    private static boolean hasExplicitRules(Grant g, String model) {
+        List<ScopeRule> r = g.rules(model);
         return r != null && !r.isEmpty();
     }
 
@@ -782,12 +1390,11 @@ public class PermissionServiceImpl implements PermissionService {
      * tighter statement than a shared reference, so it wins when a model is reachable
      * both ways.
      */
-    private Referencer findReferencer(String childModel, PermissionInfo pi) {
-        if (pi.getModelScopeMap() == null) return null;
+    private Referencer findReferencer(String childModel, Grant g) {
         Referencer backRef = null;
         Referencer shared = null;
         List<String> ownedChildren = new ArrayList<>();
-        for (String granted : pi.getModelScopeMap().keySet()) {
+        for (String granted : g.scopes().keySet()) {
             if (!ModelManager.existModel(granted)) continue;
             for (MetaField f : ModelManager.getModelFields(granted)) {
                 String related = f.getRelatedModel();

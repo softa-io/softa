@@ -17,6 +17,7 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
+import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import io.softa.starter.permission.spi.ScopeRule;
@@ -73,7 +74,10 @@ class AnchorlessChildScopeTest {
         PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
         when(provider.get(anyLong(), anyLong())).thenReturn(pi);
 
-        service = new PermissionServiceImpl(provider, null, null, modelService, applicability);
+        // The owner's rows are compiled from the same grant now, rather than re-read through the
+        // model service; the parent's ALL rule compiles to "no restriction", which is null.
+        ScopeRuleCompiler compiler = mock(ScopeRuleCompiler.class);
+        service = new PermissionServiceImpl(provider, compiler, null, modelService, applicability);
     }
 
     @SuppressWarnings("unchecked")

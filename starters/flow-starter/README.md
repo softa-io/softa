@@ -270,6 +270,14 @@ earlier node is auto-passed on later nodes (recorded as `AUTO_APPROVE`). Residua
 risk: a mid-flow form edit is still auto-endorsed by that earlier approval; set the
 policy to `CONTIGUOUS` or `NONE` on flows where a re-look matters.
 
+### Approver's writes
+
+Once the actor is validated as the node's approver, the approval's form edits and every node it resumes
+run with the actor's own row scope set aside. Approving is the grant: an approver rarely holds update on
+the record they approve, and with row scope granted per action (permission-starter) that would refuse
+the approval itself. Host endpoints that apply an approval outside the engine do the same, after an
+entry check that the approver can see the request (`@RequirePermission`).
+
 ### Additional Approval Actions
 
 - transfer

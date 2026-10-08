@@ -122,6 +122,20 @@ public class PermissionInfo implements Serializable {
     private Set<String> grantedCountries;
 
     /**
+     * Each role's grant pair, unmerged — what the data plane decides by.
+     *
+     * <p>The unions above stay, for what is genuinely a union: the menus a user sees, the endpoints
+     * the gate admits, the companies and countries offered as value domains. Which rows an action
+     * reaches and which sensitive fields a row shows are decided per role from this list instead.
+     *
+     * <p>{@code null} for the admin principals, which bypass the data plane, and for a snapshot
+     * cached before this field existed — the data plane then reads the unions as one combined role,
+     * which is exactly how such a snapshot was read when it was written.
+     */
+    @Schema(description = "Per-role grant pairs; null = decide by the unions above")
+    private List<RoleGrant> roleGrants;
+
+    /**
      * Single source of truth for the SUPER_ADMIN short-circuit consulted by every
      * layer (route-admission + data-plane + enricher). True iff the user holds the
      * {@link #CODE_SUPER_ADMIN} role.

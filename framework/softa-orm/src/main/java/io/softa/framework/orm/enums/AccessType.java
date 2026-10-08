@@ -15,5 +15,7 @@ public enum AccessType {
     READ,
     UPDATE,
     CREATE,
-    DELETE
+    DELETE,
+    /** Reading rows out of the system in bulk. Granted on its own, so its row scope is its own too. */
+    EXPORT
 }

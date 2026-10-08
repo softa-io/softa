@@ -155,6 +155,7 @@ class EndpointIndexStandardDerivationTest {
             EndpointIndex idx = build(List.of(derivedPerm("employee.export", "Employee")));
 
             assertThat(idx.lookup("/export/dynamicExport", "POST")).containsExactly("employee.export");
+            assertThat(idx.lookup("/export/countExportable", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/export/exportByTemplate", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/ExportTemplate/listByModel", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/ExportHistory/myExportHistory", "POST")).containsExactly("employee.export");

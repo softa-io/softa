@@ -23,6 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.i18n.I18n;
@@ -115,7 +117,7 @@ public class ImportServiceImpl implements ImportService {
     @Transactional(rollbackFor = Exception.class)
     public FileInfo getTemplateFile(Long templateId) {
         SubQueries subQueries = new SubQueries().expand(ImportTemplate::getImportFields);
-        ImportTemplate importTemplate = importTemplateService.getById(templateId, subQueries)
+        ImportTemplate importTemplate = loadTemplate(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
         validateImportTemplate(importTemplate);
         // Construct the importTemplateDTO object
@@ -185,7 +187,7 @@ public class ImportServiceImpl implements ImportService {
     @Override
     public ImportHistory importByTemplate(Long templateId, MultipartFile file, Map<String, Object> env) {
         SubQueries subQueries = new SubQueries().expand(ImportTemplate::getImportFields);
-        ImportTemplate importTemplate = importTemplateService.getById(templateId, subQueries)
+        ImportTemplate importTemplate = loadTemplate(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
         this.validateImportTemplate(importTemplate);
         // The model this file is stamped with decides who may later claim it, and the row that will
@@ -281,7 +283,7 @@ public class ImportServiceImpl implements ImportService {
     @Override
     public ImportHistory validateByTemplate(Long templateId, MultipartFile file, Map<String, Object> env) {
         SubQueries subQueries = new SubQueries().expand(ImportTemplate::getImportFields);
-        ImportTemplate importTemplate = importTemplateService.getById(templateId, subQueries)
+        ImportTemplate importTemplate = loadTemplate(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
         this.validateImportTemplate(importTemplate);
         Long fileId = fileService.uploadFile(HISTORY_MODEL, file);
@@ -468,6 +470,32 @@ public class ImportServiceImpl implements ImportService {
     }
 
     /**
+     * The template with its fields, read past the caller's row scope.
+     *
+     * <p>Reaching this service means the endpoint gate already admitted the caller to import with
+     * templates; which template, and the columns it is made of, are not the caller's data to be
+     * row-scoped. Read under the caller's scope, the field rows — a child no role grants and the
+     * template's own declared scope does not reach — come back empty, and the import fails on a
+     * template with no columns.
+     */
+    private Optional<ImportTemplate> loadTemplate(Long templateId, SubQueries subQueries) {
+        return pastRowScope(() -> importTemplateService.getById(templateId, subQueries));
+    }
+
+    /** The template's columns in sequence, read past the caller's row scope for the reason above. */
+    private List<ImportTemplateField> loadTemplateFields(Long templateId) {
+        Filters filters = new Filters().eq(ImportTemplateField::getTemplateId, templateId);
+        Orders orders = Orders.ofAsc(ImportTemplateField::getSequence);
+        return pastRowScope(() -> importTemplateFieldService.searchList(new FlexQuery(filters, orders)));
+    }
+
+    private static <T> T pastRowScope(ScopedValue.CallableOp<T, RuntimeException> read) {
+        Context ctx = ContextHolder.cloneContext();
+        ctx.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(ctx, read);
+    }
+
+    /**
      * Get the ImportTemplateDTO object by importTemplate
      *
      * @param importTemplate the import template object
@@ -476,9 +504,7 @@ public class ImportServiceImpl implements ImportService {
     public ImportTemplateDTO getImportTemplateDTO(ImportTemplate importTemplate, Map<String, Object> env) {
         ImportTemplateDTO importTemplateDTO = this.convertToImportTemplateDTO(importTemplate, env);
         // Construct the headers order by sequence of the export fields
-        Filters filters = new Filters().eq(ImportTemplateField::getTemplateId, importTemplate.getId());
-        Orders orders = Orders.ofAsc(ImportTemplateField::getSequence);
-        List<ImportTemplateField> importTemplateFields = importTemplateFieldService.searchList(new FlexQuery(filters, orders));
+        List<ImportTemplateField> importTemplateFields = loadTemplateFields(importTemplate.getId());
         importTemplateFields.forEach(importTemplateField -> {
             ImportFieldDTO importFieldDTO = convertToImportFieldDTO(importTemplateDTO, importTemplateField);
             importTemplateDTO.addImportField(importFieldDTO);

@@ -1,5 +1,8 @@
 package io.softa.starter.flow.runtime.action;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
+
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -66,6 +69,16 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
 
         actorValidator.validateApprovalActor(pendingApproval, request.getActorId(), node);
         lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
+        // The actor is this node's approver — that, not the actor's own roles, is what authorizes the
+        // writes from here on: the form edits the node allows and every node the approval resumes.
+        // An approver rarely holds update on the record they approve; approving is the grant. The
+        // check above is the entry check; the rest runs with the actor's row scope set aside.
+        return asApprover(() -> approveValidated(request, state, pendingApproval, definition, node, statusBefore));
+    }
+
+    private FlowExecutionState approveValidated(FlowApproveRequest request, FlowExecutionState state,
+                                                PendingApproval pendingApproval, CompiledFlowDefinition definition,
+                                                CompiledFlowNode node, FlowExecutionStatus statusBefore) {
         // Enforce form field permissions + write sanitized edits to the business row.
         formWriteService.applyFormData(state, node, request.getFormData());
         if (lifecycleService.requiresTrackedApprover(pendingApproval)) {
@@ -101,5 +114,11 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         contextService.persistState(state);
         notificationService.notify(new FlowNotificationEvent.TaskCompleted(state, pendingApproval, true));
         return state;
+    }
+
+    private static FlowExecutionState asApprover(java.util.function.Supplier<FlowExecutionState> work) {
+        Context ctx = ContextHolder.cloneContext();
+        ctx.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(ctx, work::get);
     }
 }

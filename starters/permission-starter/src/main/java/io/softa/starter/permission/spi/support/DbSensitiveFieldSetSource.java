@@ -37,6 +37,7 @@ public class DbSensitiveFieldSetSource implements SensitiveFieldSetSource {
     private static final String F_NAME = "name";
     private static final String F_FIELD_CODES = "fieldCodes";
     private static final String F_ATTACHED_TO = "attachedTo";
+    private static final String F_LABEL = "label";
 
     private final ModelService<?> modelService;
 
@@ -47,7 +48,7 @@ public class DbSensitiveFieldSetSource implements SensitiveFieldSetSource {
             return List.of();
         }
         List<Map<String, Object>> rows = modelService.searchList(
-                SFS_MODEL, new FlexQuery(List.of(F_ID, F_MODEL, F_NAME, F_FIELD_CODES, F_ATTACHED_TO)));
+                SFS_MODEL, new FlexQuery(List.of(F_ID, F_MODEL, F_NAME, F_FIELD_CODES, F_ATTACHED_TO, F_LABEL)));
         List<SensitiveFieldSetDef> out = new ArrayList<>(rows.size());
         for (Map<String, Object> r : rows) {
             String id = asString(r.get(F_ID));
@@ -56,7 +57,7 @@ public class DbSensitiveFieldSetSource implements SensitiveFieldSetSource {
             String name = asString(r.get(F_NAME));
             Set<String> codes = toSet(JsonUtils.toStringList(r.get(F_FIELD_CODES)));
             Set<String> attached = toSet(JsonUtils.toStringList(r.get(F_ATTACHED_TO)));
-            out.add(new SensitiveFieldSetDef(id, model, codes, name, attached));
+            out.add(new SensitiveFieldSetDef(id, model, codes, name, attached, asString(r.get(F_LABEL))));
         }
         return out;
     }

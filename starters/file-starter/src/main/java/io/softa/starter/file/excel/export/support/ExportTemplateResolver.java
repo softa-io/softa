@@ -8,6 +8,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -35,7 +37,15 @@ public class ExportTemplateResolver {
         List<String> exportFields = new ArrayList<>();
         Filters filters = new Filters().eq(ExportTemplateField::getTemplateId, exportTemplate.getId());
         Orders orders = Orders.ofAsc(ExportTemplateField::getSequence);
-        List<ExportTemplateField> exportFieldsConfig = exportTemplateFieldService.searchList(new FlexQuery(filters, orders));
+        // Read past the caller's row scope: which columns a template is made of is not the caller's
+        // data. The endpoint gate admitted them to export; under their scope these child rows — which
+        // no role grants and the template's own declared scope does not reach — came back empty, and
+        // the export failed on a template with no fields. The exported rows are still read, scoped
+        // and masked, as the caller.
+        Context ctx = ContextHolder.cloneContext();
+        ctx.setSkipPermissionCheck(true);
+        List<ExportTemplateField> exportFieldsConfig = ContextHolder.callWith(ctx,
+                () -> exportTemplateFieldService.searchList(new FlexQuery(filters, orders)));
         Assert.notEmpty(exportFieldsConfig, "The export template must have at least one field.");
         exportFieldsConfig.forEach(exportField -> {
             fetchFields.add(exportField.getFieldName());

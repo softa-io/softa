@@ -6,6 +6,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import io.softa.framework.orm.enums.AccessType;
+
 /**
  * Custom-endpoint entry guard: verify the caller's row scope on the endpoint's
  * MAIN model, then let the endpoint's internal cross-model access through.
@@ -99,9 +101,14 @@ public @interface RequirePermission {
      */
     String filterParam() default "";
 
-    // Deliberately NO accessType attribute. Row scope carries no read/write
-    // direction (one role_data_scope row per role x model), so an access type
-    // could never change what passes — it would only decorate the rejection
-    // message while READING as directional enforcement. A parameter that
-    // suggests control it doesn't have is worse than none.
+    /**
+     * The action the endpoint performs on the main model, which decides whose rows it may touch: the
+     * ids and the filter are checked against the rows of the roles holding THIS action. An endpoint
+     * that rehires an employee updates them, and a role that may only view that employee must not lend
+     * it its rows.
+     *
+     * <p>{@code READ} by default — the right answer for every endpoint that only reads, and what every
+     * endpoint was checked as before actions had row scopes of their own.
+     */
+    AccessType accessType() default AccessType.READ;
 }

@@ -57,4 +57,12 @@ public class RoleDataScope extends AuditableModel {
 
     @Field(description = "Scope rules (OR-combined). Array of {scopeType, scopeExpr?}")
     private JsonNode dataScopes;
+
+    /**
+     * A condition on the row's own attributes, AND-ed onto {@link #dataScopes} — "my department, and
+     * only the contractors". The rules say whose rows; this narrows them by what the rows
+     * are. Null for every scope written before it existed, which keeps their reach unchanged.
+     */
+    @Field(description = "Optional condition (Filters JSON) AND-ed onto the scope rules; may name cascaded fields")
+    private JsonNode scopeCondition;
 }

@@ -13,6 +13,7 @@ import org.springframework.util.CollectionUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.domain.CreateOrUpdateResult;
+import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.file.dto.ImportDataDTO;
 import io.softa.starter.file.dto.ImportTemplateDTO;
@@ -44,6 +45,11 @@ public class ImportPersistenceService {
     }
 
     private CreateOrUpdateResult persistByRule(ImportTemplateDTO importTemplateDTO, List<Map<String, Object>> rows) {
+        // Marked as an import's writes, so a refusal speaks to the uploader ("update", not "edit").
+        return ImportScope.call(() -> writeByRule(importTemplateDTO, rows));
+    }
+
+    private CreateOrUpdateResult writeByRule(ImportTemplateDTO importTemplateDTO, List<Map<String, Object>> rows) {
         ImportRule importRule = importTemplateDTO.getImportRule();
         if (ImportRule.CREATE_OR_UPDATE.equals(importRule)) {
             return modelService.createOrUpdate(

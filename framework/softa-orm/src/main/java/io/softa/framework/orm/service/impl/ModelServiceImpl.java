@@ -1365,6 +1365,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * direct read.
      */
     private List<Map<String, Object>> searchList(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
+        // A sort or grouping on a field masked on some rows would reveal what the mask hides.
+        permissionService.guardQuery(modelName, flexQuery);
         // Silently drop blocked-for-read fields from the request, BEFORE checkModelFieldsAccess, so
         // callers see the fields they DO have access to rather than 403-ing on any single blocked one.
         Collection<String> filteredFields = permissionService.filterReadableFields(
@@ -1444,6 +1446,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public Page<Map<String, Object>> searchPage(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page) {
+        // A sort or grouping on a field masked on some rows would reveal what the mask hides.
+        permissionService.guardQuery(modelName, flexQuery);
         // Silently drop blocked-for-read fields from the request (Layer C PRE)
         Collection<String> filteredFields = permissionService.filterReadableFields(
                 modelName, flexQuery.getFields(), AccessType.READ);

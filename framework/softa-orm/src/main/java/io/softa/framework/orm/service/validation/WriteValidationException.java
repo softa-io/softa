@@ -3,10 +3,14 @@ package io.softa.framework.orm.service.validation;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 
 /**
  * A write refused by the {@link ModelWriteValidator} chain — a 400, like every other rejected input,
@@ -25,7 +29,17 @@ public class WriteValidationException extends IllegalArgumentException {
 
     /** The accumulated form: every rejection, message composed from them. */
     public WriteValidationException(List<FieldError> errors) {
-        super(compose(errors));
+        super(compose(errors, Function.identity()));
+        this.errors = List.copyOf(errors);
+    }
+
+    /**
+     * The accumulated form for a write to {@code modelName}: the message names each field by its
+     * label, as the person reading it knows the field, while {@link #fieldErrors()} stays keyed by
+     * field path for a form to put each sentence on its control.
+     */
+    public WriteValidationException(String modelName, List<FieldError> errors) {
+        super(compose(errors, path -> labelOf(modelName, path)));
         this.errors = List.copyOf(errors);
     }
 
@@ -61,10 +75,32 @@ public class WriteValidationException extends IllegalArgumentException {
         return map;
     }
 
-    private static String compose(List<FieldError> errors) {
+    private static String compose(List<FieldError> errors, Function<String, String> fieldName) {
         boolean multiRow = errors.stream().mapToInt(FieldError::rowIndex).distinct().count() > 1;
         return errors.stream()
-                .map(e -> (multiRow ? "row " + (e.rowIndex() + 1) + " " : "") + e.field() + ": " + e.message())
+                .map(e -> (multiRow ? "row " + (e.rowIndex() + 1) + " " : "")
+                        + (e.field() == null ? "" : fieldName.apply(e.field()) + ": ") + e.message())
                 .collect(Collectors.joining("; "));
+    }
+
+    /**
+     * The label of the field a path ends on, following relations — {@code employeeProfileId.residenceStatus}
+     * reads as the profile's "Residence Status"; a row index in the path ({@code lines.0.amount}) is
+     * stepped over. The path itself when any step is unknown or the field has no label.
+     */
+    static String labelOf(String modelName, String path) {
+        String model = modelName;
+        MetaField field = null;
+        for (String segment : path.split("\\.")) {
+            if (StringUtils.isNumeric(segment)) {
+                continue;
+            }
+            field = model == null ? null : ModelManager.getModelFieldOrNull(model, segment);
+            if (field == null) {
+                return path;
+            }
+            model = field.getRelatedModel();
+        }
+        return field == null || StringUtils.isBlank(field.getLabel()) ? path : field.getLabel();
     }
 }

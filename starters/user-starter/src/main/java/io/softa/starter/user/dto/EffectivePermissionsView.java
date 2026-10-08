@@ -49,6 +49,14 @@ public class EffectivePermissionsView {
     /** Model → granted sensitive-field-set ids, keyed by the set's canonical model. */
     private Map<String, Set<String>> modelSensitiveFieldSetsMap;
 
+    /**
+     * Each role on its own — the actions, rows and sensitive fields it grants. This, not the unions
+     * above, is how the data plane decides: an action reaches the rows of the roles holding it, and a
+     * sensitive field shows on the rows of the roles granting it. Each role applies on its own; results
+     * add up. Empty for the admin principals, which bypass the data plane.
+     */
+    private List<RoleGrantView> roleGrants;
+
     /** {@code cache} when answered from the engine's snapshot, {@code rebuilt} when computed here.
      *  Diagnostic only — the frontend ignores it, but it is the difference between "this is what the
      *  runtime is enforcing right now" and "this is what it would enforce", which is worth being able

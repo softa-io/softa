@@ -150,6 +150,15 @@ starter owns the data:
   one could freeze it, leaving the platform's grant saying yes while the membership
   said no.
 
+## Role data scopes
+
+`RoleDataScope` is one role's rules on one model (`dataScopes`, OR-combined) plus an optional
+`scopeCondition` — a `Filters` expression AND-ed onto those rules, cascaded fields allowed (e.g. only
+employees whose `employeeProfileId.residenceStatus` is not Employment Pass). It narrows that role's grant
+on the model and nothing else: with permission-starter each role answers for itself, so a condition on
+one role never narrows what another role grants. The role wizard saves menus, data scopes (with their
+conditions) and sensitive field sets as separate fields of `WizardSaveDTO`, each replacing the stored rows.
+
 ## Programmatic API
 
 Inject the service interfaces:

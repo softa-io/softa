@@ -44,13 +44,13 @@ public record WizardSaveDTO(
         @Schema(description = "Role basic info update (name / description / active / dynamicFilter)")
         JsonNode roleUpdate,
 
-        @Schema(description = "Step 1 — role_navigation rows: [{navigationId, permissionIds}]. Menu access + button permissions only (scope/SFS moved out). Replaces existing.")
+        @Schema(description = "Menus and their button permissions — role_navigation rows: [{navigationId, permissionIds}]. Data scopes and sensitive field sets are separate fields. Replaces existing.")
         JsonNode roleNavigations,
 
-        @Schema(description = "Step 2a — role_data_scope rows: [{model, dataScopes}], one per queryable model. Replaces existing. Scope rules are OR-combined.")
+        @Schema(description = "Data scopes — role_data_scope rows: [{model, dataScopes, scopeCondition?}], one per queryable model. Replaces existing. Scope rules are OR-combined; scopeCondition (Filters JSON) is AND-ed onto them.")
         JsonNode roleDataScopes,
 
-        @Schema(description = "Step 2b — role_sensitive_field_set grants: [\"<setId>\", ...], role-wide flat list (each SFS carries its own model). Replaces existing.")
+        @Schema(description = "Sensitive field sets — role_sensitive_field_set grants: [\"<setId>\", ...], role-wide flat list (each set carries its own model). Replaces existing.")
         JsonNode roleSensitiveFieldSetIds,
 
         @Schema(description = "User account ids to assign with source=MANUAL (replaces existing MANUAL rows; DYNAMIC rows untouched)")

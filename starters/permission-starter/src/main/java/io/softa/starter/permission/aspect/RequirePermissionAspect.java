@@ -26,6 +26,7 @@ import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.PermissionService;
 import lombok.RequiredArgsConstructor;
 
@@ -72,7 +73,7 @@ public class RequirePermissionAspect {
      *  is the startup-compiled getter chain for {@code idPath} (null = idParam holds
      *  the ids directly), so request time is pure {@code invoke}, no lookups. */
     record ResolvedScope(String model, int idIndex, int filterIndex,
-                         List<java.lang.reflect.Method> idPathAccessors, String idPath) {
+                         List<java.lang.reflect.Method> idPathAccessors, String idPath, AccessType accessType) {
     }
 
     @Around("@annotation(io.softa.starter.permission.annotation.RequirePermission)"
@@ -105,15 +106,13 @@ public class RequirePermissionAspect {
                             + "' is required: the main-model scope check on "
                             + scope.model() + " has nothing to verify without it.");
                 }
-                // READ is the API's documented default; row scope carries no
-                // read/write direction, so no value could check differently —
-                // which is why the annotation has no accessType attribute.
-                permissionService.checkIdsAccess(scope.model(), ids, AccessType.READ);
+                permissionService.checkIdsAccess(scope.model(), ids, scope.accessType());
             }
             if (scope.filterIndex() >= 0) {
                 Filters original = (Filters) args[scope.filterIndex()];
-                args[scope.filterIndex()] = permissionService.appendScopeAccessFilters(
-                        scope.model(), original == null ? new Filters() : original);
+                Filters base = original == null ? new Filters() : original;
+                args[scope.filterIndex()] = AccessScope.callAs(scope.accessType(),
+                        () -> permissionService.appendScopeAccessFilters(scope.model(), base));
             }
         }
 
@@ -176,7 +175,7 @@ public class RequirePermissionAspect {
             List<java.lang.reflect.Method> accessors = hasPath
                     ? compilePath(method.getParameters()[idIndex].getType(), scope.idPath(), method)
                     : null;
-            out.add(new ResolvedScope(model, idIndex, filterIndex, accessors, scope.idPath()));
+            out.add(new ResolvedScope(model, idIndex, filterIndex, accessors, scope.idPath(), scope.accessType()));
         }
         return out;
     }

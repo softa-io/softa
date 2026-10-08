@@ -35,6 +35,12 @@ class UserAccountShadowsGenericEndpointsTest {
     private static final Set<String> SAFE_WITHOUT_A_SHADOW = Set.of(
             // Model metadata only; reads no stored row.
             "GET /getDefaultValues",
+            // The caller's own grants on the model; reads no stored row.
+            "GET /getCreateAccess",
+            // Answers whether the caller's own grants reach each id — set ids and actions, never a
+            // field value. An id outside every grant reads as fully hidden with no action, the same
+            // answer a nonexistent id gets, so it tells nothing the roster window would withhold.
+            "POST /getRecordAccess",
             // Evaluates the payload it is given; reads no stored row.
             "POST /onChange/{fieldName}",
             // UserAccount is copyable = false: ModelServiceImpl refuses every copy API for it before a

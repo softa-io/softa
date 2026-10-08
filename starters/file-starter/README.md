@@ -258,6 +258,11 @@ curl -X POST http://localhost:8080/import/dynamicImport \
 ### 3. Import Result and Failed Rows
 - Import returns `ImportHistory`.
 - If any row fails, a “failed data” Excel file is generated and saved, with a `Failed Reason` column.
+- The import writes its outcome back to its own `ImportHistory` row as the caller; that row belongs to
+  whoever started the import (`ModelDefaultScope` `CREATED_BY_SELF`), which is what lets a caller with no
+  grant on `ImportHistory` finish their own run instead of leaving it `PROCESSING`.
+- Writes made by an import run inside `ImportScope`, so a permission refusal reads "update" for the
+  uploader rather than "edit".
 - Import status can be `PROCESSING`, `SUCCESS`, `FAILURE`, `PARTIAL_FAILURE`; a validation run
   (§5) records `VALIDATION_SUCCESS` / `VALIDATION_FAILURE` instead and attaches a result Excel
   containing **all** rows, passed and failed.
@@ -371,6 +376,20 @@ Built-in export supports three scopes:
 - `All Filtered Data` reuses current `filters/orders/groupBy/aggFunctions/effectiveDate`
 
 Front-end export is limited to `100000` records for a single request; over-limit scopes are disabled instead of truncated.
+
+**An export reads under the export action's row scope**, which may reach fewer rows than the list (with
+permission-starter: only the roles holding export). `POST /export/countExportable?modelName=` with the
+scope's `ExportParams` returns how many rows the export would hold, so a dialog can show that number
+instead of the list's. It rides on the export permission, like the export endpoints themselves.
+
+`ExportRowProcessor` is a per-model hook every export passes (dynamic and template): it receives the
+fetched rows before they are written and may blank or change values — e.g. clearing columns that do not
+apply to a row.
+
+Templates are configuration, not the caller's data: an export or import reads its template and the
+template's columns past the caller's row scope (under it, these child rows come back empty and the run
+fails on a template with no columns). The exported or imported business rows are still read, scoped,
+masked and checked as the caller.
 
 ### ExportTemplate Configuration Table
 

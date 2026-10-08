@@ -264,7 +264,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleNavigationService.createList(rows);
     }
 
-    /** Writes one role_data_scope row per {@code {model, dataScopes}} entry
+    /** Writes one role_data_scope row per {@code {model, dataScopes, scopeCondition?}} entry
      *  (one per queryable model). Entries without a model are skipped.
      *  Incoming id/roleId ignored — id auto-assigned, roleId bound by caller. */
     private void writeRoleDataScopes(Long roleId, JsonNode rowsJson) {
@@ -278,6 +278,10 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
             rds.setRoleId(roleId);
             rds.setModel(modelNode.asString());
             rds.setDataScopes(row.get("dataScopes"));
+            JsonNode condition = row.get("scopeCondition");
+            if (condition != null && condition.isArray() && !condition.isEmpty()) {
+                rds.setScopeCondition(condition);
+            }
             rows.add(rds);
         }
         if (!rows.isEmpty()) roleDataScopeService.createList(rows);

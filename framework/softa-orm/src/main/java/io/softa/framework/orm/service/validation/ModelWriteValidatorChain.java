@@ -95,7 +95,7 @@ public class ModelWriteValidatorChain {
                 validator.validateCreate(new WriteContext(modelName, AccessType.CREATE, i, rows.get(i), rows.get(i), null, errors, scratch));
             }
         }
-        throwIfRejected(errors);
+        throwIfRejected(modelName, errors);
     }
 
     /**
@@ -130,7 +130,7 @@ public class ModelWriteValidatorChain {
                 validator.validateUpdate(new WriteContext(modelName, AccessType.UPDATE, i, merged, patch, original, errors, scratch));
             }
         }
-        throwIfRejected(errors);
+        throwIfRejected(modelName, errors);
     }
 
     /** Delete: every applicable validator sees the ids. */
@@ -145,9 +145,9 @@ public class ModelWriteValidatorChain {
                 name -> validators().stream().filter(v -> v.supports(name)).toList());
     }
 
-    private static void throwIfRejected(WriteValidationErrors errors) {
+    private static void throwIfRejected(String modelName, WriteValidationErrors errors) {
         if (errors.hasErrors()) {
-            throw new WriteValidationException(errors.errors());
+            throw new WriteValidationException(modelName, errors.errors());
         }
     }
 }

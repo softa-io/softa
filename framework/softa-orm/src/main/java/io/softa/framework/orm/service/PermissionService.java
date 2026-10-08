@@ -2,10 +2,13 @@ package io.softa.framework.orm.service;
 
 import java.io.Serializable;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.softa.framework.orm.domain.CreateAccess;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.RecordAccess;
 import io.softa.framework.orm.enums.AccessType;
 
 /**
@@ -174,6 +177,32 @@ public interface PermissionService {
     }
 
     /**
+     * Mask sensitive fields on rows of {@code model} that were not read through this service's read
+     * path — the before / after values of a change log entry, say — exactly as a read would have
+     * masked them. Each row is judged by its {@code id}: a row without one shows only what the caller
+     * may see on every row.
+     *
+     * <p>Default no-op.
+     *
+     * @param model the model the rows belong to
+     * @param rows  the rows, masked in place
+     */
+    default void maskRows(String model, List<Map<String, Object>> rows) {
+        // no-op default
+    }
+
+    /**
+     * Keep a query from learning, through its ordering or grouping, what its masking hides: a sort on
+     * a sensitive field the caller cannot see on every row is dropped, and grouping or aggregating by
+     * one is refused. Called on the query before it runs; may modify it.
+     *
+     * <p>Default no-op.
+     */
+    default void guardQuery(String model, io.softa.framework.orm.domain.FlexQuery flexQuery) {
+        // no-op default
+    }
+
+    /**
      * Reject writes touching blocked-for-write fields in the payload map.
      * Called by every write entry point in {@code ModelServiceImpl}
      * ({@code createOne}/{@code createList}/{@code updateOne}/
@@ -223,5 +252,34 @@ public interface PermissionService {
      * @return true when the caller may perform it, or when no permission covers it
      */
     boolean hasModelActionGrant(String model, AccessType accessType);
+
+    /**
+     * What the caller may do with each of these existing records: which sensitive sets are hidden or
+     * read-only on it, and which of {@code UPDATE} / {@code DELETE} it may perform.
+     *
+     * <p>Default: nothing hidden, nothing read-only, and every action the caller holds on the model.
+     *
+     * @param model the model
+     * @param ids   the records
+     * @return one entry per id, in the order given
+     */
+    default List<RecordAccess> getRecordAccess(String model, Collection<? extends Serializable> ids) {
+        Set<AccessType> actions = java.util.EnumSet.noneOf(AccessType.class);
+        for (AccessType action : List.of(AccessType.UPDATE, AccessType.DELETE)) {
+            if (hasModelActionGrant(model, action)) {
+                actions.add(action);
+            }
+        }
+        return ids.stream().map(id -> new RecordAccess(id, Set.of(), Set.of(), actions)).toList();
+    }
+
+    /**
+     * Which sensitive sets a form creating a record of {@code model} must not show.
+     *
+     * <p>Default: none.
+     */
+    default CreateAccess getCreateAccess(String model) {
+        return new CreateAccess(Set.of());
+    }
 
 }

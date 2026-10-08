@@ -309,6 +309,11 @@ rules, 200–299 collection / cross-row, 300+ batch-wide and expensive), at the 
 endpoint, the import, a flow write node and a direct `service.createOne` are all covered. Per validator
 the batch method runs first, then the rows; values are the caller's, before the pipeline coerces them.
 
+The rejections are thrown together as one `WriteValidationException` (400). Its message names each field
+by its **label** — a nested path such as `employeeProfileId.residenceStatus` reads as the label of the
+field it ends on — while `fieldErrors()` stays keyed by path, so a form still puts each sentence on its
+control. A path that names no known field is shown as written.
+
 ##### Writing a validator
 
 The example above only implements the row methods, which is the right shape for a rule that reads

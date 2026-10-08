@@ -359,6 +359,62 @@ token + a `FilterUnitParser` case first — one shared framework registry (also 
 still required; the `DataScopeType` row then carries only `applicableFields` (no
 `filter`). See `DepartmentSubtreeScopeContributor`.
 
+## Grant pairs: each role answers for itself
+
+A role is a **grant pair** — the actions it holds, the rows it reaches and the sensitive field sets it
+shows, taken together. A user with several roles gets each role's answer and the answers added up; the
+roles are **not** first merged into one union of actions, one union of scopes and one union of sets.
+Merged, a role seeing every employee and a role editing one department's would edit every employee.
+
+The snapshot keeps both shapes: `PermissionInfo.roleGrants` (one `RoleGrant` per role: its permissions,
+its scope rules per model with their `scopeCondition`, its sensitive sets, its company grant) for the
+data plane, and the old unions for menus, endpoint admission and the "my companies / countries" domains.
+The shape changed, so **clear `perm:*` after deploying**; a snapshot cached before that reads by the old
+union until it expires.
+
+**Rows, per action.** The row scope of an action on a model is the OR of the scopes of the roles that
+hold that action (`holders`), each role bounded by its own company grant and its own `scopeCondition`
+(an optional `Filters` AND-ed onto that role's rules for the model). Which action is asked:
+
+- a read asks `READ`; a write by id checks the ids against `UPDATE` / `DELETE` holders;
+- a read made *for* another action carries it in `AccessScope` (`io.softa.framework.orm.service`) — an
+  export reads under `AccessScope.callAs(AccessType.EXPORT, …)`, so it reaches only the rows the
+  exporting roles reach, which may be fewer than the list shows (`POST /export/countExportable` gives
+  the number);
+- a create is refused when the new row falls outside every creating role's scope
+  (`The record is outside your data scope.`);
+- `@RequirePermission(accessType = …)` checks a custom endpoint's id / filters against that action.
+
+When no role holds the action, or the action has no registered permission, the old union scope applies,
+so a model nobody configured per action behaves as before.
+
+**Sensitive fields, per row.** A sensitive field is visible on a row only when a role that reaches the
+row also holds the field's set; editable only when one role holds the write action, the set and the
+row together. `fieldPlan` splits a model's sensitive fields into blocked (no reading role grants them),
+conditional (some do) and open; only the conditional ones cost a query, so a single role, or roles
+granting the same sets, mask model-wide as before. Consequences:
+
+- `maskRows(model, rows)` masks rows read outside the standard path (change logs);
+- a filter on a conditional field matches only rows where it is visible; a sort on it is dropped; a
+  grouping or aggregate on it is refused (`guardQuery`);
+- a refused write names the set by its short `label`, worded `update` inside an import (`ImportScope`)
+  and `edit` elsewhere.
+
+**Record access.** `POST /{model}/getRecordAccess` answers, per record, which sets are hidden or
+read-only and which of `UPDATE` / `DELETE` the caller may perform — including the sets of owned children
+shown on the record's form (`attachedTo`). `GET /{model}/getCreateAccess` answers which sets a new
+record's form must not show. They describe only the caller's own access.
+
+**Approvals.** An approver rarely holds update on what they approve, so per-action scope would refuse
+the approval's own writes. Approval endpoints check once, at the entry, that the approver can see the
+request (`@RequirePermission`), and run the approval's writes past their row scope; the flow engine does
+the same after confirming the actor is the node's approver.
+
+**Anchorless models by id.** A model with no scope anchor that nothing grants is refused by id — except
+where it declares a default scope (`ModelDefaultScope`): there reads, updates and deletes by id follow
+the declaration for every caller. An `ImportHistory` row belongs to whoever ran the import, so the
+import that ran as them can write its outcome back.
+
 ## Configuration
 
 `PermissionInterceptorProperties` (prefix `permission`):
@@ -416,6 +472,12 @@ box.
    Closing the mapping gap is `EndpointCoverageValidator`'s job, not this branch's.
 7. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
    (unknown URLs are denied, not opened) — for everyone who reached this step.
+   A permission that lists its endpoints by hand also brings what its pages ask
+   before rendering, on the same model: an explicit `createOne` / `createList`
+   brings `getCreateAccess`; an explicit `searchList` / `searchPage` brings
+   `getById`, `getByIds` and `getRecordAccess` (one view, one row scope); an
+   explicit `getById` / `getOne` brings `getRecordAccess`. Writes are never
+   brought — they stay listed by hand.
 8. Snapshot holds a required permission? allow, else 403.
 
 > **Changed:** the super-admin used to be step 4 and a blanket `return true`. It is

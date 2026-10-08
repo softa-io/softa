@@ -66,6 +66,7 @@ class DefaultScopeFallbackTest {
     private ScopeRuleCompiler compiler;
     private ModelDefaultScopeRegistry defaultScopes;
     private PermissionServiceImpl service;
+    private ModelService<Long> modelService;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -81,7 +82,8 @@ class DefaultScopeFallbackTest {
         PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
         when(provider.get(anyLong(), anyLong())).thenReturn(pi);
 
-        service = new PermissionServiceImpl(provider, compiler, null, mock(ModelService.class),
+        modelService = mock(ModelService.class);
+        service = new PermissionServiceImpl(provider, compiler, null, modelService,
                 applicability, () -> null, () -> null, () -> defaultScopes);
 
         modelManager.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
@@ -231,5 +233,40 @@ class DefaultScopeFallbackTest {
     private Filters matchNoneAnded() {
         declare("__denied__", null, Set.of(ScopeType.ALL, ScopeType.DEPT_SUBTREE));
         return scopeOf("__denied__");
+    }
+
+    @Test
+    void theCreatorOfAnImportHistoryRowMayUpdateItById() {
+        // The import that ran as the caller writes its outcome back to its own history row; with no
+        // rule naming the model, the declared scope is what says the row is theirs.
+        declare("ImportHistory", ScopeType.CREATED_BY_SELF, UNIVERSAL_ONLY);
+        when(compiler.compile(org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.eq("ImportHistory")))
+                .thenReturn(OWN_ROWS);
+        when(modelService.count(org.mockito.ArgumentMatchers.eq("ImportHistory"), org.mockito.ArgumentMatchers.any(Filters.class)))
+                .thenReturn(1L);
+        Context ctx = new Context();
+        ctx.setTenantId(TENANT);
+        ctx.setUserId(USER);
+
+        ContextHolder.runWith(ctx, () -> service.checkIdsAccess("ImportHistory", List.of(191L),
+                io.softa.framework.orm.enums.AccessType.UPDATE));
+
+        org.mockito.ArgumentCaptor<Filters> counted = org.mockito.ArgumentCaptor.forClass(Filters.class);
+        org.mockito.Mockito.verify(modelService).count(org.mockito.ArgumentMatchers.eq("ImportHistory"), counted.capture());
+        assertThat(counted.getValue().toString()).contains("createdId");
+    }
+
+    @Test
+    void anAnchorlessModelDeclaringNothingStillRefusesAnUpdateById() {
+        declare("SomeLog", null, UNIVERSAL_ONLY);
+        Context ctx = new Context();
+        ctx.setTenantId(TENANT);
+        ctx.setUserId(USER);
+        when(modelService.count(org.mockito.ArgumentMatchers.eq("SomeLog"), org.mockito.ArgumentMatchers.any(Filters.class)))
+                .thenReturn(0L);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ContextHolder.runWith(ctx,
+                () -> service.checkIdsAccess("SomeLog", List.of(1L), io.softa.framework.orm.enums.AccessType.UPDATE)))
+                .isInstanceOf(io.softa.framework.base.exception.PermissionException.class);
     }
 }

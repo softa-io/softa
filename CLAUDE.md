@@ -273,7 +273,9 @@ public enum CustomerTier {
   on the company model (`role_data_scope` where `model = 'Company'`), resolved by
   `DefaultPermissionSnapshotProvider.readGrantedCompanyIds`, with no store of its own and no company
   scope type (`ScopeType.LEGAL_ENTITY` is retired, migration `V40`). Tri-state: `null` = unrestricted,
-  **empty** = reaches no company, non-empty = exactly those. The *countries* (`grantedCountries` →
+  **empty** = reaches no company, non-empty = exactly those. With grant pairs (permission-starter README §Grant pairs) each role's rows are also bounded by **that role's** company
+  grant; the user-level union above remains for menus, the country domain and models no role holds an
+  action on. The *countries* (`grantedCountries` →
   `Context.grantedCountries`) are read in the same build and are **concrete even for an unrestricted
   grant** — every company of the tenant — because "no company restriction" is not "every country"; `null`
   means unknown (no snapshot consulted) and readers treat it as "do not narrow", never "none". The

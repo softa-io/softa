@@ -67,6 +67,15 @@ business mutation ──▶ change-log event ──▶ Pulsar topic ──▶ Ch
 Admin-scoped endpoints require the system admin role; results are permission-
 checked per user and field references are resolved for display.
 
+**Values are masked per record.** Every read of the log — `searchPage` and
+`getRecordChangeLog` alike — passes `visibleToReader`: each entry's before and
+after values go through `PermissionService.maskRows` as rows of their own model
+keyed by the record's id, and a field hidden on that record is removed from both
+sides (a cleared value would otherwise show what it was cleared from). Fields
+hidden on every record are then dropped, and an update left with nothing visible
+is dropped whole. Visibility is judged on the record as it is now: a scope
+condition on a field that changes over time re-judges the whole history.
+
 `getRecordChangeLog` matches a one-to-one relation by the current row's id, and
 a one-to-many relation by the current rows' ids (`sliceId` for a timeline model)
 OR a `refs` entry pointing back at the record, so deleted rows stay in the
