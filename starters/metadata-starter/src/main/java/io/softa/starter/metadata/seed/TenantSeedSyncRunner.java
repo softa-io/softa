@@ -1,0 +1,343 @@
+package io.softa.starter.metadata.seed;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.core.type.TypeReference;
+
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
+import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.CacheService;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.metadata.entity.SeedSyncBatch;
+import io.softa.starter.metadata.entity.SeedSyncTask;
+import io.softa.starter.metadata.enums.SeedSyncStatus;
+import io.softa.starter.metadata.enums.SeedSyncTaskStatus;
+import io.softa.starter.metadata.enums.SeedSyncTriggerType;
+import io.softa.starter.metadata.service.SeedSyncBatchService;
+import io.softa.starter.metadata.service.SeedSyncTaskService;
+import io.softa.starter.metadata.service.SysPreDataService;
+
+import static io.softa.starter.metadata.seed.SyncSupport.asSystem;
+import static io.softa.starter.metadata.seed.SyncSupport.messageOf;
+import static io.softa.starter.metadata.seed.SyncSupport.truncate;
+
+/**
+ * Brings one tenant up to date for a batch — its {@link SeedSyncTask} — and closes the batch once its last
+ * tenant is done.
+ *
+ * <p>All the batch's tenant files are applied in the tenant in one transaction: a failure anywhere rolls the
+ * tenant back to where it was, records why, and leaves every other tenant alone. Nothing the tenant already
+ * has is changed except by a push the manifest declares ({@link SysPreDataService#applyNewRows}).
+ */
+@Slf4j
+@Service
+public class TenantSeedSyncRunner {
+
+    static final String TENANT_MODEL = "TenantInfo";
+    /** Tenants a sync brings up to date. A tenant still being set up loads the current files itself. */
+    static final List<String> SYNCED_TENANT_STATUSES = List.of("Active", "Suspended");
+    /** The field of the tenant record pointing at its latest seed sync task, when the application has it. */
+    static final String LATEST_TASK_FIELD = "lastSeedSyncTaskId";
+
+    private final ObjectProvider<SeedManifest> manifestProvider;
+    private final SysPreDataService preDataService;
+    private final SeedSyncBatchService batchService;
+    private final SeedSyncTaskService taskService;
+    private final ModelService<?> modelService;
+    private final CacheService cacheService;
+    private final TenantSeedScope scope;
+    private final TransactionTemplate transaction;
+
+    public TenantSeedSyncRunner(ObjectProvider<SeedManifest> manifestProvider,
+                                SysPreDataService preDataService,
+                                SeedSyncBatchService batchService,
+                                SeedSyncTaskService taskService,
+                                ModelService<?> modelService,
+                                CacheService cacheService,
+                                TenantSeedScope scope,
+                                PlatformTransactionManager transactionManager) {
+        this.manifestProvider = manifestProvider;
+        this.preDataService = preDataService;
+        this.batchService = batchService;
+        this.taskService = taskService;
+        this.modelService = modelService;
+        this.cacheService = cacheService;
+        this.scope = scope;
+        this.transaction = new TransactionTemplate(transactionManager);
+    }
+
+    /**
+     * Run one task. A task already finished is left as it is, so a redelivered message does nothing.
+     */
+    public void runTask(Long taskId) {
+        SeedSyncTask task = asSystem(() -> taskService.getById(taskId).orElse(null));
+        if (task == null || !isUnfinished(task.getStatus())) {
+            return;
+        }
+        SeedSyncBatch batch = asSystem(() -> batchService.getById(task.getBatchId()).orElse(null));
+        if (batch == null) {
+            return;
+        }
+        Long tenantId = task.getTenantId();
+        asSystem(() -> updateTask(taskId, t -> {
+            t.setStatus(SeedSyncTaskStatus.RUNNING);
+            t.setAttempt((task.getAttempt() == null ? 0 : task.getAttempt()) + 1);
+            t.setStartTime(LocalDateTime.now());
+        }));
+        if (!isSyncedTenant(tenantId)) {
+            asSystem(() -> updateTask(taskId, t -> {
+                t.setStatus(SeedSyncTaskStatus.SKIPPED);
+                t.setEndTime(LocalDateTime.now());
+                t.setErrorSummary("The tenant is no longer active or suspended.");
+            }));
+            finishBatchIfDone(batch.getId());
+            return;
+        }
+        List<TenantFileChange> changes = changesOf(task, batch);
+        Set<String> reached = scope.reachedFiles(tenantId);
+        boolean traces = traces(batch);
+        List<TenantSeedFileResult> results = new ArrayList<>();
+        String[] current = new String[1];
+        try {
+            asInitiator(batch, () -> ContextUtils.inTenantContext(tenantId, () -> transaction.executeWithoutResult(
+                    status -> {
+                        results.clear();
+                        if (traces) {
+                            // First, so the rows the tenant already has count as had when its files are applied.
+                            current[0] = "(tracing its bindings)";
+                            results.addAll(preDataService.traceSources(scope.fileOfRowKey(SeedLevel.TENANT), tenantId));
+                        }
+                        for (TenantFileChange change : changes) {
+                            current[0] = change.file();
+                            SeedFile file = manifestProvider.getObject().file(change.file()).orElse(null);
+                            if (file == null || !reached.contains(file.file())) {
+                                continue;
+                            }
+                            results.add(preDataService.applyNewRows(file.file(), file.push(),
+                                    Set.copyOf(change.added()), Set.copyOf(change.removed())));
+                        }
+                    })));
+        } catch (RuntimeException e) {
+            log.error("Seed sync batch {} failed for tenant {} on {}", batch.getId(), tenantId, current[0], e);
+            String error = current[0] + ": " + messageOf(e);
+            asSystem(() -> updateTask(taskId, t -> {
+                t.setStatus(SeedSyncTaskStatus.FAILED);
+                t.setEndTime(LocalDateTime.now());
+                t.setErrorSummary(truncate(error + " — everything this sync wrote in the tenant was rolled back."));
+            }));
+            finishBatchIfDone(batch.getId());
+            return;
+        }
+        int newRows = results.stream().mapToInt(r -> r.created() + r.claimed()).sum();
+        int pushed = results.stream().mapToInt(r -> r.pushed() + r.removed()).sum();
+        asSystem(() -> updateTask(taskId, t -> {
+            t.setStatus(SeedSyncTaskStatus.SUCCEEDED);
+            t.setEndTime(LocalDateTime.now());
+            t.setNewRowCount(newRows);
+            t.setPushedCount(pushed);
+            t.setFileResults(JsonUtils.objectToString(mergeByFile(results)));
+        }));
+        if (newRows + pushed > 0) {
+            // A new role or grant changes what this tenant's users may do; their cached snapshots go.
+            cacheService.clearByPrefix("perm:" + tenantId + ":");
+        }
+        log.info("Seed sync batch {} brought tenant {} up to date: {} new row(s), {} pushed", batch.getId(),
+                tenantId, newRows, pushed);
+        finishBatchIfDone(batch.getId());
+    }
+
+    /**
+     * Refresh a batch's tenant counts and, once no task is left to run, close it: Succeeded when every
+     * tenant made it, FinishedWithFailures otherwise. Safe to call from any number of tasks at once — each
+     * call recounts from the tasks.
+     */
+    public void finishBatchIfDone(Long batchId) {
+        asSystem(() -> {
+            List<SeedSyncTask> tasks = taskService.searchList(new Filters().eq(SeedSyncTask::getBatchId, batchId));
+            int succeeded = count(tasks, SeedSyncTaskStatus.SUCCEEDED);
+            int failed = count(tasks, SeedSyncTaskStatus.FAILED);
+            int skipped = count(tasks, SeedSyncTaskStatus.SKIPPED);
+            boolean done = tasks.stream().noneMatch(t -> isUnfinished(t.getStatus()));
+            SeedSyncBatch patch = new SeedSyncBatch();
+            patch.setId(batchId);
+            patch.setTotalTenants(tasks.size());
+            patch.setSucceededTenants(succeeded);
+            patch.setFailedTenants(failed);
+            patch.setSkippedTenants(skipped);
+            if (done) {
+                patch.setStatus(failed > 0 ? SeedSyncStatus.FINISHED_WITH_FAILURES : SeedSyncStatus.SUCCEEDED);
+                patch.setEndTime(LocalDateTime.now());
+            }
+            batchService.updateOne(patch);
+        });
+    }
+
+    /**
+     * Whether the batch traces its tenants' bindings before applying their files: a batch initializing the
+     * tenants set up before sources were recorded, or a retry of one.
+     */
+    private boolean traces(SeedSyncBatch batch) {
+        SeedSyncBatch current = batch;
+        for (int hop = 0; current != null && hop < 20; hop++) {
+            if (current.getTriggerType() == SeedSyncTriggerType.INITIALIZE) {
+                return true;
+            }
+            if (current.getTriggerType() != SeedSyncTriggerType.MANUAL_RETRY || current.getRetryOfBatchId() == null) {
+                return false;
+            }
+            Long retryOf = current.getRetryOfBatchId();
+            current = asSystem(() -> batchService.getById(retryOf).orElse(null));
+        }
+        return false;
+    }
+
+    /** One result per file, in the order the files first appear: tracing and applying a file are one line. */
+    private static List<TenantSeedFileResult> mergeByFile(List<TenantSeedFileResult> results) {
+        Map<String, TenantSeedFileResult> byFile = new LinkedHashMap<>();
+        results.forEach(result -> byFile.merge(result.file(), result, TenantSeedFileResult::plus));
+        return List.copyOf(byFile.values());
+    }
+
+    /**
+     * Point the tenant's record at the task — its latest seed sync, which the tenant list shows with the
+     * task's status. Nothing when the application's tenant record has no such field. A failure here is only
+     * logged: the list showing an older sync is no reason to hold the sync itself back.
+     */
+    public void recordLatestTask(Long tenantId, Long taskId) {
+        if (!ModelManager.existField(TENANT_MODEL, LATEST_TASK_FIELD)) {
+            return;
+        }
+        // Mutable: the update pipeline normalises the row in place.
+        Map<String, Object> row = new HashMap<>();
+        row.put(ModelConstant.ID, tenantId);
+        row.put(LATEST_TASK_FIELD, taskId);
+        try {
+            asSystem(() -> modelService.updateOne(TENANT_MODEL, row));
+        } catch (RuntimeException e) {
+            log.warn("Could not point tenant {} at its latest seed sync task {}", tenantId, taskId, e);
+        }
+    }
+
+    /**
+     * Fail the tasks that have not finished in time — waiting for a message that was lost, or running on an
+     * instance that stopped — and close their batches, so a stuck tenant shows as failed and can be retried,
+     * and does not hold every later sync back. A task that was in fact still running and finishes after all
+     * records its real result over this one.
+     *
+     * @return the number of tasks failed
+     */
+    public int failStaleTasks(Duration timeout) {
+        LocalDateTime cutoff = LocalDateTime.now().minus(timeout);
+        List<SeedSyncTask> stale = asSystem(() -> taskService.searchList(new Filters()
+                .in(SeedSyncTask::getStatus, List.of(SeedSyncTaskStatus.PENDING, SeedSyncTaskStatus.RUNNING))))
+                .stream()
+                .filter(task -> {
+                    LocalDateTime since = task.getStatus() == SeedSyncTaskStatus.RUNNING && task.getStartTime() != null
+                            ? task.getStartTime() : task.getCreatedTime();
+                    return since != null && since.isBefore(cutoff);
+                })
+                .toList();
+        for (SeedSyncTask task : stale) {
+            String why = task.getStatus() == SeedSyncTaskStatus.RUNNING
+                    ? "was still running" : "never started — its message was not delivered";
+            asSystem(() -> updateTask(task.getId(), t -> {
+                t.setStatus(SeedSyncTaskStatus.FAILED);
+                t.setEndTime(LocalDateTime.now());
+                t.setErrorSummary("Timed out after " + timeout.toMinutes() + " minutes: the task " + why
+                        + ". Retry it from the batch.");
+            }));
+            log.warn("Seed sync task {} of batch {} for tenant {} timed out ({})", task.getId(), task.getBatchId(),
+                    task.getTenantId(), why);
+        }
+        stale.stream().map(SeedSyncTask::getBatchId).distinct().forEach(this::finishBatchIfDone);
+        return stale.size();
+    }
+
+    /** Whether the batch still has tenants waiting or running. */
+    public boolean hasUnfinishedTasks(Long batchId) {
+        return asSystem(() -> taskService.exist(new Filters().eq(SeedSyncTask::getBatchId, batchId)
+                .in(SeedSyncTask::getStatus, List.of(SeedSyncTaskStatus.PENDING, SeedSyncTaskStatus.RUNNING))));
+    }
+
+    /** Ids of the tenants a sync brings up to date. */
+    public List<Long> syncedTenantIds() {
+        if (!ModelManager.existModel(TENANT_MODEL)) {
+            return List.of();
+        }
+        return asSystem(() -> modelService.searchList(TENANT_MODEL,
+                        new FlexQuery(List.of("id"), new Filters().in("status", SYNCED_TENANT_STATUSES)))
+                .stream().map(row -> Long.valueOf(String.valueOf(row.get("id")))).toList());
+    }
+
+    private boolean isSyncedTenant(Long tenantId) {
+        if (!ModelManager.existModel(TENANT_MODEL)) {
+            return false;
+        }
+        return asSystem(() -> modelService.count(TENANT_MODEL,
+                new Filters().eq("id", tenantId).in("status", SYNCED_TENANT_STATUSES)) > 0);
+    }
+
+    /**
+     * The task's changes to tenant files — its own when it has them, else the batch's — in manifest load
+     * order, so a file's new rows are created after the rows of the files they depend on.
+     */
+    private List<TenantFileChange> changesOf(SeedSyncTask task, SeedSyncBatch batch) {
+        String json = StringUtils.isNotBlank(task.getChanges()) ? task.getChanges() : batch.getTenantChanges();
+        if (StringUtils.isBlank(json)) {
+            return List.of();
+        }
+        List<TenantFileChange> changes = JsonUtils.stringToObject(json, new TypeReference<List<TenantFileChange>>() {});
+        List<String> order = manifestProvider.getObject().loadOrder(SeedLevel.TENANT);
+        return changes.stream().filter(TenantFileChange::reachesTenants)
+                .sorted(Comparator.comparingInt(change -> order.indexOf(change.file())))
+                .toList();
+    }
+
+    /**
+     * Run as the person who started the batch, so what the task writes is attributed to them rather than
+     * to nobody — a consumer thread has no request behind it.
+     */
+    private static void asInitiator(SeedSyncBatch batch, Runnable action) {
+        Context context = ContextHolder.cloneContext();
+        if (context.getUserId() == null) {
+            context.setUserId(batch.getCreatedId());
+            context.setName(batch.getCreatedBy());
+        }
+        ContextHolder.runWith(context, action);
+    }
+
+    private void updateTask(Long taskId, Consumer<SeedSyncTask> change) {
+        SeedSyncTask patch = new SeedSyncTask();
+        patch.setId(taskId);
+        change.accept(patch);
+        taskService.updateOne(patch);
+    }
+
+    static boolean isUnfinished(SeedSyncTaskStatus status) {
+        return status == SeedSyncTaskStatus.PENDING || status == SeedSyncTaskStatus.RUNNING;
+    }
+
+    private static int count(List<SeedSyncTask> tasks, SeedSyncTaskStatus status) {
+        return (int) tasks.stream().filter(t -> t.getStatus() == status).count();
+    }
+}

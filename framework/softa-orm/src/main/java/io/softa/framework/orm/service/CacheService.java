@@ -118,4 +118,16 @@ public interface CacheService {
      */
     Long clear(List<String> keys);
 
+    /**
+     * Clear every key under a prefix, such as {@code "perm:"} for the permission snapshots of every
+     * user of every tenant — for when a change reaches rows the caller cannot enumerate.
+     * The prefix is taken literally and joined to the root key, so only this application's keys match.
+     * Keys are found with SCAN and removed with UNLINK in batches, so Redis keeps serving other
+     * clients while it runs.
+     *
+     * @param prefix key prefix, not blank
+     * @return number of keys removed
+     */
+    long clearByPrefix(String prefix);
+
 }

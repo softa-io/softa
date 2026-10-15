@@ -101,6 +101,12 @@ public class TenantInfo extends AuditableModel {
                     + "floor plan (the catalog's lowest tier).")
     private Long subscriptionId;
 
+    @Field(label = "Last Seed Sync", fieldType = FieldType.MANY_TO_ONE, relatedModelName = "SeedSyncTask",
+            copyable = false,
+            description = "The tenant's latest seed sync task — its setup or a later sync — pointed at by the "
+                    + "seed sync as it hands the task out; its status is the tenant's seed sync status.")
+    private Long lastSeedSyncTaskId;
+
     @Field
     private Boolean deleted;
 }

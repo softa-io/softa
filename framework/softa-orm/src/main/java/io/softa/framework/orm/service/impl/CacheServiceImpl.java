@@ -1,6 +1,7 @@
 package io.softa.framework.orm.service.impl;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -9,12 +10,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.constant.RedisConstant;
+import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.service.CacheService;
 
@@ -38,6 +42,9 @@ public class CacheServiceImpl implements CacheService {
             end
             return count
             """, Long.class);
+
+    /** Keys requested per SCAN step, and removed per UNLINK. */
+    private static final int SCAN_BATCH = 1000;
 
     /**
      * Root key, such as: "softa:"
@@ -229,6 +236,58 @@ public class CacheServiceImpl implements CacheService {
     public Long clear(List<String> keys) {
         List<String> cacheKeys = keys.stream().map(this::getKeyPath).collect(Collectors.toList());
         return stringRedisTemplate.delete(cacheKeys);
+    }
+
+    /**
+     * Clear every key under a prefix, joined to the root key.
+     *
+     * @param prefix key prefix, not blank
+     * @return number of keys removed
+     */
+    @Override
+    public long clearByPrefix(String prefix) {
+        if (StringUtils.isBlank(prefix)) {
+            throw new IllegalArgumentException("A key prefix is required: a blank one would clear every key.");
+        }
+        ScanOptions options = ScanOptions.scanOptions()
+                .match(escapeGlob(this.getKeyPath(prefix)) + "*")
+                .count(SCAN_BATCH)
+                .build();
+        long removed = 0;
+        List<String> batch = new ArrayList<>(SCAN_BATCH);
+        try (Cursor<String> cursor = stringRedisTemplate.scan(options)) {
+            while (cursor.hasNext()) {
+                batch.add(cursor.next());
+                if (batch.size() >= SCAN_BATCH) {
+                    removed += unlink(batch);
+                    batch.clear();
+                }
+            }
+        }
+        if (!batch.isEmpty()) {
+            removed += unlink(batch);
+        }
+        return removed;
+    }
+
+    private long unlink(List<String> keys) {
+        Long count = stringRedisTemplate.unlink(keys);
+        return count == null ? 0 : count;
+    }
+
+    /**
+     * Escape the characters SCAN's MATCH reads as a glob, so a prefix matches only itself.
+     * Package-private for the test.
+     */
+    static String escapeGlob(String literal) {
+        StringBuilder out = new StringBuilder(literal.length());
+        for (char c : literal.toCharArray()) {
+            if (c == '*' || c == '?' || c == '[' || c == ']' || c == '\\') {
+                out.append('\\');
+            }
+            out.append(c);
+        }
+        return out.toString();
     }
 
 }

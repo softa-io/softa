@@ -20,6 +20,7 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.tenant.entity.TenantInfo;
+import io.softa.starter.tenant.provisioning.PlatformSeedGuard;
 import io.softa.starter.tenant.provisioning.ProvisionTenantRequest;
 import io.softa.starter.tenant.provisioning.TenantProvisioningService;
 import io.softa.starter.tenant.provisioning.TenantSeedPurgeService;
@@ -57,17 +58,20 @@ public class TenantInfoController {
     private final ModelService<Long> modelService;
     private final TenantSubscriptionPeriodService periodService;
     private final TenantSeedPurgeService purgeService;
+    private final PlatformSeedGuard platformSeedGuard;
 
     public TenantInfoController(TenantProvisioningService provisioningService,
                                TenantInfoServiceImpl tenantInfoService,
                                ModelService<Long> modelService,
                                TenantSubscriptionPeriodService periodService,
-                               TenantSeedPurgeService purgeService) {
+                               TenantSeedPurgeService purgeService,
+                               PlatformSeedGuard platformSeedGuard) {
         this.provisioningService = provisioningService;
         this.tenantInfoService = tenantInfoService;
         this.modelService = modelService;
         this.periodService = periodService;
         this.purgeService = purgeService;
+        this.platformSeedGuard = platformSeedGuard;
     }
 
     // ─── Operational status: the only sanctioned way to change it ───
@@ -100,6 +104,7 @@ public class TenantInfoController {
     @Operation(summary = "Create a tenant (registry row + owned version + per-tenant seed)")
     @PostMapping("/createOne")
     public ApiResponse<Long> createOne(@RequestBody ProvisionTenantRequest request) {
+        platformSeedGuard.requireInStep();
         return ApiResponse.success(provisioningService.provision(request).tenantId());
     }
 
@@ -117,6 +122,7 @@ public class TenantInfoController {
     @Operation(summary = "Rebuild a tenant whose setup failed — discards its seed data and seeds it again")
     @PostMapping("/rebuild")
     public ApiResponse<Map<String, Integer>> rebuild(@RequestParam Long id) {
+        platformSeedGuard.requireInStep();
         return ApiResponse.success(purgeService.rebuild(id));
     }
 

@@ -21,9 +21,10 @@ import io.softa.starter.user.service.RoleService;
 /**
  * Role Model Service Implementation.
  *
- * <p>Guards system-reserved roles (code='SUPER_ADMIN', etc.) against
- * destructive mutations — delete / rename / set inactive / clear code.
- * Catches both Entity and Map-shaped writes since admin UI may send either.
+ * <p>Guards built-in roles (those carrying a {@code code}): none of them can be deleted, and none can
+ * have its {@code code} changed or cleared. Beyond that the two administrator roles
+ * ({@link RoleConstant#isAdminRole}) accept no edit at all, while every other built-in role may be
+ * renamed, re-described, enabled or disabled and have its membership rule and grants reshaped.
  *
  * <p>Reserved role codes are owned by the system (seeded via SQL / app
  * startup). Admin-created roles must have {@code code = null}; submitting
@@ -73,7 +74,7 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
 
     @Override
     public boolean updateOne(Role entity) {
-        guardSystemMutation(entity);
+        guardSystemMutation(entity, true);
         boolean ok = super.updateOne(entity);
         if (ok) publishRoleGrantChange(idsOf(entity));
         return ok;
@@ -81,7 +82,7 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
 
     @Override
     public boolean updateOne(Role entity, boolean ignoreNull) {
-        guardSystemMutation(entity);
+        guardSystemMutation(entity, ignoreNull);
         boolean ok = super.updateOne(entity, ignoreNull);
         if (ok) publishRoleGrantChange(idsOf(entity));
         return ok;
@@ -89,7 +90,7 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
 
     @Override
     public boolean updateList(List<Role> entities) {
-        if (entities != null) entities.forEach(this::guardSystemMutation);
+        if (entities != null) entities.forEach(entity -> guardSystemMutation(entity, true));
         boolean ok = super.updateList(entities);
         if (ok) publishRoleGrantChange(idsOf(entities));
         return ok;
@@ -97,7 +98,7 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
 
     @Override
     public boolean updateList(List<Role> entities, boolean ignoreNull) {
-        if (entities != null) entities.forEach(this::guardSystemMutation);
+        if (entities != null) entities.forEach(entity -> guardSystemMutation(entity, ignoreNull));
         boolean ok = super.updateList(entities, ignoreNull);
         if (ok) publishRoleGrantChange(idsOf(entities));
         return ok;
@@ -130,16 +131,30 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
         }
     }
 
-    /** Built-in (system-reserved) roles are IMMUTABLE via the API — reject ANY field edit (name,
-     *  description, active, code, dynamicFilter, …). Associating users is a separate path
-     *  ({@code UserRoleRel}), so this does NOT block assigning members to a built-in role. */
-    private void guardSystemMutation(Role patch) {
+    /**
+     * An administrator role accepts no edit at all; any other built-in role accepts every edit except to
+     * its {@code code}. Associating users is a separate path ({@code UserRoleRel}) and is not affected.
+     *
+     * @param patch      the update being applied
+     * @param ignoreNull whether a null in the patch leaves the stored value alone — when it does not,
+     *                   a null {@code code} would clear it, which counts as changing it
+     */
+    private void guardSystemMutation(Role patch, boolean ignoreNull) {
         if (patch == null || patch.getId() == null) return;
         Role persisted = getById(patch.getId()).orElse(null);
         if (!RoleConstant.isSystemRole(persisted)) return;
-        throw new BusinessException(
-                "Cannot edit system role '" + persisted.getName() + "' (code=" + persisted.getCode()
-                        + "); built-in roles are managed by ops. Only user assignment is allowed.");
+        if (RoleConstant.isAdminRole(persisted)) {
+            throw new BusinessException(
+                    "Cannot edit administrator role '" + persisted.getName() + "' (code=" + persisted.getCode()
+                            + "); its access is computed, not configured. Only user assignment is allowed.");
+        }
+        boolean codeCleared = patch.getCode() == null && !ignoreNull;
+        boolean codeChanged = patch.getCode() != null && !patch.getCode().equals(persisted.getCode());
+        if (codeCleared || codeChanged) {
+            throw new BusinessException(
+                    "The code of built-in role '" + persisted.getName() + "' (code=" + persisted.getCode()
+                            + ") cannot be changed.");
+        }
     }
 
     private static Set<Long> idsOf(Role entity) {

@@ -1,0 +1,8 @@
+{
+  "ImportTemplate": [
+    { "id": "tpl.widget", "name": "Widgets", "modelName": "Widget" }
+  ],
+  "ImportTemplateField": [
+    { "id": "col.keep", "templateId": "tpl.widget", "fieldName": "code" }
+  ]
+}

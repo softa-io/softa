@@ -67,6 +67,21 @@ public final class RoleConstant {
     }
 
     /**
+     * True when the role is one of the two administrator roles, whose access is computed at runtime
+     * rather than read from its grant rows: SUPER_ADMIN and TENANT_ADMIN.
+     *
+     * <p>These stay closed to every edit. Their grant rows are never read, so editing them would show a
+     * change that does nothing, and disabling one could leave a tenant with nobody able to administer
+     * it. Every other built-in role is an ordinary business role that a tenant may reshape — only its
+     * {@code code} is fixed, and it cannot be deleted.
+     *
+     * <p>Null-safe.
+     */
+    public static boolean isAdminRole(Role role) {
+        return isSuperAdmin(role) || isTenantAdmin(role);
+    }
+
+    /**
      * True when stranding this role with no holder would leave nobody able to administer — the only
      * reason to refuse revoking a role from its last holder.
      *

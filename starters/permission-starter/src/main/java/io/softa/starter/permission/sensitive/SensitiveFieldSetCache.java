@@ -29,8 +29,9 @@ import io.softa.starter.permission.spi.SensitiveFieldSetSource.SensitiveFieldSet
  *
  * <p>The cache fills at {@link PostConstruct} — once, before the embedded
  * server starts accepting requests. {@code sensitive_field_set} is system-
- * level seed data that only changes via redeployment, so application
- * restart IS the reload trigger; no runtime reload event listener.
+ * level seed data, and re-applying the platform seeds reloads it on every
+ * instance ({@code PlatformSeedSyncedListener}). A reload that cannot read
+ * the rows throws before anything is swapped, so the previous sets stay.
  *
  * <p>{@code @PostConstruct} (not {@code @EventListener(ApplicationReadyEvent)})
  * matters because {@code ApplicationReadyEvent} fires AFTER the server is
