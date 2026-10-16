@@ -64,14 +64,14 @@ class OneToManyAcrossTimelineTest {
     /** The query the expansion sent to the related model. */
     private static FlexQuery expansionQueryFor(SubQuery subQuery) {
         try (MockedStatic<ReflectTool> reflect = mockStatic(ReflectTool.class)) {
-            reflect.when(() -> ReflectTool.searchListIgnoringRowScope(eq(RELATED), any(FlexQuery.class)))
+            reflect.when(() -> ReflectTool.searchRelatedRows(eq(RELATED), any(FlexQuery.class)))
                     .thenReturn(List.of());
 
             new OneToManyProcessor(oneToMany(), AccessType.READ, mainQuery(subQuery))
                     .batchProcessOutputRows(mainRows());
 
             ArgumentCaptor<FlexQuery> sent = ArgumentCaptor.forClass(FlexQuery.class);
-            reflect.verify(() -> ReflectTool.searchListIgnoringRowScope(eq(RELATED), sent.capture()));
+            reflect.verify(() -> ReflectTool.searchRelatedRows(eq(RELATED), sent.capture()));
             return sent.getValue();
         }
     }

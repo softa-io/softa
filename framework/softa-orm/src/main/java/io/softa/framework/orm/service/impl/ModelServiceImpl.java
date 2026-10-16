@@ -1449,6 +1449,16 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>The same read body, with the row range decided by the related model rather than by the call site.
+     */
+    @Override
+    public List<Map<String, Object>> searchRelatedRows(String modelName, FlexQuery flexQuery) {
+        return searchList(modelName, flexQuery, permissionService.hasOwnRowScope(modelName));
+    }
+
+    /**
      * The one read body, with the row range as the only thing either caller varies.
      *
      * <p>{@code applyRowScope == false} skips {@link #scopedAccess} and NOTHING else. The field guards

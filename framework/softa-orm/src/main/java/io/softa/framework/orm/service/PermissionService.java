@@ -139,6 +139,27 @@ public interface PermissionService {
     }
 
     /**
+     * Whether the caller's row range on {@code model} stands on its own — an anchor, a declared scope
+     * or a rule the caller holds for it — rather than coming only from the parent that owns its rows.
+     *
+     * <p>Asked by {@link ModelService#searchRelatedRows}, for a relation expansion that reads more of a
+     * related row than its label. A model whose rows are visible only through their owner — a one-to-one
+     * profile, the lines of a document — has to be read across the range: its visibility is that of the
+     * parent row being expanded, which the caller already sees, and applying the range to it would fail
+     * closed and blank the parent's sub-rows. Any other model is read as a direct read would read it,
+     * because a sub-query names its own fields and filters, and with the range crossed it reads rows the
+     * caller could never open.
+     *
+     * <p>Default {@code true}: an implementation that cannot tell keeps the range, the closed side.
+     *
+     * @param model the related model being read
+     * @return true when the caller's row range applies to {@code model} in its own right
+     */
+    default boolean hasOwnRowScope(String model) {
+        return true;
+    }
+
+    /**
      * Silently drop blocked-for-{@code accessType} fields from the caller's
      * requested field set. Used inside read entry points
      * ({@code searchList}/{@code searchPage}/etc.) before the SELECT clause

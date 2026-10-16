@@ -549,6 +549,37 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>True for whatever would bound the model's rows before {@link #scopeWithoutGrant} reaches for an
+     * owner: a forward anchor, a declared scope, the company axis, or a rule some role of the caller holds
+     * for it. What is left is a model reachable only through the row that owns it — exactly the shape
+     * whose direct read either follows that owner or fails closed — and a relation expansion is already
+     * standing on that owner's row.
+     *
+     * <p>An anchored child is not lost by answering true: read under the range, a one-to-many child of a
+     * granted model still follows its owner ({@link #followOwner}), so the sub-rows of a row the caller
+     * sees come back, and those of a row they do not, do not.
+     *
+     * <p>False where the range would add nothing — no bound context, a bypass, full data access — so the
+     * expansion is not routed through a scope computation it does not need.
+     */
+    @Override
+    public boolean hasOwnRowScope(String model) {
+        if (shouldBypass()) return false;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return false;
+        if (model == null || !ModelManager.existModel(model)) return true;
+        if (hasForwardAnchor(model) || declaredScope(model) != null || companyAnchorOf(model) != null) {
+            return true;
+        }
+        for (Grant g : grantsOf(pi)) {
+            if (hasExplicitRules(g, model)) return true;
+        }
+        return false;
+    }
+
+    /**
      * The caller's grants, one per role — or the unions read as one role. The same instances for the
      * whole request, so what is remembered per grant ({@link RequestMemo}) is found again.
      */
@@ -682,8 +713,9 @@ public class PermissionServiceImpl implements PermissionService {
      * and letting it jump the queue would open a business table merely because something points at it.
      * The two owned kinds are safe there precisely because they are bounded by the parent's own scope.
      *
-     * <p>Cross-model display expansion never arrives here — it bypasses everything upstream via
-     * {@code skipPermissionCheck}.
+     * <p>A relation expansion arrives here only when it reads more than labels of a model with a row
+     * range of its own (see {@link #hasOwnRowScope}); a label lookup crosses the range upstream, through
+     * {@code ModelService.searchListIgnoringRowScope}.
      */
     private Filters scopeWithoutGrant(String model, Grant g) {
         Referencer ref = findReferencer(model, g);
@@ -1540,9 +1572,9 @@ public class PermissionServiceImpl implements PermissionService {
      *
      * <p>No read that names rows by {@code id} is exempt — the scope does not look at the caller's
      * filters at all. Display expansion — the one legitimate by-id read of rows outside the grant, so
-     * that a referenced row's label is not blanked — never reaches here: {@code
-     * DataPipelineProxy.processReadData} carries {@code @SkipPermissionCheck}, so {@code shouldBypass()}
-     * returns first. Everything else that names an id stays bounded: otherwise a caller could add
+     * that a referenced row's label is not blanked — never reaches here: it reads through {@code
+     * ModelService.searchListIgnoringRowScope}, which leaves the row range out. Everything else that
+     * names an id stays bounded: otherwise a caller could add
      * {@code ["id", "&gt;", 0]} to a {@code searchList} body and read an ungranted company whole, and
      * {@link #checkIdsAccess} — which counts its targets back with a filter naming {@code id} — would
      * let any holder of the delete permission remove a row of a company they were never granted.

@@ -460,7 +460,9 @@ public class ManyToManyProcessor extends BaseProcessor {
         }
         rightFlexQuery.setConvertType(flexQuery.getConvertType());
         rightFlexQuery.setFilterControl(FilterControl.bypassAll());
-        return ReflectTool.searchListIgnoringRowScope(rightModel, rightFlexQuery);
+        // More than labels — the subQuery's fields, or every field: the caller's row range applies unless the
+        // right model's rows are visible only through the row being expanded.
+        return ReflectTool.searchRelatedRows(rightModel, rightFlexQuery);
     }
 
     /**
