@@ -55,6 +55,26 @@ class RelationProcessorReadPathTest {
     }
 
     /**
+     * The name search has the same split as the list search: the plain one keeps the caller's row
+     * range, because it is what the picker endpoints call. A processor naming related rows through it
+     * would blank the labels of rows the caller was shown a reference to.
+     */
+    @Test
+    void expandingProcessorsDoNotCallThePlainSearchName() {
+        List<String> offenders = new ArrayList<>();
+        for (Class<?> processor : EXPANDING_PROCESSORS) {
+            if (referencesUtf8(processor, "searchName")) {
+                offenders.add(processor.getSimpleName());
+            }
+        }
+
+        assertThat(offenders)
+                .as("a relation expansion names rows the caller was shown a reference to: it must call "
+                        + "searchNameIgnoringRowScope, not the row-scoped searchName the pickers use")
+                .isEmpty();
+    }
+
+    /**
      * True when the class file's constant pool holds this exact UTF8 entry.
      *
      * <p>Matches on the length prefix plus the bytes, so {@code searchList} does not match the

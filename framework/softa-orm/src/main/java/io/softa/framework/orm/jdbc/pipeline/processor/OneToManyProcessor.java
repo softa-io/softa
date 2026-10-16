@@ -370,7 +370,7 @@ public class OneToManyProcessor extends BaseProcessor {
         relatedFlexQuery.setConvertType(ConvertType.REFERENCE);
         relatedFlexQuery.select(metaField.getRelatedField());
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());
-        return ReflectTool.searchName(metaField.getRelatedModel(), relatedFlexQuery);
+        return ReflectTool.searchNameIgnoringRowScope(metaField.getRelatedModel(), relatedFlexQuery);
     }
 
     /** Lifts the as-of clamp when the sub query asked for every slice. See {@link SubQuery#getAcrossTimeline()}. */

@@ -200,6 +200,21 @@ public abstract class ReflectTool {
     }
 
     /**
+     * Call the searchNameIgnoringRowScope method of the specified model — the caller's row range is
+     * not appended, the field guards still are.
+     *
+     * <p>For the read pipeline's relation processors; see
+     * {@link io.softa.framework.orm.service.ModelService#searchNameIgnoringRowScope}.
+     *
+     * @param modelName model name
+     * @param flexQuery flexQuery
+     * @return Search result, row range not applied
+     */
+    public static List<Map<String, Object>> searchNameIgnoringRowScope(String modelName, FlexQuery flexQuery) {
+        return getModelService().searchNameIgnoringRowScope(modelName, flexQuery);
+    }
+
+    /**
      * Call the searchPage method of the specified model
      *
      * @param modelName model name

@@ -533,14 +533,30 @@ public interface ModelService<K extends Serializable> {
     List<Map<String, Object>> searchListIgnoringRowScope(String modelName, FlexQuery flexQuery);
 
     /**
-     * Performs a non-paginated query based on FlexQuery.
-     * <p>If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no exception is thrown.</p>
+     * Name search within the caller's row range: the display fields plus {@code displayName}.
+     * <p>This is what a picker lists candidates through, so it applies the row range like
+     * {@link #searchList}. If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no
+     * exception is thrown.</p>
      *
      * @param modelName the name of the model
      * @param flexQuery a {@link FlexQuery} object defining fields, filters, sorting, etc.
      * @return a list of maps representing the matching rows with displayName and ID
      */
     List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery);
+
+    /**
+     * {@link #searchName} without the caller's row range — the field guards still apply.
+     *
+     * <p><b>Framework machinery only</b>, for the same reason as {@link #searchListIgnoringRowScope}: the
+     * read pipeline names the related rows of an expanded relation, and those are rows the caller was
+     * shown a reference to, not rows they searched for. Anything that lists candidates — a picker, a
+     * typeahead, an endpoint — must call {@link #searchName}.
+     *
+     * @param modelName the name of the model
+     * @param flexQuery a {@link FlexQuery} object defining fields, filters, sorting, etc.
+     * @return a list of maps representing the matching rows with displayName and ID, row range not applied
+     */
+    List<Map<String, Object>> searchNameIgnoringRowScope(String modelName, FlexQuery flexQuery);
 
     /**
      * Performs a non-paginated query based on FlexQuery and maps the results
