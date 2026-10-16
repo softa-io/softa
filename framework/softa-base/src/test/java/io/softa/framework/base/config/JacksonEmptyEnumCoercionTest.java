@@ -8,11 +8,9 @@ import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 
 import tools.jackson.databind.DatabindException;
-import tools.jackson.databind.DeserializationFeature;
-import tools.jackson.databind.cfg.CoercionAction;
-import tools.jackson.databind.cfg.CoercionInputShape;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.type.LogicalType;
+
+import io.softa.framework.base.utils.JsonUtils;
 
 /**
  * Guards the global empty-string→null scalar coercions in {@link JacksonConfig}.
@@ -31,15 +29,7 @@ class JacksonEmptyEnumCoercionTest {
     private record ScalarHolder(Long count, BigDecimal amount, Boolean ok) {}
 
     private static JsonMapper mapperWithSoftaPolicy() {
-        var builder = JsonMapper.builder()
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        for (LogicalType type : new LogicalType[] {
-                LogicalType.Enum, LogicalType.Integer, LogicalType.Float, LogicalType.Boolean
-        }) {
-            builder.withCoercionConfig(type, cfg ->
-                    cfg.setCoercion(CoercionInputShape.EmptyString, CoercionAction.AsNull));
-        }
-        return builder.build();
+        return JacksonConfig.applyGlobalPolicy(JsonMapper.builder()).build();
     }
 
     @Test
@@ -67,6 +57,15 @@ class JacksonEmptyEnumCoercionTest {
         assertThat(scalars.count()).isEqualTo(12L);
         assertThat(scalars.amount()).isEqualByComparingTo("1.5");
         assertThat(scalars.ok()).isTrue();
+    }
+
+    /** Without an application context JsonUtils builds its own mapper, and that mapper applies the same coercions. */
+    @Test
+    void fallbackMapper_outsideSpring_followsThePolicy() {
+        ScalarHolder holder = JsonUtils.stringToObject("{\"count\":\"\",\"amount\":\"\",\"ok\":\"\"}", ScalarHolder.class);
+        assertThat(holder.count()).isNull();
+        assertThat(holder.amount()).isNull();
+        assertThat(holder.ok()).isNull();
     }
 
     @Test

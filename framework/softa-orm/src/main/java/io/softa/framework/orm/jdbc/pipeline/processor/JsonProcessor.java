@@ -8,6 +8,7 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.JSONException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 
 /**
@@ -53,6 +54,8 @@ public class JsonProcessor extends BaseProcessor {
         try {
             if (StringUtils.isBlank(strValue)) {
                 row.put(fieldName, null);
+            } else if (FieldType.DTO.equals(metaField.getFieldType())) {
+                row.put(fieldName, JsonUtils.stringToJsonNodeWithBigDecimalFloats(strValue));
             } else {
                 row.put(fieldName, JsonUtils.stringToObject(strValue, JsonNode.class));
             }

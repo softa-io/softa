@@ -7,10 +7,12 @@ import java.util.Map;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.softa.framework.base.config.JacksonConfig;
 import io.softa.framework.base.exception.JSONException;
 
 /**
@@ -21,7 +23,7 @@ public class JsonUtils {
 
     /**
      * Get JsonMapper instance from the Spring Context.
-     * If the Spring Context is not available, create a new JsonMapper instance.
+     * If the Spring Context is not available, create a new JsonMapper instance under the same global policy.
      * @return JsonMapper instance
      */
     public static JsonMapper getMapper() {
@@ -30,7 +32,7 @@ public class JsonUtils {
         } else if (SpringContextUtils.existApplicationContext()) {
             mapper = SpringContextUtils.getBeanByClass(JsonMapper.class);
         } else {
-            return JsonMapper.builder().build();
+            return JacksonConfig.applyGlobalPolicy(JsonMapper.builder()).build();
         }
         return mapper;
     }
@@ -116,6 +118,23 @@ public class JsonUtils {
         }
         try {
             return getMapper().readValue(json, javaType);
+        } catch (JacksonException e) {
+            throw new JSONException("JSON deserialization failure: {0}", LogUtils.splitLog(json), e);
+        }
+    }
+
+    /**
+     * String to JsonNode with floating-point numbers read as BigDecimal,
+     * so an amount keeps the scale it was written with: {@code 502.00} stays {@code 502.00}, not {@code 502.0}.
+     * @param json JSON string
+     * @return JsonNode, null when the string is blank
+     */
+    public static JsonNode stringToJsonNodeWithBigDecimalFloats(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return getMapper().reader(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).readTree(json);
         } catch (JacksonException e) {
             throw new JSONException("JSON deserialization failure: {0}", LogUtils.splitLog(json), e);
         }

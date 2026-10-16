@@ -20,6 +20,7 @@ import tools.jackson.databind.ext.javatime.deser.LocalTimeDeserializer;
 import tools.jackson.databind.ext.javatime.ser.LocalDateSerializer;
 import tools.jackson.databind.ext.javatime.ser.LocalDateTimeSerializer;
 import tools.jackson.databind.ext.javatime.ser.LocalTimeSerializer;
+import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.module.SimpleModule;
 import tools.jackson.databind.ser.std.ToStringSerializer;
 import tools.jackson.databind.type.LogicalType;
@@ -62,22 +63,34 @@ public class JacksonConfig {
      */
     @Bean
     public JsonMapperBuilderCustomizer globalJacksonPolicy() {
-        return builder -> {
-            // Ignore unknown properties during deserialization
-            builder.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            // Form UIs often clear optional selects / numbers / toggles to "" instead of omitting
-            // the field or sending null. Default Jackson fails scalar binding with
-            // InvalidFormatException (HttpMessageNotReadableException → 500) before the
-            // controller runs. Treat empty string as null for these logical types so draft /
-            // partial payloads stay readable. Shared by softa CRUD and app @RequestBody
-            // mappers — invalid non-empty values still fail (not READ_UNKNOWN_ENUM_VALUES_AS_NULL).
-            for (LogicalType type : new LogicalType[] {
-                    LogicalType.Enum, LogicalType.Integer, LogicalType.Float, LogicalType.Boolean
-            }) {
-                builder.withCoercionConfig(type, cfg ->
-                        cfg.setCoercion(CoercionInputShape.EmptyString, CoercionAction.AsNull));
-            }
-        };
+        return JacksonConfig::applyGlobalPolicy;
+    }
+
+    /**
+     * The deserialization policy every softa mapper shares:
+     * the Spring-managed {@link JsonMapper} through {@link #globalJacksonPolicy()},
+     * and the one {@code JsonUtils} builds for itself when no application context is up,
+     * so JSON reads the same inside and outside the application.
+     *
+     * @param builder the mapper builder to configure
+     * @return the same builder
+     */
+    public static JsonMapper.Builder applyGlobalPolicy(JsonMapper.Builder builder) {
+        // Ignore unknown properties during deserialization
+        builder.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        // Form UIs often clear optional selects / numbers / toggles to "" instead of omitting
+        // the field or sending null. Default Jackson fails scalar binding with
+        // InvalidFormatException (HttpMessageNotReadableException → 500) before the
+        // controller runs. Treat empty string as null for these logical types so draft /
+        // partial payloads stay readable. Shared by softa CRUD and app @RequestBody
+        // mappers — invalid non-empty values still fail (not READ_UNKNOWN_ENUM_VALUES_AS_NULL).
+        for (LogicalType type : new LogicalType[] {
+                LogicalType.Enum, LogicalType.Integer, LogicalType.Float, LogicalType.Boolean
+        }) {
+            builder.withCoercionConfig(type, cfg ->
+                    cfg.setCoercion(CoercionInputShape.EmptyString, CoercionAction.AsNull));
+        }
+        return builder;
     }
 
     // ===== Jackson 2 Compatibility =====
@@ -99,7 +112,7 @@ public class JacksonConfig {
         objectMapper.registerModule(javaTimeModule);
         // Ignore unknown properties
         objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        // Mirror globalJacksonPolicy for callers still on the Jackson 2 ObjectMapper bean.
+        // Mirror applyGlobalPolicy for callers still on the Jackson 2 ObjectMapper bean.
         for (com.fasterxml.jackson.databind.type.LogicalType type : new com.fasterxml.jackson.databind.type.LogicalType[] {
                 com.fasterxml.jackson.databind.type.LogicalType.Enum,
                 com.fasterxml.jackson.databind.type.LogicalType.Integer,
