@@ -223,6 +223,13 @@ public class SensitiveFieldSetCache {
         return setIdToModel.get().get(setId);
     }
 
+    /** The field codes of a {@code setId}, on the set's own model; empty when the set is unknown. */
+    public Set<String> fieldCodesOf(String setId) {
+        if (setId == null) return Set.of();
+        Set<String> codes = setIdToFieldCodes.get().get(setId);
+        return codes == null ? Set.of() : codes;
+    }
+
     /** All setIds whose {@code attachedTo} declares {@code modelName}.
      *  Powers Wizard UI aggregation — these SFS appear as additional
      *  rows under nav whose primary model is {@code modelName}, in

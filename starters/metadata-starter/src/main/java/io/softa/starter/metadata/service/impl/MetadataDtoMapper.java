@@ -1,8 +1,9 @@
 package io.softa.starter.metadata.service.impl;
 
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
@@ -66,9 +67,14 @@ public final class MetadataDtoMapper {
         dto.setVersionLock(metaModel.isVersionLock());
         dto.setCopyable(metaModel.isCopyable());
         dto.setProjection(metaModel.isProjection());
-        List<MetaField> fields = ModelManager.getModelFields(modelName);
-        Map<String, MetaFieldDTO> fieldMap = fields.stream()
-                .collect(Collectors.toMap(MetaField::getFieldName, MetadataDtoMapper::toFieldDTO));
+        // In the order the fields were catalogued — the order a model declares them, with fields added
+        // since following on — so a client listing the model's fields shows them the way it is written.
+        // The registry holds them unordered.
+        List<MetaField> fields = ModelManager.getModelFields(modelName).stream()
+                .sorted(Comparator.comparing(MetaField::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        Map<String, MetaFieldDTO> fieldMap = new LinkedHashMap<>();
+        fields.forEach(field -> fieldMap.put(field.getFieldName(), toFieldDTO(field)));
         dto.setModelFields(fieldMap);
         return dto;
     }

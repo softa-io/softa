@@ -445,6 +445,11 @@ record's form must not show. They describe only the caller's own access, and jud
 does: a set is hidden only when none of its fields is granted by a reading role that reaches the record
 (through any set covering the field), and read-only when some are but none by an editing role — so a
 section whose values the read returns is never reported hidden because another set also covers them.
+Each answer also carries the same verdict **by field** — `hiddenFields` / `readonlyFields` (and
+`hiddenFields` on a create), keyed by the model each field belongs to — for a screen that judges one
+field at a time: a list cell, a form field outside any section that declares its set. These are judged
+field by field, as the mask and the write check are, so a set counted editable because one of its fields
+is can still list its other fields as read-only.
 
 **Approvals.** An approver rarely holds update on what they approve, so per-action scope would refuse
 the approval's own writes. Approval endpoints check once, at the entry, that the approver can see the

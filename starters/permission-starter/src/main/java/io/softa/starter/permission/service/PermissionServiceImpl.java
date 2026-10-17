@@ -1124,7 +1124,8 @@ public class PermissionServiceImpl implements PermissionService {
             List<Grant> reading = readers.stream().filter(g -> reach.get(g).contains(key)).toList();
             if (reading.isEmpty()) {
                 // Not a record the caller can see at all: nothing of it shows and nothing can be done.
-                out.add(new RecordAccess(id, owned, Set.of(), Set.of()));
+                out.add(new RecordAccess(id, owned, Set.of(), Set.of(),
+                        fieldsMissing(owned, List.of(), null), Map.of()));
                 continue;
             }
             List<Grant> editing = held.contains(AccessType.UPDATE)
@@ -1144,8 +1145,37 @@ public class PermissionServiceImpl implements PermissionService {
             if (held.contains(AccessType.DELETE) && deleters.stream().anyMatch(g -> reach.get(g).contains(key))) {
                 actions.add(AccessType.DELETE);
             }
-            out.add(new RecordAccess(id, hidden, readonly, actions));
+            Map<String, Set<String>> hiddenFields = fieldsMissing(owned, reading, null);
+            out.add(new RecordAccess(id, hidden, readonly, actions,
+                    hiddenFields, fieldsMissing(owned, editing, hiddenFields)));
         }
+        return out;
+    }
+
+    /**
+     * The fields of {@code sets}, by the model each set belongs to, that none of {@code grants} grants —
+     * leaving out those already in {@code except}. Judged field by field, as the mask and the write
+     * check are: a field two sets share is let through by a role granting either set. Empty without
+     * the set catalogue.
+     */
+    private Map<String, Set<String>> fieldsMissing(Set<String> sets, List<Grant> grants,
+                                                   Map<String, Set<String>> except) {
+        if (sfsCache == null || sets.isEmpty()) return Map.of();
+        Map<String, Set<String>> out = new java.util.TreeMap<>();
+        for (String set : sets) {
+            String owner = sfsCache.modelOf(set);
+            if (owner != null) {
+                out.computeIfAbsent(owner, k -> new java.util.TreeSet<>()).addAll(sfsCache.fieldCodesOf(set));
+            }
+        }
+        for (Map.Entry<String, Set<String>> entry : out.entrySet()) {
+            for (Grant g : grants) {
+                Set<String> held = g.sensitiveSets().getOrDefault(entry.getKey(), Set.of());
+                if (!held.isEmpty()) entry.getValue().removeAll(sfsCache.grantedFieldsFor(entry.getKey(), held));
+            }
+            if (except != null) entry.getValue().removeAll(except.getOrDefault(entry.getKey(), Set.of()));
+        }
+        out.values().removeIf(Set::isEmpty);
         return out;
     }
 
@@ -1160,7 +1190,9 @@ public class PermissionServiceImpl implements PermissionService {
         hidden.addAll(sfsCache.setIdsAttachedTo(model));
         List<Grant> creators = holders(pi, model, AccessType.CREATE);
         hidden.removeIf(set -> grantsAnyFieldOf(creators, model, set));
-        return new CreateAccess(hidden);
+        Set<String> all = new java.util.TreeSet<>(sfsCache.setIdsOwnedBy(model));
+        all.addAll(sfsCache.setIdsAttachedTo(model));
+        return new CreateAccess(hidden, fieldsMissing(all, creators, null));
     }
 
     /**

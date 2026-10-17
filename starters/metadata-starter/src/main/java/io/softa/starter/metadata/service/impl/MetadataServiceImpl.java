@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -82,7 +83,7 @@ public class MetadataServiceImpl implements MetadataService {
         if (fields == null || fields.isEmpty() || dto.getModelFields() == null) {
             return dto;
         }
-        Map<String, MetaFieldDTO> kept = new HashMap<>(dto.getModelFields());
+        Map<String, MetaFieldDTO> kept = new LinkedHashMap<>(dto.getModelFields());
         kept.keySet().removeAll(fields);
         dto.setModelFields(kept);
         return dto;
