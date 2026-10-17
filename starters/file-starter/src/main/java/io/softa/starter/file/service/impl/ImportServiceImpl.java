@@ -27,6 +27,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.base.placeholder.PlaceholderKind;
 import io.softa.framework.base.placeholder.PlaceholderToken;
@@ -44,6 +45,7 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.FileService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.FileUtils;
 import io.softa.starter.file.dto.ImportDataDTO;
 import io.softa.starter.file.dto.ImportFieldDTO;
@@ -98,6 +100,9 @@ public class ImportServiceImpl implements ImportService {
     @Autowired
     private OptionDropdownResolver optionDropdownResolver;
 
+    @Autowired
+    private PermissionService permissionService;
+
     public void validateImportTemplate(ImportTemplate importTemplate) {
         Assert.notBlank(importTemplate.getModelName(),
                 "Import template `{0}` modelName cannot be empty.", importTemplate.getName());
@@ -120,6 +125,7 @@ public class ImportServiceImpl implements ImportService {
         ImportTemplate importTemplate = loadTemplate(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
         validateImportTemplate(importTemplate);
+        checkImportAccess(importTemplate.getModelName());
         // Construct the importTemplateDTO object
         ImportTemplateDTO importTemplateDTO = this.getImportTemplateDTO(importTemplate, null);
 
@@ -190,6 +196,7 @@ public class ImportServiceImpl implements ImportService {
         ImportTemplate importTemplate = loadTemplate(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
         this.validateImportTemplate(importTemplate);
+        checkImportAccess(importTemplate.getModelName());
         // The model this file is stamped with decides who may later claim it, and the row that will
         // hold it is the ImportHistory record below — never a row of the model being imported. Stamped
         // with the business model, the write of ImportHistory.originalFileId is refused with
@@ -286,6 +293,7 @@ public class ImportServiceImpl implements ImportService {
         ImportTemplate importTemplate = loadTemplate(templateId, subQueries)
                 .orElseThrow(() -> new IllegalArgumentException("Import template not found by ID: {0}", templateId));
         this.validateImportTemplate(importTemplate);
+        checkImportAccess(importTemplate.getModelName());
         Long fileId = fileService.uploadFile(HISTORY_MODEL, file);
         // Generate a validation history record
         ImportHistory importHistory = this.generateImportHistory(importTemplate, fileId, ImportType.VALIDATE);
@@ -406,6 +414,7 @@ public class ImportServiceImpl implements ImportService {
      */
     @Override
     public ImportHistory importByDynamic(ImportWizard importWizard) {
+        checkImportAccess(importWizard.getModelName());
         String fileName = importWizard.getFileName();
         Long fileId = fileService.uploadFile(HISTORY_MODEL, importWizard.getFile());
         // Generate an import history record
@@ -435,6 +444,7 @@ public class ImportServiceImpl implements ImportService {
      */
     @Override
     public ImportHistory validateByDynamic(ImportWizard importWizard) {
+        checkImportAccess(importWizard.getModelName());
         String fileName = importWizard.getFileName();
         Long fileId = fileService.uploadFile(HISTORY_MODEL, importWizard.getFile());
         // Generate a validation history record
@@ -467,6 +477,20 @@ public class ImportServiceImpl implements ImportService {
         importDataDTO.setEnv(importTemplateDTO.getEnv());
         importDataDTO.setOriginalRows(ListUtils.deepCopy(allDataList));
         return importDataDTO;
+    }
+
+    /**
+     * Refuse an import of a model the caller does not hold the import of.
+     *
+     * <p>The import endpoints are shared by every model, so the endpoint gate admitted the caller for
+     * holding the import of some model — not necessarily this one. Asked before the upload, so a refused
+     * import leaves no file and no history row behind.
+     */
+    private void checkImportAccess(String modelName) {
+        Assert.notBlank(modelName, "The model to import must be specified.");
+        if (!permissionService.hasModelImportGrant(modelName)) {
+            throw new PermissionException("You are not permitted to import {0}.", modelName);
+        }
     }
 
     /**

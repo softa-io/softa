@@ -119,6 +119,8 @@ class ContinuousIntervalMaintainerTest {
 
         timeline = new TimelineServiceImpl<>();
         ReflectionTestUtils.setField(timeline, "jdbcService", jdbc);
+        ReflectionTestUtils.setField(timeline, "permissionService",
+                org.mockito.Mockito.mock(io.softa.framework.orm.service.PermissionService.class));
     }
 
     @AfterEach

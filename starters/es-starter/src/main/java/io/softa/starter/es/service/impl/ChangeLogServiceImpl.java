@@ -119,6 +119,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
     public Page<ChangeLog> getRecordChangeLog(String modelName, Serializable id, List<String> relations,
                                               List<String> referencing, Page<ChangeLog> page, String order,
                                               boolean includeCreation) {
+        requireRead(modelName);
         permissionService.checkIdsFieldsAccess(modelName, Collections.singletonList(id), null, READ);
         List<HistoryPart> parts = this.historyParts(modelName, id, relations == null ? List.of() : relations,
                 referencing == null ? List.of() : referencing);
@@ -187,7 +188,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
             if (FieldType.ONE_TO_ONE.equals(field.getFieldType())) {
                 oneToOne.add(relation);
             } else {
-                parts.add(this.pointingPart(field.getRelatedModel(), field.getRelatedField(), id));
+                this.addPointingPart(parts, field.getRelatedModel(), field.getRelatedField(), id);
             }
         }
         for (String reference : new LinkedHashSet<>(referencing)) {
@@ -205,7 +206,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
                             && modelName.equals(field.getRelatedModel()),
                     "Field {0}.{1} is not a many-to-one or one-to-one to {2}.", model, fieldName, modelName);
             if (mayRead(model)) {
-                parts.add(this.pointingPart(model, fieldName, id));
+                this.addPointingPart(parts, model, fieldName, id);
             }
         }
         if (!oneToOne.isEmpty()) {
@@ -230,12 +231,29 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
      * The rows of a model that point at the record through one of its fields: by the reference
      * their logs carry, and by the rows that do now — past {@link #CURRENT_ROWS_ASKED_BY_ID}, by
      * the reference alone.
+     *
+     * <p>A reader under a row scope on that model is asked by the rows they reach now and nothing
+     * else. The reference names every row that ever pointed at the record — rows outside their scope,
+     * and deleted rows nobody can now place inside or outside it — so it is not theirs to ask by, the
+     * same answer {@link #onReadableRows} gives a scoped reader of a whole model's log.
      */
-    private HistoryPart pointingPart(String model, String field, Serializable id) {
-        List<String> current = this.logRowIds(model,
-                Filters.of(field, Operator.EQUAL, id), CURRENT_ROWS_ASKED_BY_ID + 1);
-        return new HistoryPart(model, current.size() > CURRENT_ROWS_ASKED_BY_ID ? List.of() : current,
-                field + "=" + id, visibleFieldsOf(model));
+    private void addPointingPart(List<HistoryPart> parts, String model, String field, Serializable id) {
+        Filters pointing = Filters.of(field, Operator.EQUAL, id);
+        if (isRowScoped(model)) {
+            List<String> reached = this.logRowIds(model, pointing, 0);
+            if (!reached.isEmpty()) {
+                parts.add(new HistoryPart(model, reached, null, visibleFieldsOf(model)));
+            }
+            return;
+        }
+        List<String> current = this.logRowIds(model, pointing, CURRENT_ROWS_ASKED_BY_ID + 1);
+        parts.add(new HistoryPart(model, current.size() > CURRENT_ROWS_ASKED_BY_ID ? List.of() : current,
+                field + "=" + id, visibleFieldsOf(model)));
+    }
+
+    /** Whether the reader's rows of {@code model} are bounded by a row scope. */
+    private boolean isRowScoped(String model) {
+        return !Filters.isEmpty(permissionService.appendScopeAccessFilters(model, new Filters()));
     }
 
     /**
@@ -264,13 +282,21 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
                 .toList();
     }
 
-    /** Model-level read access; a relation the reader cannot read is left out of their history. */
+    /**
+     * Whether the reader holds the read of {@code model}; a relation they cannot read is left out of
+     * their history.
+     *
+     * <p>Asked of the permission registered for the model's read, not of the endpoint gate: the log's
+     * endpoints are shared by every model — the model rides in a parameter — so no gate has checked it.
+     */
     private boolean mayRead(String model) {
-        try {
-            permissionService.checkModelAccess(model, READ);
-            return true;
-        } catch (PermissionException e) {
-            return false;
+        return permissionService.hasModelActionGrant(model, READ);
+    }
+
+    /** Refuse the history of a model the reader does not hold the read of. */
+    private void requireRead(String model) {
+        if (!mayRead(model)) {
+            throw new PermissionException("You are not permitted to read the history of {0}.", model);
         }
     }
 
@@ -343,7 +369,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
      * place inside or outside their scope.
      */
     List<ChangeLog> onReadableRows(String model, List<ChangeLog> logs) {
-        if (logs.isEmpty() || Filters.isEmpty(permissionService.appendScopeAccessFilters(model, new Filters()))) {
+        if (logs.isEmpty() || !isRowScoped(model)) {
             return logs;
         }
         List<Serializable> ids = IdUtils.formatIds(model,
@@ -421,6 +447,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
      */
     public Page<ChangeLog> getChangeLog(String modelName, Serializable id, Page<ChangeLog> page, String order, boolean includeCreation) {
         // Check if current user has access to the model and id
+        requireRead(modelName);
         permissionService.checkIdsFieldsAccess(modelName, Collections.singletonList(id), null, READ);
         page = this.getRowChangeLog(modelName, id, page, order, includeCreation);
         return this.processChangeLogData(modelName, page, ConvertType.REFERENCE);
@@ -437,6 +464,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
      * @return a page of change log list
      */
     public Page<ChangeLog> getSliceChangeLog(String modelName, Serializable sliceId, Page<ChangeLog> page, String order, boolean includeCreation) {
+        requireRead(modelName);
         // Get the business ids of the timeline model
         List<Serializable> ids = modelService.getIds(modelName, Filters.of(SLICE_ID, Operator.EQUAL, sliceId));
         Assert.notEmpty(ids,
@@ -456,7 +484,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
      * @return a page of list
      */
     public Page<ChangeLog> searchPageByModel(String model, FlexQuery flexQuery, Page<ChangeLog> page) {
-        permissionService.checkModelAccess(model, READ);
+        requireRead(model);
         Filters filters = Filters.and(flexQuery.getFilters(), new Filters().eq(ChangeLog::getModel, model));
         Orders orders = flexQuery.getOrders();
         this.searchPage(filters, orders, page);

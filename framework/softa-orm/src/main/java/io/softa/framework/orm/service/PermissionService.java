@@ -275,6 +275,24 @@ public interface PermissionService {
     boolean hasModelActionGrant(String model, AccessType accessType);
 
     /**
+     * Whether the caller holds the import of {@code model}.
+     *
+     * <p>The import endpoints are shared by every model — the model rides in a template or a request
+     * part — so the endpoint gate admits anyone holding the import of <em>some</em> model and cannot
+     * have authorized this one. The import service asks here, naming the model, before it reads a row.
+     * A model with no import permission registered is granted, as {@link #hasModelActionGrant} grants
+     * an unregistered model.
+     *
+     * <p>Default: granted.
+     *
+     * @param model the model being imported
+     * @return true when the caller may import it, or when no permission covers it
+     */
+    default boolean hasModelImportGrant(String model) {
+        return true;
+    }
+
+    /**
      * What the caller may do with each of these existing records: which sensitive sets are hidden or
      * read-only on it, and which of {@code UPDATE} / {@code DELETE} it may perform.
      *

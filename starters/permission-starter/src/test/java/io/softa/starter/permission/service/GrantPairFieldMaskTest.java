@@ -587,18 +587,36 @@ class GrantPairFieldMaskTest {
         relationsLeadToEmployee();
         holdTheExampleRoles();
         when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(1L));
+        when(modelService.getIds(eq("EmpLeave"), any(Filters.class))).thenReturn(List.of(7L));
 
         Filters oneHop = guardedOn("EmpLeave", Filters.of("employeeId.basePay", Operator.GREATER_THAN, 5000));
         Filters twoHops = guardedOn("EmpLeaveDay",
                 Filters.of("leaveId.employeeId.basePay", Operator.GREATER_THAN, 5000));
 
         assertThat(oneHop).isEqualTo(Filters.of("employeeId", Operator.IN, List.of(1L)));
-        assertThat(twoHops).isEqualTo(Filters.of("leaveId.employeeId", Operator.IN, List.of(1L)));
+        // Two hops cross a leave on the way, which the caller reads under a range too: the leaves are the
+        // ones inside it whose employee is among those.
+        assertThat(twoHops).isEqualTo(Filters.of("leaveId", Operator.IN, List.of(7L)));
         // The employees asked for: the condition, on Employee, AND the rows of R2 — the role granting pay.
         ArgumentCaptor<Filters> asked = ArgumentCaptor.forClass(Filters.class);
         verify(modelService, Mockito.times(2)).getIds(eq("Employee"), asked.capture());
         assertThat(asked.getValue().toString()).contains("basePay", "5000", "employmentType");
         assertThat(asked.getValue().toString()).doesNotContain("employeeId.basePay");
+    }
+
+    @Test
+    @DisplayName("a declared cascaded field onto pay is judged as the path it stands for")
+    void aDeclaredCascadedFieldOntoPayIsJudgedAsItsPath() {
+        relationsLeadToEmployee();
+        io.softa.framework.orm.meta.MetaField alias = new io.softa.framework.orm.meta.MetaField();
+        org.springframework.test.util.ReflectionTestUtils.setField(alias, "fieldName", "employeePay");
+        org.springframework.test.util.ReflectionTestUtils.setField(alias, "cascadedField", "employeeId.basePay");
+        models.when(() -> ModelManager.existField("EmpLeave", "employeePay")).thenReturn(true);
+        models.when(() -> ModelManager.getModelField("EmpLeave", "employeePay")).thenReturn(alias);
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        assertThat(guardedOn("EmpLeave", Filters.of("employeePay", Operator.GREATER_THAN, 5000)))
+                .isEqualTo(ScopeRuleCompiler.matchNone());
     }
 
     @Test

@@ -65,6 +65,10 @@ class ImportUploadStampsTheHolderTest {
         ReflectionTestUtils.setField(service, "importTemplateService", templateService);
         ReflectionTestUtils.setField(service, "importTemplateFieldService", fieldService);
         ReflectionTestUtils.setField(service, "importHistoryService", historyService);
+        io.softa.framework.orm.service.PermissionService permissionService =
+                mock(io.softa.framework.orm.service.PermissionService.class);
+        when(permissionService.hasModelImportGrant(anyString())).thenReturn(true);
+        ReflectionTestUtils.setField(service, "permissionService", permissionService);
         ReflectionTestUtils.setField(service, "asyncImportProducer",
                 mock(io.softa.starter.file.message.AsyncImportProducer.class));
     }

@@ -11,6 +11,7 @@ import org.springframework.util.CollectionUtils;
 import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Cast;
+import io.softa.framework.orm.aspect.CallerPermissions;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
@@ -260,11 +261,13 @@ public class XToOneGroupProcessor extends BaseProcessor {
                 createTargetRows.add(row);
             }
         }
-        List<Serializable> createdIds = ReflectTool.createList(relatedModel, createRows);
+        // The nested rows are the caller's own writes to the related model — an existing one named by
+        // id included — so they are judged as the caller: its row range and field guards.
+        List<Serializable> createdIds = CallerPermissions.asCaller(() -> ReflectTool.createList(relatedModel, createRows));
         for (int i = 0; i < createdIds.size(); i++) {
             createTargetRows.get(i).put(fieldName, createdIds.get(i));
         }
-        ReflectTool.updateList(relatedModel, updateRows);
+        CallerPermissions.asCaller(() -> ReflectTool.updateList(relatedModel, updateRows));
     }
 
 }

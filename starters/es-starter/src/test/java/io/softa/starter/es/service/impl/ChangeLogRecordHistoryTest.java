@@ -28,7 +28,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -73,6 +72,7 @@ class ChangeLogRecordHistoryTest {
         ReflectionTestUtils.setField(service, "permissionService", permissionService);
         ReflectionTestUtils.setField(service, "modelService", modelService);
         when(permissionService.getUserBlockedModelFields(any(), eq(AccessType.READ))).thenReturn(Set.of());
+        when(permissionService.hasModelActionGrant(any(), eq(AccessType.READ))).thenReturn(true);
 
         MetaModel employee = mock(MetaModel.class);
         when(employee.isTimeline()).thenReturn(false);
@@ -181,8 +181,7 @@ class ChangeLogRecordHistoryTest {
     void leavesOutARelationWhoseModelTheReaderCannotRead() {
         // As the form leaves out the table: refusing the whole history over one relation would
         // hide everything the reader is entitled to.
-        doThrow(new PermissionException("no read")).when(permissionService)
-                .checkModelAccess("EmpFamilyMember", AccessType.READ);
+        when(permissionService.hasModelActionGrant("EmpFamilyMember", AccessType.READ)).thenReturn(false);
 
         List<ChangeLogServiceImpl.HistoryPart> parts =
                 service.historyParts("Employee", EMPLOYEE, List.of("empFamilyMembers"));
@@ -264,13 +263,54 @@ class ChangeLogRecordHistoryTest {
     @Test
     void leavesOutReferencingRowsWhoseModelTheReaderCannotRead() {
         pointing("EmpAccessCard", "employeeId", "Employee");
-        doThrow(new PermissionException("no read")).when(permissionService)
-                .checkModelAccess("EmpAccessCard", AccessType.READ);
+        when(permissionService.hasModelActionGrant("EmpAccessCard", AccessType.READ)).thenReturn(false);
 
         List<ChangeLogServiceImpl.HistoryPart> parts =
                 service.historyParts("Employee", EMPLOYEE, List.of(), List.of("EmpAccessCard.employeeId"));
 
         assertThat(parts).extracting(ChangeLogServiceImpl.HistoryPart::model).containsExactly("Employee");
+    }
+
+    @Test
+    void aReaderScopedOnTheReferencingModelIsAskedByTheRowsTheyReachAlone() {
+        // The reference names every row that ever pointed at the record, those outside the reader's
+        // scope and deleted ones included; a scoped reader is asked by the rows they reach now.
+        pointing("EmpAccessCard", "employeeId", "Employee");
+        when(permissionService.appendScopeAccessFilters(eq("EmpAccessCard"), any(Filters.class)))
+                .thenReturn(Filters.of("departmentId", io.softa.framework.base.enums.Operator.IN, List.of(10L)));
+        when(modelService.getIds(eq("EmpAccessCard"), any(Filters.class))).thenReturn(List.of(501L));
+
+        List<ChangeLogServiceImpl.HistoryPart> parts =
+                service.historyParts("Employee", EMPLOYEE, List.of(), List.of("EmpAccessCard.employeeId"));
+
+        assertThat(parts).containsExactly(
+                new ChangeLogServiceImpl.HistoryPart("Employee", List.of("100"), null, null),
+                new ChangeLogServiceImpl.HistoryPart("EmpAccessCard", List.of("501"), null, null));
+    }
+
+    @Test
+    void aScopedReaderReachingNoReferencingRowGetsNoPartForThem() {
+        when(permissionService.appendScopeAccessFilters(eq("EmpFamilyMember"), any(Filters.class)))
+                .thenReturn(Filters.of("departmentId", io.softa.framework.base.enums.Operator.IN, List.of(10L)));
+        when(modelService.getIds(eq("EmpFamilyMember"), any(Filters.class))).thenReturn(List.of());
+
+        List<ChangeLogServiceImpl.HistoryPart> parts =
+                service.historyParts("Employee", EMPLOYEE, List.of("empFamilyMembers"));
+
+        assertThat(parts).extracting(ChangeLogServiceImpl.HistoryPart::model).containsExactly("Employee");
+    }
+
+    @Test
+    void refusesTheHistoryOfAModelTheReaderDoesNotHoldTheReadOf() {
+        when(permissionService.hasModelActionGrant("Employee", AccessType.READ)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getRecordChangeLog("Employee", EMPLOYEE, List.of(), List.of(),
+                io.softa.framework.orm.domain.Page.of(1, 50), "DESC", false))
+                .isInstanceOf(PermissionException.class);
+        assertThatThrownBy(() -> service.getChangeLog("Employee", EMPLOYEE,
+                io.softa.framework.orm.domain.Page.of(1, 50), "DESC", false))
+                .isInstanceOf(PermissionException.class);
+        verify(permissionService, never()).checkIdsFieldsAccess(any(), any(), any(), any());
     }
 
     private void pointing(String model, String field, String relatedModel) {

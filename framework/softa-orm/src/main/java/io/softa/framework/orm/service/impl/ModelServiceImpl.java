@@ -941,6 +941,10 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             writeValidators.validateUpdate(modelName, toUpdateRows, originalsById);
         }
         Integer updateCount = strategy.update(modelName, rows, toUpdateFields);
+        // The check above judged the rows as they were. Judge them again as written, in the same
+        // transaction: an update may not carry a row out of the caller's range by rewriting the very
+        // field the range is anchored on.
+        permissionService.checkIdsAccess(modelName, targetIds, AccessType.UPDATE);
         return updateCount > 0;
     }
 

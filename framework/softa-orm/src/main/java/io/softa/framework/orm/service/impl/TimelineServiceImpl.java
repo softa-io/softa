@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
@@ -19,10 +20,12 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.entity.TimelineSlice;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.TimelineService;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
@@ -37,6 +40,10 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
 
     @Autowired
     protected JdbcService<K> jdbcService;
+
+    @Lazy
+    @Autowired
+    private PermissionService permissionService;
 
     /**
      * Append `effectiveDate` filters when query the timeline model: `effectiveStartDate <= effectiveDate <= effectiveEndDate`.
@@ -203,6 +210,12 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
                 }
             }
             if (id != null && jdbcService.exist(modelName, id)) {
+                // A new version changes an entity that already exists: it may overwrite a slice
+                // starting the same day, and it cuts the overlapped slice short. That is an update of
+                // the entity, whether its id was given or found by the businessKey above, so it needs
+                // the entity in the caller's update range. Found but out of range is refused, never
+                // treated as "not found": that would mint a second entity under the same key.
+                permissionService.checkIdsAccess(modelName, List.of(id), AccessType.UPDATE);
                 // id already exists, copy adjacent slice to insert a new one.
                 createSlice(modelName, row);
             } else {

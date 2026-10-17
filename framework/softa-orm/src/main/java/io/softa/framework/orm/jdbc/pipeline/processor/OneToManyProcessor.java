@@ -11,6 +11,7 @@ import org.springframework.util.CollectionUtils;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
+import io.softa.framework.orm.aspect.CallerPermissions;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
@@ -95,7 +96,8 @@ public class OneToManyProcessor extends BaseProcessor {
         }
         if (!CollectionUtils.isEmpty(createRows)) {
             changed = true;
-            ReflectTool.createList(metaField.getRelatedModel(), createRows);
+            // The children are the caller's own writes to the related model, judged as the caller.
+            CallerPermissions.asCaller(() -> ReflectTool.createList(metaField.getRelatedModel(), createRows));
         }
     }
 
@@ -140,9 +142,11 @@ public class OneToManyProcessor extends BaseProcessor {
                         modelName, fieldName, value.getClass().getSimpleName());
             }
         }
-        List<?> newIds = ReflectTool.createList(metaField.getRelatedModel(), createRows);
-        boolean updated = ReflectTool.updateList(metaField.getRelatedModel(), updateRows);
-        boolean deleted = ReflectTool.deleteList(metaField.getRelatedModel(), deleteIds);
+        // The children are the caller's own writes to the related model, judged as the caller.
+        String relatedModel = metaField.getRelatedModel();
+        List<?> newIds = CallerPermissions.asCaller(() -> ReflectTool.createList(relatedModel, createRows));
+        boolean updated = CallerPermissions.asCaller(() -> ReflectTool.updateList(relatedModel, updateRows));
+        boolean deleted = CallerPermissions.asCaller(() -> ReflectTool.deleteList(relatedModel, deleteIds));
         if (updated || deleted || !newIds.isEmpty()) {
             changed = true;
         }

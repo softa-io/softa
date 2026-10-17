@@ -36,17 +36,18 @@ public class ChangeLogController {
     private ChangeLogService changeLogService;
 
     /**
-     * Initialize the page object and context parameters
+     * Initialize the page object and context parameters.
+     *
+     * <p>The history is always masked: these endpoints are open to every user who may read the record,
+     * so whether masked values are shown is not theirs to choose.
      *
      * @param pageNumber current page number
      * @param pageSize single page quantity
-     * @param dataMask whether to desensitize, default is true, that is, data desensitization
      * @return page object
      */
-    private Page<ChangeLog> initPageAndContext(Integer pageNumber, Integer pageSize, Boolean dataMask) {
+    private Page<ChangeLog> initPageAndContext(Integer pageNumber, Integer pageSize) {
         Page<ChangeLog> page = Page.of(pageNumber, pageSize);
-        boolean isDataMask = !Boolean.FALSE.equals(dataMask);
-        ContextHolder.getContext().setDataMask(isDataMask);
+        ContextHolder.getContext().setDataMask(true);
         return page;
     }
 
@@ -59,7 +60,6 @@ public class ChangeLogController {
      * @param pageSize single page quantity, default is 50
      * @param order sort rule based on change time, default is reverse order, only support DESC, ASC string
      * @param includeCreation whether to include data at creation time, default is false, that is, not included
-     * @param dataMask whether to desensitize, default is true, that is, data desensitization
      * @return a page of the changeLog list
      */
     @Operation(description = "Read the data change records according to the id, " +
@@ -71,20 +71,18 @@ public class ChangeLogController {
             @Parameter(name = "pageNumber", description = "Current page number, default 1"),
             @Parameter(name = "pageSize", description = "Single page quantity, default 50"),
             @Parameter(name = "order", description = "DESC or ASC sort rule based on changeTime, default is DESC."),
-            @Parameter(name = "includeCreation", description = "Whether to include data at creation time, default is false, that is, not included."),
-            @Parameter(name = "dataMask", description = "Whether to desensitize, default is true, that is, data desensitization.")
+            @Parameter(name = "includeCreation", description = "Whether to include data at creation time, default is false, that is, not included.")
     })
     public ApiResponse<Page<ChangeLog>> getChangeLog(@RequestParam String modelName,
                                                      @RequestParam Serializable id,
                                                      @RequestParam(required = false) Integer pageNumber,
                                                      @RequestParam(required = false) Integer pageSize,
                                                      @RequestParam(required = false) String order,
-                                                     @RequestParam(required = false) Boolean includeCreation,
-                                                     @RequestParam(required = false) Boolean dataMask) {
+                                                     @RequestParam(required = false) Boolean includeCreation) {
         MetaModel metaModel = ModelManager.getModel(modelName);
         Assert.notTrue(metaModel.isTimeline(),
                 "The timeline model can only call the API to get the slice change log: getSliceChangeLog");
-        Page<ChangeLog> page = this.initPageAndContext(pageNumber, pageSize, dataMask);
+        Page<ChangeLog> page = this.initPageAndContext(pageNumber, pageSize);
         order = Orders.ASC.equals(StringUtils.upperCase(order)) ? Orders.ASC : Orders.DESC;
 
         page = changeLogService.getChangeLog(modelName, id, page, order, Boolean.TRUE.equals(includeCreation));
@@ -104,7 +102,6 @@ public class ChangeLogController {
      * @param pageSize single page quantity, default is 50
      * @param order sort rule based on change time, default is reverse order, only support DESC, ASC string
      * @param includeCreation whether to include data at creation time, default is false
-     * @param dataMask whether to desensitize, default is true
      * @return a page of the changeLog list, across every model involved
      */
     @Operation(description = "Read the change records of one record and of the rows its named one-to-one " +
@@ -118,8 +115,7 @@ public class ChangeLogController {
             @Parameter(name = "pageNumber", description = "Current page number, default 1"),
             @Parameter(name = "pageSize", description = "Single page quantity, default 50"),
             @Parameter(name = "order", description = "DESC or ASC sort rule based on changeTime, default is DESC."),
-            @Parameter(name = "includeCreation", description = "Whether to include data at creation time, default is false."),
-            @Parameter(name = "dataMask", description = "Whether to desensitize, default is true.")
+            @Parameter(name = "includeCreation", description = "Whether to include data at creation time, default is false.")
     })
     public ApiResponse<Page<ChangeLog>> getRecordChangeLog(@RequestParam String modelName,
                                                            @RequestParam Serializable id,
@@ -128,9 +124,8 @@ public class ChangeLogController {
                                                            @RequestParam(required = false) Integer pageNumber,
                                                            @RequestParam(required = false) Integer pageSize,
                                                            @RequestParam(required = false) String order,
-                                                           @RequestParam(required = false) Boolean includeCreation,
-                                                           @RequestParam(required = false) Boolean dataMask) {
-        Page<ChangeLog> page = this.initPageAndContext(pageNumber, pageSize, dataMask);
+                                                           @RequestParam(required = false) Boolean includeCreation) {
+        Page<ChangeLog> page = this.initPageAndContext(pageNumber, pageSize);
         order = Orders.ASC.equals(StringUtils.upperCase(order)) ? Orders.ASC : Orders.DESC;
         page = changeLogService.getRecordChangeLog(modelName, id, relations, referencing, page, order,
                 Boolean.TRUE.equals(includeCreation));
@@ -146,7 +141,6 @@ public class ChangeLogController {
      * @param pageSize single page quantity, default is 50
      * @param order sort rule based on change time, default is reverse order, only support DESC, ASC string
      * @param getCreate whether to include data at creation time, default is false, that is, not included
-     * @param dataMask whether to desensitize, default is true, that is, data desensitization
      * @return a page of change log list
      */
     @Operation(description = "Read the timeline slice change log page according to sliceId, " +
@@ -158,21 +152,19 @@ public class ChangeLogController {
             @Parameter(name = "pageNumber", description = "Current page number, default 1"),
             @Parameter(name = "pageSize", description = "Single page quantity, default 50"),
             @Parameter(name = "order", description = "DESC or ASC sort rule based on changeTime, default is DESC."),
-            @Parameter(name = "getCreate", description = "Whether to include data at creation time, default is false, that is, not included."),
-            @Parameter(name = "dataMask", description = "Whether to desensitize, default is true, that is, data desensitization.")
+            @Parameter(name = "getCreate", description = "Whether to include data at creation time, default is false, that is, not included.")
     })
     public ApiResponse<Page<ChangeLog>> getSliceChangeLog(@RequestParam String modelName,
                                                           @RequestParam Serializable sliceId,
                                                           @RequestParam(required = false) Integer pageNumber,
                                                           @RequestParam(required = false) Integer pageSize,
                                                           @RequestParam(required = false) String order,
-                                                          @RequestParam(required = false) Boolean getCreate,
-                                                          @RequestParam(required = false) Boolean dataMask) {
+                                                          @RequestParam(required = false) Boolean getCreate) {
         MetaModel metaModel = ModelManager.getModel(modelName);
         Assert.isTrue(metaModel.isTimeline(),
                 "Can only get the slice change log of the timeline model, {0} model is not a timeline model",
                 modelName);
-        Page<ChangeLog> page = this.initPageAndContext(pageNumber, pageSize, dataMask);
+        Page<ChangeLog> page = this.initPageAndContext(pageNumber, pageSize);
         order = Orders.ASC.equals(StringUtils.upperCase(order)) ? Orders.ASC : Orders.DESC;
 
         page =changeLogService.getSliceChangeLog(modelName, sliceId, page, order, Boolean.TRUE.equals(getCreate));

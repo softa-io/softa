@@ -64,7 +64,8 @@ public class PermissionAspect {
         boolean previousValue = context.isSkipPermissionCheck();
         try {
             context.setSkipPermissionCheck(true);
-            return joinPoint.proceed();
+            // Remembered for CallerPermissions.asCaller: the nested writes made inside are the caller's.
+            return ScopedValue.where(CallerPermissions.CALLER_SKIPPED, previousValue).call(joinPoint::proceed);
         } finally {
             context.setSkipPermissionCheck(previousValue);
         }

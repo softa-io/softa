@@ -16,6 +16,7 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.FilterType;
+import io.softa.framework.orm.enums.LogicOperator;
 import io.softa.framework.orm.meta.MetaField;
 import org.apache.commons.lang3.StringUtils;
 
@@ -31,6 +32,7 @@ import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.index.EndpointIndex;
+import io.softa.starter.permission.scope.IdPath;
 import io.softa.starter.permission.scope.SubtreeFilterRewriter;
 import io.softa.starter.permission.scope.ModelDefaultScopeRegistry;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
@@ -185,7 +187,9 @@ public class PermissionServiceImpl implements PermissionService {
         // A read performed for another action — the count behind "may I update these ids", an
         // export — reaches the rows of the roles holding that action, not every role's.
         AccessType access = AccessScope.current();
+        originalFilters = expandConditionFields(model, originalFilters);
         originalFilters = guardSensitiveConditions(pi, model, access, originalFilters);
+        originalFilters = boundRelatedConditions(pi, model, originalFilters);
         Filters scope = rowScope(pi, model, access);
         return scope == null ? originalFilters : combineAnd(originalFilters, scope);
     }
@@ -340,6 +344,137 @@ public class PermissionServiceImpl implements PermissionService {
      * @param relationPath the to-one path leading there; {@code null} for the queried model's own field
      */
     private record PathTarget(String model, String leaf, String relationPath) {}
+
+    // ─────────────────────── conditions through relations ───────────────────────
+
+    /**
+     * The caller's conditions in the shape the query builder runs them: a cascaded field the model
+     * declares ({@code deptName} for {@code deptId.name}) as the path it stands for, and {@code searchName}
+     * as the fields it searches, OR-ed. The guards judge a condition by the field it lands on; an alias or
+     * the virtual field would otherwise be judged by a name that lands on nothing, and pass. Rebuilt
+     * rather than mutated: the caller's filters may be shared.
+     */
+    private static Filters expandConditionFields(String model, Filters node) {
+        if (node == null) return null;
+        if (node.getType() == FilterType.LEAF) {
+            FilterUnit unit = node.getFilterUnit();
+            if (unit == null || unit.isTuple() || unit.getField() == null) return node;
+            String field = unit.getField();
+            if (ModelConstant.SEARCH_NAME.equals(field)) {
+                List<String> searched = ModelManager.existModel(model)
+                        ? ModelManager.getModel(model).getSearchName() : List.of();
+                if (searched == null || searched.isEmpty()) {
+                    searched = List.of(ModelConstant.ID);
+                }
+                List<Filters> each = searched.stream()
+                        .map(f -> Filters.of(expandAlias(model, f), unit.getOperator(), unit.getValue()))
+                        .toList();
+                return each.size() == 1 ? each.getFirst() : tree(LogicOperator.OR, each);
+            }
+            String expanded = expandAlias(model, field);
+            return expanded.equals(field) ? node : Filters.of(expanded, unit.getOperator(), unit.getValue());
+        }
+        if (node.getType() != FilterType.TREE || node.getChildren() == null) return node;
+        List<Filters> expanded = new ArrayList<>(node.getChildren().size());
+        for (Filters child : node.getChildren()) {
+            expanded.add(expandConditionFields(model, child));
+        }
+        return tree(node.getLogicOperator(), expanded);
+    }
+
+    /** {@code field} as the path it stands for when the model declares it as a cascaded field. */
+    private static String expandAlias(String model, String field) {
+        if (field == null || field.contains(".") || !ModelManager.existField(model, field)) return field;
+        String cascaded = ModelManager.getModelField(model, field).getCascadedField();
+        return StringUtils.isBlank(cascaded) ? field : cascaded;
+    }
+
+    private static Filters tree(LogicOperator operator, List<Filters> children) {
+        Filters copy = new Filters();
+        copy.setType(FilterType.TREE);
+        copy.setLogicOperator(operator);
+        copy.setChildren(children);
+        return copy;
+    }
+
+    /**
+     * A condition through a to-one relation into a model the caller reads under a row range, rewritten
+     * as {@code relation IN} the related rows inside that range where the condition holds.
+     *
+     * <p>The query builder joins the related table with no range of its own, so {@code
+     * managerId.dateOfBirth < 1980-01-01} on a readable row would answer a question about a related row
+     * the caller cannot read — its value, found out one question at a time. The related rows are read
+     * through the caller's own range on that model instead, which applies the same rewrite to whatever
+     * the path crosses next. A related row outside the range never matches, {@code IS NOT SET}
+     * included; a row with no related row still matches {@code IS NOT SET}, as it did.
+     *
+     * <p>A condition on what a reference already shows — the related row's id or display name — is left
+     * as it is: the caller sees that label on the row whether or not they may read the related one.
+     */
+    private Filters boundRelatedConditions(PermissionInfo pi, String model, Filters node) {
+        if (node == null) return null;
+        if (node.getType() == FilterType.LEAF) {
+            FilterUnit unit = node.getFilterUnit();
+            if (unit == null) return node;
+            if (unit.isTuple()) {
+                // A tuple compares several fields at once and cannot be narrowed field by field.
+                for (String field : unit.getEffectiveFields()) {
+                    if (readsBeyondRange(pi, model, field)) return ScopeRuleCompiler.matchNone();
+                }
+                return node;
+            }
+            String field = unit.getField();
+            if (!readsBeyondRange(pi, model, field)) return node;
+            int dot = field.indexOf('.');
+            String relation = field.substring(0, dot);
+            String related = ModelManager.getModelField(model, relation).getRelatedModel();
+            Filters onRelated = Filters.of(field.substring(dot + 1), unit.getOperator(), unit.getValue());
+            // Read as a read of the related model, whatever action the outer read is performed for: an
+            // export of the main model does not need the export of every model its conditions cross.
+            List<?> ids = AccessScope.callAs(AccessType.READ, () -> modelService.getIds(related, onRelated));
+            Filters within = ids.isEmpty()
+                    ? ScopeRuleCompiler.matchNone()
+                    : Filters.of(relation, Operator.IN, ids);
+            return Operator.IS_NOT_SET.equals(unit.getOperator())
+                    ? tree(LogicOperator.OR, new ArrayList<>(List.of(Filters.of(relation, Operator.IS_NOT_SET, null), within)))
+                    : within;
+        }
+        if (node.getType() != FilterType.TREE || node.getChildren() == null) return node;
+        List<Filters> bounded = new ArrayList<>(node.getChildren().size());
+        for (Filters child : node.getChildren()) {
+            bounded.add(boundRelatedConditions(pi, model, child));
+        }
+        return tree(node.getLogicOperator(), bounded);
+    }
+
+    /**
+     * Whether {@code field}, a path through to-one relations from {@code model}, reads past the label of
+     * a related row the caller reads under a row range — at the first relation or any one after it.
+     */
+    private boolean readsBeyondRange(PermissionInfo pi, String model, String field) {
+        int dot = field == null ? -1 : field.indexOf('.');
+        if (dot < 0 || !ModelManager.existField(model, field.substring(0, dot))) return false;
+        MetaField relation = ModelManager.getModelField(model, field.substring(0, dot));
+        if (relation.getRelatedModel() == null
+                || (relation.getFieldType() != FieldType.MANY_TO_ONE
+                    && relation.getFieldType() != FieldType.ONE_TO_ONE)) {
+            return false;
+        }
+        String related = relation.getRelatedModel();
+        String rest = expandAlias(related, field.substring(dot + 1));
+        if (rowScope(pi, related, AccessType.READ) != null && !isLabel(related, rest)) return true;
+        return readsBeyondRange(pi, related, rest);
+    }
+
+    /**
+     * What a reference to a row of {@code model} shows of it: its id, its display name, and — on a tree
+     * — its place in the tree, which a subtree filter on the reference ({@code deptId CHILD OF 12},
+     * rewritten above onto {@code deptId.idPath}) walks.
+     */
+    private static boolean isLabel(String model, String field) {
+        return ModelConstant.ID.equals(field) || IdPath.FIELD.equals(field)
+                || ModelManager.getModelDisplayName(model).contains(field);
+    }
 
     // ─────────────────────── grant pairs ───────────────────────
 
@@ -545,7 +680,9 @@ public class PermissionServiceImpl implements PermissionService {
         if (shouldBypass()) return originalFilters;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
-        return guardSensitiveConditions(pi, model, AccessScope.current(), originalFilters);
+        originalFilters = expandConditionFields(model, originalFilters);
+        originalFilters = guardSensitiveConditions(pi, model, AccessScope.current(), originalFilters);
+        return boundRelatedConditions(pi, model, originalFilters);
     }
 
     /**
@@ -1039,13 +1176,20 @@ public class PermissionServiceImpl implements PermissionService {
      */
     @Override
     public void guardQuery(String model, FlexQuery flexQuery) {
-        if (flexQuery == null || shouldBypass() || sfsCache == null) return;
+        if (flexQuery == null || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
         AccessType read = readAccess(AccessType.READ);
         Map<String, FieldPlan> plans = new java.util.HashMap<>();
-        java.util.function.Predicate<String> masked =
-                field -> field != null && maskedTarget(pi, model, field, read, plans) != null;
+        // A declared cascaded field is judged by the path it stands for, and a path into a related row the
+        // caller reads under a range — past its label — is held back as a masked field is: sorted or
+        // grouped by, it would order or bucket the rows by values the caller may not read.
+        java.util.function.Predicate<String> masked = field -> {
+            if (field == null) return false;
+            String path = expandAlias(model, field);
+            return (sfsCache != null && maskedTarget(pi, model, path, read, plans) != null)
+                    || readsBeyondRange(pi, model, path);
+        };
         Orders orders = flexQuery.getOrders();
         if (orders != null && orders.getFields().stream().anyMatch(masked)) {
             Orders kept = new Orders();
@@ -1782,7 +1926,27 @@ public class PermissionServiceImpl implements PermissionService {
         if (PermissionInfo.isAdmin(pi)) return true;
         String action = MODEL_ACTIONS.get(accessType);
         if (action == null) return true;
-        Set<String> candidates = endpointIndex.modelActionPermissions(model, action);
+        return holdsAny(pi, endpointIndex.modelActionPermissions(model, action));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Asked by the action segment of the permission id, the way {@link #actionPermissions} asks for an
+     * export: no endpoint path names the model.
+     */
+    @Override
+    public boolean hasModelImportGrant(String model) {
+        if (shouldBypass() || model == null) return true;
+        EndpointIndex endpointIndex = endpointIndexSupplier.get();
+        if (endpointIndex == null) return true;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.isAdmin(pi)) return true;
+        return holdsAny(pi, endpointIndex.actionPermissions(model, "import"));
+    }
+
+    /** Whether the caller holds one of {@code candidates}; an empty set — nothing registered — grants. */
+    private static boolean holdsAny(PermissionInfo pi, Set<String> candidates) {
         // Unregistered means granted — see the interface javadoc for why this default is the opposite
         // of the interceptor's.
         if (candidates.isEmpty()) return true;

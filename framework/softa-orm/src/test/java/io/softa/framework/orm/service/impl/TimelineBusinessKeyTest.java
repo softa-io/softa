@@ -13,15 +13,20 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.PermissionService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -85,9 +90,41 @@ class TimelineBusinessKeyTest {
         verify(jdbcService).insertList(anyString(), any());
     }
 
+    /**
+     * Joining an existing entity is an update of it. An entity the key finds outside the caller's
+     * update range is refused — not taken for "not found", which would mint a second entity under the
+     * same key — and none of its slices is touched.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void anEntityTheKeyFindsOutsideTheUpdateRangeIsRefused() {
+        JdbcService<Serializable> jdbcService = mock(JdbcService.class);
+        when(jdbcService.selectByFilter(anyString(), any(FlexQuery.class)))
+                .thenAnswer(invocation -> List.of(new LinkedHashMap<>(Map.of(ModelConstant.ID, 900L))));
+        when(jdbcService.exist(anyString(), any())).thenReturn(true);
+        PermissionService permissionService = mock(PermissionService.class);
+        doThrow(new PermissionException("out of scope"))
+                .when(permissionService).checkIdsAccess(MODEL, List.of(900L), AccessType.UPDATE);
+
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
+            stubModel(models, List.of("employeeId", "salaryProfileItemId"));
+            assertThatThrownBy(() -> createSlices(jdbcService, permissionService, rowFor(2026, 1, 1)))
+                    .isInstanceOf(PermissionException.class);
+        }
+
+        verify(jdbcService, never()).insertList(anyString(), any());
+        verify(jdbcService, never()).updateList(anyString(), any(), any());
+    }
+
     private void createSlices(JdbcService<Serializable> jdbcService, Map<String, Object> row) {
+        createSlices(jdbcService, mock(PermissionService.class), row);
+    }
+
+    private void createSlices(JdbcService<Serializable> jdbcService, PermissionService permissionService,
+                              Map<String, Object> row) {
         TimelineServiceImpl<Serializable> service = new TimelineServiceImpl<>();
         ReflectionTestUtils.setField(service, "jdbcService", jdbcService);
+        ReflectionTestUtils.setField(service, "permissionService", permissionService);
         Context context = new Context();
         context.setEffectiveDate(LocalDate.of(2026, 8, 27));
         ContextHolder.runWith(context, () -> service.createSlices(MODEL, new ArrayList<>(List.of(row))));
