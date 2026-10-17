@@ -100,6 +100,7 @@ class FieldAnnotationCustomizerTest {
             @Override public String invalidWhen() { return ""; }
             @Override public boolean required() { return false; }
             @Override public boolean readonly() { return readonly; }
+            @Override public boolean hidden() { return false; }
             @Override public boolean translatable() { return false; }
             @Override public boolean copyable() { return true; }
             @Override public boolean unsearchable() { return false; }

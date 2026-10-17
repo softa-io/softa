@@ -105,6 +105,33 @@ class AnnotationParserTest {
         assertEquals(Boolean.FALSE, m.getCopyable());
     }
 
+    @Test
+    void fieldHidden_isTrueWhenMarkedAndNullOtherwise() {
+        @Model
+        @SuppressWarnings("unused")
+        class Applicant extends AuditableModel {
+            @Field
+            private Long id;
+
+            @Field
+            private String name;
+
+            @Field(hidden = true)
+            private String inviteToken;
+
+            @Override
+            public Serializable getId() {
+                return id;
+            }
+        }
+        var fields = parser.parse(List.of(Applicant.class), List.of()).fields();
+        var byName = new java.util.HashMap<String, io.softa.starter.metadata.entity.SysField>();
+        fields.forEach(f -> byName.put(f.getFieldName(), f));
+        assertEquals(Boolean.TRUE, byName.get("inviteToken").getHidden());
+        // Null rather than false, so rows written before the attribute existed are not a change.
+        assertEquals(null, byName.get("name").getHidden());
+    }
+
     // ------- request-scoped narrowing attributes -------------------------
     //
     // multiCountry is what MultiCountryScope reads at runtime, and multiCompany what the permission

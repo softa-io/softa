@@ -148,6 +148,14 @@ public @interface Field {
     /** Readonly (not editable in default views). */
     boolean readonly() default false;
 
+    /**
+     * Left out of the field lists a client builds from the metadata on its own — the columns a list
+     * offers, a template's insertable fields — because the field is internal: a helper a sort or
+     * report reads, a token, a flag another field restates. Nothing else changes: the field is read
+     * and written as before, and a view that names it still shows it.
+     */
+    boolean hidden() default false;
+
     /** I18n-translatable column. */
     boolean translatable() default false;
 

@@ -585,6 +585,9 @@ public final class AnnotationParser {
                 modelName + "." + javaField.getName()));
         f.setRequired(anno.required() || javaField.getType().isPrimitive());
         f.setReadonly(anno.readonly());
+        // Null, not false, when unmarked: rows written before the attribute existed hold null, and
+        // false would read as a change to every field on the next boot.
+        f.setHidden(anno.hidden() ? Boolean.TRUE : null);
         f.setTranslatable(anno.translatable());
         f.setCopyable(anno.copyable());
         f.setUnsearchable(anno.unsearchable());

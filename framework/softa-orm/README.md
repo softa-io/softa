@@ -142,6 +142,7 @@ it remains what the JSON form and the stored row carry, since only the authoring
 Compare an option by its item code: a wrong code never fires and never reports.
 | `required` | boolean | `false` | `required` | NOT NULL constraint |
 | `readonly` | boolean | `false` | `readonly` | UI hint |
+| `hidden` | boolean | `false` | `hidden` | internal field: left out of the field lists a client builds from metadata on its own (offered list columns, template fields); still read, written and shown where a view names it. Stored as null when unmarked |
 | `translatable` | boolean | `false` | `translatable` | i18n-aware column |
 | `copyable` | boolean | `true` | `copyable` | `false` ⇒ value not carried over by `copyById` (business keys, credentials, runtime state) |
 
@@ -174,7 +175,6 @@ value-preserving rename would have carried wrong values.
 | (scanner sets) | — | — | `optionSetCode` | derived from enum type when fieldType is `OPTION`/`MULTI_OPTION` |
 | (scanner sets) | — | — | `appCode` / `id` | |
 | (FK fixup post-init) | — | — | `modelId` | |
-| (not exposed via `@Field`) | — | — | `hidden` | UI-only flag set via Studio |
 
 #### Field constraints (`constraints` — one column, seven attributes)
 
