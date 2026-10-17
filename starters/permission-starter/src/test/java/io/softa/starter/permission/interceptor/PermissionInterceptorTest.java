@@ -211,8 +211,8 @@ class PermissionInterceptorTest {
 
     @Test
     void platformAdmin_stillReachesAnUnregisteredEndpoint() {
-        // Same allowance the other two admin-shaped principals get: plenty of endpoints carry no
-        // permission mapping, and denying those would turn this boundary into a broad outage.
+        // The platform's own operations (pre-data loading, cron triggers) are such endpoints, and
+        // the platform administrator is who they are for. The two in-tenant principals are refused.
         when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(platformAdmin());
         when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
 
@@ -293,10 +293,11 @@ class PermissionInterceptorTest {
         // read downstream as "no company at all" and blank every multi-company screen for the role.
         PermissionInfo pi = PermissionInfo.builder()
                 .roleCodes(Set.of(PermissionInfo.CODE_TENANT_ADMIN))
-                .permissions(Set.of())
+                .permissions(Set.of("employee.view"))
                 .grantedCountries(Set.of("SG"))
                 .build();
         when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup(eq("/Employee/searchList"), eq("POST"))).thenReturn(Set.of("employee.view"));
 
         MockHttpServletRequest r = req("POST", "/Employee/searchList");
         Context ctx = new Context();
@@ -445,18 +446,20 @@ class PermissionInterceptorTest {
     }
 
     @Test
-    void tenantAdmin_stillBypassesAnUnregisteredEndpoint() {
-        // The bypass's original job, and the reason the new check is conditional rather than the same
-        // code path as a normal user's. Plenty of endpoints carry no permission mapping; a tenant admin
-        // is expected to reach them. Denying here would turn a billing gate into a broad outage —
-        // note the normal-user path throws "Endpoint not registered" on exactly this input.
+    void tenantAdmin_isRefusedAnUnregisteredEndpoint() {
+        // An endpoint no permission lists is not part of the tenant's functions, so a tenant admin is
+        // refused it like anyone else. Passing it through left every unmapped endpoint — including
+        // global ones acting on shared models — open to every tenant's admin.
         when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(tenantAdminOnFreePlan());
         when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
 
         MockHttpServletRequest r = req("POST", "/SomeUnmappedThing/doIt");
-        boolean allowed = inCtx(10L, 42L,
-                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
-        assertThat(allowed).isTrue();
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class)
+                    .hasMessageContaining("Endpoint not registered");
+            return null;
+        });
     }
 
     @Test
@@ -524,17 +527,26 @@ class PermissionInterceptorTest {
     }
 
     @Test
-    void consultant_reachesAnUnregisteredEndpointLikeAnAdminDoes() {
-        // The asymmetry this branch was added for. Without it a consultant fell through to the normal
-        // path and got "Endpoint not registered" wherever the mapping is incomplete — a 403 on work a
-        // tenant admin does freely, which contradicts "the tenant's functions, in full".
+    void consultant_isRefusedAnUnregisteredEndpointLikeATenantAdmin() {
         when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
         when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
 
         MockHttpServletRequest r = req("POST", "/SomeUnmappedThing/doIt");
-        boolean allowed = inCtx(10L, 42L,
-                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
-        assertThat(allowed).isTrue();
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class)
+                    .hasMessageContaining("Endpoint not registered");
+            return null;
+        });
+    }
+
+    @Test
+    void exactlyOnePrincipalMayReachUnregisteredEndpoints() {
+        for (BuiltinRole role : BuiltinRole.values()) {
+            assertThat(PermissionInterceptor.mayReachUnregistered(role))
+                    .as(role.name())
+                    .isEqualTo(role == BuiltinRole.SUPER_ADMIN);
+        }
     }
 
     @Test
@@ -664,9 +676,9 @@ class PermissionInterceptorTest {
         // A deployment without consultants installs no implementation; the branch must not fail closed
         // on a null collaborator.
         when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(consultantOnFreePlan());
-        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of());
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of("employee.view"));
 
-        MockHttpServletRequest r = req("POST", "/Anything/doIt");
+        MockHttpServletRequest r = req("POST", "/Employee/searchList");
         boolean allowed = inCtx(10L, 42L,
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
         assertThat(allowed).isTrue();

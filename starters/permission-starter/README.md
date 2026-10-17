@@ -508,9 +508,11 @@ box.
    - **CONSULTANT** → the same gate as a tenant admin, reached by its own rule: a
      consultant's menus are the tenant's subscription in full. Two rules that agree
      today, not one rule.
-   An **unregistered** endpoint still passes all three — plenty of endpoints carry no
-   permission mapping, and denying those would turn a billing gate into an outage.
-   Closing the mapping gap is `EndpointCoverageValidator`'s job, not this branch's.
+   An **unregistered** endpoint passes SUPER_ADMIN only — the platform's own
+   operations (pre-data loading, cron triggers, upgrades) are such endpoints. A
+   tenant admin and a consultant are refused it like anyone else, so a new controller
+   or model verb is closed inside a tenant until a permission lists it.
+   `EndpointCoverageValidator` logs every endpoint no permission lists.
 7. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
    (unknown URLs are denied, not opened) — for everyone who reached this step.
    A permission that lists its endpoints by hand also brings what its pages ask

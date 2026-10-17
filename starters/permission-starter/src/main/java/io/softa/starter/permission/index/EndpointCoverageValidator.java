@@ -43,8 +43,9 @@ import io.softa.starter.permission.interceptor.PermissionInterceptorProperties;
  * trade-off. Ops sees the full list in the log.
  *
  * <p><b>WARN, not ERROR.</b> An uncovered endpoint is unreachable, not open: the
- * interceptor refuses a request whose URI the index does not hold, so "nothing
- * grants it" reads as "nobody can call it". Most of the list is that way on
+ * interceptor refuses a request whose URI the index does not hold — to every caller
+ * but the platform administrator — so "nothing grants it" reads as "nobody in a
+ * tenant can call it". Most of the list is that way on
  * purpose — the generic model controller serves every verb for every model, and
  * only what a page declares is ever registered, so each model with no page of its
  * own contributes a screenful. Reporting a by-design dead route at the level
@@ -85,11 +86,11 @@ public class EndpointCoverageValidator {
             return;
         }
         log.warn("EndpointCoverageValidator — {} endpoint(s) not covered by any permission "
-                + "(unreachable, not open — the interceptor refuses what the index does not hold):",
+                + "(unreachable inside a tenant, not open — the interceptor refuses what the index does not hold; only the platform admin passes):",
                 uncovered.size());
         uncovered.forEach(e -> log.warn(
                 "  - {} — add to permission.endpoints or public/authenticated-bypass yml", e));
-        log.warn("EndpointCoverageValidator — startup continues; a route listed above can be reached by nobody, so fix the seed / classpath only where that is not the intent");
+        log.warn("EndpointCoverageValidator — startup continues; a route listed above can be reached by the platform admin only, so fix the seed / classpath only where that is not the intent");
     }
 
     /** Merge the handler map from EVERY {@code RequestMappingHandlerMapping} bean

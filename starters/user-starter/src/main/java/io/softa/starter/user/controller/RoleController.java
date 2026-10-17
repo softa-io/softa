@@ -18,6 +18,7 @@ import io.softa.starter.user.entity.UserRoleRel;
 import io.softa.starter.user.enums.UserRoleSource;
 import io.softa.starter.user.service.DynamicRoleSyncJob;
 import io.softa.starter.user.service.RoleDataScopeService;
+import io.softa.starter.user.service.RoleGrantCeiling;
 import io.softa.starter.user.service.RoleNavigationService;
 import io.softa.starter.user.service.RoleSensitiveFieldSetService;
 import io.softa.starter.user.service.RoleService;
@@ -74,6 +75,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     private final UserRoleRelService userRoleRelService;
     private final DynamicRoleSyncJob dynamicRoleSyncJob;
     private final UiContextBuilder uiContextBuilder;
+    private final RoleGrantCeiling roleGrantCeiling;
 
     @Override
     protected String modelName() {
@@ -119,6 +121,8 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         writeRoleNavigations(newId, body.roleNavigations());
         writeRoleDataScopes(newId, body.roleDataScopes());
         writeRoleSensitiveFieldSets(newId, body.roleSensitiveFieldSetIds());
+        // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
+        roleGrantCeiling.assertWithinCaller(newId);
         writeManualUserRoleRels(newId, body.userIds());
         // Inline DYNAMIC sync — same in-transaction guarantee. The cron
         // job covers the in-between drift (employee data changes between
@@ -158,6 +162,8 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         writeRoleDataScopes(id, body.roleDataScopes());
         roleSensitiveFieldSetService.deleteByFilters(new Filters().eq(RoleSensitiveFieldSet::getRoleId, id));
         writeRoleSensitiveFieldSets(id, body.roleSensitiveFieldSetIds());
+        // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
+        roleGrantCeiling.assertWithinCaller(id);
         // Wipe ALL existing user_role rows for this role — both Manual and
         // Dynamic — then rebuild from scratch. By application convention
         // there's at most one row per (user, role): Manual takes precedence,

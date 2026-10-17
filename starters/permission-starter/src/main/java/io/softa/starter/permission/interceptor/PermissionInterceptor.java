@@ -277,10 +277,14 @@ public class PermissionInterceptor implements HandlerInterceptor {
      * set matched here — is the only thing standing between a direct call and a dropped module's
      * endpoints.
      *
-     * <p><b>An unregistered endpoint still bypasses.</b> That is what this path has always been for:
-     * plenty of endpoints carry no permission mapping at all, and refusing those would turn a billing
-     * gate into a broad outage. It is also why the coverage validator exists — the mapping gap is the
-     * thing to close, not this allowance.
+     * <p><b>An endpoint no permission lists is refused</b> — to a tenant admin and a consultant, the
+     * same as to an ordinary user. Only the platform administrator still passes, because the
+     * platform's own operations (pre-data loading, cron triggers, upgrades) are exactly such
+     * endpoints and are meant for it alone. Letting the in-tenant principals through used to be the
+     * rule; it meant every endpoint nobody had thought to map — including global ones that act on
+     * shared, non-tenant models — was open to every tenant's admin, and a new controller arrived
+     * open by default. An endpoint an admin needs is registered under a permission instead; the
+     * coverage validator lists the ones that are not.
      *
      * @param principal which of the built-in roles is calling — named in the logs by its role code,
      *                  and the one input to {@link #deniedPlatformOnly}
@@ -293,8 +297,15 @@ public class PermissionInterceptor implements HandlerInterceptor {
             throw new PermissionException("Platform-admin only: " + method + " " + uri);
         }
         Set<String> candidates = endpointIndex.lookup(uri, method);
-        if (candidates != null && !candidates.isEmpty()
-                && Collections.disjoint(pi.getPermissions(), candidates)) {
+        if (candidates == null || candidates.isEmpty()) {
+            if (mayReachUnregistered(principal)) {
+                return true;
+            }
+            log.warn("Unregistered endpoint denied to {} — userId={}, uri={} {}",
+                    principal, ctx.getUserId(), method, uri);
+            throw new PermissionException("Endpoint not registered: " + method + " " + uri);
+        }
+        if (Collections.disjoint(pi.getPermissions(), candidates)) {
             log.warn("Module not entitled for {} — userId={}, uri={} {}, required any of: {}",
                     principal, ctx.getUserId(), method, uri, candidates);
             throw new PermissionException("Missing permission for " + method + " " + uri);
@@ -323,6 +334,16 @@ public class PermissionInterceptor implements HandlerInterceptor {
      */
     static boolean deniedPlatformOnly(BuiltinRole principal) {
         return principal != BuiltinRole.SUPER_ADMIN;
+    }
+
+    /**
+     * Whether this principal passes an endpoint that no permission lists. Only the platform
+     * administrator does: those endpoints include the platform's own operations. Written as "the
+     * platform" rather than a list of the barred, like {@link #deniedPlatformOnly}, so that a
+     * built-in role added later is refused until somebody decides otherwise.
+     */
+    static boolean mayReachUnregistered(BuiltinRole principal) {
+        return principal == BuiltinRole.SUPER_ADMIN;
     }
 
     private boolean matchAny(List<String> patterns, String uri) {

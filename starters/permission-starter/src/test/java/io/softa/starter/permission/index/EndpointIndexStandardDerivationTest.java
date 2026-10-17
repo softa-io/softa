@@ -176,6 +176,8 @@ class EndpointIndexStandardDerivationTest {
 
             assertThat(idx.lookup("/export/dynamicExport", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/export/countExportable", "POST")).containsExactly("employee.export");
+            // One workbook, a sheet per model: the same model-in-the-body shape, the same permission.
+            assertThat(idx.lookup("/export/dynamicExportMultiSheet", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/export/exportByTemplate", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/ExportTemplate/listByModel", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/ExportHistory/myExportHistory", "POST")).containsExactly("employee.export");

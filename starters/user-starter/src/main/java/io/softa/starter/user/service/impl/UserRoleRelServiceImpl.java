@@ -136,6 +136,10 @@ public class UserRoleRelServiceImpl extends EntityServiceImpl<UserRoleRel, Long>
      * no application flow legitimately binds it. TENANT_ADMIN is deliberately NOT blocked here:
      * {@link io.softa.starter.user.provisioning.AdminProvisioningService} binds it during tenant
      * provisioning, which routes through this same {@code createOne}.
+     *
+     * <p>This covers the typed service only. The rule that holds on every write path — generic model
+     * routes and updates included — and that also limits who may bind {@code TENANT_ADMIN}, is
+     * {@link io.softa.starter.user.service.RoleBindValidator}.
      */
     private void guardSuperAdminBind(List<UserRoleRel> entities) {
         if (entities == null || entities.isEmpty()) return;

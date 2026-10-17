@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -189,7 +190,7 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
             ur.setSource(UserRoleSource.DYNAMIC);
             rows.add(ur);
         }
-        if (!rows.isEmpty()) userRoleRelService.createList(rows);
+        if (!rows.isEmpty()) asRuleConsequence(() -> userRoleRelService.createList(rows));
         log.info("DynamicRoleSyncJob.syncRole — role {} now has {} DYNAMIC members (skipped {} that already have Manual)",
                 role.getId(), rows.size(), userIds.size() - rows.size());
         return rows.size();
@@ -335,8 +336,23 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         row.setRoleId(role.getId());
         row.setUserId(userId);
         row.setSource(UserRoleSource.DYNAMIC);
-        userRoleRelService.createOne(row);
+        asRuleConsequence(() -> userRoleRelService.createOne(row));
         return true;
+    }
+
+    /**
+     * Write a membership the role's dynamic rule produced as a system write.
+     *
+     * <p>The rule was checked when the role was saved — who may hold the role, and what the role may
+     * grant, were decided by whoever wrote it. What runs here is its consequence, from a cron or a
+     * message consumer with no person behind it, so the checks that ask "may this caller hand out
+     * this role" have nobody to ask about. Only the write is lifted; the Employee lookup that decides
+     * who matches stays as it was.
+     */
+    private static <T> T asRuleConsequence(Supplier<T> write) {
+        Context ctx = ContextHolder.cloneContext();
+        ctx.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(ctx, write::get);
     }
 
     /**

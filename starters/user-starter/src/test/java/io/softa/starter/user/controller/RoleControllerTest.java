@@ -59,6 +59,7 @@ class RoleControllerTest {
     private io.softa.starter.user.service.impl.UiContextBuilder uiContextBuilder;
     private SystemRoleWriteGuard writeGuard;
     private RoleController controller;
+    private io.softa.starter.user.service.RoleGrantCeiling roleGrantCeiling;
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     @BeforeEach
@@ -72,14 +73,43 @@ class RoleControllerTest {
         modelService = mock(ModelService.class);
         writeGuard = mock(SystemRoleWriteGuard.class);
         uiContextBuilder = mock(io.softa.starter.user.service.impl.UiContextBuilder.class);
+        roleGrantCeiling = mock(io.softa.starter.user.service.RoleGrantCeiling.class);
         controller = new RoleController(
                 roleService, roleNavigationService,
                 roleDataScopeService, roleSensitiveFieldSetService,
-                userRoleRelService, dynamicRoleSyncJob, uiContextBuilder);
+                userRoleRelService, dynamicRoleSyncJob, uiContextBuilder, roleGrantCeiling);
         // Injected by Spring in production; set directly here (same package) because the write
         // verbs and their SystemRoleWriteGuard call now live in SystemRoleGuardedController.
         controller.modelService = castModelService(modelService);
         controller.writeGuard = writeGuard;
+    }
+
+    // ─── grant ceiling ───
+
+    @Test
+    void wizardSaves_areHeldToTheCallersOwnGrants_beforeAnyMemberIsAdded() {
+        when(roleService.createOne(any(Role.class))).thenReturn(999L);
+        org.mockito.Mockito.doThrow(new io.softa.framework.base.exception.BusinessException("out of reach"))
+                .when(roleGrantCeiling).assertWithinCaller(999L);
+        ObjectNode roleUpdate = JsonNodeFactory.instance.objectNode();
+        roleUpdate.put("name", "Payroll Peek");
+        ArrayNode userIds = JsonNodeFactory.instance.arrayNode();
+        userIds.add(7L);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.createWithWizard(
+                        new WizardSaveDTO(roleUpdate, null, null, null, userIds)))
+                .isInstanceOf(io.softa.framework.base.exception.BusinessException.class);
+        org.mockito.Mockito.verify(userRoleRelService, org.mockito.Mockito.never()).createList(any());
+    }
+
+    @Test
+    void wizardUpdate_isHeldToTheCallersOwnGrants() {
+        ObjectNode roleUpdate = JsonNodeFactory.instance.objectNode();
+        roleUpdate.put("name", "Payroll Peek");
+
+        controller.saveWizard(5L, new WizardSaveDTO(roleUpdate, null, null, null, null));
+
+        org.mockito.Mockito.verify(roleGrantCeiling).assertWithinCaller(5L);
     }
 
     // ─── createWithWizard ───

@@ -188,6 +188,33 @@ class DynamicRoleSyncJobImplTest {
     }
 
     @Test
+    void syncRole_writesTheMembershipAsASystemWrite_butLooksEmployeesUpAsBefore() {
+        // The rule was checked when the role was saved; the cron or consumer running it has nobody
+        // for "may this caller assign the role" to ask about. Only the write is lifted.
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.getById(500L)).thenReturn(Optional.of(role));
+        when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of());
+        when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
+        boolean[] skippedAtLookup = {true};
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    skippedAtLookup[0] = ContextHolder.getContext().isSkipPermissionCheck();
+                    return List.of(java.util.Map.of("userId", 1L));
+                });
+        boolean[] skippedAtWrite = {false};
+        when(userRoleRelService.createList(any())).thenAnswer(inv -> {
+            skippedAtWrite[0] = ContextHolder.getContext().isSkipPermissionCheck();
+            return List.of(1L);
+        });
+
+        ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
+
+        assertThat(skippedAtLookup[0]).isFalse();
+        assertThat(skippedAtWrite[0]).isTrue();
+    }
+
+    @Test
     void syncRoleInternal_userWithManualRow_skippedFromDynamicInsert() {
         // Manual takes precedence — user 1 has a MANUAL row on this role,
         // so even though the dynamic filter matches them, no DYNAMIC row
