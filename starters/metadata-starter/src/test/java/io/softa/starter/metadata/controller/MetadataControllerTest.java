@@ -1,12 +1,19 @@
 package io.softa.starter.metadata.controller;
 
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.SystemRole;
+import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.orm.aspect.PermissionAspect;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsRequest;
@@ -100,5 +107,55 @@ class MetadataControllerTest {
         assertThrows(IllegalArgumentException.class, () -> controller.resolveCascadedPaths(req2));
 
         verifyNoInteractions(service);
+    }
+
+    /** The controller as the application context serves it: behind the framework's role aspect. */
+    private static MetadataController proxiedControllerWith(MetadataService service) {
+        AspectJProxyFactory factory = new AspectJProxyFactory(controllerWith(service));
+        factory.setProxyTargetClass(true);
+        factory.addAspect(new PermissionAspect());
+        return factory.getProxy();
+    }
+
+    private static Context userWithRoles(Set<String> roleCodes) {
+        Context ctx = new Context();
+        ctx.setTenantId(10L);
+        ctx.setUserId(42L);
+        ctx.setRoleCodes(roleCodes);
+        return ctx;
+    }
+
+    @Test
+    void reloadMetadataIsRefusedToAnAuthenticatedUserWithoutTheSystemRole() {
+        MetadataService service = mock(MetadataService.class);
+        MetadataController controller = proxiedControllerWith(service);
+
+        // null role codes is what a whitelisted (authenticated-bypass) path carries.
+        for (Set<String> roles : java.util.Arrays.asList(null, Set.<String>of(), Set.of("TENANT_ADMIN"))) {
+            assertThrows(PermissionException.class,
+                    () -> ContextHolder.callWith(userWithRoles(roles), controller::reloadMetadata));
+        }
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void reloadMetadataRunsForTheSystemAdminRole() {
+        MetadataService service = mock(MetadataService.class);
+        MetadataController controller = proxiedControllerWith(service);
+
+        ApiResponse<Boolean> response = ContextHolder.callWith(
+                userWithRoles(Set.of(SystemRole.SYSTEM_ROLE_ADMIN.getCode())), controller::reloadMetadata);
+
+        assertEquals(Boolean.TRUE, response.getData());
+        verify(service).reloadMetadata();
+    }
+
+    @Test
+    void readEndpointsStayOpenToAnyAuthenticatedUser() {
+        MetadataService service = mock(MetadataService.class);
+        MetadataController controller = proxiedControllerWith(service);
+
+        ContextHolder.callWith(userWithRoles(null), () -> controller.getMetaModelDTO("Employee"));
+        verify(service).getMetaModelDTO("Employee");
     }
 }

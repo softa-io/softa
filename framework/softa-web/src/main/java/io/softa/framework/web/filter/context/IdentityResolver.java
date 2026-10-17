@@ -55,7 +55,9 @@ public class IdentityResolver {
             // OAuth2 provider browser-redirect endpoint.
             "/MailOauth2/callback");
     private static final List<String> OPENAPI_PATHS = List.of("/openapi/**");
-    private static final List<String> INTERNAL_PATHS = List.of("/internal/**");
+    // /rpc/** is the model RPC between services. It never carries a user session: the caller
+    // authenticates with the RPC credentials, checked by RPCController before the body is read.
+    private static final List<String> INTERNAL_PATHS = List.of("/internal/**", "/rpc/**");
 
     // /upgrade/runtime/** is studio→runtime, signature-authenticated; see SignatureConfig.
     private static final List<String> OPERATION_PATHS = List.of("/upgrade/**");

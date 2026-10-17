@@ -7,7 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.enums.SystemRole;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.annotation.RequireRole;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
 import io.softa.starter.metadata.controller.dto.MetadataStatusDTO;
@@ -59,9 +61,13 @@ public class MetadataController {
      * Reload metadata.
      * The current replica will be unavailable if an exception occurs during the reload,
      * and the metadata needs to be fixed and reloaded.
+     * <p>
+     * Platform operation: it swaps the metadata every tenant on this replica runs against, so it
+     * is limited to the system administrator role. The read endpoints of this controller are not.
      */
     @Operation(summary = "reloadMetadata")
     @PostMapping("/reloadMetadata")
+    @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
     public ApiResponse<Boolean> reloadMetadata() {
         metadataService.reloadMetadata();
         return ApiResponse.success(true);
