@@ -189,6 +189,21 @@ public abstract class ReflectTool {
     }
 
     /**
+     * Call the searchRelatedRows method of the specified model — the caller's row range applies unless
+     * the model's rows are visible only through the parent that owns them.
+     *
+     * <p>For the read pipeline's relation processors, when they read more of a related row than its
+     * label. See {@link io.softa.framework.orm.service.ModelService#searchRelatedRows}.
+     *
+     * @param modelName model name
+     * @param flexQuery flexQuery
+     * @return Search result
+     */
+    public static List<Map<String, Object>> searchRelatedRows(String modelName, FlexQuery flexQuery) {
+        return getModelService().searchRelatedRows(modelName, flexQuery);
+    }
+
+    /**
      * Call the searchName method of the specified model
      *
      * @param modelName model name

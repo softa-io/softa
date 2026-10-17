@@ -43,7 +43,15 @@ public class XToOneGroupProcessor extends BaseProcessor {
     private final List<MetaField> cascadedFields = new ArrayList<>(0);
     // The fields of the related model that need to be expanded through the OneToOne/ManyToOne field.
     private final Set<String> expandFields = Sets.newHashSet(ModelConstant.ID);
+    // The part of expandFields the model itself decides — id, displayName and declared cascaded fields — as
+    // opposed to what a subQuery or a dotted field asks for. The only part read for a row outside the
+    // caller's row range.
+    private final Set<String> labelFields = Sets.newHashSet(ModelConstant.ID);
+    // A dotted field of the request (`managerId.dateOfBirth`) asks past the label: the related rows are then
+    // read within the caller's range, as for a subQuery.
+    private boolean requestedPastLabel;
     private final FlexQuery flexQuery;
+    private final SubQuery subQuery;
 
     /**
      * Constructor of the ManyToOne/OneToOne group processor.
@@ -57,14 +65,13 @@ public class XToOneGroupProcessor extends BaseProcessor {
         this.flexQuery = flexQuery;
         // The FK stores the related row's id (already in expandFields) — the join key.
         // For ManyToOne/OneToOne fields, also read the displayName fields of the related model.
-        this.expandFields.addAll(ModelManager.getModelDisplayName(metaField.getRelatedModel()));
-        if (flexQuery != null) {
-            // When the flexQuery has subQuery base on the ManyToOne/OneToOne field,
-            // expand the fields of the related model to be read.
-            SubQuery subQuery = flexQuery.extractSubQuery(metaField.getFieldName());
-            if (subQuery != null && !CollectionUtils.isEmpty(subQuery.getFields())) {
-                this.expandFields.addAll(subQuery.getFields());
-            }
+        this.labelFields.addAll(ModelManager.getModelDisplayName(metaField.getRelatedModel()));
+        this.expandFields.addAll(this.labelFields);
+        // When the flexQuery has subQuery base on the ManyToOne/OneToOne field,
+        // expand the fields of the related model to be read.
+        this.subQuery = flexQuery == null ? null : flexQuery.extractSubQuery(metaField.getFieldName());
+        if (subQuery != null && !CollectionUtils.isEmpty(subQuery.getFields())) {
+            this.expandFields.addAll(subQuery.getFields());
         }
     }
 
@@ -76,7 +83,16 @@ public class XToOneGroupProcessor extends BaseProcessor {
      */
     public void addCascadedField(MetaField cascadedField) {
         this.cascadedFields.add(cascadedField);
-        this.expandFields.add(cascadedField.getDependentFields().get(1));
+        String relatedField = cascadedField.getDependentFields().get(1);
+        this.expandFields.add(relatedField);
+        // A cascaded field the model declares is part of what its references show. A dotted field built
+        // from the request is the caller's own question about the related row, and past its label it is
+        // answered only for the rows the caller may read.
+        if (!cascadedField.getFieldName().contains(".") || this.labelFields.contains(relatedField)) {
+            this.labelFields.add(relatedField);
+        } else {
+            this.requestedPastLabel = true;
+        }
     }
 
     /**
@@ -121,6 +137,12 @@ public class XToOneGroupProcessor extends BaseProcessor {
     /**
      * Get the mapping of related model rows.
      *
+     * <p>Without a subQuery only the label fields are read, across the caller's row range: a referenced
+     * row's label is shown wherever the reference is. With one — or with a dotted field of the request
+     * that reads past the label — the requested fields and nested subQueries are read through
+     * {@link ReflectTool#searchRelatedRows}, and a referenced row it does not return — outside the
+     * caller's range — falls back to its label alone, the dotted field left empty.
+     *
      * @param rows Data list
      * @return {relatedModelId: {related model row}}
      */
@@ -129,32 +151,50 @@ public class XToOneGroupProcessor extends BaseProcessor {
         // The FK stores the related row's id; query and index the related rows by id.
         Set<Serializable> relatedIds = rows.stream().map(r -> (Serializable) r.get(metaField.getFieldName()))
                 .filter(IdUtils::validId).collect(Collectors.toSet());
-        if (!CollectionUtils.isEmpty(relatedIds)) {
-            // Query related model rows using filter: [id, "IN", relatedIds]
-            Filters filters = Filters.of(ModelConstant.ID, Operator.IN, relatedIds);
-            MetaModel relatedMetaModel = ModelManager.getModel(metaField.getRelatedModel());
-            if (relatedMetaModel.isActiveControl()) {
-                filters.in(ModelConstant.ACTIVE_CONTROL_FIELD, List.of(true, false));
+        if (CollectionUtils.isEmpty(relatedIds)) {
+            return relatedValueMap;
+        }
+        Set<Serializable> labelOnlyIds = relatedIds;
+        if (subQuery != null || requestedPastLabel) {
+            FlexQuery relatedFlexQuery = relatedFlexQuery(this.expandFields, relatedIds);
+            // Propagate nested subQueries so the related model can resolve its own relational subQueries
+            if (subQuery != null && !CollectionUtils.isEmpty(subQuery.getSubQueries())) {
+                SubQueries nestedSubQueries = new SubQueries();
+                nestedSubQueries.setQueryMap(subQuery.getSubQueries());
+                relatedFlexQuery.setSubQueries(nestedSubQueries);
             }
-            if (relatedMetaModel.isSoftDelete()) {
-                filters.in(ModelConstant.SOFT_DELETED_FIELD, List.of(true, false));
-            }
-            FlexQuery relatedFlexQuery = new FlexQuery(this.expandFields, filters);
-            relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
-            if (flexQuery != null) {
-                relatedFlexQuery.setConvertType(flexQuery.getConvertType());
-                // FIX: propagate nested subQueries so the related model can resolve its own relational subQueries
-                SubQuery currentSubQuery = flexQuery.extractSubQuery(metaField.getFieldName());
-                if (currentSubQuery != null && !CollectionUtils.isEmpty(currentSubQuery.getSubQueries())) {
-                    SubQueries nestedSubQueries = new SubQueries();
-                    nestedSubQueries.setQueryMap(currentSubQuery.getSubQueries());
-                    relatedFlexQuery.setSubQueries(nestedSubQueries);
-                }
-            }
-            List<Map<String, Object>> relatedRows = ReflectTool.searchListIgnoringRowScope(metaField.getRelatedModel(), relatedFlexQuery);
+            List<Map<String, Object>> relatedRows = ReflectTool.searchRelatedRows(metaField.getRelatedModel(), relatedFlexQuery);
             relatedRows.forEach(row -> relatedValueMap.put((Serializable) row.get(ModelConstant.ID), row));
+            labelOnlyIds = relatedIds.stream()
+                    .filter(id -> !relatedValueMap.containsKey(IdUtils.formatId(metaField.getRelatedModel(), id)))
+                    .collect(Collectors.toSet());
+        }
+        if (!labelOnlyIds.isEmpty()) {
+            FlexQuery labelFlexQuery = relatedFlexQuery(this.labelFields, labelOnlyIds);
+            List<Map<String, Object>> labelRows = ReflectTool.searchListIgnoringRowScope(metaField.getRelatedModel(), labelFlexQuery);
+            labelRows.forEach(row -> relatedValueMap.put((Serializable) row.get(ModelConstant.ID), row));
         }
         return relatedValueMap;
+    }
+
+    /**
+     * Query the related model rows by id: [id, "IN", relatedIds], inactive and soft-deleted rows included.
+     */
+    private FlexQuery relatedFlexQuery(Set<String> fields, Set<Serializable> relatedIds) {
+        Filters filters = Filters.of(ModelConstant.ID, Operator.IN, relatedIds);
+        MetaModel relatedMetaModel = ModelManager.getModel(metaField.getRelatedModel());
+        if (relatedMetaModel.isActiveControl()) {
+            filters.in(ModelConstant.ACTIVE_CONTROL_FIELD, List.of(true, false));
+        }
+        if (relatedMetaModel.isSoftDelete()) {
+            filters.in(ModelConstant.SOFT_DELETED_FIELD, List.of(true, false));
+        }
+        FlexQuery relatedFlexQuery = new FlexQuery(new HashSet<>(fields), filters);
+        relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        if (flexQuery != null) {
+            relatedFlexQuery.setConvertType(flexQuery.getConvertType());
+        }
+        return relatedFlexQuery;
     }
 
     /**

@@ -204,4 +204,48 @@ class RelationExpansionFieldMaskTest {
 
         verify(permissionService).maskResponseValue(eq(MODEL), eq(rows), eq(AccessType.READ));
     }
+
+    /**
+     * A sub-query onto a model with a row range of its own is read as a direct read would read it:
+     * the plain sequence, range included.
+     */
+    @Test
+    void relatedRows_ofAModelWithItsOwnRange_runTheWholeDirectReadSequence() {
+        ModelServiceImpl<Long> svc = wire(new ArrayList<>());
+        when(permissionService.hasOwnRowScope(MODEL)).thenReturn(true);
+
+        svc.searchRelatedRows(MODEL, queryAskingForAmount());
+
+        var order = inOrder(permissionService, jdbcService);
+        order.verify(permissionService).hasOwnRowScope(MODEL);
+        order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
+        order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
+        order.verify(permissionService).appendScopeAccessFilters(eq(MODEL), any(Filters.class));
+        order.verify(jdbcService).selectByFilter(eq(MODEL), any(FlexQuery.class));
+        order.verify(permissionService).maskResponseValue(eq(MODEL), any(), eq(AccessType.READ));
+        order.verifyNoMoreInteractions();
+    }
+
+    /**
+     * An owned child crosses the range — and only the range: the field guards and the response mask
+     * stay on, as on every read.
+     */
+    @Test
+    void relatedRows_ofAnOwnedChild_crossTheRangeWithTheFieldGuardsOn() {
+        ModelServiceImpl<Long> svc = wire(new ArrayList<>());
+        when(permissionService.hasOwnRowScope(MODEL)).thenReturn(false);
+        FlexQuery query = queryAskingForAmount();
+
+        svc.searchRelatedRows(MODEL, query);
+
+        var order = inOrder(permissionService, jdbcService);
+        order.verify(permissionService).hasOwnRowScope(MODEL);
+        order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
+        order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
+        order.verify(permissionService).appendScopeAccessFiltersIgnoringRowScope(eq(MODEL), any(Filters.class));
+        order.verify(jdbcService).selectByFilter(eq(MODEL), any(FlexQuery.class));
+        order.verify(permissionService).maskResponseValue(eq(MODEL), any(), eq(AccessType.READ));
+        order.verifyNoMoreInteractions();
+        assertThat(query.getFields()).containsExactlyInAnyOrder("id", "employeeId");
+    }
 }

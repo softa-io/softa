@@ -39,13 +39,29 @@ class RelationProcessorReadPathTest {
 
         assertThat(offenders)
                 .as("a relation expansion reaches rows the caller was shown a reference to, not rows "
-                        + "they searched for: it must call searchListIgnoringRowScope, which crosses "
-                        + "the row range while the field guards stay on")
+                        + "they searched for: a label goes through searchListIgnoringRowScope, anything "
+                        + "more through searchRelatedRows, which decides the row range by the related model")
                 .isEmpty();
+    }
+
+    /**
+     * A subQuery names its own fields, filters and nested subQueries. Read across the caller's row range
+     * it hands out any field of any row the caller is merely shown a reference to — dates of birth of
+     * employees in departments the caller cannot open, reached through a colleague's direct reports.
+     */
+    @Test
+    void expandingProcessorsReadSubQueriesThroughTheRelatedRowsRead() {
+        for (Class<?> processor : EXPANDING_PROCESSORS) {
+            assertThat(referencesUtf8(processor, "searchRelatedRows"))
+                    .as("%s expands a subQuery and must read it through searchRelatedRows",
+                            processor.getSimpleName())
+                    .isTrue();
+        }
     }
 
     @Test
     void expandingProcessorsDoCallTheRowScopeCrossingRead() {
+        // OneToMany reaches its labels through searchName; it crosses the range for the patch diff only.
         for (Class<?> processor : EXPANDING_PROCESSORS) {
             assertThat(referencesUtf8(processor, "searchListIgnoringRowScope"))
                     .as("%s expands a relation and must reach its rows through the crossing read",
