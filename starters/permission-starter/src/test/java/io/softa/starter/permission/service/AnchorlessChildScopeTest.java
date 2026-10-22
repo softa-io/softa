@@ -226,6 +226,35 @@ class AnchorlessChildScopeTest {
         assertThat(scopeOf("AttendanceGroup")).isEqualTo(new Filters());
     }
 
+    // ── MANY_TO_MANY: the join rows are the record's own; the linked records are referenced ───
+
+    @Test
+    void theJoinRowsOfAManyToManyFieldFollowTheRecordTheyBelongTo() {
+        // Employee.projectTeamIds, joined through EmpProjectTeamRel(employeeId, projectTeamId). The
+        // join model has no anchor and nothing points at it; without the edge it fail-closed, so a
+        // link could be added but never removed once the links were written as the caller.
+        when(applicability.applicableFor("EmpProjectTeamRel")).thenReturn(UNIVERSAL_ONLY);
+        MetaField teams = relation("ProjectTeam", FieldType.MANY_TO_MANY, "projectTeamIds");
+        when(teams.getJoinModel()).thenReturn("EmpProjectTeamRel");
+        when(teams.getJoinLeft()).thenReturn("employeeId");
+        modelFields("Employee", teams);
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(101L, 102L));
+
+        assertThat(scopeOf("EmpProjectTeamRel").toString()).contains("employeeId", "101", "102");
+    }
+
+    @Test
+    void aRecordLinkedByAManyToManyFieldIsASharedReference() {
+        // The other end of the same field: the employee points at the team, it does not own it.
+        when(applicability.applicableFor("ProjectTeam")).thenReturn(UNIVERSAL_ONLY);
+        MetaField teams = relation("ProjectTeam", FieldType.MANY_TO_MANY, "projectTeamIds");
+        when(teams.getJoinModel()).thenReturn("EmpProjectTeamRel");
+        when(teams.getJoinLeft()).thenReturn("employeeId");
+        modelFields("Employee", teams);
+
+        assertThat(scopeOf("ProjectTeam")).isEqualTo(new Filters());
+    }
+
     @Test
     void theSecondHopFollowsOwnedChildrenOnlyNotSharedReferences() {
         // Employee.departmentId -> Department is a shared reference, not something Employee owns.

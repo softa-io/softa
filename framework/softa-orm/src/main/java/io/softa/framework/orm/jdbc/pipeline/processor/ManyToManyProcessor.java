@@ -9,7 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.aspect.CallerPermissions;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
@@ -113,7 +115,7 @@ public class ManyToManyProcessor extends BaseProcessor {
         });
         if (!CollectionUtils.isEmpty(mappingRows)) {
             changed = true;
-            ReflectTool.createList(metaField.getJoinModel(), mappingRows);
+            writeLinks(mappingRows, Collections.emptyList());
         }
     }
 
@@ -202,10 +204,47 @@ public class ManyToManyProcessor extends BaseProcessor {
         });
         if (!CollectionUtils.isEmpty(newMToMRows) || !CollectionUtils.isEmpty(deleteJoinIds)) {
             changed = true;
-            // Create join model rows
-            ReflectTool.createList(metaField.getJoinModel(), newMToMRows);
-            // Delete join model rows
-            ReflectTool.deleteList(metaField.getJoinModel(), deleteJoinIds);
+            writeLinks(newMToMRows, deleteJoinIds);
+        }
+    }
+
+    /**
+     * Writes the join rows as the caller of the write, the way the one-to-many and one-to-one
+     * processors write their children. The write that carries the field runs with the permission
+     * check off (the JDBC entry points skip it), and the join model's own write validators read that
+     * flag: a role bound through {@code UserAccount.roles} was taken for system work and passed none
+     * of the checks on who may bind it. The join rows follow the record they belong to for their range.
+     *
+     * <p>The records newly linked must be ones the caller can read: linking is a write of the caller's
+     * own record, but naming an id is reaching the row behind it. Out of range and not existing are
+     * refused alike, so the answer does not tell them apart.
+     */
+    private void writeLinks(List<Map<String, Object>> newRows, List<Serializable> deleteJoinIds) {
+        CallerPermissions.asCaller(() -> {
+            assertLinkable(newRows);
+            if (!newRows.isEmpty()) {
+                ReflectTool.createList(metaField.getJoinModel(), newRows);
+            }
+            if (!deleteJoinIds.isEmpty()) {
+                ReflectTool.deleteList(metaField.getJoinModel(), deleteJoinIds);
+            }
+            return null;
+        });
+    }
+
+    private void assertLinkable(List<Map<String, Object>> newRows) {
+        Set<Serializable> rightIds = new LinkedHashSet<>();
+        newRows.forEach(row -> rightIds.add((Serializable) row.get(metaField.getJoinRight())));
+        rightIds.remove(null);
+        if (rightIds.isEmpty()) {
+            return;
+        }
+        List<Serializable> ids = new ArrayList<>(rightIds);
+        List<Serializable> reached = ReflectTool.getIds(metaField.getRelatedModel(),
+                Filters.of(ModelConstant.ID, Operator.IN, ids));
+        if (reached.size() < ids.size()) {
+            throw new PermissionException("Some {0} ids linked by {1}:{2} are outside your scope or do not exist.",
+                    metaField.getRelatedModel(), modelName, fieldName);
         }
     }
 
