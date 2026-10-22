@@ -240,8 +240,11 @@ public class ManyToManyProcessor extends BaseProcessor {
             return;
         }
         List<Serializable> ids = new ArrayList<>(rightIds);
-        List<Serializable> reached = ReflectTool.getIds(metaField.getRelatedModel(),
-                Filters.of(ModelConstant.ID, Operator.IN, ids));
+        // Read as the field's related rows are, under the related model's own row range. An inactive
+        // record may still be linked, as it always could; a deleted one may not.
+        FlexQuery query = new FlexQuery(List.of(ModelConstant.ID), Filters.of(ModelConstant.ID, Operator.IN, ids));
+        query.setFilterControl(FilterControl.bypassActiveControl());
+        List<Map<String, Object>> reached = ReflectTool.searchRelatedRows(metaField.getRelatedModel(), query);
         if (reached.size() < ids.size()) {
             throw new PermissionException("Some {0} ids linked by {1}:{2} are outside your scope or do not exist.",
                     metaField.getRelatedModel(), modelName, fieldName);
