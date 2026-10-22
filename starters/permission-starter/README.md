@@ -277,7 +277,11 @@ fixed order, and each step is there because the one before it would answer the w
    `SELECT model_name FROM sys_model WHERE multi_country = 1 AND multi_tenant = 0` — note the column is
    `tinyint(1)`, so comparing it to `'true'` silently matches the complement.
 4. **An anchorless child follows its owner.** `findReferencer` looks through the models the caller *was*
-   granted for one pointing at this one, and re-enters scope for that parent.
+   granted for one pointing at this one, and re-enters scope for that parent. The join model of a
+   many-to-many field counts as the granted record's child, through its left key (`joinLeft`): the links
+   are that record's own, and are written as the caller, so without the edge a link could be added but
+   never removed. A record a many-to-many field links to is a shared reference, as a many-to-one target
+   is.
 5. **Otherwise, closed.**
 
 Step 3 exists because steps 2 and 4 between them left a hole. `IdType` is referenced only from
