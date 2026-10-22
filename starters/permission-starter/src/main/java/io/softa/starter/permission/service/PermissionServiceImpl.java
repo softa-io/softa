@@ -1240,9 +1240,9 @@ public class PermissionServiceImpl implements PermissionService {
 
     /**
      * Whether {@code g} shows {@code model} in full: it was granted the model itself — not a lookup its
-     * own model's relations derive — or the model has no permission of its own and is owned by one the
-     * role shows in full, or by public configuration. Otherwise the role reaches the model only as the
-     * target of a reference, and shows its label.
+     * own model's relations derive — or the model is owned by one the role shows in full, or by public
+     * configuration. Otherwise the role reaches the model only as the target of a reference, and shows
+     * its label.
      */
     private boolean viewsInFull(Grant g, String model, int depth) {
         // Granted, not merely left whole: a model no role can be granted is left whole for itself, and
@@ -1250,9 +1250,9 @@ public class PermissionServiceImpl implements PermissionService {
         // no one.
         Set<String> direct = directViewPermissions(model);
         if (g.permissions().stream().anyMatch(direct::contains)) return true;
-        // A model with a permission of its own is granted on its own: being pointed at by a one-to-many
-        // field does not make it a child — an employee's managed departments are departments.
-        if (!direct.isEmpty() || depth >= MAX_OWNER_DEPTH) return false;
+        // A one-to-many child follows its owner even when it has a page of its own: an employee's contracts
+        // are part of the employee's record. Its rows still follow the owner's range.
+        if (depth >= MAX_OWNER_DEPTH) return false;
         for (String owner : ownersOf(model)) {
             // A child of public configuration is configuration too: a schedule's days with the schedule.
             if (declaredScope(owner) == ScopeType.ALL || viewsInFull(g, owner, depth + 1)) return true;
@@ -1270,7 +1270,7 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * The label of {@code model}: what any reference to one of its rows shows — the id, the display name,
      * the business key (an import finds a related row by it), the tree path, the active flag a picker
-     * filters on.
+     * filters on, and the company and country the row belongs to.
      */
     private static Set<String> labelFields(String model) {
         Set<String> labels = new java.util.HashSet<>();
@@ -1280,6 +1280,10 @@ public class PermissionServiceImpl implements PermissionService {
         if (meta.getBusinessKey() != null) labels.addAll(meta.getBusinessKey());
         if (ModelManager.existField(model, "idPath")) labels.add("idPath");
         if (meta.isActiveControl()) labels.add(ModelConstant.ACTIVE_CONTROL_FIELD);
+        // Which company and which country the row belongs to: structure every reader of a reference needs
+        // — an employee's company is derived from the department chosen for them — not a detail of it.
+        if (meta.isMultiCompany()) labels.add(ModelConstant.COMPANY_FIELD);
+        if (meta.isMultiCountry()) labels.add(ModelConstant.COUNTRY_FIELD);
         return labels;
     }
 
