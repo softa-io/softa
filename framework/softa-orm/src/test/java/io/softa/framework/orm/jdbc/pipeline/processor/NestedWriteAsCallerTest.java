@@ -24,6 +24,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.ReflectTool;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -148,6 +149,9 @@ class NestedWriteAsCallerTest {
 
     @Test
     void aNestedOneToOneRowNamedByIdIsJudgedAsTheCaller() {
+        // The employee points at profile 55 already, so the nested object changes its own profile.
+        reflect.when(() -> ReflectTool.searchListIgnoringRowScope(Mockito.eq("Employee"), Mockito.any()))
+                .thenReturn(List.of(new HashMap<>(Map.of("id", 1L, "profileId", 55L))));
         XToOneGroupProcessor processor = new XToOneGroupProcessor(
                 field("profileId", FieldType.ONE_TO_ONE, "EmployeeProfile", "id"), AccessType.UPDATE, null);
 
@@ -155,6 +159,21 @@ class NestedWriteAsCallerTest {
                 employeeWith("profileId", child(55L))));
 
         assertThat(skippedAtWrite).containsExactly(false, false);
+    }
+
+    @Test
+    void aNestedOneToOneRowThisRecordDoesNotPointAtIsRefused() {
+        // Profile 55 is someone else's; this employee points at 77. Changing 55 through this record
+        // would write another person's row and repoint this one at it.
+        reflect.when(() -> ReflectTool.searchListIgnoringRowScope(Mockito.eq("Employee"), Mockito.any()))
+                .thenReturn(List.of(new HashMap<>(Map.of("id", 1L, "profileId", 77L))));
+        XToOneGroupProcessor processor = new XToOneGroupProcessor(
+                field("profileId", FieldType.ONE_TO_ONE, "EmployeeProfile", "id"), AccessType.UPDATE, null);
+
+        assertThatThrownBy(() -> insideTheJdbcWrite(false, () -> ReflectionTestUtils.invokeMethod(processor,
+                "processNestedOneToOneRows", employeeWith("profileId", child(55L)))))
+                .hasRootCauseInstanceOf(io.softa.framework.base.exception.PermissionException.class);
+        assertThat(skippedAtWrite).isEmpty();
     }
 
     @Test

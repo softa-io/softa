@@ -97,7 +97,10 @@ public class OneToManyProcessor extends BaseProcessor {
         if (!CollectionUtils.isEmpty(createRows)) {
             changed = true;
             // The children are the caller's own writes to the related model, judged as the caller.
-            CallerPermissions.asCaller(() -> ReflectTool.createList(metaField.getRelatedModel(), createRows));
+            CallerPermissions.asCaller(() -> {
+                ReflectTool.checkNestedWrite(metaField.getRelatedModel(), AccessType.CREATE, modelName, fieldName);
+                return ReflectTool.createList(metaField.getRelatedModel(), createRows);
+            });
         }
     }
 
@@ -144,9 +147,18 @@ public class OneToManyProcessor extends BaseProcessor {
         }
         // The children are the caller's own writes to the related model, judged as the caller.
         String relatedModel = metaField.getRelatedModel();
-        List<?> newIds = CallerPermissions.asCaller(() -> ReflectTool.createList(relatedModel, createRows));
-        boolean updated = CallerPermissions.asCaller(() -> ReflectTool.updateList(relatedModel, updateRows));
-        boolean deleted = CallerPermissions.asCaller(() -> ReflectTool.deleteList(relatedModel, deleteIds));
+        List<?> newIds = CallerPermissions.asCaller(() -> {
+            if (!createRows.isEmpty()) ReflectTool.checkNestedWrite(relatedModel, AccessType.CREATE, modelName, fieldName);
+            return ReflectTool.createList(relatedModel, createRows);
+        });
+        boolean updated = CallerPermissions.asCaller(() -> {
+            if (!updateRows.isEmpty()) ReflectTool.checkNestedWrite(relatedModel, AccessType.UPDATE, modelName, fieldName);
+            return ReflectTool.updateList(relatedModel, updateRows);
+        });
+        boolean deleted = CallerPermissions.asCaller(() -> {
+            if (!deleteIds.isEmpty()) ReflectTool.checkNestedWrite(relatedModel, AccessType.DELETE, modelName, fieldName);
+            return ReflectTool.deleteList(relatedModel, deleteIds);
+        });
         if (updated || deleted || !newIds.isEmpty()) {
             changed = true;
         }

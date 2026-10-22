@@ -517,7 +517,7 @@ public class PermissionServiceImpl implements PermissionService {
         }
         Set<String> candidates = actionPermissions(model, access);
         if (candidates.isEmpty()) {
-            return all;
+            return WRITES.contains(access) ? ownersHolders(all, model, access) : all;
         }
         List<Grant> holding = all.stream()
                 .filter(g -> g.permissions().stream().anyMatch(candidates::contains))
@@ -526,6 +526,28 @@ public class PermissionServiceImpl implements PermissionService {
             return access == AccessType.EXPORT ? List.of() : all;
         }
         return holding;
+    }
+
+    private static final Set<AccessType> WRITES = EnumSet.of(AccessType.CREATE, AccessType.UPDATE, AccessType.DELETE);
+
+    /**
+     * Who may write an owned child that has no write action of its own: the roles holding the same action
+     * on a model that owns it in that role. A bank account is written as part of its employee, so it is
+     * written by whoever may write the employee — and not, as falling back to every role made it, by a
+     * role that may only read employees, lending its range and its field sets to another role's edit.
+     *
+     * <p>Every role, as before, when the model is owned by nothing or no role holds an owner's action:
+     * whatever reached the write was then authorized elsewhere, a flow or a service acting for the caller.
+     */
+    private List<Grant> ownersHolders(List<Grant> all, String model, AccessType access) {
+        List<Grant> holding = all.stream().filter(g -> findReferencers(model, g).stream()
+                        .filter(ref -> ref.kind() != Kind.SHARED)
+                        .anyMatch(ref -> {
+                            Set<String> ownerCandidates = actionPermissions(ref.parentModel(), access);
+                            return g.permissions().stream().anyMatch(ownerCandidates::contains);
+                        }))
+                .toList();
+        return holding.isEmpty() ? all : holding;
     }
 
     /**
