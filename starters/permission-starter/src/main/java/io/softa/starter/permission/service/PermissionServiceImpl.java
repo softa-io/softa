@@ -1244,9 +1244,11 @@ public class PermissionServiceImpl implements PermissionService {
      * reaches the model only as the target of a reference, and shows its label.
      */
     private boolean viewsInFull(Grant g, String model, int depth) {
+        // Granted, not merely left whole: a model no role can be granted is left whole for itself, and
+        // that must not carry down to what it owns — UserProfile owns the accounts, and is granted to
+        // no one.
         Set<String> direct = directViewPermissions(model);
         if (g.permissions().stream().anyMatch(direct::contains)) return true;
-        if (direct.isEmpty() && ownersOf(model).isEmpty()) return true;
         if (depth >= MAX_OWNER_DEPTH) return false;
         for (String owner : ownersOf(model)) {
             if (viewsInFull(g, owner, depth + 1)) return true;

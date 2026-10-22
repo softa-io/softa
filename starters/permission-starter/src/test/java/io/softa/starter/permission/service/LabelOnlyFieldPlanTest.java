@@ -203,6 +203,25 @@ class LabelOnlyFieldPlanTest {
     }
 
     @Test
+    void anOwnerNoRoleCanBeGrantedDoesNotOpenWhatItOwns() {
+        // UserProfile owns the accounts and has no permission of its own. Left whole itself, it must not
+        // lend that to the accounts: they are granted on their own, and the manager was not granted them.
+        model("UserProfile", List.of("id", "fullName"), List.of("fullName"));
+        MetaField accounts = new MetaField();
+        ReflectionTestUtils.setField(accounts, "fieldName", "accounts");
+        ReflectionTestUtils.setField(accounts, "fieldType", FieldType.ONE_TO_MANY);
+        ReflectionTestUtils.setField(accounts, "relatedModel", "UserAccount");
+        ReflectionTestUtils.setField(accounts, "relatedField", "profileId");
+        models.when(() -> ModelManager.getModelFields("UserProfile")).thenReturn(List.of(accounts));
+        models.when(() -> ModelManager.getModelNames())
+                .thenReturn(Set.of("UserAccount", "Employee", "EmpTimeProfile", "UserProfile"));
+        pi.setRoleGrants(List.of(role(1, Set.of(EMPLOYEE_VIEW), "Employee", ScopeType.ALL)));
+
+        assertThat(as(() -> service.filterReadableFields("UserAccount", ACCOUNT_FIELDS, AccessType.READ)))
+                .containsExactly("id", "nickname");
+    }
+
+    @Test
     void aConditionPastTheLabelMatchesNothing() {
         pi.setRoleGrants(List.of(role(1, Set.of(EMPLOYEE_VIEW), "Employee", ScopeType.ALL)));
 
