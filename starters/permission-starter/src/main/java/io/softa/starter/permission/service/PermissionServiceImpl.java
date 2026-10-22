@@ -1240,8 +1240,9 @@ public class PermissionServiceImpl implements PermissionService {
 
     /**
      * Whether {@code g} shows {@code model} in full: it was granted the model itself — not a lookup its
-     * own model's relations derive — or the model is owned by one it shows in full. Otherwise the role
-     * reaches the model only as the target of a reference, and shows its label.
+     * own model's relations derive — or the model has no permission of its own and is owned by one the
+     * role shows in full, or by public configuration. Otherwise the role reaches the model only as the
+     * target of a reference, and shows its label.
      */
     private boolean viewsInFull(Grant g, String model, int depth) {
         // Granted, not merely left whole: a model no role can be granted is left whole for itself, and
@@ -1249,9 +1250,12 @@ public class PermissionServiceImpl implements PermissionService {
         // no one.
         Set<String> direct = directViewPermissions(model);
         if (g.permissions().stream().anyMatch(direct::contains)) return true;
-        if (depth >= MAX_OWNER_DEPTH) return false;
+        // A model with a permission of its own is granted on its own: being pointed at by a one-to-many
+        // field does not make it a child — an employee's managed departments are departments.
+        if (!direct.isEmpty() || depth >= MAX_OWNER_DEPTH) return false;
         for (String owner : ownersOf(model)) {
-            if (viewsInFull(g, owner, depth + 1)) return true;
+            // A child of public configuration is configuration too: a schedule's days with the schedule.
+            if (declaredScope(owner) == ScopeType.ALL || viewsInFull(g, owner, depth + 1)) return true;
         }
         return false;
     }

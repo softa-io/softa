@@ -65,6 +65,7 @@ class LabelOnlyFieldPlanTest {
     private static final List<String> ACCOUNT_FIELDS = List.of("id", "nickname", "username", "mobile", "status");
 
     private PermissionInfo pi;
+    private EndpointIndex index;
     private ModelService<Long> modelService;
     private PermissionServiceImpl service;
     private MockedStatic<ModelManager> models;
@@ -75,7 +76,7 @@ class LabelOnlyFieldPlanTest {
         PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
         when(provider.get(anyLong(), anyLong())).thenAnswer(inv -> pi);
 
-        EndpointIndex index = mock(EndpointIndex.class);
+        index = mock(EndpointIndex.class);
         when(index.modelActionPermissions("Employee", "view")).thenReturn(Set.of(EMPLOYEE_VIEW));
         // The employee view reaches the account endpoints through its derived lookups...
         when(index.modelActionPermissions("UserAccount", "view")).thenReturn(Set.of(EMPLOYEE_VIEW, ACCOUNT_VIEW));
@@ -219,6 +220,29 @@ class LabelOnlyFieldPlanTest {
 
         assertThat(as(() -> service.filterReadableFields("UserAccount", ACCOUNT_FIELDS, AccessType.READ)))
                 .containsExactly("id", "nickname");
+    }
+
+    @Test
+    void aModelGrantedOnItsOwnIsNotOpenedByAOneToManyFieldPointingAtIt() {
+        // Employee.managedDepartments points at departments; departments are granted on their own.
+        when(index.directModelActionPermissions("Department", "view")).thenReturn(Set.of("permission.department.view"));
+        model("Department", List.of("id", "name", "costCentreId"), List.of("name"));
+        MetaField managed = new MetaField();
+        ReflectionTestUtils.setField(managed, "fieldName", "managedDepartments");
+        ReflectionTestUtils.setField(managed, "fieldType", FieldType.ONE_TO_MANY);
+        ReflectionTestUtils.setField(managed, "relatedModel", "Department");
+        ReflectionTestUtils.setField(managed, "relatedField", "picEmpId");
+        MetaField timeProfile = new MetaField();
+        ReflectionTestUtils.setField(timeProfile, "fieldName", "timeProfileId");
+        ReflectionTestUtils.setField(timeProfile, "fieldType", FieldType.ONE_TO_ONE);
+        ReflectionTestUtils.setField(timeProfile, "relatedModel", "EmpTimeProfile");
+        models.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of(timeProfile, managed));
+        models.when(() -> ModelManager.getModelNames())
+                .thenReturn(Set.of("UserAccount", "Employee", "EmpTimeProfile", "Department"));
+        pi.setRoleGrants(List.of(role(1, Set.of(EMPLOYEE_VIEW), "Employee", ScopeType.ALL)));
+
+        assertThat(as(() -> service.filterReadableFields("Department", List.of("id", "name", "costCentreId"),
+                AccessType.READ))).containsExactly("id", "name");
     }
 
     @Test
