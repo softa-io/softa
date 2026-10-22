@@ -1571,6 +1571,11 @@ public class ModelManager {
                 .findFirst();
     }
 
+    /** Every model name in the current metadata, as a copy. */
+    public static Set<String> getModelNames() {
+        return Set.copyOf(modelMap().keySet());
+    }
+
     public static Set<String> getChildModels(String modelName) {
         validateModel(modelName);
         return new HashSet<>(modelMap().get(modelName).getChildModels());
