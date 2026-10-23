@@ -990,6 +990,21 @@ public class PermissionServiceImpl implements PermissionService {
      * already computed and passes in as a filter. Re-entering the scope chain would apply every role
      * of the caller on top of the one grant being asked about.
      */
+    /**
+     * The rows named by {@code ids}, enabled or not.
+     *
+     * <p>A read of an active-controlled model adds {@code active = true} by itself, so a disabled row
+     * counted as out of range: a disabled cost centre — the only kind that may be deleted — could not
+     * be deleted by anyone whose range is checked.
+     */
+    private static Filters byIds(String model, List<? extends Serializable> ids) {
+        Filters byId = Filters.of(ModelConstant.ID, Operator.IN, ids);
+        if (ModelManager.existModel(model) && ModelManager.isActiveControl(model)) {
+            return Filters.and(byId, Filters.of(ModelConstant.ACTIVE_CONTROL_FIELD, Operator.IN, List.of(true, false)));
+        }
+        return byId;
+    }
+
     private static <T> T unscoped(Supplier<T> read) {
         Context ctx = ContextHolder.cloneContext();
         ctx.setSkipPermissionCheck(true);
@@ -1127,7 +1142,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (scope == null) {
             return ids.stream().map(PermissionServiceImpl::normalizeId).collect(Collectors.toSet());
         }
-        Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, ids), scope);
+        Filters target = Filters.and(byIds(model, ids), scope);
         List<?> reached = unscoped(() -> modelService.getIds(model, target));
         return reached.stream().map(PermissionServiceImpl::normalizeId).collect(Collectors.toSet());
     }
@@ -1496,7 +1511,7 @@ public class PermissionServiceImpl implements PermissionService {
                     .map(g -> judgedOnOwner(g, model, accessType) ? null : grantScope(g, model))
                     .toList());
             if (scope == null) return;
-            Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, idList), scope);
+            Filters target = Filters.and(byIds(model, idList), scope);
             long reached = unscoped(() -> modelService.count(model, target));
             if (reached != idList.size()) {
                 throw sensitiveWriteDenied(model, written.getFirst());
@@ -1648,7 +1663,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (scope == null) {
             return;
         }
-        Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, idList), scope);
+        Filters target = Filters.and(byIds(model, idList), scope);
         long visible = unscoped(() -> modelService.count(model, target));
         if (visible != idList.size()) {
             throw outOfScope(model, accessType);
@@ -1682,20 +1697,24 @@ public class PermissionServiceImpl implements PermissionService {
         if (hasExplicitRules(g, model)) {
             return grantScope(g, model);
         }
+        // Rows a grant reaches without rules of its own still stay inside its companies. Reads were bounded
+        // so (computeGrantScope); the writes below returned "no restriction" and were not, so a role granted
+        // one company could change or delete another company's cost centres by id.
+        Filters company = companyScope(model, g.companies());
         if (judgedOnOwner(g, model, accessType)) {
-            return null;
+            return company;
         }
         List<Referencer> refs = findReferencers(model, g);
         Kind kind = refs.isEmpty() ? null : refs.getFirst().kind();
         if (kind == Kind.OWNED_ONE_TO_ONE) {
-            return followOwners(refs, g);
+            return allOf(company, followOwners(refs, g));
         }
         if (kind == Kind.SHARED && !hasForwardAnchor(model)) {
-            return null;
+            return company;
         }
         if (kind == null && !hasForwardAnchor(model)) {
             if (AccessType.CREATE.equals(accessType)) {
-                return null;
+                return company;
             }
             // A model declaring a default scope says who its rows belong to — an import history row to
             // whoever ran the import. Its own rows can then be named by id: the import that ran under
@@ -1703,7 +1722,7 @@ public class PermissionServiceImpl implements PermissionService {
             ScopeType declared = declaredScope(model);
             return declared == null
                     ? ScopeRuleCompiler.matchNone()
-                    : scopeCompiler.compile(List.of(ruleOf(declared)), model);
+                    : allOf(company, scopeCompiler.compile(List.of(ruleOf(declared)), model));
         }
         return grantScope(g, model);
     }
