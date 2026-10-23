@@ -128,7 +128,32 @@ public class RoleGrantCeiling {
 
     /** Why the role is out of the caller's reach, or empty when it is within it (or no ceiling applies). */
     public Optional<String> violation(Long roleId) {
+        Set<Long> cleared = CLEARED.get();
+        if (roleId != null && cleared != null && cleared.contains(roleId)) {
+            return Optional.empty();
+        }
         return violation(roleId, null);
+    }
+
+    /** Roles already judged within the caller during the save now running, by the grants before it. */
+    private static final ThreadLocal<Set<Long>> CLEARED = new ThreadLocal<>();
+
+    /**
+     * Run {@code action} — the save's own rewrite of the role's members — with the role taken as within
+     * the caller. The wizard judged the role against the caller's grants from before the save; its members
+     * are rewritten after, and by then the caller's own membership of the role is among those deleted, so
+     * judging each bind again would hold the role to grants that no longer include it.
+     */
+    public static void withRoleCleared(Long roleId, Runnable action) {
+        Set<Long> previous = CLEARED.get();
+        Set<Long> cleared = previous == null ? new HashSet<>() : new HashSet<>(previous);
+        cleared.add(roleId);
+        CLEARED.set(cleared);
+        try {
+            action.run();
+        } finally {
+            if (previous == null) CLEARED.remove(); else CLEARED.set(previous);
+        }
     }
 
     private Optional<String> violation(Long roleId, @Nullable List<Grants> callerBefore) {
