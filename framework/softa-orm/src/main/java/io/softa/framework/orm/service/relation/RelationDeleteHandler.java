@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -85,7 +86,7 @@ public class RelationDeleteHandler {
     }
 
     private void restrict(String deletedModel, List<Serializable> ids, MetaField f) {
-        long count = ReflectTool.count(f.getModelName(), reverseFilters(f, ids));
+        long count = asSystem(() -> ReflectTool.count(f.getModelName(), reverseFilters(f, ids)));
         Assert.isTrue(count == 0,
                 "Cannot delete {0}: {1} row(s) in {2}.{3} still reference it (onDelete=RESTRICT).",
                 deletedModel, count, f.getModelName(), f.getFieldName());
@@ -119,6 +120,19 @@ public class RelationDeleteHandler {
     }
 
     /**
+     * Reads the referrers as the system. Whether a row is still referenced does not depend on who asks:
+     * read as the caller, a referrer outside their range did not count, a RESTRICT let the delete through,
+     * and a CASCADE or SET_NULL left it pointing at nothing. Their field guards had the same effect — a
+     * referrer shown only by its label hides the foreign key the probe matches on. Nothing read here is
+     * returned to the caller; the writes that follow on the ids are judged as the caller.
+     */
+    private static <T> T asSystem(Supplier<T> read) {
+        Context ctx = ContextHolder.cloneContext();
+        ctx.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(ctx, read::get);
+    }
+
+    /**
      * Ids of the live referrers whose FK points at one of the deleted ids (empty when nothing references
      * them). Guarded by a per-level volume cap (Tier 2): a single delete may not CASCADE / SET_NULL more
      * than {@code MAX_BATCH_SIZE} referrers — an accidental high-fanout delete fails fast instead of
@@ -127,8 +141,8 @@ public class RelationDeleteHandler {
      * without a separate {@code count}.
      */
     private List<Serializable> referrerIds(List<Serializable> ids, MetaField f) {
-        List<Serializable> referrerIds =
-                ReflectTool.getIds(f.getModelName(), reverseFilters(f, ids), BaseConstant.MAX_BATCH_SIZE + 1);
+        List<Serializable> referrerIds = asSystem(() ->
+                ReflectTool.getIds(f.getModelName(), reverseFilters(f, ids), BaseConstant.MAX_BATCH_SIZE + 1));
         Assert.isTrue(referrerIds.size() <= BaseConstant.MAX_BATCH_SIZE,
                 "onDelete={0} on {1}.{2} would affect more than the MAX_BATCH_SIZE limit ({3}) referrer "
                         + "row(s) — narrow the delete, or reap the hierarchy in batches (application code).",
