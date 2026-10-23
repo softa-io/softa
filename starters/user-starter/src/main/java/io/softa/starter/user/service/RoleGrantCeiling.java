@@ -180,12 +180,13 @@ public class RoleGrantCeiling {
      * The first reason {@code target} exceeds what {@code caller} holds, or empty.
      *
      * @param modelByPermission each permission's primary model (its navigation's), when it has one
-     * @param modelBySet        each sensitive field set's model
+     * @param modelsBySet       each sensitive field set's model and the models it is attached to — the rows
+     *                          the set's own model follows (a bank account follows its employee)
      * @param multiCompany      whether rows of a model belong to one company
      */
     static Optional<String> firstViolation(Grants target, List<Grants> caller,
                                            Map<String, String> modelByPermission,
-                                           Map<String, String> modelBySet,
+                                           Map<String, Set<String>> modelsBySet,
                                            Predicate<String> multiCompany) {
         Set<String> navigations = union(caller, Grants::navigations);
         for (String navigation : target.navigations()) {
@@ -203,9 +204,9 @@ public class RoleGrantCeiling {
         // reach the rows: a role seeing its own salary and a role seeing everyone without salaries do not
         // add up to granting everyone's salaries.
         for (String fieldSet : target.sensitiveFieldSets()) {
-            String model = modelBySet.get(fieldSet);
+            Set<String> models = modelsBySet.getOrDefault(fieldSet, Set.of());
             boolean covered = caller.stream().anyMatch(c -> c.sensitiveFieldSets().contains(fieldSet)
-                    && (model == null || reachesRows(c, target, model, multiCompany.test(model))));
+                    && models.stream().allMatch(m -> reachesRows(c, target, m, multiCompany.test(m))));
             if (!covered) {
                 return Optional.of("sensitive field set " + fieldSet);
             }
@@ -367,16 +368,23 @@ public class RoleGrantCeiling {
         return rules;
     }
 
-    /** Each sensitive field set's model. */
-    private Map<String, String> modelsOfSets(Set<String> setIds) {
+    /** Each sensitive field set's model, with the models it is attached to. */
+    private Map<String, Set<String>> modelsOfSets(Set<String> setIds) {
         if (setIds.isEmpty()) {
             return Map.of();
         }
         return inSystemContext(() -> {
-            Map<String, String> out = new HashMap<>();
-            modelService.searchList(M_SENSITIVE_FIELD_SET, new FlexQuery(List.of("id", "model"), new Filters().in("id", setIds)))
+            Map<String, Set<String>> out = new HashMap<>();
+            modelService.searchList(M_SENSITIVE_FIELD_SET,
+                            new FlexQuery(List.of("id", "model", "attachedTo"), new Filters().in("id", setIds)))
                     .forEach(row -> {
-                        if (row.get("model") != null) out.put(String.valueOf(row.get("id")), String.valueOf(row.get("model")));
+                        Set<String> models = new LinkedHashSet<>();
+                        if (row.get("model") != null) models.add(String.valueOf(row.get("model")));
+                        Object attached = row.get("attachedTo");
+                        JsonNode node = attached instanceof JsonNode j ? j
+                                : attached == null ? null : JsonUtils.stringToObject(attached.toString(), JsonNode.class);
+                        if (node != null && node.isArray()) node.forEach(m -> models.add(m.asString()));
+                        out.put(String.valueOf(row.get("id")), models);
                     });
             return out;
         });

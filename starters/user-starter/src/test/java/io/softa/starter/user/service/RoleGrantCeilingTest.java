@@ -31,7 +31,10 @@ class RoleGrantCeilingTest {
             "employee.view", "Employee",
             "employee.update", "Employee",
             "payroll.view", "PayRun");
-    private static final Map<String, String> MODEL_BY_SET = Map.of("sfs.salary", "Employee", "sfs.contact", "Employee");
+    private static final Map<String, Set<String>> MODEL_BY_SET = Map.of(
+            "sfs.salary", Set.of("Employee"), "sfs.contact", Set.of("Employee"),
+            // A bank account's set: its own model has no rule anywhere, and it follows the employee.
+            "sfs.bank", Set.of("EmpBankAccount", "Employee"));
     private static final Predicate<String> MULTI_COMPANY = "Employee"::equals;
 
     private static final Rule ALL = Rule.ALL;
@@ -97,6 +100,16 @@ class RoleGrantCeilingTest {
         // Within one role that holds both, it is granted.
         Grants hr = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.salary"), Map.of("Employee", scope(ALL)));
         assertThat(check(target, hr)).isEmpty();
+    }
+
+    @Test
+    void aFieldSetOnAChildIsJudgedOnTheRowsItIsAttachedTo() {
+        Grants ownBank = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.bank"), Map.of("Employee", scope(SELF)));
+        Grants everyone = grants(Set.of(), Set.of("employee.view"), Set.of(), Map.of("Employee", scope(ALL)));
+        Grants target = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.bank"), Map.of("Employee", scope(ALL)));
+
+        assertThat(RoleGrantCeiling.firstViolation(target, List.of(ownBank, everyone), MODEL_BY_PERMISSION,
+                MODEL_BY_SET, MULTI_COMPANY)).hasValueSatisfying(r -> assertThat(r).contains("sfs.bank"));
     }
 
     @Test
