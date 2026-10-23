@@ -145,6 +145,20 @@ class AnchorlessChildScopeTest {
     }
 
     @Test
+    void aProjectionPointingOneToOneIsNoOwner() {
+        // A report over another model's table refers to the child, it does not own it: reading the
+        // report must not open the child through it, whichever delete strategy the field declares.
+        employeeReferences("EmpTimeProfile", FieldType.ONE_TO_ONE, "empTimeProfileId", null, UNIVERSAL_ONLY);
+        io.softa.framework.orm.meta.MetaModel report = mock(io.softa.framework.orm.meta.MetaModel.class);
+        when(report.isProjection()).thenReturn(true);
+        modelManager.when(() -> ModelManager.getModel("Employee")).thenReturn(report);
+        when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("empTimeProfileId")))
+                .thenReturn(List.of(7L, 8L));
+
+        assertThat(scopeOf("EmpTimeProfile").toString()).doesNotContain("8");
+    }
+
+    @Test
     void oneToOneChildIsDeniedWhenTheOwnerSeesNothing() {
         employeeReferences("EmpTimeProfile", FieldType.ONE_TO_ONE, "empTimeProfileId", null, UNIVERSAL_ONLY);
         when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("empTimeProfileId")))
