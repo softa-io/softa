@@ -83,7 +83,7 @@ File Starter supports two import modes:
 | `uniqueConstraints` | List<String> | `null` | Unique key fields used by CreateOrUpdate |
 | `ignoreEmpty` | Boolean | `null` | Ignore empty values when importing |
 | `skipException` | Boolean | `null` | Continue when a row fails |
-| `customHandler` | String | `null` | Spring bean name for CustomImportHandler |
+| `customHandler` | String | `null` | Spring bean name for CustomImportHandler; the handler must name `modelName` in its `supports`, or the import is refused |
 | `syncImport` | Boolean | `null` | If true, import runs synchronously; otherwise async |
 | `includeDescription` | Boolean | `null` | Whether to include description in template output |
 | `country` | String | `null` | Country the template is written for (to-one onto `CountryRegion`); `null` = every country |
