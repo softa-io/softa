@@ -1650,9 +1650,43 @@ public class PermissionServiceImpl implements PermissionService {
         }
         Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, idList), scope);
         long visible = unscoped(() -> modelService.count(model, target));
-        if (visible != idList.size()) {
+        if (visible != idList.size()
+                && !(ModelManager.existModel(model) && ModelManager.isTimelineModel(model)
+                        && reachedOnAnySlice(model, idList, scope))) {
             throw outOfScope(model, accessType);
         }
+    }
+
+    /**
+     * For a timeline model: whether every id is in range, an entity with no slice at the effective date
+     * judged by its slices at any date.
+     *
+     * <p>The count above sees only the slice in effect at the effective date — today unless the request
+     * names one. An employee hired next month has no such slice, so every write to them was refused as out
+     * of range. An entity that does have one is still judged by it: its history must not lend a range it
+     * has since left.
+     */
+    private boolean reachedOnAnySlice(String model, List<Serializable> ids, Filters scope) {
+        Filters byId = Filters.of(ModelConstant.ID, Operator.IN, ids);
+        Set<String> reachedNow = texts(unscoped(() -> modelService.getIds(model, Filters.and(byId, scope))));
+        Set<String> existNow = texts(unscoped(() -> modelService.getIds(model, byId)));
+        List<Serializable> withoutSlice = ids.stream().filter(id -> !existNow.contains(id.toString())).toList();
+        if (reachedNow.size() + withoutSlice.size() < ids.size() || withoutSlice.isEmpty()) {
+            return false;
+        }
+        FlexQuery anySlice = new FlexQuery(List.of(ModelConstant.ID),
+                Filters.and(Filters.of(ModelConstant.ID, Operator.IN, withoutSlice), scope)).acrossTimelineData();
+        Set<String> reachedEver = texts(unscoped(() -> modelService.searchList(model, anySlice)).stream()
+                .map(row -> row.get(ModelConstant.ID)).toList());
+        return reachedEver.size() == withoutSlice.size();
+    }
+
+    private static Set<String> texts(Collection<?> ids) {
+        Set<String> out = new java.util.HashSet<>();
+        for (Object id : ids) {
+            if (id != null) out.add(id.toString());
+        }
+        return out;
     }
 
     /**

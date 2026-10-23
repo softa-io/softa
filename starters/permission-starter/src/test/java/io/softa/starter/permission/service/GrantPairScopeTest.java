@@ -22,6 +22,7 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
@@ -328,5 +329,65 @@ class GrantPairScopeTest {
         ArgumentCaptor<Filters> counted = ArgumentCaptor.forClass(Filters.class);
         verify(modelService).count(eq("Employee"), counted.capture());
         assertThat(counted.getValue().toString()).contains("7", "departmentId");
+    }
+
+    @Test
+    @DisplayName("a timeline record with only a future slice is judged by that slice")
+    void aTimelineRecordWithOnlyAFutureSliceIsInRange() {
+        holdTheExampleRoles();
+        try (MockedStatic<ModelManager> models = timelineEmployee()) {
+            noSliceToday(false);
+            when(modelService.searchList(eq("Employee"), any(FlexQuery.class)))
+                    .thenReturn(List.of(Map.of("id", 99L)));
+
+            checkIds(AccessType.UPDATE, List.of(99L));
+        }
+    }
+
+    @Test
+    @DisplayName("a timeline record whose future slice is out of range is still refused")
+    void aTimelineRecordWhoseFutureSliceIsOutOfRangeIsRefused() {
+        holdTheExampleRoles();
+        try (MockedStatic<ModelManager> models = timelineEmployee()) {
+            noSliceToday(false);
+            when(modelService.searchList(eq("Employee"), any(FlexQuery.class))).thenReturn(List.of());
+
+            assertThatThrownBy(() -> checkIds(AccessType.UPDATE, List.of(99L)))
+                    .isInstanceOf(PermissionException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("a timeline record out of range today is not let in by its other slices")
+    void aTimelineRecordOutOfRangeTodayIsNotLetInByItsHistory() {
+        holdTheExampleRoles();
+        try (MockedStatic<ModelManager> models = timelineEmployee()) {
+            noSliceToday(true);
+            when(modelService.searchList(eq("Employee"), any(FlexQuery.class)))
+                    .thenReturn(List.of(Map.of("id", 99L)));
+
+            assertThatThrownBy(() -> checkIds(AccessType.UPDATE, List.of(99L)))
+                    .isInstanceOf(PermissionException.class);
+        }
+    }
+
+    private static MockedStatic<ModelManager> timelineEmployee() {
+        MockedStatic<ModelManager> models = Mockito.mockStatic(ModelManager.class);
+        models.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+        models.when(() -> ModelManager.getModel("Employee")).thenReturn(mock(MetaModel.class));
+        models.when(() -> ModelManager.isTimelineModel("Employee")).thenReturn(true);
+        return models;
+    }
+
+    /**
+     * Today's slice is out of range: the count finds nothing in range. {@code existsToday} says whether
+     * the record has a slice today at all.
+     */
+    private void noSliceToday(boolean existsToday) {
+        when(modelService.count(eq("Employee"), any(Filters.class))).thenReturn(0L);
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenAnswer(inv -> {
+            boolean scoped = inv.getArgument(1).toString().contains("departmentId");
+            return !scoped && existsToday ? List.of(99L) : List.of();
+        });
     }
 }
