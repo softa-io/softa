@@ -296,6 +296,20 @@ public interface PermissionService {
     boolean hasModelActionGrant(String model, AccessType accessType);
 
     /**
+     * Whether the caller holds the export of {@code model}. The export endpoints are shared by every model,
+     * so the endpoint gate admits anyone holding the export of some model; the export asks here, naming
+     * the model, before it reads a row. A model with no export permission registered is granted.
+     *
+     * <p>Default: granted.
+     *
+     * @param model the model being exported
+     * @return true when the caller may export it, or when no permission covers it
+     */
+    default boolean hasModelExportGrant(String model) {
+        return true;
+    }
+
+    /**
      * Whether the caller holds the import of {@code model}.
      *
      * <p>The import endpoints are shared by every model — the model rides in a template or a request

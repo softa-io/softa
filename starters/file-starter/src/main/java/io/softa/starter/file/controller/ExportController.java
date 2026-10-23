@@ -22,6 +22,7 @@ import io.softa.starter.file.service.ExportService;
 import io.softa.starter.file.dto.SheetInfo;
 import io.softa.starter.file.vo.ExportParams;
 import io.softa.starter.file.vo.MultiSheetExportParams;
+import io.softa.starter.file.excel.export.support.ExportDataFetcher;
 
 /**
  * ExportController
@@ -30,6 +31,9 @@ import io.softa.starter.file.vo.MultiSheetExportParams;
 @RestController
 @RequestMapping("/export")
 public class ExportController {
+
+    @Autowired
+    private ExportDataFetcher exportDataFetcher;
 
     @Autowired
     private ExportService exportService;
@@ -53,9 +57,10 @@ public class ExportController {
     @PostMapping(value = "/countExportable")
     public ApiResponse<Long> countExportable(@RequestParam String modelName,
                                              @RequestBody(required = false) ExportParams exportParams) {
+        exportDataFetcher.assertMayExport(modelName);
         FlexQuery flexQuery = ExportParams.convertParamsToFlexQuery(exportParams);
         var filters = ImportTemplateCountryScope.forModel(modelName, flexQuery.getFilters());
-        return ApiResponse.success(AccessScope.callAs(AccessType.EXPORT, () -> modelService.count(modelName, filters)));
+        return ApiResponse.success(AccessScope.callAs(AccessType.EXPORT, modelName, () -> modelService.count(modelName, filters)));
     }
 
     /**
