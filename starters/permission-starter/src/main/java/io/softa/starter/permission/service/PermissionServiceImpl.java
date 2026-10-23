@@ -1306,6 +1306,8 @@ public class PermissionServiceImpl implements PermissionService {
         if (cached != null) return cached;
         Map<String, Set<String>> owners = new java.util.HashMap<>();
         for (String owner : ModelManager.getModelNames()) {
+            // A projection reads another model's table and owns no row: what it points at it only refers to.
+            if (isProjection(owner)) continue;
             for (MetaField f : ModelManager.getModelFields(owner)) {
                 String related = f.getRelatedModel();
                 if (related == null || related.equals(owner)) continue;
@@ -2087,6 +2089,11 @@ public class PermissionServiceImpl implements PermissionService {
      * tighter statement than a shared reference, so it wins when a model is reachable
      * both ways.
      */
+    private static boolean isProjection(String model) {
+        MetaModel meta = ModelManager.getModel(model);
+        return meta != null && meta.isProjection();
+    }
+
     private List<Referencer> findReferencers(String childModel, Grant g) {
         List<Referencer> owners = new ArrayList<>();
         List<Referencer> backRefs = new ArrayList<>();
