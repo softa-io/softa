@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.BulkAddRequest;
@@ -66,5 +67,36 @@ public class UserRoleRelController
     @PostMapping("/createOne")
     public ApiResponse<Long> createOne(@RequestBody UserRoleRel entity) {
         return ApiResponse.success(service.createOne(entity));
+    }
+
+    @Operation(summary = "createList — typed, like createOne: the bind guards run and the holders' caches "
+            + "are cleared")
+    @PostMapping("/createList")
+    public ApiResponse<List<Long>> createList(@RequestBody List<UserRoleRel> entities) {
+        return ApiResponse.success(service.createList(entities));
+    }
+
+    // The generic variants below wrote memberships past the typed service: no cache was cleared, so a
+    // revoked role kept working for up to an hour, and a membership moved to another role in place
+    // went around the guard that keeps a tenant's last administrator. A membership is added and removed;
+    // it is not edited.
+
+    @PostMapping("/createOneAndFetch")
+    public ApiResponse<Void> createOneAndFetch(@RequestBody Object ignored) {
+        throw notHere("created through createOne or bulkAdd");
+    }
+
+    @PostMapping("/createListAndFetch")
+    public ApiResponse<Void> createListAndFetch(@RequestBody Object ignored) {
+        throw notHere("created through createList or bulkAdd");
+    }
+
+    @PostMapping({"/updateOne", "/updateOneAndFetch", "/updateList", "/updateListAndFetch", "/updateByFilter"})
+    public ApiResponse<Void> update(@RequestBody Object ignored) {
+        throw notHere("not edited in place: remove it and add the new one");
+    }
+
+    private static PermissionException notHere(String how) {
+        return new PermissionException("A role membership is " + how + ".");
     }
 }

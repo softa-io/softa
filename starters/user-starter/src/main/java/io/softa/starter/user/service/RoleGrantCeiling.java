@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -63,6 +64,7 @@ public class RoleGrantCeiling {
 
     private static final String M_PERMISSION = "Permission";
     private static final String M_NAVIGATION = "Navigation";
+    private static final String M_SENSITIVE_FIELD_SET = "SensitiveFieldSet";
 
     private final RoleService roleService;
     private final RoleNavigationService roleNavigationService;
@@ -97,13 +99,39 @@ public class RoleGrantCeiling {
 
     /** Refuse unless the role's stored grants are within the caller's reach. */
     public void assertWithinCaller(Long roleId) {
-        violation(roleId).ifPresent(reason -> {
+        assertWithinCaller(roleId, null);
+    }
+
+    /**
+     * Refuse unless the role's stored grants are within {@code callerBefore} — the caller's grants as they
+     * stood before the save that is being judged.
+     *
+     * <p>A save that rewrites a role the caller holds is otherwise judged against itself: the caller's
+     * grants, read after the write, already carry the role's new grants, and every grant covers itself.
+     * Taken before the write, they hold the role as it was, so the role may not be widened past it.
+     */
+    public void assertWithinCaller(Long roleId, @Nullable List<Grants> callerBefore) {
+        violation(roleId, callerBefore).ifPresent(reason -> {
             throw new BusinessException("You can only grant access you hold yourself: {0}", reason);
         });
     }
 
+    /** The caller's grants as they stand now, for a save to be judged against later; null when no ceiling applies. */
+    public @Nullable List<Grants> callerGrants() {
+        if (!applies()) {
+            return null;
+        }
+        Context context = ContextHolder.getContext();
+        Long userId = context.getUserId();
+        return inTenantContext(context.getTenantId(), () -> new ArrayList<>(load(callerRoleIds(userId)).values()));
+    }
+
     /** Why the role is out of the caller's reach, or empty when it is within it (or no ceiling applies). */
     public Optional<String> violation(Long roleId) {
+        return violation(roleId, null);
+    }
+
+    private Optional<String> violation(Long roleId, @Nullable List<Grants> callerBefore) {
         if (roleId == null || !applies()) {
             return Optional.empty();
         }
@@ -112,10 +140,11 @@ public class RoleGrantCeiling {
         Long userId = context.getUserId();
         return inTenantContext(tenantId, () -> {
             Grants target = load(List.of(roleId)).getOrDefault(roleId, Grants.empty());
-            List<Grants> caller = new ArrayList<>(load(callerRoleIds(userId)).values());
+            List<Grants> caller = callerBefore != null ? callerBefore
+                    : new ArrayList<>(load(callerRoleIds(userId)).values());
             Set<String> permissions = new HashSet<>(target.permissions());
             caller.forEach(g -> permissions.addAll(g.permissions()));
-            return firstViolation(target, caller, modelsOf(permissions),
+            return firstViolation(target, caller, modelsOf(permissions), modelsOfSets(target.sensitiveFieldSets()),
                     model -> ModelManager.existModel(model) && ModelManager.getModel(model).isMultiCompany());
         });
     }
@@ -126,10 +155,12 @@ public class RoleGrantCeiling {
      * The first reason {@code target} exceeds what {@code caller} holds, or empty.
      *
      * @param modelByPermission each permission's primary model (its navigation's), when it has one
+     * @param modelBySet        each sensitive field set's model
      * @param multiCompany      whether rows of a model belong to one company
      */
     static Optional<String> firstViolation(Grants target, List<Grants> caller,
                                            Map<String, String> modelByPermission,
+                                           Map<String, String> modelBySet,
                                            Predicate<String> multiCompany) {
         Set<String> navigations = union(caller, Grants::navigations);
         for (String navigation : target.navigations()) {
@@ -143,9 +174,14 @@ public class RoleGrantCeiling {
                 return Optional.of("permission " + permission);
             }
         }
-        Set<String> fieldSets = union(caller, Grants::sensitiveFieldSets);
+        // A field set reaches the rows of the role granting it, so one caller role must hold the set and
+        // reach the rows: a role seeing its own salary and a role seeing everyone without salaries do not
+        // add up to granting everyone's salaries.
         for (String fieldSet : target.sensitiveFieldSets()) {
-            if (!fieldSets.contains(fieldSet)) {
+            String model = modelBySet.get(fieldSet);
+            boolean covered = caller.stream().anyMatch(c -> c.sensitiveFieldSets().contains(fieldSet)
+                    && (model == null || reachesRows(c, target, model, multiCompany.test(model))));
+            if (!covered) {
                 return Optional.of("sensitive field set " + fieldSet);
             }
         }
@@ -304,6 +340,21 @@ public class RoleGrantCeiling {
             rules.add(new Rule(type.asString(), noExpr ? null : expr));
         }
         return rules;
+    }
+
+    /** Each sensitive field set's model. */
+    private Map<String, String> modelsOfSets(Set<String> setIds) {
+        if (setIds.isEmpty()) {
+            return Map.of();
+        }
+        return inSystemContext(() -> {
+            Map<String, String> out = new HashMap<>();
+            modelService.searchList(M_SENSITIVE_FIELD_SET, new FlexQuery(List.of("id", "model"), new Filters().in("id", setIds)))
+                    .forEach(row -> {
+                        if (row.get("model") != null) out.put(String.valueOf(row.get("id")), String.valueOf(row.get("model")));
+                    });
+            return out;
+        });
     }
 
     /** Each permission's primary model: the model of the navigation it belongs to. */

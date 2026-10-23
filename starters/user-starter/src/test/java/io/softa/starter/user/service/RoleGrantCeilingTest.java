@@ -31,6 +31,7 @@ class RoleGrantCeilingTest {
             "employee.view", "Employee",
             "employee.update", "Employee",
             "payroll.view", "PayRun");
+    private static final Map<String, String> MODEL_BY_SET = Map.of("sfs.salary", "Employee", "sfs.contact", "Employee");
     private static final Predicate<String> MULTI_COMPANY = "Employee"::equals;
 
     private static final Rule ALL = Rule.ALL;
@@ -79,8 +80,23 @@ class RoleGrantCeilingTest {
         Grants editSelf = grants(Set.of(), Set.of("employee.update"), Set.of(), Map.of("Employee", scope(SELF)));
         Grants target = grants(Set.of(), Set.of("employee.update"), Set.of(), Map.of("Employee", scope(ALL)));
 
-        assertThat(RoleGrantCeiling.firstViolation(target, List.of(viewAll, editSelf), MODEL_BY_PERMISSION, MULTI_COMPANY))
+        assertThat(RoleGrantCeiling.firstViolation(target, List.of(viewAll, editSelf), MODEL_BY_PERMISSION, MODEL_BY_SET, MULTI_COMPANY))
                 .isPresent();
+    }
+
+    @Test
+    void aFieldSetAndItsRowsMustComeFromOneCallerRole() {
+        // One role sees the caller's own salary, another sees everyone without salaries. Together they do
+        // not amount to seeing everyone's salaries, so a role granting that is out of reach.
+        Grants ownSalary = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.salary"), Map.of("Employee", scope(SELF)));
+        Grants everyone = grants(Set.of(), Set.of("employee.view"), Set.of(), Map.of("Employee", scope(ALL)));
+        Grants target = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.salary"), Map.of("Employee", scope(ALL)));
+
+        assertThat(RoleGrantCeiling.firstViolation(target, List.of(ownSalary, everyone), MODEL_BY_PERMISSION,
+                MODEL_BY_SET, MULTI_COMPANY)).hasValueSatisfying(r -> assertThat(r).contains("sfs.salary"));
+        // Within one role that holds both, it is granted.
+        Grants hr = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.salary"), Map.of("Employee", scope(ALL)));
+        assertThat(check(target, hr)).isEmpty();
     }
 
     @Test
@@ -122,7 +138,7 @@ class RoleGrantCeilingTest {
     void aCallerWithoutRolesReachesNothing() {
         Grants target = grants(Set.of("nav.employee"), Set.of(), Set.of(), Map.of());
 
-        assertThat(RoleGrantCeiling.firstViolation(target, List.of(), MODEL_BY_PERMISSION, MULTI_COMPANY)).isPresent();
+        assertThat(RoleGrantCeiling.firstViolation(target, List.of(), MODEL_BY_PERMISSION, MODEL_BY_SET, MULTI_COMPANY)).isPresent();
     }
 
     @Test
@@ -151,7 +167,7 @@ class RoleGrantCeilingTest {
     }
 
     private static Optional<String> check(Grants target, Grants caller) {
-        return RoleGrantCeiling.firstViolation(target, List.of(caller), MODEL_BY_PERMISSION, MULTI_COMPANY);
+        return RoleGrantCeiling.firstViolation(target, List.of(caller), MODEL_BY_PERMISSION, MODEL_BY_SET, MULTI_COMPANY);
     }
 
     private static Grants grants(Set<String> navs, Set<String> perms, Set<String> sfs, Map<String, Scope> scopes) {

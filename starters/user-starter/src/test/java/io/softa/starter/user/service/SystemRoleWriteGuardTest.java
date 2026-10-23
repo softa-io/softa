@@ -45,7 +45,7 @@ class SystemRoleWriteGuardTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         modelService = mock(ModelService.class);
-        guard = new SystemRoleWriteGuard(modelService);
+        guard = new SystemRoleWriteGuard(modelService, mock(org.springframework.context.ApplicationEventPublisher.class));
 
         // Role lookups: 1 is built-in, 2 is not. Filtered by whichever ids the guard asks about, so a
         // case that resolves the wrong rows fails instead of quietly passing.
@@ -60,6 +60,38 @@ class SystemRoleWriteGuardTest {
                     }
                     return out;
                 });
+    }
+
+    // ── outside the wizard: the generic writes are for administrators ─────────────────────────────
+
+    private static io.softa.framework.base.context.Context caller(String... roleCodes) {
+        io.softa.framework.base.context.Context ctx = new io.softa.framework.base.context.Context();
+        ctx.setTenantId(9L);
+        ctx.setUserId(7L);
+        ctx.setRoleCodes(java.util.Set.of(roleCodes));
+        return ctx;
+    }
+
+    @Test
+    void refusesAGenericGrantWriteFromANonAdministrator() {
+        stubRows("RoleDataScope");
+
+        assertThatThrownBy(() -> ContextHolder.runWith(caller(),
+                () -> guard.guardCreate("RoleDataScope", List.of(row("roleId", ORDINARY)))))
+                .isInstanceOf(io.softa.framework.base.exception.PermissionException.class)
+                .hasMessageContaining("role wizard");
+        assertThatThrownBy(() -> ContextHolder.runWith(caller(),
+                () -> guard.guardUpdate("Role", List.of(row("id", ORDINARY, "dynamicFilter", "[]")))))
+                .isInstanceOf(io.softa.framework.base.exception.PermissionException.class);
+    }
+
+    @Test
+    void letsAnAdministratorWriteAnOrdinaryRolesGrants() {
+        stubRows("RoleDataScope");
+
+        assertThatCode(() -> ContextHolder.runWith(caller("TENANT_ADMIN"),
+                () -> guard.guardCreate("RoleDataScope", List.of(row("roleId", ORDINARY)))))
+                .doesNotThrowAnyException();
     }
 
     // ── the grants: the surface that had nothing guarding it ──────────────────────────────────────

@@ -2,6 +2,7 @@ package io.softa.starter.user.controller;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -95,60 +96,78 @@ public abstract class SystemRoleGuardedController<S extends EntityService<T, K>,
 
     @PostMapping("/createOne")
     public final ApiResponse<K> createOne(@RequestBody Map<String, Object> row) {
-        guard().guardCreate(modelName(), List.of(row));
-        return ApiResponse.success(models().createOne(modelName(), row));
+        Set<Object> roles = guard().guardCreate(modelName(), List.of(row));
+        K result = models().createOne(modelName(), row);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/createOneAndFetch")
     public final ApiResponse<Map<String, Object>> createOneAndFetch(@RequestBody Map<String, Object> row) {
-        guard().guardCreate(modelName(), List.of(row));
-        return ApiResponse.success(models().createOneAndFetch(modelName(), row, ConvertType.REFERENCE));
+        Set<Object> roles = guard().guardCreate(modelName(), List.of(row));
+        Map<String, Object> result = models().createOneAndFetch(modelName(), row, ConvertType.REFERENCE);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/createList")
     public final ApiResponse<List<K>> createList(@RequestBody List<Map<String, Object>> rows) {
-        guard().guardCreate(modelName(), rows);
-        return ApiResponse.success(models().createList(modelName(), rows));
+        Set<Object> roles = guard().guardCreate(modelName(), rows);
+        List<K> result = models().createList(modelName(), rows);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/createListAndFetch")
     public final ApiResponse<List<Map<String, Object>>> createListAndFetch(@RequestBody List<Map<String, Object>> rows) {
-        guard().guardCreate(modelName(), rows);
-        return ApiResponse.success(models().createListAndFetch(modelName(), rows, ConvertType.REFERENCE));
+        Set<Object> roles = guard().guardCreate(modelName(), rows);
+        List<Map<String, Object>> result = models().createListAndFetch(modelName(), rows, ConvertType.REFERENCE);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     // ─────────────────────── update ───────────────────────
 
     @PostMapping("/updateOne")
     public final ApiResponse<Boolean> updateOne(@RequestBody Map<String, Object> row) {
-        guard().guardUpdate(modelName(), List.of(row));
-        return ApiResponse.success(models().updateOne(modelName(), row));
+        Set<Object> roles = guard().guardUpdate(modelName(), List.of(row));
+        Boolean result = models().updateOne(modelName(), row);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/updateOneAndFetch")
     public final ApiResponse<Map<String, Object>> updateOneAndFetch(@RequestBody Map<String, Object> row) {
-        guard().guardUpdate(modelName(), List.of(row));
-        return ApiResponse.success(models().updateOneAndFetch(modelName(), row, ConvertType.REFERENCE));
+        Set<Object> roles = guard().guardUpdate(modelName(), List.of(row));
+        Map<String, Object> result = models().updateOneAndFetch(modelName(), row, ConvertType.REFERENCE);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/updateList")
     public final ApiResponse<Boolean> updateList(@RequestBody List<Map<String, Object>> rows) {
-        guard().guardUpdate(modelName(), rows);
-        return ApiResponse.success(models().updateList(modelName(), rows));
+        Set<Object> roles = guard().guardUpdate(modelName(), rows);
+        Boolean result = models().updateList(modelName(), rows);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/updateListAndFetch")
     public final ApiResponse<List<Map<String, Object>>> updateListAndFetch(@RequestBody List<Map<String, Object>> rows) {
-        guard().guardUpdate(modelName(), rows);
-        return ApiResponse.success(models().updateListAndFetch(modelName(), rows, ConvertType.REFERENCE));
+        Set<Object> roles = guard().guardUpdate(modelName(), rows);
+        List<Map<String, Object>> result = models().updateListAndFetch(modelName(), rows, ConvertType.REFERENCE);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/updateByFilter")
     public final ApiResponse<Integer> updateByFilter(@RequestBody BulkUpdateParams bulkUpdateParams) {
         // Both sides: the rows the filter selects AND the role the new values would move them to.
-        guard().guardUpdateByFilter(modelName(), bulkUpdateParams.getFilters(), bulkUpdateParams.getValues());
-        return ApiResponse.success(models().updateByFilter(
-                modelName(), bulkUpdateParams.getFilters(), bulkUpdateParams.getValues()));
+        Set<Object> roles = guard().guardUpdateByFilter(modelName(), bulkUpdateParams.getFilters(), bulkUpdateParams.getValues());
+        Integer result = models().updateByFilter(
+                modelName(), bulkUpdateParams.getFilters(), bulkUpdateParams.getValues());
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     // ─────────────────────── delete / copy ───────────────────────
@@ -184,25 +203,33 @@ public abstract class SystemRoleGuardedController<S extends EntityService<T, K>,
 
     @PostMapping("/copyById")
     public final ApiResponse<K> copyById(@RequestParam K id) {
-        guard().guardByIds(modelName(), List.of(id));
-        return ApiResponse.success(models().copyById(modelName(), id));
+        Set<Object> roles = guard().guardCopy(modelName(), List.of(id));
+        K result = models().copyById(modelName(), id);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/copyByIdAndFetch")
     public final ApiResponse<Map<String, Object>> copyByIdAndFetch(@RequestParam K id) {
-        guard().guardByIds(modelName(), List.of(id));
-        return ApiResponse.success(models().copyByIdAndFetch(modelName(), id, ConvertType.REFERENCE));
+        Set<Object> roles = guard().guardCopy(modelName(), List.of(id));
+        Map<String, Object> result = models().copyByIdAndFetch(modelName(), id, ConvertType.REFERENCE);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/copyByIds")
     public final ApiResponse<List<K>> copyByIds(@RequestParam List<K> ids) {
-        guard().guardByIds(modelName(), ids);
-        return ApiResponse.success(models().copyByIds(modelName(), ids));
+        Set<Object> roles = guard().guardCopy(modelName(), ids);
+        List<K> result = models().copyByIds(modelName(), ids);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/copyByIdsAndFetch")
     public final ApiResponse<List<Map<String, Object>>> copyByIdsAndFetch(@RequestParam List<K> ids) {
-        guard().guardByIds(modelName(), ids);
-        return ApiResponse.success(models().copyByIdsAndFetch(modelName(), ids, ConvertType.REFERENCE));
+        Set<Object> roles = guard().guardCopy(modelName(), ids);
+        List<Map<String, Object>> result = models().copyByIdsAndFetch(modelName(), ids, ConvertType.REFERENCE);
+        guard().announce(roles);
+        return ApiResponse.success(result);
     }
 }

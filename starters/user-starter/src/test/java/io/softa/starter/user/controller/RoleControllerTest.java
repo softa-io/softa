@@ -28,6 +28,7 @@ import io.softa.starter.user.service.RoleSensitiveFieldSetService;
 import io.softa.starter.user.service.RoleService;
 import io.softa.starter.user.service.SystemRoleWriteGuard;
 import io.softa.starter.user.service.UserRoleRelService;
+import io.softa.starter.user.service.RoleGrantCeiling;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,9 +108,13 @@ class RoleControllerTest {
         ObjectNode roleUpdate = JsonNodeFactory.instance.objectNode();
         roleUpdate.put("name", "Payroll Peek");
 
+        List<RoleGrantCeiling.Grants> before = List.of();
+        when(roleGrantCeiling.callerGrants()).thenReturn(before);
+
         controller.saveWizard(5L, new WizardSaveDTO(roleUpdate, null, null, null, null));
 
-        org.mockito.Mockito.verify(roleGrantCeiling).assertWithinCaller(5L);
+        // Judged against the caller's grants as they were before the save rewrote the role.
+        org.mockito.Mockito.verify(roleGrantCeiling).assertWithinCaller(5L, before);
     }
 
     // ─── createWithWizard ───
