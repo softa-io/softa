@@ -9,6 +9,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
 import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.meta.MetaField;
@@ -159,6 +161,38 @@ class RelationDeleteHandlerTest {
             handler.handle("Customer", ONE_ID);
 
             rt.verifyNoInteractions();   // no inbound onDelete refs → no scan / cascade / set-null
+        }
+    }
+
+    @Test
+    void referrersAreProbedAsTheSystem() {
+        // Whether a row is still referenced does not depend on who asks: read as the caller, a referrer
+        // outside their range — or shown to them by its label only — did not count, and the delete went
+        // through leaving it pointing at nothing.
+        MetaField f = inboundField(OnDelete.RESTRICT);
+        try (MockedStatic<ModelManager> mm = mockStatic(ModelManager.class);
+             MockedStatic<ReflectTool> rt = mockStatic(ReflectTool.class)) {
+            stubModelManager(mm, f);
+            rt.when(() -> ReflectTool.count(eq("Order"), any(Filters.class))).thenAnswer(inv ->
+                    ContextHolder.getContext().isSkipPermissionCheck() ? 1L : 0L);
+
+            ContextHolder.runWith(new Context(), () ->
+                    assertThrows(RuntimeException.class, () -> handler.handle("Customer", ONE_ID)));
+        }
+    }
+
+    @Test
+    void cascadeReferrersAreCollectedAsTheSystem() {
+        MetaField f = inboundField(OnDelete.CASCADE);
+        try (MockedStatic<ModelManager> mm = mockStatic(ModelManager.class);
+             MockedStatic<ReflectTool> rt = mockStatic(ReflectTool.class)) {
+            stubModelManager(mm, f);
+            rt.when(() -> ReflectTool.getIds(eq("Order"), any(Filters.class), anyInt())).thenAnswer(inv ->
+                    ContextHolder.getContext().isSkipPermissionCheck() ? List.of((Serializable) 101L) : List.of());
+
+            ContextHolder.runWith(new Context(), () -> handler.handle("Customer", ONE_ID));
+
+            rt.verify(() -> ReflectTool.deleteList("Order", List.of(101L)), times(1));
         }
     }
 }
