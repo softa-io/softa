@@ -1927,7 +1927,9 @@ public class PermissionServiceImpl implements PermissionService {
      *       ({@link Kind#CHILD_BY_BACKREF}); the FK lives on the CHILD
      *       ({@code relatedField}) and holds the parent's id — the inverse direction,
      *       so the two cannot share one filter shape;</li>
-     *   <li>else a {@code MANY_TO_ONE} referrer → shared reference/config
+     *   <li>the join model of a {@code MANY_TO_MANY} field → the same kind, keyed on the join
+     *       model's left column ({@code joinLeft}): the links are the granted record's own;</li>
+     *   <li>else a {@code MANY_TO_ONE} or {@code MANY_TO_MANY} referrer → shared reference/config
      *       ({@link Kind#SHARED});</li>
      *   <li>failing all three, a {@code MANY_TO_ONE} referrer on an <b>owned child</b> of a granted
      *       model → also shared ({@link #sharedThroughOwnedChild});</li>
@@ -1957,6 +1959,15 @@ public class PermissionServiceImpl implements PermissionService {
         for (String granted : new TreeSet<>(g.scopes().keySet())) {
             if (!ModelManager.existModel(granted)) continue;
             for (MetaField f : ModelManager.getModelFields(granted)) {
+                // The join rows of a many-to-many field are the granted record's own, like a
+                // one-to-many child: the join model's left key holds the record's id. Without this
+                // edge a join model is reached by nothing, fail-closes, and a many-to-many write
+                // checked as the caller could not remove a single link.
+                if (f.getFieldType() == FieldType.MANY_TO_MANY && childModel.equals(f.getJoinModel())
+                        && StringUtils.isNotBlank(f.getJoinLeft())) {
+                    backRefs.add(new Referencer(granted, f.getJoinLeft(), Kind.CHILD_BY_BACKREF));
+                    continue;
+                }
                 String related = f.getRelatedModel();
                 if (related == null) continue;
                 boolean owned = f.getFieldType() == FieldType.ONE_TO_ONE
@@ -1977,7 +1988,10 @@ public class PermissionServiceImpl implements PermissionService {
                 if (f.getFieldType() == FieldType.ONE_TO_MANY && StringUtils.isNotBlank(f.getRelatedField())) {
                     backRefs.add(new Referencer(granted, f.getRelatedField(), Kind.CHILD_BY_BACKREF));
                 }
-                if (f.getFieldType() == FieldType.MANY_TO_ONE && shared == null) {
+                // A record a many-to-many field links to is referenced as a many-to-one target is: the
+                // granted record points at it without owning it.
+                if ((f.getFieldType() == FieldType.MANY_TO_ONE || f.getFieldType() == FieldType.MANY_TO_MANY)
+                        && shared == null) {
                     shared = new Referencer(granted, f.getFieldName(), Kind.SHARED);
                 }
             }
