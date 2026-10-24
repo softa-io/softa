@@ -204,6 +204,31 @@ class LabelOnlyFieldPlanTest {
     }
 
     @Test
+    void aChildIsReadWithItsOwnerByARoleHoldingNoneOfTheChildsEndpoints() {
+        // Role 1 is a self-service page listing the employee search by hand: it reads the employee, and the
+        // employee's time profile with it, and holds none of the time profile's endpoints. Role 2 reaches the
+        // time profile only as a lookup of something else. The second role must not leave the employee
+        // looking at their own time profile as a label.
+        String selfService = "permission.attendance-home.view";
+        String lookupOnly = "permission.exception-request.view";
+        when(index.modelActionPermissions("Employee", "view")).thenReturn(Set.of(EMPLOYEE_VIEW, selfService));
+        when(index.directModelActionPermissions("Employee", "view")).thenReturn(Set.of(EMPLOYEE_VIEW, selfService));
+        when(index.modelActionPermissions("EmpTimeProfile", "view")).thenReturn(Set.of(EMPLOYEE_VIEW, lookupOnly));
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(selfService), "Employee", ScopeType.ALL),
+                role(2, Set.of(lookupOnly), "AttendanceExceptionRequest", ScopeType.ALL)));
+        when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("timeProfileId"))).thenReturn(List.of(5L));
+        when(modelService.getIds(eq("EmpTimeProfile"), any(Filters.class))).thenReturn(List.of(5L));
+        Map<String, Object> profile = new HashMap<>(Map.of("id", 5L, "name", "Standard", "weeklyHours", 40));
+        List<Map<String, Object>> rows = new ArrayList<>(List.of(profile));
+
+        assertThat(as(() -> service.filterReadableFields("EmpTimeProfile", List.of("id", "name", "weeklyHours"),
+                AccessType.READ))).containsExactly("id", "name", "weeklyHours");
+        as(() -> service.maskResponseValue("EmpTimeProfile", rows, AccessType.READ));
+        assertThat(rows.getFirst()).containsEntry("weeklyHours", 40);
+    }
+
+    @Test
     void anOwnerNoRoleCanBeGrantedDoesNotOpenWhatItOwns() {
         // UserProfile owns the accounts and has no permission of its own. Left whole itself, it must not
         // lend that to the accounts: they are granted on their own, and the manager was not granted them.

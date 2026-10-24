@@ -532,7 +532,33 @@ public class PermissionServiceImpl implements PermissionService {
         if (holding.isEmpty()) {
             return access == AccessType.EXPORT ? List.of() : all;
         }
-        return holding;
+        return access == AccessType.READ ? withOwnerReaders(all, holding, model) : holding;
+    }
+
+    /**
+     * The holders of a read of {@code model}, with the roles that read a model owning it: an owned child is
+     * read as part of its owner. Which roles hold the child's own endpoints is no answer for it — a page
+     * that lists the employee search by hand reads the employee and, with it, the employee's time profile,
+     * yet holds none of the time profile's endpoints, while a role reaching the time profile as a lookup of
+     * something else does. Taking the holders alone, that lookup role alone decided the time profile, and
+     * the employee read their own as a label.
+     */
+    private List<Grant> withOwnerReaders(List<Grant> all, List<Grant> holding, String model) {
+        if (ownersOf(model).isEmpty()) return holding;
+        List<Grant> out = new ArrayList<>(holding);
+        for (Grant g : all) {
+            if (!out.contains(g) && readsAnOwner(g, model, 0)) out.add(g);
+        }
+        return out;
+    }
+
+    private boolean readsAnOwner(Grant g, String model, int depth) {
+        if (depth >= MAX_OWNER_DEPTH) return false;
+        for (String owner : ownersOf(model)) {
+            Set<String> readers = actionPermissions(owner, AccessType.READ);
+            if (g.permissions().stream().anyMatch(readers::contains) || readsAnOwner(g, owner, depth + 1)) return true;
+        }
+        return false;
     }
 
     /**
