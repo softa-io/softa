@@ -16,6 +16,22 @@ import io.softa.framework.orm.constant.FileConstant;
 public interface CustomImportHandler {
 
     /**
+     * Whether this handler serves imports into {@code modelName}.
+     *
+     * <p>The handler is named by the request — an import wizard carries the bean name — and a handler
+     * writes with the reach its own model needs: provisioning accounts, linking records, filling fields
+     * the template never exposes. Run against another model's rows, it does that work on rows it was
+     * never meant for. A handler is therefore run only for the models it names here; the default names
+     * none, so a handler that has not said refuses every import rather than serving any.
+     *
+     * @param modelName the model the import writes
+     * @return true if this handler is written for that model
+     */
+    default boolean supports(String modelName) {
+        return false;
+    }
+
+    /**
      * Handle import rows in-place.
      *
      * @param rows import rows, mutable in-place only

@@ -8,9 +8,11 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.MockedStatic;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.utils.SpringContextUtils;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.file.dto.ImportDataDTO;
@@ -21,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 class ImportRowPipelineTest {
@@ -97,6 +100,65 @@ class ImportRowPipelineTest {
         assertThat(data.getFailedRows()).as("and the other comes back with a reason").hasSize(1);
         assertThat(data.getFailedRows().getFirst().get(FileConstant.FAILED_REASON).toString())
                 .contains("An earlier row in this file already has code=ADR001");
+    }
+
+    @Test
+    void aHandlerNamedForAnotherModelIsRefused() {
+        // The wizard names the handler; one written for another model must not run on these rows.
+        ImportRowPipeline pipeline = wiredPipeline();
+        CustomImportHandler employeeOnly = new CustomImportHandler() {
+            @Override
+            public boolean supports(String modelName) {
+                return "Employee".equals(modelName);
+            }
+
+            @Override
+            public void handleImportData(List<Map<String, Object>> rows, Map<String, Object> env,
+                                         boolean validateOnly) {
+                rows.forEach(row -> row.put("touched", true));
+            }
+        };
+        ImportDataDTO data = new ImportDataDTO();
+        data.setRows(new ArrayList<>(List.of(new LinkedHashMap<>(Map.of("code", "ADR001")))));
+        data.setOriginalRows(new ArrayList<>(List.of(new LinkedHashMap<>(Map.of("Code", "ADR001")))));
+
+        try (MockedStatic<SpringContextUtils> spring = mockStatic(SpringContextUtils.class)) {
+            spring.when(() -> SpringContextUtils.getBean("employeeOnly", CustomImportHandler.class))
+                    .thenReturn(employeeOnly);
+
+            IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+                    () -> pipeline.importData(template("EmpAddress", "employeeOnly"), data));
+            assertThat(refused.getMessage()).contains("employeeOnly", "EmpAddress");
+            assertThat(data.getRows().getFirst()).doesNotContainKey("touched");
+
+            assertDoesNotThrow(() -> pipeline.validateData(template("Employee", "employeeOnly"), data));
+            assertThat(data.getRows().getFirst()).containsEntry("touched", true);
+        }
+    }
+
+    @Test
+    void aHandlerThatNamesNoModelServesNone() {
+        ImportRowPipeline pipeline = wiredPipeline();
+        CustomImportHandler silent = (rows, env, validateOnly) -> { };
+        ImportDataDTO data = new ImportDataDTO();
+        data.setRows(new ArrayList<>(List.of(new LinkedHashMap<>(Map.of("code", "ADR001")))));
+        data.setOriginalRows(new ArrayList<>(List.of(new LinkedHashMap<>(Map.of("Code", "ADR001")))));
+
+        try (MockedStatic<SpringContextUtils> spring = mockStatic(SpringContextUtils.class)) {
+            spring.when(() -> SpringContextUtils.getBean("silent", CustomImportHandler.class)).thenReturn(silent);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> pipeline.importData(template("EmpAddress", "silent"), data));
+        }
+    }
+
+    private static ImportTemplateDTO template(String modelName, String handler) {
+        ImportTemplateDTO template = new ImportTemplateDTO();
+        template.setModelName(modelName);
+        template.setImportRule(ImportRule.CREATE_OR_UPDATE);
+        template.setSkipException(true);
+        template.setCustomHandler(handler);
+        return template;
     }
 
     @Test
