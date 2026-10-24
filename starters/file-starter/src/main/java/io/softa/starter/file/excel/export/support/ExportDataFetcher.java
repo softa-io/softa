@@ -18,12 +18,17 @@ import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
+import io.softa.framework.base.exception.PermissionException;
 
 @Component
 public class ExportDataFetcher {
 
     @Autowired
     private ModelService<?> modelService;
+
+    @Autowired
+    private PermissionService permissionService;
 
     @Autowired(required = false)
     private List<ExportRowProcessor> rowProcessors = List.of();
@@ -36,11 +41,12 @@ public class ExportDataFetcher {
      * may export the model, which need not be every row the caller may look at on screen.
      */
     public List<Map<String, Object>> fetchRows(String modelName, String handlerName, FlexQuery flexQuery) {
+        assertMayExport(modelName);
         Page<Map<String, Object>> page = Page.ofCursorPage(BaseConstant.MAX_BATCH_SIZE);
         List<Map<String, Object>> exportedRows = new ArrayList<>();
         do {
             Page<Map<String, Object>> current = page;
-            page = AccessScope.callAs(AccessType.EXPORT, () -> modelService.searchPage(modelName, flexQuery, current));
+            page = AccessScope.callAs(AccessType.EXPORT, modelName, () -> modelService.searchPage(modelName, flexQuery, current));
             if (!page.getRows().isEmpty()) {
                 exportedRows.addAll(page.getRows());
             }
@@ -52,6 +58,17 @@ public class ExportDataFetcher {
         }
         executeCustomHandler(handlerName, exportedRows);
         return exportedRows;
+    }
+
+    /**
+     * Refuse an export of a model the caller holds no export of. The export endpoints serve every model,
+     * so holding one model's export opened them for all, and the rest were read under no role: an empty
+     * file, rather than the refusal it should have been.
+     */
+    public void assertMayExport(String modelName) {
+        if (!permissionService.hasModelExportGrant(modelName)) {
+            throw new PermissionException("You are not permitted to export {0}.", modelName);
+        }
     }
 
     private void executeCustomHandler(String handlerName, List<Map<String, Object>> rows) {

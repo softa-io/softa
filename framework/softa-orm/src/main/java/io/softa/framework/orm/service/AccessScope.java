@@ -46,6 +46,33 @@ public final class AccessScope {
         return ScopedValue.where(CURRENT, accessType).call(op);
     }
 
+    /** The model the bound action is performed on, when the binding names one. */
+    private static final ScopedValue<String> MODEL = ScopedValue.newInstance();
+
+    /**
+     * The action a read of {@code model} is performed for: the bound action when the binding names no
+     * model or names this one, and a plain {@link AccessType#READ} for any other model read along the way.
+     *
+     * <p>An export is the export of one model. Its related columns are reads of other models, which the
+     * exporting role reads as it reads them anywhere — not by an export permission on each of them, which
+     * it rarely holds and which emptied every related column.
+     */
+    public static AccessType currentFor(String model) {
+        AccessType bound = current();
+        if (bound == AccessType.READ || !MODEL.isBound() || MODEL.get().equals(model)) {
+            return bound;
+        }
+        return AccessType.READ;
+    }
+
+    /** Call the operation with {@code accessType} as the action on {@code model} — see {@link #currentFor}. */
+    public static <T, X extends Throwable> T callAs(AccessType accessType, String model,
+                                                   ScopedValue.CallableOp<T, X> op) throws X {
+        Objects.requireNonNull(accessType, "Access type must not be null");
+        Objects.requireNonNull(model, "Model must not be null");
+        return ScopedValue.where(CURRENT, accessType).where(MODEL, model).call(op);
+    }
+
     /** Run the action with {@code accessType} in effect — see {@link #callAs}. */
     public static void runAs(AccessType accessType, Runnable action) {
         Objects.requireNonNull(accessType, "Access type must not be null");
