@@ -463,6 +463,29 @@ where it declares a default scope (`ModelDefaultScope`): there reads, updates an
 the declaration for every caller. An `ImportHistory` row belongs to whoever ran the import, so the
 import that ran as them can write its outcome back.
 
+**A record reached only by reference shows its label.** A permission on a model derives the lookup
+endpoints of the models its relations point at (`EndpointIndex.deriveLookupEndpoints`), so a role granted
+employees may call `/UserAccount/getById` for the account picker; and a referenced model with no rule of
+its own is readable in full (SHARED). Together they opened every referenced record whole — login names,
+emails, mobile numbers. The field plan now cuts such a read down to the model's **label**: the id, the
+display name, the business key, the tree path (`idPath`), the active flag, and the company and country
+anchors (`companyId` / `country` on a `multiCompany` / `multiCountry` model — which company or country a
+row belongs to is structure every reader needs, not a detail of the row).
+
+- *Who sees more.* A role granted the model itself — a permission declared on it, or one listing its
+  endpoints by hand (`EndpointIndex.directModelActionPermissions`), not one reaching it through derived
+  lookups — sees the whole record, on that role's own rows. It is judged per role like a field set, so one
+  role's narrow account grant does not open the accounts another role reaches by reference.
+- *Exempt.* A model owned (one-to-one, not a dependant; one-to-many) by one the role was granted, through
+  any number of owners; a model declared public configuration (`ModelDefaultScope` = `ALL`) — configuration
+  every user reads, such as attendance groups or leave policies — and what it owns; and a model no role can
+  be granted that nothing owns. Being left whole for that last reason does not carry down to what such a
+  model owns: `UserProfile` is granted to no one and owns the accounts, which are granted on their own.
+  Only reads are cut, not writes.
+- *Conditions.* A condition, sort or group on a field past the label matches nothing, so a filter cannot
+  probe what a read would not show. A field some model's cascaded field reads stays usable in
+  conditions — the cascade expands to it — though it is still masked on a direct read.
+
 ## Configuration
 
 `PermissionInterceptorProperties` (prefix `permission`):

@@ -204,12 +204,17 @@ public class EndpointIndex {
      *  action on that model, whether derived or hand-listed. See {@link #modelActionPermissions}. */
     private Map<String, Set<String>> modelActionIndex = Map.of();
 
+    /** Like {@link #modelActionIndex}, without the endpoints a permission reaches only through the
+     *  lookups it derives for its model's relations. See {@link #directModelActionPermissions}. */
+    private Map<String, Set<String>> directModelActionIndex = Map.of();
+
     @PostConstruct
     void init() {
         Map<String, Set<String>> exact = new HashMap<>();
         List<PatternEntry> patterns = new ArrayList<>();
         Map<String, Set<String>> actions = new HashMap<>();
         Map<String, Set<String>> modelActions = new HashMap<>();
+        Map<String, Set<String>> directModelActions = new HashMap<>();
 
         for (PermissionEndpointDef def : endpointSource.getPermissionEndpoints()) {
             if (def.model() != null && !def.model().isEmpty() && def.permissionId() != null) {
@@ -217,6 +222,10 @@ public class EndpointIndex {
                         .add(def.permissionId());
             }
             List<String> endpoints = explicitOrDerive(def);
+            boolean explicit = def.explicitEndpoints() != null && !def.explicitEndpoints().isEmpty();
+            for (String ep : explicit ? endpoints : ownStandardEndpoints(def)) {
+                indexModelAction(ep, def.permissionId(), directModelActions);
+            }
             for (String ep : endpoints) {
                 indexModelAction(ep, def.permissionId(), modelActions);
                 if (ep.contains("{")) {
@@ -241,6 +250,9 @@ public class EndpointIndex {
         Map<String, Set<String>> frozenModelActions = new HashMap<>(modelActions.size());
         modelActions.forEach((key, ids) -> frozenModelActions.put(key, Set.copyOf(ids)));
         this.modelActionIndex = Collections.unmodifiableMap(frozenModelActions);
+        Map<String, Set<String>> frozenDirect = new HashMap<>(directModelActions.size());
+        directModelActions.forEach((key, ids) -> frozenDirect.put(key, Set.copyOf(ids)));
+        this.directModelActionIndex = Collections.unmodifiableMap(frozenDirect);
         log.info("EndpointIndex built: {} exact + {} pattern entries",
                 exact.size(), patterns.size());
     }
@@ -301,6 +313,37 @@ public class EndpointIndex {
      */
     public Set<String> modelActionPermissions(String model, String action) {
         return modelActionIndex.getOrDefault(model + " " + action, Set.of());
+    }
+
+    /**
+     * The permission ids that grant {@code action} on {@code model} as that model's own permission — declared
+     * on it, or listing its endpoints by hand — leaving out a permission that reaches the model only through
+     * the lookups it derives for its own model's relations.
+     *
+     * <p>{@link #modelActionPermissions} answers who may call the model's endpoints, and a lookup derived for
+     * a form's picker is a way to call them. This answers who was granted the model itself: the employee
+     * view reaches {@code /UserAccount/getById} for the account picker, but it is not a grant to view
+     * accounts, and what it reads there is the account's label.
+     *
+     * @param model  the model the endpoint path names
+     * @param action one of {@code view}, {@code create}, {@code update}, {@code delete}
+     * @return the permission ids, empty when none grants it directly
+     */
+    public Set<String> directModelActionPermissions(String model, String action) {
+        return directModelActionIndex.getOrDefault(model + " " + action, Set.of());
+    }
+
+    /** A derived permission's standard endpoints on its own model, without the relation lookups. */
+    private static List<String> ownStandardEndpoints(PermissionEndpointDef def) {
+        String model = def.model();
+        if (model == null || model.isEmpty() || def.permissionId() == null) return List.of();
+        List<String> entries = STANDARD_ACTION_MAP.get(lastSegment(def.permissionId()));
+        if (entries == null) return List.of();
+        List<String> out = new ArrayList<>(entries.size());
+        for (String entry : entries) {
+            out.add(toEndpoint(entry, model));
+        }
+        return out;
     }
 
     /** Record {@code endpoint} under each per-model standard action its {@code VERB /Model/suffix} is in. */

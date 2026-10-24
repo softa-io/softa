@@ -153,8 +153,9 @@ public class NavigationConfigOptionsController {
         }
         // Related/lookup models reachable via relational fields (L1 + L2),
         // mirroring EndpointIndex's lookup derivation — these get queried at
-        // runtime (lookup / cascade), so the role needs a scope rule for them
-        // too or they fail-closed to zero rows.
+        // runtime (lookup / cascade). Their rule decides which records the
+        // role's dropdowns offer; the role sees those records' labels only.
+        // Without a rule, only the records the role's own rows point at.
         Set<String> related = deriveRelatedModels(primary);
 
         List<RoleModelConfigOption> out = new ArrayList<>(primary.size() + related.size());

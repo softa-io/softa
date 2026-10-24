@@ -28,6 +28,9 @@ import io.softa.starter.user.enums.AccountStatus;
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         multiTenant = true,
         copyable = false,
+        // The label a reference to an account shows. Without it the label fell back to the id: approval
+        // pickers listed numbers, and a reader shown only the label had no name to search by.
+        displayName = {"nickname"},
         searchName = {"nickname", "username"}
 )
 /**

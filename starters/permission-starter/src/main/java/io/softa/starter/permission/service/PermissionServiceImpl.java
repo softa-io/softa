@@ -213,7 +213,7 @@ public class PermissionServiceImpl implements PermissionService {
      * read up front with the caller's own range switched off (see {@link #guardPathLeaf}).
      */
     private Filters guardSensitiveConditions(PermissionInfo pi, String model, AccessType access, Filters filters) {
-        if (filters == null || Filters.isEmpty(filters) || sfsCache == null) return filters;
+        if (filters == null || Filters.isEmpty(filters)) return filters;
         AccessType read = readAccess(access);
         Map<String, FieldPlan> plans = new java.util.HashMap<>();
         if (!mentionsMasked(pi, model, read, filters, plans)) return filters;
@@ -310,8 +310,15 @@ public class PermissionServiceImpl implements PermissionService {
     private PathTarget maskedTarget(PermissionInfo pi, String model, String field, AccessType read,
                                     Map<String, FieldPlan> plans) {
         PathTarget target = resolvePath(model, field);
-        if (target == null || !sfsCache.hasSensitiveFieldsOn(target.model())
-                || !sfsCache.allSensitiveFieldsOn(target.model()).contains(target.leaf())) {
+        if (target == null) return null;
+        boolean sensitive = sfsCache != null && sfsCache.hasSensitiveFieldsOn(target.model())
+                && sfsCache.allSensitiveFieldsOn(target.model()).contains(target.leaf());
+        // A field another model's cascaded field reads is that model's to show: a condition on it, which
+        // is what the cascade expands to, stays usable. Read directly it is still past the label.
+        boolean pastLabel = mayBeLabelOnly(target.model(), read)
+                && !labelFields(target.model()).contains(target.leaf())
+                && !cascadeExposed().contains(target.model() + "." + target.leaf());
+        if (!sensitive && !pastLabel) {
             return null;
         }
         FieldPlan plan = plans.computeIfAbsent(target.model(), m -> fieldPlan(pi, m, read));
@@ -525,7 +532,33 @@ public class PermissionServiceImpl implements PermissionService {
         if (holding.isEmpty()) {
             return access == AccessType.EXPORT ? List.of() : all;
         }
-        return holding;
+        return access == AccessType.READ ? withOwnerReaders(all, holding, model) : holding;
+    }
+
+    /**
+     * The holders of a read of {@code model}, with the roles that read a model owning it: an owned child is
+     * read as part of its owner. Which roles hold the child's own endpoints is no answer for it — a page
+     * that lists the employee search by hand reads the employee and, with it, the employee's time profile,
+     * yet holds none of the time profile's endpoints, while a role reaching the time profile as a lookup of
+     * something else does. Taking the holders alone, that lookup role alone decided the time profile, and
+     * the employee read their own as a label.
+     */
+    private List<Grant> withOwnerReaders(List<Grant> all, List<Grant> holding, String model) {
+        if (ownersOf(model).isEmpty()) return holding;
+        List<Grant> out = new ArrayList<>(holding);
+        for (Grant g : all) {
+            if (!out.contains(g) && readsAnOwner(g, model, 0)) out.add(g);
+        }
+        return out;
+    }
+
+    private boolean readsAnOwner(Grant g, String model, int depth) {
+        if (depth >= MAX_OWNER_DEPTH) return false;
+        for (String owner : ownersOf(model)) {
+            Set<String> readers = actionPermissions(owner, AccessType.READ);
+            if (g.permissions().stream().anyMatch(readers::contains) || readsAnOwner(g, owner, depth + 1)) return true;
+        }
+        return false;
     }
 
     /**
@@ -1149,7 +1182,8 @@ public class PermissionServiceImpl implements PermissionService {
      * model-wide one it always was — no per-row query.
      */
     private FieldPlan fieldPlan(PermissionInfo pi, String model, AccessType access) {
-        if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return FieldPlan.NONE;
+        boolean sensitive = sfsCache != null && sfsCache.hasSensitiveFieldsOn(model);
+        if (!sensitive && !mayBeLabelOnly(model, access)) return FieldPlan.NONE;
         RequestMemo memo = RequestMemo.current();
         if (memo == null) {
             return computeFieldPlan(pi, model, access);
@@ -1163,30 +1197,46 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     private FieldPlan computeFieldPlan(PermissionInfo pi, String model, AccessType access) {
-        Set<String> sensitive = sfsCache.allSensitiveFieldsOn(model);
+        Set<String> sensitive = sfsCache != null && sfsCache.hasSensitiveFieldsOn(model)
+                ? sfsCache.allSensitiveFieldsOn(model) : Set.of();
         List<Grant> holders = holders(pi, model, access);
-        Set<String> anyGrants = new java.util.HashSet<>();
-        Set<String> allGrant = null;
-        Map<Grant, Set<String>> grantedBy = new java.util.LinkedHashMap<>();
+        Set<String> pastLabel = mayBeLabelOnly(model, access) ? pastLabelFields(model) : Set.of();
+        Set<String> governed = new java.util.HashSet<>(sensitive);
+        governed.addAll(pastLabel);
+        if (governed.isEmpty()) return FieldPlan.NONE;
+        // What each holding role shows of the governed fields: the sensitive fields its sets grant, and
+        // the fields past the label when it was granted the model itself.
+        Map<Grant, Set<String>> visibleBy = new java.util.LinkedHashMap<>();
         for (Grant g : holders) {
-            Set<String> granted = sfsCache.grantedFieldsFor(model, g.sensitiveSets().getOrDefault(model, Set.of()));
-            grantedBy.put(g, granted);
-            anyGrants.addAll(granted);
-            if (allGrant == null) {
-                allGrant = new java.util.HashSet<>(granted);
+            Set<String> visible = new java.util.HashSet<>(governed);
+            Set<String> granted = sfsCache == null || sensitive.isEmpty() ? Set.of()
+                    : sfsCache.grantedFieldsFor(model, g.sensitiveSets().getOrDefault(model, Set.of()));
+            for (String f : sensitive) {
+                if (!granted.contains(f)) visible.remove(f);
+            }
+            if (!pastLabel.isEmpty() && !viewsInFull(g, model, 0)) {
+                visible.removeAll(pastLabel);
+            }
+            visibleBy.put(g, visible);
+        }
+        Set<String> anyVisible = new java.util.HashSet<>();
+        Set<String> allVisible = null;
+        for (Set<String> visible : visibleBy.values()) {
+            anyVisible.addAll(visible);
+            if (allVisible == null) {
+                allVisible = new java.util.HashSet<>(visible);
             } else {
-                allGrant.retainAll(granted);
+                allVisible.retainAll(visible);
             }
         }
-        Set<String> blocked = new java.util.HashSet<>(sensitive);
-        blocked.removeAll(anyGrants);
-        Set<String> perRow = new java.util.HashSet<>(anyGrants);
-        if (allGrant != null) perRow.removeAll(allGrant);
-        perRow.retainAll(sensitive);
+        Set<String> blocked = new java.util.HashSet<>(governed);
+        blocked.removeAll(anyVisible);
+        Set<String> perRow = new java.util.HashSet<>(anyVisible);
+        if (allVisible != null) perRow.removeAll(allVisible);
         Map<Set<String>, List<Grant>> readersByFields = new java.util.HashMap<>();
         if (!perRow.isEmpty()) {
-            grantedBy.forEach((g, granted) -> {
-                Set<String> fields = new java.util.HashSet<>(granted);
+            visibleBy.forEach((g, visible) -> {
+                Set<String> fields = new java.util.HashSet<>(visible);
                 fields.retainAll(perRow);
                 if (!fields.isEmpty()) {
                     readersByFields.computeIfAbsent(fields, k -> new ArrayList<>()).add(g);
@@ -1195,6 +1245,123 @@ public class PermissionServiceImpl implements PermissionService {
         }
         return new FieldPlan(java.util.Collections.unmodifiableSet(blocked),
                 java.util.Collections.unmodifiableSet(perRow), java.util.Collections.unmodifiableMap(readersByFields));
+    }
+
+    // ─────────────────────── label only ───────────────────────
+
+    /** Reads, as opposed to writes: what a caller is shown of a record it may not have been granted. */
+    private static final Set<AccessType> READS = EnumSet.of(AccessType.READ, AccessType.EXPORT);
+
+    /**
+     * Whether a read of {@code model} can come down to its label for some role: a read, of a model a role
+     * can be granted in its own right or one owned by such a model, and not declared public
+     * configuration. A model no role can be granted and nothing owns is left whole — nobody could see more
+     * of it than anybody else.
+     */
+    private boolean mayBeLabelOnly(String model, AccessType access) {
+        if (!READS.contains(access) || model == null || !ModelManager.existModel(model)) return false;
+        if (declaredScope(model) == ScopeType.ALL) return false;
+        return !directViewPermissions(model).isEmpty() || !ownersOf(model).isEmpty();
+    }
+
+    /**
+     * Whether {@code g} shows {@code model} in full: it was granted the model itself — not a lookup its
+     * own model's relations derive — or the model is owned by one the role shows in full, or by public
+     * configuration. Otherwise the role reaches the model only as the target of a reference, and shows
+     * its label.
+     */
+    private boolean viewsInFull(Grant g, String model, int depth) {
+        // Granted, not merely left whole: a model no role can be granted is left whole for itself, and
+        // that must not carry down to what it owns — UserProfile owns the accounts, and is granted to
+        // no one.
+        Set<String> direct = directViewPermissions(model);
+        if (g.permissions().stream().anyMatch(direct::contains)) return true;
+        // A one-to-many child follows its owner even when it has a page of its own: an employee's contracts
+        // are part of the employee's record. Its rows still follow the owner's range.
+        if (depth >= MAX_OWNER_DEPTH) return false;
+        for (String owner : ownersOf(model)) {
+            // A child of public configuration is configuration too: a schedule's days with the schedule.
+            if (declaredScope(owner) == ScopeType.ALL || viewsInFull(g, owner, depth + 1)) return true;
+        }
+        return false;
+    }
+
+    private static final int MAX_OWNER_DEPTH = 4;
+
+    private Set<String> directViewPermissions(String model) {
+        EndpointIndex index = endpointIndexSupplier.get();
+        return index == null ? Set.of() : index.directModelActionPermissions(model, "view");
+    }
+
+    /**
+     * The label of {@code model}: what any reference to one of its rows shows — the id, the display name,
+     * the business key (an import finds a related row by it), the tree path, the active flag a picker
+     * filters on, and the company and country the row belongs to.
+     */
+    private static Set<String> labelFields(String model) {
+        Set<String> labels = new java.util.HashSet<>();
+        labels.add(ModelConstant.ID);
+        labels.addAll(ModelManager.getModelDisplayName(model));
+        MetaModel meta = ModelManager.getModel(model);
+        if (meta.getBusinessKey() != null) labels.addAll(meta.getBusinessKey());
+        if (ModelManager.existField(model, "idPath")) labels.add("idPath");
+        if (meta.isActiveControl()) labels.add(ModelConstant.ACTIVE_CONTROL_FIELD);
+        // Which company and which country the row belongs to: structure every reader of a reference needs
+        // — an employee's company is derived from the department chosen for them — not a detail of it.
+        if (meta.isMultiCompany()) labels.add(ModelConstant.COMPANY_FIELD);
+        if (meta.isMultiCountry()) labels.add(ModelConstant.COUNTRY_FIELD);
+        return labels;
+    }
+
+    private static Set<String> pastLabelFields(String model) {
+        Set<String> fields = new java.util.HashSet<>(ModelManager.getModelStoredFields(model));
+        fields.removeAll(labelFields(model));
+        return fields;
+    }
+
+    /** Models owning {@code model}: one-to-one owners (not dependants deleted with it), one-to-many parents. */
+    private Set<String> ownersOf(String model) {
+        return ownerModels().getOrDefault(model, Set.of());
+    }
+
+    private volatile Map<String, Set<String>> ownerModelsCache;
+    private volatile Set<String> cascadeExposedCache;
+
+    private Map<String, Set<String>> ownerModels() {
+        Map<String, Set<String>> cached = ownerModelsCache;
+        if (cached != null) return cached;
+        Map<String, Set<String>> owners = new java.util.HashMap<>();
+        for (String owner : ModelManager.getModelNames()) {
+            // A projection reads another model's table and owns no row: what it points at it only refers to.
+            if (isProjection(owner)) continue;
+            for (MetaField f : ModelManager.getModelFields(owner)) {
+                String related = f.getRelatedModel();
+                if (related == null || related.equals(owner)) continue;
+                boolean ownsOne = f.getFieldType() == FieldType.ONE_TO_ONE && f.getOnDelete() != OnDelete.CASCADE;
+                boolean ownsMany = f.getFieldType() == FieldType.ONE_TO_MANY && StringUtils.isNotBlank(f.getRelatedField());
+                if (ownsOne || ownsMany) {
+                    owners.computeIfAbsent(related, k -> new java.util.HashSet<>()).add(owner);
+                }
+            }
+        }
+        ownerModelsCache = owners;
+        return owners;
+    }
+
+    /** {@code Model.field} pairs some model's declared cascaded field reads. */
+    private Set<String> cascadeExposed() {
+        Set<String> cached = cascadeExposedCache;
+        if (cached != null) return cached;
+        Set<String> exposed = new java.util.HashSet<>();
+        for (String model : ModelManager.getModelNames()) {
+            for (MetaField f : ModelManager.getModelFields(model)) {
+                if (StringUtils.isBlank(f.getCascadedField())) continue;
+                PathTarget target = resolvePath(model, f.getCascadedField());
+                if (target != null) exposed.add(target.model() + "." + target.leaf());
+            }
+        }
+        cascadeExposedCache = exposed;
+        return exposed;
     }
 
     /**
@@ -1948,6 +2115,11 @@ public class PermissionServiceImpl implements PermissionService {
      * tighter statement than a shared reference, so it wins when a model is reachable
      * both ways.
      */
+    private static boolean isProjection(String model) {
+        MetaModel meta = ModelManager.getModel(model);
+        return meta != null && meta.isProjection();
+    }
+
     private List<Referencer> findReferencers(String childModel, Grant g) {
         List<Referencer> owners = new ArrayList<>();
         List<Referencer> backRefs = new ArrayList<>();
