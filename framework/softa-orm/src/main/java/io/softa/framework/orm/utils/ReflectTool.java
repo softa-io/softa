@@ -6,6 +6,7 @@ import java.util.*;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.ReflectionUtils;
 
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.SpringContextUtils;
 import io.softa.framework.base.utils.StringTools;
@@ -15,10 +16,12 @@ import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.entity.AbstractModel;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.service.EntityService;
 import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.impl.ModelServiceImpl;
 
 /**
@@ -35,6 +38,26 @@ public abstract class ReflectTool {
     @SuppressWarnings("unchecked")
     private static <K extends Serializable> ModelService<K> getModelService() {
         return SpringContextUtils.getBeanByClass(ModelServiceImpl.class);
+    }
+
+    /**
+     * Refuses a nested write to {@code modelName} the caller holds no permission for: rows of a model with
+     * an action registered of its own — a department, reached through an employee's managed departments —
+     * may be created, changed or deleted through a relation only by a caller holding that action. The
+     * endpoint gate checked the record carrying the relation, not this one. A model with no such action
+     * registered — an owned child, such as an employee's addresses — is written as part of its owner.
+     *
+     * @param modelName  the model the nested rows belong to
+     * @param accessType CREATE, UPDATE or DELETE
+     * @param viaModel   the model whose relation carries the rows, for the message
+     * @param viaField   the relation field, for the message
+     */
+    public static void checkNestedWrite(String modelName, AccessType accessType, String viaModel, String viaField) {
+        PermissionService permissionService = SpringContextUtils.getBeanByClass(PermissionService.class);
+        if (permissionService != null && !permissionService.hasModelActionGrant(modelName, accessType)) {
+            throw new PermissionException("You may not {0} {1} through {2}:{3}.",
+                    accessType.name().toLowerCase(Locale.ROOT), modelName, viaModel, viaField);
+        }
     }
 
     /**

@@ -18,6 +18,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQuery;
 import io.softa.framework.orm.domain.SubQueries;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
@@ -267,6 +268,43 @@ public class XToOneGroupProcessor extends BaseProcessor {
     }
 
     /**
+     * The related ids the updated rows point at now, by main row id. Read past the row range: the main
+     * rows have passed their own update check, and only the link is compared.
+     */
+    private Map<Serializable, Object> storedLinks(List<Map<String, Object>> rows) {
+        List<Serializable> ids = rows.stream()
+                .filter(row -> row.get(fieldName) instanceof Map<?, ?>)
+                .map(row -> (Serializable) row.get(ModelConstant.ID))
+                .filter(IdUtils::validId)
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        FlexQuery query = new FlexQuery(List.of(ModelConstant.ID, fieldName), Filters.of(ModelConstant.ID, Operator.IN, ids));
+        // The stored key itself, not a reference built from it.
+        query.setConvertType(ConvertType.TYPE_CAST);
+        Map<Serializable, Object> links = new HashMap<>();
+        ReflectTool.searchListIgnoringRowScope(modelName, query)
+                .forEach(stored -> links.put(IdUtils.formatId(modelName, (Serializable) stored.get(ModelConstant.ID)),
+                        stored.get(fieldName)));
+        return links;
+    }
+
+    /**
+     * A nested object that names a related row and changes it must name the row this record already
+     * points at. Naming another — a colleague's bank account through one's own record — would write that
+     * row as part of this one, and repoint this record at it, under whatever the caller may do here.
+     */
+    private void assertOwnLink(Map<String, Object> row, Serializable relatedId, Map<Serializable, Object> storedLinks) {
+        Serializable mainId = (Serializable) row.get(ModelConstant.ID);
+        Object stored = mainId == null ? null : storedLinks.get(IdUtils.formatId(modelName, mainId));
+        if (stored == null || !String.valueOf(stored).equals(String.valueOf(relatedId))) {
+            throw new PermissionException("Model field {0}:{1} can change only the {2} record it already points at.",
+                    modelName, fieldName, metaField.getRelatedModel());
+        }
+    }
+
+    /**
      * Process nested OneToOne value objects before the field is formatted to its join key.
      *
      * <p>The main row's FK stores the related row's id. A nested object with a valid id is
@@ -281,6 +319,7 @@ public class XToOneGroupProcessor extends BaseProcessor {
         List<Map<String, Object>> createRows = new ArrayList<>();
         List<Map<String, Object>> updateRows = new ArrayList<>();
         List<Map<String, Object>> createTargetRows = new ArrayList<>();
+        Map<Serializable, Object> storedLinks = AccessType.UPDATE.equals(accessType) ? storedLinks(rows) : Map.of();
         for (Map<String, Object> row : rows) {
             Object value = row.get(fieldName);
             if (!(value instanceof Map<?, ?> mapValue)) {
@@ -290,6 +329,9 @@ public class XToOneGroupProcessor extends BaseProcessor {
             Object relatedId = nestedRow.remove(ModelConstant.ID);
             if (IdUtils.validId(relatedId)) {
                 Serializable formattedId = IdUtils.formatId(relatedModel, (Serializable) relatedId);
+                if (AccessType.UPDATE.equals(accessType) && !nestedRow.isEmpty()) {
+                    assertOwnLink(row, formattedId, storedLinks);
+                }
                 // Link the main row to the existing related row by its id.
                 row.put(fieldName, formattedId);
                 if (!nestedRow.isEmpty()) {
@@ -303,11 +345,17 @@ public class XToOneGroupProcessor extends BaseProcessor {
         }
         // The nested rows are the caller's own writes to the related model — an existing one named by
         // id included — so they are judged as the caller: its row range and field guards.
-        List<Serializable> createdIds = CallerPermissions.asCaller(() -> ReflectTool.createList(relatedModel, createRows));
+        List<Serializable> createdIds = CallerPermissions.asCaller(() -> {
+            if (!createRows.isEmpty()) ReflectTool.checkNestedWrite(relatedModel, AccessType.CREATE, modelName, fieldName);
+            return ReflectTool.createList(relatedModel, createRows);
+        });
         for (int i = 0; i < createdIds.size(); i++) {
             createTargetRows.get(i).put(fieldName, createdIds.get(i));
         }
-        CallerPermissions.asCaller(() -> ReflectTool.updateList(relatedModel, updateRows));
+        CallerPermissions.asCaller(() -> {
+            if (!updateRows.isEmpty()) ReflectTool.checkNestedWrite(relatedModel, AccessType.UPDATE, modelName, fieldName);
+            return ReflectTool.updateList(relatedModel, updateRows);
+        });
     }
 
 }
