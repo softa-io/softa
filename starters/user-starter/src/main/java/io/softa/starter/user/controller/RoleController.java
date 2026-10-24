@@ -123,7 +123,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         writeRoleSensitiveFieldSets(newId, body.roleSensitiveFieldSetIds());
         // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
         roleGrantCeiling.assertWithinCaller(newId);
-        writeManualUserRoleRels(newId, body.userIds());
+        RoleGrantCeiling.withRoleCleared(newId, () -> writeManualUserRoleRels(newId, body.userIds()));
         // Inline DYNAMIC sync — same in-transaction guarantee. The cron
         // job covers the in-between drift (employee data changes between
         // role saves) once it's running.
@@ -135,6 +135,9 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     @Transactional
     @Operation(summary = "Wizard update — refresh Role basics, rewrite role_navigation rows and user_role rows (Manual + Dynamic) in one transaction")
     public ApiResponse<Void> saveWizard(@PathVariable Long id, @RequestBody @Valid WizardSaveDTO body) {
+        // Before anything is rewritten: when the caller holds this role, it is the role as it was that
+        // bounds what the role may become.
+        List<RoleGrantCeiling.Grants> callerBefore = roleGrantCeiling.callerGrants();
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         roleService.updateOne(role, true);
@@ -163,7 +166,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleSensitiveFieldSetService.deleteByFilters(new Filters().eq(RoleSensitiveFieldSet::getRoleId, id));
         writeRoleSensitiveFieldSets(id, body.roleSensitiveFieldSetIds());
         // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
-        roleGrantCeiling.assertWithinCaller(id);
+        roleGrantCeiling.assertWithinCaller(id, callerBefore);
         // Wipe ALL existing user_role rows for this role — both Manual and
         // Dynamic — then rebuild from scratch. By application convention
         // there's at most one row per (user, role): Manual takes precedence,
@@ -172,9 +175,11 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         // trivially correct: no "what about old rows that should be
         // upgraded/downgraded" branches. The whole save is in one
         // @Transactional so external observers never see the empty state.
-        userRoleRelService.deleteByFilters(
-                new Filters().eq(UserRoleRel::getRoleId, id));
-        writeManualUserRoleRels(id, body.userIds());
+        RoleGrantCeiling.withRoleCleared(id, () -> {
+            userRoleRelService.deleteByFilters(
+                    new Filters().eq(UserRoleRel::getRoleId, id));
+            writeManualUserRoleRels(id, body.userIds());
+        });
         dynamicRoleSyncJob.syncRole(id);
         return ApiResponse.success();
     }

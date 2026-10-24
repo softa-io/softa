@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -63,6 +64,7 @@ public class RoleGrantCeiling {
 
     private static final String M_PERMISSION = "Permission";
     private static final String M_NAVIGATION = "Navigation";
+    private static final String M_SENSITIVE_FIELD_SET = "SensitiveFieldSet";
 
     private final RoleService roleService;
     private final RoleNavigationService roleNavigationService;
@@ -97,13 +99,64 @@ public class RoleGrantCeiling {
 
     /** Refuse unless the role's stored grants are within the caller's reach. */
     public void assertWithinCaller(Long roleId) {
-        violation(roleId).ifPresent(reason -> {
+        assertWithinCaller(roleId, null);
+    }
+
+    /**
+     * Refuse unless the role's stored grants are within {@code callerBefore} — the caller's grants as they
+     * stood before the save that is being judged.
+     *
+     * <p>A save that rewrites a role the caller holds is otherwise judged against itself: the caller's
+     * grants, read after the write, already carry the role's new grants, and every grant covers itself.
+     * Taken before the write, they hold the role as it was, so the role may not be widened past it.
+     */
+    public void assertWithinCaller(Long roleId, @Nullable List<Grants> callerBefore) {
+        violation(roleId, callerBefore).ifPresent(reason -> {
             throw new BusinessException("You can only grant access you hold yourself: {0}", reason);
         });
     }
 
+    /** The caller's grants as they stand now, for a save to be judged against later; null when no ceiling applies. */
+    public @Nullable List<Grants> callerGrants() {
+        if (!applies()) {
+            return null;
+        }
+        Context context = ContextHolder.getContext();
+        Long userId = context.getUserId();
+        return inTenantContext(context.getTenantId(), () -> new ArrayList<>(load(callerRoleIds(userId)).values()));
+    }
+
     /** Why the role is out of the caller's reach, or empty when it is within it (or no ceiling applies). */
     public Optional<String> violation(Long roleId) {
+        Set<Long> cleared = CLEARED.get();
+        if (roleId != null && cleared != null && cleared.contains(roleId)) {
+            return Optional.empty();
+        }
+        return violation(roleId, null);
+    }
+
+    /** Roles already judged within the caller during the save now running, by the grants before it. */
+    private static final ThreadLocal<Set<Long>> CLEARED = new ThreadLocal<>();
+
+    /**
+     * Run {@code action} — the save's own rewrite of the role's members — with the role taken as within
+     * the caller. The wizard judged the role against the caller's grants from before the save; its members
+     * are rewritten after, and by then the caller's own membership of the role is among those deleted, so
+     * judging each bind again would hold the role to grants that no longer include it.
+     */
+    public static void withRoleCleared(Long roleId, Runnable action) {
+        Set<Long> previous = CLEARED.get();
+        Set<Long> cleared = previous == null ? new HashSet<>() : new HashSet<>(previous);
+        cleared.add(roleId);
+        CLEARED.set(cleared);
+        try {
+            action.run();
+        } finally {
+            if (previous == null) CLEARED.remove(); else CLEARED.set(previous);
+        }
+    }
+
+    private Optional<String> violation(Long roleId, @Nullable List<Grants> callerBefore) {
         if (roleId == null || !applies()) {
             return Optional.empty();
         }
@@ -112,41 +165,100 @@ public class RoleGrantCeiling {
         Long userId = context.getUserId();
         return inTenantContext(tenantId, () -> {
             Grants target = load(List.of(roleId)).getOrDefault(roleId, Grants.empty());
-            List<Grants> caller = new ArrayList<>(load(callerRoleIds(userId)).values());
+            List<Grants> caller = callerBefore != null ? callerBefore
+                    : new ArrayList<>(load(callerRoleIds(userId)).values());
             Set<String> permissions = new HashSet<>(target.permissions());
             caller.forEach(g -> permissions.addAll(g.permissions()));
-            return firstViolation(target, caller, modelsOf(permissions),
-                    model -> ModelManager.existModel(model) && ModelManager.getModel(model).isMultiCompany());
+            return firstViolation(target, caller, modelsOf(permissions), modelsOfSets(target.sensitiveFieldSets()),
+                    model -> ModelManager.existModel(model) && ModelManager.getModel(model).isMultiCompany())
+                    .map(this::describe);
         });
+    }
+
+    /**
+     * The violation in the words of the screen that set it: page, action and field set by their names, rows by
+     * the model's label and what to do about them. The ids mean nothing to an administrator, and a scope that
+     * reaches too far is one fault however many of the role's actions run into it.
+     */
+    private String describe(Violation v) {
+        return switch (v.kind()) {
+            case NAVIGATION -> "you do not have the " + quoted(nameOf(M_NAVIGATION, v.subject())) + " page";
+            case PERMISSION -> "you do not have " + quoted(permissionLabel(v.subject()));
+            case FIELD_SET -> "none of your roles shows the sensitive fields " + quoted(nameOf(M_SENSITIVE_FIELD_SET, v.subject()))
+                    + " on every record this role would";
+            case RECORDS -> {
+                String model = modelLabel(v.subject());
+                yield "this role would reach " + model + " records beyond your own. Narrow its " + model
+                        + " scope to no more than you can see yourself";
+            }
+        };
+    }
+
+    private static String quoted(String name) {
+        return "\"" + name + "\"";
+    }
+
+    private static String modelLabel(String model) {
+        String label = ModelManager.existModel(model) ? ModelManager.getModel(model).getLabel() : null;
+        return label == null || label.isBlank() ? model : label;
+    }
+
+    /** {@code Employees › Linked Employee Summary}: the page, then the action on it. */
+    private String permissionLabel(String permissionId) {
+        Map<String, Object> row = rowOf(M_PERMISSION, permissionId, List.of("id", "name", "navigationId"));
+        if (row == null) {
+            return permissionId;
+        }
+        String name = row.get("name") == null ? permissionId : row.get("name").toString();
+        Object navigationId = row.get("navigationId");
+        return navigationId == null ? name : nameOf(M_NAVIGATION, navigationId.toString()) + " › " + name;
+    }
+
+    private String nameOf(String model, String id) {
+        Map<String, Object> row = rowOf(model, id, List.of("id", "name"));
+        return row == null || row.get("name") == null ? id : row.get("name").toString();
+    }
+
+    private @Nullable Map<String, Object> rowOf(String model, String id, List<String> fields) {
+        return inSystemContext(() -> modelService.searchList(model, new FlexQuery(fields, new Filters().eq("id", id)))
+                .stream().findFirst().orElse(null));
     }
 
     // ─────────────────────── the decision ───────────────────────
 
     /**
-     * The first reason {@code target} exceeds what {@code caller} holds, or empty.
+     * The first way {@code target} exceeds what {@code caller} holds, or empty.
      *
      * @param modelByPermission each permission's primary model (its navigation's), when it has one
+     * @param modelsBySet       each sensitive field set's model and the models it is attached to — the rows
+     *                          the set's own model follows (a bank account follows its employee)
      * @param multiCompany      whether rows of a model belong to one company
      */
-    static Optional<String> firstViolation(Grants target, List<Grants> caller,
+    static Optional<Violation> firstViolation(Grants target, List<Grants> caller,
                                            Map<String, String> modelByPermission,
+                                           Map<String, Set<String>> modelsBySet,
                                            Predicate<String> multiCompany) {
         Set<String> navigations = union(caller, Grants::navigations);
         for (String navigation : target.navigations()) {
             if (!navigations.contains(navigation)) {
-                return Optional.of("navigation " + navigation);
+                return Optional.of(new Violation(Violation.Kind.NAVIGATION, navigation));
             }
         }
         Set<String> permissions = union(caller, Grants::permissions);
         for (String permission : target.permissions()) {
             if (!permissions.contains(permission)) {
-                return Optional.of("permission " + permission);
+                return Optional.of(new Violation(Violation.Kind.PERMISSION, permission));
             }
         }
-        Set<String> fieldSets = union(caller, Grants::sensitiveFieldSets);
+        // A field set reaches the rows of the role granting it, so one caller role must hold the set and
+        // reach the rows: a role seeing its own salary and a role seeing everyone without salaries do not
+        // add up to granting everyone's salaries.
         for (String fieldSet : target.sensitiveFieldSets()) {
-            if (!fieldSets.contains(fieldSet)) {
-                return Optional.of("sensitive field set " + fieldSet);
+            Set<String> models = modelsBySet.getOrDefault(fieldSet, Set.of());
+            boolean covered = caller.stream().anyMatch(c -> c.sensitiveFieldSets().contains(fieldSet)
+                    && models.stream().allMatch(m -> reachesRows(c, target, m, multiCompany.test(m))));
+            if (!covered) {
+                return Optional.of(new Violation(Violation.Kind.FIELD_SET, fieldSet));
             }
         }
         // Rows: per action, one caller role holding that action must reach the rows.
@@ -160,7 +272,7 @@ public class RoleGrantCeiling {
             boolean covered = caller.stream().anyMatch(c -> c.permissions().contains(permission)
                     && reachesRows(c, target, model, multiCompany.test(model)));
             if (!covered) {
-                return Optional.of("the records of " + model + " under " + permission);
+                return Optional.of(new Violation(Violation.Kind.RECORDS, model));
             }
         }
         // Rules on a model no granted action names directly — a lookup the role reads through — still
@@ -171,7 +283,7 @@ public class RoleGrantCeiling {
             }
             boolean covered = caller.stream().anyMatch(c -> reachesRows(c, target, model, multiCompany.test(model)));
             if (!covered) {
-                return Optional.of("the records of " + model);
+                return Optional.of(new Violation(Violation.Kind.RECORDS, model));
             }
         }
         return Optional.empty();
@@ -216,6 +328,11 @@ public class RoleGrantCeiling {
     }
 
     // ─────────────────────── the data ───────────────────────
+
+    /** What the caller lacks: a page, an action, a field set (all by id), or the rows of a model. */
+    public record Violation(Kind kind, String subject) {
+        public enum Kind { NAVIGATION, PERMISSION, FIELD_SET, RECORDS }
+    }
 
     /** One role's static grants. */
     public record Grants(Set<String> navigations, Set<String> permissions, Set<String> sensitiveFieldSets,
@@ -304,6 +421,28 @@ public class RoleGrantCeiling {
             rules.add(new Rule(type.asString(), noExpr ? null : expr));
         }
         return rules;
+    }
+
+    /** Each sensitive field set's model, with the models it is attached to. */
+    private Map<String, Set<String>> modelsOfSets(Set<String> setIds) {
+        if (setIds.isEmpty()) {
+            return Map.of();
+        }
+        return inSystemContext(() -> {
+            Map<String, Set<String>> out = new HashMap<>();
+            modelService.searchList(M_SENSITIVE_FIELD_SET,
+                            new FlexQuery(List.of("id", "model", "attachedTo"), new Filters().in("id", setIds)))
+                    .forEach(row -> {
+                        Set<String> models = new LinkedHashSet<>();
+                        if (row.get("model") != null) models.add(String.valueOf(row.get("model")));
+                        Object attached = row.get("attachedTo");
+                        JsonNode node = attached instanceof JsonNode j ? j
+                                : attached == null ? null : JsonUtils.stringToObject(attached.toString(), JsonNode.class);
+                        if (node != null && node.isArray()) node.forEach(m -> models.add(m.asString()));
+                        out.put(String.valueOf(row.get("id")), models);
+                    });
+            return out;
+        });
     }
 
     /** Each permission's primary model: the model of the navigation it belongs to. */

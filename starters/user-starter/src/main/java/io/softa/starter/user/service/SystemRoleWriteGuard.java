@@ -8,14 +8,17 @@ import java.util.Map;
 import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.ContextHolder;
 import static io.softa.framework.base.context.ContextUtils.inSystemContext;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.user.event.RoleGrantChangedEvent;
 
 /**
  * A built-in role's access is fixed: a role carrying a {@code code} cannot have its definition or its
@@ -63,9 +66,27 @@ public class SystemRoleWriteGuard {
             "RoleSensitiveFieldSet", "roleId");
 
     private final ModelService<?> modelService;
+    private final ApplicationEventPublisher events;
 
-    public SystemRoleWriteGuard(ModelService<?> modelService) {
+    public SystemRoleWriteGuard(ModelService<?> modelService, ApplicationEventPublisher events) {
         this.modelService = modelService;
+        this.events = events;
+    }
+
+    /**
+     * Clear the cached access of every holder of these roles, after a generic write changed them. The
+     * typed services announce their own writes; the generic endpoints wrote past them, and holders kept
+     * the old access until the cache expired.
+     */
+    public void announce(Collection<?> roleIds) {
+        if (roleIds == null || roleIds.isEmpty() || ContextHolder.getContext() == null) {
+            return;
+        }
+        Long tenantId = ContextHolder.getContext().getTenantId();
+        for (Object roleId : roleIds) {
+            Long id = roleId instanceof Number n ? n.longValue() : Long.valueOf(String.valueOf(roleId));
+            events.publishEvent(new RoleGrantChangedEvent(tenantId, id));
+        }
     }
 
     /**
@@ -74,11 +95,12 @@ public class SystemRoleWriteGuard {
      * because everything else in this class keys off it: a caller that could mint its own coded role
      * could then declare any role untouchable.
      */
-    public void guardCreate(String modelName, List<Map<String, Object>> rows) {
+    public Set<Object> guardCreate(String modelName, List<Map<String, Object>> rows) {
         String roleField = roleFieldOrSkip(modelName);
         if (roleField == null) {
-            return;
+            return Set.of();
         }
+        refuseOutsideTheWizard(modelName);
         if (ROLE.equals(modelName)) {
             for (Map<String, Object> row : rows) {
                 Object code = row == null ? null : row.get(CODE);
@@ -87,9 +109,11 @@ public class SystemRoleWriteGuard {
                             "Role code is reserved for built-in roles; an admin-created role must have code=null.");
                 }
             }
-            return;
+            return Set.of();
         }
-        assertNoSystemRole(valuesOf(rows, roleField));
+        Set<Object> roles = valuesOf(rows, roleField);
+        assertNoSystemRole(roles);
+        return roles;
     }
 
     /**
@@ -97,25 +121,55 @@ public class SystemRoleWriteGuard {
      * currently belongs to. Only checking the payload would let a grant be dragged off a built-in role;
      * only checking the stored row would let one be dragged onto it.
      */
-    public void guardUpdate(String modelName, List<Map<String, Object>> rows) {
+    public Set<Object> guardUpdate(String modelName, List<Map<String, Object>> rows) {
         String roleField = roleFieldOrSkip(modelName);
         if (roleField == null) {
-            return;
+            return Set.of();
         }
+        refuseOutsideTheWizard(modelName);
         Set<Object> ids = new HashSet<>(resolveByIds(modelName, roleField, valuesOf(rows, ID)));
         ids.addAll(valuesOf(rows, roleField));
         assertNoSystemRole(ids);
+        return ids;
     }
 
     /** Same both-sides rule as {@link #guardUpdate}, with the rows chosen by a filter. */
-    public void guardUpdateByFilter(String modelName, Filters filters, Map<String, Object> values) {
+    public Set<Object> guardUpdateByFilter(String modelName, Filters filters, Map<String, Object> values) {
         String roleField = roleFieldOrSkip(modelName);
         if (roleField == null) {
-            return;
+            return Set.of();
         }
+        refuseOutsideTheWizard(modelName);
         Set<Object> ids = new HashSet<>(resolveByFilters(modelName, roleField, filters));
         ids.addAll(valuesOf(values == null ? List.of() : List.of(values), roleField));
         assertNoSystemRole(ids);
+        return ids;
+    }
+
+    /** A copy writes a role's grants as a create does; the same rule, then the built-in check by id. */
+    public Set<Object> guardCopy(String modelName, Collection<?> rowIds) {
+        String roleField = roleFieldOrSkip(modelName);
+        if (roleField == null) {
+            return Set.of();
+        }
+        refuseOutsideTheWizard(modelName);
+        guardByIds(modelName, rowIds);
+        // A copied grant row lands on the role it was copied from; a copied role has no holders yet.
+        return ROLE.equals(modelName) ? Set.of() : resolveByIds(modelName, roleField, new ArrayList<>(rowIds));
+    }
+
+    /**
+     * Grants are written through the role wizard, which holds them to the caller's own and publishes the
+     * change, or by an administrator. The generic writes held to neither: a caller who may update roles
+     * could write any grant row onto a role they hold, or a member filter the bind checks never saw, and
+     * every holder kept the old access until the cache expired.
+     */
+    private static void refuseOutsideTheWizard(String modelName) {
+        // Outside any request — a seeder, a test — is system work, as the permission layer reads it.
+        if (ContextHolder.existContext() && RoleGrantCeiling.applies()) {
+            throw new PermissionException("{0} is changed through the role wizard; the generic write endpoints "
+                    + "are for administrators.", modelName);
+        }
     }
 
     /** delete / copy — the rows are named by id, and the role behind them is read back. */
