@@ -19,6 +19,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.user.service.RoleGrantCeiling.Grants;
 import io.softa.starter.user.service.RoleGrantCeiling.Rule;
 import io.softa.starter.user.service.RoleGrantCeiling.Scope;
+import io.softa.starter.user.service.RoleGrantCeiling.Violation;
 
 /**
  * A role manager without an admin bypass hands out only what they hold: pages, actions, field sets,
@@ -56,7 +57,7 @@ class RoleGrantCeilingTest {
         Grants hr = grants(Set.of("nav.employee"), Set.of("employee.view"), Set.of(), Map.of("Employee", scope(ALL)));
         Grants target = grants(Set.of("nav.employee"), Set.of("employee.view", "payroll.view"), Set.of(), Map.of());
 
-        assertThat(check(target, hr)).hasValueSatisfying(r -> assertThat(r).contains("payroll.view"));
+        assertThat(check(target, hr)).contains(new Violation(Violation.Kind.PERMISSION, "payroll.view"));
     }
 
     @Test
@@ -72,7 +73,7 @@ class RoleGrantCeilingTest {
         Grants hr = grants(Set.of(), Set.of("employee.view"), Set.of(), Map.of("Employee", scope(DEPT)));
         Grants target = grants(Set.of(), Set.of("employee.view"), Set.of(), Map.of("Employee", scope(ALL)));
 
-        assertThat(check(target, hr)).hasValueSatisfying(r -> assertThat(r).contains("Employee"));
+        assertThat(check(target, hr)).contains(new Violation(Violation.Kind.RECORDS, "Employee"));
     }
 
     @Test
@@ -96,7 +97,7 @@ class RoleGrantCeilingTest {
         Grants target = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.salary"), Map.of("Employee", scope(ALL)));
 
         assertThat(RoleGrantCeiling.firstViolation(target, List.of(ownSalary, everyone), MODEL_BY_PERMISSION,
-                MODEL_BY_SET, MULTI_COMPANY)).hasValueSatisfying(r -> assertThat(r).contains("sfs.salary"));
+                MODEL_BY_SET, MULTI_COMPANY)).contains(new Violation(Violation.Kind.FIELD_SET, "sfs.salary"));
         // Within one role that holds both, it is granted.
         Grants hr = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.salary"), Map.of("Employee", scope(ALL)));
         assertThat(check(target, hr)).isEmpty();
@@ -109,7 +110,7 @@ class RoleGrantCeilingTest {
         Grants target = grants(Set.of(), Set.of("employee.view"), Set.of("sfs.bank"), Map.of("Employee", scope(ALL)));
 
         assertThat(RoleGrantCeiling.firstViolation(target, List.of(ownBank, everyone), MODEL_BY_PERMISSION,
-                MODEL_BY_SET, MULTI_COMPANY)).hasValueSatisfying(r -> assertThat(r).contains("sfs.bank"));
+                MODEL_BY_SET, MULTI_COMPANY)).contains(new Violation(Violation.Kind.FIELD_SET, "sfs.bank"));
     }
 
     @Test
@@ -148,6 +149,14 @@ class RoleGrantCeilingTest {
     }
 
     @Test
+    void rowsBeyondTheCallersAreOneFaultOfTheModelWhicheverActionMeetsThemFirst() {
+        Grants dept = grants(Set.of(), Set.of("employee.view", "employee.update"), Set.of(), Map.of("Employee", scope(DEPT)));
+        Grants target = grants(Set.of(), Set.of("employee.view", "employee.update"), Set.of(), Map.of("Employee", scope(ALL)));
+
+        assertThat(check(target, dept)).contains(new Violation(Violation.Kind.RECORDS, "Employee"));
+    }
+
+    @Test
     void aCallerWithoutRolesReachesNothing() {
         Grants target = grants(Set.of("nav.employee"), Set.of(), Set.of(), Map.of());
 
@@ -179,7 +188,7 @@ class RoleGrantCeilingTest {
         return ContextHolder.callWith(context, RoleGrantCeiling::applies);
     }
 
-    private static Optional<String> check(Grants target, Grants caller) {
+    private static Optional<Violation> check(Grants target, Grants caller) {
         return RoleGrantCeiling.firstViolation(target, List.of(caller), MODEL_BY_PERMISSION, MODEL_BY_SET, MULTI_COMPANY);
     }
 

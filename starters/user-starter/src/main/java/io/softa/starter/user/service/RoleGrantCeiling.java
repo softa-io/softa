@@ -170,34 +170,84 @@ public class RoleGrantCeiling {
             Set<String> permissions = new HashSet<>(target.permissions());
             caller.forEach(g -> permissions.addAll(g.permissions()));
             return firstViolation(target, caller, modelsOf(permissions), modelsOfSets(target.sensitiveFieldSets()),
-                    model -> ModelManager.existModel(model) && ModelManager.getModel(model).isMultiCompany());
+                    model -> ModelManager.existModel(model) && ModelManager.getModel(model).isMultiCompany())
+                    .map(this::describe);
         });
+    }
+
+    /**
+     * The violation in the words of the screen that set it: page, action and field set by their names, rows by
+     * the model's label and what to do about them. The ids mean nothing to an administrator, and a scope that
+     * reaches too far is one fault however many of the role's actions run into it.
+     */
+    private String describe(Violation v) {
+        return switch (v.kind()) {
+            case NAVIGATION -> "you do not have the " + quoted(nameOf(M_NAVIGATION, v.subject())) + " page";
+            case PERMISSION -> "you do not have " + quoted(permissionLabel(v.subject()));
+            case FIELD_SET -> "none of your roles shows the sensitive fields " + quoted(nameOf(M_SENSITIVE_FIELD_SET, v.subject()))
+                    + " on every record this role would";
+            case RECORDS -> {
+                String model = modelLabel(v.subject());
+                yield "this role would reach " + model + " records beyond your own. Narrow its " + model
+                        + " scope to no more than you can see yourself";
+            }
+        };
+    }
+
+    private static String quoted(String name) {
+        return "\"" + name + "\"";
+    }
+
+    private static String modelLabel(String model) {
+        String label = ModelManager.existModel(model) ? ModelManager.getModel(model).getLabel() : null;
+        return label == null || label.isBlank() ? model : label;
+    }
+
+    /** {@code Employees › Linked Employee Summary}: the page, then the action on it. */
+    private String permissionLabel(String permissionId) {
+        Map<String, Object> row = rowOf(M_PERMISSION, permissionId, List.of("id", "name", "navigationId"));
+        if (row == null) {
+            return permissionId;
+        }
+        String name = row.get("name") == null ? permissionId : row.get("name").toString();
+        Object navigationId = row.get("navigationId");
+        return navigationId == null ? name : nameOf(M_NAVIGATION, navigationId.toString()) + " › " + name;
+    }
+
+    private String nameOf(String model, String id) {
+        Map<String, Object> row = rowOf(model, id, List.of("id", "name"));
+        return row == null || row.get("name") == null ? id : row.get("name").toString();
+    }
+
+    private @Nullable Map<String, Object> rowOf(String model, String id, List<String> fields) {
+        return inSystemContext(() -> modelService.searchList(model, new FlexQuery(fields, new Filters().eq("id", id)))
+                .stream().findFirst().orElse(null));
     }
 
     // ─────────────────────── the decision ───────────────────────
 
     /**
-     * The first reason {@code target} exceeds what {@code caller} holds, or empty.
+     * The first way {@code target} exceeds what {@code caller} holds, or empty.
      *
      * @param modelByPermission each permission's primary model (its navigation's), when it has one
      * @param modelsBySet       each sensitive field set's model and the models it is attached to — the rows
      *                          the set's own model follows (a bank account follows its employee)
      * @param multiCompany      whether rows of a model belong to one company
      */
-    static Optional<String> firstViolation(Grants target, List<Grants> caller,
+    static Optional<Violation> firstViolation(Grants target, List<Grants> caller,
                                            Map<String, String> modelByPermission,
                                            Map<String, Set<String>> modelsBySet,
                                            Predicate<String> multiCompany) {
         Set<String> navigations = union(caller, Grants::navigations);
         for (String navigation : target.navigations()) {
             if (!navigations.contains(navigation)) {
-                return Optional.of("navigation " + navigation);
+                return Optional.of(new Violation(Violation.Kind.NAVIGATION, navigation));
             }
         }
         Set<String> permissions = union(caller, Grants::permissions);
         for (String permission : target.permissions()) {
             if (!permissions.contains(permission)) {
-                return Optional.of("permission " + permission);
+                return Optional.of(new Violation(Violation.Kind.PERMISSION, permission));
             }
         }
         // A field set reaches the rows of the role granting it, so one caller role must hold the set and
@@ -208,7 +258,7 @@ public class RoleGrantCeiling {
             boolean covered = caller.stream().anyMatch(c -> c.sensitiveFieldSets().contains(fieldSet)
                     && models.stream().allMatch(m -> reachesRows(c, target, m, multiCompany.test(m))));
             if (!covered) {
-                return Optional.of("sensitive field set " + fieldSet);
+                return Optional.of(new Violation(Violation.Kind.FIELD_SET, fieldSet));
             }
         }
         // Rows: per action, one caller role holding that action must reach the rows.
@@ -222,7 +272,7 @@ public class RoleGrantCeiling {
             boolean covered = caller.stream().anyMatch(c -> c.permissions().contains(permission)
                     && reachesRows(c, target, model, multiCompany.test(model)));
             if (!covered) {
-                return Optional.of("the records of " + model + " under " + permission);
+                return Optional.of(new Violation(Violation.Kind.RECORDS, model));
             }
         }
         // Rules on a model no granted action names directly — a lookup the role reads through — still
@@ -233,7 +283,7 @@ public class RoleGrantCeiling {
             }
             boolean covered = caller.stream().anyMatch(c -> reachesRows(c, target, model, multiCompany.test(model)));
             if (!covered) {
-                return Optional.of("the records of " + model);
+                return Optional.of(new Violation(Violation.Kind.RECORDS, model));
             }
         }
         return Optional.empty();
@@ -278,6 +328,11 @@ public class RoleGrantCeiling {
     }
 
     // ─────────────────────── the data ───────────────────────
+
+    /** What the caller lacks: a page, an action, a field set (all by id), or the rows of a model. */
+    public record Violation(Kind kind, String subject) {
+        public enum Kind { NAVIGATION, PERMISSION, FIELD_SET, RECORDS }
+    }
 
     /** One role's static grants. */
     public record Grants(Set<String> navigations, Set<String> permissions, Set<String> sensitiveFieldSets,
