@@ -16,7 +16,9 @@ import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.*;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -549,7 +551,40 @@ public class ModelController<K extends Serializable> {
     public ApiResponse<List<Map<String, Object>>> searchName(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchNameParams searchNameParams) {
         FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(searchNameParams);
+        Set<Long> writable = writableCompanies(modelName, searchNameParams, permissionService);
+        if (writable != null) {
+            flexQuery.setFilters(Filters.and(flexQuery.getFilters(), new Filters().in(ModelConstant.ID, writable)));
+        }
         return ApiResponse.success(modelService.searchName(modelName, flexQuery));
+    }
+
+    /**
+     * The companies a picker may offer when it names a company on a record being written; null when
+     * nothing narrows it.
+     *
+     * <p>The company list as the user reads it reaches the companies of every role they hold, and a role
+     * with no company grant — the self-service role everyone carries — reaches them all. A form picking
+     * a company for a record (an employee's signing entity, a cost centre's company) offered companies
+     * the write would then refuse. Its search says which record it is for ({@link SourceRecord}): the
+     * company grants of the roles holding that write answer instead — create when the record has no id
+     * yet, update when it has ({@link PermissionService#getGrantedCompanyIds}).
+     *
+     * <p>An empty grant leaves the picker as it reads. It is also the answer when no role holds the
+     * generic write at all — a form saved through an endpoint of its own — and an empty picker there
+     * would stop the form outright; the write itself still refuses what it must.
+     */
+    static Set<Long> writableCompanies(String modelName, SearchNameParams params, PermissionService permissionService) {
+        if (!ModelConstant.COMPANY_MODEL.equals(modelName) || params == null || params.getSourceRecord() == null) {
+            return null;
+        }
+        SourceRecord source = params.getSourceRecord();
+        if (source.getModel() == null || source.getModel().isBlank() || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
+        AccessType write = creating ? AccessType.CREATE : AccessType.UPDATE;
+        Set<Long> granted = permissionService.getGrantedCompanyIds(source.getModel(), write);
+        return granted == null || granted.isEmpty() ? null : granted;
     }
 
     /**

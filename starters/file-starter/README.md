@@ -248,7 +248,10 @@ by `ImportSheetStyleHandler`:
 | Column width | header length × 1.2 (bold text) + 5 (filter button) characters, clamped to 14–40; a longer header wraps |
 | Result file rows | the Failed Reason wraps, and a row grows to the lines its reason needs (estimated from the text's display width against the column width, a CJK character counting as two); the row's other cells are vertically centred |
 
-Option dropdowns and date / time column formats work as before. With `includeDescription = true` the
+Option dropdowns and date / time column formats work as before. A column onto `Company` offers only the
+companies the template's writes are granted — `getGrantedCompanyIds` for `CREATE`, `UPDATE` or both, by
+the import rule — the same way a company picker on a form is narrowed (softa-web README §Record access).
+With `includeDescription = true` the
 instruction sheet is still added (same header look, no comments / freeze / filter); the header comments
 are in addition to it. Exact colours are set as XSSF colours on POI styles after Fesod's own style fill,
 because Fesod's `WriteCellStyle` only takes palette indexes; the derived styles are cached per workbook.
