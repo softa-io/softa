@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -17,6 +19,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.meta.MetaField;
@@ -25,7 +28,9 @@ import io.softa.framework.orm.meta.MetaOptionItem;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.meta.OptionManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.file.dto.ImportFieldDTO;
+import io.softa.starter.file.enums.ImportRule;
 
 /**
  * Works out which template columns can offer a fixed list of values, and what those values are.
@@ -70,6 +75,13 @@ import io.softa.starter.file.dto.ImportFieldDTO;
  * request's own country everywhere else in the product — but a template declares the country it is
  * for, and an administrator of a Singapore company may quite legitimately download the New Zealand
  * template. Inferring it there would fill an NZ template with SG values.
+ *
+ * <p><b>A column onto the company offers the companies the import may write for.</b> Read as any other
+ * relation, the company list reaches the companies of every role the user holds — and a role with no
+ * company grant, such as the self-service role everyone carries, reaches them all. A column naming a
+ * company the record does not belong to by its company axis (an employee's signing entity) would then
+ * offer companies the import is bound to refuse. Such a column is narrowed to the company grants of the
+ * roles holding the writes the template performs ({@link PermissionService#getGrantedCompanyIds}).
  */
 @Slf4j
 @Component
@@ -95,6 +107,9 @@ public class OptionDropdownResolver {
     @Autowired
     private ModelService<?> modelService;
 
+    @Autowired
+    private PermissionService permissionService;
+
     /**
      * One batch of values to fetch from an ordinary model.
      *
@@ -106,8 +121,10 @@ public class OptionDropdownResolver {
      * @param filters   the root field's own {@code filters}, verbatim, so two columns onto the same
      *                  model narrowed differently stay separate requests
      * @param country   the country to narrow by, or null when the model does not vary by country
+     * @param ids       the only rows that may be offered, or null when the column is not narrowed by id
      */
-    private record ValueRequest(String modelName, String fieldName, String filters, String country) {
+    private record ValueRequest(String modelName, String fieldName, String filters, String country,
+                                Set<Long> ids) {
     }
 
     /**
@@ -115,9 +132,11 @@ public class OptionDropdownResolver {
      * @param importFields the template's columns, in the order they appear on the sheet
      * @param country      the country the template is for, or blank for a template that applies
      *                     everywhere; narrows the country-scoped models a column may point at
+     * @param importRule   the writes the template's rows perform; narrows the columns onto the company
      * @return column index (0-based) → allowed values; columns with no fixed list are absent
      */
-    public Map<Integer, List<String>> resolve(String modelName, List<ImportFieldDTO> importFields, String country) {
+    public Map<Integer, List<String>> resolve(String modelName, List<ImportFieldDTO> importFields, String country,
+                                              ImportRule importRule) {
         Map<Integer, List<String>> optionsByColumn = new LinkedHashMap<>();
         // optionSetCode → the columns waiting on it, so one query serves however many columns share a set
         Map<String, List<Integer>> tenantSetToColumns = new LinkedHashMap<>();
@@ -159,10 +178,42 @@ public class OptionDropdownResolver {
             tenantSetToColumns.forEach((optionSetCode, columns) ->
                     assign(optionsByColumn, columns, codesBySet.get(optionSetCode)));
         }
+        boolean offersCompanies = entityRequestToColumns.keySet().stream()
+                .anyMatch(request -> ModelConstant.COMPANY_MODEL.equals(request.modelName()));
+        Set<Long> grantedCompanies = offersCompanies ? grantedCompanies(modelName, importRule) : null;
         entityRequestToColumns.forEach((request, columns) -> {
+            if (ModelConstant.COMPANY_MODEL.equals(request.modelName()) && grantedCompanies != null) {
+                request = new ValueRequest(request.modelName(), request.fieldName(), request.filters(),
+                        request.country(), grantedCompanies);
+            }
             assign(optionsByColumn, columns, queryEntityValues(request));
         });
         return optionsByColumn;
+    }
+
+    /**
+     * The companies the template's writes are granted for, together; null when unrestricted.
+     *
+     * <p>A create-or-update template offers a company either write may name: a longer list is the safe
+     * failure, and the write itself still refuses a company outside the grant of the action it performs.
+     * For the same reason a grant of no company leaves the column whole, as a company picker on a form
+     * is left: an empty column would offer nothing to a caller whose import is granted some other way.
+     */
+    private Set<Long> grantedCompanies(String modelName, ImportRule importRule) {
+        List<AccessType> writes = switch (importRule == null ? ImportRule.CREATE_OR_UPDATE : importRule) {
+            case ONLY_CREATE -> List.of(AccessType.CREATE);
+            case ONLY_UPDATE -> List.of(AccessType.UPDATE);
+            case CREATE_OR_UPDATE -> List.of(AccessType.CREATE, AccessType.UPDATE);
+        };
+        Set<Long> granted = new TreeSet<>();
+        for (AccessType write : writes) {
+            Set<Long> companies = permissionService.getGrantedCompanyIds(modelName, write);
+            if (companies == null) {
+                return null;
+            }
+            granted.addAll(companies);
+        }
+        return granted.isEmpty() ? null : granted;
     }
 
     /** Gives every column of a batch the values that batch resolved to, if it resolved to any. */
@@ -241,7 +292,7 @@ public class OptionDropdownResolver {
             return;
         }
         ValueRequest request = new ValueRequest(relatedModel, leafField, rootField.getFilters(),
-                narrowingCountryFor(relatedModel, country));
+                narrowingCountryFor(relatedModel, country), null);
         entityRequestToColumns.computeIfAbsent(request, k -> new ArrayList<>()).add(columnIndex);
     }
 
@@ -281,7 +332,7 @@ public class OptionDropdownResolver {
             return;
         }
         ValueRequest request = new ValueRequest(targetModel, parts[2], nestedField.getFilters(),
-                narrowingCountryFor(targetModel, country));
+                narrowingCountryFor(targetModel, country), null);
         entityRequestToColumns.computeIfAbsent(request, k -> new ArrayList<>()).add(columnIndex);
     }
 
@@ -313,7 +364,7 @@ public class OptionDropdownResolver {
             return;
         }
         ValueRequest request = new ValueRequest(relatedModel, ModelConstant.ID, metaField.getFilters(),
-                narrowingCountryFor(relatedModel, country));
+                narrowingCountryFor(relatedModel, country), null);
         entityRequestToColumns.computeIfAbsent(request, k -> new ArrayList<>()).add(columnIndex);
     }
 
@@ -454,6 +505,9 @@ public class OptionDropdownResolver {
             }
             if (request.country() != null) {
                 filters.and(COUNTRY, Operator.EQUAL, request.country());
+            }
+            if (request.ids() != null) {
+                filters.and(ModelConstant.ID, Operator.IN, request.ids());
             }
             FlexQuery flexQuery = new FlexQuery(List.of(request.fieldName()), filters,
                     Orders.ofAsc(request.fieldName()));

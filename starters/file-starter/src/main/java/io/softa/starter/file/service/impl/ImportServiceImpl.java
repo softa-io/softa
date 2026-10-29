@@ -147,7 +147,8 @@ public class ImportServiceImpl implements ImportService {
         // may download another country's template, and inferring it from the request would fill that
         // template with the wrong country's values.
         Map<Integer, List<String>> dropdowns = optionDropdownResolver.resolve(
-                importTemplate.getModelName(), importFields, importTemplate.getCountry());
+                importTemplate.getModelName(), importFields, importTemplate.getCountry(),
+                importTemplate.getImportRule());
         ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
                 new WriteHandler[]{
                         // Header look, description comments, freeze, filter, widths, data-area grid.
