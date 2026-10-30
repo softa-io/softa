@@ -131,7 +131,7 @@ class InProcessFlowClientContractTest {
         return DesignFlowDefinition.builder()
                 .name("In-Process Contract Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .modelName("LeaveRequest").trigger(new SubmitTrigger())
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

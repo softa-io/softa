@@ -65,7 +65,7 @@ public class QueryAiTaskExecutor extends AbstractTaskExecutor {
     @Override
     public Map<String, Object> getConfigSchema() {
         return Map.of(
-                "queryContent", Map.of("type", "string", "label", "Query Content", "required", true),
+                "queryContent", Map.of("type", "template", "label", "Query Content", "required", true, "multiline", true),
                 "robotId", Map.of("type", "number", "label", "Robot ID"),
                 "conversationId", Map.of("type", "number", "label", "Conversation ID")
         );

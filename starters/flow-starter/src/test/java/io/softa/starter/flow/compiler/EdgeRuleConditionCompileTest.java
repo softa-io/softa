@@ -95,7 +95,7 @@ class EdgeRuleConditionCompileTest {
     }
 
     private static DesignFlowDefinition approval(Filters rule, String expression) {
-        return flow(FlowScenario.APPROVAL, new SubmitTrigger(MODEL, null), rule, expression);
+        return flow(FlowScenario.APPROVAL, new SubmitTrigger(), rule, expression);
     }
 
     /** start → long (the condition) → endLong; start → short (default) → endShort. */
@@ -104,6 +104,7 @@ class EdgeRuleConditionCompileTest {
         return DesignFlowDefinition.builder()
                 .name("Leave Routing")
                 .scenario(scenario)
+                .modelName(trigger.onRecord() ? MODEL : null)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(node("start", FlowNodeType.START), node("endLong", FlowNodeType.END),

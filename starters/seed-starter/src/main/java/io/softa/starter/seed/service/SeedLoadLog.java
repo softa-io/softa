@@ -93,7 +93,7 @@ public class SeedLoadLog {
     }
 
     /**
-     * The platform load, tenant run or initialization in progress, if any. A tenant's setup is not one of
+     * The platform load, tenant run, reapply or initialization in progress, if any. A tenant's setup is not one of
      * them: it touches only that tenant, which no run reaches until it is set up.
      */
     public Optional<RunningBatch> running() {

@@ -73,9 +73,11 @@ public class SendSmsTaskExecutor extends AbstractTaskExecutor {
     public Map<String, Object> getConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("phoneNumbers", Map.of("type", "stringList", "label", "Phone Numbers", "required", true));
-        schema.put("content", Map.of("type", "string", "label", "Message Content"));
-        schema.put("templateCode", Map.of("type", "string", "label", "Template Code"));
-        schema.put("templateVariables", Map.of("type", "keyValueMap", "label", "Template Variables"));
+        schema.put("content", Map.of("type", "template", "label", "Message Content", "multiline", true));
+        schema.put("templateCode", Map.of("type", "recordPicker", "label", "Template", "model", "SmsTemplate",
+                "valueField", "code"));
+        schema.put("templateVariables", Map.of("type", "keyValueMap", "label", "Template Variables",
+                "valueType", "template"));
         return schema;
     }
 

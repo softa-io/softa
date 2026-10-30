@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.function.Predicate;
 
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.domain.FilterEvaluator;
@@ -42,12 +43,23 @@ public class FlowGatewayRouter {
      */
     public static boolean holds(CompiledFlowDefinition definition, CompiledFlowTransition transition,
                                 Map<String, Object> variables) {
-        if (!Filters.isEmpty(transition.getCondition())) {
-            String modelName = definition.getTrigger() == null ? null : definition.getTrigger().modelName();
-            return FilterEvaluator.matches(transition.getCondition(), variables, EvalContext.of(null),
-                    field -> fieldTypeOf(modelName, field));
+        return conditionHolds(definition.getModelName(), transition.getCondition(),
+                transition.getConditionExpression(), variables);
+    }
+
+    /**
+     * Whether a condition — a rule over the record of {@code modelName}, or an expression — holds over
+     * {@code variables}: the rule the way a field condition is judged, by the types of the record's fields; the
+     * expression by AviatorScript. An edge's and a change trigger's conditions are both decided here. No condition
+     * holds.
+     *
+     * @throws RuntimeException when the condition cannot be evaluated — a configuration fault, not a "no"
+     */
+    public static boolean conditionHolds(String modelName, Filters rule, String expression, Map<String, Object> variables) {
+        if (!Filters.isEmpty(rule)) {
+            return FilterEvaluator.matches(rule, variables, EvalContext.of(null), field -> fieldTypeOf(modelName, field));
         }
-        return ComputeUtils.executeBoolean(transition.getConditionExpression(), new LinkedHashMap<>(variables));
+        return !StringUtils.hasText(expression) || ComputeUtils.executeBoolean(expression, new LinkedHashMap<>(variables));
     }
 
     private static FieldType fieldTypeOf(String modelName, String field) {

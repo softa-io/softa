@@ -10,6 +10,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -40,19 +41,23 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * A tenant runs what is pending, in order, stopping at its first failure; initializing records what a tenant
- * already has and changes nothing.
+ * A tenant runs what is pending, in order, stopping at its first failure; a reapply runs the files it names
+ * whatever their state, overwriting; initializing records what a tenant already has and changes nothing.
  */
 class TenantSeedRunnerTest {
 
     private static final Long TENANT = 7L;
     private static final SeedManifest MANIFEST = SeedManifestReader.read(new ByteArrayInputStream("""
+            platform:
+              - data-system/Navigation.json
             tenant:
               - files:
                   - data-tenant/SysSequence.json
@@ -60,6 +65,7 @@ class TenantSeedRunnerTest {
                     overwrite: true
                   - data-tenant/LeaveType.json
             """.getBytes(StandardCharsets.UTF_8)), "test", path -> true);
+    private static final LoadedRows NOTHING_WRITTEN = new LoadedRows(Map.of(), Map.of());
 
     private SeedLoadLog loadLog;
     private TenantSeedPlanner planner;
@@ -90,6 +96,7 @@ class TenantSeedRunnerTest {
         when(planner.dueFiles(TENANT)).thenReturn(MANIFEST.tenantFiles());
         when(planner.tenantName(TENANT)).thenReturn("Acme");
         preDataService = mock(SysPreDataService.class);
+        when(preDataService.loadPreTenantData(anyList(), anyLong(), any())).thenReturn(NOTHING_WRITTEN);
         cacheService = mock(CacheService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         runner = new TenantSeedRunner(catalog, loadLog, planner, preDataService, cacheService,
@@ -119,7 +126,7 @@ class TenantSeedRunnerTest {
         states.put("LeaveType.json", FileState.LOADED);
         // The load reports the rows it created — not the ones an earlier load had bound.
         when(preDataService.loadPreTenantData(List.of("SysSequence.json"), TENANT, LoadMode.ADDITIVE))
-                .thenReturn(Map.of("SysSequence", List.of("102")));
+                .thenReturn(new LoadedRows(Map.of("SysSequence", List.of("102")), Map.of()));
         List<Long> tenantsSeenByListener = new ArrayList<>();
         doAnswer(call -> tenantsSeenByListener.add(ContextHolder.getContext().getTenantId()))
                 .when(eventPublisher).publishEvent(any(Object.class));
@@ -127,8 +134,21 @@ class TenantSeedRunnerTest {
         runner.runTenant(42L, TENANT);
 
         verify(eventPublisher).publishEvent(
-                new SeedFileLoadedEvent(TENANT, "SysSequence.json", Map.of("SysSequence", List.of("102"))));
+                new SeedFileLoadedEvent(TENANT, "SysSequence.json", Map.of("SysSequence", List.of("102")), Map.of()));
         assertEquals(List.of(TENANT), tenantsSeenByListener);
+    }
+
+    @Test
+    void aFileThatOnlyWroteToRowsItHadAnnouncesThem() {
+        states.put("Role.Tenant.json", FileState.LOADED);
+        states.put("LeaveType.json", FileState.LOADED);
+        when(preDataService.loadPreTenantData(List.of("SysSequence.json"), TENANT, LoadMode.ADDITIVE))
+                .thenReturn(new LoadedRows(Map.of(), Map.of("SysSequence", List.of("101"))));
+
+        runner.runTenant(42L, TENANT);
+
+        verify(eventPublisher).publishEvent(
+                new SeedFileLoadedEvent(TENANT, "SysSequence.json", Map.of(), Map.of("SysSequence", List.of("101"))));
     }
 
     @Test
@@ -261,6 +281,84 @@ class TenantSeedRunnerTest {
         assertEquals(0, outcome.failedTenants());
         verify(loadLog).start(SeedLoadType.INITIALIZE, null, 1);
         verify(loadLog).finish(42L, SeedLoadStatus.SUCCEEDED, outcome.files(), null);
+    }
+
+    @Test
+    void aReapplyOverwritesTheNamedFilesWhateverTheirStateInManifestOrder() {
+        // Loaded and unchanged, and changed after a run-once load: a run would take neither.
+        states.put("SysSequence.json", FileState.LOADED);
+        states.put("LeaveType.json", FileState.CHANGED_AFTER_LOAD);
+        when(planner.provisionedTenantIds()).thenReturn(List.of(TENANT));
+        // Nor does a reapply wait for the initialization: it writes over what the tenant has on purpose.
+        when(loadLog.initialized()).thenReturn(false);
+
+        Long batchId = runner.reapply(List.of(TENANT), List.of("LeaveType.json", "SysSequence.json"));
+
+        assertEquals(42L, batchId);
+        verify(loadLog).start(SeedLoadType.REAPPLY, List.of(TENANT), 1);
+        // It runs in the background; the batch closes once both files have run.
+        verify(loadLog, timeout(5000)).finish(42L, SeedLoadStatus.SUCCEEDED, 2, null);
+        InOrder order = inOrder(preDataService);
+        order.verify(preDataService).loadPreTenantData(List.of("SysSequence.json"), TENANT, LoadMode.OVERWRITE);
+        order.verify(preDataService).loadPreTenantData(List.of("LeaveType.json"), TENANT, LoadMode.OVERWRITE);
+        verify(preDataService, never()).loadPreTenantData(eq(List.of("Role.Tenant.json")), anyLong(), any());
+        // Recorded as a run is, so the file reads as loaded afterwards.
+        verify(loadLog).record(eq(42L), eq(TENANT), eq("Acme"), eq(file("LeaveType.json")),
+                eq(SeedRecordStatus.SUCCEEDED), any(), any());
+        verify(cacheService).clearByPrefix("perm:7:");
+    }
+
+    @Test
+    void aReapplyNamesItsTenantsAndItsFiles() {
+        List<String> files = List.of("SysSequence.json");
+        assertThrows(BusinessException.class, () -> runner.reapply(null, files));
+        assertThrows(BusinessException.class, () -> runner.reapply(List.of(), files));
+        assertThrows(BusinessException.class, () -> runner.reapply(Arrays.asList(TENANT, null), files));
+        assertThrows(BusinessException.class, () -> runner.reapply(List.of(TENANT), null));
+        assertThrows(BusinessException.class, () -> runner.reapply(List.of(TENANT), List.of()));
+        assertThrows(BusinessException.class, () -> runner.reapply(List.of(TENANT), Arrays.asList("SysSequence.json", " ")));
+
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void aReapplyTakesOnlyTheManifestsTenantFiles() {
+        BusinessException refused = assertThrows(BusinessException.class, () -> runner.reapply(List.of(TENANT),
+                List.of("SysSequence.json", "Navigation.json", "Unknown.json")));
+
+        assertTrue(refused.getMessage().contains("[Navigation.json, Unknown.json]"), refused.getMessage());
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void aReapplyTakesOnlyFilesEveryTenantIsDue() {
+        when(planner.provisionedTenantIds()).thenReturn(List.of(TENANT));
+        // The tenant's plan or countries do not take LeaveType.json.
+        when(planner.dueFiles(TENANT)).thenReturn(List.of(file("SysSequence.json"), file("Role.Tenant.json")));
+
+        BusinessException refused = assertThrows(BusinessException.class,
+                () -> runner.reapply(List.of(TENANT), List.of("SysSequence.json", "LeaveType.json")));
+
+        assertTrue(refused.getMessage().contains("{7=[LeaveType.json]}"), refused.getMessage());
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void aReapplyRunsOnlyInSetUpTenants() {
+        when(planner.provisionedTenantIds()).thenReturn(List.of());
+
+        assertThrows(BusinessException.class, () -> runner.reapply(List.of(TENANT), List.of("SysSequence.json")));
+
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void aReapplyWaitsForNoOtherOperation() {
+        doThrow(new BusinessException("A seed data operation is still running.")).when(loadLog).requireIdle();
+
+        assertThrows(BusinessException.class, () -> runner.reapply(List.of(TENANT), List.of("SysSequence.json")));
+
+        verify(loadLog, never()).start(any(), any(), any());
     }
 
     private static SeedFile file(String name) {

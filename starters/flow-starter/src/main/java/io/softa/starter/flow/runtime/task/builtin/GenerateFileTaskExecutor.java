@@ -72,7 +72,7 @@ public class GenerateFileTaskExecutor extends AbstractTaskExecutor {
     public Map<String, Object> getConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("templateId", Map.of("type", "number", "label", "Template ID", "required", true));
-        schema.put("rowId", Map.of("type", "string", "label", "Row ID"));
+        schema.put("rowId", Map.of("type", "template", "label", "Row ID"));
         return schema;
     }
 

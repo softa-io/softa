@@ -19,6 +19,8 @@ public enum SeedLoadType {
     TENANT("Tenant"),
     /** The tenant files a new tenant is set up with. */
     PROVISION("Provision"),
+    /** Named tenant files run again in named tenants, loading whole over the tenants' copies. */
+    REAPPLY("Reapply"),
     /** The one-time recording of the tenant files already present in an existing environment. */
     INITIALIZE("Initialize"),
     ;

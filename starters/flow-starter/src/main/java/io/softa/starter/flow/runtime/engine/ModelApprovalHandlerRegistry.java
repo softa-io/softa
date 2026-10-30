@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -65,6 +66,11 @@ public class ModelApprovalHandlerRegistry implements SmartInitializingSingleton 
             requireApprovalFields(modelName, handler);
             requireSubjectField(modelName, handler);
         });
+    }
+
+    /** The models whose records the application approves: those with a handler. */
+    public Set<String> modelNames() {
+        return Set.copyOf(handlersByModel().keySet());
     }
 
     /** The handler of {@code modelName}, if the application has one. */
