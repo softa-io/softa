@@ -37,9 +37,8 @@ holding that write: create when `sourceRecord.recordId` is empty, update otherwi
 (`PermissionService.getGrantedCompanyIds`). The company list as the user reads it reaches the companies of
 every role they hold, and a role with no company grant (the self-service role) reaches them all, so a form
 picking a signing entity or a cost centre's company would offer companies the save then refuses. A search
-with no `sourceRecord` — a list filter, a report — is left as it reads, and so is one whose write is granted
-no company: that is also the answer for a form saved through an endpoint of its own, which no role holds
-the generic write for, and an empty picker would stop it outright.
+with no `sourceRecord` — a list filter, a report — is left as it reads. A write granted no company offers
+none: every company the picker could list would be refused.
 
 ## Enum Request Parameters
 

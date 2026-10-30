@@ -461,9 +461,8 @@ class OptionDropdownResolverTest {
     }
 
     @Test
-    void aWriteGrantedNoCompanyLeavesTheColumnWhole() {
-        // Also the answer for a caller whose import is granted without the generic write: an empty
-        // column would offer them nothing. The write still refuses what it must.
+    void aWriteGrantedNoCompanyOffersNoCompany() {
+        // Every company the column could list would be refused by the write, so it lists none.
         withMetadata(mm -> {
             field("Employee", "legalEntityId", FieldType.MANY_TO_ONE, "Company", null, null);
             field("Company", "name", FieldType.STRING, null, null, null);
@@ -472,8 +471,8 @@ class OptionDropdownResolverTest {
             when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE)).thenReturn(Set.of());
 
             assertThat(resolve("Employee", null, ImportRule.ONLY_UPDATE, "legalEntityId.name"))
-                    .containsEntry(0, List.of("Albedo", "Zingkey"));
-            assertThat(Filters.isEmpty(capturedQuery("Company").getFilters())).isTrue();
+                    .doesNotContainKey(0);
+            assertThat(queriesByModel).doesNotContainKey("Company");
         });
     }
 

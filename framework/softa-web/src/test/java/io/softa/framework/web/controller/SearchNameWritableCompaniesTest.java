@@ -57,12 +57,18 @@ class SearchNameWritableCompaniesTest {
     }
 
     @Test
-    void anEmptyGrantLeavesThePickerAsItReads() {
-        // Also what a form saved through an endpoint of its own gets: no role holds the generic write.
-        // An empty picker would stop that form outright; the write still refuses what it must.
+    void aWriteGrantedNoCompanyOffersNone() {
+        // Every company the picker could list would be refused by the save.
         when(permissionService.getGrantedCompanyIds("Employee", AccessType.CREATE)).thenReturn(Set.of());
 
-        assertThat(writable("Company", from("Employee", null))).isNull();
+        assertThat(writable("Company", from("Employee", null))).isEmpty();
+    }
+
+    @Test
+    void anUnrestrictedWriteLeavesThePickerAsItReads() {
+        when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE)).thenReturn(null);
+
+        assertThat(writable("Company", from("Employee", 7L))).isNull();
     }
 
     @Test

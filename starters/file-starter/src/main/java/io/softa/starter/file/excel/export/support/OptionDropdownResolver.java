@@ -196,8 +196,8 @@ public class OptionDropdownResolver {
      *
      * <p>A create-or-update template offers a company either write may name: a longer list is the safe
      * failure, and the write itself still refuses a company outside the grant of the action it performs.
-     * For the same reason a grant of no company leaves the column whole, as a company picker on a form
-     * is left: an empty column would offer nothing to a caller whose import is granted some other way.
+     * A grant of no company offers none: the column is left without a list, since every company in it
+     * would be refused.
      */
     private Set<Long> grantedCompanies(String modelName, ImportRule importRule) {
         List<AccessType> writes = switch (importRule == null ? ImportRule.CREATE_OR_UPDATE : importRule) {
@@ -213,7 +213,7 @@ public class OptionDropdownResolver {
             }
             granted.addAll(companies);
         }
-        return granted.isEmpty() ? null : granted;
+        return granted;
     }
 
     /** Gives every column of a batch the values that batch resolved to, if it resolved to any. */
@@ -497,6 +497,9 @@ public class OptionDropdownResolver {
      * filters and the template's country.
      */
     private List<String> queryEntityValues(ValueRequest request) {
+        if (request.ids() != null && request.ids().isEmpty()) {
+            return List.of();
+        }
         try {
             Filters filters = new Filters();
             Filters declared = Filters.of(request.filters());

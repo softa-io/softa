@@ -569,9 +569,7 @@ public class ModelController<K extends Serializable> {
      * company grants of the roles holding that write answer instead — create when the record has no id
      * yet, update when it has ({@link PermissionService#getGrantedCompanyIds}).
      *
-     * <p>An empty grant leaves the picker as it reads. It is also the answer when no role holds the
-     * generic write at all — a form saved through an endpoint of its own — and an empty picker there
-     * would stop the form outright; the write itself still refuses what it must.
+     * <p>A write granted no company offers none: every company the picker could list would be refused.
      */
     static Set<Long> writableCompanies(String modelName, SearchNameParams params, PermissionService permissionService) {
         if (!ModelConstant.COMPANY_MODEL.equals(modelName) || params == null || params.getSourceRecord() == null) {
@@ -583,8 +581,7 @@ public class ModelController<K extends Serializable> {
         }
         boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
         AccessType write = creating ? AccessType.CREATE : AccessType.UPDATE;
-        Set<Long> granted = permissionService.getGrantedCompanyIds(source.getModel(), write);
-        return granted == null || granted.isEmpty() ? null : granted;
+        return permissionService.getGrantedCompanyIds(source.getModel(), write);
     }
 
     /**
