@@ -82,10 +82,10 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private static final String CANCEL_IN_APPROVAL = "This record is in approval. Withdraw it first, then cancel the draft.";
     private static final String NO_SUCH_RECORD = "The {0} record {1} does not exist.";
     private static final String NO_SUBJECT = "This record names no employee in {0}, so its approvers cannot be found.";
-    private static final String NO_SUBMIT_FLOW = "No approval flow is configured for this {0} record. "
-            + "Ask your administrator to set one up.";
-    private static final String SEVERAL_SUBMIT_FLOWS = "Several approval flows apply to this {0} record ({1}). Ask "
-            + "your administrator to narrow their submit conditions so that exactly one applies.";
+    private static final String NO_SUBMIT_FLOW = "No approval flow is enabled for this {0} record. "
+            + "Ask your administrator to set one up, or to enable it.";
+    private static final String SEVERAL_SUBMIT_FLOWS = "Several approval flows are enabled for this {0} record ({1}). "
+            + "Ask your administrator to keep one enabled: a document has one approval flow.";
 
     private final FlowPublishService flowPublishService;
     private final FlowRuntimeEngine flowRuntimeEngine;
@@ -201,7 +201,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         Submission<T> submission = checkSubmission(handler, modelName, rowId, latestApproval(modelName, rowId));
         // Every submission starts a new approval from the beginning — after a return too — with the
         // flow chosen again for the record as it is now.
-        CompiledFlowDefinition definition = chooseSubmitFlow(modelName, submission.row());
+        CompiledFlowDefinition definition = chooseSubmitFlow(modelName);
         // Before the start: a flow without an approval step completes while it starts, and its
         // result must land on a record that is already in approval.
         statusWriter.submitted(handler, rowId, submission.record(), initiatorId);
@@ -300,7 +300,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                     && Objects.equals(submitterId, latest.getInitiatorId()));
             return refused;
         }
-        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName, submission.row());
+        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName);
         if (flows.isEmpty()) {
             return notReady(FlowApprovalPreview.Status.NO_FLOW, I18n.get(NO_SUBMIT_FLOW, modelName));
         }
@@ -445,8 +445,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                 .orElseThrow(() -> new BusinessException(NO_SUCH_RECORD, modelName, rowId));
     }
 
-    private CompiledFlowDefinition chooseSubmitFlow(String modelName, Map<String, Object> record) {
-        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName, record);
+    private CompiledFlowDefinition chooseSubmitFlow(String modelName) {
+        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName);
         if (flows.isEmpty()) {
             throw new BusinessException(NO_SUBMIT_FLOW, modelName);
         }

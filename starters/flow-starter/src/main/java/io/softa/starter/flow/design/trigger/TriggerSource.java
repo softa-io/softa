@@ -35,10 +35,11 @@ public sealed interface TriggerSource
                 SubflowTrigger, FieldChangeTrigger, SubmitTrigger {
 
     /**
-     * The model of the record the flow starts on — whose fields its route rules read — or null for a
-     * start that carries no record. The record triggers' {@code modelName} component answers it.
+     * Whether the flow starts on a record of its model ({@code DesignFlowDefinition#getModelName()}) — a submission,
+     * a change, a field change — whose fields its variables and route rules read. Such a flow needs its model; one
+     * started by a schedule, an API call or a parent flow carries no record, and has none.
      */
-    default String modelName() {
-        return null;
+    default boolean onRecord() {
+        return false;
     }
 }

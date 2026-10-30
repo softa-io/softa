@@ -127,11 +127,11 @@ class ScenarioRulesCompileTest {
     }
 
     private static SubmitTrigger submit() {
-        return new SubmitTrigger("LeaveRequest", null);
+        return new SubmitTrigger();
     }
 
     private static EntityChangeTrigger change() {
-        return new EntityChangeTrigger("LeaveRequest", List.of(), null);
+        return new EntityChangeTrigger(List.of(), null);
     }
 
     private static DesignFlowDefinition flow(FlowScenario scenario, TriggerSource trigger, FlowGraphNode... middle) {
@@ -155,6 +155,7 @@ class ScenarioRulesCompileTest {
         return DesignFlowDefinition.builder()
                 .name(scenario.getType() + " flow")
                 .scenario(scenario)
+                .modelName(trigger != null && trigger.onRecord() ? "LeaveRequest" : null)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build());
     }

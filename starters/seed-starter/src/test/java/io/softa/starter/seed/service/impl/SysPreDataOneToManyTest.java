@@ -33,11 +33,13 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.seed.entity.SysPreData;
 import io.softa.starter.seed.service.LoadMode;
+import io.softa.starter.seed.service.LoadedRows;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -138,6 +140,32 @@ class SysPreDataOneToManyTest {
         // pointing at nothing and dies trying to update it.
         inOrder.verify(service).deleteByFilters(any(Filters.class));
         inOrder.verify(modelService).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void aRowTheLoadChangedIsReportedAsWrittenTo() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+
+        LoadedRows written = SysPreDataServiceImpl.reportingWrites(() ->
+                withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow()))));
+
+        // How a listener learns what a reapply rewrote — a flow design to publish again, say.
+        assertEquals(Map.of(PARENT, List.of(STORED_ROW_ID)), written.updated());
+        assertEquals(Map.of(), written.created());
+    }
+
+    @Test
+    void aRowTheLoadLeftAsItWasIsNotReported() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        // The update changed nothing, and the row is there.
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(false);
+        storedRow(PARENT, TYPED_ROW_ID, true);
+
+        LoadedRows written = SysPreDataServiceImpl.reportingWrites(() ->
+                withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow()))));
+
+        assertTrue(written.isEmpty(), written.toString());
     }
 
     @Test

@@ -63,12 +63,13 @@ public class FlowActionContextService {
     }
 
     /**
-     * Fallback definition lookup by flow id, resolving to the current active revision.
+     * The revision a new instance of the flow starts from: its active revision, refused while the flow is
+     * disabled or was never published.
      */
     public CompiledFlowDefinition resolveDefinitionByFlowId(String flowId) {
         return bundleRegistry.getActiveByFlowId(flowId)
                 .orElseThrow(() -> new FlowRuntimeException(
-                        "Compiled flow bundle not found: flowId=" + flowId));
+                        "Flow " + flowId + " cannot start: it was never published, or it is disabled"));
     }
 
     public CompiledFlowNode requiredNode(CompiledFlowDefinition definition, String nodeId) {

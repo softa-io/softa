@@ -87,9 +87,9 @@ class FlowAutomationStartDedupTest {
         CompiledFlowDefinition audit = CompiledFlowDefinition.builder()
                 .flowId("audit").flowName("audit").bundleId(5L)
                 .scenario(FlowScenario.AUTOMATION)
-                .trigger(new EntityChangeTrigger("ExpenseClaim", List.of(), null))
+                .modelName("ExpenseClaim").trigger(new EntityChangeTrigger(List.of(), null))
                 .build();
-        when(registry.findMatchingFlows(any())).thenReturn(List.of(audit));
+        when(registry.findMatches(any())).thenReturn(List.of(DefaultFlowTriggerRegistry.TriggerMatch.holding(audit)));
         when(engine.start(any())).thenReturn(new FlowExecutionState());
     }
 

@@ -19,7 +19,6 @@ import io.softa.starter.flow.compiler.graph.GraphIndexBuilder;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
-import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.dto.FlowVariableView;
 import io.softa.starter.flow.enums.FlowNodeType;
@@ -96,15 +95,13 @@ public class FlowVariableCatalogService {
         if (definition == null) {
             return;
         }
-        List<MetaField> fields;
-        if (definition.getTrigger() instanceof EntityChangeTrigger trigger && isModel(trigger.modelName())) {
-            fields = ModelManager.getModelFields(trigger.modelName());
-        } else if (definition.getTrigger() instanceof SubmitTrigger trigger && isModel(trigger.modelName())) {
-            fields = RecordVariables.routedFields(trigger.modelName());
-        } else {
+        String modelName = definition.getModelName();
+        if (definition.getTrigger() == null || !definition.getTrigger().onRecord() || !isModel(modelName)) {
             return;
         }
-        String modelName = definition.getTrigger().modelName();
+        List<MetaField> fields = definition.getTrigger() instanceof SubmitTrigger
+                ? RecordVariables.routedFields(modelName)
+                : ModelManager.getModelFields(modelName);
         for (MetaField field : fields) {
             String fieldType = field.getFieldType() == null ? null : field.getFieldType().getType();
             byName.putIfAbsent(field.getFieldName(), new FlowVariableView(

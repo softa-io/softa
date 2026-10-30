@@ -16,6 +16,7 @@ import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowPublishService;
+import io.softa.starter.flow.service.support.ComputeOutputs;
 
 /**
  * Default publish service that compiles a design definition and registers the result.
@@ -58,8 +59,11 @@ public class FlowPublishServiceImpl implements FlowPublishService {
 
     @Override
     public CompiledFlowDefinition publish(String flowId, DesignFlowDefinition definition) {
-        CompiledFlowDefinition compiled = bundleRegistry.register(
-                flowCompiler.compile(definition), definition, flowId);
+        CompiledFlowDefinition candidate = flowCompiler.compile(definition);
+        if (isEnabled(flowId)) {
+            ComputeOutputs.requireOwn(flowId, candidate, bundleRegistry.listTriggerCandidates(candidate.getModelName()));
+        }
+        CompiledFlowDefinition compiled = bundleRegistry.register(candidate, definition, flowId);
         if (designService != null && flowId != null) {
             designService.upsertFromPublish(flowId, compiled.getRevision());
         }
@@ -68,6 +72,10 @@ public class FlowPublishServiceImpl implements FlowPublishService {
 
     @Override
     public Optional<CompiledFlowDefinition> activateBundle(Long bundleId) {
+        bundleRegistry.getByBundleId(bundleId)
+                .filter(target -> isEnabled(target.getFlowId()))
+                .ifPresent(target -> ComputeOutputs.requireOwn(target.getFlowId(), target,
+                        bundleRegistry.listTriggerCandidates(target.getModelName())));
         if (bundleService == null) {
             // In-memory only: the registry is authoritative and already holds the bundle
             return bundleRegistry.getByBundleId(bundleId);
@@ -83,4 +91,10 @@ public class FlowPublishServiceImpl implements FlowPublishService {
                 });
     }
 
+    /** Whether the flow runs once published: a flow without a design row (an in-memory registry's) always does. */
+    private boolean isEnabled(String flowId) {
+        return designService == null || flowId == null || designService.getById(flowId)
+                .map(design -> !Boolean.FALSE.equals(design.getEnabled()))
+                .orElse(true);
+    }
 }

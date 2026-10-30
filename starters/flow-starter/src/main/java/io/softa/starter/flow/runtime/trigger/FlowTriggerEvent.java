@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.trigger;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -48,4 +49,19 @@ public class FlowTriggerEvent {
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     @Schema(description = "Actor who triggered the event (user id)", accessMode = Schema.AccessMode.READ_ONLY)
     private String actorId;
+
+    /**
+     * The variables a flow this event starts begins with, and what its trigger's condition reads: the parameters,
+     * with the event's own {@code _triggerType}, {@code _sourceModel} and {@code _sourceRowId}.
+     */
+    public Map<String, Object> startVariables() {
+        Map<String, Object> variables = new LinkedHashMap<>();
+        if (parameters != null) {
+            variables.putAll(parameters);
+        }
+        variables.put("_triggerType", type);
+        variables.put("_sourceModel", sourceModel);
+        variables.put("_sourceRowId", sourceRowId);
+        return variables;
+    }
 }

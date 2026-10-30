@@ -93,7 +93,7 @@ class FlowActionReplayTest {
         return DesignFlowDefinition.builder()
                 .name("Replay Flow")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .modelName("LeaveRequest").trigger(new SubmitTrigger())
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

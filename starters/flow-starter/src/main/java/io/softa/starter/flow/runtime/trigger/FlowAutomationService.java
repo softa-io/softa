@@ -22,6 +22,8 @@ import io.softa.starter.flow.runtime.api.FlowValidationRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
+import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry.TriggerMatch;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowEventService;
 import io.softa.starter.flow.service.FlowInstanceService;
@@ -122,8 +124,7 @@ public class FlowAutomationService {
         if (refusal != null) {
             throw new FlowActionValidationException(refusal);
         }
-        return dispatch(event, triggerRegistry.findMatchingFlows(event), null,
-                definition -> startFlow(definition, event), "fire");
+        return dispatch(event, triggerRegistry.findMatches(event), null, match -> start(match, event), "fire");
     }
 
     /**
@@ -140,21 +141,22 @@ public class FlowAutomationService {
                 .type(CRON_TRIGGER_TYPE)
                 .parameters(parameters)
                 .build();
-        List<CompiledFlowDefinition> scheduledFlow = triggerRegistry.findCronFlow(bundleId).stream().toList();
-        return dispatch(event, scheduledFlow, null, definition -> startFlow(definition, event), "fireCron");
+        List<TriggerMatch> scheduledFlow = triggerRegistry.findCronFlow(bundleId).map(TriggerMatch::holding).stream()
+                .toList();
+        return dispatch(event, scheduledFlow, null, match -> start(match, event), "fireCron");
     }
 
     /**
      * Fire a trigger event but only execute flows with {@code sync=true}. A matching flow with
      * {@code rollbackOnFail=true} is started with exception propagation so the caller's transaction
-     * can roll back.
+     * can roll back — and so is a trigger condition of such a flow that could not be evaluated.
      */
     public void fireSyncOnly(FlowTriggerEvent event) {
-        dispatch(event, triggerRegistry.findMatchingFlows(event),
+        dispatch(event, triggerRegistry.findMatches(event),
                 definition -> Boolean.TRUE.equals(definition.getSync()),
-                definition -> Boolean.TRUE.equals(definition.getRollbackOnFail())
-                        ? startFlowWithPropagation(definition, event)
-                        : startFlow(definition, event),
+                match -> Boolean.TRUE.equals(match.definition().getRollbackOnFail())
+                        ? startFlowWithPropagation(match, event)
+                        : start(match, event),
                 "fireSyncOnly");
     }
 
@@ -162,9 +164,9 @@ public class FlowAutomationService {
      * Fire a trigger event but only execute flows with {@code sync=false} (async flows).
      */
     public List<FlowTriggerResult> fireAsyncOnly(FlowTriggerEvent event) {
-        return dispatch(event, triggerRegistry.findMatchingFlows(event),
+        return dispatch(event, triggerRegistry.findMatches(event),
                 definition -> !Boolean.TRUE.equals(definition.getSync()),
-                definition -> startFlow(definition, event),
+                match -> start(match, event),
                 "fireAsyncOnly");
     }
 
@@ -172,33 +174,35 @@ public class FlowAutomationService {
      * Fire a trigger event and only run flows matching the given scenario.
      */
     public List<FlowTriggerResult> fireForScenario(FlowTriggerEvent event, FlowScenario scenario) {
-        return dispatch(event, triggerRegistry.findMatchingFlows(event),
+        return dispatch(event, triggerRegistry.findMatches(event),
                 definition -> scenario.equals(definition.getScenario()),
-                definition -> startFlow(definition, event),
+                match -> start(match, event),
                 "fireForScenario");
     }
 
     /**
      * Shared trigger-dispatch skeleton: run each {@code accept}-ed flow of those the event matched
-     * through {@code starter}, and record an event-log entry per fire. {@code accept} may be null
-     * (accept all matching flows).
+     * through {@code starter}, and record an event-log entry per fire — a failed one too, a trigger
+     * condition that could not be evaluated among them. {@code accept} may be null (accept all
+     * matching flows).
      */
     private List<FlowTriggerResult> dispatch(FlowTriggerEvent event,
-                                             List<CompiledFlowDefinition> matchingFlows,
+                                             List<TriggerMatch> matches,
                                              Predicate<CompiledFlowDefinition> accept,
-                                             Function<CompiledFlowDefinition, FlowTriggerResult> starter,
+                                             Function<TriggerMatch, FlowTriggerResult> starter,
                                              String fireMethod) {
-        if (matchingFlows.isEmpty()) {
+        if (matches.isEmpty()) {
             log.debug("No flows matched trigger event ({}): type={}, sourceModel={}",
                     fireMethod, event.getType(), event.getSourceModel());
             return List.of();
         }
         List<FlowTriggerResult> results = new ArrayList<>();
-        for (CompiledFlowDefinition definition : matchingFlows) {
+        for (TriggerMatch match : matches) {
+            CompiledFlowDefinition definition = match.definition();
             if (accept != null && !accept.test(definition)) {
                 continue;
             }
-            FlowTriggerResult result = starter.apply(definition);
+            FlowTriggerResult result = starter.apply(match);
             results.add(result);
             // Transient evaluations (Validation / Compute) leave zero DB footprint — a
             // high-frequency onchange must not accumulate one event-log row per keystroke.
@@ -292,11 +296,12 @@ public class FlowAutomationService {
                 .build();
 
         Map<String, Map<String, Object>> outputsByFlow = new LinkedHashMap<>();
-        for (CompiledFlowDefinition definition : triggerRegistry.findMatchingFlows(event)) {
+        for (TriggerMatch match : triggerRegistry.findMatches(event)) {
+            CompiledFlowDefinition definition = match.definition();
             if (!FlowScenario.VALIDATION.equals(definition.getScenario())) {
                 continue;
             }
-            FlowTriggerResult result = startFlowWithPropagation(definition, event);
+            FlowTriggerResult result = startFlowWithPropagation(match, event);
             outputsByFlow.put(definition.getFlowId(), projectDeclaredOutputs(definition, result.getState()));
         }
         return outputsByFlow;
@@ -321,6 +326,21 @@ public class FlowAutomationService {
         return outputs;
     }
 
+    /**
+     * Start the flow an event matched; a trigger condition that could not be evaluated fails it without a run.
+     */
+    private FlowTriggerResult start(TriggerMatch match, FlowTriggerEvent event) {
+        if (!match.holds()) {
+            log.error("Flow {} not started from trigger: {}", match.definition().getFlowId(), match.error());
+            return FlowTriggerResult.builder()
+                    .flowId(match.definition().getFlowId())
+                    .success(false)
+                    .error(match.error())
+                    .build();
+        }
+        return startFlow(match.definition(), event);
+    }
+
     private FlowTriggerResult startFlow(CompiledFlowDefinition definition, FlowTriggerEvent event) {
         try {
             FlowExecutionState state = doStartFlow(definition, event);
@@ -340,9 +360,15 @@ public class FlowAutomationService {
     }
 
     /**
-     * Start flow and let exceptions propagate (for rollbackOnFail semantics).
+     * Start flow and let exceptions propagate (for rollbackOnFail semantics, and for a validation, which
+     * must not read as passed when it did not run): a trigger condition that could not be evaluated
+     * throws too.
      */
-    private FlowTriggerResult startFlowWithPropagation(CompiledFlowDefinition definition, FlowTriggerEvent event) {
+    private FlowTriggerResult startFlowWithPropagation(TriggerMatch match, FlowTriggerEvent event) {
+        if (!match.holds()) {
+            throw new FlowRuntimeException(match.error());
+        }
+        CompiledFlowDefinition definition = match.definition();
         FlowExecutionState state = doStartFlow(definition, event);
         return FlowTriggerResult.builder()
                 .flowId(definition.getFlowId())
@@ -366,22 +392,13 @@ public class FlowAutomationService {
     }
 
     private static FlowStartRequest buildStartRequest(CompiledFlowDefinition definition, FlowTriggerEvent event) {
-        Map<String, Object> variables = new LinkedHashMap<>();
-        if (event.getParameters() != null) {
-            variables.putAll(event.getParameters());
-        }
-        // Inject trigger metadata into variables
-        variables.put("_triggerType", event.getType());
-        variables.put("_sourceModel", event.getSourceModel());
-        variables.put("_sourceRowId", event.getSourceRowId());
-
         FlowStartRequest request = new FlowStartRequest();
         request.setBundleId(definition.getBundleId());
         request.setInitiatorId(event.getActorId());
         request.setModelName(event.getSourceModel());
         request.setRowId(event.getSourceRowId());
         request.setTriggerEventId(event.getEventId());
-        request.setVariables(variables);
+        request.setVariables(event.startVariables());
         return request;
     }
 

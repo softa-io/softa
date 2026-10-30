@@ -13,6 +13,7 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
+import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry.TriggerMatch;
 import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,8 +51,8 @@ class FlowEventConsumerTest {
     @Test
     void runsOnlyTheFlowsThatDidNotRunBeforeTheCommit() {
         DefaultFlowTriggerRegistry registry = mock(DefaultFlowTriggerRegistry.class);
-        when(registry.findMatchingFlows(any()))
-                .thenReturn(List.of(flow("in-transaction", 1L, true), flow("after-commit", 2L, false)));
+        when(registry.findMatches(any())).thenReturn(List.of(
+                TriggerMatch.holding(flow("in-transaction", 1L, true)), TriggerMatch.holding(flow("after-commit", 2L, false))));
         FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
         when(engine.start(any())).thenReturn(new FlowExecutionState());
 

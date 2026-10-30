@@ -30,7 +30,7 @@ models, before the first load. `sys_pre_data` needs nothing — only the entity'
 | Directory | `data-system/` (`PLATFORM_GLOBAL`), `data-platform/` (`PLATFORM_TENANT`) | `data-tenant/` (`TENANT`) |
 | Whose rows | Shared models, or the platform tenant (-1) | Each tenant's own copy |
 | Loaded by | The files the build owns (`auto`): every start, wherever they are pending, before the application takes traffic. The others: the platform admin, from the Seed Data page, after a deploy (the first time, by initializing the environment) | Each new tenant's setup, and the platform admin's **Run** for tenants that are already set up |
-| When it changes | Loads again, whole (`OVERWRITE`) | Never runs again in a tenant that ran it; new tenants get the new version. A file marked `overwrite: true` runs again, whole |
+| When it changes | Loads again, whole (`OVERWRITE`) | Never runs again in a tenant that ran it; new tenants get the new version. A file marked `overwrite: true` runs again, whole, and the platform admin can **Reapply** any file |
 | Write mode | `OVERWRITE` | `ADDITIVE`; `OVERWRITE` for `overwrite: true` files |
 
 Every decision is made per **file**: a file is loaded in a scope or it is not, and no row-level state is
@@ -65,7 +65,9 @@ every tenant's copy of it, and initializing an environment relies on no tenant f
 change or remove rows tenants already have, edit the file that declares them, for the tenants created after,
 and ship a data migration in the release, for the tenants that have them. Mark a file `overwrite: true` only
 when nobody inside a tenant edits its rows, as with the built-in roles. Running it again resets them to the
-file.
+file. To put a file's current content over tenants that already ran it — while the seed is still being written,
+or for a tenant whose copy went wrong — the platform admin reapplies it (see *Reapplying files*); that is an
+operator's override, not how a release reaches tenants.
 
 ## The manifest
 
@@ -128,7 +130,7 @@ converts line endings does not make every file look changed:
 | `NOT_LOADED` | Never loaded here | yes |
 | `LOADED` | Loaded, and unchanged since | no |
 | `CHANGED` | Loaded, then changed, and it reloads: a platform file, or an `overwrite` tenant file | yes |
-| `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a run-once tenant file. Its change reaches new tenants only; existing tenants get new rows from a patch and changed rows from a data migration | no |
+| `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a run-once tenant file. Its change reaches new tenants only; existing tenants get new rows from a patch and changed rows from a data migration, or the whole file from a reapply | no |
 | `LOADED_BY_NEWER_BUILD` | A file that reloads, last loaded by a build made after the one running, and different here: an older build is deployed, after a rollback. Loading it would put older content over newer | no |
 | `FAILED` | The latest attempt failed | yes |
 
@@ -218,11 +220,12 @@ interrupted (its instance went down), and the next operation closes it as `INTER
 
 When a tenant runs any file, the cached permission snapshots of its users (`perm:{tenantId}:*`) are cleared.
 
-A file that created rows announces them with a `SeedFileLoadedEvent` (tenant, file, the new row ids by
-model) — rows bound by an earlier load do not count. It is published inside the file's transaction, in the
-tenant's context with permission checks skipped, so listeners act on the tenant's new rows whoever started
-the run, and a listener that throws fails the file like a load error would. flow-starter listens for it to
-publish the default flows a file brings (`FlowDesign` rows).
+A file that wrote rows announces them with a `SeedFileLoadedEvent`: the tenant, the file, and by model the ids
+of the rows it created (`createdRows`) and of the rows an earlier load created that it wrote to (`updatedRows`;
+an update that changed nothing does not count). It is published inside the file's transaction, in the tenant's
+context with permission checks skipped, so listeners act on the tenant's rows whoever started the run, and a
+listener that throws fails the file like a load error would. flow-starter listens for it to publish the default
+flows a file brings, and again the ones a reapply rewrites (`FlowDesign` rows).
 
 After a deploy, load the platform files before running the tenants. Tenant files refer to platform rows
 (roles to permissions, leave types to countries), and a reference to a row that is not loaded yet fails the
@@ -231,6 +234,32 @@ file.
 `GET /SeedData/tenants/pending` counts the tenants and files a run of every tenant would cover.
 `GET /SeedData/tenants/summary?tenantIds=…` returns per-tenant counts, and
 `GET /SeedData/tenants/detail?tenantId=…` lists the files one tenant is due and the state of each.
+
+### Reapplying files
+
+`POST /SeedData/tenants/reapply` with `{"tenantIds": [...], "fileNames": [...]}` runs the named tenant files again
+in the named tenants, whatever their states — loaded and unchanged, changed after load, even loaded by a newer
+build. Each file loads whole over the tenant's copy, as an `overwrite` file does (`OVERWRITE`): the rows the tenant
+has are rewritten from the file, a field the file leaves out is cleared, the seeded rows the tenant deleted are
+created again, and the seeded children the file no longer lists are deleted. What the tenant changed in those rows
+is lost. This is the platform admin's way past *a tenant runs a file once*: while a seed is still being written and
+the tenants of a development or test environment should have what it says now, or for a tenant whose copy went
+wrong. A release still reaches existing tenants with patches and data migrations.
+
+- **Both lists are required.** There is no "every tenant" and no "every file", and nothing runs unless every file
+  is a tenant file of the manifest that every one of the tenants is due (its module and countries), and every
+  tenant is set up.
+- **It runs as a run does**: in the background, as a `Reapply` batch; the files in manifest order, whatever order
+  they are named in, each in a transaction of its own; a tenant stops at its first failure. Each file is recorded,
+  so one that succeeds reads as `LOADED` afterwards, and a failure changes nothing about what a run picks up.
+- **What it does not touch**: a row whose binding is `frozen`, and a top-level row the file no longer lists — no
+  binding says which file a row came from, so remove that one by hand or with a data migration. A seeded child the
+  file no longer lists is deleted through its model's `onDelete` rules, so one that business data refers to under
+  `RESTRICT` fails the file, which rolls back.
+- **Rewritten flows are published again**: the rows it writes are announced (`updatedRows`), and flow-starter
+  publishes the flow designs among them.
+- It does not wait for the environment's initialization, which exists so a run does not load files over what
+  tenants changed: a reapply does that on purpose.
 
 ## Initializing an environment
 
@@ -261,7 +290,7 @@ No restart follows (see *Platform load*).
 
 ## Records
 
-Every operation is a `SeedLoadBatch`: its type (`Platform` / `Tenant` / `Provision` / `Initialize`), status
+Every operation is a `SeedLoadBatch`: its type (`Platform` / `Tenant` / `Provision` / `Reapply` / `Initialize`), status
 (`Running` / `Succeeded` / `PartiallyFailed` / `Failed` / `Interrupted`), counts, time span and the build
 version that ran it. Every file run in one scope is a `SeedLoadRecord`: the batch, tenant (none for the
 platform), file, checksum, status and error. Both models are read through the generic model API
@@ -271,7 +300,7 @@ records puts files back to pending.
 ## Endpoints
 
 All of them require the platform admin (`@RequireRole(SYSTEM_ROLE_ADMIN)`). Tenant runs are refused until the
-environment is initialized, which its first platform load does.
+environment is initialized, which its first platform load does; a reapply is not (see *Reapplying files*).
 
 | Method | Path | Does |
 |---|---|---|
@@ -281,6 +310,7 @@ environment is initialized, which its first platform load does.
 | GET | `/SeedData/tenants/summary` | Per-tenant counts for the given tenants |
 | GET | `/SeedData/tenants/detail` | One tenant's due files and their states |
 | POST | `/SeedData/tenants/run` | Run the pending tenant files, in the given tenants or in all, in the background |
+| POST | `/SeedData/tenants/reapply` | Run the named tenant files again in the named tenants, whatever their states, overwriting the tenants' copies, in the background |
 | GET | `/SeedData/batches/running` | The operation in progress, or null |
 
 ## The seed ledger (`SysPreData`)

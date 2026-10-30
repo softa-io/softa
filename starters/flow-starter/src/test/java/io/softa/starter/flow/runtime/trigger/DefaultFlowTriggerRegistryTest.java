@@ -42,7 +42,7 @@ class DefaultFlowTriggerRegistryTest {
     private CompiledFlowDefinition entityFlow(String code, String model, List<ChangeEvent> events) {
         return CompiledFlowDefinition.builder()
                 .flowId(code)
-                .trigger(new EntityChangeTrigger(model, events, null))
+                .modelName(model).trigger(new EntityChangeTrigger(events, null))
                 .build();
     }
 
@@ -50,14 +50,14 @@ class DefaultFlowTriggerRegistryTest {
         return CompiledFlowDefinition.builder()
                 .flowId(code)
                 .tenantId(tenantId)
-                .trigger(new EntityChangeTrigger(model, events, null))
+                .modelName(model).trigger(new EntityChangeTrigger(events, null))
                 .build();
     }
 
     private CompiledFlowDefinition fieldChangeFlow(String code, String model, List<String> fieldNames) {
         return CompiledFlowDefinition.builder()
                 .flowId(code)
-                .trigger(new FieldChangeTrigger(model, fieldNames))
+                .modelName(model).trigger(new FieldChangeTrigger(fieldNames))
                 .build();
     }
 

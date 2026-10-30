@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
@@ -12,7 +14,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.core.PulsarTemplate;
-import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.Context;
@@ -20,6 +21,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.starter.flow.message.dto.FlowTimerMessage;
+import io.softa.starter.flow.runtime.engine.FlowCron;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.nodeconfig.TimerNodeConfig;
 
@@ -98,13 +100,19 @@ public class FlowTimerProducer {
         }
 
         if (config.getCronExpression() != null && !config.getCronExpression().isBlank()) {
-            CronExpression cron = CronExpression.parse(config.getCronExpression());
-            LocalDateTime next = cron.next(LocalDateTime.now());
-            if (next == null) {
+            // The scheduler's dialect, as a Cron trigger's: one cron language in a flow
+            List<ZonedDateTime> next;
+            try {
+                next = FlowCron.nextRuns(config.getCronExpression(), ZonedDateTime.now(), 1);
+            } catch (IllegalArgumentException e) {
+                throw new FlowRuntimeException(
+                        "Cron expression '" + config.getCronExpression() + "' is invalid: " + e.getMessage());
+            }
+            if (next.isEmpty()) {
                 throw new FlowRuntimeException(
                         "Cron expression '" + config.getCronExpression() + "' has no next fire time");
             }
-            return next.atZone(ZoneId.systemDefault()).toInstant();
+            return next.getFirst().toInstant();
         }
 
         if (config.getDeadlineExpression() != null && !config.getDeadlineExpression().isBlank()) {

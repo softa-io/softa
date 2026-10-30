@@ -128,7 +128,7 @@ public class FlowAutoConfiguration {
     }
 
     /**
-     * Publishes the flow designs tenant seed files create, when the application uses seed-starter
+     * Publishes the flow designs tenant seed files write, when the application uses seed-starter
      * (an optional dependency: the class is checked by name before anything loads it).
      */
     @Configuration(proxyBeanMethods = false)

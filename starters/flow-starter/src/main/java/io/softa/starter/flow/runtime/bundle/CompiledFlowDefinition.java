@@ -48,6 +48,9 @@ public class CompiledFlowDefinition {
     @Schema(description = "Execution scenario (replaces kind + purpose)")
     private FlowScenario scenario;
 
+    @Schema(description = "The model whose records the flow starts on; null when it starts on no record")
+    private String modelName;
+
     @Schema(description = "Compiled trigger contract (sealed TriggerSource sub-type)")
     private TriggerSource trigger;
 
