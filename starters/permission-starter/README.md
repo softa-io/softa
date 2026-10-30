@@ -147,6 +147,7 @@ index/        EndpointIndex · EndpointCoverageValidator
 sensitive/    SensitiveFieldSetCache
 interceptor/  PermissionInterceptor · PermissionInterceptorProperties · PermissionWebMvcConfig
 service/      PermissionServiceImpl
+validation/   CompanyReferenceGrantValidator   (a company named by a field, judged by the write's grant)
 ```
 
 ## Snapshot re-sourcing
@@ -438,6 +439,18 @@ so a model nobody configured per action behaves as before. Export is the excepti
 the export endpoints are shared by every model, so the gate cannot tell which model's export admitted
 the caller, and an export of a model whose export permission is registered but held by none of the
 caller's roles reaches no row (and shows no sensitive field).
+
+**Companies named by a field, per action.** Row scope bounds a record by its `companyId`. Every other
+stored to-one field onto the company model — the entity a contract is signed under, the one an employee
+is employed by — is judged by `CompanyReferenceGrantValidator` at the write roots, so the generic
+endpoints, custom ones and imports all meet it: on create when it is set, on update only when the write
+changes it, against the company grants of the roles holding that write
+(`PermissionService.getGrantedCompanyIds`). The company list as the user reads it is no answer — it is
+the union, and a role with no company grant reaches every company. A record already naming a company
+outside the grant stays editable in its other fields; writes made without permission checks pass;
+`dynamic` and cascaded fields and projections are not judged. A form's company picker
+(`POST /Company/searchName` with a `sourceRecord`) and an import template's company column offer the
+same companies, none when the write is granted none.
 
 **Sensitive fields, per row.** A sensitive field is visible on a row only when a role that reaches the
 row also holds the field's set; editable only when one role holds the write action, the set and the
