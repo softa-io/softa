@@ -83,7 +83,7 @@ class FlowGatewayRouterRuleTest {
         CompiledFlowTransition fallback = CompiledFlowTransition.builder()
                 .edgeId("fallback").source("start").target("fallback").build();
         return CompiledFlowDefinition.builder()
-                .trigger(new SubmitTrigger(MODEL, null))
+                .modelName(MODEL).trigger(new SubmitTrigger())
                 .nodeIndex(Map.of("start", start()))
                 .transitionIndex(Map.of("ruled", ruled, "fallback", fallback))
                 .build();

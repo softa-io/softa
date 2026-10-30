@@ -49,7 +49,10 @@ How a change to a file reaches data that is already loaded depends on its level:
   **Run** gives the patch to every existing tenant. A patch only adds rows and
   deletes nothing. To change or remove rows tenants already have, edit the file
   that declares them (for new tenants) and ship a data migration in the
-  release (for existing ones).
+  release (for existing ones). The platform admin can also **reapply** a file,
+  which loads it whole over the chosen tenants' copies, what they changed
+  included: an operator's override for a development or test environment, or a
+  tenant whose copy went wrong — not how a release ships a change.
 - `overwrite: true` (tenant files only) makes a tenant file behave like a
   platform file: it runs again, whole, whenever it changes. Use it only for rows
   nobody in a tenant edits, such as the built-in roles.

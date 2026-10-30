@@ -91,7 +91,7 @@ class FlowVariableCatalogServiceTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Leave Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger(RecordModelFixture.MODEL, null))
+                .modelName(RecordModelFixture.MODEL).trigger(new SubmitTrigger())
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(node("start", FlowNodeType.START, null)))
                         .edges(List.of())
