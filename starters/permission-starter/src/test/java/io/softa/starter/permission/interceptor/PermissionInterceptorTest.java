@@ -309,6 +309,33 @@ class PermissionInterceptorTest {
         assertThat(ctx.getGrantedCountries()).containsExactly("SG");
     }
 
+    @Test
+    void anAdmittedRequestKeepsThePermissionsThatAdmittedIt() {
+        // A custom endpoint writes its model with no holder of the model's standard write; the
+        // company grant of the write is then asked of the roles holding what let the request in.
+        PermissionInfo pi = PermissionInfo.builder()
+                .roleCodes(Set.of("HR"))
+                .permissions(Set.of("contract.edit"))
+                .build();
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup("/EmpDocument/editUploaded", "POST")).thenReturn(Set.of("contract.edit"));
+
+        MockHttpServletRequest r = req("POST", "/EmpDocument/editUploaded");
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(r));
+        try {
+            Context ctx = new Context();
+            ctx.setTenantId(10L);
+            ctx.setUserId(42L);
+            ContextHolder.runWith(ctx, () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+
+            assertThat(AdmittedRequest.current())
+                    .isEqualTo(new AdmittedRequest("EmpDocument", Set.of("contract.edit")));
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
     // ─── unmapped endpoint → 403 ───
 
     @Test

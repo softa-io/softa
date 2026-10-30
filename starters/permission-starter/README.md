@@ -146,6 +146,7 @@ scope/contributor/  Custom · DepartmentSubtree · ManagedDepartments
 index/        EndpointIndex · EndpointCoverageValidator
 sensitive/    SensitiveFieldSetCache
 interceptor/  PermissionInterceptor · PermissionInterceptorProperties · PermissionWebMvcConfig
+              AdmittedRequest   (the permissions the gate admitted this request on)
 service/      PermissionServiceImpl
 validation/   CompanyReferenceGrantValidator   (a company named by a field, judged by the write's grant)
 ```
@@ -451,6 +452,14 @@ outside the grant stays editable in its other fields; writes made without permis
 `dynamic` and cascaded fields and projections are not judged. A form's company picker
 (`POST /Company/searchName` with a `sourceRecord`) and an import template's company column offer the
 same companies, none when the write is granted none.
+
+A model written only through custom endpoints — a contract saved through `POST /EmpDocument/editUploaded`
+— has no holder of its standard write, and the fallback below would hand the choice to every role,
+the self-service role's "every company" included. For the company grant only, no holder is read as:
+the roles holding a permission that admitted the current request, when its path names the model
+(`AdmittedRequest`, recorded by the endpoint gate); otherwise the roles holding a permission that lists a
+custom write endpoint on the model (`EndpointIndex.customWritePermissions` — what a picker asks before the
+save); every role only when neither names one. Row scope keeps the fallback as it is.
 
 **Sensitive fields, per row.** A sensitive field is visible on a row only when a role that reaches the
 row also holds the field's set; editable only when one role holds the write action, the set and the

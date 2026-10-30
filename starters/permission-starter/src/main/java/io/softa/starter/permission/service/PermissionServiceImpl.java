@@ -24,6 +24,7 @@ import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.permission.index.EndpointIndex;
+import io.softa.starter.permission.interceptor.AdmittedRequest;
 import io.softa.starter.permission.scope.*;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.spi.*;
@@ -513,14 +514,26 @@ public class PermissionServiceImpl implements PermissionService {
      * whatever reached the write was then authorized elsewhere, a flow or a service acting for the caller.
      */
     private List<Grant> ownersHolders(List<Grant> all, String model, AccessType access) {
-        List<Grant> holding = all.stream().filter(g -> findReferencers(model, g).stream()
+        List<Grant> holding = ownersHolding(all, model, access);
+        return holding.isEmpty() ? all : holding;
+    }
+
+    /** The roles holding {@code access} on a model that owns {@code model}; empty when none does. */
+    private List<Grant> ownersHolding(List<Grant> all, String model, AccessType access) {
+        return all.stream().filter(g -> findReferencers(model, g).stream()
                         .filter(ref -> ref.kind() != Kind.SHARED)
                         .anyMatch(ref -> {
                             Set<String> ownerCandidates = actionPermissions(ref.parentModel(), access);
                             return g.permissions().stream().anyMatch(ownerCandidates::contains);
                         }))
                 .toList();
-        return holding.isEmpty() ? all : holding;
+    }
+
+    private static List<Grant> holdingAny(List<Grant> all, Set<String> permissions) {
+        if (permissions == null || permissions.isEmpty()) {
+            return List.of();
+        }
+        return all.stream().filter(g -> g.permissions().stream().anyMatch(permissions::contains)).toList();
     }
 
     /**
@@ -1412,7 +1425,8 @@ public class PermissionServiceImpl implements PermissionService {
      * {@inheritDoc}
      *
      * <p>The holders are found as {@link #rowScope} finds them, so the answer bounds the same roles whose
-     * rows the write is bounded by. No snapshot is an empty set: as everywhere here, unknown fails closed.
+     * rows the write is bounded by — except where that falls back to every role ({@link #companyHolders}).
+     * No snapshot is an empty set: as everywhere here, unknown fails closed.
      */
     @Override
     public Set<Long> getGrantedCompanyIds(String model, AccessType accessType) {
@@ -1421,11 +1435,52 @@ public class PermissionServiceImpl implements PermissionService {
         if (pi == null) return Set.of();
         if (PermissionInfo.hasFullDataAccess(pi)) return null;
         Set<Long> granted = new java.util.TreeSet<>();
-        for (Grant g : holders(pi, model, accessType)) {
+        for (Grant g : companyHolders(pi, model, accessType)) {
             if (g.companies() == null) return null;
             granted.addAll(g.companies());
         }
         return granted;
+    }
+
+    /**
+     * The roles whose company grants bound a write of {@code model}: the holders of the write, as
+     * {@link #holders} finds them — unless no role holds it.
+     *
+     * <p>A model written only through custom endpoints (a contract saved through
+     * {@code POST /EmpDocument/editUploaded}) has no holder of its standard write, and {@link #holders}
+     * then answers every role the user has. For row scope that is the intended reading — whatever reached
+     * the write was authorized elsewhere — but for the companies a write may name it hands the choice to
+     * the self-service role, which carries no company grant and so reaches every company. Here it is
+     * narrowed instead, in this order:
+     * <ol>
+     *   <li>the roles holding a permission that admitted the current request, when its path names this
+     *       model ({@link AdmittedRequest}) — the save itself;</li>
+     *   <li>the roles holding a permission that lists a custom write endpoint on this model
+     *       ({@link EndpointIndex#customWritePermissions}) — a picker on the form, asked before the save,
+     *       or a write reached through another model's endpoint;</li>
+     *   <li>every role, as before, when neither names any.</li>
+     * </ol>
+     */
+    private List<Grant> companyHolders(PermissionInfo pi, String model, AccessType access) {
+        if (!WRITES.contains(access) || pi.getRoleGrants() == null) {
+            return holders(pi, model, access);
+        }
+        List<Grant> all = grantsOf(pi);
+        Set<String> candidates = actionPermissions(model, access);
+        List<Grant> holding = candidates.isEmpty() ? ownersHolding(all, model, access) : holdingAny(all, candidates);
+        if (!holding.isEmpty()) {
+            return holding;
+        }
+        AdmittedRequest admitted = AdmittedRequest.current();
+        if (admitted != null && model.equals(admitted.pathModel())) {
+            List<Grant> admitting = holdingAny(all, admitted.permissions());
+            if (!admitting.isEmpty()) {
+                return admitting;
+            }
+        }
+        EndpointIndex index = endpointIndexSupplier.get();
+        List<Grant> customWriters = index == null ? List.of() : holdingAny(all, index.customWritePermissions(model));
+        return customWriters.isEmpty() ? all : customWriters;
     }
 
     /**

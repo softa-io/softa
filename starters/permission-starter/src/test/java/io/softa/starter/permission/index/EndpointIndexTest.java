@@ -110,6 +110,21 @@ class EndpointIndexTest {
                 .hasMessageContaining("blank");
     }
 
+    // ─── custom write endpoints ───
+
+    @Test
+    void customWritePermissions_listTheWritesNoStandardEndpointCovers() {
+        // A contract saved through endpoints of its own: who writes it, asked before the save.
+        EndpointIndex idx = build(List.of(
+                explicit("contract.edit", "POST /EmpDocument/editUploaded", "POST /EmpDocument/stageFile"),
+                explicit("contract.view", "POST /EmpDocument/searchList", "GET /EmpDocument/preview"),
+                explicit("contract.update", "POST /EmpDocument/updateOne"),
+                explicit("signing.resend", "POST /document-signing/resend")));
+
+        assertThat(idx.customWritePermissions("EmpDocument")).containsExactly("contract.edit");
+        assertThat(idx.customWritePermissions("Employee")).isEmpty();
+    }
+
     // ─── lookup: exact-index hits ───
 
     @Test

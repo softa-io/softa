@@ -9,11 +9,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.permission.index.EndpointIndex;
+import io.softa.starter.permission.interceptor.AdmittedRequest;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionInfo;
@@ -38,6 +43,8 @@ class GrantedCompaniesForActionTest {
     private static final long USER = 2L;
     private static final String CREATE = "permission.employee.create";
     private static final String VIEW = "permission.employee.view";
+    private static final String EDIT_CONTRACT = "permission.contract.edit";
+    private static final String VOID_CONTRACT = "permission.contract.void";
 
     private PermissionInfo pi;
     private PermissionServiceImpl service;
@@ -50,6 +57,7 @@ class GrantedCompaniesForActionTest {
         EndpointIndex index = mock(EndpointIndex.class);
         when(index.modelActionPermissions("Employee", "create")).thenReturn(Set.of(CREATE));
         when(index.modelActionPermissions("Employee", "view")).thenReturn(Set.of(VIEW));
+        when(index.customWritePermissions("Contract")).thenReturn(Set.of(EDIT_CONTRACT, VOID_CONTRACT));
         @SuppressWarnings("unchecked")
         ModelService<Long> modelService = mock(ModelService.class);
         service = new PermissionServiceImpl(provider, mock(ScopeRuleCompiler.class), null, modelService,
@@ -68,10 +76,77 @@ class GrantedCompaniesForActionTest {
     }
 
     private Set<Long> granted(AccessType access) {
+        return granted("Employee", access);
+    }
+
+    private Set<Long> granted(String model, AccessType access) {
         Context ctx = new Context();
         ctx.setTenantId(TENANT);
         ctx.setUserId(USER);
-        return ContextHolder.callWith(ctx, () -> service.getGrantedCompanyIds("Employee", access));
+        return ContextHolder.callWith(ctx, () -> service.getGrantedCompanyIds(model, access));
+    }
+
+    /** Runs {@code body} inside a request the endpoint gate admitted on {@code uri} by {@code permissions}. */
+    private <T> T admittedOn(String uri, Set<String> permissions, java.util.function.Supplier<T> body) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", uri);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        try {
+            AdmittedRequest.record(request, uri, permissions);
+            return body.get();
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    // ---------------------------------------------------------------- written only through custom endpoints
+
+    @Test
+    @DisplayName("a save through a custom endpoint is bounded by the roles holding the permission that admitted it")
+    void aCustomSaveIsBoundedByTheAdmittingRoles() {
+        // No role holds the contract's standard update, so every role used to count — the self-service
+        // role's "every company" among them.
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(VIEW), null),
+                role(2, Set.of(EDIT_CONTRACT), Set.of(10L)),
+                role(3, Set.of(VOID_CONTRACT), null)));
+
+        assertThat(admittedOn("/Contract/editUploaded", Set.of(EDIT_CONTRACT),
+                () -> granted("Contract", AccessType.UPDATE))).containsExactly(10L);
+    }
+
+    @Test
+    @DisplayName("a picker for a model written only through custom endpoints asks the roles listing one")
+    void aPickerAsksTheCustomWriters() {
+        // The picker's own request is admitted on the company list, not on the contract.
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(VIEW), null),
+                role(2, Set.of(EDIT_CONTRACT), Set.of(10L)),
+                role(3, Set.of(VOID_CONTRACT), Set.of(20L))));
+
+        assertThat(admittedOn("/Company/searchName", Set.of("permission.company.view"),
+                () -> granted("Contract", AccessType.UPDATE))).containsExactly(10L, 20L);
+        assertThat(granted("Contract", AccessType.CREATE)).containsExactly(10L, 20L);
+    }
+
+    @Test
+    @DisplayName("a model no permission writes at all still falls back to every role")
+    void nothingNamesTheWriterFallsBackToEveryRole() {
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(VIEW), null),
+                role(2, Set.of(EDIT_CONTRACT), Set.of(10L))));
+
+        assertThat(granted("Ledger", AccessType.UPDATE)).isNull();
+    }
+
+    @Test
+    @DisplayName("a holder of the standard write still decides, whatever admitted the request")
+    void theStandardHolderStillDecides() {
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(VIEW, CREATE), Set.of(10L)),
+                role(2, Set.of(EDIT_CONTRACT), null)));
+
+        assertThat(admittedOn("/Employee/hire", Set.of(EDIT_CONTRACT),
+                () -> granted(AccessType.CREATE))).containsExactly(10L);
     }
 
     @Test
