@@ -76,10 +76,10 @@ public class WebHookTaskExecutor extends AbstractTaskExecutor {
     @Override
     public Map<String, Object> getConfigSchema() {
         return Map.of(
-                "url", Map.of("type", "string", "label", "URL", "required", true),
+                "url", Map.of("type", "template", "label", "URL", "required", true),
                 "method", Map.of("type", "enum", "label", "HTTP Method",
                         "options", List.of("GET", "POST", "PUT", "DELETE"), "default", "POST"),
-                "headers", Map.of("type", "keyValueMap", "label", "Headers"),
+                "headers", Map.of("type", "keyValueMap", "label", "Headers", "valueType", "template"),
                 "body", Map.of("type", "json", "label", "Body")
         );
     }

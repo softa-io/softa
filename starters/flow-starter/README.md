@@ -23,7 +23,7 @@ This README documents the current backend contract implemented in this module.
 
 ### Flow Identity And Revisions
 
-- `FlowDesign` is the draft working copy. Its `id` (a distributed string id) is the flow's identity everywhere: bundles, instances, tasks, approval records, events, delegations and CC rules reference it as `flowId`, and lists show the flow's name through that reference.
+- `FlowDesign` is the draft working copy. Its `id` (a distributed string id) is the flow's identity everywhere: bundles, instances, tasks, approval records, events and delegations reference it as `flowId`, and lists show the flow's name through that reference.
 - `flowName` is unique within a tenant; there is no separate flow code.
 - `FlowBundle` is the compiled published snapshot; published revisions are keyed by `flowId`.
 - `FlowStartRequest` resolves bundles in this order:
@@ -31,6 +31,26 @@ This README documents the current backend contract implemented in this module.
   2. `flowId` — start the current active revision
 - To start a specific historical revision, look up its `bundleId` via the revisions listing endpoint and pass that as `bundleId`.
 - `FlowBundle.designJson` keeps the design snapshot used at publish time so the editor can restore a historical canvas.
+
+### Enabling And Disabling A Flow
+
+A flow has an on/off switch, `FlowDesign.enabled` (on when created), apart from which revision is effective:
+
+- **Off**, nothing starts it: no submission picks it, no data change, field change or schedule fires it, an API start
+  (`POST /flow/instances/start`, or `FlowStartRequest.flowId`) and a parent flow's Subflow node are refused — "it was
+  never published, or it is disabled".
+- The effective revision stays as it is, so switching it back on runs the same one; activating another revision and
+  publishing leave the switch as it is — a flow can be prepared and published while off, then switched on.
+- **A flow is switched off only once nothing of it is left running**: refused while any of its instances has not
+  finished — pending, running or waiting, a record still in approval among them (`FlowInstanceService.countUnfinished`)
+  — and, for an automation flow, while a flow that may still run it as a subflow calls it: an enabled flow's effective
+  revision, or the revision an unfinished instance of another flow runs on (an instance keeps the revision it started
+  on). The refusal says how many instances are left, or names the callers. A failed instance has ended: it does not
+  hold the flow on.
+- `POST /flow/designs/{id}/disable` / `enable` switch it; `GET /flow/designs/{id}/status` reports it.
+- **A published flow is never deleted**: its revisions, instances and approval history refer to it. The refusal is
+  a write validator (`PublishedFlowDeleteGuard`), so it holds for the generic `/FlowDesign` API as well as for
+  `POST /flow/designs/{id}/delete`; a flow that was never published is deleted freely.
 
 ### Flow Scenarios
 
@@ -61,6 +81,62 @@ Every flow declares a trigger, and **the trigger is the flow's start contract** 
 
 An explicit start and a Subflow call both run an Automation flow, so `Api` and `Subflow` belong to
 Automation alone. Debug runs of a draft ignore the trigger.
+
+### A Flow's Start: Its Trigger And The Model It Names
+
+A flow has one trigger and one Start node — one start contract, configured on the Start node and stored as the
+document's `trigger` beside its graph. Several ways in for the same logic are several thin flows calling one
+Subflow. A trigger that starts the flow on a record names **the record's model** — an Approval flow's document, the
+model a change trigger watches; one that starts on no record (a schedule, an API call, a parent flow) names none.
+
+- The model is the trigger's: `SubmitTrigger.modelName`, `EntityChangeTrigger.modelName`,
+  `FieldChangeTrigger.modelName` (`TriggerSource.modelName()`; `onRecord()` says which kinds must name one). A flow
+  touching several models — an automation that reads one and writes others — has no model of its own: its nodes name
+  theirs. `CompiledFlowDefinition.getModelName()` reads it from the trigger, and the variables the start offers, the
+  edges' rule conditions and an approval's field permissions all follow it. Publishing refuses a record trigger
+  without a model (`MISSING_MODEL`).
+- **Changing the trigger may change the model** — another trigger kind of the scenario, another model to watch: the
+  next publish checks the graph against it (rule conditions, watched fields), and the running instances keep their
+  own revision.
+- `FlowDesign.modelName` is the trigger's model kept as a column, for lookups — the flow list, a document's approval
+  flow: written on every save and publish, empty for a trigger that starts on no record. It is not edited apart.
+- **An Approval flow's document is fixed.** It is chosen when the flow is created (`POST /flow/designs` with
+  `modelName`) and never changes: every save and publish puts the trigger's `modelName` back from the column,
+  whatever the draft says, and keeps the condition the draft gives it. A design that names its document only in its
+  trigger — a seeded one — has the column taken from it the first time it is published.
+- **A document may have several approval flows**, told apart by their `SubmitTrigger` condition — one of the two kinds
+  an edge takes, never both: a rule over the record (`condition`, checked at publish against the fields the document's
+  approvals route on) or an AviatorScript `conditionExpression`. A submission goes to the document's enabled approval
+  flow whose condition holds for the record — read over what the approval would start with (the record's fields and
+  its handler's variables); no condition holds for every record — and exactly one must hold: none, or several, refuse
+  the submission naming why. A leave and its cancellation are two flows of `LeaveRequest` this way, and so is a flow per
+  country or company. Conditions that overlap show when a record is submitted or previewed; the very same condition
+  twice — neither flow having one, or the same rule or expression — is refused when such a flow is published while
+  enabled, enabled, or rolled back (`SubmitConditions`). `POST /flow/designs` refuses an approval flow for a document
+  without an approval handler, and publishing refuses one on a model the application cannot approve
+  (`MODEL_NOT_APPROVABLE`, from `ApprovableModelValidator`, a `FlowValidator` bean, so the designer's validation
+  reports it too). `GET /flow/approvalModels` lists the approvable documents, each with the names of its approval flows
+  — what a new approval flow picks from.
+- **A flow is copied as an unpublished draft** (`POST /flow/designs/{id}/duplicate`) — an approval flow too, for
+  another country or company: the copy approves the same document with the same condition, which it changes before
+  it is published beside the source.
+- **A data change starts the flow when its condition holds.** An `EntityChangeTrigger` may carry a condition of one
+  of the two kinds an edge takes, never both (`CONFLICTING_TRIGGER_CONDITIONS`): a rule over the record —
+  `condition`, the platform `Filters` JSON, judged like an edge's rule by the types of the trigger model's fields and
+  checked at publish the same way — or an AviatorScript `conditionExpression`, compiled at publish; either failing is
+  `INVALID_TRIGGER_CONDITION`. Both read the variables the flow would start with (`FlowTriggerEvent.startVariables`):
+  the change's data — the whole row on a create or a delete, **the changed fields' new values on an update** — with
+  `_triggerType`, `_sourceModel` and `_sourceRowId`. A condition that cannot be evaluated starts nothing and is never
+  a quiet "no": the fire is logged as failed in the event log, a sync `rollbackOnFail` flow fails the write that
+  fired it, and a Validation flow fails the validation (`DefaultFlowTriggerRegistry.findMatches`). A
+  `FieldChangeTrigger` watches fields its model has (`UNKNOWN_TRIGGER_FIELD`).
+
+What a trigger "matches" depends on the scenario: a submission goes to the one approval flow of its document whose
+condition holds for the record; a data change, a field change or a schedule starts every enabled Automation,
+Validation or Compute flow that watches it — independent Automation runs, Validation results gathered by flow, Compute outputs merged. An output has one
+author among a model's enabled Compute flows — two declaring it would overwrite each other — so publishing,
+enabling or rolling back a Compute flow is refused while another enabled Compute flow of its model declares one of
+its outputs (`ComputeOutputs`). An API call or a parent names the flow it starts.
 
 Settings belong to one scenario too: `withdrawPolicy`, `urgeEnabled`, `urgeIntervalMinutes`, `approverDedup`,
 `selfApproval`, `emailNotification` and `cc` to Approval flows; `sync` / `rollbackOnFail` to Automation flows, and a sync flow — which runs inside the writer's
@@ -109,6 +185,10 @@ Node-behavior invariants:
   parent fails. Model human steps in an Approval flow, not a child.
 - **`ParallelFork` branches execute serially** (deterministic order), not
   wall-clock-parallel — the gateway models routing topology, not concurrency.
+- **A `Timer` waits one way**: `durationSeconds` (at least 1), `cronExpression`, or `deadlineExpression` (an
+  AviatorScript expression resolving to a time) — exactly one, else `INVALID_TIMER_CONFIG`. Its cron speaks a Cron
+  trigger's dialect, the scheduler's Quartz (`FlowCron`), so a flow has one cron language: one the scheduler cannot
+  run, or that never fires again, is `INVALID_TIMER_CRON`; a deadline that does not compile, `INVALID_TIMER_DEADLINE`.
 
 The graph itself has exactly one `Start` — the entry; a node that merely lacks incoming edges is
 not one (`NO_START_NODE` / `MULTIPLE_START_NODES`) — no cycle (`GRAPH_CYCLE`), and every node reachable
@@ -178,16 +258,21 @@ data plane and is intentionally not intercepted.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/flow/designs` | Create a draft |
+| `POST` | `/flow/designs` | Create a draft: `scenario`, the starting `designJson` (its `trigger` names a record trigger's model), and for an Approval flow its document `modelName` (required; the trigger is made from it). See [A Flow's Start](#a-flows-start-its-trigger-and-the-model-it-names) |
+| `GET` | `/flow/approvalModels` | The documents the application approves, each with the names of its approval flows (`flowNames`) |
+| `GET` | `/flow/cron/preview?expression=&count=` | A cron expression — a Cron trigger's or a Timer's — as publishing judges it: `valid`, the refusal `message`, its `description` in words, and its next runs (`count`, 1–10, default 5) in the server's `zone` |
+| `POST` | `/flow/expressions/preview` | Try an expression — or, with `template`, a text's `{{ }}` placeholders — over sample `variables` on the sandboxed engine flows run with: `valid`, the `result` and its `resultType`, or the `message` why it does not run. Nothing is read or written |
 | `GET` | `/flow/designs?keyword=&scenario=&pageNumber=&pageSize=` | Paged draft list (canvas excluded) |
 | `GET` | `/flow/designs/{id}` | Load one draft (canvas + optimistic-lock version) |
 | `POST` | `/flow/designs/{id}/save` | Auto-save the canvas; stale versions are rejected |
-| `POST` | `/flow/designs/{id}/delete` | Delete a draft if it has never been published |
-| `POST` | `/flow/designs/{id}/duplicate` | Copy a draft under a fresh name (`"<name> (copy)"` when `newFlowName` is omitted) |
+| `POST` | `/flow/designs/{id}/delete` | Delete a flow that was never published; a published one is refused (disable it instead) |
+| `POST` | `/flow/designs/{id}/duplicate` | Copy a flow under a fresh name (`"<name> (copy)"` when `newFlowName` is omitted) as an unpublished draft; an approval flow's copy keeps its document and submit condition, to be changed before it is published |
 | `POST` | `/flow/designs/validate` | Validate the posted document; diagnostics returned as a success payload |
 | `POST` | `/flow/designs/{id}/publish` | Publish the saved draft as a new active revision |
 | `POST` | `/flow/designs/{id}/restore?bundleId=` | Restore the draft canvas from a historical bundle snapshot |
-| `GET` | `/flow/designs/{id}/status` | Publish status: revision badge + dirty flag |
+| `GET` | `/flow/designs/{id}/status` | Publish status: revision badge, dirty flag, `enabled` |
+| `POST` | `/flow/designs/{id}/disable` | Switch the flow off: nothing starts it. Refused while any of its instances has not finished, or while a flow that may still run it calls it as a subflow. See [Enabling And Disabling A Flow](#enabling-and-disabling-a-flow) |
+| `POST` | `/flow/designs/{id}/enable` | Switch the flow back on, on the revision that was effective |
 | `GET` | `/flow/designs/{id}/availableVariables?nodeId=&afterNode=` | Variables visible to a node (expression autocomplete); `afterNode=true` — to the edges leaving it, its own outputs too |
 | `POST` | `/flow/designs/{id}/debugRun` | Compile and run the current draft as a debug bundle (not a sandbox) |
 | `GET` | `/flow/designs/{id}/debugRuns` | Debug-run history, newest first |
@@ -580,7 +665,10 @@ selects the executor — there is no separate `executor` field in config.
 ```
 
 - `input` supports `{{ expr }}` interpolation; resolution is owned by the executor
-  (type-aware for data executors, recursive interpolation for free-shape payloads)
+  (type-aware for data executors, recursive interpolation for free-shape payloads). Publishing checks every
+  placeholder in any node's settings the way it will run (`TemplatePlaceholderValidator`): an expression that
+  compiles, a variable path, or a reserved reference `{{ @name }}` — closed and not empty — else
+  `INVALID_TEMPLATE_PLACEHOLDER`, naming the node and the setting (`to[1]`, `templateVariables.owner`)
 - `options` is executor-specific
 - `outputVariable`, when present, stores the raw executor result under one variable name
 
@@ -616,8 +704,8 @@ Current module notes:
 
 ## Approving Business Records
 
-A business record — a leave request, an expense claim — is approved by an Approval flow whose trigger is a
-`SubmitTrigger(modelName, conditionExpression)`. Its model extends `ApprovalModel` (`entity`, in place of
+A business record — a leave request, an expense claim — is approved by an Approval flow of its document: its
+trigger is a `SubmitTrigger` naming the record's model (`modelName`) and, optionally, which of its records it takes. Its model extends `ApprovalModel` (`entity`, in place of
 `AuditableModel`), its controller extends `ApprovalModelController` (in place of `EntityController`), and the
 host implements one `ModelApprovalHandler<T>` per model (`runtime/spi`, a Spring bean).
 `ApprovalModelController` gives every such model the same three endpoints, granted per model like any other:
@@ -678,7 +766,7 @@ report it, so a Withdraw button is offered exactly when the withdrawal would be 
 
 | `FlowClient` | What happens |
 |---|---|
-| `submitRecord(modelName, rowId)` | The submitter must read the record with their own permissions; only a draft with no approval in progress is submitted. `handler.validate` then checks the whole record as the submitter, and `handler.submission` returns the instance title and the routing variables it adds to the record's fields. The flow is chosen among the tenant's active flows whose submit trigger names the model and whose condition holds for the record — exactly one must match, else the submission is refused naming why. The record becomes `Pending`, with its submitter and the time, `handler.afterSubmitted` runs, and the record's approval starts. All in the caller's transaction. Every submission starts a new approval from the beginning — after a return too, with the flow chosen again for the record as it is now — and marks the record's earlier approvals `superseded` |
+| `submitRecord(modelName, rowId)` | The submitter must read the record with their own permissions; only a draft with no approval in progress is submitted. `handler.validate` then checks the whole record as the submitter, and `handler.submission` returns the instance title and the routing variables it adds to the record's fields. The flow is chosen among the tenant's enabled Approval flows of the model by their submit conditions, read over the variables the approval would start with — exactly one must hold, else the submission is refused naming why. The record becomes `Pending`, with its submitter and the time, `handler.afterSubmitted` runs, and the record's approval starts. All in the caller's transaction. Every submission starts a new approval from the beginning — after a return too, on the revision effective now — and marks the record's earlier approvals `superseded` |
 | `withdrawRecord(modelName, rowId, comment)` | Withdraws the waiting approval (the engine checks the actor is the initiator and the flow's `withdrawPolicy` permits it); the record is a draft again. When the record's approval **failed**, its submitter takes the record back the same way — the handler is told it was withdrawn; the failed instance stays for flow monitoring. Refused when the record has no approval in progress |
 | `cancelRecord(modelName, rowId)` | Cancels a draft for good: the applicant must read the record with their own permissions, it must be a draft, and `handler.validateCancel` must pass. The record becomes `Cancelled` and `handler.afterOutcome` gets a `Cancelled` result with no instance. In the caller's transaction |
 | `recordApprovals(modelName, rowId)` | The approval history, as `GET /flow/instances/by-record` |
@@ -786,9 +874,11 @@ own, and `FlowClient.previewRecord` should be called outside one: a refusal thro
 method marks the transaction it joins rollback-only.
 
 Default flows reach tenants as tenant seed files: one `FlowDesign` row per file, its trigger naming the
-model. When seed-starter announces the rows a file created (`SeedFileLoadedEvent`), `SeedFlowPublisher`
+model. When seed-starter announces the rows a file wrote (`SeedFileLoadedEvent`), `SeedFlowPublisher`
 publishes each new design; a design that does not compile fails the file in that tenant. Tenants then edit
-their own copy in the designer.
+their own copy in the designer, and a run never brings the template back over it. A reapply of the file does,
+on purpose, and the designs it rewrites are published again, so the instances started afterwards follow what
+the design now says.
 
 ## Notifications
 
@@ -841,7 +931,8 @@ with yours.
 Supported trigger sources (`TriggerSource` sealed sub-types), each the start contract of the flows that
 declare it (see [Flow Scenarios](#flow-scenarios) for which scenario takes which):
 
-- `EntityChange` — a change log of the model. Each change log starts a run at most once per flow: its
+- `EntityChange` — a change log of the model, when the trigger's condition holds (see
+  [A Flow's Start](#a-flows-start-its-trigger-and-the-model-it-names)). Each change log starts a run at most once per flow: its
   `uuid` travels as the event id onto `FlowInstance.triggerEventId` (unique with the flow), so a redelivered
   change log returns the run it already started, while distinct changes of one row each start their own
 - `Cron` — the flow's own Quartz schedule; started only by it (see [Cron-triggered flows](#cron-triggered-flows)):
@@ -850,9 +941,10 @@ declare it (see [Flow Scenarios](#flow-scenarios) for which scenario takes which
 - `Api` (AUTOMATION scenario only) — started explicitly by id; no event matches it, and
   `POST /flow/automation/trigger` refuses the type
 - `Subflow` (AUTOMATION scenario only) — run only from a parent's Subflow node; refused as an event likewise
-- `Submit` (APPROVAL scenario only) — names the model whose records the flow approves and, optionally, a
-  condition over the record. Started only by record submission (see Approving Business Records); change
-  logs never produce it and `POST /flow/automation/trigger` refuses it
+- `Submit` (APPROVAL scenario only) — started when a record of the document it names is submitted and its
+  condition holds (see [A Flow's Start](#a-flows-start-its-trigger-and-the-model-it-names)); the document is the
+  flow's, fixed when it is created. Started only by record submission (see Approving Business Records); change logs
+  never produce it and `POST /flow/automation/trigger` refuses it
 
 Pulsar-connected components are conditionally registered:
 
@@ -874,15 +966,18 @@ Important timer note:
 A Cron-triggered flow owns its schedule: the trigger's `cronExpression`, in the Quartz format cron-starter runs
 (`second minute hour day-of-month month day-of-week [year]`, e.g. `0 0 9 ? * MON-FRI` for 09:00 on weekdays, in
 the scheduler's time zone). Publishing parses it the way the scheduler does: a blank expression fails with
-`CRON_MISSING_EXPRESSION`, one the scheduler cannot run with `CRON_INVALID_EXPRESSION`. Automation, Validation and
+`CRON_MISSING_EXPRESSION`, one the scheduler cannot run — or that never fires again — with `CRON_INVALID_EXPRESSION`.
+`GET /flow/cron/preview` shows the designer the same judgment beside the expression, with its meaning in words and
+its next runs in the server's zone; a Timer node's cron is read the same way. Automation, Validation and
 Compute flows may run on a schedule, Approval flows may not (see [Flow Scenarios](#flow-scenarios)); a scheduled
 Validation or Compute flow is evaluated transiently, like any of their runs.
 
 - **Scheduling.** `CronFlowJobProvider` is a cron-starter `CronJobProvider`: the scheduling leader reads every
   tenant's active Cron-triggered revisions (`FlowBundle.cronExpression`, copied from the trigger at publish) when it
-  starts scheduling and again every 30 seconds, and runs one job per revision, named `flow:<bundleId>`. Publishing,
-  activating another revision (rollback or roll-forward) and switching to another trigger therefore move or remove the
-  schedule within 30 seconds, whichever instance did it — an execution due in between is skipped, never run twice;
+  starts scheduling and again every 30 seconds, and runs one job per revision, named `flow:<bundleId>`, for the
+  enabled flows only. Publishing, activating another revision (rollback or roll-forward), switching to another trigger
+  and disabling or enabling the flow therefore move, add or remove the schedule within 30 seconds, whichever instance
+  did it — an execution due in between is skipped, never run twice;
   no `SysCron` row is written. Nothing is scheduled while `mq.topics.cron-task.topic` is not configured.
 - **Tenants.** A tenant's flow runs in that tenant's context, and only while the tenant is active; a platform-shared
   flow (`tenantId = 0`) runs once in every active tenant, each run in that tenant's context. Without multi-tenancy
@@ -918,9 +1013,9 @@ Primary storage adapters in this module:
 
 `OrmFlowBundleRegistry` loads nothing at startup and caches per tenant:
 
-- **Trigger matching** reads an index of the tenant's active bundles, loaded in that tenant's own context on its first event (an empty result is kept too) and merged with the platform-shared bundles (`tenantId = 0`); a context without a tenant matches the shared ones only. Entries live for `flow.trigger-cache-ttl-seconds` (default `60`). Publishing or activating a revision drops the tenant's entry at once on the instance that did it; other instances pick the change up within the TTL. Change logs of models no flow watches are not turned into trigger events.
+- **Trigger matching** reads an index of the active bundles of the tenant's enabled flows, loaded in that tenant's own context on its first event (an empty result is kept too) and merged with the platform-shared bundles (`tenantId = 0`); a context without a tenant matches the shared ones only. Entries live for `flow.trigger-cache-ttl-seconds` (default `60`). Publishing, activating a revision, or disabling or enabling a flow drops the tenant's entry at once on the instance that did it; other instances pick the change up within the TTL. Change logs of models no flow watches are not turned into trigger events.
 - **Definitions** are cached by `bundleId` in a bounded LRU (a published revision never changes). A bundle of another tenant reads as not found, whether cached or not; platform-shared bundles are visible to every tenant.
-- **The active revision of a flow** is read from the database on every lookup, so starting by `flowId` follows a publish or rollback made on any instance.
+- **The active revision of a flow** is read from the database on every lookup — none while the flow is disabled — so starting by `flowId` follows a publish, rollback, disable or enable made on any instance.
 
 ## Node Descriptor Contract
 
@@ -929,6 +1024,14 @@ The editor palette is built from `FlowNodeDescriptor` records exposed through `/
 - structural descriptors come from `BuiltinNodeDescriptorProvider`
 - executor-backed task descriptors come from `TaskExecutorDescriptorProvider`
 - descriptors include label, icon, sort order, config schema, default config, and allowed scenarios
+- a config field's `type` names the editor's control; a `cron` field is a cron expression the editor previews through
+  `GET /flow/cron/preview`
+- what a setting holds decides its type, so the editor offers the right input: `template` for text interpolated as
+  the node runs (`multiline` for a body), `expression` for AviatorScript, `stringList` for a list of texts (recipients,
+  field names), `json` for a free JSON payload, `variableRef` for a variable's name, a picker for a record —
+  `rolePicker` / `userPicker` / … , or `recordPicker` naming its `model` (a mail template) — storing `valueField`
+  (`code`) instead of the id when given, and taking a typed value no record holds with `allowCustom`; a
+  `keyValueMap`'s `valueType` says what its values are (`expression`, `template`)
 
 `TaskExecutorDescriptorProvider` only exposes task nodes for executors that are actually registered as Spring beans, so conditional executors such as `QUERY_AI` and `ASYNC_TASK` only appear when their dependencies are present.
 

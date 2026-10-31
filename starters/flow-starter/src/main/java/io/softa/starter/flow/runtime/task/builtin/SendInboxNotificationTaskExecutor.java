@@ -72,8 +72,8 @@ public class SendInboxNotificationTaskExecutor extends AbstractTaskExecutor {
     public Map<String, Object> getConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("recipientIds", Map.of("type", "userPicker", "label", "Recipients", "multiple", true, "required", true));
-        schema.put("title", Map.of("type", "string", "label", "Title", "required", true));
-        schema.put("content", Map.of("type", "string", "label", "Content", "required", true));
+        schema.put("title", Map.of("type", "template", "label", "Title", "required", true));
+        schema.put("content", Map.of("type", "template", "label", "Content", "required", true, "multiline", true));
         schema.put("notificationType", Map.of("type", "enum", "label", "Notification Type",
                 "options", List.of("SYSTEM", "WORKFLOW", "MANUAL"), "default", "WORKFLOW"));
         return schema;

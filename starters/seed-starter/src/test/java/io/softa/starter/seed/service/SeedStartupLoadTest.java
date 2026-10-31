@@ -34,7 +34,7 @@ class SeedStartupLoadTest {
     private static final SeedManifest MANIFEST = SeedManifestReader.read(new ByteArrayInputStream("""
             platform:
               - file: data-system/Navigation.json
-                auto: true
+                mode: startup
               - data-system/Currency.json
             """.getBytes(StandardCharsets.UTF_8)), "test", path -> true);
 
@@ -53,36 +53,36 @@ class SeedStartupLoadTest {
 
     @Test
     void nothingPendingLoadsNothing() {
-        when(platformLoader.pendingAutoFiles()).thenReturn(List.of());
+        when(platformLoader.pendingStartupFiles()).thenReturn(List.of());
 
         startupLoad().converge();
 
-        verify(platformLoader, never()).loadAutoFiles();
+        verify(platformLoader, never()).loadStartupFiles();
     }
 
     @Test
     void thePendingFilesLoad() {
-        when(platformLoader.pendingAutoFiles()).thenReturn(List.of(file("Navigation.json")));
-        when(platformLoader.loadAutoFiles()).thenReturn(Optional.of(
+        when(platformLoader.pendingStartupFiles()).thenReturn(List.of(file("Navigation.json")));
+        when(platformLoader.loadStartupFiles()).thenReturn(Optional.of(
                 new PlatformLoadResult(42L, true, List.of("Navigation.json"), null, null)));
 
         assertDoesNotThrow(() -> startupLoad().converge());
-        verify(platformLoader).loadAutoFiles();
+        verify(platformLoader).loadStartupFiles();
     }
 
     @Test
     void anInstanceThatStartedAlongsideLoadedThemMeanwhile() {
         // Pending when asked without the lock, loaded by the other instance by the time this one holds it.
-        when(platformLoader.pendingAutoFiles()).thenReturn(List.of(file("Navigation.json")));
-        when(platformLoader.loadAutoFiles()).thenReturn(Optional.empty());
+        when(platformLoader.pendingStartupFiles()).thenReturn(List.of(file("Navigation.json")));
+        when(platformLoader.loadStartupFiles()).thenReturn(Optional.empty());
 
         assertDoesNotThrow(() -> startupLoad().converge());
     }
 
     @Test
     void aFailedLoadStopsTheStart() {
-        when(platformLoader.pendingAutoFiles()).thenReturn(List.of(file("Navigation.json")));
-        when(platformLoader.loadAutoFiles()).thenReturn(Optional.of(
+        when(platformLoader.pendingStartupFiles()).thenReturn(List.of(file("Navigation.json")));
+        when(platformLoader.loadStartupFiles()).thenReturn(Optional.of(
                 new PlatformLoadResult(42L, false, List.of(), "Navigation.json", "Duplicate entry")));
 
         IllegalStateException failure = assertThrows(IllegalStateException.class, () -> startupLoad().converge());
@@ -100,7 +100,7 @@ class SeedStartupLoadTest {
         assertEquals(1, failure.getProblems().size());
         assertTrue(failure.getProblems().getFirst().contains("data-system/Currency.json"), failure.getMessage());
         assertTrue(failure.getProblems().getFirst().contains("writes Permission"), failure.getMessage());
-        verify(platformLoader, never()).loadAutoFiles();
+        verify(platformLoader, never()).loadStartupFiles();
     }
 
     private SeedStartupLoad startupLoad() {

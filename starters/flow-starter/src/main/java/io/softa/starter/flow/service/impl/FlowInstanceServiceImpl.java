@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -12,6 +13,7 @@ import tools.jackson.core.type.TypeReference;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.LambdaUtils;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -64,6 +66,11 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     /** Absent without a permission system: then no field is hidden from anyone. */
     @Autowired(required = false)
     private PermissionService permissionService;
+
+    /** The states of an instance that has not ended. */
+    private static final List<FlowExecutionStatus> UNFINISHED = Arrays.stream(FlowExecutionStatus.values())
+            .filter(status -> !status.isTerminal())
+            .toList();
 
     /** Instance search projection — the heavy JSON state columns are deliberately excluded. */
     private static final List<String> INSTANCE_SUMMARY_FIELDS = List.of(
@@ -198,6 +205,24 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     public long countByStatus(FlowExecutionStatus status) {
         Filters filters = new Filters().eq(FlowInstance::getStatus, status);
         return this.count(filters);
+    }
+
+    @Override
+    @SkipPermissionCheck
+    public long countUnfinished(String flowId) {
+        return this.count(new Filters().eq(FlowInstance::getFlowId, flowId).in(FlowInstance::getStatus, UNFINISHED));
+    }
+
+    @Override
+    @SkipPermissionCheck
+    public Set<Long> unfinishedBundleIds() {
+        FlexQuery query = new FlexQuery(new Filters().in(FlowInstance::getStatus, UNFINISHED))
+                .select(FlowInstance::getBundleId);
+        query.setDistinct(true);
+        return this.searchList(query).stream()
+                .map(FlowInstance::getBundleId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
     }
 
     @Override

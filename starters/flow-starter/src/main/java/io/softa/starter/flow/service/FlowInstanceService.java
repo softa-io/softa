@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import io.softa.framework.orm.domain.FlexQuery;
@@ -106,6 +107,15 @@ public interface FlowInstanceService {
      * Count instances currently in the given status.
      */
     long countByStatus(FlowExecutionStatus status);
+
+    /**
+     * How many of the flow's instances have not ended — pending, running or waiting, a record's approval in progress
+     * among them — whoever may see them.
+     */
+    long countUnfinished(String flowId);
+
+    /** The revisions (bundle ids) the current tenant's unfinished instances run on, whoever may see them. */
+    Set<Long> unfinishedBundleIds();
 
     /**
      * Paged instance query for monitoring views.

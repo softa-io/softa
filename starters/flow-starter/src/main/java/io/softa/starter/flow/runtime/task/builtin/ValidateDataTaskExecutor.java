@@ -57,7 +57,7 @@ public class ValidateDataTaskExecutor extends AbstractTaskExecutor {
     public Map<String, Object> getConfigSchema() {
         return Map.of(
                 "expression", Map.of("type", "expression", "label", "Expression", "required", true),
-                "exceptionMsg", Map.of("type", "string", "label", "Exception Message", "required", true)
+                "exceptionMsg", Map.of("type", "template", "label", "Exception Message", "required", true)
         );
     }
 

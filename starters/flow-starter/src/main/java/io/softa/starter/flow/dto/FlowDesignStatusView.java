@@ -16,6 +16,9 @@ public record FlowDesignStatusView(
         Long activeBundleId,
 
         @Schema(description = "True when the draft differs from the most recently published design")
-        boolean dirty
+        boolean dirty,
+
+        @Schema(description = "False while the flow is disabled: it starts nothing")
+        boolean enabled
 ) {
 }

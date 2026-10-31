@@ -46,6 +46,8 @@ public class DefaultFlowCompiler {
                 new TaskConfigValidator(),
                 new UnsupportedNodeTypeValidator(),
                 new ApprovalConfigValidator(),
+                new TimerConfigValidator(),
+                new TemplatePlaceholderValidator(),
                 new GatewayValidator()
         );
     }

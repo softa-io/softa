@@ -91,7 +91,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     private static Map<String, Object> timerConfigSchema() {
         return ordered(
                 "durationSeconds",    ordered("type", "number",     "label", "Wait duration (seconds)"),
-                "cronExpression",     ordered("type", "string",     "label", "Cron expression"),
+                "cronExpression",     ordered("type", "cron",       "label", "Cron schedule"),
                 "deadlineExpression", ordered("type", "expression", "label", "Deadline expression (resolves to a timestamp)")
         );
     }
@@ -103,12 +103,15 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         schema.put("approverSource", ordered("type", "approverSource", "label", "Approvers (dynamic)",
                 "options", List.of(
                         ordered("type", "VariableList", "label", "Variable list",
-                                "fields", ordered("variable", ordered("type", "string", "label", "Variable name", "required", true))),
+                                "fields", ordered("variable", ordered("type", "variableRef", "label", "Variable", "required", true))),
                         ordered("type", "Expression", "label", "Expression",
                                 "fields", ordered("expression", ordered("type", "expression", "label", "Expression", "required", true))),
                         ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)"),
+                        // Keys into the caller's role-approver map, which a built-in role's code names; another
+                        // key may be typed.
                         ordered("type", "Role", "label", "Role (variable)",
-                                "fields", ordered("roleCode", ordered("type", "string", "label", "Role code", "required", true))),
+                                "fields", ordered("roleCode", ordered("type", "rolePicker", "label", "Role", "required", true,
+                                        "valueField", "code", "allowCustom", true))),
                         // Org-relative sources start from the record's subject — the employee it is about — unless
                         // they say the initiator, so a request filed on someone's behalf goes to their approvers.
                         ordered("type", "Supervisor", "label", "Supervisor",
@@ -199,15 +202,16 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     private static Map<String, Object> subflowConfigSchema() {
         return ordered(
                 "subflowId", ordered("type", "flowPicker",  "label", "Subflow", "required", true),
-                "inputMapping",    ordered("type", "keyValueMap", "label", "Input mapping"),
+                "inputMapping",    ordered("type", "keyValueMap", "label", "Input mapping", "valueType", "template"),
                 "outputVariable",  ordered("type", "string",      "label", "Output variable"),
-                "outputMapping",   ordered("type", "keyValueMap", "label", "Output mapping")
+                "outputMapping",   ordered("type", "keyValueMap", "label", "Output mapping", "valueType", "template")
         );
     }
 
     private static Map<String, Object> returnValueConfigSchema() {
         return ordered(
-                "outputExpressions", ordered("type", "keyValueMap", "label", "Output expressions", "required", true)
+                "outputExpressions", ordered("type", "keyValueMap", "label", "Output expressions", "required", true,
+                        "valueType", "expression")
         );
     }
 }

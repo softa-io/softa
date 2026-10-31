@@ -32,7 +32,6 @@ import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
-import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FlowNodeType;
@@ -110,7 +109,7 @@ class FlowRecordApprovalsTest {
 
     @Test
     void historyListsTheRecordsApprovalInstancesNewestFirstWithNamedUsers() {
-        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
         CompiledFlowDefinition automation = publishService.publish("audit", automationFlow("Audit"));
         instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
         PendingApproval waiting = PendingApproval.builder().nodeId("approval").nodeLabel("Manager")
@@ -145,7 +144,7 @@ class FlowRecordApprovalsTest {
 
     @Test
     void aFailedApprovalSaysWhereAndWhyItStopped() {
-        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
         instance("failed", approval, true, FlowExecutionStatus.FAILED, LocalDateTime.of(2026, 10, 20, 9, 0), null);
         instances.getLast().setFailedNodeId("approval");
         instances.getLast().setErrorMessage("Approval node 'approval' resolved an empty approver list (strategy=ERROR)");
@@ -161,7 +160,7 @@ class FlowRecordApprovalsTest {
 
     @Test
     void usersAreNamedOnlyOnceTheCallerMaySeeTheHistory() {
-        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
         instance("i1", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
 
         assertThrows(FlowAuthorizationException.class, () -> service.recordApprovals(MODEL, ROW, view -> {
@@ -173,7 +172,7 @@ class FlowRecordApprovalsTest {
     @Test
     void theWaitingStepsRulesAreLaidOverEveryField() {
         CompiledFlowDefinition approval = publishService.publish("claims",
-                flow("Claims", new SubmitTrigger(MODEL, null), Map.of("bankAccount", "Hidden", "amount", "Editable")));
+                flow("Claims", Map.of("bankAccount", "Hidden", "amount", "Editable")));
         when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenReturn(Optional.of(
                 new LinkedHashMap<>(Map.of("id", 7L, "amount", 120, "bankAccount", "DE89 3704", "note", "lunch"))));
 
@@ -186,7 +185,7 @@ class FlowRecordApprovalsTest {
     @Test
     void aStepThatListsNoFieldsShowsThemAll() {
         CompiledFlowDefinition approval = publishService.publish("claims",
-                flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+                flow("Claims", Map.of()));
         Map<String, Object> stored = Map.of("id", 7L, "amount", 120, "note", "lunch");
         when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE)))
                 .thenReturn(Optional.of(new LinkedHashMap<>(stored)));
@@ -197,7 +196,7 @@ class FlowRecordApprovalsTest {
     @Test
     void aSensitiveFieldTheViewerMaySeeNowhereIsShownOnlyWhereTheStepListsIt() {
         CompiledFlowDefinition approval = publishService.publish("claims",
-                flow("Claims", new SubmitTrigger(MODEL, null), Map.of("salary", "Readonly")));
+                flow("Claims", Map.of("salary", "Readonly")));
         when(permissions.getHiddenSensitiveFields()).thenReturn(Map.of(MODEL, Set.of("salary", "bankAccount")));
         when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenReturn(Optional.of(
                 new LinkedHashMap<>(Map.of("id", 7L, "salary", 9000, "bankAccount", "DE89 3704", "note", "raise"))));
@@ -211,7 +210,7 @@ class FlowRecordApprovalsTest {
     @Test
     void whatAStepHidesStaysHiddenFromOthersButNotFromTheInitiator() {
         CompiledFlowDefinition approval = publishService.publish("claims",
-                flow("Claims", new SubmitTrigger(MODEL, null), Map.of("bankAccount", "Hidden")));
+                flow("Claims", Map.of("bankAccount", "Hidden")));
         when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenAnswer(invocation ->
                 Optional.of(new LinkedHashMap<>(Map.of("id", 7L, "bankAccount", "DE89 3704", "note", "lunch"))));
 
@@ -235,7 +234,7 @@ class FlowRecordApprovalsTest {
     @SuppressWarnings("unchecked")
     void theRecordComesWithItsChildRowsInFullAndItsManyToManyAsReferences() {
         CompiledFlowDefinition approval = publishService.publish("claims",
-                flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+                flow("Claims", Map.of()));
         MetaField currency = field("companyCurrency", FieldType.MANY_TO_ONE);
         when(currency.isDynamic()).thenReturn(true);
         List<MetaField> modelFields = List.of(field("amount", FieldType.BIG_DECIMAL),
@@ -324,11 +323,11 @@ class FlowRecordApprovalsTest {
                 .build();
     }
 
-    private static DesignFlowDefinition flow(String name, TriggerSource trigger, Map<String, String> formPermissions) {
+    private static DesignFlowDefinition flow(String name, Map<String, String> formPermissions) {
         return DesignFlowDefinition.builder()
                 .name(name)
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(trigger)
+                .trigger(new SubmitTrigger(MODEL))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),

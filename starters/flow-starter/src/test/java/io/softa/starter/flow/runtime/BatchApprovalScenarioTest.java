@@ -86,7 +86,10 @@ class BatchApprovalScenarioTest {
     @Test
     void aStepThatAllowsNoReturnIsSkippedAndOneThatDoesIsReturned() {
         publishService.publish("no-return", flow(Map.of("approvers", List.of(APPROVER))));
-        publishService.publish("returnable", flow(Map.of("approvers", List.of(APPROVER), "returnEnabled", true)));
+        // A second approval flow of the document takes its records by a condition of its own
+        DesignFlowDefinition returnable = flow(Map.of("approvers", List.of(APPROVER), "returnEnabled", true));
+        returnable.setTrigger(new SubmitTrigger("LeaveRequest", "true"));
+        publishService.publish("returnable", returnable);
         String kept = start("no-return");
         String returned = start("returnable");
 
@@ -130,7 +133,7 @@ class BatchApprovalScenarioTest {
         return DesignFlowDefinition.builder()
                 .name("Batch")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),

@@ -28,7 +28,7 @@ class SeedManifestReaderTest {
                   - files:
                       - data-tenant/SysSequence.Default.json
                       - file: data-tenant/Role.Tenant.json
-                        overwrite: true
+                        mode: overwrite
                   - module: leave
                     countries: [NZ]
                     files:
@@ -43,11 +43,15 @@ class SeedManifestReaderTest {
         assertEquals(SeedLevel.PLATFORM_GLOBAL, manifest.file("Navigation.Hcm.json").orElseThrow().level());
         assertEquals(SeedLevel.PLATFORM_TENANT, manifest.file("MailTemplate.Platform.json").orElseThrow().level());
         SeedFile role = manifest.file("Role.Tenant.json").orElseThrow();
-        assertTrue(role.overwrite());
+        assertEquals(SeedFileMode.OVERWRITE, role.mode());
         assertTrue(role.reloadsWhenChanged());
-        assertFalse(manifest.file("SysSequence.Default.json").orElseThrow().reloadsWhenChanged());
-        // Platform files reload whenever they change, without saying so.
-        assertTrue(manifest.file("Navigation.Hcm.json").orElseThrow().reloadsWhenChanged());
+        // A tenant file runs once, and a platform file reloads whenever it changes, without saying so.
+        SeedFile sequence = manifest.file("SysSequence.Default.json").orElseThrow();
+        assertEquals(SeedFileMode.ONCE, sequence.mode());
+        assertFalse(sequence.reloadsWhenChanged());
+        SeedFile navigation = manifest.file("Navigation.Hcm.json").orElseThrow();
+        assertEquals(SeedFileMode.OVERWRITE, navigation.mode());
+        assertTrue(navigation.reloadsWhenChanged());
         // A group's module and countries are its files'.
         SeedFile leaveType = manifest.file("LeaveType.NZ.json").orElseThrow();
         assertEquals("leave", leaveType.module());
@@ -57,36 +61,89 @@ class SeedManifestReaderTest {
     }
 
     @Test
-    void thePlatformFilesMarkedAutoAreTheOnesTheBuildOwns() {
+    void thePlatformFilesInModeStartupAreTheOnesTheBuildOwns() {
         SeedManifest manifest = read("""
                 platform:
                   - file: data-system/Navigation.Hcm.json
-                    auto: true
+                    mode: startup
                   - data-system/Currency.json
                   - file: data-system/Permission.Hcm.json
-                    auto: true
+                    mode: startup
+                  - file: data-system/Bank.json
+                    mode: overwrite
                 """);
 
-        // Only the marked ones, in load order.
-        assertEquals(List.of("Navigation.Hcm.json", "Permission.Hcm.json"), names(manifest.autoFiles()));
-        assertFalse(manifest.file("Currency.json").orElseThrow().auto());
+        // Only those, in load order.
+        assertEquals(List.of("Navigation.Hcm.json", "Permission.Hcm.json"), names(manifest.startupFiles()));
+        assertTrue(manifest.file("Navigation.Hcm.json").orElseThrow().loadsAtStartup());
+        assertFalse(manifest.file("Currency.json").orElseThrow().loadsAtStartup());
+        // The default, written out.
+        assertEquals(SeedFileMode.OVERWRITE, manifest.file("Bank.json").orElseThrow().mode());
     }
 
     @Test
-    void onlyAPlatformFileLoadsAtStartup() {
+    void aTenantFileRunsOnceAppendsOrOverwrites() {
+        SeedManifest manifest = read("""
+                tenant:
+                  - files:
+                      - data-tenant/SysSequence.json
+                      - file: data-tenant/LeaveType.json
+                        mode: once
+                      - file: data-tenant/MailTemplate.json
+                        mode: append
+                      - file: data-tenant/Role.Tenant.json
+                        mode: overwrite
+                """);
+
+        assertEquals(List.of(SeedFileMode.ONCE, SeedFileMode.ONCE, SeedFileMode.APPEND, SeedFileMode.OVERWRITE),
+                manifest.tenantFiles().stream().map(SeedFile::mode).toList());
+        // An append file runs again when it changes, for the rows a tenant lacks.
+        assertTrue(manifest.file("MailTemplate.json").orElseThrow().reloadsWhenChanged());
+    }
+
+    @Test
+    void aModeItsListDoesNotTakeIsRefused() {
         SeedManifestException failure = assertThrows(SeedManifestException.class, () -> read("""
                 platform:
                   - file: data-system/A.json
-                    auto: yes please
+                    mode: append
+                  - file: data-system/B.json
+                    mode: yes
                 tenant:
                   - files:
-                      - file: data-tenant/B.json
-                        auto: true
+                      - file: data-tenant/C.json
+                        mode: startup
+                      - file: data-tenant/D.json
+                        mode: sometimes
                 """));
 
         List<String> problems = failure.getProblems();
-        assertHas(problems, "file 'data-tenant/B.json' is a tenant file, and only platform files load at startup");
-        assertHas(problems, "auto must be true or false");
+        assertHas(problems, "platform file 'data-system/A.json' has mode 'append', which only a tenant file takes; "
+                + "a platform file's mode is overwrite (the default) or startup");
+        // YAML reads a bare yes as true, which names no mode.
+        assertHas(problems, "platform file 'data-system/B.json' has mode 'true'; a platform file's mode is");
+        assertHas(problems, "tenant file 'data-tenant/C.json' has mode 'startup', which only a platform file takes; "
+                + "a tenant file's mode is once (the default), append or overwrite");
+        assertHas(problems, "tenant file 'data-tenant/D.json' has mode 'sometimes'; a tenant file's mode is");
+    }
+
+    @Test
+    void theFlagsTheModeReplacedAreUnknownKeysThatSayWhatToWrite() {
+        SeedManifestException failure = assertThrows(SeedManifestException.class, () -> read("""
+                platform:
+                  - file: data-system/Navigation.Hcm.json
+                    auto: true
+                tenant:
+                  - files:
+                      - file: data-tenant/Role.Tenant.json
+                        overwrite: true
+                """));
+
+        List<String> problems = failure.getProblems();
+        assertHas(problems, "file 'data-system/Navigation.Hcm.json' has an unknown key 'auto' (allowed: file, mode); "
+                + "'auto: true' is now 'mode: startup'");
+        assertHas(problems, "file 'data-tenant/Role.Tenant.json' has an unknown key 'overwrite' (allowed: file, mode); "
+                + "'overwrite: true' is now 'mode: overwrite'");
     }
 
     @Test
@@ -127,7 +184,7 @@ class SeedManifestReaderTest {
                 platform:
                   - data-system/A.json
                   - file: data-system/B.json
-                    overwrite: true
+                    mode: once
                   - data-tenant/C.json
                 tenant:
                   - module: leave
@@ -136,7 +193,7 @@ class SeedManifestReaderTest {
                       - data-tenant/D.json
                       - data-system/E.json
                       - file: data-tenant/F.json
-                        overwrite: sometimes
+                        mode: sometimes
                   - countries: [SG, SG]
                     files:
                       - data-tenant/A.json
@@ -146,11 +203,11 @@ class SeedManifestReaderTest {
 
         List<String> problems = failure.getProblems();
         assertHas(problems, "the manifest has an unknown key 'tenants'");
-        assertHas(problems, "'data-system/B.json' is a platform file, and platform files always reload");
+        assertHas(problems, "platform file 'data-system/B.json' has mode 'once', which only a tenant file takes");
         assertHas(problems, "platform file 'data-tenant/C.json' is not in data-system/ or data-platform/");
         assertHas(problems, "tenant group #1 has an unknown key 'countrys'");
         assertHas(problems, "tenant file 'data-system/E.json' is not in data-tenant/");
-        assertHas(problems, "overwrite must be true or false");
+        assertHas(problems, "tenant file 'data-tenant/F.json' has mode 'sometimes'");
         assertHas(problems, "lists 'SG' twice");
         assertHas(problems, "file 'A.json' is registered twice");
         assertHas(problems, "tenant group #3 has no files");

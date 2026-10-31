@@ -1,5 +1,6 @@
 package io.softa.starter.flow.service.impl;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,8 @@ import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowPublishService;
+import io.softa.starter.flow.service.support.ComputeOutputs;
+import io.softa.starter.flow.service.support.SubmitConditions;
 
 /**
  * Default publish service that compiles a design definition and registers the result.
@@ -58,8 +61,11 @@ public class FlowPublishServiceImpl implements FlowPublishService {
 
     @Override
     public CompiledFlowDefinition publish(String flowId, DesignFlowDefinition definition) {
-        CompiledFlowDefinition compiled = bundleRegistry.register(
-                flowCompiler.compile(definition), definition, flowId);
+        CompiledFlowDefinition candidate = flowCompiler.compile(definition);
+        if (isEnabled(flowId)) {
+            requireCompatible(flowId, candidate);
+        }
+        CompiledFlowDefinition compiled = bundleRegistry.register(candidate, definition, flowId);
         if (designService != null && flowId != null) {
             designService.upsertFromPublish(flowId, compiled.getRevision());
         }
@@ -68,6 +74,9 @@ public class FlowPublishServiceImpl implements FlowPublishService {
 
     @Override
     public Optional<CompiledFlowDefinition> activateBundle(Long bundleId) {
+        bundleRegistry.getByBundleId(bundleId)
+                .filter(target -> isEnabled(target.getFlowId()))
+                .ifPresent(target -> requireCompatible(target.getFlowId(), target));
         if (bundleService == null) {
             // In-memory only: the registry is authoritative and already holds the bundle
             return bundleRegistry.getByBundleId(bundleId);
@@ -83,4 +92,20 @@ public class FlowPublishServiceImpl implements FlowPublishService {
                 });
     }
 
+    /**
+     * What {@code candidate} would run beside the enabled flows of its model: a Compute output nobody else declares,
+     * and an approval's records no other approval flow of its document takes by the same condition.
+     */
+    private void requireCompatible(String flowId, CompiledFlowDefinition candidate) {
+        List<CompiledFlowDefinition> enabled = bundleRegistry.listTriggerCandidates(candidate.getModelName());
+        ComputeOutputs.requireOwn(flowId, candidate, enabled);
+        SubmitConditions.requireDistinct(flowId, candidate, enabled);
+    }
+
+    /** Whether the flow runs once published: a flow without a design row (an in-memory registry's) always does. */
+    private boolean isEnabled(String flowId) {
+        return designService == null || flowId == null || designService.getById(flowId)
+                .map(design -> !Boolean.FALSE.equals(design.getEnabled()))
+                .orElse(true);
+    }
 }

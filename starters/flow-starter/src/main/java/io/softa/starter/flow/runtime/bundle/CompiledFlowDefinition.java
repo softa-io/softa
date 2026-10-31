@@ -137,4 +137,13 @@ public class CompiledFlowDefinition {
 
     @Schema(description = "Published timestamp")
     private LocalDateTime publishedAt;
+
+    /**
+     * The model of the record the flow starts on, as its trigger names it — an Approval flow's document, the model a
+     * change trigger watches — or null when it starts on no record. Read from the trigger, not stored apart.
+     */
+    @JsonIgnore
+    public String getModelName() {
+        return trigger == null ? null : trigger.modelName();
+    }
 }

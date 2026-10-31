@@ -165,7 +165,7 @@ class ApprovalConfigValidatorOrgTest {
         return DesignFlowDefinition.builder()
                 .name("Org Approval Test")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),

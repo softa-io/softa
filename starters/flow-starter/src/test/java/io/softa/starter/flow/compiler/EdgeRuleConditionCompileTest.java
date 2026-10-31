@@ -95,7 +95,7 @@ class EdgeRuleConditionCompileTest {
     }
 
     private static DesignFlowDefinition approval(Filters rule, String expression) {
-        return flow(FlowScenario.APPROVAL, new SubmitTrigger(MODEL, null), rule, expression);
+        return flow(FlowScenario.APPROVAL, new SubmitTrigger(MODEL), rule, expression);
     }
 
     /** start → long (the condition) → endLong; start → short (default) → endShort. */

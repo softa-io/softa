@@ -54,20 +54,22 @@ public interface FlowBundleRegistry {
     Optional<CompiledFlowDefinition> getByBundleId(Long bundleId);
 
     /** Look up the active (currently effective) revision for a flow id. */
+    /**
+     * The revision new instances of the flow start from: its active revision while the flow is enabled; none
+     * while it is disabled or was never published. A running instance resolves its own revision by bundle id.
+     */
     Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId);
 
     /** List all revisions for a flow id, ordered by revision descending. */
     List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId);
 
-    /** The current tenant's active bundles (one per flow), ordered by flow name. */
+    /** The current tenant's active revisions of its enabled flows (one per flow), ordered by flow name. */
     Collection<CompiledFlowDefinition> list();
 
     /**
-     * Active bundles whose trigger may fire for an event on {@code sourceModel} in the current
-     * context: those bound to that model plus those bound to none (API, cron and subflow triggers,
-     * or an entity / field trigger without a model filter), from the current tenant and the
-     * platform-shared ones — only the shared ones when the context carries no tenant. Callers
-     * still apply the full trigger match, tenant check included.
+     * The active revisions of the enabled flows started on records of {@code sourceModel} — the flows whose trigger
+     * names it — in the current context: the current tenant's and the platform-shared ones, only the shared ones when the
+     * context carries no tenant. Callers still apply the full trigger match, tenant check included.
      * <p>The default offers everything {@link #list()} returns.</p>
      */
     default List<CompiledFlowDefinition> listTriggerCandidates(String sourceModel) {

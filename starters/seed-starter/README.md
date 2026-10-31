@@ -29,12 +29,13 @@ models, before the first load. `sys_pre_data` needs nothing — only the entity'
 |---|---|---|
 | Directory | `data-system/` (`PLATFORM_GLOBAL`), `data-platform/` (`PLATFORM_TENANT`) | `data-tenant/` (`TENANT`) |
 | Whose rows | Shared models, or the platform tenant (-1) | Each tenant's own copy |
-| Loaded by | The files the build owns (`auto`): every start, wherever they are pending, before the application takes traffic. The others: the platform admin, from the Seed Data page, after a deploy (the first time, by initializing the environment) | Each new tenant's setup, and the platform admin's **Run** for tenants that are already set up |
-| When it changes | Loads again, whole (`OVERWRITE`) | Never runs again in a tenant that ran it; new tenants get the new version. A file marked `overwrite: true` runs again, whole |
-| Write mode | `OVERWRITE` | `ADDITIVE`; `OVERWRITE` for `overwrite: true` files |
+| `mode` in the manifest | `overwrite` (the default) or `startup` | `once` (the default), `append` or `overwrite` |
+| Loaded by | The files the build owns (`startup`): every start, wherever they are pending, before the application takes traffic. The others: the platform admin, from the Seed Data page, after a deploy (the first time, by initializing the environment) | Each new tenant's setup, and the platform admin's **Run** for tenants that are already set up |
+| When it changes | Loads again, whole (`OVERWRITE`) | `once`: never runs again in a tenant that ran it; new tenants get the new version. `append`: runs again, creating only the rows a tenant lacks. `overwrite`: runs again, whole. The platform admin can **Reapply** any file |
+| Write mode | `OVERWRITE` | `ADDITIVE` for `once`, `APPEND` for `append`, `OVERWRITE` for `overwrite` |
 
 Every decision is made per **file**: a file is loaded in a scope or it is not, and no row-level state is
-consulted to decide whether to load it. The two write modes (`LoadMode`) apply once a file loads:
+consulted to decide whether to load it. The three write modes (`LoadMode`) apply once a file loads:
 
 - **`OVERWRITE`**: the file is the data. A row the scope already has is rewritten whole, so a field the
   file leaves out is cleared. A seeded row the scope deleted is created again. Seeded children that the
@@ -42,11 +43,15 @@ consulted to decide whether to load it. The two write modes (`LoadMode`) apply o
 - **`ADDITIVE`**: a row the scope already has gets only the fields the file names. No child is deleted, and
   a seeded row the scope deleted stays deleted, together with the rows nested in it and any new row that
   refers to it.
+- **`APPEND`**: only the rows the scope lacks. A row with no binding in the scope is created, wherever it
+  sits in the file — a new child under a row the scope has included. A row the scope has gets nothing
+  written to it, whatever the file now says of it. As in `ADDITIVE`, no child is deleted, and a seeded row
+  the scope deleted stays deleted, together with the rows nested in it and any new row that refers to it.
 
-An inactive row (`active = false`) is not a deleted one: in both modes it is written like any other row the
+An inactive row (`active = false`) is not a deleted one: in every mode it is treated like any other row the
 scope has, and never inserted a second time.
 
-A row whose `SysPreData` binding is `frozen` is skipped in both modes, together with its children.
+A row whose `SysPreData` binding is `frozen` is skipped in every mode, together with its children.
 
 **Timeline models** keep their history in the file. Each version is a row of its own, with its own preId and
 the date it starts (`effectiveStartDate`), and the model's businessKey is what files the versions under one
@@ -56,16 +61,26 @@ alone, like rows taken out of a file. A row never carries `sliceId` (the databas
 `effectiveEndDate` (it follows from the next version), and two rows of one entity may not start on the same
 day; the loader refuses a file that breaks either rule.
 
-**A tenant runs a file once.** An edit to a released tenant file reaches only the tenants created after it:
-the tenants that already ran it never run it again, and the page shows the file there as changed after load.
-What those tenants need goes out another way. New rows go in a new file (a patch) registered after the
-original; the next **Run** gives that file to every tenant, and new tenants run both. A patch only adds rows:
-each has an `id` of its own, and refers to existing rows by their `preId`. A repeated row would be written over
-every tenant's copy of it, and initializing an environment relies on no tenant file repeating another's row. To
-change or remove rows tenants already have, edit the file that declares them, for the tenants created after,
-and ship a data migration in the release, for the tenants that have them. Mark a file `overwrite: true` only
-when nobody inside a tenant edits its rows, as with the built-in roles. Running it again resets them to the
-file.
+**A tenant runs a file once**, unless its mode says otherwise. An edit to a released `once` file reaches only
+the tenants created after it: the tenants that already ran it never run it again, and the page shows the file
+there as changed after load. What those tenants need goes out another way. New rows go in a new file (a patch)
+registered after the original; the next **Run** gives that file to every tenant, and new tenants run both. A
+patch only adds rows: each has an `id` of its own, and refers to existing rows by their `preId`. A repeated row
+would be written over every tenant's copy of it, and initializing an environment relies on no tenant file
+repeating another's row. To change or remove rows tenants already have, edit the file that declares them, for
+the tenants created after, and ship a data migration in the release, for the tenants that have them.
+
+A file in mode `append` takes its new rows itself: added to the file, they reach every tenant on the next
+**Run**, created wherever a tenant lacks them, and no patch is needed. A changed or removed row still needs a
+data migration, because an append run writes nothing to the rows a tenant has. Use it for a file whose rows
+stand alone — entries a tenant may edit or delete, each one named by its code, such as mail templates — and not
+for one whose new rows act on their own in a tenant that has set things up its own way: a default approval flow
+is published the moment it is created, beside the tenant's own.
+
+Mark a file `overwrite` only when nobody inside a tenant edits its rows, as with the built-in roles. Running it
+again resets them to the file. To put a file's current content over tenants that already ran it — while the
+seed is still being written, or for a tenant whose copy went wrong — the platform admin reapplies it (see
+*Reapplying files*); that is an operator's override, not how a release reaches tenants.
 
 ## The manifest
 
@@ -74,17 +89,19 @@ and startup fails when the manifest is missing or broken. All of its problems ar
 so a broken manifest can be fixed in one pass.
 
 ```yaml
-platform:                                   # loaded whole, on the platform admin's load
+platform:                                   # loaded whole whenever they change
   - file: data-system/Navigation.json       # shared rows
-    auto: true                              # the build owns it: loads at startup, wherever pending
+    mode: startup                           # the build owns it: loads at startup, wherever pending
   - file: data-system/Permission.json
-    auto: true
-  - data-platform/MailTemplate.Platform.json  # the platform tenant's own rows
-tenant:                                     # run once in each tenant
+    mode: startup
+  - data-platform/MailTemplate.Platform.json  # the platform tenant's own rows, loaded from the page
+tenant:                                     # run once in each tenant, unless the file's mode says otherwise
   - files:                                  # every tenant
       - data-tenant/SysSequence.json
+      - file: data-tenant/MailTemplate.Default.json
+        mode: append                        # run again when it changes, creating the rows a tenant lacks
       - file: data-tenant/Role.Tenant.json
-        overwrite: true                     # run again whenever the file changes
+        mode: overwrite                     # run again, whole, whenever the file changes
   - module: leave                           # tenants whose plan includes the module
     countries: [NZ]                         # and that work in one of these countries
     files:
@@ -94,24 +111,26 @@ tenant:                                     # run once in each tenant
 - **Two lists, and the directory says the rest.** A platform file sits in `data-system/` (shared rows) or
   `data-platform/` (the platform tenant's own rows) and is listed under `platform`; a tenant file sits in
   `data-tenant/` and is listed under `tenant`. An entry is the file's path, or a map with the path under
-  `file` when it carries a flag.
+  `file` when it names a mode.
 - **Order is load order.** A platform load takes the `platform` list in order, and each tenant runs the
   `tenant` files in order. A file that refers to rows of another file is listed after that file.
 - **`tenant` groups** say which tenants run their files. `module`: only a tenant whose plan entitles the
   module (`EntitlementService`; with no entitlement service, every module's files are due). `countries`: only
   a tenant working in one of them — its default country or a company's. A group with neither is for every
   tenant. Platform files have no group: they are not handed out per tenant.
-- **`overwrite`** is for tenant files only; platform files always reload.
-- **`auto`** is for platform files only: the ones the build owns (see *Files the build owns*).
-- **Rejected at startup**: an unknown key (a misspelled `countrys` would otherwise be silently ignored), a key
+- **`mode`** says what a file does after a scope has loaded it (`SeedFileMode`). A platform file is
+  `overwrite`, the default, or `startup` for the files the build owns (see *Files the build owns*). A tenant
+  file is `once`, the default, `append` or `overwrite` (see *Two kinds of file, two rules*).
+- **Rejected at startup**: an unknown key (a misspelled `countrys` would otherwise be silently ignored; the
+  `auto: true` and `overwrite: true` flags the mode replaced are named with the mode to write instead), a key
   written twice (YAML would keep the second and drop the first one's files), a file in a directory its list
-  does not take, a file that is not `.json` or `.csv`, `overwrite` on a platform file, `auto` on a tenant
-  file, the same file name
-  registered twice (the load records name a file by its name), a file that is not on the classpath, a
-  `module` that is not one name (a group is for one module), a country that is not a two-letter upper-case
-  code (quote `"NO"`: YAML reads it bare as false), and blank or repeated entries. Once the application is
-  wired, the startup load also refuses a platform file without `auto` that writes a model an in-memory
-  startup snapshot is built from (see *Files the build owns*).
+  does not take, a file that is not `.json` or `.csv`, a mode its list does not take (`once` or `append` on a
+  platform file, `startup` on a tenant file), the same file name registered twice (the load records name a file
+  by its name), a file that is not on the classpath, a `module` that is not one name (a group is for one
+  module), a country that is not a two-letter upper-case code (quote `"NO"`: YAML reads it bare as false), and
+  blank or repeated entries. Once the application is wired, the startup load also refuses a platform file not
+  in mode `startup` that writes a model an in-memory startup snapshot is built from (see *Files the build
+  owns*).
 
 The manifest does not reject a seed file that it fails to list. The application checks that in its own
 tests, because only the application knows which files on its classpath are seeds and which are templates.
@@ -127,8 +146,8 @@ converts line endings does not make every file look changed:
 |---|---|---|
 | `NOT_LOADED` | Never loaded here | yes |
 | `LOADED` | Loaded, and unchanged since | no |
-| `CHANGED` | Loaded, then changed, and it reloads: a platform file, or an `overwrite` tenant file | yes |
-| `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a run-once tenant file. Its change reaches new tenants only; existing tenants get new rows from a patch and changed rows from a data migration | no |
+| `CHANGED` | Loaded, then changed, and it reloads: a platform file, or an `append` or `overwrite` tenant file | yes |
+| `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a `once` tenant file. Its change reaches new tenants only; existing tenants get new rows from a patch and changed rows from a data migration, or the whole file from a reapply | no |
 | `LOADED_BY_NEWER_BUILD` | A file that reloads, last loaded by a build made after the one running, and different here: an older build is deployed, after a rollback. Loading it would put older content over newer | no |
 | `FAILED` | The latest attempt failed | yes |
 
@@ -142,8 +161,8 @@ file reads as `LOADED` while the database still holds the newer content.
 
 ## Platform load
 
-`GET /SeedData/platform` lists the platform files with their states, whether the build owns each (`auto`),
-the running build (version, build time, start time) and the latest platform load. `POST /SeedData/platform/load`
+`GET /SeedData/platform` lists the platform files with their states and modes (`startup` for the files the build
+owns), the running build (version, build time, start time) and the latest platform load. `POST /SeedData/platform/load`
 loads the pending files, leaving out the files the build owns: those load at startup (see *Files the build
 owns*), and naming one is refused. Its body `{"fileNames": [...]}` loads only the named files, which must all be
 pending, in manifest order; the files left out stay pending. With no body (or no `fileNames`), every pending file
@@ -161,12 +180,12 @@ that time.
 Loading is meant for one person, once per deploy. There is no lock beyond refusing to start while another
 seed operation is running.
 
-### Files the build owns (`auto`)
+### Files the build owns (`startup`)
 
 Some platform files are not data an operator looks after but part of the build: the navigation and permissions
 generated from the frontend's manifests, the sensitive field sets, the data scope types. The running code
 depends on them matching it — a new endpoint is refused until its permission row exists — and nobody changes
-their rows on a page. The manifest marks them `auto: true`.
+their rows on a page. The manifest gives them `mode: startup`.
 
 They load at startup, wherever they are pending (never loaded, changed, or failed last time), before the
 application takes traffic. `SeedStartupLoad` runs as a startup convergence of softa-orm's `StartupSnapshots`: once
@@ -176,12 +195,12 @@ navigation tree, the scope registries — built from their rows, once. A deploy 
 permissions with it, and no instance ever holds a snapshot older than its rows: nothing to load from the page,
 and no restart after it.
 
-- **One owner per model.** Every platform file writing a model a startup snapshot is built from must be `auto`;
-  the startup load refuses a manifest that leaves one to the page, which would change those rows while the
+- **One owner per model.** Every platform file writing a model a startup snapshot is built from must be in mode
+  `startup`; the startup load refuses a manifest that leaves one to the page, which would change those rows while the
   instances run. Those models then accept writes only during the startup load (softa-orm's
   `StartupSnapshotWriteGuard`): a write at any other time would reach no snapshot until the next start.
-- **Only rows nobody changes on a page.** An `auto` file goes over its rows on every deploy that changes it, the
-  way a page load would, without anyone choosing it.
+- **Only rows nobody changes on a page.** A `startup` file goes over its rows on every deploy that changes it,
+  the way a page load would, without anyone choosing it.
 - **A failure stops the start.** It is recorded against the file, and the application does not take traffic on
   rows that do not match its build; in a rolling deploy the instance being replaced keeps serving. The next start
   tries again.
@@ -218,11 +237,12 @@ interrupted (its instance went down), and the next operation closes it as `INTER
 
 When a tenant runs any file, the cached permission snapshots of its users (`perm:{tenantId}:*`) are cleared.
 
-A file that created rows announces them with a `SeedFileLoadedEvent` (tenant, file, the new row ids by
-model) — rows bound by an earlier load do not count. It is published inside the file's transaction, in the
-tenant's context with permission checks skipped, so listeners act on the tenant's new rows whoever started
-the run, and a listener that throws fails the file like a load error would. flow-starter listens for it to
-publish the default flows a file brings (`FlowDesign` rows).
+A file that wrote rows announces them with a `SeedFileLoadedEvent`: the tenant, the file, and by model the ids
+of the rows it created (`createdRows`) and of the rows an earlier load created that it wrote to (`updatedRows`;
+an update that changed nothing does not count). It is published inside the file's transaction, in the tenant's
+context with permission checks skipped, so listeners act on the tenant's rows whoever started the run, and a
+listener that throws fails the file like a load error would. flow-starter listens for it to publish the default
+flows a file brings, and again the ones a reapply rewrites (`FlowDesign` rows).
 
 After a deploy, load the platform files before running the tenants. Tenant files refer to platform rows
 (roles to permissions, leave types to countries), and a reference to a row that is not loaded yet fails the
@@ -231,6 +251,32 @@ file.
 `GET /SeedData/tenants/pending` counts the tenants and files a run of every tenant would cover.
 `GET /SeedData/tenants/summary?tenantIds=…` returns per-tenant counts, and
 `GET /SeedData/tenants/detail?tenantId=…` lists the files one tenant is due and the state of each.
+
+### Reapplying files
+
+`POST /SeedData/tenants/reapply` with `{"tenantIds": [...], "fileNames": [...]}` runs the named tenant files again
+in the named tenants, whatever their states — loaded and unchanged, changed after load, even loaded by a newer
+build. Each file loads whole over the tenant's copy, as an `overwrite` file does (`OVERWRITE`): the rows the tenant
+has are rewritten from the file, a field the file leaves out is cleared, the seeded rows the tenant deleted are
+created again, and the seeded children the file no longer lists are deleted. What the tenant changed in those rows
+is lost. This is the platform admin's way past *a tenant runs a file once*: while a seed is still being written and
+the tenants of a development or test environment should have what it says now, or for a tenant whose copy went
+wrong. A release still reaches existing tenants with patches and data migrations.
+
+- **Both lists are required.** There is no "every tenant" and no "every file", and nothing runs unless every file
+  is a tenant file of the manifest that every one of the tenants is due (its module and countries), and every
+  tenant is set up.
+- **It runs as a run does**: in the background, as a `Reapply` batch; the files in manifest order, whatever order
+  they are named in, each in a transaction of its own; a tenant stops at its first failure. Each file is recorded,
+  so one that succeeds reads as `LOADED` afterwards, and a failure changes nothing about what a run picks up.
+- **What it does not touch**: a row whose binding is `frozen`, and a top-level row the file no longer lists — no
+  binding says which file a row came from, so remove that one by hand or with a data migration. A seeded child the
+  file no longer lists is deleted through its model's `onDelete` rules, so one that business data refers to under
+  `RESTRICT` fails the file, which rolls back.
+- **Rewritten flows are published again**: the rows it writes are announced (`updatedRows`), and flow-starter
+  publishes the flow designs among them.
+- It does not wait for the environment's initialization, which exists so a run does not load files over what
+  tenants changed: a reapply does that on purpose.
 
 ## Initializing an environment
 
@@ -244,8 +290,8 @@ administrator's menu by then: its own menu and permissions are in files the buil
   so the first run would load every tenant file again over what the tenants changed since. For each tenant,
   every tenant file it already has rows of (it holds a `SysPreData` binding for one of the file's `preId`s) is
   recorded as run, in an `Initialize` batch. **No data is changed.** A file a tenant has nothing of is left for
-  the next run, and `overwrite` files are skipped because they run again anyway. In a new environment there is
-  nothing to record.
+  the next run, and so are `append` and `overwrite` files: an `append` file's run creates only the rows a tenant
+  lacks, and an `overwrite` file runs again anyway. In a new environment there is nothing to record.
 - The recording is what initializes the environment, and the load's response says what it did
   (`initialization`). When it fails outright nothing is loaded, and the next load tries again. When the files
   then fail to load, the environment is initialized all the same.
@@ -261,7 +307,7 @@ No restart follows (see *Platform load*).
 
 ## Records
 
-Every operation is a `SeedLoadBatch`: its type (`Platform` / `Tenant` / `Provision` / `Initialize`), status
+Every operation is a `SeedLoadBatch`: its type (`Platform` / `Tenant` / `Provision` / `Reapply` / `Initialize`), status
 (`Running` / `Succeeded` / `PartiallyFailed` / `Failed` / `Interrupted`), counts, time span and the build
 version that ran it. Every file run in one scope is a `SeedLoadRecord`: the batch, tenant (none for the
 platform), file, checksum, status and error. Both models are read through the generic model API
@@ -271,7 +317,7 @@ records puts files back to pending.
 ## Endpoints
 
 All of them require the platform admin (`@RequireRole(SYSTEM_ROLE_ADMIN)`). Tenant runs are refused until the
-environment is initialized, which its first platform load does.
+environment is initialized, which its first platform load does; a reapply is not (see *Reapplying files*).
 
 | Method | Path | Does |
 |---|---|---|
@@ -281,6 +327,7 @@ environment is initialized, which its first platform load does.
 | GET | `/SeedData/tenants/summary` | Per-tenant counts for the given tenants |
 | GET | `/SeedData/tenants/detail` | One tenant's due files and their states |
 | POST | `/SeedData/tenants/run` | Run the pending tenant files, in the given tenants or in all, in the background |
+| POST | `/SeedData/tenants/reapply` | Run the named tenant files again in the named tenants, whatever their states, overwriting the tenants' copies, in the background |
 | GET | `/SeedData/batches/running` | The operation in progress, or null |
 
 ## The seed ledger (`SysPreData`)
@@ -288,7 +335,8 @@ environment is initialized, which its first platform load does.
 One binding row per seeded business row: `(model, tenantId, preId) → rowId`. A binding's scope follows the
 seeded model's tenancy: a shared model binds once at system scope, and a multi-tenant model binds once per
 tenant. A deleted row keeps its binding, which is how an `OVERWRITE` load knows to create it again and an
-`ADDITIVE` one knows to leave it deleted. `frozen = true` on a binding protects the row from every load.
+`ADDITIVE` or `APPEND` one knows to leave it deleted, and how an `APPEND` load tells the rows a scope lacks from
+the ones it has. `frozen = true` on a binding protects the row from every load.
 The ledger is read through the generic model API, so treat `/SysPreData/*` as operator-only.
 
 ## Replaced
@@ -317,3 +365,9 @@ The ledger is read through the generic model API, so treat `/SysPreData/*` as op
   from the page); `bootstrap` is now an unknown key. `SeedBootstrap` is replaced by `SeedStartupLoad`,
   `PlatformSeedLoader.loadBootstrapFiles` by `loadAutoFiles`, and `SeedManifest.bootstrapFiles` by `autoFiles`.
   `PlatformSeedStatus.restartRequired` is gone with the restart it announced; `PlatformFileStatus` gained `auto`.
+- A file's `mode` replaces the manifest's `auto: true` (now `mode: startup`) and `overwrite: true` (now
+  `mode: overwrite`), and brings `mode: append` for tenant files. `auto` and `overwrite` are now unknown keys,
+  and the message names the mode to write. `SeedFile.auto()` and `overwrite()` are replaced by `mode()`
+  (`SeedFileMode`) and `loadsAtStartup()`, `SeedManifest.autoFiles` by `startupFiles`,
+  `PlatformSeedLoader.loadAutoFiles` and `pendingAutoFiles` by `loadStartupFiles` and `pendingStartupFiles`, and
+  `PlatformFileStatus.auto` and `TenantFileStatus.overwrite` by `mode`. `LoadMode` gained `APPEND`.

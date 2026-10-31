@@ -163,9 +163,8 @@ class FlowRecordSubmissionTest {
     }
 
     @Test
-    void submitStartsTheFlowWhoseSubmitTriggerMatchesTheRecord() {
-        publishService.publish("annual", approvalFlow("Annual leave", "leaveType == 'Annual'", List.of(MANAGER)));
-        publishService.publish("sick", approvalFlow("Sick leave", "leaveType == 'Sick'", List.of(MANAGER)));
+    void submitStartsTheApprovalFlowOfTheRecordsDocument() {
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
 
         FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
@@ -192,7 +191,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void theApprovalKeepsWhatTheRecordShowsInTheApprovalLists() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3),
                 LocalDate.of(2026, 11, 2), "LR-0007"));
 
@@ -207,7 +206,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aRecordTheSubmitterCannotReadIsNotSubmitted() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
 
         assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
@@ -218,7 +217,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void theHandlersRefusalLeavesTheRecordAsItWas() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         doThrow(new BusinessException("Only the requester can submit this leave.")).when(handler).validate(any());
 
         BusinessException error = assertThrows(BusinessException.class,
@@ -233,7 +232,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aRecordThatNamesNoEmployeeCannotBeSubmitted() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         record.remove("employeeId");
 
         BusinessException error = assertThrows(BusinessException.class,
@@ -245,7 +244,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void anApprovedRecordCannotBeSubmittedAgain() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         record.put("approvalStatus", "Approved");
 
         BusinessException error = assertThrows(BusinessException.class,
@@ -258,7 +257,7 @@ class FlowRecordSubmissionTest {
     @ParameterizedTest
     @ValueSource(strings = {"Rejected", "Cancelled"})
     void aRejectedOrCancelledRecordIsFinal(String status) {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         record.put("approvalStatus", status);
 
         BusinessException error = assertThrows(BusinessException.class,
@@ -278,7 +277,7 @@ class FlowRecordSubmissionTest {
         order.verify(handler).validateCancel(any());
         order.verify(handler).afterOutcome(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.CANCELLED),
                 eq(new ApprovalOutcome(ApprovalOutcomeType.CANCELLED, null, SUBMITTER, null)));
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
     }
 
@@ -309,19 +308,29 @@ class FlowRecordSubmissionTest {
     }
 
     @Test
-    void submitIsRefusedWhenNoFlowApplies() {
-        publishService.publish("sick", approvalFlow("Sick leave", "leaveType == 'Sick'", List.of(MANAGER)));
-
+    void submitIsRefusedWhenTheDocumentHasNoApprovalFlow() {
         BusinessException error = assertThrows(BusinessException.class,
                 () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
-        assertTrue(error.getMessage().contains("No approval flow is configured"), error.getMessage());
+        assertTrue(error.getMessage().contains("No approval flow applies"), error.getMessage());
         verify(handler, never()).afterSubmitted(any());
     }
 
     @Test
-    void submitIsRefusedWhenSeveralFlowsApply() {
-        publishService.publish("a", approvalFlow("Flow A", null, List.of(MANAGER)));
-        publishService.publish("b", approvalFlow("Flow B", "days > 1", List.of(MANAGER)));
+    void submitIsRefusedWhileTheDocumentsApprovalFlowIsDisabled() {
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
+        bundleRegistry.disable("annual");
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+        assertTrue(error.getMessage().contains("No approval flow applies"), error.getMessage());
+        assertEquals("Draft", record.get("approvalStatus"));
+    }
+
+    @Test
+    void submitIsRefusedWhenSeveralFlowsOfTheDocumentTakeTheRecord() {
+        // Two conditions of their own — publishing refuses the same one twice — that both hold for the record
+        publishService.publish("a", flow("Flow A", new SubmitTrigger(MODEL, "true"), List.of(MANAGER)));
+        publishService.publish("b", flow("Flow B", new SubmitTrigger(MODEL, "1 == 1"), List.of(MANAGER)));
 
         BusinessException error = assertThrows(BusinessException.class,
                 () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
@@ -331,7 +340,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aRecordAlreadyInApprovalCannotBeSubmittedAgain() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         BusinessException error = assertThrows(BusinessException.class,
@@ -348,7 +357,7 @@ class FlowRecordSubmissionTest {
         automation.setModelName(MODEL);
         automation.setRowId(ROW);
         assertEquals(FlowExecutionStatus.COMPLETED, engine.startAutomation(automation).getStatus());
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
 
         assertEquals(FlowExecutionStatus.WAITING, launchService.submitRecord(MODEL, ROW, SUBMITTER).getStatus());
 
@@ -357,7 +366,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void theSubmitFlowIsNotStartedByAnApiStart() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowStartRequest apiStart = new FlowStartRequest();
         apiStart.setFlowId("annual");
         apiStart.setInitiatorId(SUBMITTER);
@@ -370,7 +379,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void theSubmitFlowStartedAnotherWayIsNotTheRecordsApproval() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         // A debug run of the same flow, on the same record.
         FlowStartRequest debugRun = new FlowStartRequest();
         debugRun.setFlowId("annual");
@@ -388,7 +397,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void approvalWritesApprovedBackWithTheDecidingApprover() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         engine.approve(nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, "enjoy"));
@@ -401,7 +410,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void rejectionWritesRejectedBack() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         engine.reject(nodeRequest(new FlowRejectRequest(), started.getInstanceId(), MANAGER, "busy week"));
@@ -413,7 +422,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aReturnEndsTheApprovalAndTheNextSubmissionStartsANewOneFromTheStart() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
         FlowExecutionState returned = engine.returnApproval(
                 nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "fix the dates"));
@@ -436,22 +445,21 @@ class FlowRecordSubmissionTest {
     }
 
     @Test
-    void theFlowIsChosenAgainForTheRecordAsItIsNow() {
-        publishService.publish("short", approvalFlow("Short leave", "days <= 3", List.of(MANAGER)));
-        publishService.publish("long", approvalFlow("Long leave", "days > 3", List.of(MANAGER)));
+    void aResubmissionRunsTheRevisionEffectiveNow() {
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
-        assertEquals("short", started.getFlowId());
         engine.returnApproval(nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "make it a week"));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of("2002")));
 
-        record.put("days", 5);
         FlowExecutionState submittedAgain = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
-        assertEquals("long", submittedAgain.getFlowId());
+        assertNotEquals(started.getBundleId(), submittedAgain.getBundleId());
+        assertEquals(List.of("2002"), submittedAgain.getPendingApprovals().getFirst().getApprovers());
     }
 
     @Test
     void withdrawalMakesTheRecordADraftAgain() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         FlowExecutionState withdrawn = launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "not needed");
@@ -492,7 +500,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aFlowWithoutApprovalStepsCompletesAfterTheRecordIsInApproval() {
-        publishService.publish("auto", flow("Auto approve", new SubmitTrigger(MODEL, null), null));
+        publishService.publish("auto", flow("Auto approve", new SubmitTrigger(MODEL), null));
 
         FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
@@ -506,7 +514,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aStepWhoseOnlyApproverIsTheSubmitterIsApprovedOnRecord() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(SUBMITTER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(SUBMITTER)));
 
         FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
@@ -520,7 +528,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void theSubmittersApprovalPassesAnAnyOneStepTheyShareWithOthers() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(SUBMITTER, MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(SUBMITTER, MANAGER)));
 
         FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
@@ -529,7 +537,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void anAllApproveStepTheSubmitterSharesStillWaitsForTheOthers() {
-        DesignFlowDefinition design = approvalFlow("Annual leave", null, List.of(SUBMITTER, MANAGER));
+        DesignFlowDefinition design = approvalFlow("Annual leave", List.of(SUBMITTER, MANAGER));
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
                 .config(Map.of("approvers", List.of(SUBMITTER, MANAGER), "approvalMode", "Unanimous"))
@@ -544,7 +552,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aStepThatResolvesToNobodyFailsTheSubmission() {
-        DesignFlowDefinition design = approvalFlow("Supervisor approval", null, List.of(MANAGER));
+        DesignFlowDefinition design = approvalFlow("Supervisor approval", List.of(MANAGER));
         // No organization service here, so the supervisor source resolves to nobody (strategy Error).
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Supervisor")
@@ -559,7 +567,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aFinishedApprovalTakesNoMoreComments() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
         engine.approve(nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, null));
 
@@ -574,7 +582,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aResultReachesOnlyARecordStillInApproval() {
-        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
         // Moved on by a system write while its approval waited.
         record.put("approvalStatus", "Cancelled");
@@ -600,8 +608,8 @@ class FlowRecordSubmissionTest {
         return request;
     }
 
-    private static DesignFlowDefinition approvalFlow(String name, String condition, List<String> approvers) {
-        return flow(name, new SubmitTrigger(MODEL, condition), approvers);
+    private static DesignFlowDefinition approvalFlow(String name, List<String> approvers) {
+        return flow(name, new SubmitTrigger(MODEL), approvers);
     }
 
     /** start → approval → end, or start → end when {@code approvers} is null. */

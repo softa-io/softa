@@ -9,29 +9,25 @@ import java.util.Set;
  * @param file      file name inside its directory, e.g. {@code LeaveType.NZ.json} — unique across the manifest,
  *                  and what the load records name it by
  * @param level     who the rows belong to, read off the directory the file sits in
- * @param overwrite for a tenant file: run again whenever the file changes, overwriting the tenant's copy.
- *                  Platform files always reload, and never carry the flag
+ * @param mode      what the file does after a scope has loaded it: a platform file is overwrite or startup, a tenant
+ *                  file once, append or overwrite
  * @param module    for a tenant file: the plan module a tenant must be entitled to; null for every plan
  * @param countries for a tenant file: the countries whose tenants run it; empty for every country
- * @param auto      for a platform file: the build owns its rows, so it loads at startup wherever it is pending,
- *                  before the application takes traffic, and never from the Seed Data page. Tenant files never
- *                  carry the flag
  */
-public record SeedFile(String file, SeedLevel level, boolean overwrite, String module, List<String> countries,
-                       boolean auto) {
+public record SeedFile(String file, SeedLevel level, SeedFileMode mode, String module, List<String> countries) {
 
     public SeedFile {
         countries = List.copyOf(countries);
     }
 
-    /** A file that does not load at startup: every tenant file, and the platform files people load. */
-    public SeedFile(String file, SeedLevel level, boolean overwrite, String module, List<String> countries) {
-        this(file, level, overwrite, module, countries, false);
+    /** Whether a change to the file reaches a scope that already ran it: every file but a run-once tenant file. */
+    public boolean reloadsWhenChanged() {
+        return mode.reloadsWhenChanged();
     }
 
-    /** Whether a change to the file reaches a scope that already ran it: always for platform files. */
-    public boolean reloadsWhenChanged() {
-        return level.isPlatform() || overwrite;
+    /** Whether the build owns the file: a platform file that loads at startup, and never from the Seed Data page. */
+    public boolean loadsAtStartup() {
+        return mode == SeedFileMode.STARTUP;
     }
 
     /** Whether a tenant entitled to these modules runs the file; null modules — no plans in use — is every one. */

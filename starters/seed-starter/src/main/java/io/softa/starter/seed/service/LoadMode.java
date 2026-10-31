@@ -3,10 +3,10 @@ package io.softa.starter.seed.service;
 /**
  * How a seed file is written into a scope that may already hold its rows.
  *
- * <p>Platform files always {@link #OVERWRITE}: the file is the data. A tenant file overwrites only when the
- * manifest marks it {@code overwrite: true} — rows nobody in the tenant edits, such as the built-in roles.
- * Every other tenant file, and every patch file, is {@link #ADDITIVE}: it runs once per tenant, and what the
- * tenant changed afterwards is the tenant's.
+ * <p>Platform files always {@link #OVERWRITE}: the file is the data. A tenant file overwrites in the manifest's
+ * mode {@code overwrite} — rows nobody in the tenant edits, such as the built-in roles — and when the platform
+ * admin reapplies it, and it {@link #APPEND}s in mode {@code append}. Every other run of a tenant file, patch files
+ * included, is {@link #ADDITIVE}: it runs once per tenant, and what the tenant changed afterwards is the tenant's.
  */
 public enum LoadMode {
 
@@ -23,5 +23,13 @@ public enum LoadMode {
      * no child is deleted; and a seeded row the scope deleted stays deleted, together with the rows nested in
      * it and any new row that refers to it.
      */
-    ADDITIVE
+    ADDITIVE,
+
+    /**
+     * Only the rows the scope lacks. A row with no binding in the scope is created, wherever it sits in the file —
+     * a new child under a row the scope has included; a row the scope has gets nothing written to it, whatever the
+     * file says of it now; and, as in {@link #ADDITIVE}, no child is deleted and a seeded row the scope deleted
+     * stays deleted, together with the rows nested in it and any new row that refers to it.
+     */
+    APPEND
 }

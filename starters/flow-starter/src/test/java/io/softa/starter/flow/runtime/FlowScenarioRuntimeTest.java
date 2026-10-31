@@ -67,7 +67,7 @@ class FlowScenarioRuntimeTest {
 
     @Test
     void anApprovalAnnouncesItsCompletion() {
-        publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest", null),
+        publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
                         .config(Map.of("approvers", List.of("manager"))).build()));
         FlowExecutionState started = engine.start(start("leave", "submitter"));

@@ -56,7 +56,7 @@ class ApproverDedupServiceTest {
         return CompiledFlowDefinition.builder().flowId("f").approverDedup(ApproverDedupStrategy.NONE)
                 .selfApproval(selfApproval)
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null)).build();
+                .trigger(new SubmitTrigger("LeaveRequest")).build();
     }
 
     /** A record about employee 5001, whose login account is user Y, submitted by user X (HR). */

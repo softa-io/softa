@@ -70,7 +70,7 @@ class ScenarioRulesCompileTest {
         assertFalse(has(flow(FlowScenario.AUTOMATION, new SubflowTrigger()), "TRIGGER_NOT_ALLOWED", null));
         assertTrue(has(flow(FlowScenario.VALIDATION, new ApiTrigger(null)), "TRIGGER_NOT_ALLOWED", null));
         assertTrue(has(flow(FlowScenario.COMPUTE, new SubflowTrigger()), "TRIGGER_NOT_ALLOWED", null));
-        assertFalse(has(flow(FlowScenario.COMPUTE, new FieldChangeTrigger()), "TRIGGER_NOT_ALLOWED", null));
+        assertFalse(has(flow(FlowScenario.COMPUTE, new FieldChangeTrigger("LeaveRequest", List.of())), "TRIGGER_NOT_ALLOWED", null));
     }
 
     @Test
@@ -127,7 +127,7 @@ class ScenarioRulesCompileTest {
     }
 
     private static SubmitTrigger submit() {
-        return new SubmitTrigger("LeaveRequest", null);
+        return new SubmitTrigger("LeaveRequest");
     }
 
     private static EntityChangeTrigger change() {

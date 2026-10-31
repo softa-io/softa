@@ -82,8 +82,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private static final String CANCEL_IN_APPROVAL = "This record is in approval. Withdraw it first, then cancel the draft.";
     private static final String NO_SUCH_RECORD = "The {0} record {1} does not exist.";
     private static final String NO_SUBJECT = "This record names no employee in {0}, so its approvers cannot be found.";
-    private static final String NO_SUBMIT_FLOW = "No approval flow is configured for this {0} record. "
-            + "Ask your administrator to set one up.";
+    private static final String NO_SUBMIT_FLOW = "No approval flow applies to this {0} record. "
+            + "Ask your administrator to set one up, to enable it, or to widen its submit condition.";
     private static final String SEVERAL_SUBMIT_FLOWS = "Several approval flows apply to this {0} record ({1}). Ask "
             + "your administrator to narrow their submit conditions so that exactly one applies.";
 
@@ -201,7 +201,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         Submission<T> submission = checkSubmission(handler, modelName, rowId, latestApproval(modelName, rowId));
         // Every submission starts a new approval from the beginning — after a return too — with the
         // flow chosen again for the record as it is now.
-        CompiledFlowDefinition definition = chooseSubmitFlow(modelName, submission.row());
+        CompiledFlowDefinition definition = chooseSubmitFlow(modelName, submitVariables(modelName, rowId, submission));
         // Before the start: a flow without an approval step completes while it starts, and its
         // result must land on a record that is already in approval.
         statusWriter.submitted(handler, rowId, submission.record(), initiatorId);
@@ -300,7 +300,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                     && Objects.equals(submitterId, latest.getInitiatorId()));
             return refused;
         }
-        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName, submission.row());
+        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName,
+                submitVariables(modelName, rowId, submission));
         if (flows.isEmpty()) {
             return notReady(FlowApprovalPreview.Status.NO_FLOW, I18n.get(NO_SUBMIT_FLOW, modelName));
         }
@@ -445,8 +446,9 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                 .orElseThrow(() -> new BusinessException(NO_SUCH_RECORD, modelName, rowId));
     }
 
-    private CompiledFlowDefinition chooseSubmitFlow(String modelName, Map<String, Object> record) {
-        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName, record);
+    /** The approval flow of the document whose submit condition holds for the record: exactly one must. */
+    private CompiledFlowDefinition chooseSubmitFlow(String modelName, Map<String, Object> variables) {
+        List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName, variables);
         if (flows.isEmpty()) {
             throw new BusinessException(NO_SUBMIT_FLOW, modelName);
         }
@@ -460,17 +462,25 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         return flows.stream().map(CompiledFlowDefinition::getFlowName).collect(Collectors.joining(", "));
     }
 
-    private static FlowStartRequest submitStartRequest(CompiledFlowDefinition definition, String modelName,
-                                                       String rowId, String initiatorId, Submission<?> submission) {
-        ApprovalSubmission approval = submission.approval();
-        // The record's own fields, then what its handler works out on top of them.
+    /**
+     * What an approval of the record starts with, and what its flow's submit condition reads: the record's own fields,
+     * then what its handler works out on top of them, with the trigger metadata every triggered start carries.
+     */
+    private static Map<String, Object> submitVariables(String modelName, String rowId, Submission<?> submission) {
         Map<String, Object> variables = RecordVariables.of(modelName, submission.row());
-        variables.putAll(approval.variables());
+        variables.putAll(submission.approval().variables());
         // The trigger metadata every triggered start carries (see FlowAutomationService).
         variables.put("_triggerType", FlowAutomationService.SUBMIT_TRIGGER_TYPE);
         variables.put("_sourceModel", modelName);
         variables.put("_sourceRowId", rowId);
         variables.put(ApproverResolutionService.SUBJECT_ID_KEY, submission.subjectId());
+        return variables;
+    }
+
+    private static FlowStartRequest submitStartRequest(CompiledFlowDefinition definition, String modelName,
+                                                       String rowId, String initiatorId, Submission<?> submission) {
+        ApprovalSubmission approval = submission.approval();
+        Map<String, Object> variables = submitVariables(modelName, rowId, submission);
         FlowStartRequest request = new FlowStartRequest();
         request.setBundleId(definition.getBundleId());
         request.setInitiatorId(initiatorId);

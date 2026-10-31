@@ -6,9 +6,11 @@ import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.flow.api.CompileDiagnostic;
 import io.softa.starter.flow.compiler.validation.TriggerConsistencyValidator;
 import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.LeaveRequest;
@@ -24,8 +26,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /**
- * The submit trigger is chosen per record — by model and condition — and never by a generic
- * trigger event; the REST trigger refuses it and the compiler keeps it on Approval flows.
+ * A submission goes to its document's approval flow — chosen by the record's model alone — and never to a flow a
+ * generic trigger event names; the REST trigger refuses it and the compiler keeps it on Approval flows, with the
+ * flow's model going with its trigger.
  */
 class SubmitTriggerTest {
 
@@ -40,37 +43,60 @@ class SubmitTriggerTest {
         return new DefaultFlowTriggerRegistry(bundleRegistry);
     }
 
-    private static CompiledFlowDefinition submitFlow(String flowId, String model, String condition) {
+    private static CompiledFlowDefinition submitFlow(String flowId, String model) {
+        return submitFlow(flowId, new SubmitTrigger(model));
+    }
+
+    private static CompiledFlowDefinition submitFlow(String flowId, SubmitTrigger trigger) {
         return CompiledFlowDefinition.builder()
                 .flowId(flowId)
                 .flowName(flowId)
-                .trigger(new SubmitTrigger(model, condition))
+                .trigger(trigger)
                 .build();
     }
 
     @Test
-    void findsTheFlowsOfTheModelWhoseConditionHolds() {
+    void aSubmissionGoesToTheApprovalFlowOfItsModel() {
+        CompiledFlowDefinition onChange = CompiledFlowDefinition.builder().flowId("audit").flowName("audit")
+                .trigger(new EntityChangeTrigger("LeaveRequest", List.of(), null)).build();
         DefaultFlowTriggerRegistry registry = registryFor(
-                submitFlow("annual", "LeaveRequest", "leaveType == 'Annual'"),
-                submitFlow("cancel", "LeaveRequest", "leaveType == 'CancelLeave'"),
-                submitFlow("any-claim", "ExpenseClaim", null));
+                submitFlow("leave", "LeaveRequest"), submitFlow("claim", "ExpenseClaim"), onChange);
 
-        List<CompiledFlowDefinition> matches = registry.findSubmitFlows("LeaveRequest", Map.of("leaveType", "Annual"));
-
-        assertEquals(List.of("annual"), matches.stream().map(CompiledFlowDefinition::getFlowId).toList());
-        assertEquals(1, registry.findSubmitFlows("ExpenseClaim", Map.of()).size());
+        assertEquals(List.of("leave"), flowIds(registry.findSubmitFlows("LeaveRequest", Map.of())));
+        assertEquals(List.of("claim"), flowIds(registry.findSubmitFlows("ExpenseClaim", Map.of())));
     }
 
     @Test
-    void aConditionThatCannotBeEvaluatedIsReportedNotSkipped() {
-        DefaultFlowTriggerRegistry registry = registryFor(submitFlow("broken", "LeaveRequest", "days >"));
+    void aDocumentsApprovalFlowsTakeTheRecordsTheirConditionsHoldFor() {
+        DefaultFlowTriggerRegistry registry = registryFor(
+                submitFlow("leave", new SubmitTrigger("LeaveRequest", "leaveRequestType == 'Leave'")),
+                submitFlow("cancel", new SubmitTrigger("LeaveRequest", null,
+                        Filters.of(List.of("leaveRequestType", "=", "CancelLeave")))),
+                submitFlow("any", "ExpenseClaim"));
 
-        assertThrows(FlowRuntimeException.class, () -> registry.findSubmitFlows("LeaveRequest", Map.of("days", 3)));
+        assertEquals(List.of("leave"), flowIds(registry.findSubmitFlows("LeaveRequest",
+                Map.of("leaveRequestType", "Leave"))));
+        assertEquals(List.of("cancel"), flowIds(registry.findSubmitFlows("LeaveRequest",
+                Map.of("leaveRequestType", "CancelLeave"))));
+        assertEquals(List.of("any"), flowIds(registry.findSubmitFlows("ExpenseClaim", Map.of("amount", 10))),
+                "a flow without a condition takes every record");
+    }
+
+    @Test
+    void aSubmitConditionThatCannotBeEvaluatedIsAFault() {
+        DefaultFlowTriggerRegistry registry = registryFor(
+                submitFlow("broken", new SubmitTrigger("LeaveRequest", "nosuchfunction(days)")));
+
+        assertThrows(FlowRuntimeException.class, () -> registry.findSubmitFlows("LeaveRequest", Map.of("days", 2)));
+    }
+
+    private static List<String> flowIds(List<CompiledFlowDefinition> flows) {
+        return flows.stream().map(CompiledFlowDefinition::getFlowId).toList();
     }
 
     @Test
     void aGenericTriggerEventNeverStartsASubmitFlow() {
-        DefaultFlowTriggerRegistry registry = registryFor(submitFlow("annual", "LeaveRequest", null));
+        DefaultFlowTriggerRegistry registry = registryFor(submitFlow("annual", "LeaveRequest"));
         FlowTriggerEvent event = FlowTriggerEvent.builder().type("Submit").sourceModel("LeaveRequest").build();
 
         assertTrue(registry.findMatchingFlows(event).isEmpty());
@@ -89,14 +115,14 @@ class SubmitTriggerTest {
         TriggerConsistencyValidator validator = new TriggerConsistencyValidator();
 
         List<CompileDiagnostic> wrongScenario = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.VALIDATION).trigger(new SubmitTrigger("LeaveRequest", null)).build(), null);
+                .scenario(FlowScenario.VALIDATION).trigger(new SubmitTrigger("LeaveRequest")).build(), null);
         List<CompileDiagnostic> noModel = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger(" ", null)).build(), null);
+                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger(" ")).build(), null);
         List<CompileDiagnostic> valid = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger("LeaveRequest", "days > 1")).build(), null);
+                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger("LeaveRequest")).build(), null);
 
         assertEquals(1, wrongScenario.size());
-        assertEquals(1, noModel.size());
+        assertEquals(List.of("MISSING_MODEL"), noModel.stream().map(CompileDiagnostic::code).toList());
         assertTrue(valid.isEmpty());
     }
 

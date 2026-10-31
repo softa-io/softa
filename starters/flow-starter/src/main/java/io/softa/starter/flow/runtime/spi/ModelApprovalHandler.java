@@ -10,7 +10,7 @@ import io.softa.starter.flow.enums.RecordEffectStatus;
 /**
  * The business side of one model's record approvals: implement one per model (a Spring bean) and submit
  * records through {@code FlowClient.submitRecord}. Which flow approves a record is not decided here —
- * each flow's submit trigger names its model and, optionally, the records it applies to.
+ * each approval flow's submit trigger names the model and, optionally, which of its records the flow takes.
  *
  * <p>The framework keeps the approval state, the same for every model: the record's
  * {@link ApprovalModel#getApprovalStatus() approvalStatus}, its submitter and submission time, the one

@@ -3,12 +3,13 @@
 Part of the [Softa app authoring guide](../README.md). How to ship reference data
 (countries, currencies, default categories, …) as JSON files alongside your app.
 
-The files are **not** auto-loaded at boot. Each one is registered in the app's
-`seed-manifest.yml`, and [seed-starter](../../../starters/seed-starter/README.md)
-loads it: platform files when the platform admin loads them after a deploy,
-tenant files when a tenant is set up (and on the admin's **Run** for tenants that
-already exist). The *table structure* comes from your entity annotations
-([entities.md](entities.md)); this is just the *rows*.
+The files are **not** picked up from their directory. Each one is registered in
+the app's `seed-manifest.yml`, and [seed-starter](../../../starters/seed-starter/README.md)
+loads it: the platform files the build owns at startup, the other platform files
+when the platform admin loads them after a deploy, tenant files when a tenant is
+set up (and on the admin's **Run** for tenants that already exist). The *table
+structure* comes from your entity annotations ([entities.md](entities.md)); this
+is just the *rows*.
 
 Place files in your module's resources:
 - `src/main/resources/data-system/*.json` — shared data, one copy for all tenants (`PLATFORM_GLOBAL`)
@@ -31,34 +32,48 @@ platform:
 tenant:
   - files:                      # every tenant
       - data-tenant/LeaveType.Default.json
+      - file: data-tenant/MailTemplate.Default.json
+        mode: append            # see below; omit for the default, once
   - module: leave               # plan module; omit when every plan gets it
     countries: [NZ]             # omit for every country
     files:
       - data-tenant/LeaveType.NZ.json
 ```
 
-How a change to a file reaches data that is already loaded depends on its level:
+How a change to a file reaches data that is already loaded depends on its level
+and its `mode`:
 
 - **Platform files** are the data. When one changes, the next platform load
   loads it again, whole: a field the file no longer names is cleared, and a
   seeded child the file no longer lists is deleted.
-- **Tenant files run once per tenant**, and what a tenant changes afterwards is
-  the tenant's. An edit to a released tenant file reaches only tenants created
-  after it, so what existing tenants need goes out another way. New rows go in
-  a new file (a patch), registered after the original; the admin's next
+- **Tenant files run once per tenant** (`mode: once`, the default), and what a
+  tenant changes afterwards is the tenant's. An edit to a released tenant file
+  reaches only tenants created after it, so what existing tenants need goes out
+  another way. New rows go in a new file (a patch), registered after the
+  original; the admin's next
   **Run** gives the patch to every existing tenant. A patch only adds rows and
   deletes nothing. To change or remove rows tenants already have, edit the file
   that declares them (for new tenants) and ship a data migration in the
-  release (for existing ones).
-- `overwrite: true` (tenant files only) makes a tenant file behave like a
-  platform file: it runs again, whole, whenever it changes. Use it only for rows
-  nobody in a tenant edits, such as the built-in roles.
-- `auto: true` (platform files only) marks the files the build owns: they load
+  release (for existing ones). The platform admin can also **reapply** a file,
+  which loads it whole over the chosen tenants' copies, what they changed
+  included: an operator's override for a development or test environment, or a
+  tenant whose copy went wrong — not how a release ships a change.
+- `mode: append` (tenant files only) runs a tenant file again whenever it
+  changes, creating only the rows a tenant lacks: new rows go straight into the
+  file, with no patch, and reach existing tenants on the next **Run**. A row a
+  tenant has is never written to — its edits stand, and a row it deleted stays
+  deleted — so a changed or removed row still needs a data migration. Use it for
+  rows that stand alone, such as mail templates, not for rows that act on their
+  own once created, such as a default approval flow beside a tenant's own.
+- `mode: overwrite`, every platform file's default, makes a tenant file behave
+  like a platform file: it runs again, whole, whenever it changes. Use it only
+  for rows nobody in a tenant edits, such as the built-in roles.
+- `mode: startup` (platform files only) marks the files the build owns: they load
   at startup, wherever new or changed, before the application takes traffic and
   before the in-memory permission and navigation snapshots are built from them,
   and never from the Seed Data page. Every file writing a model those snapshots
   read (`Navigation`, `Permission`, `SensitiveFieldSet`, `DataScopeType`,
-  `ModelDefaultScope`) must carry it — startup refuses a manifest that leaves
+  `ModelDefaultScope`) must be in it — startup refuses a manifest that leaves
   one to the page — and mark only files whose rows nobody changes on a page.
   Keep such a change compatible with the release it replaces: during a rolling
   deploy the old instance serves briefly over the new rows.
@@ -173,14 +188,18 @@ after the original, instead of editing the released one. Every row in it has
 an `id` of its own; an existing row is referred to by its `preId`, never
 repeated — a new option item names its set in `optionSetId`. The admin's next
 **Run** creates the rows in every existing tenant, and new tenants run the
-original and the patch.
+original and the patch. A file in `mode: append` needs no patch: add the rows
+to the file itself, and the next **Run** creates them wherever a tenant lacks
+them.
 
 **Change a row tenants already have**: edit it in the file that declares it,
 keeping its `id`, so tenants created after get the new value; for the tenants
 that already have the row, ship the change as a data migration (SQL) in the
 release. Once loaded, the row is the tenant's, and tenants may have changed it:
 the migration decides what to overwrite. Existing tenants show the edited file
-as changed after load — expected, the migration carried the change. Never
+as changed after load — expected, the migration carried the change. An
+`append` file is no different here: its run writes nothing to the rows tenants
+have, only creates the ones they lack. Never
 repeat the row in a later file: it would be written over every tenant's copy,
 and it would defeat the environment's initialization (its first platform
 load), which records a file as run wherever a tenant holds one of its rows —
@@ -249,15 +268,20 @@ README); until then tenant runs are refused.
     before a file it refers to fails, because manifest order is load order.
 12. **Editing a released tenant file and stopping there**: tenants that ran it
     never run it again (the page shows it as changed after load), so only new
-    tenants get the edit. New rows go in a patch file instead; a changed or
-    removed row also needs a data migration for the tenants that have it.
-13. **`overwrite: true` on rows tenants edit**: every change to the file resets
+    tenants get the edit. New rows go in a patch file instead — or straight into
+    the file when it is in `mode: append`; a changed or removed row also needs a
+    data migration for the tenants that have it, whatever the mode.
+13. **`mode: overwrite` on rows tenants edit**: every change to the file resets
     every tenant's copy, edits included.
 14. **Running tenants before the platform load**: tenant files refer to
     platform rows, so after a deploy, load the platform files first.
 15. **A patch that repeats an existing row's `id`** to change it: it writes
     over every tenant's copy, edits included. Change the row in the file that
     declares it and with a data migration, and keep the patch to new rows.
+16. **`mode: append` on rows that act by themselves**: a new default approval
+    flow, created in a tenant that set up its own, is published beside it. Keep
+    such a file `once`, and give existing tenants the new row with a patch only
+    where it is wanted.
 
 Not for: test fixtures (use `src/test/resources/`), or data that needs
 transformation from an old schema (write a service-layer migration job instead).

@@ -122,14 +122,16 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
 
     @PostMapping("/{id}/delete")
     @Operation(summary = "Delete flow draft",
-            description = "Deletes the draft by id. Returns false if the draft has been published.")
+            description = "Deletes a flow that was never published. A published flow is refused — its revisions, "
+                    + "instances and approval history refer to it — and is disabled instead.")
     public ApiResponse<Boolean> delete(@PathVariable String id) {
         return ApiResponse.success(service.deleteById(id));
     }
 
     @PostMapping("/{id}/duplicate")
     @Operation(summary = "Duplicate flow draft",
-            description = "Copies the draft under a fresh name; publish state is not copied.")
+            description = "Copies the flow under a fresh name as an unpublished draft — an approval flow too: the "
+                    + "copy keeps its document and submit condition, to be changed before it is published.")
     public ApiResponse<FlowDesign> duplicate(@PathVariable String id,
                                              @RequestBody(required = false) FlowDesignDuplicateRequest request) {
         return ApiResponse.success(service.duplicateDesign(id, request));
@@ -165,10 +167,29 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
 
     @GetMapping("/{id}/status")
     @Operation(summary = "Get draft publish status",
-            description = "Revision badge + dirty flag: dirty is true when the draft differs from the most "
-                    + "recently published design.")
+            description = "Revision badge, dirty flag and on/off: dirty is true when the draft differs from the most "
+                    + "recently published design; enabled is false while the flow is disabled.")
     public ApiResponse<FlowDesignStatusView> status(@PathVariable String id) {
         return ApiResponse.success(service.getStatus(id));
+    }
+
+    @PostMapping("/{id}/disable")
+    @Operation(summary = "Disable flow",
+            description = "Switches the flow off: no submission, change, schedule, API call or parent flow starts it "
+                    + "any more. The effective revision stays, and publishing keeps the flow off. Refused while any "
+                    + "of its instances has not finished, and while an enabled flow, or an unfinished instance of "
+                    + "another flow, calls it as a subflow. Returns the status.")
+    public ApiResponse<FlowDesignStatusView> disable(@PathVariable String id) {
+        return ApiResponse.success(service.disable(id));
+    }
+
+    @PostMapping("/{id}/enable")
+    @Operation(summary = "Enable flow",
+            description = "Switches the flow back on, on the revision that was effective. Refused for an approval "
+                    + "flow while another enabled approval flow of its document has the same submit condition. "
+                    + "Returns the status.")
+    public ApiResponse<FlowDesignStatusView> enable(@PathVariable String id) {
+        return ApiResponse.success(service.enable(id));
     }
 
     @GetMapping("/{id}/availableVariables")

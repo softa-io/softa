@@ -24,6 +24,18 @@ public class StubFlowBundleRegistry implements FlowBundleRegistry {
     private final Map<String, Long> activeBundleIndex = new ConcurrentHashMap<>();
     /** flowId → sorted revision map */
     private final Map<String, NavigableMap<Integer, CompiledFlowDefinition>> revisionsByDesign = new ConcurrentHashMap<>();
+    /** Flows switched off: their active revision stays, but nothing new starts from it. */
+    private final Set<String> disabledFlows = ConcurrentHashMap.newKeySet();
+
+    /** Switches the flow off, as {@code FlowDesign.enabled = false} does for the production registry. */
+    public void disable(String flowId) {
+        disabledFlows.add(flowId);
+    }
+
+    /** Switches the flow back on. */
+    public void enable(String flowId) {
+        disabledFlows.remove(flowId);
+    }
 
     @Override
     public CompiledFlowDefinition register(CompiledFlowDefinition definition,
@@ -40,31 +52,12 @@ public class StubFlowBundleRegistry implements FlowBundleRegistry {
         int nextRevision = revisions.isEmpty() ? 1 : revisions.lastKey() + 1;
         long bundleId = bundleIdSeq.getAndIncrement();
 
-        CompiledFlowDefinition published = CompiledFlowDefinition.builder()
+        // toBuilder keeps every compiled field, as the production registry does; only revision metadata is stamped.
+        CompiledFlowDefinition published = definition.toBuilder()
                 .bundleId(bundleId)
                 .flowId(flowId)
-                .flowName(definition.getFlowName())
-                .scenario(definition.getScenario())
-                .compiledAt(definition.getCompiledAt())
                 .revision(nextRevision)
                 .publishedAt(LocalDateTime.now())
-                .trigger(definition.getTrigger())
-                .forms(definition.getForms())
-                .withdrawPolicy(definition.getWithdrawPolicy())
-                .urgeEnabled(definition.getUrgeEnabled())
-                .urgeIntervalMinutes(definition.getUrgeIntervalMinutes())
-                .emailNotification(definition.getEmailNotification())
-                .cc(definition.getCc())
-                .sync(definition.getSync())
-                .rollbackOnFail(definition.getRollbackOnFail())
-                .approverDedup(definition.getApproverDedup())
-                .declaredOutputs(definition.getDeclaredOutputs())
-                .entryNodeIds(definition.getEntryNodeIds())
-                .terminalNodeIds(definition.getTerminalNodeIds())
-                .topologicalOrder(definition.getTopologicalOrder())
-                .nodeIndex(definition.getNodeIndex())
-                .transitionIndex(definition.getTransitionIndex())
-                .capabilitySummary(definition.getCapabilitySummary())
                 .build();
 
         revisions.put(nextRevision, published);
@@ -80,7 +73,7 @@ public class StubFlowBundleRegistry implements FlowBundleRegistry {
 
     @Override
     public Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId) {
-        Long bundleId = activeBundleIndex.get(flowId);
+        Long bundleId = disabledFlows.contains(flowId) ? null : activeBundleIndex.get(flowId);
         return bundleId != null ? getByBundleId(bundleId) : Optional.empty();
     }
 
@@ -95,8 +88,9 @@ public class StubFlowBundleRegistry implements FlowBundleRegistry {
 
     @Override
     public Collection<CompiledFlowDefinition> list() {
-        return activeBundleIndex.values().stream()
-                .map(bundleCache::get)
+        return activeBundleIndex.entrySet().stream()
+                .filter(entry -> !disabledFlows.contains(entry.getKey()))
+                .map(entry -> bundleCache.get(entry.getValue()))
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(CompiledFlowDefinition::getFlowName,
                         Comparator.nullsLast(Comparator.naturalOrder())))
