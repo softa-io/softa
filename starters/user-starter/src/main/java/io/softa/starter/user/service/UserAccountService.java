@@ -147,21 +147,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      */
     void rehire(Long accountId);
 
-    /**
-     * Release from the person's login identifiers whatever THIS company issued them.
-     *
-     * <p>Shared by the two operations that end a binding — off-boarding and unbind-and-re-invite —
-     * because both create the same hazard: once the address is recycled, whoever receives it next
-     * could verify by code straight into the previous holder's personal account.
-     *
-     * <p>Only the value this company issued is reclaimed. A personal login email is not ours to
-     * take, which is why it compares before clearing rather than blindly nulling.
-     *
-     * @return whether anything was released
-     */
-    boolean releaseLoginIdentifiers(UserAccount account);
-
-    /**
+        /**
      * Whether this contact is used as the work email/mobile of more than one account.
      *
      * <p>A shared work number is ordinary as a CONTACT — a shop's phone, a shared floor handset, a
@@ -221,6 +207,34 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      * @return the record's contacts, or {@link WorkContacts#none()} when there is no record
      */
     WorkContacts archiveWorkContacts(Long userId);
+
+    /**
+     * The personal mobile on the employee record behind this account — what the invitation is sent
+     * to and what Reset User makes the person's login mobile. Null when there is no record or none.
+     */
+    String archivePersonalMobile(Long userId);
+
+    /**
+     * Why this enterprise email cannot go on this account, or null when it can: another account of
+     * the same company holds it, or a different person holds it anywhere (Deactivated aside). Asked
+     * before the employee record is saved, so the record and the account cannot disagree.
+     */
+    String enterpriseEmailRefusal(Long accountId, String email);
+
+    /**
+     * The employee record's Work Email changed: carry it onto the account, whatever its status.
+     * Refused with {@code EMAIL_TAKEN} on the same grounds as {@link #enterpriseEmailRefusal}. A
+     * joined account (Active / Locked / Frozen) also mails the OLD address and texts the login
+     * mobile, and the change is written to the security log.
+     */
+    void syncEnterpriseEmail(Long accountId, String email);
+
+    /**
+     * The employee record's personal mobile changed: before the person has joined (Pending /
+     * Invited) the invitation mobile follows it; after that the login mobile is the person's own and
+     * this does nothing.
+     */
+    void syncInviteMobile(Long accountId, String mobile);
 
     /**
      * Prepare a membership for someone re-joining this company, reusing the closed row.

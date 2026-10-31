@@ -51,6 +51,8 @@ import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserRoleRelService;
@@ -72,6 +74,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     private static final String ARCHIVE_USER_FIELD = "userId";
     private static final String ARCHIVE_EMAIL_FIELD = "workEmail";
     private static final String ARCHIVE_MOBILE_FIELD = "workPhone";
+    private static final String ARCHIVE_PROFILE_FIELD = "employeeProfileId";
+    private static final String ARCHIVE_PROFILE_MODEL = "EmployeeProfile";
+    private static final String ARCHIVE_PERSONAL_MOBILE_FIELD = "personalPhone";
 
     @Autowired
     private UserProfileService profileService;
@@ -88,6 +93,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     @Autowired
     private UserSessionService sessionService;
+
+    /** Optional: present only where APP push is deployed. */
+    @Autowired(required = false)
+    private PushDeviceRegistry pushDeviceRegistry;
 
     @Autowired
     private UserSecurityLogService securityLog;
@@ -661,106 +670,182 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         securityLog.record(row);
     }
 
-    /** Notifies the person that their sign-in contact changed. */
-    private static final String TEMPLATE_CONTACT_RESET = "user.contact-reset";
+    /** Reset User reminder: the login mobile was replaced, the old number no longer signs in. */
+    static final String TEMPLATE_RESET_USER = "user.reset-user";
+    /** The enterprise email of a joined account changed. */
+    static final String TEMPLATE_EMAIL_CHANGED = "user.enterprise-email-changed";
 
+    /**
+     * Reset User (PRD Web §Reset User): replace the PERSON's login mobile with the personal mobile on
+     * the employee record, for someone whose number changed and who can no longer get a code.
+     *
+     * <p>The login mobile is the person's, so the change holds in every company, and the old number
+     * stops signing in anywhere at once. The person stays the same person: the account binding, the
+     * enterprise email, the password, the status and the other companies' records are untouched.
+     */
     @SkipPermissionCheck
     @CrossTenant
     @Override
     @Transactional
     public void resetWorkContacts(Long userId, String reason) {
         Assert.notNull(userId, "userId is required");
-        // Read from the employee record, never from the caller (S-B / D23). Two things follow from
-        // that, and the second is why it matters: the value cannot be whatever a client chose to
-        // post, and the ACCOUNT still holds the value being replaced — which is exactly what gets
-        // notified below. Propagating on the record's own edit instead would destroy that: by the
-        // time HR pressed Confirm the old address would be gone, and the warning meant for whoever
-        // still holds it would go to the new one.
-        WorkContacts archive = this.archiveWorkContacts(userId);
-        String email = workContact(archive.email());
-        String mobile = workContact(archive.mobile());
-        if (!archive.any()) {
-            throw new BusinessException("This employee's record has no work email or work mobile — "
-                    + "add one there first, then reset.");
-        }
-
+        Assert.notBlank(reason, "A reason is required: record how the employee's identity was verified.");
         UserAccount account = this.getById(userId)
                 .orElseThrow(() -> new BusinessException("User not found."));
-        // The right person holds this membership — that is what separates this from unbinding. So
-        // there is nothing to do on an account nobody holds yet.
-        if (account.getProfileId() == null) {
-            throw new BusinessException(
-                    "This account is not linked to a person yet — invite it instead.");
+        if (!JOINED_STATUSES.contains(account.getStatus()) || account.getProfileId() == null) {
+            throw new BusinessException("Only an account the employee has joined can be reset.");
         }
-        this.findContactHolderInTenant(email, userId)
+        // Read from the employee record, never from the caller: the value cannot be whatever a
+        // client chose to post, and it is the record HR has just corrected.
+        String newMobile = LoginIdentifiers.normalize(this.archivePersonalMobile(userId));
+        if (newMobile == null) {
+            throw new BusinessException("This employee's record has no personal mobile — add it there first, then reset.");
+        }
+        UserIdentity identity = identityService.requireIdentity(account);
+        String oldMobile = identity.getLoginMobile();
+        if (newMobile.equals(LoginIdentifiers.normalize(oldMobile))) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.MOBILE_UNCHANGED,
+                    "No change to the login mobile. Update the employee profile first.");
+        }
+        // The number may already be someone's login. A dormant someone (nothing left but closed
+        // accounts — a number the carrier recycled) gives it up; anyone else keeps it.
+        identityService.findByLoginIdentifier(newMobile)
+                .filter(other -> !Objects.equals(other.getProfileId(), account.getProfileId()))
                 .ifPresent(other -> {
-                    throw new BusinessException("That work email already belongs to another account.");
-                });
-        // The mobile too: it is a login identifier as much as the email is, and moving it onto
-        // this account while another one holds it would leave a code sent there naming two people.
-        this.findContactHolderInTenant(mobile, userId)
-                .ifPresent(other -> {
-                    throw new BusinessException("That work mobile already belongs to another account.");
+                    if (!this.releaseDormantLoginMobile(newMobile, "Reset User")) {
+                        throw AccountErrorCodes.refusal(AccountErrorCodes.MOBILE_TAKEN,
+                                "This mobile number is already linked to another account.");
+                    }
                 });
 
-        String previousEmail = account.getEmail();
-        String previousMobile = account.getMobile();
+        identity.setLoginMobile(newMobile);
+        identityService.updateOne(identity);
+        // Every device of the person, in every company: whoever holds the old number may be signed
+        // in somewhere. And no device keeps receiving their notifications.
+        sessionService.revokePerson(account.getProfileId(), null, SessionRevokeReason.RESET_USER);
+        if (pushDeviceRegistry != null) {
+            pushDeviceRegistry.unregisterPerson(account.getProfileId());
+        }
 
-        // Move the LOGIN identifier with the contact, but only the value this company issued: a
-        // personal login email is not ours to rewrite, so it compares before writing. Leaving it
-        // behind would mean the person signs in with an address this company no longer knows, while
-        // the recycled one becomes a route into their account for whoever receives it next.
-        //
-        // The identifier is written in LoginIdentifiers' canonical form while the account keeps the
-        // contact as HR typed it: the account value is displayed, the identity value is looked up.
-        identityService.findByProfile(account.getProfileId()).ifPresent(identity -> {
-            boolean moved = false;
-            if (isSameLoginIdentifier(previousEmail, identity.getLoginEmail())) {
-                identity.setLoginEmail(LoginIdentifiers.normalize(email));
-                moved = true;
-            }
-            if (isSameLoginIdentifier(previousMobile, identity.getLoginMobile())) {
-                identity.setLoginMobile(LoginIdentifiers.normalize(mobile));
-                moved = true;
-            }
-            if (moved) {
-                // updateOne(entity, false): clearing one channel means writing a null, which the
-                // default overload drops — the old identifier would stay a live login route.
-                identityService.updateOne(identity, false);
-            }
-        });
-
-        account.setEmail(email);
-        account.setMobile(mobile);
-        this.updateOne(account, false);
-
-        // The OLD address, not the new one. If this was not the person's own doing, the message has
-        // to reach somewhere they can still read; telling only the new address informs whoever now
-        // holds it. Password and profileId are untouched, so there is nothing to re-accept — this
-        // is a notification, not an invitation.
-        // Notify the OLD contacts on EVERY channel the account had, mail AND SMS — the same
-        // fan-out invitations use. A person reachable only by work mobile must still learn their
-        // sign-in was changed; telling only the email would leave exactly them uninformed. The
-        // variables match the user.contact-reset templates (M1): who the account belongs to, which
-        // company changed it, and when. nickname (already on the account) stands in for the name
-        // rather than loading the profile, which is more than a notification warrants.
-        Long tenantId = ContextHolder.getContext().getTenantId();
-        MessageScope scope = tenantId != null ? MessageScope.TENANT : MessageScope.PLATFORM;
-        String companyName = tenantId == null || tenantInfoService == null ? ""
-                : StringUtils.defaultString(tenantInfoService.getTenantName(tenantId));
+        // Tell the OLD number (it may be lost, but if not, the person learns of it) and the
+        // enterprise email; a failed send does not undo the reset, it is recorded with it.
+        Long tenantId = account.getTenantId();
         Map<String, Object> vars = Map.of(
                 "employeeName", StringUtils.defaultString(account.getNickname()),
-                "companyName", companyName,
                 "time", LocalDateTime.now().toString());
-        if (StringUtils.isNotBlank(previousEmail)) {
-            eventPublisher.publishEvent(new MailRequestMessage(
-                    List.of(previousEmail), TEMPLATE_CONTACT_RESET, vars, tenantId, scope));
+        List<String> channels = new ArrayList<>();
+        List<String> results = new ArrayList<>();
+        if (StringUtils.isNotBlank(oldMobile)) {
+            channels.add("sms");
+            results.add("sms:" + this.remind(() -> eventPublisher.publishEvent(new SmsRequestMessage(
+                    List.of(oldMobile), TEMPLATE_RESET_USER, vars))));
         }
-        if (StringUtils.isNotBlank(previousMobile)) {
-            eventPublisher.publishEvent(new SmsRequestMessage(
-                    List.of(previousMobile), TEMPLATE_CONTACT_RESET, vars));
+        if (StringUtils.isNotBlank(account.getEmail())) {
+            channels.add("email");
+            results.add("email:" + this.remind(() -> eventPublisher.publishEvent(new MailRequestMessage(
+                    List.of(account.getEmail()), TEMPLATE_RESET_USER, vars, tenantId, MessageScope.TENANT))));
         }
-        log.info("Work contacts of account {} reset. Reason: {}", userId, reason);
+        UserSecurityLog row = securityLog.entry(SecurityAction.RESET_USER, SecurityLogSource.USER_ACCOUNTS, account, null);
+        row.setReason(reason.trim());
+        row.setOldValue(ContactMasking.mobile(oldMobile));
+        row.setNewValue(ContactMasking.mobile(newMobile));
+        row.setReminderChannels(String.join(",", channels));
+        row.setReminderResult(String.join(",", results));
+        securityLog.record(row);
+        log.info("Login mobile of the person behind account {} reset. Reason: {}", userId, reason);
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public String enterpriseEmailRefusal(Long accountId, String email) {
+        String wanted = workContact(email);
+        UserAccount account = accountId == null ? null : this.getById(accountId).orElse(null);
+        if (wanted == null || account == null) {
+            return null;
+        }
+        if (this.contactHolderInTenant(account.getTenantId(), wanted, accountId).isPresent()) {
+            return "That work email already belongs to another account in this company.";
+        }
+        if (this.isEmailHeldByAnotherPerson(wanted, account.getProfileId())) {
+            return "That work email is already linked to another person's account.";
+        }
+        return null;
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    @Transactional
+    public void syncEnterpriseEmail(Long accountId, String email) {
+        UserAccount account = this.getById(accountId).orElse(null);
+        String wanted = workContact(email);
+        if (account == null || Objects.equals(StringUtils.lowerCase(wanted), StringUtils.lowerCase(account.getEmail()))) {
+            return;
+        }
+        String refusal = this.enterpriseEmailRefusal(accountId, wanted);
+        if (refusal != null) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN, refusal);
+        }
+        String previous = account.getEmail();
+        account.setEmail(wanted);
+        this.updateOne(account, false);
+        // Before the person has joined nobody signs in with it yet: nothing to warn about.
+        if (!JOINED_STATUSES.contains(account.getStatus())) {
+            return;
+        }
+        // The old address (whoever holds it should know it no longer signs in) and the person's
+        // login mobile; a failed send is recorded, it does not undo the change.
+        Map<String, Object> vars = Map.of(
+                "employeeName", StringUtils.defaultString(account.getNickname()),
+                "time", LocalDateTime.now().toString());
+        List<String> channels = new ArrayList<>();
+        List<String> results = new ArrayList<>();
+        if (StringUtils.isNotBlank(previous)) {
+            channels.add("email");
+            results.add("email:" + this.remind(() -> eventPublisher.publishEvent(new MailRequestMessage(
+                    List.of(previous), TEMPLATE_EMAIL_CHANGED, vars, account.getTenantId(), MessageScope.TENANT))));
+        }
+        String loginMobile = identityService.findByProfile(account.getProfileId())
+                .map(UserIdentity::getLoginMobile).orElse(null);
+        if (StringUtils.isNotBlank(loginMobile)) {
+            channels.add("sms");
+            results.add("sms:" + this.remind(() -> eventPublisher.publishEvent(new SmsRequestMessage(
+                    List.of(loginMobile), TEMPLATE_EMAIL_CHANGED, vars))));
+        }
+        UserSecurityLog row = securityLog.entry(SecurityAction.ENTERPRISE_EMAIL_CHANGED,
+                SecurityLogSource.EMPLOYEE_PROFILE, account, null);
+        row.setOldValue(ContactMasking.email(previous));
+        row.setNewValue(ContactMasking.email(wanted));
+        row.setReminderChannels(String.join(",", channels));
+        row.setReminderResult(String.join(",", results));
+        securityLog.record(row);
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    @Transactional
+    public void syncInviteMobile(Long accountId, String mobile) {
+        UserAccount account = accountId == null ? null : this.getById(accountId).orElse(null);
+        String wanted = workContact(mobile);
+        if (account == null || !CONTACTS_EDITABLE.contains(account.getStatus())
+                || Objects.equals(LoginIdentifiers.normalize(wanted), LoginIdentifiers.normalize(account.getMobile()))) {
+            return;
+        }
+        account.setMobile(wanted);
+        this.updateOne(account, false);
+    }
+
+    /** Hand a reminder off for delivery; "sent" or "failed". Never fails the change it reports on. */
+    private String remind(Runnable send) {
+        try {
+            send.run();
+            return "sent";
+        } catch (RuntimeException e) {
+            log.warn("Reminder could not be handed off: {}", e.getMessage());
+            return "failed";
+        }
     }
 
     @SkipPermissionCheck
@@ -856,6 +941,41 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
     }
 
+    @SkipPermissionCheck
+    @Override
+    public String archivePersonalMobile(Long userId) {
+        if (userId == null || !ModelManager.existModel(ARCHIVE_MODEL) || !ModelManager.existModel(ARCHIVE_PROFILE_MODEL)) {
+            return null;
+        }
+        // Past row scope for the reason archiveWorkContacts gives: the caller is already operating on
+        // this account, and this resolves its own record rather than searching.
+        Context ctx = ContextHolder.existContext() ? ContextHolder.getContext() : null;
+        boolean previous = ctx != null && ctx.isSkipPermissionCheck();
+        if (ctx != null) {
+            ctx.setSkipPermissionCheck(true);
+        }
+        try {
+            Object profileId = modelService.searchOne(ARCHIVE_MODEL, new FlexQuery(
+                            List.of("id", ARCHIVE_PROFILE_FIELD), new Filters().eq(ARCHIVE_USER_FIELD, userId)))
+                    .map(row -> row.get(ARCHIVE_PROFILE_FIELD)).orElse(null);
+            if (profileId == null) {
+                return null;
+            }
+            Object id = profileId instanceof Map<?, ?> ref ? ref.get("id") : profileId;
+            return modelService.searchOne(ARCHIVE_PROFILE_MODEL, new FlexQuery(
+                            List.of("id", ARCHIVE_PERSONAL_MOBILE_FIELD), new Filters().eq("id", id)))
+                    .map(row -> StringUtils.trimToNull(asString(row.get(ARCHIVE_PERSONAL_MOBILE_FIELD))))
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            log.warn("Employee profile read failed while resolving the personal mobile of account {}", userId, e);
+            return null;
+        } finally {
+            if (ctx != null) {
+                ctx.setSkipPermissionCheck(previous);
+            }
+        }
+    }
+
     private static String asString(Object value) {
         return value == null ? null : value.toString();
     }
@@ -929,50 +1049,6 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             }
         }
         return boundPeople.size() + unbound > 1;
-    }
-
-    @SkipPermissionCheck
-    @CrossTenant
-    @Override
-    public boolean releaseLoginIdentifiers(UserAccount account) {
-        if (account == null) {
-            return false;
-        }
-        return identityService.findByProfile(account.getProfileId()).map(identity -> {
-            boolean released = applyIdentifierRelease(account, identity);
-            if (released) {
-                // updateOne(entity) drops null keys — the one thing this write is FOR. The
-                // overload that keeps them is not optional here.
-                identityService.updateOne(identity, false);
-            }
-            return released;
-        }).orElse(false);
-    }
-
-    /**
-     * Null out the login identifiers this company issued, on an already-loaded identity, WITHOUT
-     * writing it.
-     *
-     * <p>Split from {@link #releaseLoginIdentifiers} so off-boarding — which also clears the
-     * password lock on the same row — can do both in one read and one write instead of two of each.
-     *
-     * @return whether anything was released (i.e. whether the row needs writing)
-     */
-    private boolean applyIdentifierRelease(UserAccount account, UserIdentity identity) {
-        boolean released = false;
-        if (isSameLoginIdentifier(account.getEmail(), identity.getLoginEmail())) {
-            identity.setLoginEmail(null);
-            released = true;
-        }
-        if (isSameLoginIdentifier(account.getMobile(), identity.getLoginMobile())) {
-            identity.setLoginMobile(null);
-            released = true;
-        }
-        if (released) {
-            log.info("Released work contact(s) from identity {} of account {}.",
-                    identity.getId(), account.getId());
-        }
-        return released;
     }
 
     /**

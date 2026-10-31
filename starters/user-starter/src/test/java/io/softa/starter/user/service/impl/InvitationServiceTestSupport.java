@@ -44,6 +44,7 @@ final class InvitationServiceTestSupport {
         });
         ReflectionTestUtils.setField(service, "mobileFormat", mobileFormat());
         ReflectionTestUtils.setField(service, "securityLog", securityLog);
+        ReflectionTestUtils.setField(service, "sessionService", mock(io.softa.starter.user.service.UserSessionService.class));
         return securityLog;
     }
 }

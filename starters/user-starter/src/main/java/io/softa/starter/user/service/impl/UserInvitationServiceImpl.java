@@ -42,6 +42,8 @@ import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
 import io.softa.starter.user.service.UserSecurityLogService;
+import io.softa.starter.user.service.UserSessionService;
+import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
@@ -89,6 +91,9 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
     @Autowired
     private UserSecurityLogService securityLog;
+
+    @Autowired
+    private UserSessionService sessionService;
 
     public UserInvitationServiceImpl(UserAccountService accountService,
                                      UserIdentityService identityService,
@@ -179,15 +184,14 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // From the employee record, not the caller (S-B / D23): the corrected contact is HR's edit
         // to the record, and this operation carries it onto the membership. A typo is fixed where
         // it lives rather than retyped here, so the two cannot end up disagreeing.
-        WorkContacts archive = accountService.archiveWorkContacts(userId);
-        // Trimmed, case kept, mobile separators collapsed — the form UserAccount.email / mobile hold
-        // everywhere, so the equality queries behind the shared-contact guard find this row (see
-        // UserAccountServiceImpl.workContact).
-        String email = StringUtils.trimToNull(archive.email());
-        String mobile = LoginIdentifiers.collapseMobile(StringUtils.trimToNull(archive.mobile()));
-        if (email == null && mobile == null) {
+        // The enterprise email is the record's Work Email; the invitation goes to the record's
+        // personal mobile, which becomes the login mobile of whoever joins.
+        String email = StringUtils.trimToNull(accountService.archiveWorkContacts(userId).email());
+        String mobile = LoginIdentifiers.collapseMobile(StringUtils.trimToNull(
+                accountService.archivePersonalMobile(userId)));
+        if (mobile == null) {
             throw new BusinessException(
-                    "Enter the correct work email or work mobile before re-inviting.");
+                    "Enter the employee's personal mobile on their record before re-inviting.");
         }
 
         UserAccount account = accountService.getById(userId)
@@ -206,11 +210,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                             "That work email already belongs to another account.");
                 });
 
-        // ① Release what this company issued from the OLD person's login identifiers, FIRST. The
-        // order encodes which half is security-critical: a failure after this point leaves the
-        // membership detached, which is recoverable, while the reverse leaves the wrong person
-        // holding a live login route into an address this company is about to hand to someone else.
-        accountService.releaseLoginIdentifiers(account);
+        // ① The wrong person is signed out of this company on every device, FIRST: a failure after
+        // this point leaves a detached membership, which is recoverable. Their login mobile is
+        // their own and stays — it signs them into their other companies — and the enterprise
+        // email stops signing them in here as soon as the account is no longer joined.
+        sessionService.revokeAccount(userId, SessionRevokeReason.UNBOUND);
 
         // ② Detach, ③ record the corrected contacts, and reset to "not contacted yet".
         Long previousProfileId = account.getProfileId();
@@ -225,6 +229,10 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
         // ④ Fresh token, every outstanding one revoked inside issue().
         issue(account, InvitationPurpose.REINVITE, operatedBy, reason.trim());
+        UserSecurityLog row = securityLog.entry(SecurityAction.UNBIND_AND_REINVITE,
+                SecurityLogSource.USER_ACCOUNTS, account, previousProfileId);
+        row.setReason(reason.trim());
+        securityLog.record(row);
         log.warn("Account {} unbound from profile {} and re-invited by {}. Reason: {}",
                 userId, previousProfileId, operatedBy, reason.trim());
     }

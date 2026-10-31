@@ -16,6 +16,10 @@ import io.softa.starter.user.entity.UserInvitation;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.InvitationPurpose;
 import io.softa.starter.user.enums.InvitationStatus;
+import org.springframework.test.util.ReflectionTestUtils;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.user.enums.SecurityAction;
+import io.softa.starter.user.service.UserSessionService;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 
@@ -23,6 +27,7 @@ import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -77,6 +82,7 @@ class UnbindAndReinviteTest {
         // this call carries — so that is what has to be stubbed.
         when(accountService.archiveWorkContacts(ACCOUNT))
                 .thenReturn(new WorkContacts("right@acme.com", null));
+        when(accountService.archivePersonalMobile(ACCOUNT)).thenReturn("+6591234567");
         // No outstanding invitations unless a test says otherwise.
         doReturn(List.of()).when(invitationService).searchList(any(Filters.class));
         doReturn(1L).when(invitationService).createOne(any(UserInvitation.class));
@@ -84,12 +90,16 @@ class UnbindAndReinviteTest {
     }
 
     @Test
-    void theOldPersonsLoginIdentifiersAreReleased_beforeAnythingElseIsWritten() {
-        UserAccount account = given(AccountStatus.ACTIVE);
+    void theWrongPersonIsSignedOutOfThisCompany_andKeepsTheirOwnLogin() {
+        given(AccountStatus.ACTIVE);
+        UserSessionService sessions = mock(UserSessionService.class);
+        ReflectionTestUtils.setField(invitationService, "sessionService", sessions);
 
         invitationService.unbindAndReinvite(ACCOUNT, "Wrong hire", OPERATOR);
 
-        verify(accountService).releaseLoginIdentifiers(account);
+        verify(sessions).revokeAccount(ACCOUNT, SessionRevokeReason.UNBOUND);
+        verify(identityService, never()).updateOne(any());
+        verify(invitationSecurityLog).entry(eq(SecurityAction.UNBIND_AND_REINVITE), any(), any(), eq(PROFILE));
     }
 
     @Test
@@ -102,6 +112,8 @@ class UnbindAndReinviteTest {
         assertThat(account.getProfileId()).isNull();
         assertThat(account.getActivationTime()).isNull();
         assertThat(account.getEmail()).isEqualTo("right@acme.com");
+        // Invited at the personal mobile on the record — the login mobile of whoever joins.
+        assertThat(account.getMobile()).isEqualTo("+6591234567");
         assertThat(account.getStatus()).isEqualTo(AccountStatus.INVITED);
         verify(accountService).updateOne(account, false);
         verify(accountService, never()).updateOne(any(UserAccount.class));
@@ -156,7 +168,6 @@ class UnbindAndReinviteTest {
                 invitationService.unbindAndReinvite(ACCOUNT, "x".repeat(501), OPERATOR))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        verify(accountService, never()).releaseLoginIdentifiers(any());
         verify(accountService, never()).updateOne(any(UserAccount.class), anyBoolean());
     }
 
@@ -170,7 +181,6 @@ class UnbindAndReinviteTest {
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("cannot be unbound");
         }
-        verify(accountService, never()).releaseLoginIdentifiers(any());
     }
 
     @Test
@@ -190,7 +200,6 @@ class UnbindAndReinviteTest {
                 .hasMessageContaining("already belongs to another account");
 
         // Refused BEFORE the unbind: otherwise the membership is detached and the call still fails.
-        verify(accountService, never()).releaseLoginIdentifiers(any());
     }
 
     @Test
@@ -198,7 +207,7 @@ class UnbindAndReinviteTest {
         // Nothing to re-invite to, and nothing this call could supply instead: the contact comes
         // from the record now, so the message points at the record.
         given(AccountStatus.ACTIVE);
-        when(accountService.archiveWorkContacts(ACCOUNT)).thenReturn(WorkContacts.none());
+        when(accountService.archivePersonalMobile(ACCOUNT)).thenReturn(null);
 
         assertThatThrownBy(() ->
                 invitationService.unbindAndReinvite(ACCOUNT, "Wrong hire", OPERATOR))
