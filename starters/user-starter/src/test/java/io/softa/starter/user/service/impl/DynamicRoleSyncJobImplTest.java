@@ -50,6 +50,17 @@ class DynamicRoleSyncJobImplTest {
                         this, "transactionTemplate", inlineTemplate(tm));
             }
         };
+        // Every account the tests name is Active unless a test says otherwise.
+        activeAccounts(1L, 2L, 5L);
+    }
+
+    /** The accounts the UserAccount lookup reports as Active. */
+    @SuppressWarnings("unchecked")
+    private void activeAccounts(Long... ids) {
+        List<java.util.Map<String, Object>> rows = java.util.Arrays.stream(ids)
+                .map(id -> java.util.Map.<String, Object>of("id", id)).toList();
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("UserAccount"),
+                any(io.softa.framework.orm.domain.FlexQuery.class))).thenReturn(rows);
     }
 
     private static TransactionTemplate inlineTemplate(PlatformTransactionManager tm) {
@@ -275,6 +286,69 @@ class DynamicRoleSyncJobImplTest {
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
         assertThat(count).isEqualTo(1);   // pure-employee dropped, active one kept
+    }
+
+    @Test
+    void syncRoleInternal_inactiveAccount_getsNoDynamicRow() {
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.getById(500L)).thenReturn(Optional.of(role));
+        when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of());
+        when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenReturn(List.of(
+                        java.util.Map.of("userId", 1L),
+                        java.util.Map.of("userId", 2L)));
+        activeAccounts(2L);   // account 1 is Locked, Frozen or not yet verified
+
+        int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
+
+        assertThat(count).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.List<io.softa.starter.user.entity.UserRoleRel>> cap =
+                org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+        verify(userRoleRelService).createList(cap.capture());
+        assertThat(cap.getValue()).extracting(io.softa.starter.user.entity.UserRoleRel::getUserId)
+                .containsExactly(2L);
+    }
+
+    @Test
+    void syncRoleInternal_asksTheAccountForItsStatus_withoutPathingThroughTheEmployee() {
+        // Employee.userId is a plain id: a "userId.status" filter on Employee cannot resolve. The
+        // account's status is read from the account, past the caller's permissions — whoever saved
+        // the role need not hold the account read.
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.getById(500L)).thenReturn(Optional.of(role));
+        when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of());
+        when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
+        org.mockito.ArgumentCaptor<io.softa.framework.orm.domain.FlexQuery> employeeQuery =
+                org.mockito.ArgumentCaptor.forClass(io.softa.framework.orm.domain.FlexQuery.class);
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"), employeeQuery.capture()))
+                .thenReturn(List.of(java.util.Map.of("userId", 1L)));
+        boolean[] skippedAtAccount = {false};
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("UserAccount"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    skippedAtAccount[0] = ContextHolder.getContext().isSkipPermissionCheck();
+                    return List.of(java.util.Map.of("id", 1L));
+                });
+
+        ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
+
+        assertThat(employeeQuery.getValue().getFilters().toString()).doesNotContain("userId.status");
+        assertThat(skippedAtAccount[0]).isTrue();
+    }
+
+    @Test
+    void syncMembershipForUser_inactiveAccount_isNotGranted() {
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.searchList(any(Filters.class))).thenReturn(List.of(role));
+        when(modelService.count(org.mockito.ArgumentMatchers.eq("Employee"), any(Filters.class))).thenReturn(1L);
+        activeAccounts();   // the account matched the rule but is not Active
+
+        ContextHolder.runWith(ctx(10L), () -> job.syncMembershipForUser(10L, 7L));
+
+        verify(userRoleRelService, never()).createOne(any());
     }
 
     // ─── helpers ───

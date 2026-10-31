@@ -1,6 +1,7 @@
 package io.softa.starter.user.service.impl;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
@@ -49,7 +51,7 @@ import io.softa.starter.user.util.ModelRefIds;
  *
  * MANUAL rows are never touched. Each pass:
  *   - DELETE WHERE role_id = R AND source = 'Dynamic'
- *   - SELECT employee.userId WHERE rule AND userId IS SET AND userId.status = 'Active'
+ *   - SELECT employee.userId WHERE rule AND userId IS SET, kept where that account is Active
  *   - INSERT one (userId, R, 'Dynamic') per match
  *
  * The same (user, role) can also have a MANUAL row — schema unique key is
@@ -166,11 +168,11 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         Filters filters = Filters.of(list);
         if (filters == null) return 0;
 
-        // 3. AND in the user-account safety clauses (same as wizard's live
-        //    preview) — pure-employee rows or disabled accounts never get
-        //    a dynamic grant.
-        filters.and(Filters.of("userId", Operator.IS_SET, null))
-                .and(Filters.of("userId.status", Operator.EQUAL, "Active"));
+        // 3. The user-account safety clauses (same as wizard's live preview)
+        //    — pure-employee rows or disabled accounts never get a dynamic
+        //    grant. The account's status is asked of the account itself:
+        //    Employee.userId is a plain id, not a relation to path through.
+        filters.and(Filters.of("userId", Operator.IS_SET, null));
 
         List<Map<String, Object>> employees = modelService.searchList(
                 "Employee", new FlexQuery(List.of("userId"), filters));
@@ -180,6 +182,7 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
             Long uid = ModelRefIds.extractLongId(emp.get("userId"));
             if (uid != null) userIds.add(uid);
         }
+        userIds.retainAll(activeAccounts(userIds));
         if (userIds.isEmpty()) return 0;
 
         List<UserRoleRel> rows = new ArrayList<>();
@@ -308,14 +311,12 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         if (!(filterList instanceof List<?> list)) return false;
         Filters filters = Filters.of(list);
         if (filters == null) return false;
-        // AND the safety clauses (userId set + Active status) plus the
-        // single-user anchor — we're asking "does the Employee whose
-        // userId matches this user satisfy the rule?".
-        filters.and(Filters.of("userId", Operator.IS_SET, null))
-                .and(Filters.of("userId.status", Operator.EQUAL, "Active"))
-                .and(Filters.of("userId", Operator.EQUAL, userId));
+        // AND the single-user anchor — we're asking "does the Employee whose
+        // userId matches this user satisfy the rule?" — then the Active
+        // safety clause, asked of the account itself.
+        filters.and(Filters.of("userId", Operator.EQUAL, userId));
         long matches = modelService.count("Employee", filters);
-        if (matches <= 0) return false;
+        if (matches <= 0 || activeAccounts(List.of(userId)).isEmpty()) return false;
 
         // Manual row check — if one exists, the schema's unique key
         // (tenant_id, user_id, role_id, source) still permits a separate
@@ -350,6 +351,26 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      * this role" have nobody to ask about. Only the write is lifted; the Employee lookup that decides
      * who matches stays as it was.
      */
+    /**
+     * Of {@code accountIds}, the accounts that are Active — Locked, Frozen, Unverified and the rest
+     * never get a dynamic grant.
+     *
+     * <p>Read without permission checks: the status is the job's own safety clause, not data shown to
+     * anyone, and whoever saved the role (or the cron running it) need not hold the account read.
+     */
+    private Set<Long> activeAccounts(Collection<Long> accountIds) {
+        if (accountIds.isEmpty()) return Set.of();
+        Filters active = new Filters().in(ModelConstant.ID, accountIds).eq("status", "Active");
+        List<Map<String, Object>> rows = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                "UserAccount", new FlexQuery(List.of(ModelConstant.ID), active)));
+        Set<Long> ids = new LinkedHashSet<>();
+        for (Map<String, Object> row : rows) {
+            Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
+            if (id != null) ids.add(id);
+        }
+        return ids;
+    }
+
     private static <T> T asRuleConsequence(Supplier<T> write) {
         return ContextUtils.withoutPermissionChecks(write);
     }
