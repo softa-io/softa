@@ -1515,7 +1515,8 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * Named the way a user sees them: the set's short name ("Pay") and the model ("employee") —
      * "You don't have permission to edit Pay fields for this employee." A file import reads "update",
-     * since the uploader is not editing anything.
+     * since the uploader is not editing anything. Recorded against the field, so a client shows the
+     * sentence instead of a generic denial.
      */
     private PermissionException sensitiveWriteDenied(String model, String field) {
         String set = sfsCache.setIdsContaining(model, field).stream()
@@ -1528,7 +1529,8 @@ public class PermissionServiceImpl implements PermissionService {
                 ? inSentence(ModelManager.getModel(model).getLabel())
                 : model;
         String verb = ImportScope.isActive() ? "update" : "edit";
-        return new PermissionException("You don't have permission to " + verb + " " + set + " fields for this " + label + ".");
+        return PermissionException.forField(field,
+                "You don't have permission to " + verb + " " + set + " fields for this " + label + ".");
     }
 
     /**
