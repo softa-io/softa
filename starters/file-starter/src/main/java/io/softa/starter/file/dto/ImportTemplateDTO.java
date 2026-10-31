@@ -45,6 +45,14 @@ public class ImportTemplateDTO {
 
     private List<ImportFieldDTO> importFields;
 
+    /**
+     * The template's columns the caller may not write ({@link io.softa.starter.file.excel.imports.ImportFieldAccess}),
+     * taken out of {@link #importFields}. Decided where the caller's permissions are known and carried
+     * here, because an asynchronous import reads the file on a consumer that has no such caller: there
+     * a value in one of these columns is refused, row by row, and the column is otherwise ignored.
+     */
+    private List<ImportFieldDTO> withheldFields = new ArrayList<>();
+
     // file info
     private Long templateId;
     private Long fileId;

@@ -323,6 +323,16 @@ curl -X POST http://localhost:8080/import/dynamicImport \
   grant on `ImportHistory` finish their own run instead of leaving it `PROCESSING`.
 - Writes made by an import run inside `ImportScope`, so a permission refusal reads "update" for the
   uploader rather than "edit".
+- **Columns follow the caller's field permissions** (`ImportFieldAccess`). A column whose field the
+  caller may not write — a field of a sensitive field set none of their roles grants, asked of the field
+  the column lands on (`empBankAccountId.methodOfPayment` is the bank account's `methodOfPayment`) — is
+  left out of the downloaded template, out of the fields `POST /ImportTemplate/listByModel` returns for
+  the import dialog, and out of the required checks and the write. A create-or-update template drops a
+  column refused for either. A file that still carries such a column (made from another caller's
+  template) is read: a row that fills it fails with `You do not have permission to set <header>.`, and
+  an empty one is ignored. Admins and consultants are blocked from nothing, so their templates are
+  unchanged. Before this, a caller without the set was handed a template requiring a column the save
+  then refused — a file that could not succeed either way.
 - Import status can be `PROCESSING`, `SUCCESS`, `FAILURE`, `PARTIAL_FAILURE`; a validation run
   (§5) records `VALIDATION_SUCCESS` / `VALIDATION_FAILURE` instead and attaches a result file in the
   **same format**, named `<uploaded file name>_Validation Result` — kept apart by name because a
