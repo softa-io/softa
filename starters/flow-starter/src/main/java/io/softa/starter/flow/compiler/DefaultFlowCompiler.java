@@ -46,6 +46,8 @@ public class DefaultFlowCompiler {
                 new TaskConfigValidator(),
                 new UnsupportedNodeTypeValidator(),
                 new ApprovalConfigValidator(),
+                new TimerConfigValidator(),
+                new TemplatePlaceholderValidator(),
                 new GatewayValidator()
         );
     }
@@ -90,6 +92,7 @@ public class DefaultFlowCompiler {
                 .flowName(definition.getName())
                 .scenario(definition.getScenario())
                 .compiledAt(LocalDateTime.now())
+                .modelName(definition.getModelName())
                 .trigger(definition.getTrigger())
                 .forms(defaultList(definition.getForms()))
                 .withdrawPolicy(definition.getWithdrawPolicy() == null ? WithdrawPolicy.NEVER : definition.getWithdrawPolicy())

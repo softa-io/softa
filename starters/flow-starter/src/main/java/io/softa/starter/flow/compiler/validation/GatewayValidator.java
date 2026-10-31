@@ -45,7 +45,8 @@ public class GatewayValidator implements FlowValidator {
             int outgoing = sizeOf(context.outgoingEdgeIds().get(node.getId()));
 
             validateOutgoingEdgeConditions(node.getId(), node.getType().getType(),
-                    context.outgoingEdgeIds().get(node.getId()), context.edgeMap(), definition.getTrigger(), d);
+                    context.outgoingEdgeIds().get(node.getId()), context.edgeMap(), definition.getTrigger(),
+                    recordModelOf(definition), d);
 
             if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
                 if (outgoing < 2) {
@@ -79,6 +80,7 @@ public class GatewayValidator implements FlowValidator {
                                                 List<String> outgoingEdgeIds,
                                                 Map<String, FlowGraphEdge> edgeMap,
                                                 TriggerSource trigger,
+                                                String modelName,
                                                 List<CompileDiagnostic> d) {
         for (String edgeId : outgoingEdgeIds == null ? Collections.<String>emptyList() : outgoingEdgeIds) {
             FlowGraphEdge edge = edgeMap.get(edgeId);
@@ -92,7 +94,7 @@ public class GatewayValidator implements FlowValidator {
                 d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, CONFLICTING_EDGE_CONDITIONS,
                         "Edge '" + edge.getId() + "' has both a rule condition and an expression; keep one"));
             } else if (rule) {
-                validateRuleCondition(edge, nodeId, nodeType, trigger, d);
+                validateRuleCondition(edge, nodeId, nodeType, trigger, modelName, d);
             } else if (StringUtils.hasText(edge.getConditionExpression())
                     && !ComputeUtils.validateExpression(edge.getConditionExpression())) {
                 d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, INVALID_CONDITION_EXPR,
@@ -124,8 +126,7 @@ public class GatewayValidator implements FlowValidator {
      * is: an approval's only by the fields its approvals route on, an entity change's by its model's.
      */
     private static void validateRuleCondition(FlowGraphEdge edge, String nodeId, String nodeType,
-                                              TriggerSource trigger, List<CompileDiagnostic> d) {
-        String modelName = trigger == null ? null : trigger.modelName();
+                                              TriggerSource trigger, String modelName, List<CompileDiagnostic> d) {
         if (!StringUtils.hasText(modelName) || !ModelManager.existModel(modelName)) {
             d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, RULE_WITHOUT_RECORD,
                     "Edge '" + edge.getId() + "' has a rule condition, but the flow starts on no record whose"
@@ -146,15 +147,29 @@ public class GatewayValidator implements FlowValidator {
                     }
                 }
             }
-            FieldConstraints.checkCondition(edge.getCondition(), prefix,
-                    field -> ModelManager.existField(modelName, field)
-                            ? FieldRef.of(ModelManager.getModelField(modelName, field))
-                            : null,
-                    false);
+            checkRule(edge.getCondition(), modelName, prefix);
         } catch (IllegalStateException e) {
             d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, INVALID_RULE_CONDITION,
                     e.getMessage()));
         }
+    }
+
+    /**
+     * Checks a rule over the fields of {@code modelName} the way the annotation scan checks a field condition.
+     *
+     * @throws IllegalStateException naming what is wrong, after {@code prefix}
+     */
+    static void checkRule(Filters rule, String modelName, String prefix) {
+        FieldConstraints.checkCondition(rule, prefix,
+                field -> ModelManager.existField(modelName, field)
+                        ? FieldRef.of(ModelManager.getModelField(modelName, field))
+                        : null,
+                false);
+    }
+
+    /** The model of the record the flow starts on; none when its trigger starts on no record. */
+    private static String recordModelOf(DesignFlowDefinition definition) {
+        return definition.getTrigger() != null && definition.getTrigger().onRecord() ? definition.getModelName() : null;
     }
 
     private static boolean isExclusiveEdgeNode(FlowGraphNode node) {

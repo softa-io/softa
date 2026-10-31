@@ -183,7 +183,7 @@ class FlowEndToEndExecutionTest {
         return DesignFlowDefinition.builder()
                 .name("E2E Parallel Mixed Wait")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .modelName("LeaveRequest").trigger(new SubmitTrigger())
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -297,7 +297,7 @@ class FlowEndToEndExecutionTest {
         return DesignFlowDefinition.builder()
                 .name("E2E Approval Then Service")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .modelName("LeaveRequest").trigger(new SubmitTrigger())
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

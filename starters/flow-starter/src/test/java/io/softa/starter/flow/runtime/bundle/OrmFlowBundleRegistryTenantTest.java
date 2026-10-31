@@ -241,7 +241,7 @@ class OrmFlowBundleRegistryTenantTest {
                 .scenario(FlowScenario.AUTOMATION)
                 .compiledAt(LocalDateTime.now())
                 .sync(false)
-                .trigger(new EntityChangeTrigger("Order", List.of(ChangeEvent.CREATE), null))
+                .modelName("Order").trigger(new EntityChangeTrigger(List.of(ChangeEvent.CREATE), null))
                 .entryNodeIds(List.of("start"))
                 .terminalNodeIds(List.of("end"))
                 .nodeIndex(Map.of(

@@ -21,6 +21,10 @@ public record FlowDesignCreateRequest(
         @Schema(description = "Execution scenario")
         FlowScenario scenario,
 
+        @Schema(description = "The model whose records the flow starts on: an Approval flow's document (required), the "
+                + "model a change trigger watches; omitted for a flow started on no record. Fixed once created")
+        String modelName,
+
         @Schema(description = "Optional initial canvas; an empty canvas is created when omitted")
         DesignFlowDefinition designJson
 ) {

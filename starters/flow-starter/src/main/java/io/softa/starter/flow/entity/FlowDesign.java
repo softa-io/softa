@@ -16,7 +16,7 @@ import io.softa.starter.flow.enums.FlowScenario;
  * Persistent working copy of a flow design (draft).
  *
  * <p>There is exactly <em>one</em> {@code FlowDesign} record per flow, and its {@code id} is the flow's
- * handle everywhere else (bundles, instances, tasks, delegations, CC rules). Its {@code flowName} is unique
+ * handle everywhere else (bundles, instances, tasks, delegations). Its {@code flowName} is unique
  * within the tenant, so a flow is also known to people by its name.
  * It represents the latest saved state of the design-time graph, independent of
  * whether the flow has been compiled and published. Published revisions are stored
@@ -31,6 +31,9 @@ import io.softa.starter.flow.enums.FlowScenario;
  *   <li>{@link #publishedRevision} and {@link #publishedChecksum} are set each time
  *       {@code POST /flow/designs/{id}/publish} succeeds, pointing to the
  *       corresponding {@code FlowBundle#getRevision()}.</li>
+ *   <li>{@link #enabled} switches the flow off and on ({@code POST /flow/designs/{id}/disable} /
+ *       {@code enable}) without touching which revision is effective. Once published, the flow is never
+ *       deleted — disabled instead — since its revisions, instances and approval history refer to it.</li>
  * </ol>
  * </p>
  */
@@ -50,6 +53,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 @Index(indexName = "uk_tenant_flow_name", fields = {"tenantId", "flowName"}, unique = true,
        message = "A flow with this name already exists.")
 @Index(indexName = "idx_tenant_scenario", fields = {"tenantId", "scenario"})
+@Index(fields = {"tenantId", "modelName"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowDesign extends AuditableModel {
 
@@ -71,6 +75,14 @@ public class FlowDesign extends AuditableModel {
                    """)
     private FlowScenario scenario;
 
+    @Field(description = "The model whose records the flow starts on — an Approval flow's document, the model a change "
+            + "trigger watches; empty when the flow starts on no record (a schedule, an API call, a parent flow). "
+            + "Chosen when the flow is created and fixed: its nodes, conditions and field permissions read it",
+           readonlyWhen = """
+                   [["@mode", "=", "update"]]
+                   """)
+    private String modelName;
+
     @Field(description = "Optimistic-lock version; the editor echoes the loaded value on save "
             + "and a mismatch is rejected as a version conflict")
     private Integer version;
@@ -86,4 +98,10 @@ public class FlowDesign extends AuditableModel {
             description = "SHA-256 of designJson at the most recent successful publish; "
                     + "compared against the current draft to derive the editor's dirty flag")
     private String publishedChecksum;
+
+    @Field(required = true, defaultValue = "true",
+            description = "Whether the flow runs: a disabled flow starts nothing — no submission, change, schedule, "
+                    + "API call or parent flow reaches it — while the instances already running carry on. "
+                    + "Independent of which revision is effective, and of publishing")
+    private Boolean enabled;
 }

@@ -1,9 +1,12 @@
 package io.softa.starter.flow.service;
 
+import java.util.List;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.flow.dto.FlowDesignCreateRequest;
 import io.softa.starter.flow.dto.FlowDesignDuplicateRequest;
 import io.softa.starter.flow.dto.FlowDesignSaveRequest;
+import io.softa.starter.flow.dto.ApprovalModelView;
 import io.softa.starter.flow.dto.FlowDesignStatusView;
 import io.softa.starter.flow.entity.FlowDesign;
 
@@ -31,8 +34,26 @@ public interface FlowDesignService extends EntityService<FlowDesign, String> {
     /** Duplicate a draft under a fresh name (publish state is not copied). */
     FlowDesign duplicateDesign(String id, FlowDesignDuplicateRequest request);
 
-    /** Draft-vs-published status for the editor header (revision badge + dirty flag). */
+    /** Draft-vs-published status for the editor header (revision badge, dirty flag, enabled). */
     FlowDesignStatusView getStatus(String id);
+
+    /**
+     * Switch the flow off: it starts nothing more — no submission, change, schedule, API call or parent flow
+     * reaches it — while the instances already running carry on. The effective revision stays as it is, so
+     * {@link #enable} brings back the same one. Refused while an enabled flow calls it as a subflow.
+     *
+     * @return the flow's status
+     */
+    FlowDesignStatusView disable(String id);
+
+    /**
+     * Switch the flow back on, on the revision that was effective; a no-op when it is on. Refused for an approval
+     * flow whose document has another approval flow enabled.
+     */
+    FlowDesignStatusView enable(String id);
+
+    /** The documents the application can approve, each with its approval flow, if it has one; by label. */
+    List<ApprovalModelView> listApprovalModels();
 
     /**
      * Update the draft's publish markers ({@code FlowDesign#getPublishedRevision()} and

@@ -130,7 +130,7 @@ class BatchApprovalScenarioTest {
         return DesignFlowDefinition.builder()
                 .name("Batch")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .modelName("LeaveRequest").trigger(new SubmitTrigger())
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),

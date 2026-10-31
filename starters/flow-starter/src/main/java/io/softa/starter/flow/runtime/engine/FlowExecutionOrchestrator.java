@@ -322,7 +322,8 @@ public class FlowExecutionOrchestrator {
             return;
         }
         CompiledFlowDefinition subflow = bundleRegistry.getActiveByFlowId(subflowId)
-                .orElseThrow(() -> new FlowRuntimeException("Compiled subflow bundle not found: flowId=" + subflowId));
+                .orElseThrow(() -> new FlowRuntimeException("Subflow " + subflowId
+                        + " cannot run: it was never published, or it is disabled"));
         String subflowName = subflow.getFlowName();
         // A flow's trigger is its start contract: only a flow that declares a Subflow trigger (an
         // Automation flow) runs from a parent.
