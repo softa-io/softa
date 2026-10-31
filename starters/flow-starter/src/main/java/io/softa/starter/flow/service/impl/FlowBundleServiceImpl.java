@@ -126,16 +126,25 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
                 .eq(FlowBundle::getActive, true);
         for (FlowBundle bundle : this.searchList(activeFilters)) {
             if (!revision.equals(bundle.getRevision())) {
-                bundle.setActive(false);
-                this.updateOne(bundle, false);
+                writeActive(bundle.getId(), false);
             }
         }
         findByFlowIdAndRevision(flowId, revision).ifPresent(bundle -> {
             if (!Boolean.TRUE.equals(bundle.getActive())) {
-                bundle.setActive(true);
-                this.updateOne(bundle, false);
+                writeActive(bundle.getId(), true);
             }
         });
+    }
+
+    /**
+     * Only the flag: written back whole, a bundle read with any field cut would clear that field — the
+     * compiled definition among them.
+     */
+    private void writeActive(Long bundleId, boolean active) {
+        FlowBundle patch = new FlowBundle();
+        patch.setId(bundleId);
+        patch.setActive(active);
+        this.updateOne(patch);
     }
 
     /**

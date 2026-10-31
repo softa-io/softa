@@ -41,16 +41,19 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
     @Override
     public FlowDesign saveDraft(String id, FlowDesignSaveRequest request) {
         FlowDesign design = requireDesign(id);
-        // optimistic lock: echo the version the editor loaded; a mismatch is rejected
-        design.setVersion(request.version());
         if (request.flowName() != null) {
             design.setFlowName(request.flowName());
         }
         if (request.scenario() != null) {
             design.setScenario(request.scenario());
         }
-        design.setDesignJson(alignedDefinition(request.designJson(), design));
-        this.updateOne(design, false);
+        FlowDesign patch = patchOf(id);
+        // optimistic lock: echo the version the editor loaded; a mismatch is rejected
+        patch.setVersion(request.version());
+        patch.setFlowName(request.flowName());
+        patch.setScenario(request.scenario());
+        patch.setDesignJson(alignedDefinition(request.designJson(), design));
+        this.updateOne(patch);
         return requireDesign(id);
     }
 
@@ -93,9 +96,10 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
     @Override
     public void upsertFromPublish(String flowId, Integer publishedRevision) {
         getById(flowId).ifPresent(design -> {
-            design.setPublishedRevision(publishedRevision);
-            design.setPublishedChecksum(checksumOf(design.getDesignJson()));
-            updateOne(design, false);
+            FlowDesign patch = patchOf(flowId);
+            patch.setPublishedRevision(publishedRevision);
+            patch.setPublishedChecksum(checksumOf(design.getDesignJson()));
+            updateOne(patch);
         });
     }
 
@@ -115,8 +119,9 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
                     "Bundle " + bundleId + " does not belong to design " + flowId);
         }
         FlowDesign design = requireDesign(flowId);
-        design.setDesignJson(alignedDefinition(bundle.getDesignJson(), design));
-        updateOne(design, false);
+        FlowDesign patch = patchOf(flowId);
+        patch.setDesignJson(alignedDefinition(bundle.getDesignJson(), design));
+        updateOne(patch);
         return requireDesign(flowId);
     }
 
@@ -126,6 +131,16 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
             return null;
         }
         return EncryptUtils.computeSha256(JsonUtils.objectToString(definition));
+    }
+
+    /**
+     * An update carrying only the fields a method sets. Written back whole, with its nulls, a design read with
+     * any field cut would clear that field: the published revision, the checksum, the document itself.
+     */
+    private static FlowDesign patchOf(String id) {
+        FlowDesign patch = new FlowDesign();
+        patch.setId(id);
+        return patch;
     }
 
     private FlowDesign requireDesign(String id) {

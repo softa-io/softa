@@ -59,8 +59,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
         int count = 0;
         for (FlowDelegation d : candidates) {
             if (d.getEndTime() != null && d.getEndTime().isBefore(now)) {
-                d.setActive(false);
-                this.updateOne(d, false);
+                writeInactive(d);
                 count++;
             }
         }
@@ -73,8 +72,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
                 .filter(d -> requesterId != null && requesterId.equals(d.getDelegatorId()))
                 .orElseThrow(() -> new FlowAuthorizationException(
                         "You have no delegation " + delegationId + " to cancel"));
-        delegation.setActive(false);
-        this.updateOne(delegation, false);
+        writeInactive(delegation);
     }
 
     @Override
@@ -86,8 +84,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     public void deactivate(Long delegationId) {
         FlowDelegation delegation = this.getById(delegationId)
                 .orElseThrow(() -> new FlowActionValidationException("No delegation " + delegationId + " to cancel"));
-        delegation.setActive(false);
-        this.updateOne(delegation, false);
+        writeInactive(delegation);
     }
 
     @Override
@@ -107,13 +104,30 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     @Override
     public void recordDelegationUsage(Long delegationId) {
         this.getById(delegationId).ifPresent(d -> {
-            d.setDelegatedTaskCount((d.getDelegatedTaskCount() != null ? d.getDelegatedTaskCount() : 0) + 1);
-            d.setLastDelegationTime(LocalDateTime.now());
-            this.updateOne(d, false);
+            FlowDelegation patch = patchOf(d);
+            patch.setDelegatedTaskCount((d.getDelegatedTaskCount() != null ? d.getDelegatedTaskCount() : 0) + 1);
+            patch.setLastDelegationTime(LocalDateTime.now());
+            this.updateOne(patch);
         });
     }
 
     // --- private helpers ---
+
+    /**
+     * Written back whole, a delegation read with any field cut would clear that field — the delegate,
+     * scope or dates. Each change writes only the id and the fields it sets.
+     */
+    private static FlowDelegation patchOf(FlowDelegation delegation) {
+        FlowDelegation patch = new FlowDelegation();
+        patch.setId(delegation.getId());
+        return patch;
+    }
+
+    private void writeInactive(FlowDelegation delegation) {
+        FlowDelegation patch = patchOf(delegation);
+        patch.setActive(false);
+        this.updateOne(patch);
+    }
 
     private boolean isWithinDateRange(FlowDelegation d, LocalDateTime now) {
         if (d.getStartTime() != null && now.isBefore(d.getStartTime())) {
