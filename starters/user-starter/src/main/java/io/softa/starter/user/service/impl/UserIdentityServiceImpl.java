@@ -49,7 +49,7 @@ import io.softa.starter.user.util.LoginIdentifiers;
 public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Long>
         implements UserIdentityService {
 
-    /** Consecutive wrong passwords that lock the password path (PRD D5). */
+    /** Consecutive wrong passwords that lock the password path. */
     /** How long it stays locked. */
     private static final int LOCK_MINUTES = 30;
 
@@ -198,7 +198,7 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         // self-service change and admin reset all land in this method, and a rule that every
         // caller must remember to apply is a rule that one of them eventually will not.
         // Checked against the person's OWN identifiers — that is what makes "not derived from
-        // your contact details" mean anything (PRD D4).
+        // your contact details" mean anything.
         PasswordPolicy.validate(rawPassword, identity.getLoginMobile(), identity.getLoginEmail());
         String salt = PasswordUtils.generateSalt();
         identity.setPasswordSalt(salt);

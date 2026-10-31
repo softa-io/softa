@@ -158,7 +158,24 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         return updated;
     }
 
-    // @CrossTenant: the company step runs BEFORE a tenant context exists — the whole point is to
+    /**
+     * Run a query across every tenant, whoever calls it.
+     *
+     * <p>{@code @CrossTenant} is an aspect, so it only applies when the call comes through the Spring
+     * proxy. This class calls its own membership lookups too — a create deciding whether a number is
+     * dormant, a release checking the holder — and through {@code this} the annotation is silently
+     * skipped: the query is filtered by the caller's tenant, and a person who is still employed in
+     * another company reads as having left everywhere. The lookups that must span tenants therefore
+     * say so in their body, where no call path can drop it.
+     */
+    private static <T> T acrossTenants(Supplier<T> query) {
+        Context context = ContextHolder.cloneContext();
+        context.setCrossTenant(true);
+        context.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(context, query::get);
+    }
+
+    // Across tenants: the company step runs BEFORE a tenant context exists — the whole point is to
     // list memberships ACROSS tenants so the person can pick one.
     @Override
     @CrossTenant
@@ -166,7 +183,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (profileId == null) {
             return List.of();
         }
-        return this.searchList(new Filters().eq(UserAccount::getProfileId, profileId)).stream()
+        return acrossTenants(() -> this.searchList(new Filters().eq(UserAccount::getProfileId, profileId))).stream()
                 .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED)
                 .toList();
     }
@@ -178,7 +195,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (profileId == null) {
             return List.of();
         }
-        return this.searchList(new Filters().eq(UserAccount::getProfileId, profileId)).stream()
+        return acrossTenants(() -> this.searchList(new Filters().eq(UserAccount::getProfileId, profileId))).stream()
                 .map(UserAccount::getId)
                 .toList();
     }
@@ -187,24 +204,45 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     static final Set<AccountStatus> JOINED_STATUSES =
             EnumSet.of(AccountStatus.ACTIVE, AccountStatus.FROZEN, AccountStatus.LOCKED);
 
+    /** One address: something before and after a single {@code @}, a dot in the domain, no spaces. */
+    private static final java.util.regex.Pattern EMAIL_SHAPE =
+            java.util.regex.Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+
     @Override
     @CrossTenant
     @SkipPermissionCheck
     public Set<Long> findJoinedProfilesByEmail(String email) {
         String wanted = StringUtils.trimToNull(email);
-        if (wanted == null) {
+        // Reached from anonymous login screens: anything that is not one address is answered with
+        // nobody rather than turned into a query.
+        if (wanted == null || !EMAIL_SHAPE.matcher(wanted).matches()) {
             return Set.of();
         }
-        // START_WITH is the dialect's case-insensitive match (ILIKE on PostgreSQL); the exact,
-        // case-folded comparison below is what decides. Email case is not significant, and the
-        // column keeps the address as HR typed it.
-        return this.searchList(new Filters()
-                        .startWith(UserAccount::getEmail, wanted)
-                        .in(UserAccount::getStatus, List.copyOf(JOINED_STATUSES))).stream()
-                .filter(account -> account.getProfileId() != null && wanted.equalsIgnoreCase(
-                        StringUtils.trim(account.getEmail())))
+        return acrossTenants(() -> this.accountsWithEmail(new Filters()
+                        .in(UserAccount::getStatus, List.copyOf(JOINED_STATUSES)), wanted)).stream()
+                .filter(account -> account.getProfileId() != null)
                 .map(UserAccount::getProfileId)
                 .collect(java.util.stream.Collectors.toSet());
+    }
+
+    /**
+     * The accounts among {@code base} whose email is {@code email}, case aside.
+     *
+     * <p>Email case is not significant and the column keeps the address as HR typed it, so the
+     * equality cannot be a plain {@code =} on PostgreSQL. The query is the dialect's case-insensitive
+     * prefix match (ILIKE there) with the address's own {@code %} and {@code _} escaped — unescaped, an
+     * identifier of {@code %@%} would match every row — and the exact, case-folded comparison here is
+     * what decides.
+     */
+    private List<UserAccount> accountsWithEmail(Filters base, String email) {
+        return this.searchList(base.startWith(UserAccount::getEmail, likeLiteral(email))).stream()
+                .filter(account -> email.equalsIgnoreCase(StringUtils.trim(account.getEmail())))
+                .toList();
+    }
+
+    /** A value matched literally inside a LIKE pattern: its wildcards and the escape character escaped. */
+    static String likeLiteral(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     // @CrossTenant: login / forgot-password resolve an account by credential BEFORE a tenant
@@ -315,7 +353,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @Override
     @Transactional
     public UserInfo registerInvitedUser(String email, String mobile, String fullName) {
-        NewAccountDecision decision = this.decideNewAccount(email, mobile);
+        NewAccountDecision decision = this.decideNewAccount(email, mobile, true);
         if (decision.refusal() != null) {
             throw new BusinessException(decision.refusal());
         }
@@ -329,7 +367,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (decision.closedRow() != null) {
             UserAccount revived = this.reviveMembership(existingPerson, email, mobile)
                     .orElseThrow(() -> new BusinessException("This person is already a member of this company."));
-            return profileService.getUserInfo(revived.getId());
+            // Nobody is behind the reopened row until /join binds them, so there is no person to
+            // build a full UserInfo from — the caller only needs the account it was given.
+            UserInfo reopened = new UserInfo();
+            reopened.setUserId(revived.getId());
+            reopened.setTenantId(revived.getTenantId());
+            return reopened;
         }
 
         UserAccountDTO accountInfo = new UserAccountDTO();
@@ -380,7 +423,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @SkipPermissionCheck
     @Override
     public String newAccountRefusal(String email, String mobile) {
-        return this.decideNewAccount(email, mobile).refusal();
+        // A pre-check writes nothing: a dormant number is reported as free, and released only by the
+        // create that follows.
+        return this.decideNewAccount(email, mobile, false).refusal();
     }
 
     /**
@@ -399,8 +444,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * relaxed.
      *
      * <p>The membership is resolved BEFORE the contact checks because a closed one changes what
-     * they mean: a leaver's own old work address still sits on their DEACTIVATED row, and counting
-     * it would refuse the very re-hire that row exists to be reused for.
+     * they mean: a leaver's DEACTIVATED row may still carry their work mobile, and counting it would
+     * refuse the very re-hire that row exists to be reused for.
      *
      * <p>A contact names a person ONLY through a live login identifier. A DEACTIVATED row holding
      * the contact is deliberately not read as "this is that person": a work address or a pool
@@ -412,14 +457,17 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * create is refused and the operator is pointed at the explicit {@link #rehire}, where the row
      * is named by id and the intent is stated rather than inferred.
      */
-    private NewAccountDecision decideNewAccount(String email, String mobile) {
+    private NewAccountDecision decideNewAccount(String email, String mobile, boolean release) {
         Long tenantId = ContextHolder.getContext() == null ? null : ContextHolder.getContext().getTenantId();
         Long byEmail = this.personHolding(email);
         Long byMobile = this.personHolding(mobile);
         // A number whose holder has left every company is most likely a recycled one: the new
         // employee must not be filed under the leaver's person. Released, and a new person is made.
+        // Except when the holder left THIS company: that is the leaver coming back with their own
+        // number, and the closed row below is revived for them.
         if (byMobile != null && !byMobile.equals(byEmail) && this.listMembershipsOf(byMobile).isEmpty()
-                && this.releaseDormantLoginMobile(mobile, "Account created")) {
+                && !this.belongedToTenant(tenantId, byMobile)
+                && (!release || this.releaseDormantLoginMobile(mobile, "Account created"))) {
             byMobile = null;
         }
         // A second identifier pointing at a DIFFERENT person is not a second company — it is two
@@ -470,6 +518,20 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         return "This person is already a member of this company.";
     }
 
+    /**
+     * Whether this person has a row in this company: their closed membership, or one reopened for
+     * their re-hire that nobody has joined yet.
+     */
+    private boolean belongedToTenant(Long tenantId, Long profileId) {
+        if (tenantId == null || profileId == null) {
+            return false;
+        }
+        return this.findMembershipInTenant(tenantId, profileId).isPresent()
+                || !acrossTenants(() -> this.searchList(new Filters()
+                        .eq(UserAccount::getTenantId, tenantId)
+                        .eq(UserAccount::getFormerProfileId, profileId))).isEmpty();
+    }
+
     /** The person whose live login identifier this contact is, or null when it is nobody's. */
     private Long personHolding(String contact) {
         if (StringUtils.isBlank(contact)) {
@@ -505,16 +567,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     // mirror of off-boarding, reached from HR's roster with whatever grants that role holds, and the
     // row is named by id from a roster that may span tenants.
     //
-    // Residual, by design — the reissued contact. The revived row keeps the contacts it was closed
-    // with, and the invitation HR sends next goes to them. If the person's identity is FULLY
-    // released (no login identifier on either channel), /join rebinds the address that receives the
-    // code onto that identity as a login identifier — so whoever now holds a reissued address (a
-    // pool phone handed on, an old work mailbox) can claim the leaver's identity and every company
-    // it still belongs to. An identity holding any live identifier is not rebound (see
-    // LoginServiceImpl.reclaimLoginIdentifier), which leaves exactly the fully-released case open,
-    // because there is no other evidence of who the person is. Mitigations are procedural: HR
-    // corrects the row's contacts through Reset User BEFORE inviting, and the invitation is
-    // HR-initiated — nobody can trigger it against a row they do not administer.
+    // Who comes back is decided at /join, not here: the reopened row remembers its person, and the
+    // number verified there either is that person's login mobile (bound back) or is not (a new
+    // person, or the holder's own account, as for any invitation).
     @SkipPermissionCheck
     @Override
     @CrossTenant
@@ -525,20 +580,35 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (account.getStatus() != AccountStatus.DEACTIVATED) {
             throw new BusinessException("Only a closed account can be re-hired.");
         }
-        if (account.getProfileId() == null) {
+        if (account.getProfileId() == null && account.getFormerProfileId() == null) {
             throw new BusinessException(
                     "This closed account is not linked to a person, so there is nobody to re-hire.");
         }
-        // The row's own contacts, not fresh ones: what is being reopened is THIS person's membership
-        // as it was closed. HR corrects the contacts afterwards (Reset User) if they have changed,
-        // and sends the invitation as a separate, visible step — reopening contacts nobody.
+        // The contacts come from the employee record: closing the account cleared its enterprise
+        // email, and the invitation goes to the personal mobile. The row's own values are the
+        // fallback for a deployment without employee records. HR sends the invitation as a
+        // separate, visible step — reopening contacts nobody.
         //
         // The LOADED row is revived, not one re-queried by (profileId, ambient tenant). Re-hire is
         // reached from the roster, where a platform super-admin's ambient tenant is their own while
         // the row they named may sit in another company: the re-query found nothing there ("not
         // linked to a person") or, when the same person had also left the admin's company, revived
         // THAT closed row instead of the one asked for.
-        this.revive(account, account.getEmail(), account.getMobile());
+        String email = StringUtils.defaultIfBlank(this.archiveWorkContacts(accountId).email(), account.getEmail());
+        String mobile = StringUtils.defaultIfBlank(this.archivePersonalMobile(accountId), account.getMobile());
+        this.revive(account, email, mobile);
+    }
+
+    @SkipPermissionCheck
+    @Override
+    @CrossTenant
+    @Transactional
+    public Optional<UserAccount> reviveAccount(Long accountId, String workEmail, String workMobile) {
+        // By the account's own id, not by the person behind it: a row reopened once and closed again
+        // before anyone joined has no person, and would otherwise never be found again.
+        return this.getById(accountId)
+                .filter(account -> account.getStatus() == AccountStatus.DEACTIVATED)
+                .map(account -> this.revive(account, workEmail, workMobile));
     }
 
     // @SkipPermissionCheck for the mirror of registerInvitedUser's reason. That one pairs an
@@ -556,12 +626,14 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         UserAccount account = this.getById(accountId)
                 .orElseThrow(() -> new BusinessException("Account not found."));
         if (offBoardWith(account)) {
-            this.updateOne(account);
+            // updateOne(entity, false): closing clears the enterprise email, a null the default
+            // overload drops.
+            this.updateOne(account, false);
         }
     }
 
     /**
-     * The three things off-boarding must do, on an already-loaded membership.
+     * What off-boarding must do, on an already-loaded membership.
      *
      * <p>Separated from the lookup so the rules are testable without the ORM, and because their
      * ORDER is deliberate — see the comments inline.
@@ -592,7 +664,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             // closes ONE membership, and a re-hire REVIVES the row, so a lock left standing greets
             // the returning employee as a refused password login with nothing in the UI to explain
             // it. Cleared unconditionally, exactly as freezeAccount does on the same transition
-            // (PRD 2.1 "termination — clear the lock first → Deactivated").
+            // (termination clears the lock first, then closes the membership).
             if (identity.getPasswordLockedUntil() != null) {
                 identity.setPasswordLockedUntil(null);
                 changed = true;
@@ -615,7 +687,18 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         clearRoleGrants(account);
         // ③ Links not yet used die with the membership.
         invitationService.revokeOutstandingLinks(account.getId());
-        // ④ Close the membership.
+        // ④ The enterprise email goes with the job: the mailbox is the company's to give to the next
+        // hire, and an address left on a closed row would keep blocking that hire's account. The old
+        // value is kept in the security log; a re-hire takes the address from the employee record.
+        if (StringUtils.isNotBlank(account.getEmail())) {
+            UserSecurityLog cleared = securityLog.entry(SecurityAction.ENTERPRISE_EMAIL_CHANGED,
+                    SecurityLogSource.SYSTEM, account, null);
+            cleared.setOldValue(account.getEmail());
+            cleared.setReason("Deactivated");
+            securityLog.record(cleared);
+            account.setEmail(null);
+        }
+        // ⑤ Close the membership.
         account.setStatus(AccountStatus.DEACTIVATED);
         this.logStatusChange(account, previous, AccountStatus.DEACTIVATED, SecurityLogSource.SYSTEM, null);
         return true;
@@ -631,8 +714,11 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
         UserIdentity holder = identityService.findByLoginIdentifier(mobile).orElse(null);
         // listMembershipsOf leaves Deactivated out: anything it returns — Active, Frozen, Pending,
-        // Invited — is a person still in some company, whose number stays theirs.
-        if (holder == null || !this.listMembershipsOf(holder.getProfileId()).isEmpty()) {
+        // Invited — is a person still in some company, whose number stays theirs. So is a person a
+        // company has reopened a row for and is waiting to have back: /join recognises them by
+        // this very number.
+        if (holder == null || !this.listMembershipsOf(holder.getProfileId()).isEmpty()
+                || this.isAwaitedBack(holder.getProfileId())) {
             return false;
         }
         String released = holder.getLoginMobile();
@@ -647,17 +733,28 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         return true;
     }
 
+    /** Whether a row reopened for this person's re-hire is still waiting for them to join. */
+    private boolean isAwaitedBack(Long profileId) {
+        return !acrossTenants(() -> this.searchList(new Filters()
+                .eq(UserAccount::getFormerProfileId, profileId)
+                .isNotSet(UserAccount::getProfileId)
+                .in(UserAccount::getStatus, List.copyOf(CONTACTS_EDITABLE)))).isEmpty();
+    }
+
     @Override
     @CrossTenant
     @SkipPermissionCheck
-    public boolean isEmailHeldByAnotherPerson(String email, Long profileId) {
+    public boolean isEmailHeldByAnotherPerson(String email, Long profileId, Long exceptAccountId) {
         String wanted = StringUtils.trimToNull(email);
         if (wanted == null) {
             return false;
         }
-        return this.searchList(new Filters().startWith(UserAccount::getEmail, wanted)).stream()
+        // The account being joined or edited never counts against itself: when /join puts the
+        // verified person in place of the placeholder minted with the account, the account still
+        // names the placeholder until the bind is written.
+        return acrossTenants(() -> this.accountsWithEmail(new Filters(), wanted)).stream()
                 .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED
-                        && wanted.equalsIgnoreCase(StringUtils.trim(account.getEmail())))
+                        && !Objects.equals(account.getId(), exceptAccountId))
                 .anyMatch(account -> account.getProfileId() != null && !account.getProfileId().equals(profileId));
     }
 
@@ -680,7 +777,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     static final String TEMPLATE_EMAIL_CHANGED = "user.enterprise-email-changed";
 
     /**
-     * Reset User (PRD Web §Reset User): replace the PERSON's login mobile with the personal mobile on
+     * Reset User: replace the PERSON's login mobile with the personal mobile on
      * the employee record, for someone whose number changed and who can no longer get a code.
      *
      * <p>The login mobile is the person's, so the change holds in every company, and the old number
@@ -771,7 +868,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (this.contactHolderInTenant(account.getTenantId(), wanted, accountId).isPresent()) {
             return "That work email already belongs to another account in this company.";
         }
-        if (this.isEmailHeldByAnotherPerson(wanted, account.getProfileId())) {
+        if (this.isEmailHeldByAnotherPerson(wanted, account.getProfileId(), accountId)) {
             return "That work email is already linked to another person's account.";
         }
         return null;
@@ -839,6 +936,20 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
         account.setMobile(wanted);
         this.updateOne(account, false);
+        // The placeholder person minted with the account holds the invitation mobile as its login
+        // mobile. Left on the old number it would keep claiming a number the employee no longer has —
+        // and, when that number has moved on, block its real owner. It follows the record instead,
+        // or lets go when the new number already signs somebody else in.
+        Long placeholder = account.getProfileId();
+        if (placeholder != null && invitationService.isPlaceholderPerson(placeholder, accountId)) {
+            identityService.findByProfile(placeholder).ifPresent(identity -> {
+                String next = LoginIdentifiers.normalize(wanted);
+                boolean taken = next != null && identityService.findByLoginIdentifier(next)
+                        .filter(other -> !Objects.equals(other.getProfileId(), placeholder)).isPresent();
+                identity.setLoginMobile(taken ? null : next);
+                identityService.updateOne(identity, false);
+            });
+        }
     }
 
     /** Hand a reminder off for delivery; "sent" or "failed". Never fails the change it reports on. */
@@ -984,9 +1095,17 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         return value == null ? null : value.toString();
     }
 
-    private Optional<UserAccount> contactHolder(Long tenantId, SFunction<UserAccount, ?> field, List<String> spellings) {
-        return this.searchList(contactFilter(field, spellings)
-                .eq(UserAccount::getTenantId, tenantId)).stream().findFirst();
+    private Optional<UserAccount> contactHolder(Long tenantId, SFunction<UserAccount, String> field, List<String> spellings) {
+        Filters inTenant = new Filters().eq(UserAccount::getTenantId, tenantId);
+        if (spellings.size() == 1 && spellings.getFirst().contains("@")) {
+            // An email, compared case aside: a plain equality is case-sensitive on PostgreSQL, and
+            // "Ada@acme.com" and "ada@acme.com" are one mailbox.
+            String email = spellings.getFirst();
+            return this.searchList(inTenant.startWith(field, likeLiteral(email))).stream()
+                    .filter(account -> email.equalsIgnoreCase(StringUtils.trim(field.apply(account))))
+                    .findFirst();
+        }
+        return this.searchList(contactFilter(field, spellings).and(inTenant)).stream().findFirst();
     }
 
     /**
@@ -1201,8 +1320,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // overload drops — the revived PENDING row would otherwise keep the previous stint's
         // activation timestamp.
         this.updateOne(account, false);
-        log.info("Revived membership {} (was profile {}) — reset to PENDING, detached, awaiting a new invitation.",
-                account.getId(), previousPerson);
+        log.info("Revived membership {} (was profile {}) — reset to PENDING, awaiting a new invitation.",
+                account.getId(), previousPerson != null ? previousPerson : account.getFormerProfileId());
         return account;
     }
 
@@ -1218,9 +1337,14 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         account.setMobile(workContact(workMobile));
         account.setStatus(AccountStatus.PENDING);
         account.setActivationTime(null);
-        // Detached from the person it belonged to: the next /join decides who this is from the
-        // number it verifies. Same number — the same person comes back; a new number — whoever now
-        // holds the old one cannot walk into the leaver's person and their other companies.
+        // The person is remembered, then unbound until /join. Who joins is decided by the number
+        // verified there: the remembered person holding it is recognised and bound back, keeping
+        // their password and settings; anyone else holding the old number cannot walk into the
+        // leaver's person and their other companies. A row reopened again before anyone joined keeps
+        // the person it already remembers.
+        if (account.getProfileId() != null) {
+            account.setFormerProfileId(account.getProfileId());
+        }
         account.setProfileId(null);
         account.setNickname(null);
         account.setUsername(null);
@@ -1246,7 +1370,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     public void changeMyPassword(String currentPassword, String newPassword) {
         Assert.notBlank(currentPassword, "Old password cannot be empty.");
         Assert.notBlank(newPassword, "New password cannot be empty.");
-        // Strength (B7) is enforced inside identityService.setPassword, the choke point every
+        // Strength is enforced inside identityService.setPassword, the choke point every
         // password write passes through — not repeated here.
 
         Long userId = ContextHolder.getContext().getUserId();
@@ -1335,7 +1459,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @Transactional
     public boolean forceResetPassword(Long userId, String newPassword) {
         Assert.notBlank(newPassword, "New password cannot be empty.");
-        // Strength (B7) is enforced inside identityService.setPassword — see changeMyPassword.
+        // Strength is enforced inside identityService.setPassword — see changeMyPassword.
         UserAccount user = this.getById(userId).orElseThrow(() -> new BusinessException("User not found."));
         identityService.setPassword(user, newPassword);
 
@@ -1353,8 +1477,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (user.getStatus() != AccountStatus.ACTIVE && user.getStatus() != AccountStatus.LOCKED) {
             throw new BusinessException("Only an active account can be frozen.");
         }
-        // Clear the password lock on the way through (§2.3 "Freeze on Locked — clear the lock
-        // first"). Leaving it would mean that lifting the freeze hands back an account the lockout
+        // Clear the password lock on the way through. Leaving it would mean that lifting the freeze hands back an account the lockout
         // still refuses, and the administrator who lifted it cannot see why.
         identityService.findByProfile(user.getProfileId()).ifPresent(identity -> {
             if (identity.getPasswordLockedUntil() != null) {

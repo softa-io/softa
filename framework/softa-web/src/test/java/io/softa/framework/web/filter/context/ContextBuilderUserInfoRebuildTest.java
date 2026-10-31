@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -17,6 +18,7 @@ import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.UserInfoService;
+import io.softa.framework.web.session.ReentryTokenIssuer;
 import io.softa.framework.web.session.SessionErrorCodes;
 import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionStore;
@@ -158,6 +160,24 @@ class ContextBuilderUserInfoRebuildTest {
                 .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
         verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+    }
+
+    @Test
+    void anUnavailableOrganisation_handsBackASignInTokenForTheOtherCompanies() {
+        // The person is still who they were: with the token the APP offers their other companies
+        // instead of a login screen, which is what tells ORG_UNAVAILABLE from SESSION_EXPIRED.
+        ReentryTokenIssuer issuer = profileId -> "reentry-for-" + profileId;
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ReentryTokenIssuer> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(issuer);
+        ReflectionTestUtils.setField(contextBuilder, "reentryTokenIssuer", provider);
+        cachedUserInfo(null);
+        when(userInfoService.loadUserInfo(USER_ID)).thenReturn(userInfo(false));
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorDetails())
+                .isEqualTo(java.util.Map.of("authToken", "reentry-for-7"));
     }
 
     @Test

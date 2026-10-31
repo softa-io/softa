@@ -17,6 +17,7 @@ import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.enums.AccountStatus;
+import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
@@ -38,7 +39,7 @@ import static org.mockito.Mockito.when;
 import io.softa.starter.user.service.ConsultantService;
 
 /**
- * The password lockout (PRD D5 / A8) — "linked across tenants" comes free from the credential
+ * The password lockout — "linked across tenants" comes free from the credential
  * being global, so what has to be tested is the enforcement:
  *
  * <ul>
@@ -63,6 +64,7 @@ class PasswordLockoutTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final TenantInfoService tenantInfoService = mock(TenantInfoService.class);
+    private final LoginHistoryRecorder history = mock(LoginHistoryRecorder.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     // ── the identity side ───────────────────────────────────────────
@@ -73,7 +75,7 @@ class PasswordLockoutTest {
 
     PasswordLockoutTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
-        ReflectionTestUtils.setField(loginService, "history", mock(LoginHistoryRecorder.class));
+        ReflectionTestUtils.setField(loginService, "history", history);
         ReflectionTestUtils.setField(loginService, "cacheService", mock(io.softa.framework.orm.service.CacheService.class));
         when(accountService.listAccountIdsOf(any())).thenReturn(java.util.List.of(1L));
         ReflectionTestUtils.setField(loginService, "consultantService",
@@ -119,6 +121,26 @@ class PasswordLockoutTest {
     }
 
     @Test
+    void aLockThatRanOut_isRecordedAsUnlockedOnce_andCleared() {
+        // Nothing marks the moment a lock expires, so the first password attempt after it does —
+        // and clears the field, or every later sign-in would record the same unlock again.
+        UserIdentity person = identity(LocalDateTime.now().minusMinutes(1));
+        when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.of(person));
+        when(identityService.matchesPassword(person, "right")).thenReturn(true);
+        givenOneCompany();
+
+        loginService.authenticateByPassword(EMAIL, "right");
+
+        assertThat(person.getPasswordLockedUntil()).isNull();
+        verify(identityService).updateOne(person, false);
+        verify(history).record(eq(LoginEvent.UNLOCKED), eq(PROFILE), any(), any(), any(), any(), any());
+
+        loginService.authenticateByPassword(EMAIL, "right");
+        verify(history, org.mockito.Mockito.times(1))
+                .record(eq(LoginEvent.UNLOCKED), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void aLockedPerson_canStillGetInWithAVerificationCode() {
         // What is locked is the password. Locking the person out of every route would finish the
         // attack on their behalf, so the code path must not consult the lock at all.
@@ -153,7 +175,7 @@ class PasswordLockoutTest {
         verify(identityService).clearPasswordFailures(IDENTITY);
     }
 
-    // ── what the person is told (PRD L3) ────────────────────────────
+    // ── what the person is told ────────────────────────────
 
     private void givenWrongPasswordIsFailureNumber(UserIdentity person, long count) {
         when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.of(person));

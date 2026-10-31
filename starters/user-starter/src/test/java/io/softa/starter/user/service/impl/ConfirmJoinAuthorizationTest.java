@@ -30,7 +30,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The authorization tie on {@code confirmJoin} (PRD §4.4).
+ * The authorization tie on {@code confirmJoin}.
  *
  * <p>The endpoint is anonymous — whoever holds the link reaches it with no session — and it takes
  * {@code profileId} from the caller. Without a check that the named person is the one the
@@ -204,7 +204,7 @@ class ConfirmJoinAuthorizationTest {
     @Test
     void anEnterpriseEmailAnotherPersonHolds_isTaken_systemWide() {
         givenPendingInvitationTo("alice@acme.com", null);
-        when(accountService.isEmailHeldByAnotherPerson("alice@acme.com", RIGHTFUL_PROFILE)).thenReturn(true);
+        when(accountService.isEmailHeldByAnotherPerson(eq("alice@acme.com"), eq(RIGHTFUL_PROFILE), any())).thenReturn(true);
 
         assertThatThrownBy(() -> service.confirmJoin(TOKEN, RIGHTFUL_PROFILE, "proof"))
                 .isInstanceOfSatisfying(BusinessException.class,

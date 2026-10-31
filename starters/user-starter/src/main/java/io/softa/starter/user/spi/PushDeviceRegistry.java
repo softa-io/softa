@@ -10,8 +10,11 @@ package io.softa.starter.user.spi;
  */
 public interface PushDeviceRegistry {
 
-    /** Forget one device token, whoever it was registered to. */
-    void unregisterDevice(String deviceToken);
+    /**
+     * Forget one device token — only when it is registered to this person. The token arrives in a
+     * request body, and a caller must not be able to drop someone else's device by naming it.
+     */
+    void unregisterDevice(String deviceToken, Long profileId);
 
     /** Forget every device registered to any account of this person. */
     void unregisterPerson(Long profileId);

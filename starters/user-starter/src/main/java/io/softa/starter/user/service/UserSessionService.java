@@ -21,7 +21,15 @@ public interface UserSessionService {
 
     /**
      * End every session of every account of this person, except {@code keepSessionId} when given —
-     * the session the change was made from.
+     * the session the change was made from. Also voids every sign-in step this person has started
+     * but not finished (see {@link #credentialsChangedSince}).
      */
     int revokePerson(Long profileId, String keepSessionId, SessionRevokeReason reason);
+
+    /**
+     * Whether this person's sessions were ended for a credential change after {@code issuedAtMillis}.
+     * A single-use sign-in token issued before that must not be redeemed: whoever authenticated with
+     * the old number or password would otherwise still get a fresh session out of it.
+     */
+    boolean credentialsChangedSince(Long profileId, long issuedAtMillis);
 }

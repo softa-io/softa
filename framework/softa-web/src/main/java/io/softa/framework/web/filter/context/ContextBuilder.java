@@ -4,9 +4,12 @@ import java.util.List;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
@@ -21,6 +24,7 @@ import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.UserInfoService;
+import io.softa.framework.web.session.ReentryTokenIssuer;
 import io.softa.framework.web.session.SessionErrorCodes;
 import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionRevokeReason;
@@ -50,6 +54,10 @@ public class ContextBuilder implements SmartInitializingSingleton {
     @Autowired(required = false)
     private List<ContextEnricher> contextEnrichers;
 
+    /** Lazily resolved: the login module that implements it reaches back into the web layer. */
+    @Autowired
+    private ObjectProvider<ReentryTokenIssuer> reentryTokenIssuer;
+
     private UserInfo getUserInfo(Long userId) throws UserNotFoundException {
         UserInfo userInfo = cacheService.get(RedisConstant.USER_INFO + userId, UserInfo.class);
         if (userInfo == null && userInfoService != null) {
@@ -75,10 +83,41 @@ public class ContextBuilder implements SmartInitializingSingleton {
         return e;
     }
 
-    private static UserNotFoundException orgUnavailable(String message) {
+    /**
+     * End this session for an organisation that cannot be entered any more, and say so with a fresh
+     * sign-in token in {@code errorDetails.authToken}: the person is still who they were, and with it
+     * the client offers their other organisations instead of a login screen.
+     */
+    private UserNotFoundException orgUnavailable(HttpServletRequest request, String sessionId,
+                                                 SessionRecord session, String message) {
+        this.revokeWithRequest(request, sessionId, SessionRevokeReason.ORG_UNAVAILABLE);
         UserNotFoundException e = new UserNotFoundException(message);
         e.withErrorCode(SessionErrorCodes.ORG_UNAVAILABLE);
+        ReentryTokenIssuer issuer = reentryTokenIssuer == null ? null : reentryTokenIssuer.getIfAvailable();
+        String token = issuer == null || session.profileId() == null ? null
+                : issuer.issueReentryToken(session.profileId());
+        if (token != null) {
+            e.withErrorDetail("authToken", token);
+        }
         return e;
+    }
+
+    /**
+     * Revoke with the request bound. This filter runs ahead of Spring's request-context filter, and
+     * the listeners of the revocation (the login history) read the client's address and agent from
+     * the bound request — unbound, the row is written without them.
+     */
+    private void revokeWithRequest(HttpServletRequest request, String sessionId, SessionRevokeReason reason) {
+        if (RequestContextHolder.getRequestAttributes() != null) {
+            sessionStore.revoke(sessionId, reason);
+            return;
+        }
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        try {
+            sessionStore.revoke(sessionId, reason);
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     /**
@@ -105,8 +144,7 @@ public class ContextBuilder implements SmartInitializingSingleton {
         // the person's other companies. A password lock is not inactivity: the session stays.
         // active == null is a legacy entry cached before this field existed — left alone.
         if (Boolean.FALSE.equals(userInfo.getActive())) {
-            sessionStore.revoke(sessionId, SessionRevokeReason.ORG_UNAVAILABLE);
-            throw orgUnavailable("Account is not active; session terminated.");
+            throw this.orgUnavailable(request, sessionId, session, "Account is not active; session terminated.");
         }
         // Create Context with TraceID from the request header
         String traceId = request.getHeader(BaseConstant.X_B3_TRACEID);
@@ -118,7 +156,7 @@ public class ContextBuilder implements SmartInitializingSingleton {
         context.setTimezone(userInfo.getTimezone());
         context.setUserInfo(userInfo);
         if (SystemConfig.env.isEnableMultiTenancy()) {
-            this.setMultiTenancyEnv(context, userInfo, sessionId);
+            this.setMultiTenancyEnv(request, context, userInfo, sessionId, session);
         }
         // No company or country is read from the request. Which companies and countries a request may
         // see is decided by the caller's grant (bridged onto the context by the permission layer), not
@@ -257,7 +295,8 @@ public class ContextBuilder implements SmartInitializingSingleton {
      * @param context the current context
      * @param userInfo the user info
      */
-    private void setMultiTenancyEnv(Context context, UserInfo userInfo, String sessionId) {
+    private void setMultiTenancyEnv(HttpServletRequest request, Context context, UserInfo userInfo,
+                                    String sessionId, SessionRecord session) {
         Long tenantId = userInfo.getTenantId();
         Assert.notNull(tenantId, "User tenantId cannot be null in multi-tenancy mode.");
         // Tenant lifecycle gate: only ACTIVE tenants may operate. When a tenant leaves ACTIVE,
@@ -265,8 +304,7 @@ public class ContextBuilder implements SmartInitializingSingleton {
         // here we force-logout the user — drop the session and bounce to re-login (fail-closed:
         // a missing provider in multi-tenancy mode also rejects rather than letting the user in).
         if (tenantInfoService == null || !tenantInfoService.isTenantActive(tenantId)) {
-            sessionStore.revoke(sessionId, SessionRevokeReason.ORG_UNAVAILABLE);
-            throw orgUnavailable(
+            throw this.orgUnavailable(request, sessionId, session,
                     "Tenant " + tenantId + " is not active or cannot be verified; session terminated.");
         }
         context.setTenantId(tenantId);

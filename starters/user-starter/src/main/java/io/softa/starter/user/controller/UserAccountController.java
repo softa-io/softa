@@ -56,6 +56,7 @@ import io.softa.framework.web.dto.SearchListParams;
 import io.softa.framework.web.dto.SearchNameParams;
 import io.softa.framework.web.dto.SimpleAggParams;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.web.utils.CookieUtils;
@@ -759,17 +760,21 @@ public class UserAccountController extends EntityController<UserAccountService, 
         // Cookie (Web) or X-Session-Id (APP): the APP holds no cookie, so reading only the cookie
         // left its session alive after "logging out".
         String sessionId = SessionStore.sessionIdOf(request);
+        Long profileId = sessionId == null ? null
+                : sessionStore.peek(sessionId).map(SessionRecord::profileId).orElse(null);
         if (sessionId != null) {
             sessionStore.revoke(sessionId, SessionRevokeReason.LOGOUT);
         }
-        if (body != null && StringUtils.isNotBlank(body.getDeviceToken()) && pushDeviceRegistry != null) {
-            pushDeviceRegistry.unregisterDevice(body.getDeviceToken());
+        // The device is dropped only for the person whose session this was.
+        if (body != null && StringUtils.isNotBlank(body.getDeviceToken()) && pushDeviceRegistry != null
+                && profileId != null) {
+            pushDeviceRegistry.unregisterDevice(body.getDeviceToken(), profileId);
         }
         CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
         return ApiResponse.success();
     }
 
-    // Lock / Unlock are gone (D21). A manual lock and the automatic password lockout (A8) were two
+    // Lock / Unlock are gone. A manual lock and the automatic password lockout were two
     // mechanisms for two different things wearing one name: the lockout reacts to guessing, lives
     // on the credential and expires by itself, while freezing is an administrator's decision about
     // a membership that only an administrator lifts.

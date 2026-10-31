@@ -3,6 +3,7 @@ package io.softa.starter.user.service.impl;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -20,11 +21,14 @@ import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
+import io.softa.starter.user.service.UserSessionService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -53,6 +57,7 @@ class IdentifierResolutionTest {
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     IdentifierResolutionTest() {
+        ReflectionTestUtils.setField(loginService, "sessionService", mock(UserSessionService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(loginService, "history", history);
@@ -195,8 +200,14 @@ class IdentifierResolutionTest {
         assertThat(result.noEnterableReason()).isEqualTo(AuthenticationResult.NoEnterableReason.NOT_JOINED);
     }
 
+    @AfterEach
+    void unbindRequest() {
+        ClientRequests.clear();
+    }
+
     @Test
     void aPasswordOwed_comesFirst_evenWhenTheEntryRuleKnowsWhereToGo() {
+        ClientRequests.fromApp();
         person(null);
         givenMemberships(membership(ACCOUNT, AccountStatus.ACTIVE));
 
@@ -206,7 +217,47 @@ class IdentifierResolutionTest {
         assertThat(result.isResolved()).isFalse();
         assertThat(result.autoEnterAccountId()).isEqualTo(ACCOUNT);
         assertThat(result.authToken()).isNotBlank();
-        verify(cacheService).save(anyString(), eq(PROFILE.toString()), anyInt());
+        verify(cacheService).save(anyString(), startsWith(PROFILE + ":"), anyInt());
+    }
+
+    @Test
+    void aPasswordOwed_onWeb_stillEntersWithASession_andSaysSo() {
+        // Web sets the first password from inside a session; until it calls setFirstPassword, it
+        // must be entered as before or it cannot get anywhere.
+        person(null);
+        givenMemberships(membership(ACCOUNT, AccountStatus.ACTIVE));
+
+        AuthenticationResult result = loginService.authenticateByCode(EMAIL, "123456");
+
+        assertThat(result.isResolved()).isTrue();
+        assertThat(result.mustSetPassword()).isTrue();
+    }
+
+    @Test
+    void anUnknownIdentifier_isAFailedSignIn_inTheHistory() {
+        when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> loginService.authenticateByPassword("nobody@acme.com", PASSWORD))
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
+        verify(history).record(eq(LoginEvent.LOGIN_FAILED), isNull(), any(), any(), any(), any(), eq("ACCOUNT_NOT_FOUND"));
+    }
+
+    @Test
+    void misses_areCountedPerAddress_andTooManyStopTheLookup() {
+        // A miss costs nothing against the per-identifier send limits, so walking a number range
+        // has to be bounded by who is asking.
+        ClientRequests.fromAddress("203.0.113.9");
+        when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> loginService.sendMobileCode("+6590000001"))
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
+        verify(cacheService).increment(eq("login:unknown-identifier:203.0.113.9"), anyLong());
+
+        when(cacheService.get("login:unknown-identifier:203.0.113.9"))
+                .thenReturn(String.valueOf(LoginServiceImpl.UNKNOWN_LOOKUPS_PER_HOUR));
+        assertThatThrownBy(() -> loginService.sendMobileCode("+6590000002"))
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("TOO_MANY_REQUESTS"));
+        verify(identityService, never()).findByLoginIdentifier("+6590000002");
     }
 
     @Test

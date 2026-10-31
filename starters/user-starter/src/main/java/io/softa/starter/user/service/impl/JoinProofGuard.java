@@ -90,6 +90,27 @@ public class JoinProofGuard {
         }
     }
 
+    private static String joinPersonKey(String rawToken) {
+        return "join:person:" + EncryptUtils.computeSha256(rawToken);
+    }
+
+    /**
+     * Remember the person a verification of this link created. Until confirmJoin binds an account
+     * to them they hold none, which is exactly what a dormant holder looks like; verifying again
+     * must find them rather than release their number and make another person.
+     */
+    public void rememberJoinPerson(String rawToken, Long profileId) {
+        if (StringUtils.isNotBlank(rawToken) && profileId != null) {
+            cacheService.save(joinPersonKey(rawToken), profileId.toString(), PROOF_TTL_SECONDS);
+        }
+    }
+
+    /** The person a verification of this link created, or null. */
+    public Long joinPersonOf(String rawToken) {
+        String value = StringUtils.isBlank(rawToken) ? null : cacheService.get(joinPersonKey(rawToken));
+        return value == null ? null : Long.valueOf(value);
+    }
+
     /** Spend the proof: the step it existed for has completed. */
     public void consume(String proof) {
         if (StringUtils.isNotBlank(proof)) {

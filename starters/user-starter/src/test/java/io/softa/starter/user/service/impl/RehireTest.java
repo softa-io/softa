@@ -37,7 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Re-hiring a leaver through the ordinary create path (PRD S-D).
+ * Re-hiring a leaver through the ordinary create path.
  *
  * <p>Every creation path funnels through {@code registerInvitedUser}, and it refused whenever the
  * person had ANY membership here — a DEACTIVATED one included. So a former employee could never be
@@ -105,12 +105,13 @@ class RehireTest {
     void aLeaverReHiredThroughCreateRevivesTheClosedMembershipInsteadOfRefusing() {
         personHasMembershipHere(AccountStatus.DEACTIVATED);
 
-        inThisTenant(() -> assertThatCode(() -> accountService.registerInvitedUser(NEW_EMAIL, MOBILE, "Ada L"))
-                .doesNotThrowAnyException());
+        inThisTenant(() -> assertThat(accountService.registerInvitedUser(NEW_EMAIL, MOBILE, "Ada L").getUserId())
+                .isEqualTo(CLOSED_ROW));
 
-        // The row is reused with the NEW contacts — no second row, no second person.
+        // The row is reused with the NEW contacts — no second row, no second person. Nobody is
+        // bound to it until /join, so the answer is built from the row, not read from a person.
         verify(accountService).reviveMembership(PERSON, NEW_EMAIL, MOBILE);
-        verify(profileService).getUserInfo(CLOSED_ROW);
+        verify(profileService, never()).getUserInfo(anyLong());
         verify(accountService, never()).createOne(any(UserAccount.class));
         verify(profileService, never()).registerUserProfile(anyLong(), any(UserProfileDTO.class));
         verify(profileService, never()).linkAccountToPerson(anyLong(), anyLong());

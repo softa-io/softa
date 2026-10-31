@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -59,6 +60,7 @@ class PasswordResetEndsSessionsTest {
         identity.setProfileId(PROFILE);
         identity.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(5));
         when(identityService.findByLoginIdentifier("ada@acme.com")).thenReturn(Optional.of(identity));
+        when(identityService.isPasswordLocked(identity)).thenReturn(true);
 
         loginService.resetPasswordByCode("ada@acme.com", "123456", "N3w-Passw0rd!");
 
@@ -68,5 +70,19 @@ class PasswordResetEndsSessionsTest {
         verify(devices).unregisterPerson(PROFILE);
         verify(securityLog).entry(eq(SecurityAction.PASSWORD_RESET), any(), isNull(), eq(PROFILE));
         verify(history).record(eq(LoginEvent.UNLOCKED), eq(PROFILE), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aLockThatAlreadyRanOut_isNotRecordedAsUnlockedAgain() {
+        // The field outlives the lock; only a lock still in force is lifted by the reset.
+        UserIdentity identity = new UserIdentity();
+        identity.setId(11L);
+        identity.setProfileId(PROFILE);
+        identity.setPasswordLockedUntil(LocalDateTime.now().minusMinutes(5));
+        when(identityService.findByLoginIdentifier("ada@acme.com")).thenReturn(Optional.of(identity));
+
+        loginService.resetPasswordByCode("ada@acme.com", "123456", "N3w-Passw0rd!");
+
+        verify(history, never()).record(eq(LoginEvent.UNLOCKED), any(), any(), any(), any(), any(), any());
     }
 }

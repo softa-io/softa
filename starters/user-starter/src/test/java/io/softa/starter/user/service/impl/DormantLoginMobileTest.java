@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.enums.AccountStatus;
@@ -38,6 +39,8 @@ class DormantLoginMobileTest {
 
     DormantLoginMobileTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        // No row is waiting to have anyone back unless a test says so.
+        doReturn(List.of()).when(accountService).searchList(any(Filters.class));
     }
 
     private UserIdentity holder() {

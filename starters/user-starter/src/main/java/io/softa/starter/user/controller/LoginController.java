@@ -149,7 +149,7 @@ public class LoginController {
     }
 
     /**
-     * The /join landing check — may this token proceed, and if not, why (PRD §3.0).
+     * The /join landing check — may this token proceed, and if not, why.
      *
      * <p>Public by necessity: whoever opened the link has no session yet. It reveals only masked
      * contacts and the company name, so a leaked token yields recognition, not usable details.
@@ -240,11 +240,8 @@ public class LoginController {
     }
 
     /**
-     * The tenants an authenticated person may enter.
-     *
-     * <p>Reached when authentication succeeded but the person belongs to more than one company
-     * (or to one they cannot enter), so no session was issued yet. Not tenant-scoped by nature —
-     * the caller has proven who they are but not yet chosen where they are going.
+     * Set the first password of a person who signed in without one, with the single-use sign-in
+     * token that sign-in returned — no session exists yet — then enter by the entry rule.
      */
     @Operation(summary = "Set the first password with the sign-in token, then enter by the entry rule")
     @PostMapping("/setFirstPassword")
@@ -255,6 +252,13 @@ public class LoginController {
                 loginService.setFirstPassword(dto.getAuthToken(), dto.getNewPassword()), response);
     }
 
+    /**
+     * The tenants an authenticated person may enter.
+     *
+     * <p>Reached when authentication succeeded but the person belongs to more than one company
+     * (or to one they cannot enter), so no session was issued yet. Not tenant-scoped by nature —
+     * the caller has proven who they are but not yet chosen where they are going.
+     */
     @Operation(summary = "List the tenants this person can log into (multi-company login step)")
     @PostMapping("/listTenants")
     @SwitchUser(SystemUser.REGISTERED_USER)

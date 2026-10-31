@@ -22,7 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Reading the work contacts from the employee record (S-B / D23).
+ * Reading the work contacts from the employee record.
  *
  * <p>Where they are read from is the whole point. Reset User notifies the address it is REPLACING,
  * so the account has to still hold the old value when it runs — which is only true because nothing

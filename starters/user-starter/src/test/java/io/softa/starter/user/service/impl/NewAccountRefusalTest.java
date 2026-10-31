@@ -132,7 +132,10 @@ class NewAccountRefusalTest {
 
     @Test
     void theEmailIsHeldByAnotherAccountHere() {
-        doReturn(List.of(accountHolding(555L))).when(accountService).searchList(any(Filters.class));
+        UserAccount holder = accountHolding(555L);
+        // Stored with HR's capitals: the email comparison is case-insensitive.
+        holder.setEmail(EMAIL.toUpperCase());
+        doReturn(List.of(holder)).when(accountService).searchList(any(Filters.class));
 
         assertThat(refusalInThisTenant(EMAIL, null)).isEqualTo("Email already exists: " + EMAIL);
     }

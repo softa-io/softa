@@ -1,9 +1,11 @@
 package io.softa.starter.user.service.impl;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.annotation.CrossTenant;
@@ -20,6 +22,15 @@ import io.softa.starter.user.util.ClientInfo;
 @Service
 public class UserSecurityLogServiceImpl extends EntityServiceImpl<UserSecurityLog, Long>
         implements UserSecurityLogService {
+
+    private TransactionTemplate ownTransaction;
+
+    /** The row is written in a transaction of its own, so the change it records commits either way. */
+    @Autowired
+    void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.ownTransaction = new TransactionTemplate(transactionManager);
+        this.ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
 
     @Override
     public UserSecurityLog entry(SecurityAction action, SecurityLogSource source, UserAccount account, Long profileId) {
@@ -43,13 +54,17 @@ public class UserSecurityLogServiceImpl extends EntityServiceImpl<UserSecurityLo
     // @CrossTenant keeps the row's own tenant (the account's, or none for a person-level change)
     // rather than stamping the operator's; @SkipPermissionCheck because the actor holds no grant on
     // the log and must not need one to have their change recorded.
+    //
+    // Never fails the caller, and the catch has to sit OUTSIDE the row's transaction: caught inside
+    // a @Transactional(REQUIRES_NEW) method, a failed insert still marks that transaction
+    // rollback-only, and its commit then throws UnexpectedRollbackException at the caller — after a
+    // password reset has already ended the person's sessions.
     @Override
     @CrossTenant
     @SkipPermissionCheck
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(UserSecurityLog row) {
         try {
-            this.createOne(row);
+            ownTransaction.executeWithoutResult(status -> this.createOne(row));
         } catch (RuntimeException e) {
             log.warn("Security log not written for {} of profile {}: {}",
                     row.getAction(), row.getProfileId(), e.getMessage());

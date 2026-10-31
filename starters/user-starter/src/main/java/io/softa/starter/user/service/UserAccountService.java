@@ -66,9 +66,10 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     /**
      * Whether this enterprise email sits on an account (any tenant, any status but Deactivated)
      * that belongs to a person other than {@code profileId}. One person may use one address in
-     * several companies; two people may not.
+     * several companies; two people may not. The account {@code exceptAccountId} never counts —
+     * it is the one being joined or edited.
      */
-    boolean isEmailHeldByAnotherPerson(String email, Long profileId);
+    boolean isEmailHeldByAnotherPerson(String email, Long profileId, Long exceptAccountId);
 
     /**
      * Get user by mobile
@@ -113,7 +114,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     String newAccountRefusal(String email, String mobile);
 
     /**
-     * Off-board a membership: close it and strip what must not outlive it (A7 / S3, PRD W6).
+     * Off-board a membership: close it and strip what must not outlive it.
      *
      * <p>Three things happen together because leaving any one of them out is a real defect:
      *
@@ -188,7 +189,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     Optional<UserAccount> findContactHolderInTenant(String contact, Long exceptAccountId);
 
     /**
-     * The work contacts this membership's EMPLOYEE RECORD currently holds (S-B / D23).
+     * The work contacts this membership's EMPLOYEE RECORD currently holds.
      *
      * <p>The record is the single source of contact details, so the two operations that move them —
      * Reset User and Unbind &amp; Re-invite — read them from here rather than from their caller, and
@@ -251,6 +252,15 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     java.util.Optional<UserAccount> reviveMembership(Long profileId, String workEmail, String workMobile);
 
     /**
+     * Reopen one closed membership, named by its own id, for a re-hire: the same reset as
+     * {@link #reviveMembership}. Found by id because a row reopened once and closed again before
+     * anyone joined has no person to be found by.
+     *
+     * @return the revived membership, or empty when the account is not closed
+     */
+    java.util.Optional<UserAccount> reviveAccount(Long accountId, String workEmail, String workMobile);
+
+    /**
      * Change the current user's password
      *
      * @param currentPassword Current password
@@ -311,9 +321,9 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
 
     /**
      * Suspend a membership: the person keeps their credentials, this company keeps their record,
-     * and they cannot get in until it is lifted (D21 / U7).
+     * and they cannot get in until it is lifted.
      *
-     * <p>Replaces Lock: a MANUAL lock and the automatic password lockout (A8) were two mechanisms
+     * <p>Replaces Lock: a MANUAL lock and the automatic password lockout were two mechanisms
      * for two different things wearing one name. The lockout is a reaction to guessing, lives on
      * the credential, and expires by itself; freezing is an administrator's decision about this
      * membership, and only an administrator lifts it.
@@ -337,7 +347,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     void unfreezeAccounts(List<Long> userIds, String reason);
 
     /**
-     * Reset a membership's work contacts, keeping the person (W9 / U6).
+     * Reset a membership's work contacts, keeping the person.
      *
      * <p>The everyday case Unbind & Re-invite is too big a hammer for: the RIGHT person holds this
      * membership, their email or phone simply changed. So the person stays attached, their password

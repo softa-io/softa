@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Who /join decides is joining: by the account's current personal mobile, with a second check
- * when only the email was verified (PRD invitation H1–H4).
+ * when only the email was verified.
  */
 class JoinIdentificationTest {
 
@@ -72,6 +72,7 @@ class JoinIdentificationTest {
         when(invitationService.resolveJoinContacts(TOKEN)).thenReturn(new JoinContacts(EMAIL, MOBILE));
         when(proofGuard.mint(any(), any(), any())).thenReturn("proof");
         when(profileService.createPersonForJoin(MOBILE)).thenReturn(NEW_PERSON);
+        when(identityService.findByLoginIdentifier(MOBILE)).thenReturn(Optional.empty());
     }
 
     private UserIdentity holding(Long profileId, String password) {
@@ -121,13 +122,56 @@ class JoinIdentificationTest {
 
     @Test
     void aDormantHolder_isReleased_andANewPersonIsMade() {
+        holding(EXISTING, "hash");
         when(accountService.releaseDormantLoginMobile(MOBILE, "Join")).thenReturn(true);
 
         JoinVerification result = loginService.verifyJoinCode(TOKEN, "email", "123456");
 
         assertThat(result.profileId()).isEqualTo(NEW_PERSON);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
-        verify(identityService, never()).findByLoginIdentifier(anyString());
+        verify(proofGuard).rememberJoinPerson(TOKEN, NEW_PERSON);
+    }
+
+    @Test
+    void verifyingTheSameLinkAgain_findsThePersonItMade_insteadOfReleasingThemAndMakingAnother() {
+        // The person made on the first try holds no account until confirmJoin, which is exactly what
+        // a dormant holder looks like. Releasing their number would orphan them and make a third.
+        holding(NEW_PERSON, null);
+        when(proofGuard.joinPersonOf(TOKEN)).thenReturn(NEW_PERSON);
+
+        JoinVerification result = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(result.profileId()).isEqualTo(NEW_PERSON);
+        assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        verify(accountService, never()).releaseDormantLoginMobile(anyString(), anyString());
+        verify(profileService, never()).createPersonForJoin(anyString());
+    }
+
+    @Test
+    void aReHire_isRecognisedAsThePersonTheyWere_byTheirOwnNumber() {
+        // Left every company, so on paper dormant — but this reopened row remembers them, and the
+        // number verified is theirs: the same person comes back with their password and settings.
+        account.setProfileId(null);
+        account.setFormerProfileId(EXISTING);
+        holding(EXISTING, "hash");
+
+        JoinVerification result = loginService.verifyJoinCode(TOKEN, "mobile", "123456");
+
+        assertThat(result.profileId()).isEqualTo(EXISTING);
+        assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.CONFIRM);
+        verify(accountService, never()).releaseDormantLoginMobile(anyString(), anyString());
+    }
+
+    @Test
+    void aReHireVerifiedByEmailOnly_stillProvesTheMobile() {
+        // The mailbox proves the employee, not that the remembered person is them.
+        account.setProfileId(null);
+        account.setFormerProfileId(EXISTING);
+        holding(EXISTING, "hash");
+
+        JoinVerification result = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.VERIFY_MOBILE);
     }
 
     @Test
@@ -156,6 +200,6 @@ class JoinIdentificationTest {
         assertThat(formatted.dialCode()).isEqualTo("+86");
         assertThat(formatted.countryName()).isEqualTo("China");
         assertThat(formatted.masked()).isEqualTo("+86 138****00");
-        verify(accountService, never()).isEmailHeldByAnotherPerson(eq(EMAIL), any());
+        verify(accountService, never()).isEmailHeldByAnotherPerson(eq(EMAIL), any(), any());
     }
 }

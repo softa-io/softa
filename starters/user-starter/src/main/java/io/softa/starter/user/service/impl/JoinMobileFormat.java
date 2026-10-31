@@ -11,7 +11,7 @@ import io.softa.starter.referencedata.service.CountryRegionService;
 
 /**
  * How the join page shows a mobile: split into its country dial code and the masked national
- * number, with the country's name (PRD invitation H1 shows "Singapore +65 912****67").
+ * number, with the country's name (the join page shows "Singapore +65 912****67").
  */
 @Component
 @RequiredArgsConstructor

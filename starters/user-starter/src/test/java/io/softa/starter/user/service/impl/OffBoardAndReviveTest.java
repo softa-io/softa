@@ -11,6 +11,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
 import io.softa.starter.user.service.UserInvitationService;
@@ -91,9 +92,8 @@ class OffBoardAndReviveTest {
     }
 
     @Test
-    void offBoarding_keepsThePersonsOwnLoginMobile_andNeedsNothingForTheEmail() {
-        // The login mobile is the person's own number; the enterprise email stops signing anyone in
-        // by itself once the account is no longer joined. Neither is touched.
+    void offBoarding_keepsThePersonsOwnLoginMobile() {
+        // The login mobile is the person's own number, and it signs them into their other companies.
         UserIdentity person = identity(null, "+8613800138000");
         UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", "+8613800138000");
         workContacts("alice@acme.com", "+6590000000");
@@ -137,7 +137,7 @@ class OffBoardAndReviveTest {
 
     @Test
     void offBoarding_clearsThePasswordLock() {
-        // PRD 2.1: a Locked row leaves through "termination (clear the lock first) → Deactivated".
+        // A Locked row leaves through "termination (clear the lock first) → Deactivated".
         // Left standing, the lock survives the re-hire that REVIVES this row, and the returning
         // employee's password login is refused with nothing in the UI explaining why.
         UserIdentity person = identity("alice@acme.com", null);
@@ -209,8 +209,70 @@ class OffBoardAndReviveTest {
         assertThat(closed.getMobile()).isEqualTo("+8613811111111");
         // No activation carried over: the returning employee must accept a fresh invitation.
         assertThat(closed.getActivationTime()).isNull();
-        // And no person: /join decides again who this is, from the number it verifies.
+        // And no person: /join decides again who this is, from the number it verifies — with the
+        // person it belonged to remembered, so they are recognised when it is them.
         assertThat(closed.getProfileId()).isNull();
+        assertThat(closed.getFormerProfileId()).isEqualTo(PROFILE);
+    }
+
+    @Test
+    void reviving_aRowNobodyJoinedSinceItWasLastReopened_keepsThePersonItRemembers() {
+        UserAccount reopenedAndClosedAgain = account(AccountStatus.DEACTIVATED, null, "+8613800000000");
+        reopenedAndClosedAgain.setProfileId(null);
+        reopenedAndClosedAgain.setFormerProfileId(PROFILE);
+
+        accountService.reviveWith(reopenedAndClosedAgain, "new@acme.com", "+8613811111111");
+
+        assertThat(reopenedAndClosedAgain.getFormerProfileId()).isEqualTo(PROFILE);
+    }
+
+    @Test
+    void offBoarding_takesTheEnterpriseEmailOffTheAccount_andKeepsTheOldValueInTheLog() {
+        // The mailbox is the company's to hand to the next hire; left on the closed row it would
+        // block that hire's account.
+        UserSecurityLog logged = new UserSecurityLog();
+        when(securityLog.entry(eq(SecurityAction.ENTERPRISE_EMAIL_CHANGED), any(), any(), any())).thenReturn(logged);
+        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", "+8613800138000");
+        workContacts("alice@acme.com", null);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
+
+        accountService.offBoardWith(membership);
+
+        assertThat(membership.getEmail()).isNull();
+        assertThat(logged.getOldValue()).isEqualTo("alice@acme.com");
+        verify(securityLog).record(logged);
+    }
+
+    @Test
+    void offBoard_writesTheClearedEmail() {
+        // A null the default update overload would drop.
+        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
+        doReturn(Optional.of(membership)).when(accountService).getById(ACCOUNT);
+        doReturn(true).when(accountService).updateOne(any(UserAccount.class), anyBoolean());
+        workContacts("alice@acme.com", null);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
+
+        accountService.offBoard(ACCOUNT);
+
+        verify(accountService).updateOne(membership, false);
+    }
+
+    @Test
+    void reopeningByAccountId_findsARowThatHasNoPersonAnyMore() {
+        // Reopened once, closed again before anyone joined: the row has no person, and a re-hire
+        // looking it up by person would never reach it.
+        UserAccount reopenedAndClosedAgain = account(AccountStatus.DEACTIVATED, null, null);
+        reopenedAndClosedAgain.setTenantId(1L);
+        reopenedAndClosedAgain.setProfileId(null);
+        reopenedAndClosedAgain.setFormerProfileId(PROFILE);
+        doReturn(Optional.of(reopenedAndClosedAgain)).when(accountService).getById(ACCOUNT);
+        doReturn(List.of()).when(accountService).searchList(any(Filters.class));
+        doReturn(true).when(accountService).updateOne(any(UserAccount.class), anyBoolean());
+
+        assertThat(accountService.reviveAccount(ACCOUNT, "back@acme.com", "+8613811111111")).isPresent();
+
+        assertThat(reopenedAndClosedAgain.getStatus()).isEqualTo(AccountStatus.PENDING);
+        assertThat(reopenedAndClosedAgain.getEmail()).isEqualTo("back@acme.com");
     }
 
     @Test

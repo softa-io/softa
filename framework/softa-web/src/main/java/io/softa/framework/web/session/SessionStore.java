@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
+import io.softa.framework.base.exception.JSONException;
 import io.softa.framework.base.utils.UUIDUtils;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.web.utils.CookieUtils;
@@ -87,6 +88,13 @@ public class SessionStore {
         SessionRecord session = new SessionRecord(accountId, profileId, tenantId,
                 platform, appVersion, deviceModel, LocalDateTime.now());
         cacheService.save(sessionKey(sessionId), session, TTL_SECONDS);
+        // Sessions that expired on their own are dropped from the index here, so it holds roughly
+        // the live sessions instead of every session the account ever had.
+        for (String member : cacheService.getSetMembers(accountKey(accountId))) {
+            if (!cacheService.hasKey(sessionKey(member))) {
+                cacheService.removeFromSet(accountKey(accountId), member);
+            }
+        }
         cacheService.addToSet(accountKey(accountId), sessionId, TTL_SECONDS);
         return sessionId;
     }
@@ -100,10 +108,11 @@ public class SessionStore {
         }
         try {
             return Optional.ofNullable(cacheService.get(sessionKey(sessionId), SessionRecord.class));
-        } catch (RuntimeException e) {
+        } catch (JSONException e) {
             // A value written in another shape (the bare account id of earlier releases) is not a
             // session this release can honour; the release clears them, and any straggler simply
-            // reads as expired.
+            // reads as expired. Only an unreadable value: a Redis timeout is not a reason to delete
+            // a session that may be perfectly valid, and propagates.
             log.warn("Unreadable session value for {}; treating it as expired.", sessionId);
             cacheService.clear(sessionKey(sessionId));
             return Optional.empty();

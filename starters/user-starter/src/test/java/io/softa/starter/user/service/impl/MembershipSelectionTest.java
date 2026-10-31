@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -11,6 +12,8 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.MembershipOption;
+import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.service.UserSessionService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.enums.AccountStatus;
@@ -47,9 +50,11 @@ class MembershipSelectionTest {
     private final CacheService cacheService = mock(CacheService.class);
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
+    private final UserSessionService sessionService = mock(UserSessionService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     MembershipSelectionTest() {
+        ReflectionTestUtils.setField(loginService, "sessionService", sessionService);
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
@@ -61,6 +66,61 @@ class MembershipSelectionTest {
         when(tenantInfoService.getTenantName(2L)).thenReturn("Globex");
         // A live pre-auth token standing for PROFILE — what authentication would have minted.
         when(cacheService.get("login:preauth:" + TOKEN)).thenReturn(PROFILE.toString());
+    }
+
+    @AfterEach
+    void unbindRequest() {
+        ClientRequests.clear();
+    }
+
+    private void givenNoPassword() {
+        UserIdentity identity = new UserIdentity();
+        identity.setId(11L);
+        identity.setProfileId(PROFILE);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
+    }
+
+    @Test
+    void theApp_cannotPickACompanyBeforeSettingThePasswordItOwes() {
+        // The sign-in token alone used to be enough to enter: the step "set a password first" was
+        // only advice, and an APP that skipped it got a session.
+        ClientRequests.fromApp();
+        givenNoPassword();
+        givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE), membership(200L, 2L, AccountStatus.ACTIVE));
+
+        assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.PASSWORD_REQUIRED);
+        verify(cacheService, never()).clear("login:preauth:" + TOKEN);
+    }
+
+    @Test
+    void web_stillPicksACompanyFirst_andSetsThePasswordInside() {
+        // Web sets the first password from inside a session; refusing it here would leave it no way in.
+        givenNoPassword();
+        givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE), membership(200L, 2L, AccountStatus.ACTIVE));
+        when(profileService.getUserInfo(100L)).thenReturn(new UserInfo());
+
+        AuthenticationResult result = loginService.selectTenant(TOKEN, 100L);
+
+        assertThat(result.isResolved()).isTrue();
+        assertThat(result.mustSetPassword()).isTrue();
+    }
+
+    @Test
+    void aSignInTokenIssuedBeforeTheCredentialsChanged_isDead() {
+        // Reset User took the old number away; whoever signed in with it a minute before must not
+        // turn that sign-in into a session now.
+        when(cacheService.get("login:preauth:" + TOKEN)).thenReturn(PROFILE + ":1000");
+        when(sessionService.credentialsChangedSince(PROFILE, 1000L)).thenReturn(true);
+        givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE));
+
+        assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.AUTH_TOKEN_EXPIRED);
+        verify(cacheService).clear("login:preauth:" + TOKEN);
     }
 
     private static UserAccount membership(Long accountId, Long tenantId, AccountStatus status) {

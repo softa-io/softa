@@ -37,6 +37,8 @@ public final class AccountErrorCodes {
     public static final String CONTACT_SHARED = "CONTACT_SHARED";
     /** A password is already set, so the first-password step does not apply. */
     public static final String PASSWORD_ALREADY_SET = "PASSWORD_ALREADY_SET";
+    /** The APP asked to enter a company before setting the first password it owes. */
+    public static final String PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
     /** The single-use sign-in token expired or was already used. */
     public static final String AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED";
 

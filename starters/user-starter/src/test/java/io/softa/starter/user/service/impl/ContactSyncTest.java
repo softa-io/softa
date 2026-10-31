@@ -1,5 +1,6 @@
 package io.softa.starter.user.service.impl;
 
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -7,6 +8,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MailRequestMessage;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.SecurityAction;
@@ -23,6 +27,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * The enterprise email follows the employee record in every status; the invitation mobile follows
@@ -92,5 +97,50 @@ class ContactSyncTest {
         account.setStatus(AccountStatus.ACTIVE);
         accountService.syncInviteMobile(ACCOUNT, "+6593333333");
         assertThat(account.getMobile()).isEqualTo("+6592222222");
+    }
+
+    @Test
+    void thePlaceholderPersonsLoginMobile_followsTheInvitationMobile() {
+        // Left on the old number, the placeholder would keep claiming a number the employee no
+        // longer has, and block whoever owns it now.
+        UserIdentityService identityService = mock(UserIdentityService.class);
+        ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        UserInvitationService invitations = mock(UserInvitationService.class);
+        ReflectionTestUtils.setField(accountService, "invitationService", invitations);
+        when(invitations.isPlaceholderPerson(7L, ACCOUNT)).thenReturn(true);
+        UserIdentity placeholder = new UserIdentity();
+        placeholder.setProfileId(7L);
+        placeholder.setLoginMobile("+6591111111");
+        when(identityService.findByProfile(7L)).thenReturn(Optional.of(placeholder));
+        when(identityService.findByLoginIdentifier("+6592222222")).thenReturn(Optional.empty());
+        account.setStatus(AccountStatus.PENDING);
+
+        accountService.syncInviteMobile(ACCOUNT, "+6592222222");
+
+        assertThat(placeholder.getLoginMobile()).isEqualTo("+6592222222");
+        verify(identityService).updateOne(placeholder, false);
+    }
+
+    @Test
+    void theEmailCheck_neverCountsTheAccountItIsAbout() {
+        // /join replacing a placeholder: the account still names the placeholder until the bind is
+        // written, and counting it refused every such join with EMAIL_TAKEN.
+        UserAccount itself = new UserAccount();
+        itself.setId(ACCOUNT);
+        itself.setProfileId(5L);
+        itself.setStatus(AccountStatus.INVITED);
+        itself.setEmail("Ada@Acme.com");
+        doReturn(List.of(itself)).when(accountService).searchList(any(Filters.class));
+
+        assertThat(accountService.isEmailHeldByAnotherPerson("ada@acme.com", 9L, ACCOUNT)).isFalse();
+        assertThat(accountService.isEmailHeldByAnotherPerson("ada@acme.com", 9L, null)).isTrue();
+    }
+
+    @Test
+    void anEmailLookup_escapesLikeWildcards_andRefusesWhatIsNotAnAddress() {
+        // Anonymous login screens reach this; "%@%" must not become a match-everything pattern.
+        assertThat(UserAccountServiceImpl.likeLiteral("a_b%c@x.com")).isEqualTo("a\\_b\\%c@x.com");
+        assertThat(accountService.findJoinedProfilesByEmail("%@%")).isEmpty();
+        verify(accountService, never()).searchList(any(Filters.class));
     }
 }

@@ -38,7 +38,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unbind & Re-invite (W5 / B8) — the remedy when a membership was bound to the WRONG person.
+ * Unbind & Re-invite — the remedy when a membership was bound to the WRONG person.
  *
  * <p>Three of these are security properties rather than behaviour:
  *
@@ -78,7 +78,7 @@ class UnbindAndReinviteTest {
         account.setActivationTime(LocalDateTime.now());
         account.setRoles(List.of(9L));
         when(accountService.getById(ACCOUNT)).thenReturn(Optional.of(account));
-        // The corrected contact is HR's edit to the EMPLOYEE RECORD now (S-B / D23), not something
+        // The corrected contact is HR's edit to the EMPLOYEE RECORD now, not something
         // this call carries — so that is what has to be stubbed.
         when(accountService.archiveWorkContacts(ACCOUNT))
                 .thenReturn(new WorkContacts("right@acme.com", null));

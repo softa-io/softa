@@ -10,6 +10,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
+import io.softa.framework.base.exception.JSONException;
 import io.softa.framework.orm.service.CacheService;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +20,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -74,10 +76,31 @@ class SessionStoreTest {
         // Earlier releases stored the bare account id; the release clears them, and a straggler
         // must not take the request down.
         when(cacheService.get(RedisConstant.SESSION + "legacy", SessionRecord.class))
-                .thenThrow(new IllegalStateException("cannot deserialize"));
+                .thenThrow(new JSONException("cannot deserialize"));
 
         assertThat(store.touch("legacy")).isEmpty();
         verify(cacheService).clear(RedisConstant.SESSION + "legacy");
+    }
+
+    @Test
+    void aRedisFailure_isNotTakenForAnUnreadableSession() {
+        // A timeout says nothing about the session; deleting it would log a valid user out.
+        when(cacheService.get(RedisConstant.SESSION + "s1", SessionRecord.class))
+                .thenThrow(new IllegalStateException("Redis command timed out"));
+
+        assertThatThrownBy(() -> store.touch("s1")).isInstanceOf(IllegalStateException.class);
+        verify(cacheService, never()).clear(RedisConstant.SESSION + "s1");
+    }
+
+    @Test
+    void create_dropsSessionsThatExpiredOnTheirOwnFromTheIndex() {
+        when(cacheService.getSetMembers("account-sessions:" + ACCOUNT)).thenReturn(java.util.Set.of("gone", "alive"));
+        when(cacheService.hasKey(RedisConstant.SESSION + "alive")).thenReturn(true);
+
+        store.create(ACCOUNT, 7L, 1L, null, null, null);
+
+        verify(cacheService).removeFromSet("account-sessions:" + ACCOUNT, "gone");
+        verify(cacheService, never()).removeFromSet("account-sessions:" + ACCOUNT, "alive");
     }
 
     @Test

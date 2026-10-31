@@ -18,11 +18,12 @@ import io.softa.starter.user.enums.AccountStatus;
  *                   account whose person's password login is locked — and is as enterable as
  *                   Active; a Frozen option is listed but not selectable, so the person can see
  *                   that the company exists and why they cannot enter
- * @param locked     whether the PERSON's password login is currently locked (PRD D5). A property
- *                   of the credential, so it is the same on every option of one picker. Shown as
- *                   a badge, never enforced: PRD §1.5 greys a Locked company, but the picker is
- *                   reached only after authentication, and §1.6 / D5 keep code login open during
- *                   a lock — greying here would refuse a person the code route just admitted.
+ * @param locked     whether the PERSON's password login is currently locked — the same fact
+ *                   {@code status} shows as Locked on an Active membership. A property of the
+ *                   credential, so it is the same on every option of one picker. It never makes an
+ *                   option unselectable: the picker is reached only after authentication, and a
+ *                   code still signs a locked person in — greying here would refuse a person the
+ *                   code route just admitted.
  * @param unavailableReason why this row cannot be entered despite the membership being fine —
  *                  today only a company the platform has frozen. Null when nothing blocks
  *                  it. Its own field rather than a reading of {@code status}, because the account

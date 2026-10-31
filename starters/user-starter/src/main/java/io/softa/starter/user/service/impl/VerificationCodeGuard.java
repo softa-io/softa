@@ -38,7 +38,7 @@ import io.softa.starter.user.constant.AccountErrorCodes;
 @RequiredArgsConstructor
 public class VerificationCodeGuard {
 
-    /** Codes are 6 digits and live 5 minutes (PRD D2). */
+    /** Codes are 6 digits and live 5 minutes. */
     public static final int CODE_LENGTH = 6;
     public static final int CODE_TTL_SECONDS = 300;
 

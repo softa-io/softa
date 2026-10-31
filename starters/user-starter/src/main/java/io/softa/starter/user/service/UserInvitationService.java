@@ -36,7 +36,7 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
 
     /**
      * The /join entry check — whether this token may proceed to identity verification, and if not,
-     * why (PRD §3.0's five ordered conditions).
+     * why (five conditions, asked in order).
      *
      * <p>Public: called before any session exists, by whoever opened the link.
      */
@@ -108,7 +108,7 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     void invite(Long userId, Long invitedBy);
 
     /**
-     * Unbind a membership from the person it was wrongly bound to, and re-invite it (W5 / B8).
+     * Unbind a membership from the person it was wrongly bound to, and re-invite it.
      *
      * <p>The remedy for a mis-binding: an invitation went to the wrong address, someone else
      * accepted it, and the membership now belongs to a person who should never have had it.

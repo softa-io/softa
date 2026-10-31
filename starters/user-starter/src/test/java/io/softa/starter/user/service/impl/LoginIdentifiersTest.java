@@ -133,6 +133,7 @@ class LoginIdentifiersTest {
         VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
         LoginServiceImpl loginService = new LoginServiceImpl();
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
+        ReflectionTestUtils.setField(loginService, "history", mock(LoginHistoryRecorder.class));
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);

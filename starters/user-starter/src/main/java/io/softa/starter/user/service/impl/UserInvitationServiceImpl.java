@@ -63,7 +63,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     private static final int EXPIRY_DAYS = 7;
     /** Token entropy: 32 random bytes → URL-safe Base64 (~43 chars). */
     private static final int TOKEN_BYTES = 32;
-    /** Cap on the unbind reason (W5). Long enough for a sentence, short enough to stay readable. */
+    /** Cap on the unbind reason. Long enough for a sentence, short enough to stay readable. */
     private static final int MAX_REASON_LENGTH = 500;
     /** Template codes, seeded as system ({@code tenantId=0}) rows by the host app.
      *  {@code MailTemplate} and {@code SmsTemplate} are separate models, so one code names
@@ -168,7 +168,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         issue(account, InvitationPurpose.INVITE, invitedBy);
     }
 
-    /** Statuses a mis-binding can be corrected from (§2.3 matrix, row "Unbind & Re-invite"). */
+    /** Statuses a mis-binding can be corrected from with Unbind & Re-invite. */
     private static final Set<AccountStatus> UNBINDABLE = Set.of(
             AccountStatus.INVITED, AccountStatus.ACTIVE, AccountStatus.LOCKED, AccountStatus.FROZEN);
 
@@ -181,7 +181,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         Assert.notBlank(reason, "A reason is required to unbind this account.");
         Assert.isTrue(reason.trim().length() <= MAX_REASON_LENGTH,
                 "The reason cannot exceed " + MAX_REASON_LENGTH + " characters.");
-        // From the employee record, not the caller (S-B / D23): the corrected contact is HR's edit
+        // From the employee record, not the caller: the corrected contact is HR's edit
         // to the record, and this operation carries it onto the membership. A typo is fixed where
         // it lives rather than retyped here, so the two cannot end up disagreeing.
         // The enterprise email is the record's Work Email; the invitation goes to the record's
@@ -549,7 +549,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         Assert.notBlank(rawToken, "This link is invalid.");
         Assert.notBlank(newPassword, "New password cannot be empty.");
         // Strength is checked inside credentialService.setPassword against the person's own
-        // identifiers (PRD D4) — a bare minimum-length assertion here would contradict it.
+        // identifiers — a bare minimum-length assertion here would contradict it.
 
         UserInvitation invitation = this.searchOne(
                         new Filters().eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
@@ -605,12 +605,12 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     }
 
     /**
-     * Confirm joining: bind the person to the membership and activate it (PRD §3.3 / §4.4).
+     * Confirm joining: bind the person to the membership and activate it.
      *
      * <p><b>Binding happens HERE, not when the password was set.</b> Someone who sets a password
      * and closes the tab has proved control of the invitation but has not agreed to join this
-     * company — their membership stays INVITED and the confirm screen is what they return to
-     * (E8). Activating early would make "set a password" mean "accepted", which is exactly the
+     * company — their membership stays INVITED and the confirm screen is what they return to.
+     * Activating early would make "set a password" mean "accepted", which is exactly the
      * mis-binding the confirm screen exists to prevent.
      *
      * <p>Re-entrant on purpose: a double-tapped Join Now must not fail. An already-activated
@@ -657,7 +657,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
             throw new BusinessException("This link does not belong to that account.");
         }
 
-        // The person already holds a live account in this company (PRD invitation E9).
+        // The person already holds a live account in this company.
         Optional<UserAccount> here = accountService.findMembershipInTenant(account.getTenantId(), profileId)
                 .filter(existing -> !existing.getId().equals(account.getId()));
         if (here.isPresent()) {
@@ -673,7 +673,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
         // The enterprise email is one person's across the whole system (Deactivated aside): checked
         // again here because another company may have given it to someone since the record was saved.
-        if (accountService.isEmailHeldByAnotherPerson(account.getEmail(), profileId)) {
+        if (accountService.isEmailHeldByAnotherPerson(account.getEmail(), profileId, account.getId())) {
             this.logJoinBlocked(account, profileId, AccountErrorCodes.EMAIL_TAKEN);
             throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN,
                     "This email is already linked to another account. Please contact your HR.");
@@ -746,7 +746,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     }
 
     /**
-     * The /join entry check (PRD §3.0) — five conditions, in this order.
+     * The /join entry check — five conditions, in this order.
      *
      * <p><b>The order is the requirement, not an implementation detail.</b> A token that was
      * superseded by a re-send is "invalid" even if the account is also already active; reporting
@@ -785,7 +785,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (membership.getActivationTime() != null) {
             return JoinEntry.rejected(JoinEntry.Reason.ALREADY_JOINED);
         }
-        // ④ closed or frozen while the invitation was outstanding (E11: off-boarded mid-invite)
+        // ④ closed or frozen while the invitation was outstanding
         if (membership.getStatus() == AccountStatus.DEACTIVATED
                 || membership.getStatus() == AccountStatus.FROZEN) {
             return JoinEntry.rejected(JoinEntry.Reason.MEMBERSHIP_CLOSED);

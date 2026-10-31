@@ -143,6 +143,7 @@ class SecondTenantAccountTest {
         when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.empty());
         UserAccount sameTenantHolder = new UserAccount();
         sameTenantHolder.setId(999L);
+        sameTenantHolder.setEmail(EMAIL);
         doReturn(List.of(sameTenantHolder)).when(accountService).searchList(any(Filters.class));
 
         inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(EMAIL, null, "Ada"))

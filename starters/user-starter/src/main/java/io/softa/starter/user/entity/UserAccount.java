@@ -42,7 +42,7 @@ import io.softa.starter.user.enums.AccountStatus;
  * ability — not to this one, which only moves where credentials are stored. Login still resolves an
  * account by its email, and a relaxed index would make that resolution ambiguous.
  */
-// Unique WITHIN a tenant, not globally (A3). The work email is this company's contact for an
+// Unique WITHIN a tenant, not globally. The work email is this company's contact for an
 // employment, and two unrelated customers employing people who happen to share an address is not a
 // conflict — a global index made the second company's hire fail on the first company's data, and
 // told them an account exists elsewhere while doing it.
@@ -69,6 +69,13 @@ public class UserAccount extends AuditableModel {
                     + "direction: closing one company's account must not remove the person, and "
                     + "deleting a person is not something a tenant-scoped action may do")
     private Long profileId;
+
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = UserProfile.class, copyable = false,
+            description = "The person this membership belonged to before it was closed and reopened "
+                    + "for a re-hire. While the reopened row has no person, /join recognises this one "
+                    + "by their login mobile and binds them back instead of treating the number as "
+                    + "dormant")
+    private Long formerProfileId;
 
     /**
      * Denormalised from {@code ConsultantAuthorization} on purpose.

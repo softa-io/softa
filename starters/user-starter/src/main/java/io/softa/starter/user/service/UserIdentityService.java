@@ -77,7 +77,7 @@ public interface UserIdentityService extends EntityService<UserIdentity, Long> {
     boolean matchesPassword(UserIdentity identity, String rawPassword);
 
     /**
-     * Whether PASSWORD login is currently locked for this person (PRD D5 / A8).
+     * Whether PASSWORD login is currently locked for this person.
      *
      * <p>The lock is a property of the PERSON, so it covers every company they belong to at once —
      * that is the "linked lockout across tenants" requirement, and it falls out of the credential
@@ -101,7 +101,7 @@ public interface UserIdentityService extends EntityService<UserIdentity, Long> {
      */
     Set<Long> findPasswordLockedProfiles(Collection<Long> profileIds);
 
-    /** Consecutive wrong passwords that lock the password route (PRD D5). */
+    /** Consecutive wrong passwords that lock the password route. */
     int FAILURES_BEFORE_LOCK = 10;
 
     /**
