@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.compute.ComputeUtils;
+import io.softa.framework.orm.enums.FieldType;
 
 @Slf4j
 class ComputeUtilsTest {
@@ -176,5 +177,25 @@ class ComputeUtilsTest {
         String result = ComputeUtils.stringInterpolation(
                 "Order {{ TriggerParams.id }} is {{ TriggerParams.status }}", env);
         Assertions.assertEquals("Order 1001 is PAID", result);
+    }
+
+    /**
+     * A computed OPTION field: the expression yields the item code. There is no ValueType for OPTION,
+     * so this used to throw on every write of a stored computed option field.
+     */
+    @Test
+    void anOptionResultIsTheItemCode() {
+        String formula = "if (linkedToId == nil) { return \"Regular\"; } \"Linked\"";
+        Map<String, Object> env = new HashMap<>();
+        env.put("linkedToId", 1001L);
+        Assertions.assertEquals("Linked", ComputeUtils.execute(formula, env, 0, FieldType.OPTION));
+        env.put("linkedToId", null);
+        Assertions.assertEquals("Regular", ComputeUtils.execute(formula, env, 0, FieldType.OPTION));
+    }
+
+    /** No result is no option, not the empty string the STRING type would default to. */
+    @Test
+    void noOptionResultStaysNull() {
+        Assertions.assertNull(ComputeUtils.execute("nil", new HashMap<>(), 0, FieldType.OPTION));
     }
 }

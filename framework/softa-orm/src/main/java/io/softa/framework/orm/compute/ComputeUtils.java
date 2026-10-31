@@ -233,7 +233,11 @@ public abstract class ComputeUtils {
     }
 
     /**
-     * Return the calculation result of the specified field type fieldType, using the specified number precision
+     * Return the calculation result of the specified field type fieldType, using the specified number precision.
+     *
+     * <p>An OPTION result is the item code, a string, so the expression returns it as one. No result
+     * stays null rather than taking the STRING default {@code ""}, which is no item code.
+     *
      * @param expression calculation expression
      * @param env environment variables
      * @param scale number precision
@@ -241,6 +245,10 @@ public abstract class ComputeUtils {
      * @return calculation result
      */
     public static Object execute(String expression, Map<String, Object> env, Integer scale, FieldType fieldType) {
+        if (FieldType.OPTION.equals(fieldType)) {
+            Object result = execute(expression, env);
+            return result == null ? null : result.toString();
+        }
         ValueType valueType = ValueType.of(fieldType);
         return execute(expression, env, scale, valueType);
     }
