@@ -180,8 +180,8 @@ class DynamicRoleSyncJobImplTest {
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenReturn(List.of(
-                        java.util.Map.of("userId", 1L),
-                        java.util.Map.of("userId", 2L)));
+                        java.util.Map.of("id", 101L, "userId", 1L),
+                        java.util.Map.of("id", 102L, "userId", 2L)));
 
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
@@ -211,7 +211,7 @@ class DynamicRoleSyncJobImplTest {
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenAnswer(inv -> {
                     skippedAtLookup[0] = ContextHolder.getContext().isSkipPermissionCheck();
-                    return List.of(java.util.Map.of("userId", 1L));
+                    return List.of(java.util.Map.of("id", 101L, "userId", 1L));
                 });
         boolean[] skippedAtWrite = {false};
         when(userRoleRelService.createList(any())).thenAnswer(inv -> {
@@ -239,8 +239,8 @@ class DynamicRoleSyncJobImplTest {
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenReturn(List.of(
-                        java.util.Map.of("userId", 1L),
-                        java.util.Map.of("userId", 2L)));
+                        java.util.Map.of("id", 101L, "userId", 1L),
+                        java.util.Map.of("id", 102L, "userId", 2L)));
 
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
@@ -278,10 +278,11 @@ class DynamicRoleSyncJobImplTest {
         when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
         // Pure-employee row has userId == null.
         java.util.Map<String, Object> pureEmployee = new java.util.HashMap<>();
+        pureEmployee.put("id", 199L);
         pureEmployee.put("userId", null);
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
-                .thenReturn(List.of(pureEmployee, java.util.Map.of("userId", 5L)));
+                .thenReturn(List.of(pureEmployee, java.util.Map.of("id", 105L, "userId", 5L)));
 
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
@@ -297,8 +298,8 @@ class DynamicRoleSyncJobImplTest {
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenReturn(List.of(
-                        java.util.Map.of("userId", 1L),
-                        java.util.Map.of("userId", 2L)));
+                        java.util.Map.of("id", 101L, "userId", 1L),
+                        java.util.Map.of("id", 102L, "userId", 2L)));
         activeAccounts(2L);   // account 1 is Locked, Frozen or not yet verified
 
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
@@ -324,7 +325,7 @@ class DynamicRoleSyncJobImplTest {
         org.mockito.ArgumentCaptor<io.softa.framework.orm.domain.FlexQuery> employeeQuery =
                 org.mockito.ArgumentCaptor.forClass(io.softa.framework.orm.domain.FlexQuery.class);
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"), employeeQuery.capture()))
-                .thenReturn(List.of(java.util.Map.of("userId", 1L)));
+                .thenReturn(List.of(java.util.Map.of("id", 101L, "userId", 1L)));
         boolean[] skippedAtAccount = {false};
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("UserAccount"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
@@ -349,6 +350,40 @@ class DynamicRoleSyncJobImplTest {
         ContextHolder.runWith(ctx(10L), () -> job.syncMembershipForUser(10L, 7L));
 
         verify(userRoleRelService, never()).createOne(any());
+    }
+
+    // ─── previewMembers ───
+
+    @Test
+    void previewMembers_listsWhoASyncWouldGrant_aPageAtATime() {
+        // Employees 101..103 match the rule; account 2 is not Active, so 102 is not a member.
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenReturn(List.of(
+                        java.util.Map.of("id", 101L, "userId", 1L),
+                        java.util.Map.of("id", 102L, "userId", 2L),
+                        java.util.Map.of("id", 105L, "userId", 5L)))
+                .thenReturn(List.of(java.util.Map.of("id", 105L, "code", "E5")));
+        activeAccounts(1L, 5L);
+
+        io.softa.framework.orm.domain.Page<java.util.Map<String, Object>> page = ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 2, 1));
+
+        assertThat(page.getTotalCount()).isEqualTo(2);
+        assertThat(page.getRows()).extracting(row -> row.get("id")).containsExactly(105L);
+        verify(userRoleRelService, never()).createList(any());
+        verify(userRoleRelService, never()).deleteByFilters(any());
+    }
+
+    @Test
+    void previewMembers_noRule_matchesNobody() {
+        io.softa.framework.orm.domain.Page<java.util.Map<String, Object>> page = ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(null, List.of("code"), 1, 20));
+
+        assertThat(page.getTotalCount()).isZero();
+        assertThat(page.getRows()).isEmpty();
+        verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class));
     }
 
     // ─── helpers ───

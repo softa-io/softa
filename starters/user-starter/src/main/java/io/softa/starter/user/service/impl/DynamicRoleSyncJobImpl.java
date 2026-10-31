@@ -2,9 +2,13 @@ package io.softa.starter.user.service.impl;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -25,6 +29,8 @@ import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
@@ -61,6 +67,9 @@ import io.softa.starter.user.util.ModelRefIds;
 @Slf4j
 @Service
 public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
+
+    private static final String EMPLOYEE = "Employee";
+    private static final String USER_ACCOUNT = "UserAccount";
 
     private final RoleService roleService;
     private final UserRoleRelService userRoleRelService;
@@ -160,29 +169,10 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
                 new Filters().eq(UserRoleRel::getRoleId, role.getId())
                         .eq(UserRoleRel::getSource, UserRoleSource.DYNAMIC.getCode()));
 
-        JsonNode rule = role.getDynamicFilter();
-        if (rule == null || rule.isNull() || !rule.isArray()) return 0;
-
-        Object filterList = JsonUtils.jsonNodeToObject(rule);
-        if (!(filterList instanceof List<?> list)) return 0;
-        Filters filters = Filters.of(list);
+        // 3. Who the rule grants — the same members the wizard previews.
+        Filters filters = ruleFilters(role.getDynamicFilter());
         if (filters == null) return 0;
-
-        // 3. The user-account safety clauses (same as wizard's live preview)
-        //    — pure-employee rows or disabled accounts never get a dynamic
-        //    grant. The account's status is asked of the account itself:
-        //    Employee.userId is a plain id, not a relation to path through.
-        filters.and(Filters.of("userId", Operator.IS_SET, null));
-
-        List<Map<String, Object>> employees = modelService.searchList(
-                "Employee", new FlexQuery(List.of("userId"), filters));
-
-        Set<Long> userIds = new LinkedHashSet<>();
-        for (Map<String, Object> emp : employees) {
-            Long uid = ModelRefIds.extractLongId(emp.get("userId"));
-            if (uid != null) userIds.add(uid);
-        }
-        userIds.retainAll(activeAccounts(userIds));
+        Set<Long> userIds = new LinkedHashSet<>(members(filters).values());
         if (userIds.isEmpty()) return 0;
 
         List<UserRoleRel> rows = new ArrayList<>();
@@ -305,17 +295,13 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      * precedence).
      */
     private boolean applyPerUser(Role role, Long userId) {
-        JsonNode rule = role.getDynamicFilter();
-        if (rule == null || rule.isNull() || !rule.isArray()) return false;
-        Object filterList = JsonUtils.jsonNodeToObject(rule);
-        if (!(filterList instanceof List<?> list)) return false;
-        Filters filters = Filters.of(list);
+        Filters filters = ruleFilters(role.getDynamicFilter());
         if (filters == null) return false;
         // AND the single-user anchor — we're asking "does the Employee whose
         // userId matches this user satisfy the rule?" — then the Active
         // safety clause, asked of the account itself.
         filters.and(Filters.of("userId", Operator.EQUAL, userId));
-        long matches = modelService.count("Employee", filters);
+        long matches = modelService.count(EMPLOYEE, filters);
         if (matches <= 0 || activeAccounts(List.of(userId)).isEmpty()) return false;
 
         // Manual row check — if one exists, the schema's unique key
@@ -352,6 +338,67 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      * who matches stays as it was.
      */
     /**
+     * {@inheritDoc}
+     *
+     * <p>The members are worked out by {@link #members}, as a sync works them out, so the page shows who
+     * saving the rule would grant; a page reads only its own rows' fields.
+     */
+    @Override
+    public Page<Map<String, Object>> previewMembers(JsonNode dynamicFilter, List<String> fields,
+                                                    Integer pageNumber, Integer pageSize) {
+        assertActiveTenantContext("previewMembers");
+        Page<Map<String, Object>> page = Page.of(pageNumber, pageSize);
+        Filters filters = ruleFilters(dynamicFilter);
+        List<Long> employeeIds = filters == null ? List.of() : new ArrayList<>(members(filters).keySet());
+        page.setTotalCount(employeeIds.size());
+        int from = Math.min((page.getPageNumber() - 1) * page.getPageSize(), employeeIds.size());
+        List<Long> pageIds = employeeIds.subList(from, Math.min(from + page.getPageSize(), employeeIds.size()));
+        if (pageIds.isEmpty()) return page.setRows(List.of());
+
+        Set<String> read = new LinkedHashSet<>(fields == null ? List.of() : fields);
+        read.add(ModelConstant.ID);
+        Map<Long, Map<String, Object>> byId = new HashMap<>();
+        for (Map<String, Object> row : modelService.searchList(EMPLOYEE,
+                new FlexQuery(read, new Filters().in(ModelConstant.ID, pageIds)))) {
+            Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
+            if (id != null) byId.put(id, row);
+        }
+        return page.setRows(pageIds.stream().map(byId::get).filter(Objects::nonNull).toList());
+    }
+
+    /** The rule as filters, or null when the role has none (no rule, or not the Filters array form). */
+    private static Filters ruleFilters(JsonNode rule) {
+        if (rule == null || rule.isNull() || !rule.isArray()) return null;
+        Object filterList = JsonUtils.jsonNodeToObject(rule);
+        if (!(filterList instanceof List<?> list)) return null;
+        return Filters.of(list);
+    }
+
+    /**
+     * Who a rule grants: each employee it matches, mapped to their account, where the employee has
+     * an account and the account is Active — pure-employee rows and disabled accounts never get a
+     * dynamic grant. In the employees' code order, one entry per account.
+     *
+     * <p>The account's status is asked of the account itself: Employee.userId is a plain id, not a
+     * relation to path through.
+     */
+    private Map<Long, Long> members(Filters rule) {
+        Filters filters = rule.and(Filters.of("userId", Operator.IS_SET, null));
+        List<Map<String, Object>> employees = modelService.searchList(EMPLOYEE,
+                new FlexQuery(List.of(ModelConstant.ID, "userId"), filters, Orders.ofAsc("code")));
+        Map<Long, Long> accountByEmployee = new LinkedHashMap<>();
+        for (Map<String, Object> employee : employees) {
+            Long employeeId = ModelRefIds.extractLongId(employee.get(ModelConstant.ID));
+            Long userId = ModelRefIds.extractLongId(employee.get("userId"));
+            if (employeeId != null && userId != null) accountByEmployee.put(employeeId, userId);
+        }
+        Set<Long> active = activeAccounts(accountByEmployee.values());
+        Set<Long> seen = new HashSet<>();
+        accountByEmployee.values().removeIf(userId -> !active.contains(userId) || !seen.add(userId));
+        return accountByEmployee;
+    }
+
+    /**
      * Of {@code accountIds}, the accounts that are Active — Locked, Frozen, Unverified and the rest
      * never get a dynamic grant.
      *
@@ -362,7 +409,7 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         if (accountIds.isEmpty()) return Set.of();
         Filters active = new Filters().in(ModelConstant.ID, accountIds).eq("status", "Active");
         List<Map<String, Object>> rows = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
-                "UserAccount", new FlexQuery(List.of(ModelConstant.ID), active)));
+                USER_ACCOUNT, new FlexQuery(List.of(ModelConstant.ID), active)));
         Set<Long> ids = new LinkedHashSet<>();
         for (Map<String, Object> row : rows) {
             Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
