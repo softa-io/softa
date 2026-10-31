@@ -95,6 +95,10 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
             throw new FlowActionValidationException("Flow '" + definition.getFlowName()
                     + "' cannot be started explicitly: only an Automation flow with an Api trigger can be");
         }
+        if (request.getBundleId() != null) {
+            // A pinned revision starts only while its flow is on, as a start by flowId does.
+            contextService.resolveDefinitionByFlowId(definition.getFlowId());
+        }
         return startInstance(definition, request, false);
     }
 

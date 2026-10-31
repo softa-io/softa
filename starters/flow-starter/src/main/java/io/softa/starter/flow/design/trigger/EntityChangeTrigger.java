@@ -4,8 +4,11 @@ import java.util.List;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import io.softa.framework.orm.domain.Filters;
+
 /**
- * Trigger fired when a tracked entity changes.
+ * Trigger fired when a record of the flow's model changes — the model is the flow's
+ * ({@code DesignFlowDefinition#getModelName()}), required.
  * <p>
  * Consumed by {@code ChangeLogFlowConsumer} via Pulsar change-log messages.
  *
@@ -17,13 +20,25 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(name = "EntityChangeTrigger")
 public record EntityChangeTrigger(
 
-        @Schema(description = "Model name of the entity to watch")
-        String modelName,
-
         @Schema(description = "Change events that activate this trigger (CREATE, UPDATE, DELETE); empty = all")
         List<ChangeEvent> events,
 
-        @Schema(description = "Optional AviatorScript expression; trigger fires only when true")
-        String conditionExpression
+        @Schema(description = "Optional AviatorScript expression; trigger fires only when true. Exclusive with condition")
+        String conditionExpression,
 
-) implements TriggerSource {}
+        @Schema(description = "Optional rule over the changed record's fields (platform Filters), judged like an edge's "
+                + "rule condition; trigger fires only when it holds. Exclusive with conditionExpression")
+        Filters condition
+
+) implements TriggerSource {
+
+    /** A trigger on these events, decided by an expression (or by nothing). */
+    public EntityChangeTrigger(List<ChangeEvent> events, String conditionExpression) {
+        this(events, conditionExpression, null);
+    }
+
+    @Override
+    public boolean onRecord() {
+        return true;
+    }
+}

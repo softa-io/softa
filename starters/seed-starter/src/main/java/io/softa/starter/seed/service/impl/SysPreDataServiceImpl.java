@@ -32,6 +32,7 @@ import io.softa.framework.orm.utils.FileUtils;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.seed.entity.SysPreData;
 import io.softa.starter.seed.service.LoadMode;
+import io.softa.starter.seed.service.LoadedRows;
 import io.softa.starter.seed.service.SysPreDataService;
 
 import static io.softa.framework.orm.constant.ModelConstant.*;
@@ -67,6 +68,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     /** The rows the load in progress created, by model; bound only around a load that reports them. */
     private static final ScopedValue<Map<String, List<String>>> CREATED = ScopedValue.newInstance();
 
+    /** The rows of earlier loads the load in progress wrote to, by model; bound together with {@link #CREATED}. */
+    private static final ScopedValue<Map<String, List<String>>> UPDATED = ScopedValue.newInstance();
+
     private final ModelService<Serializable> modelService;
     private final PreDataFormatParser formatParser = new PreDataFormatParser();
 
@@ -95,25 +99,42 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param fileNames file names relative to the directory
      * @param tenantId  tenant the rows are written to
      * @param mode      how rows the tenant already has are treated
-     * @return the rows the load created, by model
+     * @return the rows the load created, and the rows of earlier loads it wrote to, by model
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, List<String>> loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode) {
+    public LoadedRows loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode) {
         if (SystemConfig.env.isEnableMultiTenancy()) {
             Assert.notNull(tenantId,
                     "Loading tenant predefined data requires a tenant id when multi-tenancy is enabled!");
         }
+        return reportingWrites(() -> loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId, mode));
+    }
+
+    /**
+     * Run a load, noting the rows it creates and the rows of earlier loads it writes to. Package-private for the
+     * tests that drive one record.
+     */
+    static LoadedRows reportingWrites(Runnable load) {
         Map<String, List<String>> created = new LinkedHashMap<>();
-        ScopedValue.where(CREATED, created)
-                .run(() -> loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId, mode));
-        return created;
+        Map<String, List<String>> updated = new LinkedHashMap<>();
+        ScopedValue.where(CREATED, created).where(UPDATED, updated).run(load);
+        return new LoadedRows(created, updated);
     }
 
     /** Note a row the load created, when the load reports them (see {@link #loadPreTenantData}). */
     private static void recordCreated(String model, Serializable rowId) {
-        if (CREATED.isBound()) {
-            CREATED.get().computeIfAbsent(model, k -> new ArrayList<>()).add(String.valueOf(rowId));
+        note(CREATED, model, rowId);
+    }
+
+    /** Note a row of an earlier load that the load wrote to, when the load reports them. */
+    private static void recordUpdated(String model, Serializable rowId) {
+        note(UPDATED, model, rowId);
+    }
+
+    private static void note(ScopedValue<Map<String, List<String>>> rows, String model, Serializable rowId) {
+        if (rows.isBound()) {
+            rows.get().computeIfAbsent(model, k -> new ArrayList<>()).add(String.valueOf(rowId));
         }
     }
 
@@ -556,6 +577,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                     return additive() ? leaveDeleted(model, preData) : recreateBoundRow(model, resolved, preData);
                 }
                 writeTimelineVersion(model, rowId, preData.getPreId(), resolved);
+                recordUpdated(model, rowId);
                 return rowId;
             }
             // Overwriting, the update payload is `resolved` plus a null for every updatable field the file
@@ -590,6 +612,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 // false when nothing changed, which is why the row is probed before recreating — past
                 // active control, see rowExists.
                 return recreateBoundRow(model, resolved, preData);
+            }
+            if (result) {
+                recordUpdated(model, rowId);
             }
             // The typed id, not `preData.getRowId()` — that column is a String. The caller injects this
             // value into each OneToMany child as the back-reference, and resolveReferencedPreIds reads a

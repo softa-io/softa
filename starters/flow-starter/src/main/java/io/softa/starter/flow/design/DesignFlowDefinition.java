@@ -43,7 +43,12 @@ public class DesignFlowDefinition implements DTOFieldObject {
     @Schema(description = "Execution scenario (replaces kind + purpose)")
     private FlowScenario scenario;
 
-    @Schema(description = "Trigger definition (sealed TriggerSource sub-type)")
+    @Schema(description = "The model whose records the flow starts on — an Approval flow's document, the model a change "
+            + "trigger watches; empty when the flow starts on no record (a schedule, an API call, a parent flow). "
+            + "Chosen when the flow is created and fixed: its nodes, conditions and field permissions read this model")
+    private String modelName;
+
+    @Schema(description = "Trigger definition (sealed TriggerSource sub-type): how an instance starts")
     private TriggerSource trigger;
 
     @Schema(description = "Graph document (nodes + edges + viewport)")

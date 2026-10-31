@@ -103,7 +103,7 @@ class FlowScenarioEvaluationTest {
         return DesignFlowDefinition.builder()
                 .name("Compute Total")
                 .scenario(FlowScenario.COMPUTE)
-                .trigger(new FieldChangeTrigger("Order", List.of()))
+                .modelName("Order").trigger(new FieldChangeTrigger(List.of()))
                 .declaredOutputs(List.of("totalAmount"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -123,7 +123,7 @@ class FlowScenarioEvaluationTest {
         return DesignFlowDefinition.builder()
                 .name("Validate Amount")
                 .scenario(FlowScenario.VALIDATION)
-                .trigger(new EntityChangeTrigger("Order", List.of(), null))
+                .modelName("Order").trigger(new EntityChangeTrigger(List.of(), null))
                 .declaredOutputs(List.of("valid"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

@@ -2,13 +2,14 @@ package io.softa.starter.flow.runtime.trigger;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.api.CompileDiagnostic;
 import io.softa.starter.flow.compiler.validation.TriggerConsistencyValidator;
 import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.LeaveRequest;
@@ -17,15 +18,15 @@ import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.ModelApprovalHandlerRegistry;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /**
- * The submit trigger is chosen per record — by model and condition — and never by a generic
- * trigger event; the REST trigger refuses it and the compiler keeps it on Approval flows.
+ * A submission goes to its document's approval flow — chosen by the record's model alone — and never to a flow a
+ * generic trigger event names; the REST trigger refuses it and the compiler keeps it on Approval flows, with the
+ * flow's model going with its trigger.
  */
 class SubmitTriggerTest {
 
@@ -40,37 +41,31 @@ class SubmitTriggerTest {
         return new DefaultFlowTriggerRegistry(bundleRegistry);
     }
 
-    private static CompiledFlowDefinition submitFlow(String flowId, String model, String condition) {
+    private static CompiledFlowDefinition submitFlow(String flowId, String model) {
         return CompiledFlowDefinition.builder()
                 .flowId(flowId)
                 .flowName(flowId)
-                .trigger(new SubmitTrigger(model, condition))
+                .modelName(model)
+                .trigger(new SubmitTrigger())
                 .build();
     }
 
     @Test
-    void findsTheFlowsOfTheModelWhoseConditionHolds() {
+    void aSubmissionGoesToTheApprovalFlowOfItsModel() {
+        CompiledFlowDefinition onChange = CompiledFlowDefinition.builder().flowId("audit").flowName("audit")
+                .modelName("LeaveRequest").trigger(new EntityChangeTrigger(List.of(), null)).build();
         DefaultFlowTriggerRegistry registry = registryFor(
-                submitFlow("annual", "LeaveRequest", "leaveType == 'Annual'"),
-                submitFlow("cancel", "LeaveRequest", "leaveType == 'CancelLeave'"),
-                submitFlow("any-claim", "ExpenseClaim", null));
+                submitFlow("leave", "LeaveRequest"), submitFlow("claim", "ExpenseClaim"), onChange);
 
-        List<CompiledFlowDefinition> matches = registry.findSubmitFlows("LeaveRequest", Map.of("leaveType", "Annual"));
-
-        assertEquals(List.of("annual"), matches.stream().map(CompiledFlowDefinition::getFlowId).toList());
-        assertEquals(1, registry.findSubmitFlows("ExpenseClaim", Map.of()).size());
-    }
-
-    @Test
-    void aConditionThatCannotBeEvaluatedIsReportedNotSkipped() {
-        DefaultFlowTriggerRegistry registry = registryFor(submitFlow("broken", "LeaveRequest", "days >"));
-
-        assertThrows(FlowRuntimeException.class, () -> registry.findSubmitFlows("LeaveRequest", Map.of("days", 3)));
+        assertEquals(List.of("leave"),
+                registry.findSubmitFlows("LeaveRequest").stream().map(CompiledFlowDefinition::getFlowId).toList());
+        assertEquals(List.of("claim"),
+                registry.findSubmitFlows("ExpenseClaim").stream().map(CompiledFlowDefinition::getFlowId).toList());
     }
 
     @Test
     void aGenericTriggerEventNeverStartsASubmitFlow() {
-        DefaultFlowTriggerRegistry registry = registryFor(submitFlow("annual", "LeaveRequest", null));
+        DefaultFlowTriggerRegistry registry = registryFor(submitFlow("annual", "LeaveRequest"));
         FlowTriggerEvent event = FlowTriggerEvent.builder().type("Submit").sourceModel("LeaveRequest").build();
 
         assertTrue(registry.findMatchingFlows(event).isEmpty());
@@ -89,15 +84,23 @@ class SubmitTriggerTest {
         TriggerConsistencyValidator validator = new TriggerConsistencyValidator();
 
         List<CompileDiagnostic> wrongScenario = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.VALIDATION).trigger(new SubmitTrigger("LeaveRequest", null)).build(), null);
+                .scenario(FlowScenario.VALIDATION).modelName("LeaveRequest").trigger(new SubmitTrigger()).build(), null);
         List<CompileDiagnostic> noModel = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger(" ", null)).build(), null);
+                .scenario(FlowScenario.APPROVAL).modelName(" ").trigger(new SubmitTrigger()).build(), null);
         List<CompileDiagnostic> valid = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger("LeaveRequest", "days > 1")).build(), null);
+                .scenario(FlowScenario.APPROVAL).modelName("LeaveRequest").trigger(new SubmitTrigger()).build(), null);
 
         assertEquals(1, wrongScenario.size());
-        assertEquals(1, noModel.size());
+        assertEquals(List.of("MISSING_MODEL"), noModel.stream().map(CompileDiagnostic::code).toList());
         assertTrue(valid.isEmpty());
+    }
+
+    @Test
+    void aFlowStartedOnNoRecordNamesNoModel() {
+        List<CompileDiagnostic> diagnostics = new TriggerConsistencyValidator().validate(DesignFlowDefinition.builder()
+                .scenario(FlowScenario.AUTOMATION).modelName("LeaveRequest").trigger(new ApiTrigger(null)).build(), null);
+
+        assertEquals(List.of("MODEL_WITHOUT_RECORD"), diagnostics.stream().map(CompileDiagnostic::code).toList());
     }
 
     @Test

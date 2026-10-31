@@ -67,7 +67,7 @@ class FlowScenarioRuntimeTest {
 
     @Test
     void anApprovalAnnouncesItsCompletion() {
-        publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest", null),
+        publishService.publish("leave", flowOn("LeaveRequest", FlowScenario.APPROVAL, new SubmitTrigger(),
                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
                         .config(Map.of("approvers", List.of("manager"))).build()));
         FlowExecutionState started = engine.start(start("leave", "submitter"));
@@ -127,8 +127,14 @@ class FlowScenarioRuntimeTest {
                 .config(Map.of("subflowId", childFlowId)).build();
     }
 
-    /** start → {@code middle} (when given) → end. */
+    /** start → {@code middle} (when given) → end, started on no record. */
     private static DesignFlowDefinition flow(FlowScenario scenario, TriggerSource trigger, FlowGraphNode... middle) {
+        return flowOn(null, scenario, trigger, middle);
+    }
+
+    /** start → {@code middle} (when given) → end, started on records of {@code modelName}. */
+    private static DesignFlowDefinition flowOn(String modelName, FlowScenario scenario, TriggerSource trigger,
+                                               FlowGraphNode... middle) {
         List<FlowGraphNode> nodes = new ArrayList<>();
         List<FlowGraphEdge> edges = new ArrayList<>();
         nodes.add(FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build());
@@ -143,6 +149,7 @@ class FlowScenarioRuntimeTest {
         return DesignFlowDefinition.builder()
                 .name(scenario.getType() + " flow")
                 .scenario(scenario)
+                .modelName(modelName)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build())
                 .build();

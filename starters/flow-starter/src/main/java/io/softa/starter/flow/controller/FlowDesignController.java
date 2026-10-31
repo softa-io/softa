@@ -122,7 +122,8 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
 
     @PostMapping("/{id}/delete")
     @Operation(summary = "Delete flow draft",
-            description = "Deletes the draft by id. Returns false if the draft has been published.")
+            description = "Deletes a flow that was never published. A published flow is refused — its revisions, "
+                    + "instances and approval history refer to it — and is disabled instead.")
     public ApiResponse<Boolean> delete(@PathVariable String id) {
         return ApiResponse.success(service.deleteById(id));
     }
@@ -165,10 +166,26 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
 
     @GetMapping("/{id}/status")
     @Operation(summary = "Get draft publish status",
-            description = "Revision badge + dirty flag: dirty is true when the draft differs from the most "
-                    + "recently published design.")
+            description = "Revision badge, dirty flag and on/off: dirty is true when the draft differs from the most "
+                    + "recently published design; enabled is false while the flow is disabled.")
     public ApiResponse<FlowDesignStatusView> status(@PathVariable String id) {
         return ApiResponse.success(service.getStatus(id));
+    }
+
+    @PostMapping("/{id}/disable")
+    @Operation(summary = "Disable flow",
+            description = "Switches the flow off: no submission, change, schedule, API call or parent flow starts it "
+                    + "any more, while its running instances carry on. The effective revision stays, and publishing "
+                    + "keeps the flow off. Refused while an enabled flow calls it as a subflow. Returns the status.")
+    public ApiResponse<FlowDesignStatusView> disable(@PathVariable String id) {
+        return ApiResponse.success(service.disable(id));
+    }
+
+    @PostMapping("/{id}/enable")
+    @Operation(summary = "Enable flow",
+            description = "Switches the flow back on, on the revision that was effective. Returns the status.")
+    public ApiResponse<FlowDesignStatusView> enable(@PathVariable String id) {
+        return ApiResponse.success(service.enable(id));
     }
 
     @GetMapping("/{id}/availableVariables")

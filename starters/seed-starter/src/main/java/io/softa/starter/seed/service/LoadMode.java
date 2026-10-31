@@ -3,10 +3,10 @@ package io.softa.starter.seed.service;
 /**
  * How a seed file is written into a scope that may already hold its rows.
  *
- * <p>Platform files always {@link #OVERWRITE}: the file is the data. A tenant file overwrites only when the
- * manifest marks it {@code overwrite: true} — rows nobody in the tenant edits, such as the built-in roles.
- * Every other tenant file, and every patch file, is {@link #ADDITIVE}: it runs once per tenant, and what the
- * tenant changed afterwards is the tenant's.
+ * <p>Platform files always {@link #OVERWRITE}: the file is the data. A tenant file overwrites when the manifest
+ * marks it {@code overwrite: true} — rows nobody in the tenant edits, such as the built-in roles — and when the
+ * platform admin reapplies it. Every other run of a tenant file, patch files included, is {@link #ADDITIVE}: it
+ * runs once per tenant, and what the tenant changed afterwards is the tenant's.
  */
 public enum LoadMode {
 

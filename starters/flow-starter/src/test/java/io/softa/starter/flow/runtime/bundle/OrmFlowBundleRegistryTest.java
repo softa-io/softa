@@ -69,7 +69,7 @@ public class OrmFlowBundleRegistryTest {
         assertNull(restored.getTopologicalOrder());
         assertNotNull(restored.getTrigger());
         assertInstanceOf(EntityChangeTrigger.class, restored.getTrigger());
-        assertEquals("Order", ((EntityChangeTrigger) restored.getTrigger()).modelName());
+        assertEquals("Order", restored.getModelName());
     }
 
     @Test
@@ -239,7 +239,7 @@ public class OrmFlowBundleRegistryTest {
 
         assertNotNull(result.getTrigger());
         assertInstanceOf(EntityChangeTrigger.class, result.getTrigger());
-        assertEquals("Order", ((EntityChangeTrigger) result.getTrigger()).modelName());
+        assertEquals("Order", result.getModelName());
     }
 
     @Test
@@ -356,7 +356,7 @@ public class OrmFlowBundleRegistryTest {
                 .revision(revision)
                 .sync(false)
                 .rollbackOnFail(false)
-                .trigger(new EntityChangeTrigger("Order", null, null))
+                .modelName("Order").trigger(new EntityChangeTrigger(null, null))
                 .entryNodeIds(List.of("start"))
                 .terminalNodeIds(List.of("end"))
                 .topologicalOrder(List.of("start", "task1", "end"))

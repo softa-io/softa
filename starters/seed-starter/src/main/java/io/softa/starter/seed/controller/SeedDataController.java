@@ -14,8 +14,8 @@ import io.softa.starter.seed.service.SeedLoadLog;
 import io.softa.starter.seed.service.TenantSeedRunner;
 
 /**
- * Seed data operations, for the platform admin only: load the platform files and run the tenant files, which the
- * Seed Data page does. An environment's first platform load initializes it as well. The record of every operation
+ * Seed data operations, for the platform admin only: load the platform files, and run the tenant files or reapply
+ * them, which the Seed Data page does. An environment's first platform load initializes it as well. The record of every operation
  * is the {@code SeedLoadBatch} / {@code SeedLoadRecord} models, read through the generic model API.
  */
 @Tag(name = "Seed Data")
@@ -79,7 +79,16 @@ public class SeedDataController {
         return ApiResponse.success(new BatchStarted(tenantRunner.run(request == null ? null : request.tenantIds())));
     }
 
-    @Operation(summary = "The platform load, tenant run or initialization in progress, or null")
+    @Operation(summary = "Run the named tenant files again in the given tenants, whatever their state, in the "
+            + "background: each file loads whole over the tenant's copy, as an overwrite file does, so what the "
+            + "tenant changed in those rows is lost")
+    @PostMapping("/tenants/reapply")
+    @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
+    public ApiResponse<BatchStarted> reapplyTenantFiles(@RequestBody TenantReapplyRequest request) {
+        return ApiResponse.success(new BatchStarted(tenantRunner.reapply(request.tenantIds(), request.fileNames())));
+    }
+
+    @Operation(summary = "The platform load, tenant run, reapply or initialization in progress, or null")
     @GetMapping("/batches/running")
     @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
     public ApiResponse<RunningBatch> runningBatch() {
