@@ -361,6 +361,93 @@ class MetadataServiceImplTest {
         }
     }
 
+    /** A bank account holds nothing but sensitive fields and plumbing: its id and the staff it belongs to. */
+    private static List<MetaField> bankAccountFields() {
+        return List.of(
+                mockField("BankAccount", "id", FieldType.LONG, null),
+                mockField("BankAccount", "staffId", FieldType.MANY_TO_ONE, "Staff"),
+                mockField("BankAccount", "accountNumber", FieldType.STRING, null),
+                mockField("BankAccount", "bank", FieldType.MANY_TO_ONE, "Bank"));
+    }
+
+    @Test
+    void getMetaModelDtoLeavesOutARelationOntoAModelTheCallerCanReadNothingOf() {
+        // Every field of the bank account but its plumbing is withheld, so the relation onto it could only
+        // offer a column, an export field and a filter that come back empty; a relation onto a model with
+        // something left to read stays.
+        PermissionService permissionService = mock(PermissionService.class);
+        when(permissionService.getHiddenSensitiveFields())
+                .thenReturn(Map.of("BankAccount", Set.of("accountNumber", "bank")));
+        MetadataServiceImpl service = serviceWithPermission(permissionService);
+        List<MetaField> bankAccount = bankAccountFields();
+
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class);
+             MockedStatic<MetadataDtoMapper> mapper = Mockito.mockStatic(MetadataDtoMapper.class)) {
+            mm.when(() -> ModelManager.getModelFields("BankAccount")).thenReturn(bankAccount);
+            mapper.when(() -> MetadataDtoMapper.toModelDTO("Staff")).thenAnswer(inv -> {
+                MetaModelDTO dto = modelDto("Staff", "name");
+                dto.getModelFields().put("bankAccountId", relationDto("Staff", "bankAccountId", "BankAccount"));
+                dto.getModelFields().put("departmentId", relationDto("Staff", "departmentId", "Department"));
+                return dto;
+            });
+
+            MetaModelDTO dto = service.getMetaModelDTO("Staff");
+
+            assertEquals(Set.of("name", "departmentId"), dto.getModelFields().keySet());
+        }
+    }
+
+    @Test
+    void resolveCascadedPathsStopsAtARelationOntoAModelTheCallerCanReadNothingOf() {
+        // The same answer getMetaModel gives by leaving the relation out: the path fails at the relation
+        // itself, not at the withheld field past it.
+        PermissionService permissionService = mock(PermissionService.class);
+        when(permissionService.getHiddenSensitiveFields())
+                .thenReturn(Map.of("BankAccount", Set.of("accountNumber", "bank")));
+        MetadataServiceImpl service = serviceWithPermission(permissionService);
+        List<MetaField> bankAccount = bankAccountFields();
+        MetaField bankAccountId = mockField("Staff", "bankAccountId", FieldType.ONE_TO_ONE, "BankAccount");
+        MetaField departmentId = mockField("Staff", "departmentId", FieldType.MANY_TO_ONE, "Department");
+        MetaField departmentName = mockField("Department", "name", FieldType.STRING, null);
+
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class);
+             MockedStatic<MetadataDtoMapper> mapper = Mockito.mockStatic(MetadataDtoMapper.class)) {
+            stubMapper(mapper);
+            mm.when(() -> ModelManager.validateModel("Staff")).thenAnswer(inv -> null);
+            mm.when(() -> ModelManager.getModelFields("BankAccount")).thenReturn(bankAccount);
+            mm.when(() -> ModelManager.existField("Staff", "bankAccountId")).thenReturn(true);
+            mm.when(() -> ModelManager.existField("Staff", "departmentId")).thenReturn(true);
+            mm.when(() -> ModelManager.existField("BankAccount", "accountNumber")).thenReturn(true);
+            mm.when(() -> ModelManager.existField("Department", "name")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelField("Staff", "bankAccountId")).thenReturn(bankAccountId);
+            mm.when(() -> ModelManager.getModelField("Staff", "departmentId")).thenReturn(departmentId);
+            mm.when(() -> ModelManager.getModelField("BankAccount", "accountNumber")).thenReturn(bankAccount.get(2));
+            mm.when(() -> ModelManager.getModelField("Department", "name")).thenReturn(departmentName);
+
+            ResolveCascadedPathsResponse response = service.resolveCascadedPaths(
+                    "Staff", List.of("bankAccountId.accountNumber", "departmentId.name"));
+
+            PathResolution withheld = response.getResolutions().get(0);
+            assertFalse(withheld.isOk());
+            assertEquals(CascadeFieldWalker.ErrorKind.FIELD_NOT_FOUND, withheld.getErrorCode());
+            assertEquals(Integer.valueOf(0), withheld.getErrorAt());
+            assertEquals("Field 'bankAccountId' not found on model 'Staff'", withheld.getMessage());
+
+            assertTrue(response.getResolutions().get(1).isOk());
+            assertEquals(List.of("Department"),
+                    response.getMetaModels().stream().map(MetaModelDTO::getModelName).toList());
+        }
+    }
+
+    private static MetaFieldDTO relationDto(String modelName, String fieldName, String relatedModel) {
+        MetaFieldDTO field = new MetaFieldDTO();
+        field.setFieldName(fieldName);
+        field.setModelName(modelName);
+        field.setFieldType(FieldType.MANY_TO_ONE);
+        field.setRelatedModel(relatedModel);
+        return field;
+    }
+
     private static MetaModelDTO modelDto(String modelName, String... fieldNames) {
         MetaModelDTO dto = new MetaModelDTO();
         dto.setModelName(modelName);
