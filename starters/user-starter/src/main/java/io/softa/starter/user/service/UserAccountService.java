@@ -45,6 +45,13 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     List<Long> listAccountIdsOf(Long profileId);
 
     /**
+     * The people whose JOINED accounts (Active / Frozen; Locked is derived and stored as Active) carry
+     * this enterprise email, in any tenant. Email login identifies the person this way: an email on a
+     * Pending, Invited or Deactivated account signs nobody in. Compared case-insensitively.
+     */
+    java.util.Set<Long> findJoinedProfilesByEmail(String email);
+
+    /**
      * Get user by mobile
      *
      * @param mobile mobile

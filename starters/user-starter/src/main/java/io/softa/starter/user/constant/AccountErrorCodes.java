@@ -1,0 +1,52 @@
+package io.softa.starter.user.constant;
+
+import io.softa.framework.base.exception.BusinessException;
+
+/**
+ * Stable error codes of the login, join and account flows, carried as {@code errorCode} on the error
+ * response. Clients show their own copy per code instead of the server's message. The two session
+ * codes every signed-in endpoint can answer with live in {@code SessionErrorCodes}.
+ */
+public final class AccountErrorCodes {
+
+    /** The mobile or email is not linked to any account. */
+    public static final String ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND";
+    /** Wrong password; from the seventh failure {@code remainingAttempts} comes with it. */
+    public static final String PASSWORD_INCORRECT = "PASSWORD_INCORRECT";
+    /** Password login is locked; a verification code still works. */
+    public static final String PASSWORD_LOCKED = "PASSWORD_LOCKED";
+    /** Wrong verification code. */
+    public static final String CODE_INCORRECT = "CODE_INCORRECT";
+    /** The verification code expired, or none was sent. */
+    public static final String CODE_EXPIRED = "CODE_EXPIRED";
+    /** Five wrong tries: the code is dead, request a new one. */
+    public static final String CODE_INVALIDATED = "CODE_INVALIDATED";
+    /** Ten consecutive wrong tries: verification on this number / address is blocked for a while. */
+    public static final String CODE_BLOCKED = "CODE_BLOCKED";
+    /** Codes requested too often. */
+    public static final String TOO_MANY_REQUESTS = "TOO_MANY_REQUESTS";
+    /** The new login mobile is already another person's. */
+    public static final String MOBILE_TAKEN = "MOBILE_TAKEN";
+    /** The new login mobile is the current one. */
+    public static final String MOBILE_UNCHANGED = "MOBILE_UNCHANGED";
+    /** The enterprise email is already another person's (outside Deactivated accounts). */
+    public static final String EMAIL_TAKEN = "EMAIL_TAKEN";
+    /** The person already holds a live account in this company. */
+    public static final String ALREADY_JOINED = "ALREADY_JOINED";
+    /** The contact identifies more than one person, so nobody can be signed in by it. */
+    public static final String CONTACT_SHARED = "CONTACT_SHARED";
+    /** A password is already set, so the first-password step does not apply. */
+    public static final String PASSWORD_ALREADY_SET = "PASSWORD_ALREADY_SET";
+    /** The single-use sign-in token expired or was already used. */
+    public static final String AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED";
+
+    private AccountErrorCodes() {
+    }
+
+    /** A business refusal carrying one of these codes. */
+    public static BusinessException refusal(String code, String message) {
+        BusinessException e = new BusinessException(message);
+        e.withErrorCode(code);
+        return e;
+    }
+}

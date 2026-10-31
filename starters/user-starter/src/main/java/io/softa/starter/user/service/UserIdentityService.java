@@ -117,34 +117,6 @@ public interface UserIdentityService extends EntityService<UserIdentity, Long> {
      */
     long recordPasswordFailure(UserIdentity identity);
 
-    /**
-     * Count one wrong password against an identifier that resolves to NOBODY.
-     *
-     * <p>Without this, an unknown identifier is an oracle: the real counter starts naming the
-     * remaining attempts from the seventh failure, so whoever sees a countdown after seven tries
-     * has learned the identifier exists, and whoever never sees one has learned it does not. The
-     * submitted identifier is therefore counted too — keyed by a digest of its canonical form (LoginIdentifiers), so
-     * the cache never holds the raw guesses — in the same window and to the same threshold, and the
-     * login path words its refusal from this count exactly as it does from the real one.
-     *
-     * <p>On the failure that would lock a real person, a lock keyed the same way is set for the same
-     * duration and the counter is cleared — the real branch's exact clock. A counter that merely
-     * kept climbing until its TTL ran out would expire {@code LOCK_MINUTES} after the FIRST failure,
-     * while the real lock starts at the TENTH: spread ten tries over twenty minutes and, a quarter
-     * of an hour later, the real identifier still says "locked" and the made-up one says "incorrect".
-     *
-     * @return the failure count in the current window, this one included
-     */
-    long recordUnknownIdentifierFailure(String identifier);
-
-    /**
-     * Whether an identifier that resolves to nobody is currently "locked" — the twin of
-     * {@link #isPasswordLocked} for the unknown branch, read before counting for the same reason
-     * the real lock is: a locked person is refused without their guess being counted, so a locked
-     * unknown identifier must be too, or the two diverge on the eleventh try.
-     */
-    boolean isUnknownIdentifierLocked(String identifier);
-
     /** Forget the failure count — a successful login, or a new password, ends the window. */
     void clearPasswordFailures(Long identityId);
 

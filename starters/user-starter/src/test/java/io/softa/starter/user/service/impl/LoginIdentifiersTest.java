@@ -69,11 +69,10 @@ class LoginIdentifiersTest {
 
         identityService.findByLoginIdentifier("+65 9123-4567");
 
+        // A mobile is looked up on the identity only; an email is read off joined accounts.
         ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
-        verify(identityService, times(2)).searchOne(filters.capture());
-        assertThat(filters.getAllValues().get(0).toString())
-                .contains("loginEmail").contains("\"+6591234567\"").doesNotContain("9123-");
-        assertThat(filters.getAllValues().get(1).toString())
+        verify(identityService, times(1)).searchOne(filters.capture());
+        assertThat(filters.getValue().toString())
                 .contains("loginMobile").contains("\"+6591234567\"").contains("\"+65 9123-4567\"");
     }
 
@@ -143,8 +142,6 @@ class LoginIdentifiersTest {
         assertThatThrownBy(() -> loginService.authenticateByCode(" +65 9123-4567 ", "123456"))
                 .isInstanceOf(BusinessException.class);
 
-        verify(codeGuard).verify("+6591234567", "123456");
-        verify(accountService).isWorkContactShared("+65 9123-4567");
         verify(identityService).findByLoginIdentifier("+65 9123-4567");
     }
 
@@ -156,12 +153,14 @@ class LoginIdentifiersTest {
         UserIdentityServiceImpl identityService = spy(new UserIdentityServiceImpl(mock(CacheService.class)));
         doReturn(Optional.empty()).when(identityService).searchOne(any(Filters.class));
 
+        UserAccountService accounts = mock(UserAccountService.class);
+        ReflectionTestUtils.setField(identityService, "accountService", accounts);
+        ReflectionTestUtils.setField(identityService, "consultantService", mock(ConsultantService.class));
+        when(accounts.findJoinedProfilesByEmail(any())).thenReturn(java.util.Set.of());
+
         identityService.findByLoginIdentifier(" ALICE@acme.com");
 
-        ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
-        verify(identityService, times(2)).searchOne(filters.capture());
-        assertThat(filters.getAllValues())
-                .allSatisfy(f -> assertThat(f.toString()).contains("\"alice@acme.com\"").doesNotContain("ALICE"));
+        verify(accounts).findJoinedProfilesByEmail("alice@acme.com");
     }
 
     @Test

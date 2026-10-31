@@ -156,6 +156,13 @@ public interface LoginService {
     AuthenticationResult selectTenant(String authToken, Long accountId);
 
     /**
+     * Set the first password of the person who just authenticated, named by the single-use sign-in
+     * token rather than by any session — the password comes before choosing where to go. Only for a
+     * person with no password yet. Answers with the entry rule's result, as a sign-in would.
+     */
+    AuthenticationResult setFirstPassword(String authToken, String newPassword);
+
+    /**
      * The same company list the login picker shows, for a person who is ALREADY signed in — the
      * header's tenant switcher.
      *

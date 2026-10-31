@@ -28,6 +28,7 @@ import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.web.utils.CookieUtils;
 import io.softa.starter.user.dto.*;
 import io.softa.starter.user.service.LoginService;
+import io.softa.starter.user.service.impl.LoginHistoryRecorder;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.service.OAuth2Service;
@@ -64,6 +65,9 @@ public class LoginController {
     /** Reads the session behind an authenticated call, and drops the one a switch replaces. */
     @Autowired
     private SessionStore sessionStore;
+
+    @Autowired
+    private LoginHistoryRecorder loginHistory;
 
     /**
      * Login by Apple ID
@@ -242,6 +246,15 @@ public class LoginController {
      * (or to one they cannot enter), so no session was issued yet. Not tenant-scoped by nature —
      * the caller has proven who they are but not yet chosen where they are going.
      */
+    @Operation(summary = "Set the first password with the sign-in token, then enter by the entry rule")
+    @PostMapping("/setFirstPassword")
+    @SwitchUser(SystemUser.REGISTERED_USER)
+    public ApiResponse<AuthenticationResult> setFirstPassword(@RequestBody @Valid LoginSetFirstPasswordDTO dto,
+            HttpServletResponse response) {
+        return this.issueOrAskForCompany(
+                loginService.setFirstPassword(dto.getAuthToken(), dto.getNewPassword()), response);
+    }
+
     @Operation(summary = "List the tenants this person can log into (multi-company login step)")
     @PostMapping("/listTenants")
     @SwitchUser(SystemUser.REGISTERED_USER)
@@ -300,14 +313,16 @@ public class LoginController {
     public ApiResponse<AuthenticationResult> switchTenant(@RequestBody @Valid SwitchTenantDTO dto,
             HttpServletRequest request, HttpServletResponse response) {
         String previousSessionId = this.sessionIdOf(request);
-        AuthenticationResult result =
-                loginService.switchTenant(this.sessionUser(previousSessionId), dto.getAccountId());
+        Long previousAccountId = this.sessionUser(previousSessionId);
+        AuthenticationResult result = loginService.switchTenant(previousAccountId, dto.getAccountId());
         // Gates first: a refusal here mints nothing, and the caller is still in the company they
         // started in — which is why the old session is dropped only after this returns.
         String sessionId = loginService.generateSessionId(result.userInfo().getUserId());
         // Explicit, and before the new cookie goes out: a copy of the old cookie taken from another
         // device would otherwise keep the previous company alive alongside the new one.
         sessionStore.revoke(previousSessionId, SessionRevokeReason.SWITCHED_TENANT);
+        loginHistory.recordSwitch(result.profileId(), previousAccountId, result.userInfo().getUserId(),
+                result.userInfo().getTenantId());
         CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
         return ApiResponse.success(result.withSessionToken(sessionId));
     }

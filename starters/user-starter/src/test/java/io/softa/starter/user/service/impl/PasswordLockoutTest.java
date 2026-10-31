@@ -73,6 +73,9 @@ class PasswordLockoutTest {
 
     PasswordLockoutTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        ReflectionTestUtils.setField(loginService, "history", mock(LoginHistoryRecorder.class));
+        ReflectionTestUtils.setField(loginService, "cacheService", mock(io.softa.framework.orm.service.CacheService.class));
+        when(accountService.listAccountIdsOf(any())).thenReturn(java.util.List.of(1L));
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
@@ -189,6 +192,20 @@ class PasswordLockoutTest {
     }
 
     @Test
+    void wrongPasswordAndLock_carryTheirStableCodes() {
+        givenWrongPasswordIsFailureNumber(identity(null), 8);
+        assertThatThrownBy(() -> loginService.authenticateByPassword(EMAIL, "wrong"))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo("PASSWORD_INCORRECT");
+                    assertThat(e.getErrorDetails()).containsEntry("remainingAttempts", 2L);
+                });
+        givenWrongPasswordIsFailureNumber(identity(null), 10);
+        assertThatThrownBy(() -> loginService.authenticateByPassword(EMAIL, "wrong"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo("PASSWORD_LOCKED"));
+    }
+
+    @Test
     void theTenthFailure_isAnsweredWithTheLock() {
         // The guess that locks says so itself, instead of a plain "incorrect" followed by an
         // unexplained "locked" on the next try.
@@ -198,208 +215,6 @@ class PasswordLockoutTest {
                 .hasMessageContaining("Too many failed attempts")
                 .hasMessageContaining("locked for 30 minutes");
     }
-
-    // ── an unknown identifier must not be an oracle (PRD L3 / #6) ───
-
-    private static final String NOBODY = "nobody@acme.com";
-
-    private void givenUnknownIdentifierIsFailureNumber(long count) {
-        when(identityService.findByLoginIdentifier(NOBODY)).thenReturn(Optional.empty());
-        when(identityService.recordUnknownIdentifierFailure(NOBODY)).thenReturn(count);
-    }
-
-    private String messageFor(String identifier) {
-        try {
-            loginService.authenticateByPassword(identifier, "wrong");
-            return null;
-        } catch (BusinessException e) {
-            return e.getMessage();
-        }
-    }
-
-    @Test
-    void anUnknownIdentifier_isCounted_andGetsTheSameCountdown() {
-        // Before this, the unknown branch threw before counting: seven tries against a real
-        // identifier produced a countdown, seven against a made-up one never did — a yes/no on
-        // "does this account exist" for anyone patient enough to ask seven times.
-        givenUnknownIdentifierIsFailureNumber(7);
-
-        assertThatThrownBy(() -> loginService.authenticateByPassword(NOBODY, "wrong"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("Incorrect account or password. 3 attempts left before password login locks for 30 minutes.");
-
-        verify(identityService).recordUnknownIdentifierFailure(NOBODY);
-        verify(identityService, never()).recordPasswordFailure(any());
-    }
-
-    @Test
-    void anUnknownIdentifier_isToldItIsLockedOnTheTenthTry() {
-        givenUnknownIdentifierIsFailureNumber(10);
-
-        assertThatThrownBy(() -> loginService.authenticateByPassword(NOBODY, "wrong"))
-                .hasMessageContaining("Too many failed attempts")
-                .hasMessageContaining("locked for 30 minutes");
-    }
-
-    @Test
-    void knownAndUnknownIdentifiers_readIdenticallyAtEveryCount() {
-        // The security property in one line: for every count in the window, the refusal for a wrong
-        // password against a real person equals the refusal for a made-up identifier at the same
-        // count. Any difference — wording or the count at which it changes — is the oracle again.
-        for (long count = 1; count <= UserIdentityService.FAILURES_BEFORE_LOCK; count++) {
-            givenWrongPasswordIsFailureNumber(identity(null), count);
-            givenUnknownIdentifierIsFailureNumber(count);
-
-            assertThat(messageFor(NOBODY))
-                    .as("failure #%d", count)
-                    .isNotNull()
-                    .isEqualTo(messageFor(EMAIL));
-        }
-
-        // ...and while locked, where the real branch stops counting. An unknown identifier that kept
-        // counting here would come out of its lock at a different moment from a real one.
-        UserIdentity locked = identity(LocalDateTime.now().plusMinutes(5));
-        when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.of(locked));
-        when(identityService.isPasswordLocked(locked)).thenReturn(true);
-        when(identityService.isUnknownIdentifierLocked(NOBODY)).thenReturn(true);
-
-        assertThat(messageFor(NOBODY)).as("while locked").isNotNull().isEqualTo(messageFor(EMAIL));
-        verify(identityService, never()).recordPasswordFailure(locked);
-        verify(identityService, times(UserIdentityService.FAILURES_BEFORE_LOCK))
-                .recordUnknownIdentifierFailure(NOBODY);
-    }
-
-    @Test
-    void aLockedUnknownIdentifier_isRefusedWithoutBeingCounted() {
-        // Mirrors aLockedPerson_isRefusedWithoutTheirPasswordBeingChecked: the lock is read first
-        // and the try is not counted, so both locks end LOCK_MINUTES after the failure that set them.
-        when(identityService.findByLoginIdentifier(NOBODY)).thenReturn(Optional.empty());
-        when(identityService.isUnknownIdentifierLocked(NOBODY)).thenReturn(true);
-
-        assertThatThrownBy(() -> loginService.authenticateByPassword(NOBODY, "wrong"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Too many failed attempts")
-                .hasMessageContaining("locked for 30 minutes");
-
-        verify(identityService, never()).recordUnknownIdentifierFailure(anyString());
-    }
-
-    @Test
-    void theTenthUnknownFailure_setsALockForTheLockWindow_andResetsTheCounter() {
-        // The refuted shape: a counter whose TTL runs from the FIRST failure, standing in for a lock
-        // that runs from the TENTH. Ten tries over twenty minutes, then a quarter of an hour: the
-        // real identifier is still locked, the made-up one is back to "incorrect". The unknown
-        // branch therefore sets its own lock at the threshold, for exactly the lock window, and
-        // clears the counter the way recordPasswordFailure does.
-        when(cacheService.increment(anyString(), anyLong())).thenReturn(10L);
-
-        assertThat(identityImpl.recordUnknownIdentifierFailure(NOBODY)).isEqualTo(10L);
-
-        ArgumentCaptor<String> counterKey = ArgumentCaptor.forClass(String.class);
-        verify(cacheService).increment(counterKey.capture(), eq(30L * 60));
-        ArgumentCaptor<String> lockKey = ArgumentCaptor.forClass(String.class);
-        verify(cacheService).save(lockKey.capture(), any(), eq(30 * 60));
-        assertThat(lockKey.getValue()).startsWith("login:pwd-lock:unknown:")
-                .doesNotContainIgnoringCase("nobody");
-        verify(cacheService).clear(counterKey.getValue());
-        // The lock key, once set, is what isUnknownIdentifierLocked reads.
-        when(cacheService.hasKey(lockKey.getValue())).thenReturn(true);
-        assertThat(identityImpl.isUnknownIdentifierLocked(NOBODY)).isTrue();
-        assertThat(identityImpl.isUnknownIdentifierLocked("someone-else@acme.com")).isFalse();
-    }
-
-    @Test
-    void belowTheThreshold_theUnknownBranchSetsNoLock() {
-        when(cacheService.increment(anyString(), anyLong())).thenReturn(9L);
-
-        assertThat(identityImpl.recordUnknownIdentifierFailure(NOBODY)).isEqualTo(9L);
-
-        verify(cacheService, never()).save(anyString(), any(), anyInt());
-        verify(cacheService, never()).clear(anyString());
-    }
-
-    @Test
-    void theIdentifierLookup_costsTheSameWhetherOrNotItHits() {
-        // An observer with a stopwatch and two identifiers: a known email that returns after one
-        // query and an unknown one that needs two read differently however identical the refusals
-        // are. Both channel queries run every time, so a hit on the first still pays for the second.
-        doReturn(Optional.of(identity(null))).when(identityImpl).searchOne(any(Filters.class));
-
-        assertThat(identityImpl.findByLoginIdentifier(EMAIL)).isPresent();
-
-        verify(identityImpl, times(2)).searchOne(any(Filters.class));
-    }
-
-    @Test
-    void everySpellingOfOneIdentifier_sharesOneUnknownCounterKey() {
-        // Trimmed AND lowercased before hashing — the same normalisation the known branch's lookup
-        // applies, so " x", "x" and "X" are one identifier on both sides of the branch.
-        when(cacheService.increment(anyString(), anyLong())).thenReturn(1L);
-
-        identityImpl.recordUnknownIdentifierFailure(" nobody@acme.com");
-        identityImpl.recordUnknownIdentifierFailure(NOBODY);
-        identityImpl.recordUnknownIdentifierFailure("NOBODY@acme.com");
-
-        ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
-        verify(cacheService, times(3)).increment(keys.capture(), eq(30L * 60));
-        assertThat(keys.getAllValues()).hasSize(3).containsOnly(keys.getAllValues().get(0));
-    }
-
-    @Test
-    void aLeadingSpace_cannotTellAKnownIdentifierFromAnUnknownOne() {
-        // The oracle this closes: the known branch used to query the RAW identifier while the
-        // unknown branch hashed a trimmed one, so " x" always counted as unknown. Seven tries at
-        // " x" then one at "x": for an unknown x the eighth continued the same counter and showed
-        // the countdown; for a known x it landed on the person's fresh counter and did not. The
-        // difference was a yes/no on "does x exist", independent of any collation — the space never
-        // reached the database.
-        UserIdentity person = identity(null);
-        when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.of(person));
-        when(identityService.isPasswordLocked(person)).thenReturn(false);
-        when(identityService.matchesPassword(person, "wrong")).thenReturn(false);
-        long[] knownCount = {0};
-        when(identityService.recordPasswordFailure(person)).thenAnswer(inv -> ++knownCount[0]);
-        long[] unknownCount = {0};
-        when(identityService.recordUnknownIdentifierFailure(NOBODY)).thenAnswer(inv -> ++unknownCount[0]);
-
-        String known = null;
-        String unknown = null;
-        for (int i = 0; i < 7; i++) {
-            known = messageFor(" ALICE@acme.com");
-            unknown = messageFor(" NOBODY@acme.com");
-        }
-        assertThat(messageFor(EMAIL)).as("eighth try, known").isEqualTo(messageFor(NOBODY));
-        assertThat(known).as("seventh try, known").isEqualTo(unknown);
-
-        // Load-bearing: the known branch was REACHED with the canonical identifier every time, so
-        // the misspelt tries counted against the person, not against a made-up unknown string.
-        verify(identityService, times(8)).findByLoginIdentifier(EMAIL);
-        verify(identityService, never()).findByLoginIdentifier(" ALICE@acme.com");
-        verify(identityService, times(8)).recordPasswordFailure(person);
-        verify(identityService, times(8)).recordUnknownIdentifierFailure(NOBODY);
-    }
-
-    @Test
-    void theUnknownCounter_neverHoldsTheGuessItself_andIgnoresCase() {
-        // The key is a digest of the lowercased identifier: a cache full of raw guesses would be a
-        // list of every address anyone tried, and two spellings of one address are one guess.
-        when(cacheService.increment(anyString(), anyLong())).thenReturn(7L);
-
-        assertThat(identityImpl.recordUnknownIdentifierFailure("Nobody@Acme.com")).isEqualTo(7L);
-        assertThat(identityImpl.recordUnknownIdentifierFailure(NOBODY)).isEqualTo(7L);
-
-        ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
-        verify(cacheService, times(2)).increment(keys.capture(), eq(30L * 60));
-        assertThat(keys.getAllValues()).hasSize(2);
-        assertThat(keys.getAllValues().get(0))
-                .isEqualTo(keys.getAllValues().get(1))
-                .startsWith("login:pwd-failures:unknown:")
-                .doesNotContainIgnoringCase("nobody")
-                .doesNotContainIgnoringCase("acme");
-        verify(identityImpl, never()).updateOne(any(UserIdentity.class));
-    }
-
-    // ── the counter and the lock itself ─────────────────────────────
 
     @Test
     void belowTheThreshold_nothingIsWritten_andTheCountIsReported() {

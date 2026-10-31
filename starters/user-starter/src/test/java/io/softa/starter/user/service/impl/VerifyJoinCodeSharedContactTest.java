@@ -87,27 +87,4 @@ class VerifyJoinCodeSharedContactTest {
 
         assertThat(result.profileId()).isEqualTo(7L);
     }
-
-    @Test
-    void codeLogin_refusesASharedContact_too() {
-        // The same hole on the login side: a code sent to a shared number lets any holder sign in
-        // as whoever holds it as their login identifier.
-        when(accountService.isWorkContactShared(SHARED)).thenReturn(true);
-
-        assertThatThrownBy(() -> loginService.authenticateByCode(SHARED, "123456"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("shared by more than one account");
-        verify(identityService, never()).findByLoginIdentifier(anyString());
-    }
-
-    @Test
-    void codeReset_refusesASharedContact_too() {
-        // And on reset: a shared number would otherwise let one holder set the password of another.
-        when(accountService.isWorkContactShared(SHARED)).thenReturn(true);
-
-        assertThatThrownBy(() -> loginService.resetPasswordByCode(SHARED, "123456", "N3w-Passw0rd"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("shared by more than one account");
-        verify(identityService, never()).findByLoginIdentifier(anyString());
-    }
 }

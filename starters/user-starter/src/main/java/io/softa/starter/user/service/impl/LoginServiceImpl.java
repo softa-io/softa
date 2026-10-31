@@ -45,6 +45,16 @@ import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.framework.web.session.SessionErrorCodes;
 import io.softa.framework.web.session.SessionStore;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.enums.LoginChannel;
+import io.softa.starter.user.enums.LoginEvent;
+import io.softa.starter.user.enums.LoginMethod;
+import io.softa.starter.user.enums.SecurityAction;
+import io.softa.starter.user.enums.SecurityLogSource;
+import io.softa.starter.user.service.UserSecurityLogService;
+import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.spi.PushDeviceRegistry;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
 import io.softa.starter.user.service.ConsultantService;
@@ -139,6 +149,19 @@ public class LoginServiceImpl implements LoginService {
 
     @Autowired
     private SessionStore sessionStore;
+
+    @Autowired
+    private UserSessionService sessionService;
+
+    @Autowired
+    private LoginHistoryRecorder history;
+
+    @Autowired
+    private UserSecurityLogService securityLog;
+
+    /** Optional: present only where APP push is deployed. */
+    @Autowired(required = false)
+    private PushDeviceRegistry pushDeviceRegistry;
 
     /**
      * Tenant lifecycle gate at login: only ACTIVE tenants may log in. Enforced at the single
@@ -245,100 +268,31 @@ public class LoginServiceImpl implements LoginService {
 
     @Override
     public void sendEmailCode(String email) {
-        withoutSayingWhy(() -> {
-            if (identifierLinked(email)) {
-                this.deliverEmailCode(email);
-            }
-        });
+        this.requireLinked(email);
+        this.deliverEmailCode(email);
     }
 
     @Override
     public void sendMobileCode(String mobile) {
-        withoutSayingWhy(() -> {
-            if (identifierLinked(mobile)) {
-                this.deliverMobileCode(mobile);
-            }
-        });
+        this.requireLinked(mobile);
+        this.deliverMobileCode(mobile);
     }
 
     /**
-     * Whether any account can sign in with this identifier — asked without ever saying so.
+     * The person behind a login identifier, refused with {@code ACCOUNT_NOT_FOUND} when there is
+     * none — no identity, or an identity no account was ever created for.
      *
-     * <p>A code sent to an address no identity holds reaches a mailbox or handset nobody reading
-     * this screen controls, and would be refused at the verify step anyway. So the send is skipped.
-     * What the caller is told does NOT change: both outcomes return normally, and the screen says
-     * the same thing either way.
-     *
-     * <p>That silence is the point. This endpoint is unauthenticated, so a distinct "no such
-     * account" answer is an oracle: ask it once per address and it returns a verified roster of the
-     * people an organisation employs — exactly the list a phishing campaign wants, and free,
-     * because nothing here costs the asker anything. Telling the truth on screen and telling it to
-     * an attacker are the same act; there is no way to do one without the other before sign-in.
-     *
-     * <p>Whoever simply mistyped is served by the message instead of by the response: it says a
-     * code is on its way IF the address is linked, and to check the address otherwise. They learn
-     * the same thing, one sentence later, and an enumerator learns nothing.
-     *
-     * <p>Three things have to stay identical for that to hold, and each is easy to lose:
-     *
-     * <ul>
-     *   <li><b>The send budget.</b> {@link #generateNumericCode} runs on both paths. Skipping it
-     *       for an unknown address would make the limiter itself the oracle: the eleventh ask of
-     *       one address is refused when it exists and accepted when it does not.</li>
-     *   <li><b>The elapsed time.</b> Both paths do the same work — the same lookup, the same
-     *       {@code beforeSend} and {@code store} — so neither comes back visibly sooner. Delivery
-     *       is the only extra step on the linked path, and it hands off to an async publish rather
-     *       than waiting on a mail or SMS gateway. Change that and the clock becomes a channel.</li>
-     *   <li><b>The status.</b> Neither path throws. A {@code BusinessException} on one of them
-     *       would restore the oracle however the message were worded.</li>
-     * </ul>
-     *
-     * <p>The lookup gets the TYPED form, as every other identifier lookup here does: a row seeded
-     * with the separators the person still writes is found too (see {@link LoginIdentifiers}).
+     * <p>Said out loud (PRD login): the screen tells a mistyped number "contact HR" instead of
+     * pretending a code is on its way. That makes sending and signing in an answer to "is this
+     * number an employee's?"; the send limits in {@link VerificationCodeGuard} are what bound it.
+     * The lookup gets the TYPED form, as every identifier lookup here does (see
+     * {@link LoginIdentifiers}).
      */
-    private boolean identifierLinked(String identifier) {
-        boolean linked = identityService
-                .findByLoginIdentifier(LoginIdentifiers.typedForm(identifier)).isPresent();
-        if (!linked) {
-            // The same Redis work the linked path is about to do, so the two cost the same and
-            // take the same time. Loud here; the entry point is what keeps it from being heard.
-            this.generateNumericCode(LoginIdentifiers.normalize(identifier));
-        }
-        return linked;
-    }
-
-    /**
-     * Swallow whatever went wrong, so that WHY it went wrong is not an answer either.
-     *
-     * <p>Wrapped at the entry point rather than inside the delivery, and that placement is the whole
-     * point: {@code /join} calls the delivery directly and must stay loud. An invitee who cannot be
-     * sent a code has no enumeration to offer — the caller IS the invitation — and telling them
-     * nothing recreates exactly the dead end this change exists to remove.
-     *
-     * <p>The guard's own "too many requests" is the case that matters. It can only be reported on
-     * one of the two paths if it is reported at all, and reporting it there is the oracle one layer
-     * down: ask one address eleven times and it starts failing when it exists while an unknown one
-     * keeps answering "sent".
-     *
-     * <p>That is a real loss — a legitimate person hammering the button no longer learns they are
-     * over the limit. It costs them a wait; the alternative costs an employer its staff list. The
-     * cooldown the screen already shows is what tells them to wait, and it does not depend on this.
-     *
-     * <p>Logged at WARN, never returned: an outage has to stay diagnosable without becoming
-     * readable from outside.
-     */
-    private void withoutSayingWhy(Runnable attempt) {
-        try {
-            attempt.run();
-        } catch (BusinessException e) {
-            // The expected one: over the limit, or a contact more than one account holds. Routine.
-            log.debug("Verification code request refused; answered uniformly anyway: {}", e.getMessage());
-        } catch (RuntimeException e) {
-            // Everything else is a fault, and it has to stay loud SOMEWHERE. Not in the response:
-            // publishing happens only on the linked path, so a broker failure surfacing here would
-            // say "this address exists" as plainly as the message this method exists to withhold.
-            log.error("Verification code request failed; answered uniformly anyway.", e);
-        }
+    private UserIdentity requireLinked(String identifier) {
+        return identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier))
+                .filter(identity -> !accountService.listAccountIdsOf(identity.getProfileId()).isEmpty())
+                .orElseThrow(() -> AccountErrorCodes.refusal(AccountErrorCodes.ACCOUNT_NOT_FOUND,
+                        "This account does not exist. Please contact your HR."));
     }
 
     /**
@@ -394,58 +348,65 @@ public class LoginServiceImpl implements LoginService {
     public AuthenticationResult authenticateByCode(String identifier, String code) {
         // The code is keyed by the canonical form; the lookups get the typed form, so a row seeded
         // with the separators the person still types is found too (LoginIdentifiers.loginSpellings).
-        String typed = LoginIdentifiers.typedForm(identifier);
-        identifier = LoginIdentifiers.normalize(identifier);
-        verifyCode(identifier, code);
-        assertContactNotShared(typed);
-        // Resolved by LOGIN IDENTIFIER on the person, not by a company's work contact: the code
-        // was sent to an identifier, and that identifier is what identifies the human being.
-        return this.afterAuthentication(this.resolveIdentity(typed,
-                "This account is not linked to any company. Please contact your administrator."));
+        LoginChannel channel = LoginChannel.of(identifier);
+        LoginMethod method = channel == LoginChannel.EMAIL ? LoginMethod.EMAIL_CODE : LoginMethod.SMS_CODE;
+        UserIdentity identity = this.requireLinked(identifier);
+        try {
+            verifyCode(LoginIdentifiers.normalize(identifier), code);
+        } catch (BusinessException e) {
+            history.record(LoginEvent.LOGIN_FAILED, identity.getProfileId(), null, null, channel, method,
+                    StringUtils.defaultString(e.getErrorCode(), e.getMessage()));
+            throw e;
+        }
+        // A lock refuses the PASSWORD only; a code still signs the person in, and into every
+        // company, with nothing reduced (PRD login D31, §5.3).
+        return this.signedIn(identity, channel, method);
     }
 
     @Override
     public AuthenticationResult authenticateByPassword(String identifier, String password) {
-        // Same message AND same counting for "no such identifier" and "wrong password". One shared
-        // message is not enough: the refusal starts naming the remaining attempts from the seventh
-        // failure, so an identifier that never counted down would have confirmed its non-existence
-        // just as surely as a distinct message. The unknown branch therefore counts the submitted
-        // identifier in the same window and words its refusal from that count.
-        //
-        // Normalised BEFORE the branch, so both branches see the same string. The unknown counter
-        // already hashed a trimmed, lowercased form; the lookup here used the raw one, so " x"
-        // always fell into the unknown branch while "x" could resolve — and whether the eighth try
-        // continued the countdown or started afresh said whether x existed (see LoginIdentifiers).
-        // The lookup itself gets the typed form (trimmed, lowercased, separators kept) so that it
-        // can also ask for a pre-fold row's spelling; the counters below key on the canonical one.
-        String typed = LoginIdentifiers.typedForm(identifier);
-        identifier = LoginIdentifiers.normalize(identifier);
-        Optional<UserIdentity> resolved = identityService.findByLoginIdentifier(typed);
-        if (resolved.isEmpty()) {
-            // Same ORDER as the real branch below: locked is answered first and is not counted.
-            // Counting while locked would make the unknown branch's lock end at a different moment
-            // from the real one's — the eleventh try tells the two apart.
-            if (identityService.isUnknownIdentifierLocked(identifier)) {
-                throw new BusinessException(lockedMessage());
-            }
-            long failures = identityService.recordUnknownIdentifierFailure(identifier);
-            throw new BusinessException(wrongPasswordMessage(failures));
-        }
-        UserIdentity identity = resolved.get();
+        LoginChannel channel = LoginChannel.of(identifier);
+        UserIdentity identity = this.requireLinked(identifier);
+        Long profileId = identity.getProfileId();
 
         // Lock checked BEFORE the password, so "locked" versus "incorrect" cannot confirm a guess.
         // Only the password path is locked — code login stays open, because what is under attack
         // is the password and locking the person out entirely would complete the attack for it.
         if (identityService.isPasswordLocked(identity)) {
-            throw new BusinessException(lockedMessage());
+            history.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, LoginMethod.PASSWORD,
+                    AccountErrorCodes.PASSWORD_LOCKED);
+            throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, lockedMessage());
+        }
+        if (identity.getPasswordLockedUntil() != null) {
+            // A lock that ran out on its own: nothing marked the moment, so it is recorded here, at
+            // the first password attempt after it.
+            history.record(LoginEvent.UNLOCKED, profileId, null, null, channel, null, null);
         }
         if (!identityService.matchesPassword(identity, password)) {
             // Counted per PERSON, so switching company buys no extra tries.
             long failures = identityService.recordPasswordFailure(identity);
-            throw new BusinessException(wrongPasswordMessage(failures));
+            history.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, LoginMethod.PASSWORD,
+                    AccountErrorCodes.PASSWORD_INCORRECT);
+            if (failures >= UserIdentityService.FAILURES_BEFORE_LOCK) {
+                history.record(LoginEvent.LOCKED, profileId, null, null, channel, LoginMethod.PASSWORD, null);
+                // This guess is the one that locked: say so, rather than a plain "incorrect"
+                // followed by an unexplained "locked" on the next try.
+                throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, lockedMessage());
+            }
+            throw wrongPassword(failures);
         }
         identityService.clearPasswordFailures(identity.getId());
-        return this.afterAuthentication(identity);
+        return this.signedIn(identity, channel, LoginMethod.PASSWORD);
+    }
+
+    /** Record the successful sign-in, then decide where it goes. */
+    private AuthenticationResult signedIn(UserIdentity identity, LoginChannel channel, LoginMethod method) {
+        AuthenticationResult result = this.afterAuthentication(identity);
+        UserInfo entered = result.userInfo();
+        history.record(LoginEvent.LOGIN_SUCCESS, identity.getProfileId(),
+                entered == null ? null : entered.getUserId(), entered == null ? null : entered.getTenantId(),
+                channel, method, null);
+        return result;
     }
 
     private static String lockedMessage() {
@@ -453,45 +414,21 @@ public class LoginServiceImpl implements LoginService {
                 + " minutes. You can still log in with a verification code.";
     }
 
-    /** The refusal for the {@code failures}-th consecutive wrong password. */
-    private static String wrongPasswordMessage(long failures) {
-        if (failures >= UserIdentityService.FAILURES_BEFORE_LOCK) {
-            // This guess is the one that locked: say so, rather than a plain "incorrect" followed
-            // by an unexplained "locked" on the next try.
-            return lockedMessage();
-        }
-        if (failures >= WARN_FROM_FAILURE) {
-            // Name the wait, not just the fact of a lock. Told only that a lock is coming, the
-            // person has nothing to decide with; told it lasts half an hour, they can wait or
-            // switch to a verification code — which is the one route that still works while
-            // locked, and what the lock message itself goes on to say. Nowhere but here knows the
-            // duration: a caller wanting to add it to this sentence would have to hardcode the
-            // number and would then be wrong the day it changes.
-            long left = UserIdentityService.FAILURES_BEFORE_LOCK - failures;
-            return "Incorrect account or password. " + left + (left == 1 ? " attempt" : " attempts")
-                    + " left before password login locks for " + LOCK_MINUTES + " minutes.";
-        }
-        return "Incorrect account or password.";
-    }
-
     /**
-     * Find the PERSON behind a login identifier.
-     *
-     * <p>Identifiers are unique on {@code UserIdentity} and seeded when a person is created, so
-     * this is the whole of the lookup — there is deliberately no fallback to resolving the ACCOUNT
-     * by its work contact. Such a fallback existed while identifiers were being introduced, to heal
-     * rows created before the seeding; it also required {@code UserAccount.email} to stay globally
-     * unique, which is what kept the email index from being narrowed to {@code (tenantId, email)}.
-     * With no data predating the seeding, the fallback protects nobody and costs that narrowing.
-     *
-     * @param notFoundMessage what the caller may safely tell an anonymous stranger. Both reasons
-     *                        ("no such identifier", "identifier is not linked to a person") must
-     *                        report the same thing: a distinct message would confirm which
-     *                        accounts exist.
+     * The refusal for the {@code failures}-th consecutive wrong password. From the seventh it names
+     * the attempts left (PRD L3) — early guesses get the bare refusal, because a countdown from the
+     * first attempt tells whoever is guessing exactly how many tries they have left.
      */
-    private UserIdentity resolveIdentity(String identifier, String notFoundMessage) {
-        return identityService.findByLoginIdentifier(identifier)
-                .orElseThrow(() -> new BusinessException(notFoundMessage));
+    private static BusinessException wrongPassword(long failures) {
+        if (failures < WARN_FROM_FAILURE) {
+            return AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_INCORRECT, "Incorrect account or password.");
+        }
+        long left = UserIdentityService.FAILURES_BEFORE_LOCK - failures;
+        BusinessException e = AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_INCORRECT,
+                "Incorrect account or password. " + left + (left == 1 ? " attempt" : " attempts")
+                        + " left before password login locks for " + LOCK_MINUTES + " minutes.");
+        e.withErrorDetail("remainingAttempts", left);
+        return e;
     }
 
     /**
@@ -540,7 +477,8 @@ public class LoginServiceImpl implements LoginService {
     private Long resolvePreAuthToken(String authToken) {
         String value = StringUtils.isBlank(authToken) ? null : cacheService.get(preAuthKey(authToken));
         if (value == null) {
-            throw new BusinessException("Your sign-in step expired. Please log in again.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.AUTH_TOKEN_EXPIRED,
+                    "Your sign-in step expired. Please log in again.");
         }
         return Long.valueOf(value);
     }
@@ -801,17 +739,49 @@ public class LoginServiceImpl implements LoginService {
     @Override
     @Transactional
     public void resetPasswordByCode(String identifier, String code, String newPassword) {
-        // Code first. Looking the person up before verifying would let a caller probe which
-        // identifiers exist by watching which ones fail differently.
-        String typed = LoginIdentifiers.typedForm(identifier);
-        identifier = LoginIdentifiers.normalize(identifier);
-        this.verifyCode(identifier, code);
-        assertContactNotShared(typed);
-        UserIdentity identity = identityService.findByLoginIdentifier(typed).orElseThrow(
-                () -> new BusinessException("Incorrect account or code."));
+        // Mobile, or the enterprise email of a joined account: the same person either way, and it is
+        // their one password that is reset.
+        UserIdentity identity = this.requireLinked(identifier);
+        this.verifyCode(LoginIdentifiers.normalize(identifier), code);
+        boolean wasLocked = identity.getPasswordLockedUntil() != null;
         // Strength rules and the lock reset both live inside setPassword — a reset must clear the
         // lock, or someone who forgot their password stays locked out of the password they just set.
         identityService.setPassword(identity.getId(), newPassword);
+        if (wasLocked) {
+            history.record(LoginEvent.UNLOCKED, identity.getProfileId(), null, null,
+                    LoginChannel.of(identifier), null, null);
+        }
+        // Whoever knew the old password may be signed in somewhere: every session of every company
+        // ends, and no device keeps receiving this person's notifications. There is no "current"
+        // session to keep — the person is not signed in.
+        sessionService.revokePerson(identity.getProfileId(), null, SessionRevokeReason.PASSWORD_RESET);
+        if (pushDeviceRegistry != null) {
+            pushDeviceRegistry.unregisterPerson(identity.getProfileId());
+        }
+        securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET,
+                ClientInfo.current().isApp() ? SecurityLogSource.APP : SecurityLogSource.WEB,
+                null, identity.getProfileId()));
+    }
+
+    @Override
+    @Transactional
+    public AuthenticationResult setFirstPassword(String authToken, String newPassword) {
+        // The person comes from the single-use sign-in token, never from the request: this is
+        // anonymous, and "set the first password of profile X" must not be callable by anyone.
+        Long profileId = resolvePreAuthToken(authToken);
+        UserIdentity identity = identityService.findByProfile(profileId)
+                .orElseThrow(() -> new BusinessException("Person record not found."));
+        if (StringUtils.isNotBlank(identity.getPassword())) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_ALREADY_SET,
+                    "A password is already set — sign in with it instead.");
+        }
+        // Strength rules live inside setPassword, checked against this person's own contacts.
+        identityService.setPassword(identity.getId(), newPassword);
+        cacheService.clear(preAuthKey(authToken));
+        history.record(LoginEvent.PASSWORD_SET, profileId, null, null, null, null, null);
+        identity.setPassword("set");
+        // Now the entry rule decides where to go, exactly as if they had signed in with a password.
+        return this.afterAuthentication(identity);
     }
 
     @Override

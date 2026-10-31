@@ -43,7 +43,13 @@ import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.enums.AccountStatus;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.user.enums.SecurityAction;
+import io.softa.starter.user.enums.SecurityLogSource;
 import io.softa.starter.user.service.UserAccountService;
+import io.softa.starter.user.service.UserSecurityLogService;
+import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserRoleRelService;
 import io.softa.starter.user.service.UserProfileService;
@@ -77,6 +83,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @Autowired
     @Lazy
     private LoginService loginService;
+
+    @Autowired
+    private UserSessionService sessionService;
+
+    @Autowired
+    private UserSecurityLogService securityLog;
 
     /** Role grants are cleared on off-boarding and on reviving a membership. */
     @Autowired
@@ -149,6 +161,30 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         return this.searchList(new Filters().eq(UserAccount::getProfileId, profileId)).stream()
                 .map(UserAccount::getId)
                 .toList();
+    }
+
+    /** The statuses of an account its person has joined — the ones whose email signs them in. */
+    static final Set<AccountStatus> JOINED_STATUSES =
+            EnumSet.of(AccountStatus.ACTIVE, AccountStatus.FROZEN, AccountStatus.LOCKED);
+
+    @Override
+    @CrossTenant
+    @SkipPermissionCheck
+    public Set<Long> findJoinedProfilesByEmail(String email) {
+        String wanted = StringUtils.trimToNull(email);
+        if (wanted == null) {
+            return Set.of();
+        }
+        // START_WITH is the dialect's case-insensitive match (ILIKE on PostgreSQL); the exact,
+        // case-folded comparison below is what decides. Email case is not significant, and the
+        // column keeps the address as HR typed it.
+        return this.searchList(new Filters()
+                        .startWith(UserAccount::getEmail, wanted)
+                        .in(UserAccount::getStatus, List.copyOf(JOINED_STATUSES))).stream()
+                .filter(account -> account.getProfileId() != null && wanted.equalsIgnoreCase(
+                        StringUtils.trim(account.getEmail())))
+                .map(UserAccount::getProfileId)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     // @CrossTenant: login / forgot-password resolve an account by credential BEFORE a tenant
@@ -1059,7 +1095,11 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             throw new BusinessException("New password cannot be the same as the old password.");
         }
         identityService.setPassword(identity.getId(), newPassword);
-
+        // Every other device of the person is signed out — in every company; this one stays.
+        sessionService.revokePerson(user.getProfileId(), sessionService.currentSessionId(),
+                SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
+        securityLog.record(securityLog.entry(SecurityAction.PASSWORD_CHANGED,
+                ClientInfo.current().isApp() ? SecurityLogSource.APP : SecurityLogSource.WEB, user, null));
         log.info("User ID {} changed their password successfully (identity {}).", userId, identity.getId());
     }
 

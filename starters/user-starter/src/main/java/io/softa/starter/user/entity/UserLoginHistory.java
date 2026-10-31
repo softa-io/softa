@@ -8,7 +8,9 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.user.enums.LoginChannel;
 import io.softa.starter.user.enums.LoginDeviceType;
+import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.enums.LoginMethod;
 import io.softa.starter.user.enums.LoginStatus;
 
@@ -40,8 +42,18 @@ public class UserLoginHistory extends AuditableModel {
     @Field(label = "Tenant ID")
     private Long tenantId;
 
-    @Field(label = "User ID", required = true)
+    @Field(label = "User ID", description = "The account; empty when no company was involved, such as "
+            + "a failed sign-in")
     private Long userId;
+
+    @Field(label = "Profile ID", description = "The person, when known")
+    private Long profileId;
+
+    @Field
+    private LoginEvent event;
+
+    @Field
+    private LoginChannel channel;
 
     @Field
     private LoginMethod loginMethod;
@@ -52,7 +64,7 @@ public class UserLoginHistory extends AuditableModel {
     @Field(label = "IP Address")
     private String ipAddress;
 
-    @Field
+    @Field(length = 255)
     private String userAgent;
 
     @Field
@@ -60,4 +72,19 @@ public class UserLoginHistory extends AuditableModel {
 
     @Field
     private LoginStatus status;
+
+    @Field(length = 255)
+    private String failureReason;
+
+    @Field(description = "ios / android for the APP; empty for Web")
+    private String platform;
+
+    @Field(label = "App Version")
+    private String appVersion;
+
+    @Field
+    private String deviceModel;
+
+    @Field(label = "From Account ID", description = "On a tenant switch, the account switched away from")
+    private Long fromAccountId;
 }
