@@ -571,6 +571,12 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             String preId = ModelManager.getIdStrategy(model) == IdStrategy.EXTERNAL_ID
                     ? (String) resolved.get(ID)
                     : (String) resolved.remove(ID);
+            if (appending()) {
+                Serializable adopted = adoptByBusinessKey(model, preId, resolved);
+                if (adopted != null) {
+                    return adopted;
+                }
+            }
             Serializable rowId = modelService.createOne(model, resolved);
             generatePreData(model, preId, rowId);
             recordCreated(model, rowId);
@@ -645,6 +651,48 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     private Serializable leaveAsItIs(String model, SysPreData preData) {
         Serializable rowId = IdUtils.formatId(model, preData.getRowId());
         return rowNotExists(model, rowId) ? leaveDeleted(model, preData) : rowId;
+    }
+
+    /**
+     * An append load meeting a seed row its scope has no binding for, while the scope already holds a row with the
+     * same businessKey — one a migration or someone on a page wrote, rather than a seed load: that row is the one
+     * the seed means. It is bound to the preId and left as it is, as append leaves every row the scope has; the
+     * rows nested in it are still met one by one. Created a second time, it broke the businessKey's unique index,
+     * and the failure stopped the scope's run at that file, with every file after it.
+     *
+     * <p>Only for a model that declares a businessKey, and a seed row that gives all of it. A timeline model's
+     * rows are versions of an entity and are not looked up this way. An inactive row counts: deactivated, it is
+     * still there.
+     *
+     * @return the id of the row bound, or null when the scope has none — the seed row is created then
+     */
+    private Serializable adoptByBusinessKey(String model, String preId, Map<String, Object> resolved) {
+        List<String> businessKey = ModelManager.getModel(model).getBusinessKey();
+        if (CollectionUtils.isEmpty(businessKey) || ModelManager.isTimelineModel(model)) {
+            return null;
+        }
+        Filters filters = new Filters();
+        for (String field : businessKey) {
+            Object value = resolved.get(field);
+            if (value == null) {
+                return null;
+            }
+            filters.eq(field, value);
+        }
+        FlexQuery query = new FlexQuery(Set.of(ID), filters);
+        query.setFilterControl(FilterControl.bypassActiveControl());
+        query.setLimitSize(2);
+        List<Map<String, Object>> rows = modelService.searchList(model, query);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Assert.isTrue(rows.size() == 1, "Seed row {0} of {1}: several rows here already have its {2}, so which "
+                + "one it means cannot be told. Keep one of them and run the file again.", preId, model, businessKey);
+        Serializable rowId = IdUtils.formatId(model, (Serializable) rows.getFirst().get(ID));
+        generatePreData(model, preId, rowId);
+        log.info("Seed row {} of {} bound to row {}, which this scope already had with the same {}; left as it is.",
+                preId, model, rowId, businessKey);
+        return rowId;
     }
 
     /**
