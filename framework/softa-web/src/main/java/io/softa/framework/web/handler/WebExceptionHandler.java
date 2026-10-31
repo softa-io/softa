@@ -17,10 +17,13 @@ import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.UnsatisfiedServletRequestParameterException;
+import org.springframework.web.bind.MissingPathVariableException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 import io.softa.framework.base.context.ContextHolder;
@@ -246,14 +249,53 @@ public class WebExceptionHandler {
     }
 
     /**
-     * Handle UnsatisfiedServletRequestParameterException
+     * A request that does not carry what the endpoint binds from it: a required parameter, header or cookie
+     * missing, or parameter conditions unmet. The caller's mistake, so a 400 that names what is missing —
+     * not the 500 "System exception" it fell through to, which sends the caller to an administrator for a
+     * request they can correct themselves.
+     *
+     * <p>Except a path variable the handler method names and the URI template does not: that is a mistake
+     * in the code, not in the request, and stays a system error. One present in the path that converted
+     * to nothing is the caller's, and is a 400 like the rest.
      *
      * @param e Exception
      * @return ResponseEntity
      */
-    @ExceptionHandler(value = UnsatisfiedServletRequestParameterException.class)
-    public ResponseEntity<ApiResponse<Void>> handleException(UnsatisfiedServletRequestParameterException e) {
+    @ExceptionHandler(value = ServletRequestBindingException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(ServletRequestBindingException e) {
+        if (e instanceof MissingPathVariableException missing && !missing.isMissingAfterConversion()) {
+            return handleException((Exception) e);
+        }
         return handler(ResponseCode.BAD_REQUEST, e);
+    }
+
+    /**
+     * A multipart request without the part the endpoint takes — an upload with no file. The caller's
+     * mistake, like a missing parameter, and a 400 that names the part. Handled on its own: it is not a
+     * {@link ServletRequestBindingException}.
+     *
+     * @param e Exception
+     * @return ResponseEntity
+     */
+    @ExceptionHandler(value = MissingServletRequestPartException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(MissingServletRequestPartException e) {
+        return handler(ResponseCode.BAD_REQUEST, e);
+    }
+
+    /**
+     * A parameter that does not convert to the type the endpoint takes, such as {@code id=abc} for a
+     * numeric id. A 400 naming the parameter, the type and the value received.
+     *
+     * @param e Exception
+     * @return ResponseEntity
+     */
+    @ExceptionHandler(value = MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(MethodArgumentTypeMismatchException e) {
+        Class<?> requiredType = e.getRequiredType();
+        String message = "Parameter '" + e.getName() + "' must be "
+                + (requiredType == null ? "of another type" : "a " + requiredType.getSimpleName())
+                + ", got '" + e.getValue() + "'.";
+        return handler(ResponseCode.BAD_REQUEST, e, message);
     }
 
     /**
