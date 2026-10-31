@@ -24,9 +24,9 @@ import io.softa.starter.message.inbox.service.InboxNotificationService;
 
 /**
  * Once an approver has acted on an approval — approved, rejected, returned, passed it on, read a CC — the inbox
- * messages that pressed them about it (an urge, a timeout reminder) are old news: their unread messages about the
- * instance are marked read, after the action commits. The bell then counts what is still news to them; the task
- * itself was never in the inbox — My Tasks is the work list.
+ * messages that told them of it (the pending approval or the CC, an urge, a timeout reminder) are old news: their
+ * unread messages about the instance are marked read, after the action commits. The bell then counts what is still
+ * news to them; My Tasks stays the work list.
  *
  * <p>Best effort: a message that cannot be marked is logged without touching the action.
  */

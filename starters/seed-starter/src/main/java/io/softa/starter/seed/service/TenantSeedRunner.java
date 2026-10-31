@@ -27,14 +27,18 @@ import io.softa.starter.seed.manifest.SeedFile;
 /**
  * Runs the tenant seed files in tenants.
  *
- * <p>A tenant runs each file it is due once; a file marked {@code overwrite} runs again whenever it changes.
+ * <p>A tenant runs each file it is due once, unless the manifest gives the file a mode that runs it again whenever
+ * it changes: {@code append}, creating only the rows the tenant lacks, or {@code overwrite}, loading it whole.
  * Every file runs in its own transaction, and a tenant stops at its first failure — later files may refer to
  * the failed one's rows — with every other tenant carrying on. What succeeded is recorded with the data it
  * wrote, so a run that is interrupted, or a failure once fixed, is simply run again: only what has not
  * succeeded runs.
  *
- * <p>Runs over many tenants go to the background, one tenant after another; a new tenant's setup, and the
- * recording that initializes an environment, run in the caller.
+ * <p>The platform admin can also reapply files: the named files run again in the named tenants whatever their
+ * state, each loading whole over the tenant's copy, as an overwrite file does.
+ *
+ * <p>Runs over many tenants go to the background, one tenant after another, and so do reapplies; a new tenant's
+ * setup, and the recording that initializes an environment, run in the caller.
  */
 @Slf4j
 @Service
@@ -90,20 +94,74 @@ public class TenantSeedRunner {
                     + " Then run.");
         }
         loadLog.requireIdle();
-        List<Long> provisioned = planner.provisionedTenantIds();
-        List<Long> tenants = provisioned;
         boolean selected = tenantIds != null;
-        if (selected) {
-            tenants = List.copyOf(new LinkedHashSet<>(tenantIds));
-            List<Long> notSetUp = tenants.stream().filter(id -> !provisioned.contains(id)).toList();
-            if (!notSetUp.isEmpty()) {
-                throw new BusinessException("Tenants {0} have not finished their setup; seed data runs in "
-                        + "active, suspended and closed tenants.", notSetUp.toString());
-            }
-        }
-        List<Long> toRun = tenants;
+        List<Long> toRun = selected ? setUpTenants(tenantIds) : planner.provisionedTenantIds();
         Long batchId = loadLog.start(SeedLoadType.TENANT, selected ? toRun : null, toRun.size());
         inBackground("seed-tenant-run-" + batchId, () -> eachTenant(batchId, toRun, tenantId -> runTenant(batchId, tenantId)));
+        return batchId;
+    }
+
+    /**
+     * Run the named tenant files again in the given tenants, whatever their state, in the background — each file
+     * loading whole over the tenant's copy, as an overwrite file does: the rows the tenant has are rewritten from
+     * the file, the seeded rows it deleted come back, and the seeded children the file no longer lists are
+     * deleted. What the tenant changed in those rows is lost; frozen rows are still left alone.
+     *
+     * <p>A tenant file runs once per tenant, and what the tenant changes afterwards is the tenant's. This is the
+     * platform admin's way past that, for a file whose current content tenants that ran it should have — while a
+     * seed is still being written, or for a tenant whose copy went wrong. The files run in manifest order, each in
+     * its own transaction, and a tenant stops at its first failure, as a run does; each run is recorded, so a file
+     * that succeeds reads as loaded afterwards. Unlike a run it does not wait for the environment's initialization,
+     * which exists so a run does not load files over what tenants changed: a reapply does that on purpose.
+     *
+     * @param tenantIds set-up tenants to run the files in
+     * @param fileNames tenant files, by name, every one of which each of the tenants is due
+     * @return the batch to follow
+     */
+    public Long reapply(List<Long> tenantIds, List<String> fileNames) {
+        if (tenantIds == null || tenantIds.isEmpty()) {
+            throw new BusinessException("Nothing was reapplied: no tenant was picked.");
+        }
+        if (tenantIds.stream().anyMatch(Objects::isNull)) {
+            throw new BusinessException("Nothing was reapplied: the list of tenants holds an empty entry.");
+        }
+        if (fileNames == null || fileNames.isEmpty()) {
+            throw new BusinessException("Nothing was reapplied: no file was picked.");
+        }
+        if (fileNames.stream().anyMatch(name -> name == null || name.isBlank())) {
+            throw new BusinessException("Nothing was reapplied: the list of files holds an empty entry.");
+        }
+        Set<String> picked = new LinkedHashSet<>(fileNames);
+        List<String> unknown = picked.stream()
+                .filter(name -> catalog.manifest().file(name).filter(file -> !file.level().isPlatform()).isEmpty())
+                .toList();
+        if (!unknown.isEmpty()) {
+            throw new BusinessException("Nothing was reapplied: {0} are not tenant files of the seed manifest.",
+                    unknown.toString());
+        }
+        loadLog.requireIdle();
+        List<Long> tenants = setUpTenants(tenantIds);
+        Map<Long, List<SeedFile>> filesByTenant = new LinkedHashMap<>();
+        Map<Long, List<String>> notDue = new LinkedHashMap<>();
+        for (Long tenantId : tenants) {
+            List<SeedFile> files = planner.dueFiles(tenantId).stream()
+                    .filter(file -> picked.contains(file.file()))
+                    .toList();
+            filesByTenant.put(tenantId, files);
+            List<String> missing = picked.stream()
+                    .filter(name -> files.stream().noneMatch(file -> file.file().equals(name)))
+                    .toList();
+            if (!missing.isEmpty()) {
+                notDue.put(tenantId, missing);
+            }
+        }
+        if (!notDue.isEmpty()) {
+            throw new BusinessException("Nothing was reapplied: a tenant runs only the tenant files its plan and its "
+                    + "countries take, and these are not theirs, by tenant: {0}.", notDue.toString());
+        }
+        Long batchId = loadLog.start(SeedLoadType.REAPPLY, tenants, tenants.size());
+        inBackground("seed-tenant-reapply-" + batchId, () -> eachTenant(batchId, tenants,
+                tenantId -> runFiles(batchId, tenantId, filesByTenant.get(tenantId), file -> LoadMode.OVERWRITE)));
         return batchId;
     }
 
@@ -134,8 +192,9 @@ public class TenantSeedRunner {
     /**
      * Record as run, in every set-up tenant, the tenant files it already has rows of, changing no data — so the
      * first run does not load those files again over what the tenants changed since. Files a tenant has
-     * nothing of are left for the next run, and overwrite files need no recording: they run again anyway. Part
-     * of initializing an environment, which the first platform load does ({@link PlatformSeedLoader#load}) and
+     * nothing of are left for the next run, and so are the files that run again whenever they change: an append
+     * file's run creates only the rows a tenant lacks, and an overwrite file runs again anyway. Part of
+     * initializing an environment, which the first platform load does ({@link PlatformSeedLoader#load}) and
      * which answers with what it did, so it runs in the caller.
      *
      * @return how the {@code Initialize} batch ended
@@ -162,14 +221,32 @@ public class TenantSeedRunner {
     TenantOutcome runTenant(Long batchId, Long tenantId) {
         Map<String, SeedLoadLog.FileRecords> records =
                 loadLog.tenantRecords(List.of(tenantId)).getOrDefault(tenantId, Map.of());
+        List<SeedFile> pending = planner.dueFiles(tenantId).stream()
+                .filter(file -> loadLog.state(file, records.get(file.file())).pending())
+                .toList();
+        return runFiles(batchId, tenantId, pending, TenantSeedRunner::modeOf);
+    }
+
+    /**
+     * The mode a run writes a file in: whole for an overwrite file, only the rows the tenant lacks for an append
+     * file, and only what the file names for a file that runs once.
+     */
+    private static LoadMode modeOf(SeedFile file) {
+        return switch (file.mode()) {
+            case OVERWRITE -> LoadMode.OVERWRITE;
+            case APPEND -> LoadMode.APPEND;
+            default -> LoadMode.ADDITIVE;
+        };
+    }
+
+    /** Run these files in one tenant, in order, each in its mode, stopping at the first failure. */
+    private TenantOutcome runFiles(Long batchId, Long tenantId, List<SeedFile> files,
+                                   Function<SeedFile, LoadMode> mode) {
         String tenantName = planner.tenantName(tenantId);
         int ran = 0;
         String error = null;
-        for (SeedFile file : planner.dueFiles(tenantId)) {
-            if (!loadLog.state(file, records.get(file.file())).pending()) {
-                continue;
-            }
-            error = runFile(batchId, tenantId, tenantName, file);
+        for (SeedFile file : files) {
+            error = runFile(batchId, tenantId, tenantName, file, mode.apply(file));
             if (error != null) {
                 error = file.file() + ": " + error;
                 break;
@@ -188,14 +265,13 @@ public class TenantSeedRunner {
      *
      * @return null when it succeeded, else why it failed — recorded too
      */
-    private String runFile(Long batchId, Long tenantId, String tenantName, SeedFile file) {
+    private String runFile(Long batchId, Long tenantId, String tenantName, SeedFile file, LoadMode mode) {
         LocalDateTime start = LocalDateTime.now();
-        LoadMode mode = file.overwrite() ? LoadMode.OVERWRITE : LoadMode.ADDITIVE;
         try {
             transaction.executeWithoutResult(status -> {
-                Map<String, List<String>> created = preDataService.loadPreTenantData(List.of(file.file()), tenantId, mode);
-                if (!created.isEmpty()) {
-                    announceLoaded(tenantId, file, created);
+                LoadedRows loaded = preDataService.loadPreTenantData(List.of(file.file()), tenantId, mode);
+                if (!loaded.isEmpty()) {
+                    announceLoaded(tenantId, file, loaded);
                 }
                 loadLog.record(batchId, tenantId, tenantName, file, SeedRecordStatus.SUCCEEDED, null, start);
             });
@@ -210,11 +286,11 @@ public class TenantSeedRunner {
 
     /**
      * Publish {@link SeedFileLoadedEvent} in the tenant's context with permission checks skipped,
-     * like the load itself: listeners act on the tenant's new rows, whoever started the run.
+     * like the load itself: listeners act on the tenant's rows, whoever started the run.
      */
-    private void announceLoaded(Long tenantId, SeedFile file, Map<String, List<String>> created) {
-        ContextUtils.inTenantContext(tenantId,
-                () -> eventPublisher.publishEvent(new SeedFileLoadedEvent(tenantId, file.file(), created)));
+    private void announceLoaded(Long tenantId, SeedFile file, LoadedRows loaded) {
+        ContextUtils.inTenantContext(tenantId, () -> eventPublisher.publishEvent(
+                new SeedFileLoadedEvent(tenantId, file.file(), loaded.created(), loaded.updated())));
     }
 
     /** Record the tenant files the tenant already has rows of, as run; the outcome counts them. */
@@ -228,7 +304,7 @@ public class TenantSeedRunner {
         int recorded = 0;
         for (SeedFile file : catalog.manifest().tenantFiles()) {
             SeedLoadLog.FileRecords fileRecords = records.get(file.file());
-            if (file.overwrite() || (fileRecords != null && fileRecords.latestSuccess() != null)) {
+            if (file.reloadsWhenChanged() || (fileRecords != null && fileRecords.latestSuccess() != null)) {
                 continue;
             }
             Map<String, List<String>> preIds = preIdsByFile.computeIfAbsent(file.file(),
@@ -268,6 +344,18 @@ public class TenantSeedRunner {
             loadLog.finish(batchId, SeedLoadStatus.FAILED, files, SeedErrors.messageOf(e));
             return new BatchOutcome(batchId, SeedLoadStatus.FAILED, tenants.size(), failed, files);
         }
+    }
+
+    /** The tenants picked, once each, in the order picked; refused unless every one of them is set up. */
+    private List<Long> setUpTenants(List<Long> tenantIds) {
+        List<Long> provisioned = planner.provisionedTenantIds();
+        List<Long> tenants = List.copyOf(new LinkedHashSet<>(tenantIds));
+        List<Long> notSetUp = tenants.stream().filter(id -> !provisioned.contains(id)).toList();
+        if (!notSetUp.isEmpty()) {
+            throw new BusinessException("Tenants {0} have not finished their setup; seed data runs in "
+                    + "active, suspended and closed tenants.", notSetUp.toString());
+        }
+        return tenants;
     }
 
     /** Run in a thread of its own, as the caller: what it writes is attributed to whoever started it. */
@@ -345,7 +433,7 @@ public class TenantSeedRunner {
             SeedLoadLog.FileRecords fileRecords = records.get(file.file());
             SeedLoadRecord success = fileRecords == null ? null : fileRecords.latestSuccess();
             SeedLoadRecord latest = fileRecords == null ? null : fileRecords.latest();
-            return new TenantFileStatus(file.file(), file.module(), file.countries(), file.overwrite(),
+            return new TenantFileStatus(file.file(), file.module(), file.countries(), file.mode(),
                     loadLog.state(file, fileRecords), catalog.checksum(file),
                     success == null ? null : success.getChecksum(),
                     success == null ? null : success.getEndTime(),

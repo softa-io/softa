@@ -64,6 +64,11 @@ hops through `profileId` first.
 | `UserAuthFailure` | Failed-auth audit | `userId`, `failureReason`, `ipAddress`, `userAgent` |
 | `UserListViewPreference` | One person's arrangement of one list (see [List arrangements](#list-arrangements)) | `userId`, `viewStateKey`, `modelName`, `columns`, `exportFields`, `exportObjectFields`, `viewSettings` |
 
+Wherever another row references an account or a picker lists accounts, the account
+shows as `nickname / username` (`@Model(displayName)`): the person's name and the
+login that tells two people of one name apart; an empty one is left out. Either one
+finds it in a search (`searchName`).
+
 ## Authentication & security
 
 - **Passwords** live on `UserIdentity`, hashed (BCrypt) with a per-person

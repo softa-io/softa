@@ -28,6 +28,7 @@ import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.seed.entity.SysPreData;
+import io.softa.starter.seed.service.LoadMode;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -186,6 +187,17 @@ class SysPreDataTimelineTest {
         ArgumentCaptor<SysPreData> rebound = ArgumentCaptor.forClass(SysPreData.class);
         verify(service).updateOne(rebound.capture());
         assertEquals("999", rebound.getValue().getRowId());
+    }
+
+    @Test
+    void anAppendLoadLeavesAVersionTheScopeHasAsItIs() {
+        storedVersions(Y2025);
+
+        Serializable rowId = withMetadata(() -> SysPreDataServiceImpl.inMode(LoadMode.APPEND,
+                () -> service.handlePredefinedData(MODEL, row("8200.00", "2025-01-01"))));
+
+        assertEquals(ROW_ID, rowId);
+        verify(modelService, never()).addVersion(eq(MODEL), anyMap());
     }
 
     @Test

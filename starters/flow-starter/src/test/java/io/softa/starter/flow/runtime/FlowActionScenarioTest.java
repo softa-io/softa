@@ -211,7 +211,9 @@ class FlowActionScenarioTest {
 
     @Test
     void theInitiatorOfAFlowThatTurnsUrgingOffMayNotUrgeButAnAdministratorMay() {
-        publishService.publish("9101", flowDefinition().urgeEnabled(false).build());
+        // A second approval flow of the document takes its records by a condition of its own
+        publishService.publish("9101", flowDefinition().trigger(new SubmitTrigger("LeaveRequest", "true"))
+                .urgeEnabled(false).build());
         FlowExecutionState started = startAndExpectPending("9101");
 
         assertEquals(new FlowUrgeStatus(false, null), throttle.status(started, INITIATOR, LocalDateTime.now()));
@@ -224,7 +226,8 @@ class FlowActionScenarioTest {
 
     @Test
     void eachStepIsUrgedOncePerItsFlowsInterval() {
-        publishService.publish("9102", flowDefinition().urgeIntervalMinutes(30).build());
+        publishService.publish("9102", flowDefinition().trigger(new SubmitTrigger("LeaveRequest", "true"))
+                .urgeIntervalMinutes(30).build());
         FlowExecutionState started = startAndExpectPending("9102");
         LocalDateTime urgedAt = LocalDateTime.now();
         FlowExecutionState afterUrge = engine.urge(urge(started, INITIATOR));
@@ -311,7 +314,7 @@ class FlowActionScenarioTest {
         return DesignFlowDefinition.builder()
                 .name("Action Scenarios")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

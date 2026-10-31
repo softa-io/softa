@@ -37,8 +37,8 @@ import io.softa.starter.seed.manifest.SeedLevel;
  * pending files load in one transaction, in manifest order: either all of them or none. Afterwards the
  * permission snapshots and entitlements cached in Redis are cleared.
  *
- * <p>The files the build owns are marked {@code auto} in the manifest, and load at startup wherever they are
- * pending ({@link #loadAutoFiles}), before the application takes traffic and before the in-memory snapshots read
+ * <p>The files the build owns are in mode {@code startup} in the manifest, and load at startup wherever they are
+ * pending ({@link #loadStartupFiles}), before the application takes traffic and before the in-memory snapshots read
  * by every request (endpoint index, sensitive field sets, navigation) are built from their rows. The Seed Data page
  * loads the other files, and never those: a page load at any other time would reach no snapshot until the next
  * start.
@@ -80,7 +80,7 @@ public class PlatformSeedLoader {
             SeedLoadLog.FileRecords fileRecords = records.get(file.file());
             var success = fileRecords == null ? null : fileRecords.latestSuccess();
             var latest = fileRecords == null ? null : fileRecords.latest();
-            return new PlatformFileStatus(file.file(), file.level(), file.auto(), loadLog.state(file, fileRecords),
+            return new PlatformFileStatus(file.file(), file.level(), file.mode(), loadLog.state(file, fileRecords),
                     catalog.checksum(file),
                     success == null ? null : success.getChecksum(),
                     success == null ? null : success.getEndTime(),
@@ -135,14 +135,14 @@ public class PlatformSeedLoader {
      * The files the build owns that are pending here: never loaded, changed since, or failed last time. A file a
      * newer build loaded is not: after a rollback, this build's older content does not go over the newer one.
      */
-    public List<SeedFile> pendingAutoFiles() {
-        List<SeedFile> autoFiles = catalog.manifest().autoFiles();
-        if (autoFiles.isEmpty()) {
+    public List<SeedFile> pendingStartupFiles() {
+        List<SeedFile> startupFiles = catalog.manifest().startupFiles();
+        if (startupFiles.isEmpty()) {
             return List.of();
         }
         Map<String, SeedLoadLog.FileRecords> records = loadLog.platformRecords();
         List<SeedFile> pending = new ArrayList<>();
-        for (SeedFile file : autoFiles) {
+        for (SeedFile file : startupFiles) {
             FileState state = loadLog.state(file, records.get(file.file()));
             if (state.pending()) {
                 pending.add(file);
@@ -155,7 +155,7 @@ public class PlatformSeedLoader {
     }
 
     /**
-     * Load the files the build owns that are pending here — the platform files the manifest marks {@code auto}.
+     * Load the files the build owns that are pending here — the platform files in mode {@code startup}.
      * {@link SeedStartupLoad} calls it at startup, before the application takes traffic and before the in-memory
      * snapshots are built from the files' rows.
      *
@@ -165,8 +165,8 @@ public class PlatformSeedLoader {
      *
      * @return how the load went, or empty when no file the build owns is pending
      */
-    public Optional<PlatformLoadResult> loadAutoFiles() {
-        List<SeedFile> files = pendingAutoFiles();
+    public Optional<PlatformLoadResult> loadStartupFiles() {
+        List<SeedFile> files = pendingStartupFiles();
         return files.isEmpty() ? Optional.empty() : Optional.of(loadFiles(files));
     }
 
@@ -232,7 +232,7 @@ public class PlatformSeedLoader {
         Map<String, SeedLoadLog.FileRecords> records = loadLog.platformRecords();
         Map<SeedFile, FileState> states = new LinkedHashMap<>();
         catalog.manifest().platformFiles().stream()
-                .filter(file -> !file.auto())
+                .filter(file -> !file.loadsAtStartup())
                 .forEach(file -> states.put(file, loadLog.state(file, records.get(file.file()))));
         List<SeedFile> pending = states.entrySet().stream()
                 .filter(entry -> entry.getValue().pending())
@@ -245,7 +245,7 @@ public class PlatformSeedLoader {
             return pending;
         }
         Set<String> named = new LinkedHashSet<>(fileNames);
-        List<String> owned = catalog.manifest().autoFiles().stream()
+        List<String> owned = catalog.manifest().startupFiles().stream()
                 .map(SeedFile::file)
                 .filter(named::contains)
                 .toList();

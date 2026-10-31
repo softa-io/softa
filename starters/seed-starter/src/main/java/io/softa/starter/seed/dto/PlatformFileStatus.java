@@ -3,6 +3,7 @@ package io.softa.starter.seed.dto;
 import java.time.LocalDateTime;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import io.softa.starter.seed.manifest.SeedFileMode;
 import io.softa.starter.seed.manifest.SeedLevel;
 
 /**
@@ -19,9 +20,10 @@ public record PlatformFileStatus(
                 + "rows (data-platform/)")
         SeedLevel level,
 
-        @Schema(description = "The build owns the file (manifest `auto`): it loads at startup, before the "
-                + "application takes traffic, and never from this page")
-        boolean auto,
+        @Schema(description = "The file's mode in the manifest. overwrite: loads whole from this page whenever it "
+                + "changes. startup: the build owns the file — it loads at startup, before the application takes "
+                + "traffic, and never from this page")
+        SeedFileMode mode,
 
         @Schema(description = "Where the file stands; NOT_LOADED, CHANGED and FAILED load on the next platform load, "
                 + "or at the next start for a file the build owns")

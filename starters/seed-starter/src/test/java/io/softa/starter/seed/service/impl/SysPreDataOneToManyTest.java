@@ -33,11 +33,13 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.seed.entity.SysPreData;
 import io.softa.starter.seed.service.LoadMode;
+import io.softa.starter.seed.service.LoadedRows;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -138,6 +140,32 @@ class SysPreDataOneToManyTest {
         // pointing at nothing and dies trying to update it.
         inOrder.verify(service).deleteByFilters(any(Filters.class));
         inOrder.verify(modelService).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void aRowTheLoadChangedIsReportedAsWrittenTo() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+
+        LoadedRows written = SysPreDataServiceImpl.reportingWrites(() ->
+                withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow()))));
+
+        // How a listener learns what a reapply rewrote — a flow design to publish again, say.
+        assertEquals(Map.of(PARENT, List.of(STORED_ROW_ID)), written.updated());
+        assertEquals(Map.of(), written.created());
+    }
+
+    @Test
+    void aRowTheLoadLeftAsItWasIsNotReported() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        // The update changed nothing, and the row is there.
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(false);
+        storedRow(PARENT, TYPED_ROW_ID, true);
+
+        LoadedRows written = SysPreDataServiceImpl.reportingWrites(() ->
+                withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow()))));
+
+        assertTrue(written.isEmpty(), written.toString());
     }
 
     @Test
@@ -259,6 +287,70 @@ class SysPreDataOneToManyTest {
         assertEquals(TYPED_ROW_ID, rowId);
         verify(modelService, never()).updateOne(eq(PARENT), anyMap());
         verify(modelService).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void anAppendLoadWritesNothingToARowTheScopeHasAndCreatesTheNewRowsUnderIt() {
+        // The tenant has the option set, and with it a seeded item the file no longer lists; the file now lists
+        // an item the tenant lacks.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false),
+                binding(CHILD, "tenant_option_item.OrganizationType.Old", "999", false));
+        storedRow(PARENT, TYPED_ROW_ID, true);
+        when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
+
+        LoadedRows written = SysPreDataServiceImpl.reportingWrites(() -> withMetadata(() ->
+                inTenant(() -> appending(() -> service.handlePredefinedData(PARENT, parentRow(childRow()))))));
+
+        // What the tenant has is the tenant's, whatever the file says of it now: nothing is written to the row,
+        // and nothing under it is deleted.
+        verify(modelService, never()).updateOne(eq(PARENT), anyMap());
+        verify(modelService, never()).deleteByIds(eq(CHILD), anyList());
+        verify(modelService).createOne(eq(CHILD), anyMap());
+        assertEquals(Map.of(CHILD, List.of("555")), written.created());
+        assertEquals(Map.of(), written.updated());
+    }
+
+    @Test
+    void anAppendLoadLeavesTheRowsTheScopeHasAsTheyAre() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false),
+                binding(CHILD, "tenant_option_item.OrganizationType.Company", "555", false));
+        storedRow(PARENT, TYPED_ROW_ID, true);
+        storedRow(CHILD, 555L, true);
+
+        LoadedRows written = SysPreDataServiceImpl.reportingWrites(() -> withMetadata(() ->
+                inTenant(() -> appending(() -> service.handlePredefinedData(PARENT, parentRow(childRow()))))));
+
+        assertTrue(written.isEmpty(), written.toString());
+        verify(modelService, never()).updateOne(any(), anyMap());
+        verify(modelService, never()).createOne(any(), anyMap());
+    }
+
+    @Test
+    void anAppendLoadCreatesARowTheScopeLacks() {
+        bindings();
+        when(modelService.createOne(eq(PARENT), anyMap())).thenReturn(TYPED_ROW_ID);
+        when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
+
+        Serializable rowId = withMetadata(() ->
+                inTenant(() -> appending(() -> service.handlePredefinedData(PARENT, parentRow(childRow())))));
+
+        assertEquals(TYPED_ROW_ID, rowId);
+        verify(modelService).createOne(eq(PARENT), anyMap());
+        verify(modelService).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void anAppendLoadLeavesADeletedRowDeletedWithWhatIsNestedInIt() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        // The tenant deleted the seeded row.
+        when(modelService.searchList(eq(PARENT), any(FlexQuery.class))).thenReturn(List.of());
+
+        Serializable rowId = withMetadata(() ->
+                inTenant(() -> appending(() -> service.handlePredefinedData(PARENT, parentRow(childRow())))));
+
+        assertNull(rowId);
+        verify(modelService, never()).createOne(eq(PARENT), anyMap());
+        verify(modelService, never()).createOne(eq(CHILD), anyMap());
     }
 
     @Test
@@ -391,6 +483,10 @@ class SysPreDataOneToManyTest {
 
     private static Serializable additive(Supplier<Serializable> action) {
         return SysPreDataServiceImpl.inMode(LoadMode.ADDITIVE, action);
+    }
+
+    private static Serializable appending(Supplier<Serializable> action) {
+        return SysPreDataServiceImpl.inMode(LoadMode.APPEND, action);
     }
 
     @SuppressWarnings("unchecked")

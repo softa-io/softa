@@ -8,8 +8,10 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.flow.dto.FlowDelegationView;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.service.FlowDelegationService;
+import io.softa.starter.flow.service.support.view.FlowDelegationViews;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 
@@ -26,13 +28,17 @@ import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 public class FlowDelegationController {
 
     private final FlowDelegationService delegationService;
+    private final FlowDelegationViews views;
 
-    public FlowDelegationController(FlowDelegationService delegationService) {
+    public FlowDelegationController(FlowDelegationService delegationService, FlowDelegationViews views) {
         this.delegationService = delegationService;
+        this.views = views;
     }
 
     @PostMapping
-    @Operation(summary = "Create delegation rule", description = "Creates a new delegation rule. The delegator is resolved from the login context.")
+    @Operation(summary = "Create delegation rule", description = "Creates a new delegation rule, in force from its "
+            + "creation. The delegator is resolved from the login context; the delegate must be someone else, and a "
+            + "rule with both times ends after it starts.")
     public ApiResponse<FlowDelegation> create(@RequestBody FlowDelegation delegation) {
         delegation.setDelegatorId(currentUserId());
         return ApiResponse.success(delegationService.createDelegation(delegation));
@@ -41,15 +47,15 @@ public class FlowDelegationController {
     @GetMapping("/my")
     @Operation(summary = "My delegations", description = "Lists delegation rules created by the current user.")
     @SkipPermissionCheck
-    public ApiResponse<List<FlowDelegation>> myDelegations() {
-        return ApiResponse.success(delegationService.getMyDelegations(currentUserId()));
+    public ApiResponse<List<FlowDelegationView>> myDelegations() {
+        return ApiResponse.success(views.of(delegationService.getMyDelegations(currentUserId())));
     }
 
     @GetMapping("/to-me")
     @Operation(summary = "Delegations to me", description = "Lists active delegation rules assigned to the current user.")
     @SkipPermissionCheck
-    public ApiResponse<List<FlowDelegation>> delegationsToMe() {
-        return ApiResponse.success(delegationService.getDelegationsToMe(currentUserId()));
+    public ApiResponse<List<FlowDelegationView>> delegationsToMe() {
+        return ApiResponse.success(views.of(delegationService.getDelegationsToMe(currentUserId())));
     }
 
     @PostMapping("/{id}/cancel")

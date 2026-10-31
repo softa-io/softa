@@ -85,8 +85,11 @@ The two tiers are fully separate namespaces; there is no overlay:
   is set up — e.g. by hcm's `TenantSeedListener`). From then on the tenant
   owns and edits its rows freely. A tenant runs a seed file once, so a new
   template reaches existing tenants as a new tenant file the platform admin
-  runs, and a change to a template they already have goes out as a data
-  migration (the seed file is edited too, for tenants created after). The
+  runs — or, when the application gives its template file `mode: append` in
+  the manifest, straight from that file on the admin's next run, created only
+  where a tenant lacks it. Either way, a change to a template they already
+  have goes out as a data migration (the seed file is edited too, for tenants
+  created after). The
   platform tier holds only the templates PLATFORM-scoped sends render
   (billing, security); a code needed on both tiers (e.g. a public
   password-reset fallback) appears in both seed sets. Send-time resolution is

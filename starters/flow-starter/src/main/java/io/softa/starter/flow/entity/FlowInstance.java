@@ -106,7 +106,8 @@ public class FlowInstance extends AuditableModel {
     private String recordCode;
 
     @Field(defaultValue = "false", description = "A record's approval that a later submission of the same record "
-            + "replaced: an approval returned and not superseded is still waiting for its record to be edited")
+            + "replaced, or whose record was cancelled: an approval returned and not superseded is still waiting "
+            + "for its record to be edited")
     private Boolean superseded;
 
     @Field(label = "Open Record ID", description = "The record's id while this record approval is unfinished, empty "

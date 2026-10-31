@@ -241,7 +241,7 @@ class FlowApprovalLifecycleScenarioTest {
                 .name("Approval Lifecycle")
                 .scenario(FlowScenario.APPROVAL)
                 .withdrawPolicy(withdrawPolicy)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(graph)
                 .build();
     }

@@ -5,7 +5,7 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * Trigger fired when a field value changes.
+ * Trigger fired when a field of a record of {@code modelName} changes.
  * <p>
  * Only valid for {@code FlowScenario.COMPUTE} flows (field onchange computation).
  */
@@ -18,5 +18,10 @@ public record FieldChangeTrigger(String modelName, List<String> fieldNames) impl
 
     public FieldChangeTrigger() {
         this(null, List.of());
+    }
+
+    @Override
+    public boolean onRecord() {
+        return true;
     }
 }

@@ -21,7 +21,7 @@ import io.softa.starter.seed.manifest.SeedManifestException;
 import io.softa.starter.seed.manifest.SeedManifestReader;
 
 /**
- * Loads the seed files the build owns at startup — the platform files the manifest marks {@code auto} — before the
+ * Loads the seed files the build owns at startup — the platform files in mode {@code startup} — before the
  * application takes traffic and before the in-memory snapshots are built from their rows ({@link StartupSnapshots}).
  * A deploy therefore brings its navigation, permissions and the other files the build owns with it, and every
  * instance starts with snapshots that match: no load from the page, and no restart after it.
@@ -73,13 +73,13 @@ public class SeedStartupLoad implements StartupConvergence {
     @Override
     public void converge() {
         checkSnapshotModelsAreOwned();
-        if (platformLoader.pendingAutoFiles().isEmpty()) {
+        if (platformLoader.pendingStartupFiles().isEmpty()) {
             return;
         }
         try (DbSessionLock ignored = DbSessionLock.acquire(lockDataSource, datasourceUrl, LOCK_KEY,
                 LOCK_TIMEOUT_SECONDS)) {
             // Asked again under the lock: an instance that started alongside may have loaded them meanwhile.
-            platformLoader.loadAutoFiles().ifPresent(SeedStartupLoad::requireLoaded);
+            platformLoader.loadStartupFiles().ifPresent(SeedStartupLoad::requireLoaded);
         }
     }
 
@@ -104,14 +104,14 @@ public class SeedStartupLoad implements StartupConvergence {
         }
         List<String> problems = new ArrayList<>();
         for (SeedFile file : catalog.manifest().platformFiles()) {
-            if (file.auto()) {
+            if (file.loadsAtStartup()) {
                 continue;
             }
             Set<String> written = new TreeSet<>(fileModels.apply(file));
             written.retainAll(snapshotModels);
             if (!written.isEmpty()) {
                 problems.add("file '" + file.path() + "' writes " + String.join(", ", written) + ", which the "
-                        + "in-memory snapshots are built from at startup: mark it 'auto: true', so it loads at "
+                        + "in-memory snapshots are built from at startup: give it 'mode: startup', so it loads at "
                         + "startup and nowhere else");
             }
         }

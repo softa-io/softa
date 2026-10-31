@@ -37,6 +37,7 @@ import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
+import io.softa.starter.flow.service.support.FlowUserNames;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 
@@ -64,6 +65,7 @@ public class FlowInstanceController {
     private final WithdrawPolicyGuard withdrawPolicyGuard;
     private final BatchApprovalExecutor batchExecutor;
     private final FlowInstanceSummaryComposer summaryComposer;
+    private final FlowUserNames names;
 
     public FlowInstanceController(FlowRuntimeEngine runtimeEngine,
                                   FormPermissionService formPermissionService,
@@ -74,7 +76,8 @@ public class FlowInstanceController {
                                   UrgeThrottle urgeThrottle,
                                   WithdrawPolicyGuard withdrawPolicyGuard,
                                   BatchApprovalExecutor batchExecutor,
-                                  FlowInstanceSummaryComposer summaryComposer) {
+                                  FlowInstanceSummaryComposer summaryComposer,
+                                  FlowUserNames names) {
         this.runtimeEngine = runtimeEngine;
         this.formPermissionService = formPermissionService;
         this.instanceService = instanceService;
@@ -85,6 +88,7 @@ public class FlowInstanceController {
         this.withdrawPolicyGuard = withdrawPolicyGuard;
         this.batchExecutor = batchExecutor;
         this.summaryComposer = summaryComposer;
+        this.names = names;
     }
 
     @PostMapping("/start")
@@ -99,13 +103,16 @@ public class FlowInstanceController {
     @Operation(summary = "Get flow instance",
             description = "Gets the current runtime state of a flow instance. The trace is excluded "
                     + "by default (poll it incrementally via the trace endpoint); pass includeTrace=true "
-                    + "for the full event list.")
+                    + "for the full event list. The initiator comes named.")
     public ApiResponse<FlowExecutionState> getInstance(@PathVariable String instanceId,
                                                        @RequestParam(defaultValue = "false") boolean includeTrace) {
         // Trace-free load by default; the full history is only fetched when asked for.
         return (includeTrace ? runtimeEngine.getInstanceWithTrace(instanceId) : runtimeEngine.getInstance(instanceId))
                 .map(state -> {
                     accessGuard.requireInstanceViewer(state, currentUserId());
+                    if (state.getInitiatorId() != null) {
+                        state.setInitiatorName(names.namesOf(List.of(state.getInitiatorId())).get(state.getInitiatorId()));
+                    }
                     return state;
                 })
                 .map(ApiResponse::success)

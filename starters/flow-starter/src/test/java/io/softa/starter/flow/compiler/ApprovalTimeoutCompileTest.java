@@ -68,7 +68,7 @@ class ApprovalTimeoutCompileTest {
         return DesignFlowDefinition.builder()
                 .name("Timeouts")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),

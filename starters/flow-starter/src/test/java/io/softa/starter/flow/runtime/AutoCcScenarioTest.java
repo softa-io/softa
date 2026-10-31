@@ -158,7 +158,7 @@ class AutoCcScenarioTest {
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Auto CC")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .cc(List.of(rules))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

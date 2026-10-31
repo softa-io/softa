@@ -30,7 +30,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Leave Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -97,7 +97,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Compute With Approval")
                 .scenario(FlowScenario.COMPUTE)
-                .trigger(new FieldChangeTrigger())
+                .trigger(new FieldChangeTrigger("Order", List.of()))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -170,7 +170,7 @@ class DefaultFlowCompilerTest {
                 .withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
                 .urgeEnabled(false)
                 .urgeIntervalMinutes(60)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -195,7 +195,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Returnable Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -228,7 +228,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Unanimous Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -260,7 +260,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Unanimous Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -288,7 +288,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Min Count Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -319,7 +319,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Dynamic Min Count Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -356,7 +356,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Percentage Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -387,7 +387,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Min Count Reject")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -418,7 +418,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Deadlocking Thresholds")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -486,7 +486,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Human Task Flow")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -669,7 +669,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("No Start")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(node("approval", FlowNodeType.APPROVAL), node("end", FlowNodeType.END)))
                         .edges(List.of(edge("e1", "approval", "end")))
@@ -710,7 +710,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Orphan Branch")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

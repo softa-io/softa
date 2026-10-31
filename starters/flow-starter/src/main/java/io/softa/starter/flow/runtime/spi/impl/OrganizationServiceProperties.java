@@ -1,13 +1,14 @@
 package io.softa.starter.flow.runtime.spi.impl;
 
+import java.util.List;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Configuration properties for the default {@link FlowOrgService}: the models and fields it reads
  * the organization from. The defaults follow the HR conventions permission-starter already reads
- * ({@code Employee}, {@code Department}, user-starter's {@code UserRoleRel} and {@code Role}), so an
- * application on those models configures nothing.
+ * ({@code Employee}, {@code Department}, user-starter's {@code UserRoleRel}, {@code Role} and
+ * {@code UserAccount}), so an application on those models configures nothing.
  */
 @Data
 @ConfigurationProperties(prefix = "softa.flow.org")
@@ -47,6 +48,17 @@ public class OrganizationServiceProperties {
     private String roleDefinitionModel = "Role";
     /** Field on the role model that holds the role code. */
     private String roleCodeField = "code";
+
+    /** Login account model (user-starter's), whose status says whether an account signs in. */
+    private String accountModel = "UserAccount";
+    /** Field on the account model that holds its status. */
+    private String accountStatusField = "status";
+    /**
+     * The account statuses that sign in, one of which an approver's account must hold. An account in any other —
+     * not yet invited, invited but not accepted, frozen, its membership ended — counts as nobody, as an employee
+     * without an account does. Not applied when the application has no account model.
+     */
+    private List<String> approverAccountStatuses = List.of("Active");
 
     /** Maximum depth of department traversal, up or down (guards against cycles). */
     private int maxDeptDepth = 10;

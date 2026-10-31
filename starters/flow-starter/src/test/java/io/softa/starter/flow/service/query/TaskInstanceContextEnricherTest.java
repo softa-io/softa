@@ -142,7 +142,10 @@ class TaskInstanceContextEnricherTest {
         assertTrue(plainTask.getReturnAllowed());
         assertFalse(requiredTask.getReturnAllowed());
         assertFalse(requiredTask.getBatchable(), "a batch cannot fill in a required field");
+        assertTrue(requiredTask.getFillIn(), "a step with a required field is filled in and submitted");
+        assertFalse(plainTask.getFillIn());
         assertTrue(editableTask.getBatchable(), "an editable field is left as it is");
+        assertFalse(editableTask.getFillIn(), "an editable field may be left as it is: still approved");
         assertFalse(blockedTask.getBatchable(), "an add-sign prerequisite comes first");
         assertFalse(doneTask.getBatchable());
         // One lookup per revision on the page, however many tasks it carries.

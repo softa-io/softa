@@ -32,6 +32,7 @@ import io.softa.framework.orm.utils.FileUtils;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.seed.entity.SysPreData;
 import io.softa.starter.seed.service.LoadMode;
+import io.softa.starter.seed.service.LoadedRows;
 import io.softa.starter.seed.service.SysPreDataService;
 
 import static io.softa.framework.orm.constant.ModelConstant.*;
@@ -55,7 +56,8 @@ import static io.softa.framework.orm.constant.ModelConstant.*;
  * <p>
  * Every load runs in a {@link LoadMode}, bound for the length of the load and read wherever a row the scope
  * already has is met: {@code OVERWRITE} rewrites it from the file, {@code ADDITIVE} writes only what the file
- * names and leaves deletions standing.
+ * names and leaves deletions standing, {@code APPEND} writes nothing to it and creates only the rows the scope
+ * lacks.
  */
 @Slf4j
 @Service
@@ -66,6 +68,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
 
     /** The rows the load in progress created, by model; bound only around a load that reports them. */
     private static final ScopedValue<Map<String, List<String>>> CREATED = ScopedValue.newInstance();
+
+    /** The rows of earlier loads the load in progress wrote to, by model; bound together with {@link #CREATED}. */
+    private static final ScopedValue<Map<String, List<String>>> UPDATED = ScopedValue.newInstance();
 
     private final ModelService<Serializable> modelService;
     private final PreDataFormatParser formatParser = new PreDataFormatParser();
@@ -95,25 +100,42 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param fileNames file names relative to the directory
      * @param tenantId  tenant the rows are written to
      * @param mode      how rows the tenant already has are treated
-     * @return the rows the load created, by model
+     * @return the rows the load created, and the rows of earlier loads it wrote to, by model
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, List<String>> loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode) {
+    public LoadedRows loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode) {
         if (SystemConfig.env.isEnableMultiTenancy()) {
             Assert.notNull(tenantId,
                     "Loading tenant predefined data requires a tenant id when multi-tenancy is enabled!");
         }
+        return reportingWrites(() -> loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId, mode));
+    }
+
+    /**
+     * Run a load, noting the rows it creates and the rows of earlier loads it writes to. Package-private for the
+     * tests that drive one record.
+     */
+    static LoadedRows reportingWrites(Runnable load) {
         Map<String, List<String>> created = new LinkedHashMap<>();
-        ScopedValue.where(CREATED, created)
-                .run(() -> loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId, mode));
-        return created;
+        Map<String, List<String>> updated = new LinkedHashMap<>();
+        ScopedValue.where(CREATED, created).where(UPDATED, updated).run(load);
+        return new LoadedRows(created, updated);
     }
 
     /** Note a row the load created, when the load reports them (see {@link #loadPreTenantData}). */
     private static void recordCreated(String model, Serializable rowId) {
-        if (CREATED.isBound()) {
-            CREATED.get().computeIfAbsent(model, k -> new ArrayList<>()).add(String.valueOf(rowId));
+        note(CREATED, model, rowId);
+    }
+
+    /** Note a row of an earlier load that the load wrote to, when the load reports them. */
+    private static void recordUpdated(String model, Serializable rowId) {
+        note(UPDATED, model, rowId);
+    }
+
+    private static void note(ScopedValue<Map<String, List<String>>> rows, String model, Serializable rowId) {
+        if (rows.isBound()) {
+            rows.get().computeIfAbsent(model, k -> new ArrayList<>()).add(String.valueOf(rowId));
         }
     }
 
@@ -154,11 +176,17 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     /**
-     * Whether the load in progress is additive. A record handed straight to {@link #handlePredefinedData} —
-     * a unit test — overwrites, as every load did before modes existed.
+     * Whether the load in progress overwrites. A record handed straight to {@link #handlePredefinedData} — a
+     * unit test — does, as every load did before modes existed. The other modes clear nothing, delete nothing,
+     * and leave what the scope deleted deleted.
      */
-    private static boolean additive() {
-        return MODE.isBound() && MODE.get() == LoadMode.ADDITIVE;
+    private static boolean overwriting() {
+        return !MODE.isBound() || MODE.get() == LoadMode.OVERWRITE;
+    }
+
+    /** Whether the load in progress only creates the rows the scope lacks, writing nothing to the ones it has. */
+    private static boolean appending() {
+        return MODE.isBound() && MODE.get() == LoadMode.APPEND;
     }
 
     /** Run with a load mode bound, as a file load does. Package-private for the tests that drive one record. */
@@ -275,8 +303,8 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      *
      * @param model Model name
      * @param row Predefined data record
-     * @return the row id, or null when an additive load left the record out — the scope deleted the row,
-     *         or the row refers to one the scope deleted — together with the children it carries
+     * @return the row id, or null when an additive or append load left the record out — the scope deleted the
+     *         row, or the row refers to one the scope deleted — together with the children it carries
      */
     Serializable handlePredefinedData(String model, Map<String, Object> row) {
         validateSeedScope(model);
@@ -303,7 +331,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         // Load main model data first, then the OneToMany rows it owns.
         Serializable rowId = createOrUpdateData(model, mainRow, binding);
         if (rowId == null) {
-            // Left out by an additive load; the children it carries have nothing to hang off.
+            // Left out by an additive or append load; the children it carries have nothing to hang off.
             return null;
         }
         loadOneToManyRows(model, rowId, oneToManyMap);
@@ -352,8 +380,8 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * <p>Deleting first is safe in a way the reverse is not: the whole load is one transaction, so a
      * failure anywhere puts the deleted rows back, and "survives" is decided by the file, not by
      * write side effects. Only children that came from a seed are candidates — they carry a binding.
-     * A child added by hand has none and is kept: the file never said anything about it. An additive
-     * load deletes nothing at all. A frozen record never reaches here.
+     * A child added by hand has none and is kept: the file never said anything about it. An additive or
+     * append load deletes nothing at all. A frozen record never reaches here.
      *
      * @param model Main model name
      * @param mainId Main model row ID
@@ -375,7 +403,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 childRow.put(relation.getRelatedField(), mainId);
                 childRows.add(childRow);
             }
-            if (!additive()) {
+            if (overwriting()) {
                 deleteUndeclaredSeededChildren(childModel, relation.getRelatedField(), mainId, childRows);
             }
             childRows.forEach(childRow -> handlePredefinedData(childModel, childRow));
@@ -515,11 +543,14 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param model Model name
      * @param row Predefined data record (main-model fields only)
      * @param optionalPreData this preId's binding in its scope, empty when the row is new
-     * @return Record ID created or updated, or null when an additive load leaves the row out
+     * @return Record ID created or updated, or null when an additive or append load leaves the row out
      */
     private Serializable createOrUpdateData(String model, Map<String, Object> row,
                                             Optional<SysPreData> optionalPreData) {
-        if (optionalPreData.isEmpty() && additive()) {
+        if (optionalPreData.isPresent() && appending()) {
+            return leaveAsItIs(model, optionalPreData.get());
+        }
+        if (optionalPreData.isEmpty() && !overwriting()) {
             // A new row hanging off a seeded row the scope deleted — a template column under a template that
             // is gone — would be an orphan the scope never asked for.
             String deleted = deletedReference(model, row);
@@ -553,9 +584,10 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 // the binding names the entity, not a version. The seed row says which version it is by
                 // its effective start date.
                 if (rowNotExists(model, rowId)) {
-                    return additive() ? leaveDeleted(model, preData) : recreateBoundRow(model, resolved, preData);
+                    return overwriting() ? recreateBoundRow(model, resolved, preData) : leaveDeleted(model, preData);
                 }
                 writeTimelineVersion(model, rowId, preData.getPreId(), resolved);
+                recordUpdated(model, rowId);
                 return rowId;
             }
             // Overwriting, the update payload is `resolved` plus a null for every updatable field the file
@@ -566,7 +598,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             // would.
             Map<String, Object> updatePayload = new LinkedHashMap<>(resolved);
             updatePayload.put(ID, rowId);
-            if (!additive()) {
+            if (overwriting()) {
                 Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
                 clearedFields.removeAll(updatePayload.keySet());
                 clearedFields.forEach(fieldName -> updatePayload.put(fieldName, null));
@@ -575,7 +607,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             // nothing to write.
             boolean result = updatePayload.size() > 1 && modelService.updateOne(model, updatePayload);
             if (!result && rowNotExists(model, rowId)) {
-                if (additive()) {
+                if (!overwriting()) {
                     return leaveDeleted(model, preData);
                 }
                 // The binding outlived the row it points at. That is a normal state, not corruption:
@@ -591,6 +623,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 // active control, see rowExists.
                 return recreateBoundRow(model, resolved, preData);
             }
+            if (result) {
+                recordUpdated(model, rowId);
+            }
             // The typed id, not `preData.getRowId()` — that column is a String. The caller injects this
             // value into each OneToMany child as the back-reference, and resolveReferencedPreIds reads a
             // String on a to-one field as a preId: a raw row id would be looked up in sys_pre_data, found
@@ -601,7 +636,19 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     /**
-     * An additive load meeting a seeded row the scope has since deleted: the deletion stands.
+     * An append load meeting a row the scope has: nothing is written to it, so what the scope changed in it
+     * stands, and so does what the file now says differently. The rows nested in it are still met one by one,
+     * and the new ones among them created under it. A seeded row the scope deleted stays deleted.
+     *
+     * @return the row id, or null when the scope deleted the row — the rows nested in it are left out with it
+     */
+    private Serializable leaveAsItIs(String model, SysPreData preData) {
+        Serializable rowId = IdUtils.formatId(model, preData.getRowId());
+        return rowNotExists(model, rowId) ? leaveDeleted(model, preData) : rowId;
+    }
+
+    /**
+     * An additive or append load meeting a seeded row the scope has since deleted: the deletion stands.
      *
      * @return null — the row and the rows nested in it are left out
      */
@@ -731,7 +778,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         version.put(EFFECTIVE_START_DATE, startDate);
         version.remove(SLICE_ID);
         version.remove(EFFECTIVE_END_DATE);
-        if (!additive()) {
+        if (overwriting()) {
             Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
             clearedFields.removeAll(version.keySet());
             clearedFields.removeAll(TIMELINE_FIELDS);

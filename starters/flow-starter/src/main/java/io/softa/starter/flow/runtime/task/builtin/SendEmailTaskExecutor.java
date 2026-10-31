@@ -77,11 +77,13 @@ public class SendEmailTaskExecutor extends AbstractTaskExecutor {
         schema.put("to", Map.of("type", "stringList", "label", "To (Recipients)", "required", true));
         schema.put("cc", Map.of("type", "stringList", "label", "CC"));
         schema.put("bcc", Map.of("type", "stringList", "label", "BCC"));
-        schema.put("subject", Map.of("type", "string", "label", "Subject"));
-        schema.put("textBody", Map.of("type", "string", "label", "Text Body"));
-        schema.put("htmlBody", Map.of("type", "richText", "label", "HTML Body"));
-        schema.put("templateCode", Map.of("type", "string", "label", "Template Code"));
-        schema.put("templateVariables", Map.of("type", "keyValueMap", "label", "Template Variables"));
+        schema.put("subject", Map.of("type", "template", "label", "Subject"));
+        schema.put("textBody", Map.of("type", "template", "label", "Text Body", "multiline", true));
+        schema.put("htmlBody", Map.of("type", "template", "label", "HTML Body", "multiline", true));
+        schema.put("templateCode", Map.of("type", "recordPicker", "label", "Template", "model", "MailTemplate",
+                "valueField", "code"));
+        schema.put("templateVariables", Map.of("type", "keyValueMap", "label", "Template Variables",
+                "valueType", "template"));
         schema.put("priority", Map.of("type", "enum", "label", "Priority",
                 "options", List.of("HIGH", "NORMAL", "LOW"), "default", "NORMAL"));
         return schema;

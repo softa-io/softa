@@ -52,6 +52,9 @@ public class FlowApprovalTaskView {
     @Schema(description = "Assigned actor id")
     private String actorId;
 
+    @Schema(description = "The assigned actor's name")
+    private String actorName;
+
     @Schema(description = "Task status")
     private FlowApprovalTaskStatus status;
 
@@ -148,5 +151,9 @@ public class FlowApprovalTaskView {
 
     @Schema(description = "Whether the task's step lets its approver return the request to the initiator")
     private Boolean returnAllowed;
+
+    @Schema(description = "Whether the task's step makes fields required, for its approver to fill in: a handling "
+            + "step, whose approver submits what they filled in rather than reviews — it still counts as approving")
+    private Boolean fillIn;
 }
 

@@ -67,7 +67,9 @@ public class FlowApprovalTaskProjector {
             task.setNodeLabel(entry.getNodeLabel());
             task.setCycleNumber(entry.getCycleNumber());
             task.setActorId(entry.getTargetActorId());
-            task.setStatus(FlowApprovalTaskStatus.PENDING);
+            // Unread until its recipient reads it: a Read of theirs at the CC's node and cycle.
+            ApprovalActionAuditEntry read = readOf(history, entry);
+            task.setStatus(read == null ? FlowApprovalTaskStatus.PENDING : FlowApprovalTaskStatus.READ);
             task.setTaskType(FlowApprovalTaskType.CC);
             task.setAction(entry.getAction());
             task.setComment(entry.getComment());
@@ -83,11 +85,24 @@ public class FlowApprovalTaskProjector {
             task.setBlocked(Boolean.FALSE);
             task.setBlockedByActorId(null);
             task.setStartTime(resolveEventTime(entry));
-            task.setEndTime(resolveEventTime(entry));
+            task.setEndTime(resolveEventTime(read == null ? entry : read));
             task.setClosedByActorId(entry.getActorId());
             result.add(task);
         }
         return result;
+    }
+
+    /** The recipient's reading of a CC — a Read by them at its node and cycle — or null while it is unread. */
+    private static ApprovalActionAuditEntry readOf(List<ApprovalActionAuditEntry> history, ApprovalActionAuditEntry cc) {
+        for (ApprovalActionAuditEntry entry : history) {
+            if (ApprovalActionType.READ.equals(entry.getAction())
+                    && Objects.equals(cc.getNodeId(), entry.getNodeId())
+                    && Objects.equals(cc.getCycleNumber(), entry.getCycleNumber())
+                    && Objects.equals(cc.getTargetActorId(), entry.getActorId())) {
+                return entry;
+            }
+        }
+        return null;
     }
 
 

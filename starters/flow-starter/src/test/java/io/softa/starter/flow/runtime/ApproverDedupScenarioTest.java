@@ -98,7 +98,7 @@ class ApproverDedupScenarioTest {
                 .name("Approver Dedup " + dedup)
                 .scenario(FlowScenario.APPROVAL)
                 .approverDedup(dedup)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

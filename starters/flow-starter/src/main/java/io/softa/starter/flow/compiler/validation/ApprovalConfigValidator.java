@@ -1,6 +1,8 @@
 package io.softa.starter.flow.compiler.validation;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.utils.BeanTool;
@@ -41,6 +43,10 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String INVALID_MAX_REMINDERS        = "INVALID_MAX_REMINDERS";
     private static final String REMINDERS_OUTSIDE_REMIND     = "REMINDERS_OUTSIDE_REMIND";
     private static final String MISSING_ESCALATE_TARGET      = "MISSING_ESCALATE_TARGET";
+    private static final String UNREADABLE_CONFIG            = "UNREADABLE_CONFIG";
+
+    /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["timeout"]}. */
+    private static final Pattern READ_REFERENCE = Pattern.compile("\\[\"([^\"]+)\"]");
 
     @Override
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition, FlowGraphContext context) {
@@ -54,13 +60,39 @@ public class ApprovalConfigValidator implements FlowValidator {
             if (!FlowNodeType.APPROVAL.equals(node.getType()) || node.getConfig() == null) {
                 continue;
             }
-            ApprovalNodeConfig cfg = BeanTool.objectToObject(node.getConfig(), ApprovalNodeConfig.class);
+            ApprovalNodeConfig cfg = readConfig(node, d);
             if (cfg == null) {
                 continue;
             }
             validateApproverSource(node.getId(), cfg, d);
             validateVoteThresholds(node.getId(), cfg, d);
             validateTimeout(node.getId(), cfg, d);
+        }
+    }
+
+    /**
+     * The node's config, or null when a value in it cannot be read — an option the designer does not offer, such
+     * as one saved by a designer that offered constant names — reported against the field it is in, so the
+     * validation answers instead of failing whole.
+     */
+    private static ApprovalNodeConfig readConfig(FlowGraphNode node, List<CompileDiagnostic> d) {
+        try {
+            return BeanTool.objectToObject(node.getConfig(), ApprovalNodeConfig.class);
+        } catch (RuntimeException e) {
+            String detail = Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName());
+            StringJoiner field = new StringJoiner(".", "config.", "").setEmptyValue("");
+            Matcher reference = READ_REFERENCE.matcher(detail);
+            while (reference.find()) {
+                field.add(reference.group(1));
+            }
+            String where = field.length() == 0 ? "its config" : field.toString();
+            String message = "Approval node '" + node.getId() + "' cannot read " + where + ": " + detail.lines()
+                    .findFirst().orElse(detail);
+            d.add(field.length() == 0
+                    ? CompileDiagnostic.nodeLevel(node.getId(), APPROVAL_TYPE, UNREADABLE_CONFIG, message)
+                    : CompileDiagnostic.fieldLevel(node.getId(), APPROVAL_TYPE, field.toString(), UNREADABLE_CONFIG,
+                            message));
+            return null;
         }
     }
 

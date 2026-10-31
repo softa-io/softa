@@ -83,6 +83,22 @@ class OrmFlowInstanceStoreScopeTest {
         assertEquals(List.of(true), skipped);
     }
 
+    @Test
+    void listsWholeStatesThatStillKnowTheirPendingApprovals() {
+        FlowInstance waiting = instance();
+        waiting.setPendingApprovals("[{\"nodeId\":\"manager\",\"approvers\":[\"2001\"]}]");
+        when(instanceService.findStatesByInstanceIds(List.of("i-1"))).thenAnswer(invocation -> {
+            skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
+            return List.of(waiting);
+        });
+
+        List<FlowExecutionState> states = asRequest(() -> store.listByInstanceIds(List.of("i-1")));
+
+        // Read from the summary projection, the state waited on nobody, and My Requests never offered an urge.
+        assertEquals(List.of("2001"), states.getFirst().getPendingApprovals().getFirst().getApprovers());
+        assertEquals(List.of(true), skipped);
+    }
+
     /** Runs {@code action} as a signed-in user whose permission checks are on, and checks they still are after. */
     private static <T> T asRequest(java.util.function.Supplier<T> action) {
         Context context = new Context();

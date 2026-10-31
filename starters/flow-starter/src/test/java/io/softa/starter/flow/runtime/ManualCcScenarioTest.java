@@ -118,7 +118,7 @@ class ManualCcScenarioTest {
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Manual CC")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),

@@ -11,6 +11,7 @@ import io.softa.starter.seed.dto.FileState;
 import io.softa.starter.seed.entity.SeedLoadRecord;
 import io.softa.starter.seed.enums.SeedRecordStatus;
 import io.softa.starter.seed.manifest.SeedFile;
+import io.softa.starter.seed.manifest.SeedFileMode;
 import io.softa.starter.seed.manifest.SeedLevel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,9 +27,14 @@ import static org.mockito.Mockito.when;
  */
 class SeedLoadLogTest {
 
-    private static final SeedFile PLATFORM = new SeedFile("Navigation.json", SeedLevel.PLATFORM_GLOBAL, false, null, List.of());
-    private static final SeedFile ONCE = new SeedFile("LeaveType.json", SeedLevel.TENANT, false, null, List.of());
-    private static final SeedFile OVERWRITE = new SeedFile("Role.json", SeedLevel.TENANT, true, null, List.of());
+    private static final SeedFile PLATFORM =
+            new SeedFile("Navigation.json", SeedLevel.PLATFORM_GLOBAL, SeedFileMode.OVERWRITE, null, List.of());
+    private static final SeedFile ONCE =
+            new SeedFile("LeaveType.json", SeedLevel.TENANT, SeedFileMode.ONCE, null, List.of());
+    private static final SeedFile APPEND =
+            new SeedFile("MailTemplate.json", SeedLevel.TENANT, SeedFileMode.APPEND, null, List.of());
+    private static final SeedFile OVERWRITE =
+            new SeedFile("Role.json", SeedLevel.TENANT, SeedFileMode.OVERWRITE, null, List.of());
 
     private static final LocalDateTime OLDER_BUILD = LocalDateTime.of(2026, 10, 1, 9, 0);
     private static final LocalDateTime NEWER_BUILD = LocalDateTime.of(2026, 10, 20, 9, 0);
@@ -57,10 +63,12 @@ class SeedLoadLogTest {
     }
 
     @Test
-    void aChangedFileReloadsOnlyWhenItOverwrites() {
+    void aChangedFileReloadsUnlessItRunsOnce() {
         SeedLoadRecord old = record(1, "v1", SeedRecordStatus.SUCCEEDED);
         assertEquals(FileState.CHANGED, stateOf(PLATFORM, old));
         assertEquals(FileState.CHANGED, stateOf(OVERWRITE, old));
+        // An append file runs again too, for the rows a tenant lacks.
+        assertEquals(FileState.CHANGED, stateOf(APPEND, old));
         // A load-once tenant file edited after it ran: the change reaches new tenants only.
         assertEquals(FileState.CHANGED_AFTER_LOAD, stateOf(ONCE, old));
         assertTrue(!FileState.CHANGED_AFTER_LOAD.pending());
@@ -83,6 +91,7 @@ class SeedLoadLogTest {
         when(catalog.buildTime()).thenReturn(OLDER_BUILD);
         assertEquals(FileState.LOADED_BY_NEWER_BUILD, stateOf(PLATFORM, loadedBy(NEWER_BUILD)));
         assertEquals(FileState.LOADED_BY_NEWER_BUILD, stateOf(OVERWRITE, loadedBy(NEWER_BUILD)));
+        assertEquals(FileState.LOADED_BY_NEWER_BUILD, stateOf(APPEND, loadedBy(NEWER_BUILD)));
         assertFalse(FileState.LOADED_BY_NEWER_BUILD.pending());
         // A run-once file does not reload anyway.
         assertEquals(FileState.CHANGED_AFTER_LOAD, stateOf(ONCE, loadedBy(NEWER_BUILD)));

@@ -124,7 +124,7 @@ class ApprovalTimeoutSchedulerTest {
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Timeout Scenarios")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START, null),
