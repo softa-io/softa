@@ -44,6 +44,7 @@ import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
 import io.softa.starter.user.entity.UserSecurityLog;
@@ -100,6 +101,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     @Autowired
     private UserSecurityLogService securityLog;
+
+    @Autowired
+    private LoginHistoryRecorder loginHistory;
 
     /** @Lazy: the invitation service reads and writes accounts through this one. */
     @Autowired
@@ -1358,6 +1362,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 // updateOne(entity, false): clearing the lock means writing a null, which the
                 // default overload drops.
                 identityService.updateOne(identity, false);
+                loginHistory.record(LoginEvent.UNLOCKED, user.getProfileId(), user.getId(), user.getTenantId(),
+                        null, null, null);
             }
             identityService.clearPasswordFailures(identity.getId());
         });
