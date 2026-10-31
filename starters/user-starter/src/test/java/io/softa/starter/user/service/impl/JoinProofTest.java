@@ -70,12 +70,16 @@ class JoinProofTest {
     private final UserInvitationServiceImpl realInvitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
             mock(VerificationCodeGuard.class), siteAt("http://localhost")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(realInvitationService);
 
     private final UserAccount revived = new UserAccount();
     private final UserIdentity ada = new UserIdentity();
 
     JoinProofTest() {
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
+        ReflectionTestUtils.setField(loginService, "history", mock(LoginHistoryRecorder.class));
+        ReflectionTestUtils.setField(loginService, "mobileFormat", InvitationServiceTestSupport.mobileFormat());
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
@@ -137,12 +141,12 @@ class JoinProofTest {
     void theChain_verifyThenSetPasswordThenConfirm_succeeds_andSpendsTheProof() {
         String proof = passTheCode();
         // The cache holds a digest of the proof, never the proof itself: a dump is not a replay.
-        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:proof:").doesNotContain(proof));
+        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:proof").doesNotContain(proof));
 
         loginService.setJoinPassword(TOKEN, ADA, PASSWORD, proof);
         verify(identityService).setPassword(11L, PASSWORD);
         // Still alive: confirmJoin is next and needs it.
-        assertThat(cache).hasSize(1);
+        assertThat(cache.keySet()).filteredOn(key -> key.startsWith("join:proof:")).hasSize(1);
 
         realInvitationService.confirmJoin(TOKEN, ADA, proof);
         assertThat(revived.getStatus()).isEqualTo(AccountStatus.ACTIVE);

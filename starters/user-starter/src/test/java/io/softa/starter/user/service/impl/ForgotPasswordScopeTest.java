@@ -63,6 +63,8 @@ class ForgotPasswordScopeTest {
     private final UserInvitationServiceImpl service = spy(new UserInvitationServiceImpl(
             accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
             codeGuard, siteAt("https://app.example.test")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(service);
 
     ForgotPasswordScopeTest() {
         // The inherited ORM surface: this test is about whether a token is issued, not how it is stored.

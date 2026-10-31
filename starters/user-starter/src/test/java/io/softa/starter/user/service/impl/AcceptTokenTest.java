@@ -53,6 +53,8 @@ class AcceptTokenTest {
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null,
             mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(invitationService);
 
     private UserAccount tokenFor(AccountStatus status, String password) {
         return tokenFor(status, password, LOGIN_EMAIL);

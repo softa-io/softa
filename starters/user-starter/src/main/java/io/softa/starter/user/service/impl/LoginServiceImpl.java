@@ -159,6 +159,9 @@ public class LoginServiceImpl implements LoginService {
     @Autowired
     private UserSecurityLogService securityLog;
 
+    @Autowired
+    private JoinMobileFormat mobileFormat;
+
     /** Optional: present only where APP push is deployed. */
     @Autowired(required = false)
     private PushDeviceRegistry pushDeviceRegistry;
@@ -327,23 +330,6 @@ public class LoginServiceImpl implements LoginService {
                 Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES)));
     }
 
-    /**
-     * Refuse to identify anyone from a contact shared by more than one account (finding #2).
-     *
-     * <p>A verification code proves control of the ADDRESS, not of a person. A work number used by
-     * several employees identifies none of them, so resolving it to whichever person happens to
-     * hold it as their login identifier lets a second holder sign in — or reset the password — as
-     * the first. Every code-and-identifier entry point (login, /join, reset) has to ask this;
-     * the password path does not, because knowing the password is itself the proof a shared
-     * contact cannot supply.
-     */
-    private void assertContactNotShared(String identifier) {
-        if (accountService.isWorkContactShared(identifier)) {
-            throw new BusinessException("This contact is shared by more than one account, so we "
-                    + "cannot confirm who you are. Please contact your administrator.");
-        }
-    }
-
     @Override
     public AuthenticationResult authenticateByCode(String identifier, String code) {
         // The code is keyed by the canonical form; the lookups get the typed form, so a row seeded
@@ -483,49 +469,37 @@ public class LoginServiceImpl implements LoginService {
         return Long.valueOf(value);
     }
 
-
     @Override
     public AuthenticationResult confirmJoin(String rawToken, Long profileId, String proof) {
-        // Read BEFORE the membership activates: accepting spends the invitation, and neither the
-        // row's prior binding nor the invitation's contacts can be resolved from the token after.
-        // An unusable token resolves to nothing here and is then judged by the invitation service
-        // itself (a refusal, or the quiet re-entrant return), exactly as before.
+        // Read BEFORE the membership activates: accepting spends the invitation, and the row can no
+        // longer be resolved from the token after. So is the contact the proof was minted for.
         Optional<UserAccount> joining = invitationService.resolveJoinAccount(rawToken);
-        boolean boundBefore = joining.map(account -> account.getProfileId() != null).orElse(false);
-        JoinContacts contacts = boundBefore ? invitationService.resolveJoinContacts(rawToken) : null;
+        String channel = proofGuard.channelOf(proof);
+        JoinContacts contacts = joining.isPresent() ? invitationService.resolveJoinContacts(rawToken) : null;
 
         invitationService.confirmJoin(rawToken, profileId, proof);
 
-        // The identity, not the profile: what decides the next step is whether a password exists,
-        // and that lives on the credential.
         UserIdentity identity = identityService.findByProfile(profileId)
                 .orElseThrow(() -> new BusinessException("Person record not found."));
-        // Two different things were proven, and only one of them is this person. The code proved
-        // control of the WORK address on a row that already named its person — a mailbox the
-        // company holds and reissues. For an unbound row the address IS the person's own login
-        // identifier (the contact tie), so the same code does identify them; for a bound row it
-        // identifies whoever holds the mailbox. So the membership stays activated — HR intended it
-        // — and nothing that stands for the person is issued: no session, and no pre-auth token
-        // into their other tenants. Whether the identity has a password does not enter into it:
-        // a password-less identity would have its GLOBAL first password minted from the session
-        // (/UserAccount/setMyFirstPassword), and an identity WITH a password would simply be
-        // impersonated — in this company and, through the company step, in every other one it
-        // belongs to — by whoever holds the mailbox. A person who has their own way in must use it;
-        // the one who has none (nothing outside the invitation's contacts) has the address as the
-        // only evidence there is, and for them the session is issued as before.
-        // Residual, by design: for that fully released identity the session still rests on HR
-        // having addressed the invitation to the right person.
-        if (boundBefore && holdsLoginOutsideInvitation(identity, contacts)) {
-            return AuthenticationResult.requireSignIn();
+        // Who this is was settled by the codes verified before (the mobile one included, when the
+        // email alone could not settle it), so the person goes straight into the company just
+        // joined, whatever else they belong to (PRD invitation flow). A re-entrant confirm (the
+        // link already spent) has no row to name, and falls back to the ordinary entry rule.
+        if (joining.isEmpty()) {
+            return this.afterAuthentication(identity);
         }
-        // Straight into the company just joined (PRD invitation flow), whatever else the person
-        // belongs to. A re-entrant confirm (the link already spent) has no row to name, and falls
-        // back to the ordinary entry rule.
-        if (joining.isPresent()) {
-            return AuthenticationResult.resolved(profileId,
-                    profileService.getUserInfo(joining.get().getId()), mustSetPasswordFor(identity));
+        AuthenticationResult result = AuthenticationResult.resolved(profileId,
+                profileService.getUserInfo(joining.get().getId()), mustSetPasswordFor(identity));
+        // The full contact they just verified — only ever to them — so the "get the APP" page can
+        // prefill the login screen; the page itself only ever saw it masked.
+        if (contacts != null && channel != null) {
+            String value = "mobile".equals(channel) ? contacts.mobile() : contacts.email();
+            if (StringUtils.isNotBlank(value)) {
+                result = result.withPrefill(new AuthenticationResult.JoinPrefill(channel,
+                        "mobile".equals(channel) ? LoginIdentifiers.normalize(value) : value));
+            }
         }
-        return this.afterAuthentication(identity);
+        return result;
     }
 
     @Override
@@ -542,198 +516,95 @@ public class LoginServiceImpl implements LoginService {
         }
     }
 
-    /*
-     * Residual, by design — the reissued contact on a FULLY released identity. For a bound row this
-     * rebinds the address that received the code onto the person's identity only when that identity
-     * holds no login identifier at all (reclaimLoginIdentifier). In that one case the address is the
-     * only evidence of who the person is, so whoever now holds a reissued address — a pool phone
-     * handed to the next hire, a mailbox HR mistyped onto the revived row — passes the code, gets the
-     * address as a login identifier, and from then on signs in by code into the leaver's profile and
-     * every company it still belongs to. Not closed here because nothing in the data distinguishes
-     * the returning leaver from the stranger; the mitigations are procedural and sit with HR: correct
-     * the row's contacts through Reset User BEFORE inviting, and only HR can issue the invitation.
-     * The same note stands on UserAccountServiceImpl.rehire, where the row is reopened.
+    /**
+     * Verify the join code, then decide who is joining (PRD invitation flow, H1–H4).
+     *
+     * <ul>
+     *   <li><b>Mobile</b>: the number is the person's login mobile. Its holder is this person; nobody
+     *       holding it (or only a dormant holder, released first) → a new person with it.</li>
+     *   <li><b>Email</b>: proves this is the employee the record names, not that the person found by
+     *       the record's personal mobile is them. Nobody holding the mobile (or a dormant holder) → a
+     *       new person with it; somebody holding it → {@code VERIFY_MOBILE}: the same flow again on
+     *       the mobile channel, and no proof until then. The one exception is the placeholder person
+     *       created together with this very account — nobody yet, so nobody to impersonate.</li>
+     * </ul>
+     * The addresses come from the ACCOUNT, never the caller, so this cannot verify a code against an
+     * address of the caller's choosing.
      */
     @Override
     @Transactional
     public JoinVerification verifyJoinCode(String rawToken, String channel, String code) {
-        // Resolving the address from the token (not from the caller) is what keeps this from being
-        // a way to verify a code against an address of the caller's choosing.
-        // Normalised because the invitation stores the WORK contact as HR typed it, while the code
-        // was keyed by (sendEmailCode) and the identity is looked up / seeded with the login form.
-        // The typed form — what HR wrote on the invitation, lowercased — is what the lookups get,
-        // so a row seeded before the separator fold is still the one they find.
-        String typedAddress = LoginIdentifiers.typedForm(invitationService.resolveJoinChannel(rawToken, channel));
-        String address = LoginIdentifiers.normalize(typedAddress);
-        this.verifyCode(address, code);
-
-        // A shared work contact identifies no one, so an invitee holding it cannot be resolved
-        // automatically — HR completes the bind. Same guard as login and reset.
-        assertContactNotShared(typedAddress);
-
-        // A membership that already belongs to a person — a re-hired leaver's revived row — has
-        // answered "who is this?" before the address is consulted. Their work address was released
-        // from their identity at off-boarding, so find-or-create by address would see nobody, mint
-        // a second person, and confirmJoin would hand the row to it: the real person keeps their
-        // password and their other tenants on a profileId nothing points at any more.
+        boolean byMobile = "mobile".equalsIgnoreCase(channel);
+        String address = invitationService.resolveJoinChannel(rawToken, byMobile ? "mobile" : "email");
+        this.verifyCode(LoginIdentifiers.normalize(address), code);
         UserAccount account = invitationService.resolveJoinAccount(rawToken)
                 .orElseThrow(() -> new BusinessException("This invitation link is no longer usable."));
-        if (account.getProfileId() != null) {
-            UserIdentity known = identityService.findByProfile(account.getProfileId())
-                    .orElseThrow(() -> new BusinessException("Person record not found."));
-            // The address comes home as a LOGIN identifier only when the identity is fully released;
-            // otherwise the person keeps signing in with what they hold and confirmJoin admits them
-            // on the row's profileId. See reclaimLoginIdentifier for the takeover this prevents.
-            this.reclaimLoginIdentifier(known, address, typedAddress);
-            // No password step here for a person who can already sign in some other way — see
-            // holdsLoginOutsideInvitation. They confirm on the row's profileId, confirmJoin answers
-            // signInRequired rather than a session, and they set the password in-session after
-            // signing in with what they hold — where they are themselves and not merely whoever
-            // received this link.
-            boolean mustSetPassword = StringUtils.isBlank(known.getPassword())
-                    && !holdsLoginOutsideInvitation(known, invitationService.resolveJoinContacts(rawToken));
-            return this.verified(rawToken, known.getProfileId(), mustSetPassword);
-        }
+        String mobile = byMobile ? address : account.getMobile();
 
-        // Find-or-create by the address the invitation was sent to. Found = this person already
-        // works somewhere and is being added to a second company, and they keep ONE person record
-        // (that is the whole point of the global profile). Not found = their first company.
-        Optional<UserIdentity> existing = identityService.findByLoginIdentifier(typedAddress);
-        if (existing.isPresent()) {
-            return this.verified(rawToken, existing.get().getProfileId(),
-                    StringUtils.isBlank(existing.get().getPassword()));
+        if (StringUtils.isBlank(mobile)) {
+            // A record from before the personal mobile was required: the email is all there is.
+            Long person = account.getProfileId() != null ? account.getProfileId()
+                    : profileService.createPersonForJoin(address);
+            return this.verified(rawToken, person, "email");
         }
-        // Brand new person: no password by construction, so the password step always follows.
-        // Constructed through the profile service, which is the one waived choke point where a
-        // person and their credentials row are minted together.
-        return this.verified(rawToken, profileService.createPersonForJoin(address), true);
+        UserIdentity holder = this.holderOf(mobile);
+        if (holder == null) {
+            return this.verified(rawToken, profileService.createPersonForJoin(mobile), byMobile ? "mobile" : "email");
+        }
+        if (byMobile || this.isPlaceholderFor(holder, account)) {
+            return this.verified(rawToken, holder.getProfileId(), byMobile ? "mobile" : "email");
+        }
+        return JoinVerification.verifyMobile(mobileFormat.format(mobile).masked());
+    }
+
+    /** The person whose login mobile this is — none when nobody holds it, or only a dormant person did. */
+    private UserIdentity holderOf(String mobile) {
+        if (accountService.releaseDormantLoginMobile(mobile, "Join")) {
+            return null;
+        }
+        return identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(mobile)).orElse(null);
+    }
+
+    private boolean isPlaceholderFor(UserIdentity holder, UserAccount account) {
+        return Objects.equals(holder.getProfileId(), account.getProfileId())
+                && invitationService.isPlaceholderPerson(holder.getProfileId(), account.getId());
     }
 
     /**
      * The verification result, carrying a freshly minted proof. Minted here and nowhere else: every
      * branch above has just seen the code pass, and the proof must mean exactly that.
      */
-    private JoinVerification verified(String rawToken, Long profileId, boolean mustSetPassword) {
-        return new JoinVerification(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId));
-    }
-
-    /**
-     * Whether the identity holds a live login identifier the invitation was NOT addressed to.
-     *
-     * <p>That identifier is a way in the link-holder does not have, and it is what keeps a bound
-     * row's first password — and, at confirmJoin, any session at all — off the anonymous path.
-     * The code sent to a work address proves control
-     * of that address — a mailbox the company holds and reissues — not of the person; for a bound
-     * row the row's profileId then names the person, so a company holding a re-hired leaver's work
-     * mailbox would be setting a password on an identity that is not theirs, valid at every other
-     * company that identity belongs to. Sent instead to sign in with what they hold (by code, since
-     * there is no password yet) and set the password from inside that session. An identity holding
-     * nothing outside the invitation's contacts has no such way in, so for it the address remains
-     * the best evidence available and the password step stays open — the fully released re-hire.
-     */
-    private static boolean holdsLoginOutsideInvitation(UserIdentity identity, JoinContacts contacts) {
-        return (StringUtils.isNotBlank(identity.getLoginEmail()) && !contacts.includes(identity.getLoginEmail()))
-                || (StringUtils.isNotBlank(identity.getLoginMobile()) && !contacts.includes(identity.getLoginMobile()));
-    }
-
-    /**
-     * Put a verified address back onto the person's identity as a login identifier, when it can be.
-     *
-     * <p>This is the released work contact coming home: off-boarding cleared it so the address could
-     * be reissued, and — when the identity holds nothing else — the person who just proved control
-     * of it through a code is the one who lost it. Bound only if the identity is fully released and
-     * nobody else has claimed the address meanwhile — {@code isIdentifierClaimable} answers that,
-     * and when it says no the identity is left as it was rather than made ambiguous.
-     *
-     * @param address      the canonical form, which is what is written
-     * @param typedAddress the form the invitation carries, so the claim check also sees a pre-fold
-     *                     row holding the number with its separators
-     */
-    private void reclaimLoginIdentifier(UserIdentity identity, String address, String typedAddress) {
-        if (StringUtils.isNotBlank(identity.getLoginEmail())
-                || StringUtils.isNotBlank(identity.getLoginMobile())) {
-            // Identity takeover, refused. The row is bound, so the code proved control of a WORK
-            // contact that is not currently anyone's login identifier — and a work contact is
-            // reissued: a pool phone handed to the next hire, an address HR mistyped onto the
-            // revived row. Whoever now physically holds it can pass the code, and rebinding it here
-            // would make it a LOGIN identifier for the leaver's identity: from then on the stranger
-            // signs in BY CODE to that address and lands in the leaver's profile, with every company
-            // the leaver still belongs to. While the identity holds any live identifier, the person
-            // has a way in that the stranger does not — they keep signing in with what they have,
-            // and confirmJoin admits the bound person on the row's own profileId rather than on this
-            // contact. Both channels are checked, not just the one the address would land on: a
-            // held mobile proves the person is reachable exactly as much as a held email does.
-            return;
-        }
-        // Fully released: no identifier on either channel. Nobody else can prove ownership of this
-        // person's login (there is nothing left to send a code to), and the row's contacts were the
-        // person's own at off-boarding, so the one address that reaches the row is the best evidence
-        // available of who this is. Rebinding it is what lets the returning leaver sign in at all.
-        // The residual — a reissued contact reaching a stranger who then claims a fully released
-        // identity — is documented on this method's caller; the mitigation is procedural: HR
-        // corrects the row's contacts (Reset User) BEFORE inviting, and the invite is HR-initiated.
-        boolean isEmail = address.contains("@");
-        if (!identityService.isIdentifierClaimable(typedAddress, identity.getProfileId())) {
-            return;
-        }
-        if (isEmail) {
-            identity.setLoginEmail(address);
-        } else {
-            identity.setLoginMobile(address);
-        }
-        identityService.updateOne(identity);
+    private JoinVerification verified(String rawToken, Long profileId, String channel) {
+        boolean mustSetPassword = identityService.findByProfile(profileId)
+                .map(identity -> StringUtils.isBlank(identity.getPassword())).orElse(true);
+        return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel));
     }
 
     @Override
     @Transactional
     public void setJoinPassword(String rawToken, Long profileId, String newPassword, String proof) {
         // The proof comes FIRST, before anything about the invitation or the person is looked up.
-        // This endpoint is anonymous, and for a bound row the tie below is the caller-supplied
-        // profileId alone — a value readable off the roster. A company holding a re-hired person's
-        // work mailbox (where the link lands) could otherwise call this with the token and that id,
-        // set the person's GLOBAL password without ever passing the code, and sign in as them at
-        // every other company. The proof exists only if verifyJoinCode saw the code pass for this
-        // invitation and this person. It is left alive on purpose: confirmJoin follows and spends it.
+        // This endpoint is anonymous and takes the profileId from the caller; the proof exists only
+        // if verifyJoinCode saw the code pass for this invitation AND decided on this person (after
+        // the mobile check, when the email alone could not decide). It is left alive on purpose:
+        // confirmJoin follows and spends it.
         proofGuard.require(proof, rawToken, profileId);
         UserAccount account = invitationService.resolveJoinAccount(rawToken)
                 .orElseThrow(() -> new BusinessException("This invitation link is no longer usable."));
-        UserIdentity identity = identityService.findByProfile(profileId)
-                .orElseThrow(() -> new BusinessException("Person record not found."));
-
-        // Both checks matter. The first ties the person to THIS invitation, so holding a link
-        // cannot reach an unrelated person. The second keeps it a first-password path rather than
-        // a reset — someone who already has a password must prove it, or arrive by code.
-        //
-        // The tie mirrors confirmJoin's. For a row that already belongs to a person (a re-hired
-        // leaver's revived membership) the row's profileId IS the tie: verifyJoinCode returned that
-        // person after the code proved control of the address, so any other id here is a stale
-        // client or a link-holder choosing one. Tying a bound row to the contact instead dead-ended
-        // exactly the person the invitation was for — one who kept a personal login identifier
-        // (ada@personal.com) and has no password: verifyJoinCode sent them here, and the identity
-        // carried no contact the invitation names, so the password could never be set.
-        // For an unbound row the contact is the tie, as at confirmJoin: the person's login
-        // identifier must be one the invitation was addressed to.
-        JoinContacts contacts = invitationService.resolveJoinContacts(rawToken);
-        if (account.getProfileId() != null) {
-            if (!account.getProfileId().equals(profileId)) {
-                throw new BusinessException("This link does not belong to that account.");
-            }
-            // Refused even with a valid proof: the proof shows the code passed, and the code only
-            // ever proved control of the work address. A person who can sign in another way sets
-            // their password from that session — see holdsLoginOutsideInvitation for the takeover
-            // this keeps off the anonymous path. verifyJoinCode already answered mustSetPassword=false
-            // for this case; the check is repeated here because this endpoint re-accepts its inputs.
-            if (holdsLoginOutsideInvitation(identity, contacts)) {
-                throw new BusinessException("Sign in with your existing login to set a password.");
-            }
-        } else if (!contacts.includes(identity.getLoginEmail()) && !contacts.includes(identity.getLoginMobile())) {
+        if (account.getProfileId() != null && !account.getProfileId().equals(profileId)
+                && !invitationService.isPlaceholderPerson(account.getProfileId(), account.getId())) {
             throw new BusinessException("This link does not belong to that account.");
         }
+        UserIdentity identity = identityService.findByProfile(profileId)
+                .orElseThrow(() -> new BusinessException("Person record not found."));
+        // A first-password path, not a reset: someone who already has a password signs in with it.
         if (StringUtils.isNotBlank(identity.getPassword())) {
-            throw new BusinessException("A password is already set — sign in with it instead.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_ALREADY_SET,
+                    "A password is already set — sign in with it instead.");
         }
         // Strength rules live inside setPassword, checked against this person's own contacts.
         identityService.setPassword(identity.getId(), newPassword);
+        history.record(LoginEvent.PASSWORD_SET, profileId, account.getId(), account.getTenantId(), null, null, null);
     }
 
     @Override
@@ -1129,7 +1000,6 @@ public class LoginServiceImpl implements LoginService {
                     identityService.updateOne(patch);
                 });
     }
-
 
     /**
      * Forgot password — issue a self-service PASSWORD_RESET token and email the set-password link.

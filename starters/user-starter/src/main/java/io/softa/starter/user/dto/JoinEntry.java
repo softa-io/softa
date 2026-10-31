@@ -17,7 +17,7 @@ package io.softa.starter.user.dto;
  * @param maskedMobile masked work mobile, or null when the invitation had none
  */
 public record JoinEntry(boolean usable, Reason reason, String companyName, String employeeName,
-                        String maskedEmail, String maskedMobile) {
+                        String maskedEmail, String maskedMobile, String dialCode, String countryName) {
 
     /** Why a link cannot be used. The first four all render as "this link has expired". */
     public enum Reason {
@@ -34,11 +34,22 @@ public record JoinEntry(boolean usable, Reason reason, String companyName, Strin
     }
 
     public static JoinEntry rejected(Reason reason) {
-        return new JoinEntry(false, reason, null, null, null, null);
+        return new JoinEntry(false, reason, null, null, null, null, null, null);
     }
 
     public static JoinEntry usable(String companyName, String employeeName,
             String maskedEmail, String maskedMobile) {
-        return new JoinEntry(true, Reason.NONE, companyName, employeeName, maskedEmail, maskedMobile);
+        return usable(companyName, employeeName, maskedEmail, maskedMobile, null, null);
+    }
+
+    /**
+     * @param maskedMobile "+65 912****67" — the dial code, then the masked national number
+     * @param dialCode     the mobile's country dial code, "+65"
+     * @param countryName  that country's name, for the page to show beside it
+     */
+    public static JoinEntry usable(String companyName, String employeeName,
+            String maskedEmail, String maskedMobile, String dialCode, String countryName) {
+        return new JoinEntry(true, Reason.NONE, companyName, employeeName, maskedEmail, maskedMobile,
+                dialCode, countryName);
     }
 }

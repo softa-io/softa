@@ -93,6 +93,12 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     void confirmJoin(String rawToken, Long profileId, String proof);
 
     /**
+     * Whether {@code profileId} is only the placeholder person created together with this account —
+     * no password, nothing else joined — whom /join may replace with the person it verified.
+     */
+    boolean isPlaceholderPerson(Long profileId, Long accountId);
+
+    /**
      * Issue (or re-issue) an INVITE token for a user and email the set-password link. Any prior
      * PENDING token for the user is revoked so only the newest link works.
      *

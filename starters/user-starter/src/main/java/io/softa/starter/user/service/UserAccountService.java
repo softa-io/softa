@@ -64,6 +64,13 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     boolean releaseDormantLoginMobile(String mobile, String scenario);
 
     /**
+     * Whether this enterprise email sits on an account (any tenant, any status but Deactivated)
+     * that belongs to a person other than {@code profileId}. One person may use one address in
+     * several companies; two people may not.
+     */
+    boolean isEmailHeldByAnotherPerson(String email, Long profileId);
+
+    /**
      * Get user by mobile
      *
      * @param mobile mobile

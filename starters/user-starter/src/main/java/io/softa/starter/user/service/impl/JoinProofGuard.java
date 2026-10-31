@@ -52,9 +52,29 @@ public class JoinProofGuard {
 
     /** Mint a fresh proof that {@code profileId} passed the code for invitation {@code rawToken}. */
     public String mint(String rawToken, Long profileId) {
+        return this.mint(rawToken, profileId, null);
+    }
+
+    /**
+     * Mint a proof that also remembers which contact was verified ({@code mobile} / {@code email}),
+     * so confirmJoin can prefill the login screen with it.
+     */
+    public String mint(String rawToken, Long profileId, String channel) {
         String proof = RandomUtils.randomString(PROOF_BYTES);
         cacheService.save(key(proof), claim(rawToken, profileId), PROOF_TTL_SECONDS);
+        if (channel != null) {
+            cacheService.save(channelKey(proof), channel, PROOF_TTL_SECONDS);
+        }
         return proof;
+    }
+
+    /** The channel the proof was minted for, or null. */
+    public String channelOf(String proof) {
+        return StringUtils.isBlank(proof) ? null : cacheService.get(channelKey(proof));
+    }
+
+    private static String channelKey(String proof) {
+        return "join:proof-channel:" + EncryptUtils.computeSha256(proof);
     }
 
     /**
@@ -74,6 +94,7 @@ public class JoinProofGuard {
     public void consume(String proof) {
         if (StringUtils.isNotBlank(proof)) {
             cacheService.clear(key(proof));
+            cacheService.clear(channelKey(proof));
         }
     }
 }

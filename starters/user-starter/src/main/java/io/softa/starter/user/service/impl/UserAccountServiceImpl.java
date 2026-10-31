@@ -634,6 +634,20 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         return true;
     }
 
+    @Override
+    @CrossTenant
+    @SkipPermissionCheck
+    public boolean isEmailHeldByAnotherPerson(String email, Long profileId) {
+        String wanted = StringUtils.trimToNull(email);
+        if (wanted == null) {
+            return false;
+        }
+        return this.searchList(new Filters().startWith(UserAccount::getEmail, wanted)).stream()
+                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED
+                        && wanted.equalsIgnoreCase(StringUtils.trim(account.getEmail())))
+                .anyMatch(account -> account.getProfileId() != null && !account.getProfileId().equals(profileId));
+    }
+
     /** A status change, in the security log. */
     private void logStatusChange(UserAccount account, AccountStatus from, AccountStatus to,
                                  SecurityLogSource source, String reason) {

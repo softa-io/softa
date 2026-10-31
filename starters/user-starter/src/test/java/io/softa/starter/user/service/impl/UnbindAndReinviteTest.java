@@ -60,6 +60,8 @@ class UnbindAndReinviteTest {
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
             mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(invitationService);
 
     private UserAccount given(AccountStatus status) {
         UserAccount account = new UserAccount();

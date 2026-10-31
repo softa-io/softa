@@ -37,6 +37,11 @@ import io.softa.starter.user.entity.UserInvitation;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.InvitationPurpose;
 import io.softa.starter.user.enums.InvitationStatus;
+import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.entity.UserSecurityLog;
+import io.softa.starter.user.enums.SecurityAction;
+import io.softa.starter.user.enums.SecurityLogSource;
+import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
@@ -77,6 +82,13 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     private final VerificationCodeGuard codeGuard;
     /** Site origin every invitation / reset link is built on ({@code system.site-url}). */
     private final SystemConfig systemConfig;
+
+    /** Splits the invitation mobile into dial code, country and masked number for the join page. */
+    @Autowired
+    private JoinMobileFormat mobileFormat;
+
+    @Autowired
+    private UserSecurityLogService securityLog;
 
     public UserInvitationServiceImpl(UserAccountService accountService,
                                      UserIdentityService identityService,
@@ -628,56 +640,35 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         UserAccount account = accountService.getById(invitation.getUserId())
                 .orElseThrow(() -> new BusinessException("Account not found."));
 
-        // A row that already belongs to a person (a re-hired leaver's revived membership) is not
-        // reassigned by whoever holds the link. verifyJoinCode returns that person for such a row,
-        // so a mismatch here is either a stale client or a caller naming a profileId of their own
-        // choosing — and overwriting would orphan the real person: their password and their other
-        // tenants stay on the old profileId while this row walks off with a new one.
-        if (account.getProfileId() != null && !account.getProfileId().equals(profileId)) {
+        // A row bound to someone else is not reassigned by whoever holds the link — unless that
+        // someone is only the placeholder minted when HR created the account (no password, nothing
+        // else joined): the person is decided at /join by the number verified, and verifyJoinCode
+        // has just decided it.
+        if (account.getProfileId() != null && !account.getProfileId().equals(profileId)
+                && !this.isPlaceholderPerson(account.getProfileId(), account.getId())) {
             throw new BusinessException("This link does not belong to that account.");
         }
 
-        // Refuse if this person already occupies this company's (tenant, profile) slot (PRD §4.5).
-        // The unique index would refuse the bind too, but a constraint violation is not something a
-        // person can be told about — and a DEACTIVATED prior membership needs a DIFFERENT message:
-        // re-hiring reuses that row (reviveMembership), so a new invitation is the wrong tool and
-        // would only hit the index. listMembershipsOf hides deactivated rows, which is exactly the
-        // case that would otherwise surface as a raw constraint error, so this asks for all statuses.
-        accountService.findMembershipInTenant(account.getTenantId(), profileId)
-                .filter(existing -> !existing.getId().equals(account.getId()))
-                .ifPresent(existing -> {
-                    if (existing.getStatus() == AccountStatus.DEACTIVATED) {
-                        throw new BusinessException("This person previously left this company. Use "
-                                + "the re-hire flow rather than a new invitation.");
-                    }
-                    throw new BusinessException(
-                            "You are already a member of this company. Please contact your administrator.");
-                });
-
-        // The profileId is supplied by the CALLER (it came back from verifyJoinCode, but the
-        // /confirmJoin endpoint is anonymous and re-accepts it), so it has to be tied to the token
-        // here — otherwise a holder of any valid invitation could bind their account to someone
-        // else's person by naming that person's id.
-        //
-        // For a row that already belongs to a person, the equality asserted above IS the tie: the
-        // invitation was issued for this very row, and verifyJoinCode proved control of the address
-        // it was sent to. The contact comparison below would refuse exactly the person it exists to
-        // admit — a re-hired leaver who kept a personal login email (ada@personal.com) while the
-        // invitation went to the work address on her revived row (ada@acme.com), an address
-        // off-boarding released from her identity and which verifyJoinCode deliberately does not
-        // always rebind (see its takeover note). So the contact check is made for UNBOUND rows only.
-        //
-        // For an unbound row the contact IS the tie, the same one setJoinPassword makes: the
-        // person's login identifier must be one the invitation was addressed to. A first-time
-        // invitee passes because createPersonForJoin seeded that identifier from this very address.
-        if (account.getProfileId() == null) {
-            JoinContacts contacts = new JoinContacts(invitation.getEmail(), invitation.getMobile());
-            UserIdentity boundIdentity = identityService.findByProfile(profileId)
-                    .orElseThrow(() -> new BusinessException("Person record not found."));
-            if (!contacts.includes(boundIdentity.getLoginEmail())
-                    && !contacts.includes(boundIdentity.getLoginMobile())) {
-                throw new BusinessException("This link does not belong to that account.");
+        // The person already holds a live account in this company (PRD invitation E9).
+        Optional<UserAccount> here = accountService.findMembershipInTenant(account.getTenantId(), profileId)
+                .filter(existing -> !existing.getId().equals(account.getId()));
+        if (here.isPresent()) {
+            this.logJoinBlocked(account, profileId, here.get().getStatus() == AccountStatus.DEACTIVATED
+                    ? "Previously left this company" : AccountErrorCodes.ALREADY_JOINED);
+            if (here.get().getStatus() == AccountStatus.DEACTIVATED) {
+                throw new BusinessException("This person previously left this company. Use "
+                        + "the re-hire flow rather than a new invitation.");
             }
+            throw AccountErrorCodes.refusal(AccountErrorCodes.ALREADY_JOINED,
+                    "You have already joined this company. Please sign in.");
+        }
+
+        // The enterprise email is one person's across the whole system (Deactivated aside): checked
+        // again here because another company may have given it to someone since the record was saved.
+        if (accountService.isEmailHeldByAnotherPerson(account.getEmail(), profileId)) {
+            this.logJoinBlocked(account, profileId, AccountErrorCodes.EMAIL_TAKEN);
+            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN,
+                    "This email is already linked to another account. Please contact your HR.");
         }
 
         account.setProfileId(profileId);
@@ -694,6 +685,28 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 profileId, account.getTenantId(), invitation.getId());
     }
 
+    /**
+     * Whether a person is only the placeholder created together with this account: no password, and
+     * no account outside Deactivated other than this one. Such a person is nobody yet, so /join may
+     * put the verified person in its place.
+     */
+    @Override
+    @SkipPermissionCheck
+    @CrossTenant
+    public boolean isPlaceholderPerson(Long profileId, Long accountId) {
+        boolean holdsOthers = accountService.listMembershipsOf(profileId).stream()
+                .anyMatch(other -> !other.getId().equals(accountId));
+        boolean hasPassword = identityService.findByProfile(profileId)
+                .map(identity -> StringUtils.isNotBlank(identity.getPassword())).orElse(false);
+        return !holdsOthers && !hasPassword;
+    }
+
+    private void logJoinBlocked(UserAccount account, Long profileId, String why) {
+        UserSecurityLog row = securityLog.entry(SecurityAction.JOIN_BLOCKED, SecurityLogSource.WEB, account, profileId);
+        row.setReason(why);
+        securityLog.record(row);
+    }
+
     @SkipPermissionCheck
     @CrossTenant
     @Override
@@ -703,10 +716,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (!this.inspectJoinToken(rawToken).usable()) {
             throw new BusinessException("This invitation link is no longer usable.");
         }
-        UserInvitation invitation = this.searchOne(new Filters()
-                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+        // The ACCOUNT's current contacts, not what the invitation was sent to: HR may have corrected
+        // the record since, and the code must go to the number on file now, not to an old one.
+        UserAccount account = this.resolveJoinAccount(rawToken)
                 .orElseThrow(() -> new BusinessException("This invitation link is no longer usable."));
-        return new JoinContacts(invitation.getEmail(), invitation.getMobile());
+        return new JoinContacts(account.getEmail(), account.getMobile());
     }
 
     @SkipPermissionCheck
@@ -768,12 +782,13 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 || membership.getStatus() == AccountStatus.FROZEN) {
             return JoinEntry.rejected(JoinEntry.Reason.MEMBERSHIP_CLOSED);
         }
-        // ⑤ usable
+        // ⑤ usable — showing the account's CURRENT contacts (see resolveJoinContacts)
+        JoinMobileFormat.Formatted mobile = mobileFormat.format(membership.getMobile());
         return JoinEntry.usable(
                 tenantInfoService == null ? null : tenantInfoService.getTenantName(membership.getTenantId()),
                 membership.getNickname(),
-                ContactMasking.email(invitation.getEmail()),
-                ContactMasking.mobile(invitation.getMobile()));
+                ContactMasking.email(membership.getEmail()),
+                mobile.masked(), mobile.dialCode(), mobile.countryName());
     }
 
     /**
