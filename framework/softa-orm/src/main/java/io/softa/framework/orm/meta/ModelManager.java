@@ -1168,8 +1168,8 @@ public class ModelManager {
      * fields (same reason, one layer down: a file belongs to exactly one row, and that
      * binding is what authorizes reading it — a copy carrying the id would either steal
      * the binding or leave the copy pointing at a file it does not own. {@code
-     * FileService.copyFileTo} is the sanctioned path, giving the copy its own record over
-     * the same stored object), autoSequence
+     * FileService.copyFileTo} is the sanctioned path, giving the copy its own record and
+     * its own copy of the stored object), autoSequence
      * fields (a copy is a new document, so it must get a fresh number — leaving the
      * field blank lets SequenceProcessor allocate one on insert instead of carrying
      * the source's), and the identity

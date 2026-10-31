@@ -162,9 +162,10 @@ public interface FileService {
      * two rows pointing at one record leaves the copy readable only through the original's
      * permissions. A record each is what makes each row's own check the answer.
      *
-     * <p>The stored object is shared, not duplicated: nothing in this framework deletes from object
-     * storage, so a second reference cannot be left dangling by the first going away. Anything that
-     * adds deletion later has to look for other records on the same key first.
+     * <p>The stored object is copied too, under a new key: {@code FileRecord.ossKey} is unique, one
+     * record per stored object, so two records cannot share one. The copy is made on the storage side,
+     * without reading the bytes through this process. Should the surrounding transaction roll back, the
+     * copied object is left with no record — harmless, as nothing reads an object no record names.
      *
      * <p><b>Not</b> reachable from a claim. Copying on demand there would turn writing a stranger's
      * file id into a row you may edit — the theft {@code claimFiles} refuses — into a supported way of

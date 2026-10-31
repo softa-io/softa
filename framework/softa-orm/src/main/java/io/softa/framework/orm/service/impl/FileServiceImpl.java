@@ -643,8 +643,14 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         // a fileId it did not first resolve through a tenant-scoped business read.
         return bypassFileRecordScope(() -> this.getById(fileId)).map(source -> {
             FileRecord copy = new FileRecord();
-            // The stored object is shared — same ossKey, same checksum. Only the ownership differs.
-            copy.setOssKey(source.getOssKey());
+            // A stored object of its own, under a key of the new owner's model: oss_key is unique, one
+            // record per object, so the copy cannot share the source's key. A record with no object yet
+            // has nothing to copy.
+            if (StringUtils.isNotBlank(source.getOssKey())) {
+                String ossKey = this.generateOssKey(modelName, source.getFileName());
+                ossClientService.copyObject(source.getOssKey(), ossKey, source.getFileName());
+                copy.setOssKey(ossKey);
+            }
             copy.setFileName(source.getFileName());
             copy.setFileType(source.getFileType());
             copy.setChecksum(source.getChecksum());

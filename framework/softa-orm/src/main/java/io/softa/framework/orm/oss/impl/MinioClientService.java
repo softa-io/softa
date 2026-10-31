@@ -145,6 +145,31 @@ public class MinioClientService implements OssClientService {
         }
     }
 
+    @Override
+    public void copyObject(String sourceKey, String targetKey, String fileName) {
+        try {
+            ossClient.copyObject(
+                    CopyObjectArgs.builder()
+                            .bucket(getBucketName())
+                            .object(targetKey)
+                            .source(SourceObject.builder().bucket(getBucketName()).object(sourceKey).build())
+                            .build()
+            );
+        } catch (ServerException serverException) {
+            throw new ExternalException("ServerException occurred while copying the file {0}.\n{1}",
+                    fileName, serverException.getMessage(), serverException);
+        } catch (InternalException internalException) {
+            throw new SystemException("ClientException occurred while copying the file {0}.\n{1}",
+                    fileName, internalException.getMessage(), internalException);
+        } catch (MinioException minioException) {
+            throw new SystemException("MinioException error occurred while copying the file {0}.\n{1}",
+                    fileName, minioException.getMessage(), minioException);
+        } catch (Exception e) {
+            throw new SystemException("Unexpected error occurred while copying the file {0}.\n{1}",
+                    fileName, e.getMessage(), e);
+        }
+    }
+
     /**
      * Downloads the file from the OSS bucket and returns the InputStream
      *
