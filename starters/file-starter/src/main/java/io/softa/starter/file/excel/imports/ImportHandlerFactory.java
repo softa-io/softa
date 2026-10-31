@@ -2,13 +2,12 @@ package io.softa.starter.file.excel.imports;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.LookupKeys;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
@@ -203,43 +202,24 @@ public class ImportHandlerFactory {
     }
 
     /**
-     * The dotted path to suggest: the related model's first business key, falling back to its first
-     * displayName field, and to a generic hint when the model declares neither.
-     *
-     * <p>Key components the field itself already pins are dropped first. A composite key is the reason:
-     * {@code TenantOptionItem} is keyed by {@code {optionSetCode, itemCode}}, and {@code Department.orgType}
-     * declares {@code ["optionSetCode", "=", "OrganizationType"]} — so suggesting {@code orgType.optionSetCode}
-     * asks the user to restate a constant and names a column that matches every item in the set. What is
-     * left after the constraint is what actually identifies a row.
+     * The dotted path to suggest: the related model's recommended lookup field ({@link LookupKeys}),
+     * falling back to its first business key or displayName field — after the components the field's
+     * own filters pin — and to a generic hint when the model declares neither.
      */
     private String lookupHint(MetaField metaField) {
+        List<String> lookupKeys = LookupKeys.of(metaField);
+        if (!lookupKeys.isEmpty()) {
+            return metaField.getFieldName() + "." + lookupKeys.getFirst();
+        }
         String relatedModel = metaField.getRelatedModel();
         List<String> keys = List.of();
         if (StringUtils.isNotBlank(relatedModel) && ModelManager.existModel(relatedModel)) {
             MetaModel meta = ModelManager.getModel(relatedModel);
             keys = CollectionUtils.isEmpty(meta.getBusinessKey()) ? meta.getDisplayName() : meta.getBusinessKey();
         }
-        keys = dropPinnedKeys(keys, metaField);
+        keys = LookupKeys.dropPinned(keys, metaField);
         String key = CollectionUtils.isEmpty(keys) ? "<businessKey>" : keys.getFirst();
         return metaField.getFieldName() + "." + key;
     }
 
-    /**
-     * {@code keys} minus the components the field's declared filters already constrain. Returns
-     * {@code keys} unchanged when the field declares no filters, or when every component is pinned —
-     * in that second case there is nothing left to name, and reporting the first key is more useful
-     * than a truncated path.
-     */
-    private List<String> dropPinnedKeys(List<String> keys, MetaField metaField) {
-        if (CollectionUtils.isEmpty(keys) || StringUtils.isBlank(metaField.getFilters())) {
-            return keys;
-        }
-        Filters declared = Filters.of(metaField.getFilters());
-        if (declared == null) {
-            return keys;
-        }
-        Set<String> pinned = declared.extractFields();
-        List<String> free = keys.stream().filter(k -> !pinned.contains(k)).toList();
-        return free.isEmpty() ? keys : free;
-    }
 }
