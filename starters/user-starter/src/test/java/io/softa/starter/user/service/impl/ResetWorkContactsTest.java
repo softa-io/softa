@@ -48,6 +48,8 @@ class ResetWorkContactsTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     ResetWorkContactsTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);

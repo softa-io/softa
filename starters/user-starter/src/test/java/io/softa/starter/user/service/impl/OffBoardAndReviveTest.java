@@ -9,7 +9,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.enums.SecurityAction;
+import io.softa.starter.user.enums.SecurityLogSource;
+import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserRoleRelService;
@@ -18,6 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -50,7 +57,9 @@ class OffBoardAndReviveTest {
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserRoleRelService roleRelService = mock(UserRoleRelService.class);
-    private final UserAccountServiceImpl accountService = new UserAccountServiceImpl();
+    private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     OffBoardAndReviveTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
@@ -77,34 +86,53 @@ class OffBoardAndReviveTest {
         return identity;
     }
 
-    @Test
-    void offBoarding_releasesTheWorkEmailFromTheLoginIdentifiers() {
-        // The one that matters: once the address is recycled, a new hire holding it must not be
-        // able to verify by code straight into the previous holder's personal account.
-        UserIdentity person = identity("alice@acme.com", "+8613800138000");
-        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
-        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(person));
-
-        accountService.offBoardWith(membership);
-
-        assertThat(person.getLoginEmail()).isNull();
-        // Personal mobile is untouched: it was never this company's to hand out.
-        assertThat(person.getLoginMobile()).isEqualTo("+8613800138000");
-        verify(identityService).updateOne(person, false);
+    private void workContacts(String email, String mobile) {
+        doReturn(new WorkContacts(email, mobile)).when(accountService).archiveWorkContacts(ACCOUNT);
     }
 
     @Test
-    void offBoarding_leavesAPersonalEmailAlone() {
-        // The work email and the login email need not be the same value. Only the address this
-        // company issued may be reclaimed.
-        UserIdentity person = identity("alice.personal@gmail.com", null);
-        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
+    void offBoarding_keepsThePersonsOwnLoginMobile_andNeedsNothingForTheEmail() {
+        // The login mobile is the person's own number; the enterprise email stops signing anyone in
+        // by itself once the account is no longer joined. Neither is touched.
+        UserIdentity person = identity(null, "+8613800138000");
+        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", "+8613800138000");
+        workContacts("alice@acme.com", "+6590000000");
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(person));
 
         accountService.offBoardWith(membership);
 
-        assertThat(person.getLoginEmail()).isEqualTo("alice.personal@gmail.com");
+        assertThat(person.getLoginMobile()).isEqualTo("+8613800138000");
         verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(securityLog, never()).entry(eq(SecurityAction.WORK_MOBILE_RELEASED), any(), any(), any());
+    }
+
+    @Test
+    void offBoarding_releasesALoginMobileThatIsThisCompanysWorkMobile() {
+        // People created when the work mobile came first sign in with a company handset's number,
+        // which goes to the next hire. That one is taken off the person, and logged.
+        UserIdentity person = identity(null, "+6590000000");
+        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", "+6590000000");
+        workContacts("alice@acme.com", "+65 9000-0000");
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(person));
+
+        accountService.offBoardWith(membership);
+
+        assertThat(person.getLoginMobile()).isNull();
+        verify(identityService).updateOne(person, false);
+        verify(securityLog).entry(eq(SecurityAction.WORK_MOBILE_RELEASED), eq(SecurityLogSource.SYSTEM), eq(membership), any());
+    }
+
+    @Test
+    void offBoarding_killsUnusedLinks_andLogsTheStatusChange() {
+        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
+        workContacts(null, null);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
+        UserInvitationService invitations = (UserInvitationService) ReflectionTestUtils.getField(accountService, "invitationService");
+
+        accountService.offBoardWith(membership);
+
+        verify(invitations).revokeOutstandingLinks(ACCOUNT);
+        verify(securityLog).entry(eq(SecurityAction.STATUS_CHANGED), eq(SecurityLogSource.SYSTEM), eq(membership), any());
     }
 
     @Test
@@ -115,6 +143,7 @@ class OffBoardAndReviveTest {
         UserIdentity person = identity("alice@acme.com", null);
         person.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(30));
         UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
+        workContacts("alice@acme.com", null);
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(person));
 
         accountService.offBoardWith(membership);
@@ -134,6 +163,7 @@ class OffBoardAndReviveTest {
         UserIdentity person = identity("alice.personal@gmail.com", null);
         person.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(30));
         UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
+        workContacts("alice@acme.com", null);
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(person));
 
         accountService.offBoardWith(membership);
@@ -146,6 +176,7 @@ class OffBoardAndReviveTest {
     @Test
     void offBoarding_clearsRoleGrants_andClosesTheMembership() {
         UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
+        workContacts(null, null);
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
 
         accountService.offBoardWith(membership);
@@ -178,6 +209,8 @@ class OffBoardAndReviveTest {
         assertThat(closed.getMobile()).isEqualTo("+8613811111111");
         // No activation carried over: the returning employee must accept a fresh invitation.
         assertThat(closed.getActivationTime()).isNull();
+        // And no person: /join decides again who this is, from the number it verifies.
+        assertThat(closed.getProfileId()).isNull();
     }
 
     @Test

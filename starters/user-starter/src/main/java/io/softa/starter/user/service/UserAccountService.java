@@ -52,6 +52,18 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     java.util.Set<Long> findJoinedProfilesByEmail(String email);
 
     /**
+     * Take a login mobile back from a DORMANT person — one with no account left that is not
+     * Deactivated — so the number can be used by someone else (a carrier recycles numbers; the
+     * leaver must not be "found" by them). Written to the security log.
+     *
+     * @param mobile   the number about to be used
+     * @param scenario what is using it (join, Reset User, change login mobile), for the log
+     * @return whether a dormant holder was released; false when nobody holds it, or the holder is
+     *         still active somewhere and keeps it
+     */
+    boolean releaseDormantLoginMobile(String mobile, String scenario);
+
+    /**
      * Get user by mobile
      *
      * @param mobile mobile

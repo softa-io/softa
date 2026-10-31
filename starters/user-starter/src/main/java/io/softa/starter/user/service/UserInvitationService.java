@@ -29,6 +29,12 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     void revokeInvitation(Long userId);
 
     /**
+     * Invalidate every invitation link of this account that has not been used yet, leaving the
+     * account's status alone. For an account being closed: its links must stop working with it.
+     */
+    void revokeOutstandingLinks(Long userId);
+
+    /**
      * The /join entry check — whether this token may proceed to identity verification, and if not,
      * why (PRD §3.0's five ordered conditions).
      *

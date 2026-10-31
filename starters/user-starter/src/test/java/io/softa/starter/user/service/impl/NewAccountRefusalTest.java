@@ -52,6 +52,16 @@ class NewAccountRefusalTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
+
+    {
+        // The people these contacts name still work somewhere, so none of their numbers is dormant.
+        UserAccount live = new UserAccount();
+        live.setStatus(AccountStatus.ACTIVE);
+        org.mockito.Mockito.doReturn(java.util.List.of(live)).when(accountService)
+                .listMembershipsOf(org.mockito.ArgumentMatchers.any());
+    }
 
     NewAccountRefusalTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);

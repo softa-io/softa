@@ -58,6 +58,8 @@ class RehireTest {
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final UserRoleRelService roleRelService = mock(UserRoleRelService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     RehireTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
@@ -276,9 +278,9 @@ class RehireTest {
 
         inThisTenant(() -> assertThatCode(() -> accountService.rehire(CLOSED_ROW)).doesNotThrowAnyException());
 
-        // The row's OWN values — the person is named by the row, never inferred from a contact.
+        // The row's OWN values. The person is detached: /join decides again who this is.
         assertThat(closed.getStatus()).isEqualTo(AccountStatus.PENDING);
-        assertThat(closed.getProfileId()).isEqualTo(PERSON);
+        assertThat(closed.getProfileId()).isNull();
         assertThat(closed.getEmail()).isEqualTo(OLD_EMAIL);
         assertThat(closed.getMobile()).isEqualTo(MOBILE);
         verify(accountService).updateOne(closed, false);

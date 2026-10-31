@@ -495,6 +495,13 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         log.debug("Invitation link ({}) for {}: {}", purpose, mailTo, link);
     }
 
+    @Override
+    @SkipPermissionCheck
+    @CrossTenant
+    public void revokeOutstandingLinks(Long userId) {
+        revokePending(userId);
+    }
+
     private void revokePending(Long userId) {
         // A user has at most a handful of invitations; filter PENDING in memory to avoid an
         // enum-valued query filter.

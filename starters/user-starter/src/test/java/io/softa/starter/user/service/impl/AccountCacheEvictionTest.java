@@ -28,6 +28,8 @@ class AccountCacheEvictionTest {
     private final ModelService<Long> modelService = mock(ModelService.class);
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final UserAccountServiceImpl accountService = new UserAccountServiceImpl();
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     AccountCacheEvictionTest() {
         ReflectionTestUtils.setField(accountService, "modelService", modelService);

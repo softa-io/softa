@@ -39,6 +39,8 @@ class FreezeAccountTest {
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     FreezeAccountTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);

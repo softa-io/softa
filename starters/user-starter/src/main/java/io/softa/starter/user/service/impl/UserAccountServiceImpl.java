@@ -46,7 +46,9 @@ import io.softa.starter.user.enums.AccountStatus;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
+import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.service.UserAccountService;
+import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserSessionService;
 import io.softa.starter.user.util.ClientInfo;
@@ -89,6 +91,11 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     @Autowired
     private UserSecurityLogService securityLog;
+
+    /** @Lazy: the invitation service reads and writes accounts through this one. */
+    @Autowired
+    @Lazy
+    private UserInvitationService invitationService;
 
     /** Role grants are cleared on off-boarding and on reviving a membership. */
     @Autowired
@@ -396,6 +403,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         Long tenantId = ContextHolder.getContext() == null ? null : ContextHolder.getContext().getTenantId();
         Long byEmail = this.personHolding(email);
         Long byMobile = this.personHolding(mobile);
+        // A number whose holder has left every company is most likely a recycled one: the new
+        // employee must not be filed under the leaver's person. Released, and a new person is made.
+        if (byMobile != null && !byMobile.equals(byEmail) && this.listMembershipsOf(byMobile).isEmpty()
+                && this.releaseDormantLoginMobile(mobile, "Account created")) {
+            byMobile = null;
+        }
         // A second identifier pointing at a DIFFERENT person is not a second company — it is two
         // people's credentials on one account, which no later step could untangle.
         if (byEmail != null && byMobile != null && !byEmail.equals(byMobile)) {
@@ -546,14 +559,21 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (account.getStatus() == AccountStatus.DEACTIVATED) {
             return false;   // idempotent: an HR workflow may legitimately fire twice
         }
-
-        // ① Touch the person's credentials FIRST — release the work contact from their login
-        // identifiers, and clear the password lock. Doing this before the status write means a
-        // failure here cannot leave a closed membership whose address is still a live login route —
-        // the order encodes which half is security-critical. One load and one write for both:
-        // releaseLoginIdentifiers would read the same row again.
+        AccountStatus previous = account.getStatus();
+        // ① The person's credentials. The login mobile is the person's own number and stays —
+        // except when it is THIS company's work mobile (people created before the login mobile was
+        // taken from the personal one): a company number is handed to the next hire, so it is taken
+        // off the person's login. The enterprise email needs nothing: email login reads joined
+        // accounts, so it stops working the moment this one closes.
         identityService.findByProfile(account.getProfileId()).ifPresent(identity -> {
-            boolean changed = applyIdentifierRelease(account, identity);
+            boolean changed = false;
+            String workMobile = this.archiveWorkContacts(account.getId()).mobile();
+            String releasedMobile = null;
+            if (isSameLoginIdentifier(workMobile, identity.getLoginMobile())) {
+                releasedMobile = identity.getLoginMobile();
+                identity.setLoginMobile(null);
+                changed = true;
+            }
             // The lock defends against someone guessing THIS PERSON's password, and off-boarding is
             // not the moment to keep defending it: the lock is a PERSON-level fact while this
             // closes ONE membership, and a re-hire REVIVES the row, so a lock left standing greets
@@ -570,15 +590,61 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 identityService.updateOne(identity, false);
             }
             identityService.clearPasswordFailures(identity.getId());
+            if (releasedMobile != null) {
+                UserSecurityLog released = securityLog.entry(SecurityAction.WORK_MOBILE_RELEASED,
+                        SecurityLogSource.SYSTEM, account, null);
+                released.setOldValue(ContactMasking.mobile(releasedMobile));
+                securityLog.record(released);
+            }
         });
-
         // ② Clear role grants. A closed membership holding live grants is a standing hole by
         // itself, and since a re-hire REVIVES this row, anything left here is silently inherited.
         clearRoleGrants(account);
-
-        // ③ Close the membership.
+        // ③ Links not yet used die with the membership.
+        invitationService.revokeOutstandingLinks(account.getId());
+        // ④ Close the membership.
         account.setStatus(AccountStatus.DEACTIVATED);
+        this.logStatusChange(account, previous, AccountStatus.DEACTIVATED, SecurityLogSource.SYSTEM, null);
         return true;
+    }
+
+    @Override
+    @CrossTenant
+    @SkipPermissionCheck
+    @Transactional
+    public boolean releaseDormantLoginMobile(String mobile, String scenario) {
+        if (StringUtils.isBlank(mobile) || mobile.contains("@")) {
+            return false;
+        }
+        UserIdentity holder = identityService.findByLoginIdentifier(mobile).orElse(null);
+        // listMembershipsOf leaves Deactivated out: anything it returns — Active, Frozen, Pending,
+        // Invited — is a person still in some company, whose number stays theirs.
+        if (holder == null || !this.listMembershipsOf(holder.getProfileId()).isEmpty()) {
+            return false;
+        }
+        String released = holder.getLoginMobile();
+        holder.setLoginMobile(null);
+        identityService.updateOne(holder, false);
+        UserSecurityLog row = securityLog.entry(SecurityAction.DORMANT_MOBILE_RELEASED,
+                SecurityLogSource.SYSTEM, null, holder.getProfileId());
+        row.setOldValue(ContactMasking.mobile(released));
+        row.setReason(scenario);
+        securityLog.record(row);
+        log.info("Released dormant login mobile from profile {} ({}).", holder.getProfileId(), scenario);
+        return true;
+    }
+
+    /** A status change, in the security log. */
+    private void logStatusChange(UserAccount account, AccountStatus from, AccountStatus to,
+                                 SecurityLogSource source, String reason) {
+        SecurityAction action = to == AccountStatus.FROZEN ? SecurityAction.FROZEN
+                : from == AccountStatus.FROZEN && to == AccountStatus.ACTIVE ? SecurityAction.UNFROZEN
+                : SecurityAction.STATUS_CHANGED;
+        UserSecurityLog row = securityLog.entry(action, source, account, null);
+        row.setOldValue(from == null ? null : from.name());
+        row.setNewValue(to.name());
+        row.setReason(reason);
+        securityLog.record(row);
     }
 
     /** Notifies the person that their sign-in contact changed. */
@@ -1033,13 +1099,16 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 .ifPresent(other -> {
                     throw new BusinessException("That work mobile already belongs to another account.");
                 });
+        Long previousPerson = account.getProfileId();
         reviveWith(account, workEmail, workMobile);
+        this.logStatusChange(account, AccountStatus.DEACTIVATED, AccountStatus.PENDING,
+                SecurityLogSource.EMPLOYEE_PROFILE, null);
         // updateOne(entity, false): reviveWith clears activationTime to null, which the default
         // overload drops — the revived PENDING row would otherwise keep the previous stint's
         // activation timestamp.
         this.updateOne(account, false);
-        log.info("Revived membership {} for profile {} — reset to PENDING, awaiting a new invitation.",
-                account.getId(), account.getProfileId());
+        log.info("Revived membership {} (was profile {}) — reset to PENDING, detached, awaiting a new invitation.",
+                account.getId(), previousPerson);
         return account;
     }
 
@@ -1055,6 +1124,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         account.setMobile(workContact(workMobile));
         account.setStatus(AccountStatus.PENDING);
         account.setActivationTime(null);
+        // Detached from the person it belonged to: the next /join decides who this is from the
+        // number it verifies. Same number — the same person comes back; a new number — whoever now
+        // holds the old one cannot walk into the leaver's person and their other companies.
+        account.setProfileId(null);
+        account.setNickname(null);
+        account.setUsername(null);
         clearRoleGrants(account);
     }
 
@@ -1196,8 +1271,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             }
             identityService.clearPasswordFailures(identity.getId());
         });
+        AccountStatus previous = user.getStatus();
         user.setStatus(AccountStatus.FROZEN);
         this.updateOne(user);
+        this.logStatusChange(user, previous, AccountStatus.FROZEN, SecurityLogSource.USER_ACCOUNTS, reason);
         log.info("Account {} frozen. Reason: {}", userId, reason);
     }
 
@@ -1213,6 +1290,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
         user.setStatus(AccountStatus.ACTIVE);
         this.updateOne(user);
+        this.logStatusChange(user, AccountStatus.FROZEN, AccountStatus.ACTIVE, SecurityLogSource.USER_ACCOUNTS, reason);
         log.info("Account {} unfrozen. Reason: {}", userId, reason);
     }
 

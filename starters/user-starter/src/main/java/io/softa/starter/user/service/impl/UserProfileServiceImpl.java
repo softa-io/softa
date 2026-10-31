@@ -446,7 +446,8 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         // manager's number entered for a worker who has none). Copying such a number across anyway
         // does not create a login route, it destroys one — both holders then resolve to "shared by
         // more than one account" instead of the one who had it to themselves.
-        identity.setLoginEmail(claimable(account.getEmail(), profileId));
+        // The login mobile only: the enterprise email signs the person in through the joined
+        // account itself, so no copy of it is kept on the identity.
         identity.setLoginMobile(claimable(account.getMobile(), profileId));
         identityService.createOne(identity);
 

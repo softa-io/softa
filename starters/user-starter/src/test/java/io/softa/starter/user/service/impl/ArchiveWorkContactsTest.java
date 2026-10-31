@@ -42,6 +42,8 @@ class ArchiveWorkContactsTest {
     @SuppressWarnings("unchecked")
     private final ModelService<Long> modelService = mock(ModelService.class);
     private final UserAccountServiceImpl accountService = new UserAccountServiceImpl();
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     /** The Employee model exists only in an HR deployment, and the read is skipped without it. */
     private MockedStatic<ModelManager> modelManager;
