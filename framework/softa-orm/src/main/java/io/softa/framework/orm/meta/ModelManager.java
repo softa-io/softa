@@ -1359,6 +1359,23 @@ public class ModelManager {
     }
 
     /**
+     * Get the fields a create assigns: the updatable fields, and the read-only {@code autoSequence} fields.
+     *
+     * <p>Read-only paired with {@code autoSequence} is strict system numbering: the caller may not give the
+     * value, and the sequence issues it on insert. Left out with the other read-only fields, the sequence
+     * never ran, and every row was stored with the column's default instead of a number.
+     *
+     * @param modelName model name
+     * @return creatable field set
+     */
+    public static Set<String> getModelCreatableFields(String modelName) {
+        validateModel(modelName);
+        return modelFields().get(modelName).values().stream()
+                .filter(metaField -> !metaField.isReadonly() || metaField.isAutoSequence())
+                .map(MetaField::getFieldName).collect(Collectors.toSet());
+    }
+
+    /**
      * Get the stored fields of the model.
      * Excluding OneToMany/ManyToMany fields, `dynamic` cascaded fields and `dynamic` computed fields.
      *
