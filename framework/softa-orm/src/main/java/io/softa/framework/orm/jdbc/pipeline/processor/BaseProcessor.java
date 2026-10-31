@@ -74,9 +74,7 @@ public abstract class BaseProcessor implements FieldProcessor {
     /** Same check against a named field — see {@link #checkReadonly(MetaField, boolean)} for why. */
     protected void checkRequired(MetaField field, Object value) {
         if (field.isRequired() && value == null) {
-            throw WriteValidationException.forField(field.getFieldName(),
-                    "Model field {0}:{1} is a required field and cannot be null!",
-                    field.getModelName(), field.getFieldName());
+            throw WriteValidationException.requiredField(field);
         }
     }
 
@@ -85,8 +83,7 @@ public abstract class BaseProcessor implements FieldProcessor {
      */
     protected void checkNotBlank(Object value) {
         if (metaField.isRequired() && (value == null || StringUtils.isBlank(value.toString()))) {
-            throw WriteValidationException.forField(fieldName,
-                    "Model required field {0}:{1} cannot be empty!", metaField.getModelName(), fieldName);
+            throw WriteValidationException.requiredField(metaField);
         }
     }
 
