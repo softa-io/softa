@@ -53,6 +53,7 @@ class IdentifierResolutionTest {
 
     IdentifierResolutionTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        ReflectionTestUtils.setField(loginService, "cacheService", mock(io.softa.framework.orm.service.CacheService.class));
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);

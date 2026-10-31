@@ -27,7 +27,6 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.constant.BaseConstant;
-import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.UserInfo;
@@ -43,7 +42,6 @@ import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.domain.PivotTable;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.enums.ConvertType;
-import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.vo.ModelReference;
@@ -58,7 +56,11 @@ import io.softa.framework.web.dto.SearchListParams;
 import io.softa.framework.web.dto.SearchNameParams;
 import io.softa.framework.web.dto.SimpleAggParams;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.web.utils.CookieUtils;
+import io.softa.starter.user.dto.LogoutDTO;
+import io.softa.starter.user.spi.PushDeviceRegistry;
 import io.softa.starter.user.dto.ChangePasswordDTO;
 import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.dto.SetFirstPasswordDTO;
@@ -94,7 +96,11 @@ public class UserAccountController extends EntityController<UserAccountService, 
     private static final String CONSULTANT_FIELD = "consultant";
 
     @Autowired
-    private CacheService cacheService;
+    private SessionStore sessionStore;
+
+    /** Optional: present only where APP push is deployed. */
+    @Autowired(required = false)
+    private PushDeviceRegistry pushDeviceRegistry;
 
     @Autowired
     private ModelService<Long> modelService;
@@ -748,9 +754,17 @@ public class UserAccountController extends EntityController<UserAccountService, 
     }
 
     @PostMapping("/logout")
-    public ApiResponse<Void> logout(HttpServletRequest request, HttpServletResponse response) {
-        String sessionId = CookieUtils.getCookie(request, BaseConstant.SESSION_ID);
-        cacheService.clear(RedisConstant.SESSION + sessionId);
+    public ApiResponse<Void> logout(@RequestBody(required = false) LogoutDTO body,
+                                    HttpServletRequest request, HttpServletResponse response) {
+        // Cookie (Web) or X-Session-Id (APP): the APP holds no cookie, so reading only the cookie
+        // left its session alive after "logging out".
+        String sessionId = SessionStore.sessionIdOf(request);
+        if (sessionId != null) {
+            sessionStore.revoke(sessionId, SessionRevokeReason.LOGOUT);
+        }
+        if (body != null && StringUtils.isNotBlank(body.getDeviceToken()) && pushDeviceRegistry != null) {
+            pushDeviceRegistry.unregisterDevice(body.getDeviceToken());
+        }
         CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
         return ApiResponse.success();
     }

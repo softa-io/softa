@@ -21,7 +21,10 @@ import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.UserInfoService;
-import io.softa.framework.web.utils.CookieUtils;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.framework.web.session.SessionStore;
 
 @Slf4j
 @Component
@@ -29,6 +32,9 @@ public class ContextBuilder implements SmartInitializingSingleton {
 
     @Autowired
     private CacheService cacheService;
+
+    @Autowired
+    private SessionStore sessionStore;
 
     @Autowired(required = false)
     private TenantInfoService tenantInfoService;
@@ -44,33 +50,7 @@ public class ContextBuilder implements SmartInitializingSingleton {
     @Autowired(required = false)
     private List<ContextEnricher> contextEnrichers;
 
-    /**
-     * Get UserInfo from the request based on session ID in cookies or headers.
-     *
-     * @param request the HTTP request
-     * @return the UserInfo associated with the session
-     * @throws UserNotFoundException if the session ID is missing or invalid, or if user info is not found
-     */
-    private String getSessionId(HttpServletRequest request) throws UserNotFoundException {
-        String sessionId = CookieUtils.getCookie(request, BaseConstant.SESSION_ID);
-        if (sessionId == null) {
-            // If sessionId is not found in cookies, get it from the request header
-            sessionId = request.getHeader(BaseConstant.SESSION_ID_HEADER);
-        }
-        if (sessionId == null) {
-            log.warn("Session ID is missing");
-            throw new UserNotFoundException("Session ID is missing");
-        }
-        return sessionId;
-    }
-
-    private UserInfo getUserInfo(String sessionId) throws UserNotFoundException {
-        Long userId = cacheService.get(RedisConstant.SESSION + sessionId, Long.class);
-        if (userId == null) {
-            // Session provided but invalid -> "missing user"
-            throw new UserNotFoundException("Invalid session ID");
-        }
-
+    private UserInfo getUserInfo(Long userId) throws UserNotFoundException {
         UserInfo userInfo = cacheService.get(RedisConstant.USER_INFO + userId, UserInfo.class);
         if (userInfo == null && userInfoService != null) {
             // A cold entry is the NORMAL state after any of this codebase's evictions — an invitee
@@ -84,9 +64,21 @@ public class ContextBuilder implements SmartInitializingSingleton {
         }
         if (userInfo == null) {
             // Nothing behind the id — the session names a user that no longer exists.
-            throw new UserNotFoundException("User info not found for user ID: " + userId);
+            throw sessionExpired("User info not found for user ID: " + userId);
         }
         return userInfo;
+    }
+
+    private static UserNotFoundException sessionExpired(String message) {
+        UserNotFoundException e = new UserNotFoundException(message);
+        e.withErrorCode(SessionErrorCodes.SESSION_EXPIRED);
+        return e;
+    }
+
+    private static UserNotFoundException orgUnavailable(String message) {
+        UserNotFoundException e = new UserNotFoundException(message);
+        e.withErrorCode(SessionErrorCodes.ORG_UNAVAILABLE);
+        return e;
     }
 
     /**
@@ -96,16 +88,25 @@ public class ContextBuilder implements SmartInitializingSingleton {
      * @param request the current HTTP request
      */
     public Context buildUserContext(HttpServletRequest request) throws UserNotFoundException {
-        String sessionId = this.getSessionId(request);
-        UserInfo userInfo = this.getUserInfo(sessionId);
+        String sessionId = SessionStore.sessionIdOf(request);
+        if (sessionId == null) {
+            log.warn("Session ID is missing");
+            throw sessionExpired("Session ID is missing");
+        }
+        // Reading the session also slides it: seven days after the last request, not after login.
+        SessionRecord session = sessionStore.touch(sessionId)
+                .orElseThrow(() -> sessionExpired("Invalid session ID"));
+        UserInfo userInfo = this.getUserInfo(session.accountId());
         // Account lifecycle gate: a session outlives credential entry, so re-check that
         // the account is still active on every request (symmetric to the tenant gate in
-        // setMultiTenancyEnv). A frozen / off-boarded account is force-logged-out and
-        // bounced to re-login (where the login gate then refuses it). active == null is a
-        // legacy session cached before this field existed — left alone, so no mass logout.
+        // setMultiTenancyEnv). A Frozen / Deactivated account loses THIS session only — the
+        // person's sessions in other tenants are untouched — and the client is told the
+        // organisation is unavailable rather than that it must log in again, so it can offer
+        // the person's other companies. A password lock is not inactivity: the session stays.
+        // active == null is a legacy entry cached before this field existed — left alone.
         if (Boolean.FALSE.equals(userInfo.getActive())) {
-            cacheService.clear(RedisConstant.SESSION + sessionId);
-            throw new UserNotFoundException("Account is not active; session terminated.");
+            sessionStore.revoke(sessionId, SessionRevokeReason.ORG_UNAVAILABLE);
+            throw orgUnavailable("Account is not active; session terminated.");
         }
         // Create Context with TraceID from the request header
         String traceId = request.getHeader(BaseConstant.X_B3_TRACEID);
@@ -264,8 +265,8 @@ public class ContextBuilder implements SmartInitializingSingleton {
         // here we force-logout the user — drop the session and bounce to re-login (fail-closed:
         // a missing provider in multi-tenancy mode also rejects rather than letting the user in).
         if (tenantInfoService == null || !tenantInfoService.isTenantActive(tenantId)) {
-            cacheService.clear(RedisConstant.SESSION + sessionId);
-            throw new UserNotFoundException(
+            sessionStore.revoke(sessionId, SessionRevokeReason.ORG_UNAVAILABLE);
+            throw orgUnavailable(
                     "Tenant " + tenantId + " is not active or cannot be verified; session terminated.");
         }
         context.setTenantId(tenantId);

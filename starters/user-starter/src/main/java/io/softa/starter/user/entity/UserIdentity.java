@@ -92,4 +92,9 @@ public class UserIdentity extends AuditableModel {
                     + "another schema change. On the person, so switching company will buy no extra "
                     + "attempts")
     private LocalDateTime passwordLockedUntil;
+
+    @Field(label = "Last Account ID", copyable = false,
+            description = "The account (company) this person entered last; the login entry rule "
+                    + "enters it directly while it is still enterable")
+    private Long lastAccountId;
 }

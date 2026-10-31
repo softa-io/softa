@@ -39,21 +39,73 @@ import io.softa.framework.base.context.UserInfo;
  * @param tenants       the options when a choice is pending; empty when one already resolved
  * @param mustSetPassword whether the client must force the Set Password step first
  * @param authToken       single-use proof of authentication for the company step; null once resolved
- * @param signInRequired  joined, but not signed in: the person must authenticate with their own
- *                        login before anything is issued
+ * @param signInRequired  kept on the wire for older clients; always false now that /join verifies the
+ *                        person before confirming (see {@code LoginServiceImpl.confirmJoin})
+ * @param sessionToken    the session id when a session was issued, for the APP to send as
+ *                        {@code X-Session-Id}; null when no session was issued
+ * @param autoEnterAccountId the account the entry rule enters directly (the only enterable one, or
+ *                        the one entered last time); null when the client should show the picker
+ * @param noEnterableReason why there is nowhere to enter, when that is the case
+ * @param prefill         the contact a just-joined person signs in with, for the "download the APP"
+ *                        page; only {@code confirmJoin} sets it
  */
 public record AuthenticationResult(Long profileId, UserInfo userInfo, List<MembershipOption> tenants,
-                                   boolean mustSetPassword, String authToken, boolean signInRequired) {
+                                   boolean mustSetPassword, String authToken, boolean signInRequired,
+                                   String sessionToken, Long autoEnterAccountId,
+                                   NoEnterableReason noEnterableReason, JoinPrefill prefill) {
+
+    /** Why an authenticated person has no company to enter. */
+    public enum NoEnterableReason {
+        /** Every membership is Frozen or Deactivated. */
+        DEACTIVATED,
+        /** Nothing but invitations that have not been confirmed yet. */
+        NOT_JOINED
+    }
+
+    /**
+     * The contact the person just verified, in full, so the page after /join can prefill the login
+     * screen. Only ever given to the person who verified it.
+     *
+     * @param channel {@code mobile} or {@code email}
+     * @param value   the full number or address
+     */
+    public record JoinPrefill(String channel, String value) {
+    }
 
     public static AuthenticationResult resolved(Long profileId, UserInfo userInfo, boolean mustSetPassword) {
         // Resolved means a session is being issued now, so no company step follows and no token is
         // needed — carrying one would be a live credential left lying in the response for nothing.
-        return new AuthenticationResult(profileId, userInfo, List.of(), mustSetPassword, null, false);
+        return new AuthenticationResult(profileId, userInfo, List.of(), mustSetPassword, null, false,
+                null, userInfo == null ? null : userInfo.getUserId(), null, null);
     }
 
     public static AuthenticationResult choicePending(Long profileId, List<MembershipOption> tenants,
             boolean mustSetPassword, String authToken) {
-        return new AuthenticationResult(profileId, null, List.copyOf(tenants), mustSetPassword, authToken, false);
+        return choicePending(profileId, tenants, mustSetPassword, authToken, null, null);
+    }
+
+    /**
+     * No session yet: either a choice is pending, a password must be set first (and the entry rule
+     * already knows where it will go — {@code autoEnterAccountId}), or there is nowhere to go
+     * ({@code noEnterableReason}).
+     */
+    public static AuthenticationResult choicePending(Long profileId, List<MembershipOption> tenants,
+            boolean mustSetPassword, String authToken, Long autoEnterAccountId,
+            NoEnterableReason noEnterableReason) {
+        return new AuthenticationResult(profileId, null, List.copyOf(tenants), mustSetPassword, authToken, false,
+                null, autoEnterAccountId, noEnterableReason, null);
+    }
+
+    /** The same result, carrying the session that was just issued for it. */
+    public AuthenticationResult withSessionToken(String token) {
+        return new AuthenticationResult(profileId, userInfo, tenants, mustSetPassword, authToken, signInRequired,
+                token, autoEnterAccountId, noEnterableReason, prefill);
+    }
+
+    /** The same result, carrying the contact to prefill on the login screen. */
+    public AuthenticationResult withPrefill(JoinPrefill joinPrefill) {
+        return new AuthenticationResult(profileId, userInfo, tenants, mustSetPassword, authToken, signInRequired,
+                sessionToken, autoEnterAccountId, noEnterableReason, joinPrefill);
     }
 
     /**
@@ -63,7 +115,7 @@ public record AuthenticationResult(Long profileId, UserInfo userInfo, List<Membe
      * the password is set from the person's own session, not from here.
      */
     public static AuthenticationResult requireSignIn() {
-        return new AuthenticationResult(null, null, List.of(), false, null, true);
+        return new AuthenticationResult(null, null, List.of(), false, null, true, null, null, null, null);
     }
 
     /** Whether a session can be issued straight away. */

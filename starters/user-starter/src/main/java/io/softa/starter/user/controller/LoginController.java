@@ -15,14 +15,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.softa.framework.base.constant.BaseConstant;
-import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.enums.SystemUser;
 import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.orm.annotation.SwitchUser;
-import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.web.utils.CookieUtils;
 import io.softa.starter.user.dto.*;
 import io.softa.starter.user.service.LoginService;
@@ -61,7 +63,7 @@ public class LoginController {
 
     /** Reads the session behind an authenticated call, and drops the one a switch replaces. */
     @Autowired
-    private CacheService cacheService;
+    private SessionStore sessionStore;
 
     /**
      * Login by Apple ID
@@ -227,6 +229,8 @@ public class LoginController {
         if (result.isResolved()) {
             String sessionId = loginService.generateSessionId(result.userInfo().getUserId());
             CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
+            // In the body too: the APP keeps no cookies and sends it back as X-Session-Id.
+            result = result.withSessionToken(sessionId);
         }
         return ApiResponse.success(result);
     }
@@ -303,9 +307,9 @@ public class LoginController {
         String sessionId = loginService.generateSessionId(result.userInfo().getUserId());
         // Explicit, and before the new cookie goes out: a copy of the old cookie taken from another
         // device would otherwise keep the previous company alive alongside the new one.
-        cacheService.clear(RedisConstant.SESSION + previousSessionId);
+        sessionStore.revoke(previousSessionId, SessionRevokeReason.SWITCHED_TENANT);
         CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-        return ApiResponse.success(result);
+        return ApiResponse.success(result.withSessionToken(sessionId));
     }
 
     /**
@@ -330,7 +334,7 @@ public class LoginController {
                                                          HttpServletResponse response) {
         String sessionId = this.sessionIdOf(request);
         AuthenticationResult result = loginService.leaveTenant(this.sessionUser(sessionId));
-        cacheService.clear(RedisConstant.SESSION + sessionId);
+        sessionStore.revoke(sessionId, SessionRevokeReason.LEFT_TENANT);
         CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
         return ApiResponse.success(result);
     }
@@ -345,23 +349,23 @@ public class LoginController {
      * gated them would make both endpoints answer for whoever asked.
      */
     private String sessionIdOf(HttpServletRequest request) {
-        String sessionId = CookieUtils.getCookie(request, BaseConstant.SESSION_ID);
+        String sessionId = SessionStore.sessionIdOf(request);
         if (sessionId == null) {
-            sessionId = request.getHeader(BaseConstant.SESSION_ID_HEADER);
-        }
-        if (sessionId == null) {
-            throw new UserNotFoundException("Session ID is missing");
+            throw sessionExpired("Session ID is missing");
         }
         return sessionId;
     }
 
-    /** The UserAccount — one membership — the session maps to; absent means expired or forged. */
     private Long sessionUser(String sessionId) {
-        Long userId = cacheService.get(RedisConstant.SESSION + sessionId, Long.class);
-        if (userId == null) {
-            throw new UserNotFoundException("Invalid session ID");
-        }
-        return userId;
+        return sessionStore.peek(sessionId)
+                .map(SessionRecord::accountId)
+                .orElseThrow(() -> sessionExpired("Invalid session ID"));
+    }
+
+    private static UserNotFoundException sessionExpired(String message) {
+        UserNotFoundException e = new UserNotFoundException(message);
+        e.withErrorCode(SessionErrorCodes.SESSION_EXPIRED);
+        return e;
     }
 
     /**

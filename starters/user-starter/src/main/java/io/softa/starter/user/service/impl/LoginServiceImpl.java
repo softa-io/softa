@@ -43,6 +43,9 @@ import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionStore;
+import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
 import io.softa.starter.user.service.ConsultantService;
 
@@ -134,6 +137,9 @@ public class LoginServiceImpl implements LoginService {
     @Autowired
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
+    @Autowired
+    private SessionStore sessionStore;
+
     /**
      * Tenant lifecycle gate at login: only ACTIVE tenants may log in. Enforced at the single
      * session-issuance choke point ({@link #generateSessionId}), so every login flow — password,
@@ -180,13 +186,22 @@ public class LoginServiceImpl implements LoginService {
      * UserAccount.status = Frozen) could still authenticate, because login only
      * checked the password and never the account state.
      */
-    private void validateAccountActive(Long userId) {
+    private UserAccount validateAccountActive(Long userId) {
         UserAccount account = accountService.getById(userId)
                 .orElseThrow(() -> new BusinessException("Login denied: account not found."));
-        if (account.getStatus() == AccountStatus.ACTIVE) {
-            return;
+        // LOCKED is legacy data (the lock lives on the person now) and, like a derived lock, only
+        // ever refused PASSWORD login — which has been decided by the time a session is issued.
+        if (account.getStatus() == AccountStatus.ACTIVE || account.getStatus() == AccountStatus.LOCKED) {
+            return account;
         }
-        throw new BusinessException(accountDeniedMessage(account.getStatus()));
+        throw orgUnavailable(accountDeniedMessage(account.getStatus()));
+    }
+
+    /** A company that cannot be entered right now, with the code the APP re-runs the entry rule on. */
+    private static BusinessException orgUnavailable(String message) {
+        BusinessException e = new BusinessException(message);
+        e.withErrorCode(SessionErrorCodes.ORG_UNAVAILABLE);
+        return e;
     }
 
     /** Human-readable reason for refusing login to a non-ACTIVE account. */
@@ -490,21 +505,25 @@ public class LoginServiceImpl implements LoginService {
         Long profileId = identity.getProfileId();
         boolean mustSetPassword = mustSetPasswordFor(identity);
         List<MembershipOption> options = this.resolveMemberships(profileId);
-        List<MembershipOption> enterable = options.stream()
-                .filter(MembershipOption::selectable).toList();
-        if (options.size() == 1 && enterable.size() == 1) {
-            return AuthenticationResult.resolved(profileId,
-                    profileService.getUserInfo(enterable.get(0).accountId()), mustSetPassword);
+        if (options.isEmpty() && holdsOnlyConsultantMemberships(profileId, accountService.listMembershipsOf(profileId))) {
+            // A consultant whose grants have all lapsed is not an employee with no company: the
+            // platform, not a tenant, is who can help, and the two reasons below cannot say that.
+            throw new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
         }
-        if (options.isEmpty()) {
-            throw noCompanyRefusal(profileId);
+        Long autoEnter = autoEnterAccount(options);
+        // A password owed comes first (PRD login §3): no session until it is set, even when the
+        // entry rule already knows where the person will go — setFirstPassword enters it after.
+        if (autoEnter != null && !mustSetPassword) {
+            return AuthenticationResult.resolved(profileId, profileService.getUserInfo(autoEnter), false);
         }
-        // A choice is pending, so authentication succeeded but no session is issued yet. Mint a
-        // single-use token proving THIS person just authenticated; selectTenant reads the person
-        // from it, never from a client-supplied id — otherwise the company step would be an
-        // unauthenticated "issue me a session for profileId X".
-        return AuthenticationResult.choicePending(
-                profileId, options, mustSetPassword, issuePreAuthToken(profileId));
+        AuthenticationResult.NoEnterableReason reason = this.noEnterableReason(profileId, options);
+        // A choice is pending (or a password is), so authentication succeeded but no session is
+        // issued yet. Mint a single-use token proving THIS person just authenticated; selectTenant
+        // and setFirstPassword read the person from it, never from a client-supplied id — otherwise
+        // the next step would be an unauthenticated "issue me a session for profileId X". Nobody
+        // needs one with nowhere to go and nothing owed.
+        String token = reason == null || mustSetPassword ? issuePreAuthToken(profileId) : null;
+        return AuthenticationResult.choicePending(profileId, options, mustSetPassword, token, autoEnter, reason);
     }
 
     private static String preAuthKey(String token) {
@@ -533,8 +552,8 @@ public class LoginServiceImpl implements LoginService {
         // row's prior binding nor the invitation's contacts can be resolved from the token after.
         // An unusable token resolves to nothing here and is then judged by the invitation service
         // itself (a refusal, or the quiet re-entrant return), exactly as before.
-        boolean boundBefore = invitationService.resolveJoinAccount(rawToken)
-                .map(account -> account.getProfileId() != null).orElse(false);
+        Optional<UserAccount> joining = invitationService.resolveJoinAccount(rawToken);
+        boolean boundBefore = joining.map(account -> account.getProfileId() != null).orElse(false);
         JoinContacts contacts = boundBefore ? invitationService.resolveJoinContacts(rawToken) : null;
 
         invitationService.confirmJoin(rawToken, profileId, proof);
@@ -560,6 +579,13 @@ public class LoginServiceImpl implements LoginService {
         // having addressed the invitation to the right person.
         if (boundBefore && holdsLoginOutsideInvitation(identity, contacts)) {
             return AuthenticationResult.requireSignIn();
+        }
+        // Straight into the company just joined (PRD invitation flow), whatever else the person
+        // belongs to. A re-entrant confirm (the link already spent) has no row to name, and falls
+        // back to the ordinary entry rule.
+        if (joining.isPresent()) {
+            return AuthenticationResult.resolved(profileId,
+                    profileService.getUserInfo(joining.get().getId()), mustSetPasswordFor(identity));
         }
         return this.afterAuthentication(identity);
     }
@@ -891,9 +917,10 @@ public class LoginServiceImpl implements LoginService {
 
     private List<MembershipOption> resolveMemberships(Long profileId) {
         // The lock lives on the person's credential, so it is read once and stamped on every
-        // option rather than looked up per company.
-        boolean locked = identityService.findByProfile(profileId)
-                .map(identityService::isPasswordLocked).orElse(false);
+        // option rather than looked up per company. So does "the company entered last time".
+        Optional<UserIdentity> identity = identityService.findByProfile(profileId);
+        boolean locked = identity.map(identityService::isPasswordLocked).orElse(false);
+        Long lastAccountId = identity.map(UserIdentity::getLastAccountId).orElse(null);
         return accountService.listMembershipsOf(profileId).stream()
                 // Two kinds of membership, two rules. An EMPLOYMENT that cannot be entered is still
                 // shown greyed — it is a standing relationship the person can ask about. A
@@ -907,22 +934,70 @@ public class LoginServiceImpl implements LoginService {
                 .filter(account -> Boolean.TRUE.equals(account.getConsultant())
                         ? consultantService.grantStands(profileId, account.getTenantId())
                                 && account.getStatus() == AccountStatus.ACTIVE
-                        : COUNTED_STATUSES.contains(account.getStatus()))
+                        : account.getStatus() != null && COUNTED_STATUSES.contains(account.getStatus()))
                 .map(account -> new MembershipOption(
                         account.getId(), account.getTenantId(),
                         tenantInfoService == null ? null
                                 : tenantInfoService.getTenantName(account.getTenantId()),
-                        account.getStatus(), locked, Boolean.TRUE.equals(account.getConsultant()),
+                        displayStatus(account.getStatus(), locked),
+                        locked, Boolean.TRUE.equals(account.getConsultant()),
                         // Consultant rows only. The frozen-company reason is about the consultant's switcher; an
                         // employment into a frozen company already reads as such through its own
                         // status badge, and giving it a second mechanism would change a path this
                         // feature has no business changing.
                         Boolean.TRUE.equals(account.getConsultant())
-                                ? unavailableReason(account.getTenantId()) : null))
+                                ? unavailableReason(account.getTenantId()) : null,
+                        Objects.equals(account.getId(), lastAccountId)))
                 // Selectable first: the common case is one usable company among some frozen ones,
                 // and making the person hunt for it in a mixed list is a needless step.
                 .sorted(Comparator.comparing(MembershipOption::selectable).reversed())
                 .toList();
+    }
+
+    /**
+     * The status a person sees for a membership. Locked is not stored: an Active membership of a
+     * person whose password login is locked reads as Locked (a Frozen one stays Frozen).
+     */
+    static AccountStatus displayStatus(AccountStatus stored, boolean personLocked) {
+        if (stored == AccountStatus.ACTIVE && personLocked) {
+            return AccountStatus.LOCKED;
+        }
+        return stored;
+    }
+
+    /**
+     * The entry rule (PRD login §3), decided here once so the APP and Web do not each compute it:
+     * counting the Active, Locked and Frozen memberships — exactly {@code options} —
+     * <ol>
+     *   <li>one in total, and it can be entered → enter it;</li>
+     *   <li>the company entered last time can still be entered → enter it;</li>
+     *   <li>otherwise → the picker (null).</li>
+     * </ol>
+     */
+    static Long autoEnterAccount(List<MembershipOption> options) {
+        List<MembershipOption> enterable = options.stream().filter(MembershipOption::selectable).toList();
+        if (options.size() == 1 && enterable.size() == 1) {
+            return enterable.getFirst().accountId();
+        }
+        return enterable.stream().filter(MembershipOption::lastUsed)
+                .map(MembershipOption::accountId).findFirst().orElse(null);
+    }
+
+    /**
+     * Why there is nowhere to enter, or null when somewhere is enterable. NOT_JOINED only when the
+     * person holds nothing but unconfirmed invitations; anything else — every membership Frozen or
+     * Deactivated — is DEACTIVATED.
+     */
+    private AuthenticationResult.NoEnterableReason noEnterableReason(Long profileId, List<MembershipOption> options) {
+        if (options.stream().anyMatch(MembershipOption::selectable)) {
+            return null;
+        }
+        boolean onlyInvitations = !accountService.listMembershipsOf(profileId).isEmpty()
+                && accountService.listMembershipsOf(profileId).stream()
+                        .allMatch(account -> account.getStatus() == AccountStatus.PENDING
+                                || account.getStatus() == AccountStatus.INVITED);
+        return onlyInvitations ? AuthenticationResult.NoEnterableReason.NOT_JOINED
+                : AuthenticationResult.NoEnterableReason.DEACTIVATED;
     }
 
     /**
@@ -979,7 +1054,7 @@ public class LoginServiceImpl implements LoginService {
                 // naming any accountId would mint a session in a company they are not a member of.
                 .orElseThrow(() -> new BusinessException("That company is not available for your account."));
         if (!chosen.selectable()) {
-            throw new BusinessException(accountDeniedMessage(chosen.status()));
+            throw orgUnavailable(accountDeniedMessage(chosen.status()));
         }
         AuthenticationResult result = AuthenticationResult.resolved(
                 profileId, profileService.getUserInfo(accountId), this.mustSetPassword(profileId));
@@ -1008,7 +1083,7 @@ public class LoginServiceImpl implements LoginService {
                 // caller names a company, and nothing else about it is theirs to assert.
                 .orElseThrow(() -> new BusinessException("That company is not available for your account."));
         if (!chosen.selectable()) {
-            throw new BusinessException(accountDeniedMessage(chosen.status()));
+            throw orgUnavailable(accountDeniedMessage(chosen.status()));
         }
         // No session minted here — the controller does that, and only after generateSessionId has
         // run the tenant and account gates on the TARGET membership.
@@ -1051,22 +1126,38 @@ public class LoginServiceImpl implements LoginService {
     }
 
     /**
-     * Generate a new session ID for a user
+     * Issue a session for an account: the gates, then the session itself, then remember the company
+     * as the person's last one for the next login's entry rule.
      *
-     * @param userId User ID
-     * @return Session ID
+     * @param userId the account to enter
+     * @return the session id, which is also the session token the APP sends as X-Session-Id
      */
     @Override
     public String generateSessionId(Long userId) {
         // Tenant + account lifecycle gates — the single choke point every login flow
         // passes through, and it runs AFTER credentials are verified.
         validateTenantActive(userId);
-        validateAccountActive(userId);
-        String sessionId = UUIDUtils.shortUUID22();
-        // Store session ID -> user ID mapping in cache
-        String sessionKey = RedisConstant.SESSION + sessionId;
-        cacheService.save(sessionKey, userId, RedisConstant.ONE_MONTH);
+        UserAccount account = validateAccountActive(userId);
+        ClientInfo client = ClientInfo.current();
+        String sessionId = sessionStore.create(account.getId(), account.getProfileId(), account.getTenantId(),
+                client.platform(), client.appVersion(), client.deviceModel());
+        this.rememberLastAccount(account);
         return sessionId;
+    }
+
+    /** "The company entered last time" for the entry rule — on the person, so it spans devices. */
+    private void rememberLastAccount(UserAccount account) {
+        if (account.getProfileId() == null) {
+            return;
+        }
+        identityService.findByProfile(account.getProfileId())
+                .filter(identity -> !Objects.equals(identity.getLastAccountId(), account.getId()))
+                .ifPresent(identity -> {
+                    UserIdentity patch = new UserIdentity();
+                    patch.setId(identity.getId());
+                    patch.setLastAccountId(account.getId());
+                    identityService.updateOne(patch);
+                });
     }
 
 

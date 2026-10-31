@@ -14,9 +14,10 @@ import io.softa.starter.user.enums.AccountStatus;
  * @param accountId  the membership to log into (this becomes the session's userId)
  * @param tenantId   the company
  * @param tenantName display name for the picker
- * @param status     shown as a badge; a non-ACTIVE option is listed but not selectable, so the
- *                   person can see that the company exists and why they cannot enter (frozen /
- *                   locked) rather than facing a list that silently omits it
+ * @param status     shown as a badge: Active, Locked or Frozen. Locked is derived — an Active
+ *                   account whose person's password login is locked — and is as enterable as
+ *                   Active; a Frozen option is listed but not selectable, so the person can see
+ *                   that the company exists and why they cannot enter
  * @param locked     whether the PERSON's password login is currently locked (PRD D5). A property
  *                   of the credential, so it is the same on every option of one picker. Shown as
  *                   a badge, never enforced: PRD §1.5 greys a Locked company, but the picker is
@@ -34,9 +35,11 @@ import io.softa.starter.user.enums.AccountStatus;
  *                   employment persists, a consultancy is a grant with an end date. Only LIVE grants
  *                   reach here — a lapsed one is absent, not listed-and-greyed like a frozen
  *                   employment, because it is not access they hold rather than access on hold.
+ * @param lastUsed   whether this is the company the person entered last time
  */
 public record MembershipOption(Long accountId, Long tenantId, String tenantName, AccountStatus status,
-                               boolean locked, boolean consultant, String unavailableReason) {
+                               boolean locked, boolean consultant, String unavailableReason,
+                               boolean lastUsed) {
 
     /**
      * Whether this option can actually be entered.
@@ -48,7 +51,7 @@ public record MembershipOption(Long accountId, Long tenantId, String tenantName,
      */
     @JsonProperty("selectable")
     public boolean selectable() {
-        // Deliberately independent of locked — see the component doc.
-        return status == AccountStatus.ACTIVE && unavailableReason == null;
+        // A lock only refuses PASSWORD login; whoever reached this list already authenticated.
+        return (status == AccountStatus.ACTIVE || status == AccountStatus.LOCKED) && unavailableReason == null;
     }
 }

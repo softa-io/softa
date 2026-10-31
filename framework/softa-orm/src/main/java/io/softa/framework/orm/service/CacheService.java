@@ -2,6 +2,7 @@ package io.softa.framework.orm.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import tools.jackson.core.type.TypeReference;
 
 /**
@@ -129,5 +130,46 @@ public interface CacheService {
      * @return number of keys removed
      */
     long clearByPrefix(String prefix);
+
+    /**
+     * Remaining time to live of a key, in seconds.
+     *
+     * @param key cache key
+     * @return seconds left; {@code -1} when the key never expires, {@code -2} when it does not exist
+     */
+    long getExpire(String key);
+
+    /**
+     * Reset the time to live of an existing key. A missing key stays missing.
+     *
+     * @param key           cache key
+     * @param expireSeconds expiration time in seconds, positive
+     */
+    void expire(String key, int expireSeconds);
+
+    /**
+     * Add a member to a set and (re)set the set's time to live.
+     *
+     * @param key           set key
+     * @param member        member to add
+     * @param expireSeconds expiration time of the whole set, in seconds, positive
+     */
+    void addToSet(String key, String member, int expireSeconds);
+
+    /**
+     * Remove a member from a set. Removing the last member removes the set.
+     *
+     * @param key    set key
+     * @param member member to remove
+     */
+    void removeFromSet(String key, String member);
+
+    /**
+     * All members of a set; empty when the set does not exist.
+     *
+     * @param key set key
+     * @return the members
+     */
+    Set<String> getSetMembers(String key);
 
 }

@@ -1,7 +1,10 @@
 package io.softa.framework.web.filter.context;
 
+import java.time.LocalDateTime;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -14,6 +17,9 @@ import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.UserInfoService;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionStore;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,8 +63,12 @@ class ContextBuilderUserInfoRebuildTest {
         contextBuilder = new ContextBuilder();
         ReflectionTestUtils.setField(contextBuilder, "cacheService", cacheService);
         ReflectionTestUtils.setField(contextBuilder, "userInfoService", userInfoService);
+        ReflectionTestUtils.setField(contextBuilder, "sessionStore",
+                new SessionStore(cacheService, mock(ApplicationEventPublisher.class)));
 
-        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(Long.class))).thenReturn(USER_ID);
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
+        when(cacheService.getExpire(RedisConstant.SESSION + SESSION_ID)).thenReturn((long) SessionStore.TTL_SECONDS);
     }
 
     private MockHttpServletRequest request() {
@@ -112,10 +122,15 @@ class ContextBuilderUserInfoRebuildTest {
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)
-                .hasMessageContaining("not active");
+                .hasMessageContaining("not active")
+                // Only this organisation is unavailable — the client re-runs the entry rule rather
+                // than sending the person back to the login page.
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
         // And this one really is over: the session is destroyed, not merely unresolvable.
         verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).removeFromSet(SessionStore.ACCOUNT_SESSIONS + USER_ID, SESSION_ID);
     }
 
     @Test
@@ -138,7 +153,9 @@ class ContextBuilderUserInfoRebuildTest {
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)
-                .hasMessageContaining("is not active");
+                .hasMessageContaining("is not active")
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
         verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
     }
@@ -179,11 +196,13 @@ class ContextBuilderUserInfoRebuildTest {
 
     @Test
     void anInvalidSessionNeverReachesTheRebuild() {
-        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(Long.class))).thenReturn(null);
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)
-                .hasMessageContaining("Invalid session ID");
+                .hasMessageContaining("Invalid session ID")
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
 
         verify(userInfoService, never()).loadUserInfo(any());
     }

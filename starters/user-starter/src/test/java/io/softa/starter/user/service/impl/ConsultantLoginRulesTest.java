@@ -43,6 +43,7 @@ class ConsultantLoginRulesTest {
 
     ConsultantLoginRulesTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        ReflectionTestUtils.setField(loginService, "cacheService", mock(io.softa.framework.orm.service.CacheService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "consultantService", consultantService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);

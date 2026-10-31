@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -288,6 +289,35 @@ public class CacheServiceImpl implements CacheService {
             out.append(c);
         }
         return out.toString();
+    }
+
+    @Override
+    public long getExpire(String key) {
+        Long seconds = stringRedisTemplate.getExpire(this.getKeyPath(key));
+        return seconds == null ? -2 : seconds;
+    }
+
+    @Override
+    public void expire(String key, int expireSeconds) {
+        stringRedisTemplate.expire(this.getKeyPath(key), Duration.ofSeconds(expireSeconds));
+    }
+
+    @Override
+    public void addToSet(String key, String member, int expireSeconds) {
+        String cacheKey = this.getKeyPath(key);
+        stringRedisTemplate.opsForSet().add(cacheKey, member);
+        stringRedisTemplate.expire(cacheKey, Duration.ofSeconds(expireSeconds));
+    }
+
+    @Override
+    public void removeFromSet(String key, String member) {
+        stringRedisTemplate.opsForSet().remove(this.getKeyPath(key), member);
+    }
+
+    @Override
+    public Set<String> getSetMembers(String key) {
+        Set<String> members = stringRedisTemplate.opsForSet().members(this.getKeyPath(key));
+        return members == null ? Set.of() : members;
     }
 
 }

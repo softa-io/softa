@@ -53,7 +53,7 @@ public class ContextScopeFilter implements Filter {
             } catch (UserNotFoundException e) {
                 // Must-login endpoint but no user => legacy behavior: USER_NOT_FOUND JSON
                 log.warn("UserNotFoundException: {}", e.getMessage());
-                this.userNotFound(httpRes, e.getMessage());
+                this.userNotFound(httpRes, e);
             } catch (BaseException e) {
                 log.error("Failed to build user context", e);
                 this.responseError(httpRes, e.getResponseCode(), e.getMessage());
@@ -114,15 +114,21 @@ public class ContextScopeFilter implements Filter {
      *
      * @param response the HTTP response
      */
-    private void userNotFound(HttpServletResponse response, String message) {
+    private void userNotFound(HttpServletResponse response, UserNotFoundException e) {
         try {
-            ApiResponse<Void> redirectResponse = ApiResponse.error(ResponseCode.USER_NOT_FOUND, message);
+            // Same code and message as ever, so a client that only knows "410 → log in again" keeps
+            // working; errorCode tells a newer client WHICH of the two it is — the session is gone
+            // (SESSION_EXPIRED), or only this organisation is (ORG_UNAVAILABLE).
+            ApiResponseErrorDetails<Void> redirectResponse =
+                    ApiResponseErrorDetails.exception(ResponseCode.USER_NOT_FOUND, e.getMessage())
+                            .withErrorCode(e.getErrorCode(), e.getErrorDetails());
+            redirectResponse.setMessage(e.getMessage());
             String jsonResponse = JsonUtils.objectToString(redirectResponse);
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.getWriter().write(jsonResponse);
-        } catch (IOException e) {
-            log.error("User not found", e);
+        } catch (IOException io) {
+            log.error("User not found", io);
         }
     }
 

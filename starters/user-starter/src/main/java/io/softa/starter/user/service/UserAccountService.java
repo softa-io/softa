@@ -38,6 +38,13 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     Optional<UserAccount> getUserByEmail(String email);
 
     /**
+     * Every account of this person, in every tenant and every status — Deactivated included. For
+     * reaching everything that hangs off the person's accounts (sessions, push devices), not for
+     * deciding where they may go.
+     */
+    List<Long> listAccountIdsOf(Long profileId);
+
+    /**
      * Get user by mobile
      *
      * @param mobile mobile

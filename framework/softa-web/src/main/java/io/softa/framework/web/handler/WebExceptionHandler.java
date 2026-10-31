@@ -40,7 +40,9 @@ import io.softa.framework.web.response.ApiResponseErrorDetails;
  * "message": category label of the response code,
  * "data": optional error payload,
  * "error": user-facing error message (i18n-resolved),
- * "traceId": server-side trace ID for log correlation
+ * "traceId": server-side trace ID for log correlation,
+ * "errorCode": stable machine-readable reason, only when the exception carries one,
+ * "errorDetails": values accompanying errorCode, only when present
  * }
  */
 @Slf4j
@@ -96,6 +98,11 @@ public class WebExceptionHandler {
             log.warn(logMessage, e);
         } else {
             log.error(logMessage, e);
+        }
+        if (e instanceof BaseException baseE && baseE.getErrorCode() != null) {
+            ApiResponseErrorDetails<Void> response = ApiResponseErrorDetails.exception(responseCode, exceptionMessage)
+                    .withErrorCode(baseE.getErrorCode(), baseE.getErrorDetails());
+            return new ResponseEntity<>(response, HttpStatus.OK);
         }
         return wrapResponse(responseCode, exceptionMessage);
     }
