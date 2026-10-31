@@ -7,12 +7,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -29,6 +32,7 @@ import io.softa.framework.orm.service.relation.RelationDeleteHandler;
 import io.softa.framework.orm.service.versioning.IdentityStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
+import io.softa.framework.orm.vo.ModelReference;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doReturn;
@@ -38,6 +42,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ModelServiceImplTest {
+
+    @BeforeAll
+    static void ensureSystemConfig() {
+        // A refused key is a BaseException, whose message goes through I18n, which reads SystemConfig.
+        if (SystemConfig.env == null) {
+            SystemConfig.env = new SystemConfig();
+        }
+    }
 
     @Test
     void createOrUpdateUsesTupleFilterToSplitRows() {
@@ -207,6 +219,85 @@ class ModelServiceImplTest {
             ArgumentCaptor<List<Map<String, Object>>> updateCaptor = ArgumentCaptor.forClass(List.class);
             verify(modelService).updateList(eq("Employee"), updateCaptor.capture());
             Assertions.assertEquals(10L, updateCaptor.getValue().getFirst().get(ModelConstant.ID));
+        }
+    }
+
+    /**
+     * A relation in the unique key is read back from the database as the Long id it references; the
+     * same id sent as a string must match that row and update it, not miss it and create a duplicate.
+     */
+    @Test
+    void createOrUpdateMatchesARelationKeySentAsAString() {
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            for (String field : List.of("userId", "roleId")) {
+                MetaField relation = createMetaField("UserRoleRel", field, FieldType.MANY_TO_ONE);
+                ReflectionTestUtils.setField(relation, "relatedFieldType", FieldType.LONG);
+                modelManager.when(() -> ModelManager.getModelField("UserRoleRel", field)).thenReturn(relation);
+            }
+
+            ModelServiceImpl<Long> modelService = Mockito.spy(new ModelServiceImpl<>());
+            doReturn(List.of(new HashMap<>(Map.of(ModelConstant.ID, 10L, "userId", 7L, "roleId", 100L))))
+                    .when(modelService).searchList(eq("UserRoleRel"), any(FlexQuery.class));
+            doReturn(Boolean.TRUE).when(modelService).updateList(eq("UserRoleRel"), anyList());
+
+            List<Map<String, Object>> rows = new ArrayList<>();
+            rows.add(new HashMap<>(Map.of("userId", "7", "roleId", "100", "source", "Manual")));
+
+            modelService.createOrUpdate("UserRoleRel", rows, List.of("userId", "roleId"));
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<Map<String, Object>>> updateCaptor = ArgumentCaptor.forClass(List.class);
+            verify(modelService).updateList(eq("UserRoleRel"), updateCaptor.capture());
+            Assertions.assertEquals(10L, updateCaptor.getValue().getFirst().get(ModelConstant.ID));
+            verify(modelService, never()).createList(eq("UserRoleRel"), anyList());
+        }
+    }
+
+    /** A relation in the key sent as a reference, or as a map carrying its id, matches by that id. */
+    @Test
+    void createOrUpdateMatchesARelationKeySentAsAReference() {
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            stubUserRoleRel(modelManager);
+
+            ModelServiceImpl<Long> modelService = Mockito.spy(new ModelServiceImpl<>());
+            doReturn(List.of(new HashMap<>(Map.of(ModelConstant.ID, 10L, "userId", 7L, "roleId", 100L))))
+                    .when(modelService).searchList(eq("UserRoleRel"), any(FlexQuery.class));
+            doReturn(Boolean.TRUE).when(modelService).updateList(eq("UserRoleRel"), anyList());
+
+            ModelReference user = new ModelReference();
+            user.setId("7");
+            user.setDisplayName("Amy");
+            List<Map<String, Object>> rows = new ArrayList<>();
+            rows.add(new HashMap<>(Map.of("userId", user, "roleId", Map.of(ModelConstant.ID, "100"))));
+
+            modelService.createOrUpdate("UserRoleRel", rows, List.of("userId", "roleId"));
+
+            verify(modelService).updateList(eq("UserRoleRel"), anyList());
+            verify(modelService, never()).createList(eq("UserRoleRel"), anyList());
+        }
+    }
+
+    /** A blank relation in the key is refused as blank, like a blank value of any other key field. */
+    @Test
+    void createOrUpdateRefusesABlankRelationKey() {
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            stubUserRoleRel(modelManager);
+
+            ModelServiceImpl<Long> modelService = Mockito.spy(new ModelServiceImpl<>());
+            List<Map<String, Object>> rows = new ArrayList<>();
+            rows.add(new HashMap<>(Map.of("userId", "7", "roleId", " ")));
+
+            IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> modelService.createOrUpdate("UserRoleRel", rows, List.of("userId", "roleId")));
+            Assertions.assertTrue(refused.getMessage().contains("cannot be blank"), refused.getMessage());
+        }
+    }
+
+    private void stubUserRoleRel(MockedStatic<ModelManager> modelManager) {
+        for (String field : List.of("userId", "roleId")) {
+            MetaField relation = createMetaField("UserRoleRel", field, FieldType.MANY_TO_ONE);
+            ReflectionTestUtils.setField(relation, "relatedFieldType", FieldType.LONG);
+            modelManager.when(() -> ModelManager.getModelField("UserRoleRel", field)).thenReturn(relation);
         }
     }
 

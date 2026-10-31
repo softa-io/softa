@@ -42,6 +42,7 @@ import io.softa.framework.orm.service.versioning.VersioningStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
+import io.softa.framework.orm.vo.ModelReference;
 
 /**
  * Common Model Service Interface.
@@ -456,6 +457,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             value = switch (fieldType) {
                 case INTEGER, LONG, DOUBLE, BIG_DECIMAL, BOOLEAN, DATE, DATE_TIME, TIME ->
                         FieldType.convertStringToFieldValue(fieldType, stringValue);
+                case MANY_TO_ONE, ONE_TO_ONE -> stringValue.isBlank() ? null : value;
                 default -> value;
             };
         }
@@ -464,10 +466,31 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         return switch (fieldType) {
             case INTEGER -> value instanceof Number number ? number.intValue() : Integer.parseInt(value.toString());
             case LONG, STRING -> IdUtils.formatId(fieldType, value);
+            case MANY_TO_ONE, ONE_TO_ONE -> normalizeRelationKeyValue(modelName, fieldName, value);
             case DOUBLE -> value instanceof Number number ? number.doubleValue() : Double.parseDouble(value.toString());
             case BIG_DECIMAL -> value instanceof BigDecimal decimal ? decimal : new BigDecimal(value.toString());
             default -> value;
         };
+    }
+
+    /**
+     * A relation in a unique key, as the id it references.
+     *
+     * <p>The stored row's key is read back from the database typed as that id. An incoming one must take
+     * the same type, or the stored row is never matched: an id sent as a string, as a client sends every
+     * id, or the relation sent as a reference ({@code {id, displayName}}) or a map carrying its id. A
+     * map without an id describes a sub-record to create, not a key value, and is left as it is.
+     */
+    private static Object normalizeRelationKeyValue(String modelName, String fieldName, Object value) {
+        Object id = switch (value) {
+            case ModelReference reference -> reference.getId();
+            case Map<?, ?> map -> map.get(ModelConstant.ID);
+            default -> value;
+        };
+        if (id instanceof String || id instanceof Number) {
+            return IdUtils.formatId(modelName, fieldName, (Serializable) id);
+        }
+        return value;
     }
 
     /**
