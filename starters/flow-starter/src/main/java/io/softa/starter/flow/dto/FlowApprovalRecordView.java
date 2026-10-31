@@ -58,8 +58,14 @@ public class FlowApprovalRecordView {
     @Schema(description = "Operator actor id")
     private String actorId;
 
+    @Schema(description = "The actor's name, on an instance's history; null when no one acted (an automatic approval)")
+    private String actorName;
+
     @Schema(description = "Target actor id")
     private String targetActorId;
+
+    @Schema(description = "The target actor's name, on an instance's history")
+    private String targetActorName;
 
     @Schema(description = "Who did it on the actor's behalf: an administrator who reassigned the actor's task; "
             + "null when the actor acted themselves")

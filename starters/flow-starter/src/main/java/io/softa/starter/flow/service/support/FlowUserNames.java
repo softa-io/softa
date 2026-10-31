@@ -63,6 +63,11 @@ public class FlowUserNames {
         named.forEach(department -> department.setName(names.get(department.getId())));
     }
 
+    /** These users' names by user id, as {@link #name} gives them; a user without a name is left out. */
+    public Map<String, String> namesOf(Collection<String> userIds) {
+        return ContextUtils.withoutPermissionChecks(() -> userNames(userIds));
+    }
+
     private Map<Long, String> organizationNames(List<Long> ids,
                                                 BiFunction<OrganizationService, Collection<Long>, Map<Long, String>> lookup) {
         List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();

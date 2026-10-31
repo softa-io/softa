@@ -149,6 +149,14 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
+    public List<FlowInstance> findStatesByInstanceIds(Collection<String> instanceIds) {
+        if (instanceIds == null || instanceIds.isEmpty()) {
+            return List.of();
+        }
+        return this.searchList(new Filters().in(FlowInstance::getInstanceId, List.copyOf(instanceIds)));
+    }
+
+    @Override
     public List<FlowInstance> findByFlowId(String flowId) {
         Filters filters = new Filters().eq(FlowInstance::getFlowId, flowId);
         return this.searchList(filters);

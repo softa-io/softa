@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -24,8 +25,26 @@ import io.softa.starter.flow.service.FlowDelegationService;
 public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation, Long>
         implements FlowDelegationService {
 
+    /**
+     * A rule in force from its creation — it ends when cancelled, or expires at its end time — routing the
+     * delegator's tasks to someone else, over a period that ends after it starts when it has both times. One the
+     * delegator makes and one an administrator makes for them alike.
+     */
     @Override
     public FlowDelegation createDelegation(FlowDelegation delegation) {
+        if (delegation == null || !StringUtils.hasText(delegation.getDelegatorId())
+                || !StringUtils.hasText(delegation.getDelegateId())) {
+            throw new FlowActionValidationException("Both the approver and the delegate are required");
+        }
+        if (delegation.getDelegatorId().equals(delegation.getDelegateId())) {
+            throw new FlowActionValidationException("The delegate must be someone else");
+        }
+        if (delegation.getStartTime() != null && delegation.getEndTime() != null
+                && !delegation.getEndTime().isAfter(delegation.getStartTime())) {
+            throw new FlowActionValidationException("The delegation must end after it starts");
+        }
+        // Stored without the flag, a rule was never in force: the lookup takes only active ones.
+        delegation.setActive(true);
         Long id = this.createOne(delegation);
         delegation.setId(id);
         return delegation;

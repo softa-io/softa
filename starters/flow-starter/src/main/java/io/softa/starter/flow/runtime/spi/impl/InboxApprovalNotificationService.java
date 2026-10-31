@@ -30,11 +30,11 @@ import io.softa.starter.message.inbox.enums.NotificationType;
 import io.softa.starter.message.service.MessageService;
 
 /**
- * The inbox channel of {@link ApprovalNotificationService}: tells the people an approval concerns of its news —
- * who, and what, is {@link ApprovalNotices}' — through message-starter's inbox, as
- * {@link NotificationType#WORKFLOW} messages that point at the flow instance ({@code sourceModel} =
- * {@code FlowInstance}, {@code sourceId} = its instance id) — the client opens the instance and goes on from
- * there. A to-do — a task to act on, a CC to read — is left to My Tasks, which lists it.
+ * The inbox channel of {@link ApprovalNotificationService}: tells the people an approval concerns — who, and
+ * what, is {@link ApprovalNotices}' — through message-starter's inbox, as {@link NotificationType#WORKFLOW}
+ * messages that point at the flow instance ({@code sourceModel} = {@code FlowInstance}, {@code sourceId} = its
+ * instance id) — the client opens the instance and goes on from there. A task to act on and a CC are told here
+ * too, though My Tasks lists them: the inbox is where a newcomer to the approval hears of it.
  *
  * <p>Recipients are approver ids, i.e. login account ids. Texts are translated into the tenant's
  * default language — a message is read later by people whose own language the action does not
@@ -74,7 +74,7 @@ public class InboxApprovalNotificationService implements ApprovalNotificationSer
     public void notify(FlowNotificationEvent event) {
         FlowExecutionState state = event.state();
         Notice notice = ApprovalNotices.of(event, administrators);
-        if (notice == null || notice.toDo()) {
+        if (notice == null) {
             return;
         }
         List<Long> recipients = notice.recipients() == null ? List.of() : notice.recipients().stream()

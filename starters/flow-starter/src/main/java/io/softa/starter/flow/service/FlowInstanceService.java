@@ -44,8 +44,15 @@ public interface FlowInstanceService {
     /**
      * Batch finder by runtime instance ids — the one-query backbone of task
      * projection enrichment. Missing ids are simply absent from the result.
+     * The summary columns only: no state JSON (see {@link #findStatesByInstanceIds}).
      */
     List<FlowInstance> findByInstanceIds(Collection<String> instanceIds);
+
+    /**
+     * Batch finder by runtime instance ids, each row whole — its state JSON (pending approvals, variables)
+     * included: what an execution state is built from. Missing ids are simply absent from the result.
+     */
+    List<FlowInstance> findStatesByInstanceIds(Collection<String> instanceIds);
 
     /**
      * Find all instances of a flow.
@@ -139,8 +146,8 @@ public interface FlowInstanceService {
 
     /**
      * Marks every approval of a record superseded, read and written past the caller's data
-     * permissions — engine bookkeeping: a new submission of the record replaces them, so a returned
-     * one no longer waits for the record to be edited.
+     * permissions — engine bookkeeping: a new submission of the record replaces them, or the draft is
+     * cancelled for good, so a returned one no longer waits for the record to be edited.
      */
     void markSuperseded(String modelName, String rowId);
 

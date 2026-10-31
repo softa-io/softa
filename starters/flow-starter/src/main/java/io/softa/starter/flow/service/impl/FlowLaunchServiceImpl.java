@@ -396,6 +396,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         T record = BeanTool.mapToObject(row, handler.modelClass());
         handler.validateCancel(record);
         statusWriter.cancelled(handler, rowId, record, actorId);
+        // Closed for good: an approval of it that was returned no longer waits for the record to be edited.
+        instanceService.markSuperseded(modelName, rowId);
     }
 
     private static void requireRecordKey(String modelName, String rowId, String action) {

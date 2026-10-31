@@ -4,6 +4,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -20,6 +22,7 @@ import io.softa.starter.flow.service.FlowApprovalRecordQueryService;
 import io.softa.starter.flow.service.query.ApprovalRecordQuerySupport;
 import io.softa.starter.flow.service.query.SentCcHistoryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
+import io.softa.starter.flow.service.support.FlowUserNames;
 import io.softa.starter.flow.service.support.view.FlowApprovalRecordViewMapper;
 
 /**
@@ -45,10 +48,13 @@ public class FlowApprovalRecordQueryServiceImpl implements FlowApprovalRecordQue
 
     private final FlowInstanceAccessGuard accessGuard;
 
+    private final FlowUserNames names;
+
     public FlowApprovalRecordQueryServiceImpl(FlowApprovalRecordServiceImpl recordService,
-                                               FlowInstanceAccessGuard accessGuard) {
+                                               FlowInstanceAccessGuard accessGuard, FlowUserNames names) {
         this.recordService = recordService;
         this.accessGuard = accessGuard;
+        this.names = names;
     }
 
     @Override
@@ -57,7 +63,18 @@ public class FlowApprovalRecordQueryServiceImpl implements FlowApprovalRecordQue
         boolean participant = records.stream().anyMatch(record -> requesterId != null
                 && (requesterId.equals(record.getActorId()) || requesterId.equals(record.getTargetActorId())));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
-        return FlowApprovalRecordViewMapper.toViews(records);
+        List<FlowApprovalRecordView> views = FlowApprovalRecordViewMapper.toViews(records);
+        // The instance's history, read by its participants: whoever acted and whom they acted toward, named.
+        Map<String, String> byUser = names.namesOf(views.stream()
+                .flatMap(view -> Stream.of(view.getActorId(), view.getTargetActorId()))
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList());
+        views.forEach(view -> {
+            view.setActorName(byUser.get(view.getActorId()));
+            view.setTargetActorName(byUser.get(view.getTargetActorId()));
+        });
+        return views;
     }
 
     @Override

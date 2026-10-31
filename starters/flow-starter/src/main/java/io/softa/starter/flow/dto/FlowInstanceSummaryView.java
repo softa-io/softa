@@ -82,12 +82,17 @@ public class FlowInstanceSummaryView {
     private Boolean withdrawable;
 
     @Schema(description = "The caller's own approval waiting on its approvers: whether they may urge it now, by the "
-            + "flow's urge settings, and if not, when; null on any other row")
+            + "flow's urge settings, and if not, when; null on any other row. In the monitoring console's search, "
+            + "every approval waiting on its approvers: whether the caller may urge it as an administrator")
     private FlowUrgeStatus urge;
 
     @Schema(description = "A record's approval whose record no longer exists — a draft deleted after its approval "
             + "was returned or withdrawn")
     private Boolean recordDeleted;
+
+    @Schema(description = "A record's approval whose record was cancelled for good — a draft cancelled after its "
+            + "approval was returned or withdrawn, which will not be submitted again")
+    private Boolean recordCancelled;
 
     @Schema(description = "An approved record whose change takes effect later: applied, failed to apply, or still "
             + "scheduled, as the record says; null for a model whose approval takes effect at once")

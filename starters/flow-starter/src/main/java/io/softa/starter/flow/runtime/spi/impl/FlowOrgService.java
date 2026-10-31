@@ -8,6 +8,7 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
@@ -15,15 +16,17 @@ import io.softa.starter.flow.runtime.spi.OrganizationService;
 /**
  * Default {@link OrganizationService}: reads the organization through the metadata-driven
  * {@link ModelService}, by the HR conventions permission-starter reads — {@code Employee},
- * {@code Department}, and user-starter's {@code UserRoleRel} and {@code Role}. Model and field
+ * {@code Department}, and user-starter's {@code UserRoleRel}, {@code Role} and {@code UserAccount}. Model and field
  * names can be overridden through {@link OrganizationServiceProperties}.
  *
- * <p>Approvers are login accounts. An employee takes part through the account on
- * {@code Employee.userId}; an employee without an account counts as nobody, so a step resolving
- * only to such employees is empty and follows its empty-approver strategy. A role holder is an
- * account, and approves even without an employee profile. Supervisors, department leaders and
- * HRBPs are stored as employee ids and translated to their accounts; a department without a
- * leader (or HRBP) defers to its parent's.
+ * <p>Approvers are login accounts that sign in. An employee takes part through the account on
+ * {@code Employee.userId}; an employee without an account counts as nobody, and so does one whose
+ * account does not sign in — not yet invited, invited but not accepted, frozen, or ended because they
+ * left ({@code approverAccountStatuses}) — so a step resolving only to such employees is empty and
+ * follows its empty-approver strategy. A role holder is an account, and approves even without an
+ * employee profile, provided it signs in. Supervisors, department leaders and HRBPs are stored as
+ * employee ids and translated to their accounts; a department without a leader (or HRBP) who can
+ * approve defers to its parent's. Looking users up by id, to name them, takes every account.
  *
  * <p>Every read skips row-scope and field checks, the tenant still applying: who approves a
  * submission must not depend on what the submitter may see.
@@ -53,7 +56,11 @@ public class FlowOrgService implements OrganizationService {
         if (userIds == null || userIds.isEmpty()) {
             return List.of();
         }
-        return toApprovers(employees(Filters.of(props.getAccountIdField(), Operator.IN, userIds)));
+        // Every account asked for, whether it can approve now or not: these name people.
+        return employees(Filters.of(props.getAccountIdField(), Operator.IN, userIds)).stream()
+                .map(this::toUser)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     @Override
@@ -63,11 +70,13 @@ public class FlowOrgService implements OrganizationService {
         }
         FlexQuery query = new FlexQuery(Filters.of(props.getRoleIdField(), Operator.IN, roleIds));
         query.setFields(List.of(props.getRoleUserIdField()));
-        List<Long> accountIds = read(() -> modelService.searchList(props.getRoleModel(), query)).stream()
+        List<Long> holders = read(() -> modelService.searchList(props.getRoleModel(), query)).stream()
                 .map(row -> toLong(row.get(props.getRoleUserIdField())))
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
+        Set<Long> signingIn = signingIn(holders);
+        List<Long> accountIds = holders.stream().filter(signingIn::contains).toList();
         Map<Long, ApproverInfo> employees = new HashMap<>();
         getUsersByIds(accountIds).forEach(user -> employees.put(user.getUserId(), user));
         return accountIds.stream()
@@ -210,7 +219,7 @@ public class FlowOrgService implements OrganizationService {
 
     /**
      * The approver a department names in {@code field} (an employee id), or its nearest ancestor's
-     * when it names none, or only an employee without an account.
+     * when it names none, or only an employee without an account that signs in — one who left, say.
      */
     private ApproverInfo nearestDeptMember(Long deptId, String field) {
         Set<Long> visited = new HashSet<>();
@@ -253,12 +262,41 @@ public class FlowOrgService implements OrganizationService {
                 props.getPositionIdField(), props.getSupervisorIdField());
     }
 
+    /** The employees as approvers: those whose account signs in. */
     private List<ApproverInfo> toApprovers(List<Map<String, Object>> employees) {
-        return employees.stream().map(this::toApprover).filter(Objects::nonNull).toList();
+        List<ApproverInfo> users = employees.stream().map(this::toUser).filter(Objects::nonNull).toList();
+        Set<Long> signingIn = signingIn(users.stream().map(ApproverInfo::getUserId).toList());
+        return users.stream().filter(user -> signingIn.contains(user.getUserId())).toList();
     }
 
-    /** The employee as an approver; null without a login account. */
+    /** The employee as an approver; null without a login account that signs in. */
     private ApproverInfo toApprover(Map<String, Object> employee) {
+        ApproverInfo user = toUser(employee);
+        return user != null && signingIn(List.of(user.getUserId())).contains(user.getUserId()) ? user : null;
+    }
+
+    /**
+     * Of these accounts, the ones that sign in: their status is one of {@code approverAccountStatuses}. All of them
+     * when the application has no account model to ask.
+     */
+    private Set<Long> signingIn(Collection<Long> accountIds) {
+        if (accountIds.isEmpty() || !ModelManager.existModel(props.getAccountModel())) {
+            return new HashSet<>(accountIds);
+        }
+        FlexQuery query = new FlexQuery(Filters.of(ModelConstant.ID, Operator.IN, List.copyOf(accountIds)));
+        query.setFields(List.of(ModelConstant.ID, props.getAccountStatusField()));
+        Set<Long> signingIn = new HashSet<>();
+        for (Map<String, Object> account : read(() -> modelService.searchList(props.getAccountModel(), query))) {
+            Object status = account.get(props.getAccountStatusField());
+            if (status != null && props.getApproverAccountStatuses().contains(status.toString())) {
+                signingIn.add(toLong(account.get(ModelConstant.ID)));
+            }
+        }
+        return signingIn;
+    }
+
+    /** The employee as a user, by their login account; null without one. */
+    private ApproverInfo toUser(Map<String, Object> employee) {
         Long accountId = toLong(employee.get(props.getAccountIdField()));
         if (accountId == null) {
             return null;

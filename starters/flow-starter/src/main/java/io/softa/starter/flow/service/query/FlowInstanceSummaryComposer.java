@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
@@ -24,8 +23,10 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
+import io.softa.starter.flow.entity.ApprovalModel;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.enums.ApprovalStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.enums.FlowScenario;
@@ -92,6 +93,35 @@ public class FlowInstanceSummaryComposer {
         return target;
     }
 
+    /**
+     * The rows of a page for the monitoring console, whose caller administers them: every waiting approval says
+     * whether an administrator may urge it now, and if not, when — the flow's interval applies, its initiator-only
+     * setting does not.
+     */
+    public Page<FlowInstanceSummaryView> summarizeForAdministrator(Page<FlowInstance> page, String requesterId) {
+        Page<FlowInstanceSummaryView> target = summarize(page, requesterId);
+        Map<String, FlowInstanceSummaryView> waiting = target.getRows().stream()
+                .filter(FlowInstanceSummaryComposer::isWaitingApproval)
+                .collect(Collectors.toMap(FlowInstanceSummaryView::getInstanceId, Function.identity(), (a, b) -> a,
+                        LinkedHashMap::new));
+        if (!waiting.isEmpty()) {
+            LocalDateTime now = LocalDateTime.now();
+            for (FlowExecutionState state : instanceStore.listByInstanceIds(waiting.keySet())) {
+                FlowInstanceSummaryView view = waiting.get(state.getInstanceId());
+                if (view != null) {
+                    view.setUrge(urgeThrottle.status(state, now));
+                }
+            }
+        }
+        return target;
+    }
+
+    /** An approval waiting on its approvers. The scenario is a joined field a query may leave out; a record's approval is one either way. */
+    private static boolean isWaitingApproval(FlowInstanceSummaryView view) {
+        return (FlowScenario.APPROVAL.equals(view.getScenario()) || Boolean.TRUE.equals(view.getRecordApproval()))
+                && FlowExecutionStatus.WAITING.equals(view.getStatus());
+    }
+
     public List<FlowInstanceSummaryView> summarize(List<FlowInstance> instances, String requesterId) {
         if (instances == null || instances.isEmpty()) {
             return List.of();
@@ -136,9 +166,7 @@ public class FlowInstanceSummaryComposer {
             return;
         }
         Map<String, FlowInstanceSummaryView> own = views.stream()
-                // The scenario is a joined field a query may leave out; a record's approval is one either way.
-                .filter(view -> (FlowScenario.APPROVAL.equals(view.getScenario()) || Boolean.TRUE.equals(view.getRecordApproval()))
-                        && FlowExecutionStatus.WAITING.equals(view.getStatus())
+                .filter(view -> isWaitingApproval(view)
                         && view.getInitiator() != null && requesterId.equals(view.getInitiator().getId()))
                 .collect(Collectors.toMap(FlowInstanceSummaryView::getInstanceId, Function.identity(), (a, b) -> a,
                         LinkedHashMap::new));
@@ -157,8 +185,9 @@ public class FlowInstanceSummaryComposer {
 
     /**
      * Flags the record approvals whose record is gone — a draft deleted after its approval was returned or
-     * withdrawn — so a list offers no link that ends in "not found". Read past the caller's permissions:
-     * the question is whether the row exists, not whether they may open it.
+     * withdrawn — so a list offers no link that ends in "not found", and those whose record was cancelled for good,
+     * so a list says so rather than the approval's last state (Returned, Withdrawn) alone. Read past the caller's
+     * permissions: the question is what became of the row, not whether they may open it.
      */
     @SuppressWarnings("unchecked")
     private void markDeletedRecords(List<FlowInstanceSummaryView> views) {
@@ -174,11 +203,19 @@ public class FlowInstanceSummaryComposer {
             List<Serializable> ids = IdUtils.formatIds(modelName,
                     rows.stream().map(FlowInstanceSummaryView::getRowId).distinct().toList());
             ModelService<Serializable> records = (ModelService<Serializable>) (ModelService<?>) modelService;
-            Set<String> existing = ContextUtils.withoutPermissionChecks(
-                            () -> records.getByIds(modelName, ids, List.of(ModelConstant.ID))).stream()
-                    .map(row -> Objects.toString(row.get(ModelConstant.ID), null))
-                    .collect(Collectors.toSet());
-            rows.forEach(view -> view.setRecordDeleted(!existing.contains(view.getRowId())));
+            List<String> fields = ModelManager.existField(modelName, ApprovalModel.APPROVAL_STATUS)
+                    ? List.of(ModelConstant.ID, ApprovalModel.APPROVAL_STATUS)
+                    : List.of(ModelConstant.ID);
+            Map<String, Map<String, Object>> existing = ContextUtils.withoutPermissionChecks(
+                            () -> records.getByIds(modelName, ids, fields)).stream()
+                    .collect(Collectors.toMap(row -> Objects.toString(row.get(ModelConstant.ID), null),
+                            Function.identity(), (a, b) -> a));
+            rows.forEach(view -> {
+                Map<String, Object> record = existing.get(view.getRowId());
+                view.setRecordDeleted(record == null);
+                view.setRecordCancelled(record != null
+                        && ApprovalStatus.from(record.get(ApprovalModel.APPROVAL_STATUS)) == ApprovalStatus.CANCELLED);
+            });
         });
     }
 

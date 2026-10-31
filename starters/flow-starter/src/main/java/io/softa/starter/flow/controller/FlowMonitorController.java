@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowBatchActionResult;
+import io.softa.starter.flow.dto.FlowDelegationView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowReassignApproverRequest;
@@ -31,6 +32,7 @@ import io.softa.starter.flow.service.FlowAdministrationService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
+import io.softa.starter.flow.service.support.view.FlowDelegationViews;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 
@@ -57,10 +59,12 @@ public class FlowMonitorController {
 
     private final FlowAdministrationService administrationService;
 
+    private final FlowDelegationViews delegationViews;
+
     public FlowMonitorController(FlowMonitorService monitorService, FlowInstanceService instanceService,
                                  FlowRuntimeEngine runtimeEngine, FlowInstanceAccessGuard accessGuard,
                                  UrgeThrottle urgeThrottle, FlowInstanceSummaryComposer summaryComposer,
-                                 FlowAdministrationService administrationService) {
+                                 FlowAdministrationService administrationService, FlowDelegationViews delegationViews) {
         this.monitorService = monitorService;
         this.instanceService = instanceService;
         this.runtimeEngine = runtimeEngine;
@@ -68,6 +72,7 @@ public class FlowMonitorController {
         this.urgeThrottle = urgeThrottle;
         this.summaryComposer = summaryComposer;
         this.administrationService = administrationService;
+        this.delegationViews = delegationViews;
     }
 
     @GetMapping("/health")
@@ -82,9 +87,11 @@ public class FlowMonitorController {
             description = "Cross-initiator paged instance summaries for operator monitoring views, read with the "
                     + "caller's own permissions: the FlowInstance rows their roles' data scope reaches. Honors the "
                     + "request's initiatorId filter when present. Heavy JSON state columns and the trace are "
-                    + "excluded — fetch a single instance or its overlay for detail.")
+                    + "excluded — fetch a single instance or its overlay for detail. Each waiting approval's urge "
+                    + "says whether the caller may urge it now as an administrator, and if not, when.")
     public ApiResponse<Page<FlowInstanceSummaryView>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
-        return ApiResponse.success(summaryComposer.summarize(instanceService.searchSummaries(request, null), currentUserId()));
+        return ApiResponse.success(summaryComposer.summarizeForAdministrator(
+                instanceService.searchSummaries(request, null), currentUserId()));
     }
 
     @PostMapping("/instances/urge")
@@ -140,9 +147,9 @@ public class FlowMonitorController {
     }
 
     @GetMapping("/delegations")
-    @Operation(summary = "List delegation rules", description = "Every delegation rule of the tenant, newest first.")
-    public ApiResponse<List<FlowDelegation>> listDelegations() {
-        return ApiResponse.success(administrationService.listDelegations());
+    @Operation(summary = "List delegation rules", description = "Every delegation rule of the tenant, newest first, its delegator and delegate named.")
+    public ApiResponse<List<FlowDelegationView>> listDelegations() {
+        return ApiResponse.success(delegationViews.of(administrationService.listDelegations()));
     }
 
     @PostMapping("/delegations/{id}/cancel")

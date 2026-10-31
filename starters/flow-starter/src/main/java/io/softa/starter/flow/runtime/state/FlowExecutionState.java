@@ -52,6 +52,10 @@ public class FlowExecutionState {
     @Schema(description = "Flow initiator id")
     private String initiatorId;
 
+    /** Not stored: the initiator named, filled in when the instance detail is served. */
+    @Schema(description = "The initiator's name, on the instance detail", accessMode = Schema.AccessMode.READ_ONLY)
+    private String initiatorName;
+
     @Schema(description = "Whether the instance is the approval of its record: started by submitting the record, "
             + "so its result is written back to it. Other instances running on a record are automation or debug runs")
     private Boolean recordApproval;

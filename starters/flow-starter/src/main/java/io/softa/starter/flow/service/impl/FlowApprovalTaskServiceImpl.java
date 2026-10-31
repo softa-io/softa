@@ -3,10 +3,12 @@ package io.softa.starter.flow.service.impl;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -41,6 +43,11 @@ import io.softa.starter.flow.service.support.view.FlowApprovalTaskViewMapper;
 @Service
 public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalTask, Long>
         implements FlowApprovalTaskQueryService, FlowStateChangeListener {
+
+    /** What a task's holder does that closes their task. */
+    private static final Set<ApprovalActionType> HOLDER_DECISIONS = EnumSet.of(ApprovalActionType.APPROVE,
+            ApprovalActionType.REJECT, ApprovalActionType.RETURN, ApprovalActionType.TRANSFER,
+            ApprovalActionType.DELEGATE);
 
     private final FlowApprovalTaskProjector projector;
     private final FlowInstanceAccessGuard accessGuard;
@@ -240,16 +247,24 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                 .compare(left, right) >= 0 ? left : right;
     }
 
+    /**
+     * A row the sync updates in place: a task still waiting on its holder, and a CC not yet read — which carries
+     * the time it was sent as its end, so that its reading lands on it rather than on a copy of it.
+     */
     private static boolean isOpen(FlowApprovalTask task) {
-        return task.getEndTime() == null && FlowApprovalTaskStatus.PENDING.equals(task.getStatus());
+        return FlowApprovalTaskStatus.PENDING.equals(task.getStatus())
+                && (task.getEndTime() == null || FlowApprovalTaskType.CC.equals(task.getTaskType()));
     }
 
+    /**
+     * Whether a closed row already is what the projection asks for. The step's vote counts are left out: they move
+     * as the others vote, and are no new task of the holder's — comparing them, every later action copied each closed
+     * row whose counts it changed (and a CC's, which read back empty as null, on every action).
+     */
     private static boolean sameState(FlowApprovalTask current, FlowApprovalTask desired) {
         return Objects.equals(current.getStatus(), desired.getStatus())
                 && Objects.equals(current.getTaskType(), desired.getTaskType())
                 && Objects.equals(current.getAction(), desired.getAction())
-                && Objects.equals(current.getApprovedActors(), desired.getApprovedActors())
-                && Objects.equals(current.getRejectedActors(), desired.getRejectedActors())
                 && Objects.equals(current.getBlocked(), desired.getBlocked())
                 && Objects.equals(current.getBlockedByActorId(), desired.getBlockedByActorId())
                 && Objects.equals(current.getComment(), desired.getComment());
@@ -279,7 +294,13 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     private void closeStaleTask(FlowApprovalTask task, FlowExecutionState state) {
-        ApprovalActionAuditEntry latestAudit = lastAudit(state);
+        // What closed it: its holder's own decision in this action when they made one — approving a step the next one
+        // then auto-approves ends the action on the next step's entry, which says nothing of theirs — else the latest
+        // entry of the approval (another approver's vote, a withdrawal, a termination).
+        ApprovalActionAuditEntry latestAudit = ownDecision(task, state);
+        if (latestAudit == null) {
+            latestAudit = lastAudit(state);
+        }
         task.setStatus(resolveTerminalStatus(task, state, latestAudit));
         task.setAction(latestAudit == null ? task.getAction() : latestAudit.getAction());
         task.setComment(latestAudit == null ? task.getComment() : latestAudit.getComment());
@@ -289,6 +310,28 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                     ? LocalDateTime.now()
                     : latestAudit.getEventTime());
         }
+    }
+
+    /**
+     * The task holder's latest decision on its step and cycle among the entries the current action recorded, or null.
+     * Only this action's: an earlier decision of theirs on the step — before a transfer came back to them — did not
+     * close this task.
+     */
+    private static ApprovalActionAuditEntry ownDecision(FlowApprovalTask task, FlowExecutionState state) {
+        List<ApprovalActionAuditEntry> delta = state.getApprovalAuditDelta();
+        if (delta == null) {
+            return null;
+        }
+        for (int i = delta.size() - 1; i >= 0; i--) {
+            ApprovalActionAuditEntry entry = delta.get(i);
+            if (HOLDER_DECISIONS.contains(entry.getAction())
+                    && Objects.equals(task.getNodeId(), entry.getNodeId())
+                    && Objects.equals(task.getCycleNumber(), entry.getCycleNumber())
+                    && Objects.equals(task.getActorId(), entry.getActorId())) {
+                return entry;
+            }
+        }
+        return null;
     }
 
     private ApprovalActionAuditEntry lastAudit(FlowExecutionState state) {

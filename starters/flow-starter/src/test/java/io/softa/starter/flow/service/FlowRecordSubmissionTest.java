@@ -277,6 +277,8 @@ class FlowRecordSubmissionTest {
         order.verify(handler).validateCancel(any());
         order.verify(handler).afterOutcome(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.CANCELLED),
                 eq(new ApprovalOutcome(ApprovalOutcomeType.CANCELLED, null, SUBMITTER, null)));
+        // A returned approval of it no longer waits for the record to be revised.
+        verify(instanceService).markSuperseded(MODEL, ROW);
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
     }

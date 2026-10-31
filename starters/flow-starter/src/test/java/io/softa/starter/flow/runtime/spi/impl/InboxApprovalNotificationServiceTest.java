@@ -25,9 +25,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
- * Who hears about what: approvers about a nudge on their tasks, the initiator about the result, every message
- * a Workflow inbox message pointing at the flow instance — written after the action commits, and never failing
- * it. The tasks and CCs themselves are My Tasks', not the inbox's.
+ * Who hears about what: approvers about their tasks, CC recipients about the copy, the initiator about the
+ * result, every message a Workflow inbox message pointing at the flow instance — written after the action
+ * commits, and never failing it.
  */
 class InboxApprovalNotificationServiceTest {
 
@@ -43,15 +43,53 @@ class InboxApprovalNotificationServiceTest {
     }
 
     @Test
-    void aTaskOrACcIsListedInMyTasksAndNotPutInTheInbox() {
-        PendingApproval step = PendingApproval.builder().nodeId("manager").approvers(List.of("2001", "2002")).build();
+    void theStepsApproversAreToldTheyHaveATask() {
+        PendingApproval step = PendingApproval.builder().nodeId("manager").approvers(List.of("2001", "2002", "robot")).build();
 
         notifications.notify(new FlowNotificationEvent.TaskAssigned(state(), step));
+
+        List<SendInboxDTO> sent = sent();
+        assertEquals(List.of(2001L, 2002L), sent.stream().map(SendInboxDTO::getRecipientId).toList());
+        assertEquals("Pending approval: Leave of Alice", sent.getFirst().getTitle());
+        assertEquals(NotificationType.WORKFLOW, sent.getFirst().getNotificationType());
+        assertEquals("FlowInstance", sent.getFirst().getSourceModel());
+        assertEquals("i1", sent.getFirst().getSourceId());
+    }
+
+    @Test
+    void anApproverWhoAlreadyApprovedTheStepIsNotToldOfIt() {
+        // The submitter in their own step, approved on record when the step opened.
+        PendingApproval step = PendingApproval.builder().nodeId("manager").approvers(List.of("1001", "2001"))
+                .approvedActors(List.of("1001")).build();
+
+        notifications.notify(new FlowNotificationEvent.TaskAssigned(state(), step));
+
+        assertEquals(List.of(2001L), sent().stream().map(SendInboxDTO::getRecipientId).toList());
+    }
+
+    @Test
+    void whoeverATaskIsTransferredOrDelegatedToIsToldTheyHaveIt() {
+        PendingApproval step = PendingApproval.builder().nodeId("manager").approvers(List.of("2001")).build();
+
         notifications.notify(new FlowNotificationEvent.TaskTransferred(state(), step, "2003"));
         notifications.notify(new FlowNotificationEvent.TaskDelegated(state(), step, "2001", "2004"));
+
+        ArgumentCaptor<List<SendInboxDTO>> batches = captor();
+        verify(messageService, times(2)).sendInboxBatch(batches.capture());
+        assertEquals(2003L, batches.getAllValues().get(0).getFirst().getRecipientId());
+        assertEquals(2004L, batches.getAllValues().get(1).getFirst().getRecipientId());
+        batches.getAllValues().forEach(batch ->
+                assertEquals("Pending approval: Leave of Alice", batch.getFirst().getTitle()));
+    }
+
+    @Test
+    void aCcRecipientIsToldWithTheMessage() {
         notifications.notify(new FlowNotificationEvent.CcSent(state(), "manager", List.of("3001"), "for the record"));
 
-        verify(messageService, never()).sendInboxBatch(any());
+        SendInboxDTO sent = sent().getFirst();
+        assertEquals(3001L, sent.getRecipientId());
+        assertEquals("For your information: Leave of Alice", sent.getTitle());
+        assertEquals("for the record", sent.getContent());
     }
 
     @Test

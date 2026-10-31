@@ -159,14 +159,8 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
 
     @Override
     public FlowDelegation delegateOnBehalf(FlowDelegation delegation) {
-        if (delegation == null || !StringUtils.hasText(delegation.getDelegatorId())
-                || !StringUtils.hasText(delegation.getDelegateId())) {
-            throw new FlowActionValidationException("Both the approver and the delegate are required");
-        }
-        if (delegation.getDelegatorId().equals(delegation.getDelegateId())) {
-            throw new FlowActionValidationException("The delegate must be someone else");
-        }
-        // Authorized by the endpoint's own permission: the administrator need not hold the delegation model.
+        // The rule is checked as any other is, by the delegation service. Authorized by the endpoint's own
+        // permission: the administrator need not hold the delegation model.
         return ContextUtils.withoutPermissionChecks(() -> delegationService.createDelegation(delegation));
     }
 

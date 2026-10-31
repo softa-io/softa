@@ -3,6 +3,7 @@ package io.softa.starter.flow.runtime.api;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -24,6 +25,8 @@ public abstract class AbstractFlowInstanceRequest {
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private String actorId;
 
-    @Schema(description = "Optional action comment")
+    // The limit a batch action's comment has, and an administrator's reason.
+    @Size(max = 256, message = "The comment can be at most 256 characters")
+    @Schema(description = "Optional action comment, at most 256 characters")
     private String comment;
 }

@@ -10,7 +10,9 @@ import java.util.Map;
  * Every user id here — taken or returned — is a login account id, the id approvers act under; an
  * employee id is an employee record's own id, the one a supervisor, a department leader or a record's
  * subject is stored as. Lookups relative to someone start from an employee: a record's subject is
- * one already, and a user is bridged through {@link #getEmployeeIdOfUser}. The default
+ * one already, and a user is bridged through {@link #getEmployeeIdOfUser}. The approver lookups —
+ * by role, department, position, supervisor, leader, HRBP — return only users who can approve, whose
+ * account signs in; the lookups by user id return every user asked for, to name them. The default
  * {@code FlowOrgService} reads the conventional HR models; applications implement this interface
  * only to integrate a different organization system.
  * </p>
@@ -57,7 +59,8 @@ public interface OrganizationService {
 
     /**
      * The supervisor {@code level} levels above an employee, as an approver; null when the chain ends
-     * before it or that supervisor has no account.
+     * before it or that supervisor cannot approve — no account, or one that does not sign in (they left,
+     * or were never let in). The chain itself runs on through them: level 2 is still their supervisor.
      *
      * @param employeeId the employee
      * @param level      1 = direct supervisor, 2 = the supervisor's supervisor, and so on

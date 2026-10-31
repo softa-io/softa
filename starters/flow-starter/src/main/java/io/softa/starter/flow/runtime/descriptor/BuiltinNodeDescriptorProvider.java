@@ -12,7 +12,9 @@ import io.softa.starter.flow.design.FlowNodeDescriptor.Ports;
 import io.softa.starter.flow.design.FlowNodeDescriptorProvider;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
+import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.enums.VoteThresholdMode;
 
 /**
  * Provides {@link FlowNodeDescriptor}s for structural (non-executor) node types.
@@ -141,17 +143,23 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                         ordered("includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments",
                                                 "default", false))))
                 )));
+        // These three are read into enums through Jackson, which takes each one's JSON value and nothing else: offer
+        // that value, not the constant name (a chosen constant name made the whole config unreadable).
         schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "Empty-approver strategy",
-                "options", List.of("ERROR", "AUTO_APPROVE", "SKIP"), "default", "ERROR"));
+                "options", List.of(EmptyApproverStrategy.ERROR.getType(), EmptyApproverStrategy.AUTO_APPROVE.getType(),
+                        EmptyApproverStrategy.SKIP.getType()),
+                "default", EmptyApproverStrategy.ERROR.getType()));
         // ── Vote thresholds ──────────────────────────────────────────────────
+        String minCount = VoteThresholdMode.MIN_COUNT.getType();
+        String percentage = VoteThresholdMode.PERCENTAGE.getType();
         schema.put("approvalMode", ordered("type", "enum", "label", "Approval mode",
-                "options", List.of("ANY_ONE", "UNANIMOUS", "MIN_COUNT", "PERCENTAGE"), "default", "ANY_ONE"));
-        schema.put("minCount",     ordered("type", "number", "label", "Minimum approvals", "depends", Map.of("approvalMode", "MIN_COUNT")));
-        schema.put("percentage",   ordered("type", "number", "label", "Approval percentage (0-100)", "depends", Map.of("approvalMode", "PERCENTAGE")));
+                "options", voteThresholdModes(), "default", VoteThresholdMode.ANY_ONE.getType()));
+        schema.put("minCount",     ordered("type", "number", "label", "Minimum approvals", "depends", Map.of("approvalMode", minCount)));
+        schema.put("percentage",   ordered("type", "number", "label", "Approval percentage (0-100)", "depends", Map.of("approvalMode", percentage)));
         schema.put("rejectMode",   ordered("type", "enum", "label", "Reject mode",
-                "options", List.of("ANY_ONE", "UNANIMOUS", "MIN_COUNT", "PERCENTAGE"), "default", "ANY_ONE"));
-        schema.put("rejectMinCount",   ordered("type", "number", "label", "Minimum rejections", "depends", Map.of("rejectMode", "MIN_COUNT")));
-        schema.put("rejectPercentage", ordered("type", "number", "label", "Rejection percentage (0-100)", "depends", Map.of("rejectMode", "PERCENTAGE")));
+                "options", voteThresholdModes(), "default", VoteThresholdMode.ANY_ONE.getType()));
+        schema.put("rejectMinCount",   ordered("type", "number", "label", "Minimum rejections", "depends", Map.of("rejectMode", minCount)));
+        schema.put("rejectPercentage", ordered("type", "number", "label", "Rejection percentage (0-100)", "depends", Map.of("rejectMode", percentage)));
         // ── Timeout ──────────────────────────────────────────────────────────
         schema.put("timeout", ordered("type", "approvalTimeout", "label", "Timeout configuration"));
         // ── Return policy: a return goes to the initiator and ends the instance ──
@@ -188,8 +196,14 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         return merged;
     }
 
+    /** The constant names: for the enums read with {@code valueOf}, which have no JSON value of their own. */
     private static List<String> enumNames(Enum<?>[] values) {
         return Stream.of(values).map(Enum::name).toList();
+    }
+
+    /** The vote-threshold modes by their JSON values, the form an approval node's config is read in. */
+    private static List<String> voteThresholdModes() {
+        return Stream.of(VoteThresholdMode.values()).map(VoteThresholdMode::getType).toList();
     }
 
     private static Map<String, Object> scriptConfigSchema() {

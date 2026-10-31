@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
@@ -151,6 +152,26 @@ class FlowInstanceSummaryComposerTest {
     }
 
     @Test
+    void theMonitoringConsoleSaysWhetherAnAdministratorMayUrgeEachWaitingApproval() {
+        FlowInstance waiting = instance("i1", FlowExecutionStatus.WAITING);
+        waiting.setInitiatorId("u-2");
+        FlowInstance ended = instance("i2", FlowExecutionStatus.COMPLETED);
+        FlowExecutionState state = FlowExecutionState.builder().instanceId("i1").build();
+        when(instanceStore.listByInstanceIds(argThat(ids -> ids.size() == 1 && ids.contains("i1"))))
+                .thenReturn(List.of(state));
+        FlowUrgeStatus urgeable = new FlowUrgeStatus(true, null);
+        when(urgeThrottle.status(eq(state), any(LocalDateTime.class))).thenReturn(urgeable);
+        Page<FlowInstance> page = Page.of(1, 50);
+        page.setRows(List.of(waiting, ended));
+
+        List<FlowInstanceSummaryView> views = composer.summarizeForAdministrator(page, "admin-1").getRows();
+
+        assertEquals(urgeable, views.get(0).getUrge(), "someone else's approval, urged as an administrator");
+        assertNull(views.get(1).getUrge(), "an approval that ended takes no action");
+        verify(urgeThrottle, never()).status(any(), eq("admin-1"), any());
+    }
+
+    @Test
     void aRecordsApprovalWhoseRecordIsGoneSaysSo() {
         FlowInstance kept = instance("i1", FlowExecutionStatus.RETURNED);
         kept.setModelName("LeaveRequest");
@@ -171,6 +192,34 @@ class FlowInstanceSummaryComposerTest {
 
             assertFalse(views.get(0).getRecordDeleted());
             assertTrue(views.get(1).getRecordDeleted());
+        }
+    }
+
+    @Test
+    void aRecordsApprovalWhoseRecordWasCancelledSaysSo() {
+        // A returned overtime request its applicant then cancelled, beside one they are still to revise.
+        FlowInstance cancelled = instance("i1", FlowExecutionStatus.RETURNED);
+        cancelled.setModelName("OvertimeRequest");
+        cancelled.setRowId("10");
+        FlowInstance toRevise = instance("i2", FlowExecutionStatus.RETURNED);
+        toRevise.setModelName("OvertimeRequest");
+        toRevise.setRowId("11");
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class);
+             MockedStatic<IdUtils> idUtils = mockStatic(IdUtils.class)) {
+            models.when(() -> ModelManager.existModel("OvertimeRequest")).thenReturn(true);
+            models.when(() -> ModelManager.existField("OvertimeRequest", "approvalStatus")).thenReturn(true);
+            idUtils.when(() -> IdUtils.formatIds(anyString(), anyList()))
+                    .thenAnswer(invocation -> ((List<?>) invocation.getArgument(1)).stream()
+                            .map(id -> Long.valueOf(id.toString())).toList());
+            when(modelService.getByIds(eq("OvertimeRequest"), eq(List.of(10L, 11L)), eq(List.of("id", "approvalStatus"))))
+                    .thenReturn(List.of(Map.of("id", 10L, "approvalStatus", "Cancelled"),
+                            Map.of("id", 11L, "approvalStatus", "Draft")));
+
+            List<FlowInstanceSummaryView> views = composer.summarize(List.of(cancelled, toRevise), null);
+
+            assertTrue(views.get(0).getRecordCancelled());
+            assertFalse(views.get(0).getRecordDeleted());
+            assertFalse(views.get(1).getRecordCancelled());
         }
     }
 

@@ -24,10 +24,14 @@ import io.softa.starter.user.enums.AccountStatus;
 // endpoints without a shadow each. UserAccountController shadows every OTHER generic endpoint so the
 // roster scope applies to by-id reads and writes; copy is the one family the framework refuses on
 // its own once this is false.
+// displayName: the account as pickers and references show it — the person's name (nickname) and the
+// login it signs in with, which tells two people of one name apart. Undeclared, it fell back to the
+// id, and every account picker listed bare numbers.
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         multiTenant = true,
         copyable = false,
+        displayName = {"nickname", "username"},
         searchName = {"nickname", "username"}
 )
 /**

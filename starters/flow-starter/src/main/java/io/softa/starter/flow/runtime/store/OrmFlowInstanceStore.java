@@ -83,7 +83,9 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
         if (instanceIds == null || instanceIds.isEmpty()) {
             return List.of();
         }
-        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByInstanceIds(instanceIds)
+        // Whole rows: a state needs its JSON. The summary projection left out the pending approvals, and every
+        // waiting approval read from it looked as if it waited on nobody — never urgeable.
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findStatesByInstanceIds(instanceIds)
                 .stream()
                 .map(FlowExecutionStateMapper::toState)
                 .toList());
