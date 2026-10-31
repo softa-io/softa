@@ -47,6 +47,11 @@ consulted to decide whether to load it. The three write modes (`LoadMode`) apply
   sits in the file — a new child under a row the scope has included. A row the scope has gets nothing
   written to it, whatever the file now says of it. As in `ADDITIVE`, no child is deleted, and a seeded row
   the scope deleted stays deleted, together with the rows nested in it and any new row that refers to it.
+  A scope may have the row without its binding — a release script inserted it, or someone added it on a
+  page. When the model declares a `businessKey` and the seed row gives all of it, the stored row with that key
+  (active or not) is bound to the preId and left as it is, instead of being created a second time against the
+  key's unique index, which would stop the scope's run at that file. Several stored rows with the key refuse
+  the seed row; a timeline model is not looked up this way.
 
 An inactive row (`active = false`) is not a deleted one: in every mode it is treated like any other row the
 scope has, and never inserted a second time.
@@ -336,7 +341,8 @@ One binding row per seeded business row: `(model, tenantId, preId) → rowId`. A
 seeded model's tenancy: a shared model binds once at system scope, and a multi-tenant model binds once per
 tenant. A deleted row keeps its binding, which is how an `OVERWRITE` load knows to create it again and an
 `ADDITIVE` or `APPEND` one knows to leave it deleted, and how an `APPEND` load tells the rows a scope lacks from
-the ones it has. `frozen = true` on a binding protects the row from every load.
+the ones it has — after binding, by businessKey, a row the scope has without one (see `APPEND` above).
+`frozen = true` on a binding protects the row from every load.
 The ledger is read through the generic model API, so treat `/SysPreData/*` as operator-only.
 
 ## Replaced
