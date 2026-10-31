@@ -391,4 +391,23 @@ public interface PermissionService {
         return new CreateAccess(Set.of());
     }
 
+    /**
+     * The companies the caller may perform {@code accessType} on {@code model} for: the company grants
+     * of the roles holding that action, together.
+     *
+     * <p>For a write that names a company in a field the company axis does not read — a signing entity
+     * beside the {@code companyId} the record belongs to. Row scope bounds the record by its
+     * {@code companyId}; nothing bounds such a field, and checking it by reading the company list is no
+     * answer either, since that read reaches the companies of <em>every</em> role the user holds (any
+     * role without a company grant reaches them all). This asks only the roles that may perform the write.
+     *
+     * <p>Default: {@code null}.
+     *
+     * @return {@code null} when unrestricted (an admin, a bypassed caller, or a holding role with no
+     *         company grant); empty when the caller reaches no company; otherwise exactly those
+     */
+    default Set<Long> getGrantedCompanyIds(String model, AccessType accessType) {
+        return null;
+    }
+
 }

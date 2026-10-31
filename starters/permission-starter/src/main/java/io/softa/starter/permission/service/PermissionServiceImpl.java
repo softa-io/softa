@@ -1397,6 +1397,26 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * {@inheritDoc}
      *
+     * <p>The holders are found as {@link #rowScope} finds them, so the answer bounds the same roles whose
+     * rows the write is bounded by. No snapshot is an empty set: as everywhere here, unknown fails closed.
+     */
+    @Override
+    public Set<Long> getGrantedCompanyIds(String model, AccessType accessType) {
+        if (shouldBypass()) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return Set.of();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        Set<Long> granted = new java.util.TreeSet<>();
+        for (Grant g : holders(pi, model, accessType)) {
+            if (g.companies() == null) return null;
+            granted.addAll(g.companies());
+        }
+        return granted;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p>The same answer {@link #checkWritePayload} refuses by: per model, the sensitive fields none of
      * the caller's roles grants.
      */
