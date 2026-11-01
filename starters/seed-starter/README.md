@@ -38,7 +38,9 @@ Every decision is made per **file**: a file is loaded in a scope or it is not, a
 consulted to decide whether to load it. The three write modes (`LoadMode`) apply once a file loads:
 
 - **`OVERWRITE`**: the file is the data. A row the scope already has is rewritten whole, so a field the
-  file leaves out is cleared. A seeded row the scope deleted is created again. Seeded children that the
+  file leaves out goes back to what a first load gives it: its default value, or null when it has none (an
+  `active` flag the file never mentions stays true; a date defaulting to today keeps the day first stamped).
+  A seeded row the scope deleted is created again. Seeded children that the
   file no longer lists are deleted; children added by hand carry no binding and are kept.
 - **`ADDITIVE`**: a row the scope already has gets only the fields the file names. No child is deleted, and
   a seeded row the scope deleted stays deleted, together with the rows nested in it and any new row that
@@ -262,11 +264,11 @@ file.
 `POST /SeedData/tenants/reapply` with `{"tenantIds": [...], "fileNames": [...]}` runs the named tenant files again
 in the named tenants, whatever their states — loaded and unchanged, changed after load, even loaded by a newer
 build. Each file loads whole over the tenant's copy, as an `overwrite` file does (`OVERWRITE`): the rows the tenant
-has are rewritten from the file, a field the file leaves out is cleared, the seeded rows the tenant deleted are
-created again, and the seeded children the file no longer lists are deleted. What the tenant changed in those rows
-is lost. This is the platform admin's way past *a tenant runs a file once*: while a seed is still being written and
-the tenants of a development or test environment should have what it says now, or for a tenant whose copy went
-wrong. A release still reaches existing tenants with patches and data migrations.
+has are rewritten from the file, a field the file leaves out goes back to its default (or null), the seeded rows
+the tenant deleted are created again, and the seeded children the file no longer lists are deleted. What the
+tenant changed in those rows is lost. This is the platform admin's way past *a tenant runs a file once*: while
+a seed is still being written and the tenants of a development or test environment should have what it says now,
+or for a tenant whose copy went wrong. A release still reaches existing tenants with patches and data migrations.
 
 - **Both lists are required.** There is no "every tenant" and no "every file", and nothing runs unless every file
   is a tenant file of the manifest that every one of the tenants is due (its module and countries), and every

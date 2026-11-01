@@ -72,6 +72,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     /** The rows of earlier loads the load in progress wrote to, by model; bound together with {@link #CREATED}. */
     private static final ScopedValue<Map<String, List<String>>> UPDATED = ScopedValue.newInstance();
 
+    /** Field types whose default may be "today" or "now", a value taken when the row is written. */
+    private static final Set<FieldType> CLOCK_TYPES = EnumSet.of(FieldType.DATE, FieldType.DATE_TIME, FieldType.TIME);
+
     private final ModelService<Serializable> modelService;
     private final PreDataFormatParser formatParser = new PreDataFormatParser();
 
@@ -596,18 +599,16 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 recordUpdated(model, rowId);
                 return rowId;
             }
-            // Overwriting, the update payload is `resolved` plus a null for every updatable field the file
-            // leaves out — "clear what the seed no longer says". Additive, it is `resolved` alone. Held apart
-            // from `resolved` because the recreate path below must not inherit those nulls: a default value
-            // is filled only when the key is ABSENT (BaseProcessor's computeIfAbsent), so creating from the
-            // cleared map would write nulls over the model's defaults and produce a row a first load never
-            // would.
+            // Overwriting, the update payload is `resolved` plus every updatable field the file leaves out,
+            // reset to what a first load would have given it (see resetOmittedFields) — "clear what the
+            // seed no longer says". Additive, it is `resolved` alone. Held apart from `resolved` because the
+            // recreate path below must not inherit those resets: a create fills each default itself.
             Map<String, Object> updatePayload = new LinkedHashMap<>(resolved);
             updatePayload.put(ID, rowId);
             if (overwriting()) {
-                Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
-                clearedFields.removeAll(updatePayload.keySet());
-                clearedFields.forEach(fieldName -> updatePayload.put(fieldName, null));
+                Set<String> omittedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
+                omittedFields.removeAll(updatePayload.keySet());
+                resetOmittedFields(model, omittedFields, updatePayload);
             }
             // A row named by its id alone — a patch reaching a parent only to add children under it — has
             // nothing to write.
@@ -813,9 +814,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * the stored ones (the framework's version insert cuts its neighbours to fit). Versions the file does not
      * describe are left as they are, as rows taken out of a file are.
      *
-     * <p>On an overwriting load, fields the file leaves out are cleared, as on any re-load, except the
-     * timeline's own: the end date is computed from the next version, so clearing it would make a version
-     * that was cut short run on under the next one. An additive load clears nothing.
+     * <p>On an overwriting load, fields the file leaves out are reset ({@link #resetOmittedFields}), as on
+     * any re-load, except the timeline's own: the end date is computed from the next version, so clearing it
+     * would make a version that was cut short run on under the next one. An additive load clears nothing.
      */
     private void writeTimelineVersion(String model, Serializable rowId, String preId, Map<String, Object> resolved) {
         LocalDate startDate = DateUtils.dateToLocalDate(resolved.get(EFFECTIVE_START_DATE));
@@ -827,13 +828,40 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         version.remove(SLICE_ID);
         version.remove(EFFECTIVE_END_DATE);
         if (overwriting()) {
-            Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
-            clearedFields.removeAll(version.keySet());
-            clearedFields.removeAll(TIMELINE_FIELDS);
-            clearedFields.forEach(fieldName -> version.put(fieldName, null));
+            Set<String> omittedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
+            omittedFields.removeAll(version.keySet());
+            omittedFields.removeAll(TIMELINE_FIELDS);
+            resetOmittedFields(model, omittedFields, version);
         }
         // Same start date: the stored version is corrected in place. Any other: the version is inserted.
         modelService.addVersion(model, version);
+    }
+
+    /**
+     * Reset the fields an overwriting load's file leaves out to what a first load of the same file would
+     * have written: the field's default value, or null when it has none.
+     *
+     * <p>Writing null regardless left a re-load with a row the first load never makes. An active-control
+     * model's {@code active} defaults to true, so a file that never mentions it had every row it seeded
+     * deactivated on the second load, and the rows vanished from every list and lookup that reads active
+     * rows only.
+     *
+     * <p>A date or time field whose default is "today" or "now" is left out of the write: the first load
+     * stamped the day it ran, and a re-load has no better value to put there.
+     *
+     * @param model         model name
+     * @param omittedFields the updatable fields the file leaves out
+     * @param row           the row being written, which the resets are added to
+     */
+    private static void resetOmittedFields(String model, Set<String> omittedFields, Map<String, Object> row) {
+        for (String fieldName : omittedFields) {
+            MetaField field = ModelManager.getModelField(model, fieldName);
+            Object defaultValue = field.getDefaultValueObject();
+            if (defaultValue instanceof String && CLOCK_TYPES.contains(field.getFieldType())) {
+                continue;
+            }
+            row.put(fieldName, defaultValue);
+        }
     }
 
     /**

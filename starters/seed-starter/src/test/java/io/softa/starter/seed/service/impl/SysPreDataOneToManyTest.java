@@ -414,6 +414,26 @@ class SysPreDataOneToManyTest {
         assertFalse(created.getValue().containsKey("id"), created.getValue().toString());
     }
 
+    @Test
+    void anOverwriteResetsAFieldTheFileLeavesOutToWhatAFirstLoadWouldWrite() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+
+        withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow())));
+
+        ArgumentCaptor<Map<String, Object>> updated = captor();
+        verify(modelService).updateOne(eq(PARENT), updated.capture());
+        // The file never mentions `active`. A first load leaves it to the default and the row is active;
+        // a null here deactivated every seeded row on the second load, and every list reading active rows
+        // only came back empty.
+        assertEquals(true, updated.getValue().get("active"));
+        // A field with no default is still cleared.
+        assertTrue(updated.getValue().containsKey("description"), updated.getValue().toString());
+        assertNull(updated.getValue().get("description"));
+        // A date defaulting to today keeps the day the first load stamped.
+        assertFalse(updated.getValue().containsKey("effectiveDate"), updated.getValue().toString());
+    }
+
     // ---- fixtures --------------------------------------------------------
 
     /** The parent row as the file declares it: the preId under `id`, one column, and its children. */
@@ -504,9 +524,17 @@ class SysPreDataOneToManyTest {
         // `mm.when(...)` is nested stubbing, which Mockito rejects.
         MetaField parentId = field(FieldType.LONG);
         MetaField parentLabel = field(FieldType.STRING);
+        MetaField parentDescription = field(FieldType.STRING);
+        // The active-control flag, whose default the catalog materializes as true.
+        MetaField parentActive = field(FieldType.BOOLEAN);
+        when(parentActive.getDefaultValueObject()).thenReturn(true);
+        // A date defaulting to the day the row is written.
+        MetaField parentEffectiveDate = field(FieldType.DATE);
+        when(parentEffectiveDate.getDefaultValueObject()).thenReturn("TODAY");
         MetaField optionItems = relation(FieldType.ONE_TO_MANY, CHILD, CHILD_FK);
         MetaField childId = field(FieldType.LONG);
         MetaField childItemCode = field(FieldType.STRING);
+        MetaField childLabel = field(FieldType.STRING);
         MetaField childFk = relation(FieldType.MANY_TO_ONE, PARENT, null);
         MetaModel multiTenant = mock(MetaModel.class);
         when(multiTenant.isMultiTenant()).thenReturn(true);
@@ -518,15 +546,19 @@ class SysPreDataOneToManyTest {
             mm.when(() -> ModelManager.isMultiTenantModel(CHILD)).thenReturn(true);
             mm.when(() -> ModelManager.getModelField(PARENT, "id")).thenReturn(parentId);
             mm.when(() -> ModelManager.getModelField(PARENT, "label")).thenReturn(parentLabel);
+            mm.when(() -> ModelManager.getModelField(PARENT, "description")).thenReturn(parentDescription);
+            mm.when(() -> ModelManager.getModelField(PARENT, "active")).thenReturn(parentActive);
+            mm.when(() -> ModelManager.getModelField(PARENT, "effectiveDate")).thenReturn(parentEffectiveDate);
             mm.when(() -> ModelManager.getModelField(PARENT, "optionItems")).thenReturn(optionItems);
             mm.when(() -> ModelManager.getModelField(CHILD, "id")).thenReturn(childId);
             mm.when(() -> ModelManager.getModelField(CHILD, "itemCode")).thenReturn(childItemCode);
+            mm.when(() -> ModelManager.getModelField(CHILD, "label")).thenReturn(childLabel);
             mm.when(() -> ModelManager.getModelField(CHILD, CHILD_FK)).thenReturn(childFk);
             mm.when(() -> ModelManager.getIdStrategy(PARENT)).thenReturn(IdStrategy.DISTRIBUTED_LONG);
             mm.when(() -> ModelManager.getIdStrategy(CHILD)).thenReturn(IdStrategy.DISTRIBUTED_LONG);
             // Mutable: the update branch removes the seeded keys from it in place.
             mm.when(() -> ModelManager.getModelUpdatableFieldsWithoutXToMany(PARENT))
-                    .thenReturn(new HashSet<>(Set.of("label", "description")));
+                    .thenReturn(new HashSet<>(Set.of("label", "description", "active", "effectiveDate")));
             mm.when(() -> ModelManager.getModelUpdatableFieldsWithoutXToMany(CHILD))
                     .thenReturn(new HashSet<>(Set.of("itemCode", "label")));
             return action.get();

@@ -44,8 +44,9 @@ How a change to a file reaches data that is already loaded depends on its level
 and its `mode`:
 
 - **Platform files** are the data. When one changes, the next platform load
-  loads it again, whole: a field the file no longer names is cleared, and a
-  seeded child the file no longer lists is deleted.
+  loads it again, whole: a field the file no longer names goes back to its
+  default value (null when it has none), and a seeded child the file no longer
+  lists is deleted.
 - **Tenant files run once per tenant** (`mode: once`, the default), and what a
   tenant changes afterwards is the tenant's. An edit to a released tenant file
   reaches only tenants created after it, so what existing tenants need goes out

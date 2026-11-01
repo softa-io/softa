@@ -305,6 +305,8 @@ class SysPreDataTimelineTest {
         MetaField code = field(FieldType.STRING);
         MetaField value = field(FieldType.STRING);
         MetaField start = field(FieldType.DATE);
+        MetaField description = field(FieldType.STRING);
+        MetaField end = field(FieldType.DATE);
         MetaModel shared = mock(MetaModel.class);
         when(shared.isMultiTenant()).thenReturn(false);
         when(shared.getBusinessKey()).thenReturn(List.of("code"));
@@ -317,6 +319,8 @@ class SysPreDataTimelineTest {
             mm.when(() -> ModelManager.getModelField(MODEL, "code")).thenReturn(code);
             mm.when(() -> ModelManager.getModelField(MODEL, "value")).thenReturn(value);
             mm.when(() -> ModelManager.getModelField(MODEL, "effectiveStartDate")).thenReturn(start);
+            mm.when(() -> ModelManager.getModelField(MODEL, "description")).thenReturn(description);
+            mm.when(() -> ModelManager.getModelField(MODEL, "effectiveEndDate")).thenReturn(end);
             mm.when(() -> ModelManager.getIdStrategy(MODEL)).thenReturn(IdStrategy.DISTRIBUTED_LONG);
             // Mutable: the update removes the seeded keys from it in place.
             mm.when(() -> ModelManager.getModelUpdatableFieldsWithoutXToMany(MODEL)).thenReturn(new HashSet<>(
