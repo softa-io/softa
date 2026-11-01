@@ -284,6 +284,40 @@ class MyCredentialServiceTest {
     }
 
     @Test
+    void aCallerWithNoRoleAtAll_stillGetsTheirSummary_andChangesTheirPassword() {
+        // A new employee who just joined holds no role, so their data scope reaches no account: any
+        // read of their own account or identity under the permission check is refused with 403.
+        when(accountService.getById(ACCOUNT)).thenAnswer(inv -> {
+            refuseUnlessUnchecked();
+            return Optional.of(account);
+        });
+        when(identityService.findByProfile(ADA)).thenAnswer(inv -> {
+            refuseUnlessUnchecked();
+            return Optional.of(ada);
+        });
+        when(loginService.myTenants(ACCOUNT)).thenAnswer(inv -> {
+            refuseUnlessUnchecked();
+            return List.of(new MembershipOption(ACCOUNT, 1L, "Acme", AccountStatus.ACTIVE, false, false, null, true));
+        });
+
+        MyAccountSummary summary = signedIn(service::summary);
+        String ticket = signedIn(() -> service.verifyCodeForPassword("123456"));
+        signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
+
+        assertThat(summary.tenantCount()).isEqualTo(1);
+        assertThat(summary.maskedLoginMobile()).isEqualTo("+65 912****67");
+        verify(identityService).setPassword(11L, "N3w-Passw0rd!");
+    }
+
+    /** What the permission engine does to a caller whose scope reaches nothing. */
+    private static void refuseUnlessUnchecked() {
+        if (!ContextHolder.getContext().isSkipPermissionCheck()) {
+            throw new io.softa.framework.base.exception.PermissionException(
+                    "Some UserAccount ids are outside your READ scope");
+        }
+    }
+
+    @Test
     void aLiftedLock_isRecordedWhenThePasswordChanges() {
         ada.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(5));
         when(identityService.isPasswordLocked(ada)).thenReturn(true);

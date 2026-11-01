@@ -11,6 +11,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.SmsRequestMessage;
@@ -89,8 +90,73 @@ public class MyCredentialServiceImpl implements MyCredentialService {
     @Autowired(required = false)
     private TenantInfoService tenantInfoService;
 
+    // Every entry point acts on the caller alone — the account the session signed in, and the person
+    // and records behind it — so none of it depends on the caller's roles or data scope: an employee
+    // who joined a minute ago holds no role and must still be able to use "Me". The reads and writes
+    // run in a context with the permission check off, set explicitly (an annotation on a method this
+    // class calls on itself would never reach the proxy); what keeps them to the caller is that every
+    // record is found from the account id the session carries, never from the request.
     @Override
     public MyAccountSummary summary() {
+        return asSelf(() -> this.summaryAsSelf());
+    }
+
+    @Override
+    public void sendCurrentMobileCode() {
+        asSelf(() -> {
+            this.sendCurrentMobileCodeAsSelf();
+            return null;
+        });
+    }
+
+    @Override
+    public String verifyCodeForPassword(String code) {
+        return asSelf(() -> this.verifyCodeForPasswordAsSelf(code));
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(String ticket, String newPassword) {
+        asSelf(() -> {
+            this.changePasswordAsSelf(ticket, newPassword);
+            return null;
+        });
+    }
+
+    @Override
+    public String verifyCurrentForMobile(String method, String code, String password) {
+        return asSelf(() -> this.verifyCurrentForMobileAsSelf(method, code, password));
+    }
+
+    @Override
+    public String checkNewMobile(String ticket, String newMobile) {
+        return asSelf(() -> this.checkNewMobileAsSelf(ticket, newMobile));
+    }
+
+    @Override
+    public void resendNewMobileCode(String ticket) {
+        asSelf(() -> {
+            this.resendNewMobileCodeAsSelf(ticket);
+            return null;
+        });
+    }
+
+    @Override
+    @Transactional
+    public void confirmNewMobile(String ticket, String code) {
+        asSelf(() -> {
+            this.confirmNewMobileAsSelf(ticket, code);
+            return null;
+        });
+    }
+
+    private static <T> T asSelf(java.util.function.Supplier<T> action) {
+        Context context = ContextHolder.cloneContext();
+        context.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(context, action::get);
+    }
+
+    private MyAccountSummary summaryAsSelf() {
         UserAccount account = this.currentAccount();
         String loginMobile = identityService.findByProfile(account.getProfileId())
                 .map(UserIdentity::getLoginMobile).orElse(null);
@@ -106,22 +172,18 @@ public class MyCredentialServiceImpl implements MyCredentialService {
                 here != null ? here.status() : account.getStatus());
     }
 
-    @Override
-    public void sendCurrentMobileCode() {
+    private void sendCurrentMobileCodeAsSelf() {
         this.sendCode(this.loginMobileOf(this.currentIdentity()));
     }
 
-    @Override
-    public String verifyCodeForPassword(String code) {
+    private String verifyCodeForPasswordAsSelf(String code) {
         UserAccount account = this.currentAccount();
         UserIdentity identity = this.identityOf(account);
         codeGuard.verify(this.loginMobileOf(identity), code);
         return this.issue(new Ticket(Step.CHANGE_PASSWORD, account.getProfileId(), account.getId(), null));
     }
 
-    @Override
-    @Transactional
-    public void changePassword(String ticket, String newPassword) {
+    private void changePasswordAsSelf(String ticket, String newPassword) {
         UserAccount account = this.currentAccount();
         Ticket held = this.require(ticket, Step.CHANGE_PASSWORD, account);
         UserIdentity identity = this.identityOf(account);
@@ -138,8 +200,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         securityLog.record(securityLog.entry(SecurityAction.PASSWORD_CHANGED, this.source(), account, null));
     }
 
-    @Override
-    public String verifyCurrentForMobile(String method, String code, String password) {
+    private String verifyCurrentForMobileAsSelf(String method, String code, String password) {
         UserAccount account = this.currentAccount();
         UserIdentity identity = this.identityOf(account);
         if ("password".equalsIgnoreCase(method)) {
@@ -152,8 +213,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         return this.issue(new Ticket(Step.NAME_NEW_MOBILE, account.getProfileId(), account.getId(), null));
     }
 
-    @Override
-    public String checkNewMobile(String ticket, String newMobile) {
+    private String checkNewMobileAsSelf(String ticket, String newMobile) {
         UserAccount account = this.currentAccount();
         this.require(ticket, Step.NAME_NEW_MOBILE, account);
         String mobile = LoginIdentifiers.normalize(StringUtils.trimToNull(newMobile));
@@ -168,15 +228,12 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         return this.issue(new Ticket(Step.CONFIRM_NEW_MOBILE, account.getProfileId(), account.getId(), mobile));
     }
 
-    @Override
-    public void resendNewMobileCode(String ticket) {
+    private void resendNewMobileCodeAsSelf(String ticket) {
         Ticket held = this.require(ticket, Step.CONFIRM_NEW_MOBILE, this.currentAccount());
         this.sendCode(held.mobile());
     }
 
-    @Override
-    @Transactional
-    public void confirmNewMobile(String ticket, String code) {
+    private void confirmNewMobileAsSelf(String ticket, String code) {
         UserAccount account = this.currentAccount();
         Ticket held = this.require(ticket, Step.CONFIRM_NEW_MOBILE, account);
         codeGuard.verify(held.mobile(), code);
