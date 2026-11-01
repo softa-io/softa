@@ -1058,6 +1058,24 @@ Primary storage adapters in this module:
 - **Definitions** are cached by `bundleId` in a bounded LRU (a published revision never changes). A bundle of another tenant reads as not found, whether cached or not; platform-shared bundles are visible to every tenant.
 - **The active revision of a flow** is read from the database on every lookup — none while the flow is disabled — so starting by `flowId` follows a publish, rollback, disable or enable made on any instance.
 
+### Stored enum codes
+
+The flow models store enum codes as text: in their enum columns (`scenario`, the statuses, approval actions) and in
+their JSON — `FlowDesign.designJson`, `FlowBundle.designJson` and `FlowBundle.compiledJson` hold the scenario, the
+trigger and node types, every option inside a node's config and an approver source's `type` / `relativeTo` /
+`deptScope`, and an instance keeps its state as JSON. A read throws on a code the enum no longer has (unknown enum
+values are deliberately not read as null), so **renaming or removing a stored code ships a migration SQL that
+rewrites the stored rows, in the same change**. Without one, every flow still holding the old code fails to load,
+publish or reapply — as the flows stored as `Process` did when that scenario was split into `Approval` and
+`Automation`. Renaming a key inside the JSON needs the same: an unknown key reads as absent, so its value is silently
+lost. The model is zingkey-hcm's
+`deploy/hcm-app/release/Release-20261030/20261029-approval-center/01-before-jar-withdraw-policy.sql`, which moved
+`allowInitiatorWithdraw` to `withdrawPolicy` in all three JSON columns, text or jsonb.
+
+`StoredDesignJsonTest` reads designs as databases hold them (fixtures in `src/test/resources/stored-designs`) with
+the runtime's Jackson settings and fails the build when an enum change strands one. A failing fixture means writing
+the migration, never editing the fixture; add a fixture when a new design shape reaches a database.
+
 ## Node Descriptor Contract
 
 The editor palette is built from `FlowNodeDescriptor` records exposed through `/flow/nodeDescriptors`.

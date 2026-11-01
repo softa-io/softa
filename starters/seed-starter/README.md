@@ -150,6 +150,7 @@ converts line endings does not make every file look changed:
 | `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a `once` tenant file. Its change reaches new tenants only; existing tenants get new rows from a patch and changed rows from a data migration, or the whole file from a reapply | no |
 | `LOADED_BY_NEWER_BUILD` | A file that reloads, last loaded by a build made after the one running, and different here: an older build is deployed, after a rollback. Loading it would put older content over newer | no |
 | `FAILED` | The latest attempt failed | yes |
+| `REAPPLY_FAILED` | A tenant file a run does not pick up (`LOADED`, `CHANGED_AFTER_LOAD` or `LOADED_BY_NEWER_BUILD`) whose reapply of the file as it is now failed. The reapply rolled back, so the tenant keeps what it had; reapply again once the cause is fixed. A run still does not take it: a `once` file would load over what the tenant changed | no |
 
 Each record carries the build time of the instance that wrote it (Spring Boot's `BuildProperties`, so the
 application's `spring-boot-maven-plugin` needs the `build-info` goal). Without build times on both sides
@@ -268,7 +269,9 @@ wrong. A release still reaches existing tenants with patches and data migrations
   tenant is set up.
 - **It runs as a run does**: in the background, as a `Reapply` batch; the files in manifest order, whatever order
   they are named in, each in a transaction of its own; a tenant stops at its first failure. Each file is recorded,
-  so one that succeeds reads as `LOADED` afterwards, and a failure changes nothing about what a run picks up.
+  so one that succeeds reads as `LOADED` afterwards, and a failure changes nothing about what a run picks up: a
+  file a run would not take reads as `REAPPLY_FAILED`, and one it would take anyway (never loaded, or a changed
+  `append` or `overwrite` file) as `FAILED`.
 - **What it does not touch**: a row whose binding is `frozen`, and a top-level row the file no longer lists — no
   binding says which file a row came from, so remove that one by hand or with a data migration. A seeded child the
   file no longer lists is deleted through its model's `onDelete` rules, so one that business data refers to under

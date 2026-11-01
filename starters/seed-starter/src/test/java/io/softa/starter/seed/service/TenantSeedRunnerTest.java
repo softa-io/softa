@@ -21,6 +21,8 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.seed.dto.FileState;
+import io.softa.starter.seed.dto.TenantPendingSummary;
+import io.softa.starter.seed.dto.TenantSeedSummary;
 import io.softa.starter.seed.entity.SeedLoadRecord;
 import io.softa.starter.seed.entity.SysPreData;
 import io.softa.starter.seed.event.SeedFileLoadedEvent;
@@ -189,6 +191,36 @@ class TenantSeedRunnerTest {
         assertEquals(0, outcome.files());
         verify(preDataService, never()).loadPreTenantData(anyList(), anyLong(), any());
         verify(cacheService, never()).clearByPrefix(any());
+    }
+
+    @Test
+    void aRunLeavesAFailedReapplyAlone() {
+        MANIFEST.tenantFiles().forEach(file -> states.put(file.file(), FileState.LOADED));
+        // A run-once file whose reapply failed: a run would load it over what the tenant changed.
+        states.put("LeaveType.json", FileState.REAPPLY_FAILED);
+
+        assertEquals(0, runner.runTenant(42L, TENANT).files());
+        verify(preDataService, never()).loadPreTenantData(anyList(), anyLong(), any());
+    }
+
+    @Test
+    void theSummaryCountsAFailedReapplyAsFailedButNotPending() {
+        states.put("SysSequence.json", FileState.CHANGED_AFTER_LOAD);
+        states.put("Role.Tenant.json", FileState.FAILED);
+        states.put("MailTemplate.json", FileState.LOADED);
+        states.put("LeaveType.json", FileState.REAPPLY_FAILED);
+        when(planner.provisionedTenantIds()).thenReturn(List.of(TENANT));
+
+        TenantSeedSummary summary = runner.summaries(List.of(TENANT)).getFirst();
+
+        assertEquals(4, summary.dueFiles());
+        // A failed reapply ran before and does not run again, and its latest attempt failed.
+        assertEquals(3, summary.loadedFiles());
+        assertEquals(1, summary.pendingFiles());
+        assertEquals(2, summary.failedFiles());
+        assertEquals(1, summary.changedAfterLoadFiles());
+        // A run of every tenant takes only the failed overwrite file.
+        assertEquals(new TenantPendingSummary(1, 1), runner.pending());
     }
 
     @Test
