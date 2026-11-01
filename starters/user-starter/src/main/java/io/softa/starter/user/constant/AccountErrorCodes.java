@@ -39,6 +39,10 @@ public final class AccountErrorCodes {
     public static final String PASSWORD_ALREADY_SET = "PASSWORD_ALREADY_SET";
     /** The APP asked to enter a company before setting the first password it owes. */
     public static final String PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
+    /** A step ticket of a self-service change (password, login mobile) expired, was used, or is not this step's. */
+    public static final String TICKET_EXPIRED = "TICKET_EXPIRED";
+    /** The person has no login mobile, so no code can be sent to it. */
+    public static final String MOBILE_NOT_SET = "MOBILE_NOT_SET";
     /** The single-use sign-in token expired or was already used. */
     public static final String AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED";
 

@@ -715,12 +715,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             return false;
         }
         UserIdentity holder = identityService.findByLoginIdentifier(mobile).orElse(null);
-        // listMembershipsOf leaves Deactivated out: anything it returns — Active, Frozen, Pending,
-        // Invited — is a person still in some company, whose number stays theirs. So is a person a
-        // company has reopened a row for and is waiting to have back: /join recognises them by
-        // this very number.
-        if (holder == null || !this.listMembershipsOf(holder.getProfileId()).isEmpty()
-                || this.isAwaitedBack(holder.getProfileId())) {
+        if (!this.isDormant(holder)) {
             return false;
         }
         String released = holder.getLoginMobile();
@@ -733,6 +728,27 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         securityLog.record(row);
         log.info("Released dormant login mobile from profile {} ({}).", holder.getProfileId(), scenario);
         return true;
+    }
+
+    @Override
+    @CrossTenant
+    @SkipPermissionCheck
+    public boolean isDormantLoginMobile(String mobile) {
+        if (StringUtils.isBlank(mobile) || mobile.contains("@")) {
+            return false;
+        }
+        return this.isDormant(identityService.findByLoginIdentifier(mobile).orElse(null));
+    }
+
+    /**
+     * Whether the holder of a login mobile has left every company. listMembershipsOf leaves
+     * Deactivated out: anything it returns — Active, Frozen, Pending, Invited — is a person still in
+     * some company, whose number stays theirs. So is a person a company has reopened a row for and
+     * is waiting to have back: /join recognises them by this very number.
+     */
+    private boolean isDormant(UserIdentity holder) {
+        return holder != null && this.listMembershipsOf(holder.getProfileId()).isEmpty()
+                && !this.isAwaitedBack(holder.getProfileId());
     }
 
     /** Whether a row reopened for this person's re-hire is still waiting for them to join. */

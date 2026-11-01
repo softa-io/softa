@@ -441,7 +441,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         return result;
     }
 
-    private static String lockedMessage() {
+    static String lockedMessage() {
         return "Too many failed attempts. Password login is locked for " + LOCK_MINUTES
                 + " minutes. You can still log in with a verification code.";
     }
@@ -451,7 +451,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * the attempts left — early guesses get the bare refusal, because a countdown from the
      * first attempt tells whoever is guessing exactly how many tries they have left.
      */
-    private static BusinessException wrongPassword(long failures) {
+    static BusinessException wrongPassword(long failures) {
         if (failures < WARN_FROM_FAILURE) {
             return AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_INCORRECT, "Incorrect account or password.");
         }
