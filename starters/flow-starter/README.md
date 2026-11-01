@@ -502,7 +502,7 @@ Base path: `/flow/approvalTasks`
 | `GET` | `/flow/approvalTasks/inbox?flowId=&instanceId=&nodeId=&includeCompletedApprovals=&pageNumber=&pageSize=` | Unified inbox view (pending approvals + CC; optional completed approvals) |
 | `GET` | `/flow/approvalTasks/instance/{instanceId}` | All tasks for one runtime instance (participants / initiator only) |
 
-Each task (`FlowApprovalTaskView`) carries its holder's name (`actorName`) and comes with its instance's context —
+Each task (`FlowApprovalTaskView`) carries its holder's name (`actorName`), the names of every account it names (`actorNames`, by id: its candidates, who approved, rejected, closed or blocks it) and comes with its instance's context —
 `instanceTitle`, `modelName` / `rowId`, `instanceStatus`, the `initiator` and `submittedTime`, and what a record's
 approval recorded of its record (`subject`, `subjectDept`, `effectiveDate`, `recordCode`), every user, employee and
 department named — and with what its step's configuration says about acting on it, read from the revision the
