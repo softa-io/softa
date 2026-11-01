@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
@@ -17,6 +18,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
 import io.softa.starter.flow.runtime.StubFlowInstanceStore;
+import io.softa.starter.flow.runtime.TestActorAccounts;
 import io.softa.starter.flow.runtime.TestFlowRuntimeFactory;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
@@ -99,6 +101,19 @@ class ApprovalTimeoutSchedulerTest {
         scheduler.handleTimedOutTasks();
 
         assertTrue(reminders.isEmpty());
+    }
+
+    @Test
+    void anEscalationToSomeoneWhoCannotActRemindsInstead() {
+        // The user the step escalates to has a frozen account.
+        ReflectionTestUtils.setField(scheduler, "actorAccounts", TestActorAccounts.of(Map.of(2009L, "Frozen"), Map.of()));
+        PendingApproval step = startPastDeadline(Map.of("timeoutHours", 24, "timeoutStrategy", "Escalate",
+                "escalateToUserId", "2009"));
+
+        scheduler.handleTimedOutTasks();
+
+        assertEquals(List.of(APPROVER), step.getApprovers(), "the step stays with its approver");
+        assertEquals(1, reminders.size(), "who is reminded instead");
     }
 
     @Test

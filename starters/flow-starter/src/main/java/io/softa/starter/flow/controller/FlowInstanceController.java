@@ -302,8 +302,9 @@ public class FlowInstanceController {
     @PostMapping("/search")
     @Operation(summary = "Search my flow instances",
             description = "Paged summaries of the caller's own instances — the initiator filter is always "
-                    + "the authenticated user (any requested initiatorId is overridden). Heavy JSON state "
-                    + "columns and the trace are excluded; fetch a single instance or its overlay for detail. "
+                    + "the authenticated user (any requested initiatorId is overridden), and the request's filters "
+                    + "and orders, on stored fields of FlowInstance only, narrow and sort within them. Heavy JSON "
+                    + "state columns and the trace are excluded; fetch a single instance or its overlay for detail. "
                     + "Cross-initiator monitoring lives on POST /flow/monitor/instances/search.")
     // Pinned to the caller, so row scope could only empty it: FlowInstance is granted to no business role.
     @SkipPermissionCheck

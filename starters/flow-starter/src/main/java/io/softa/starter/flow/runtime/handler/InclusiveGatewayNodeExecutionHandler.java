@@ -11,9 +11,9 @@ import io.softa.starter.flow.runtime.context.FlowVariableContext;
  * Handler for {@link FlowNodeType#INCLUSIVE_GATEWAY} nodes.
  * <p>
  * An inclusive gateway (OR gateway) selects all outgoing edges whose conditions
- * evaluate to {@code true} (N ≥ 1). The routing logic itself — evaluating each
- * outgoing edge's condition expression against the current context — is delegated
- * to the engine orchestrator.
+ * evaluate to {@code true} (N ≥ 1), and its default edge — the one without a condition —
+ * only when none does. The routing logic itself — evaluating each outgoing edge's
+ * condition against the current context — is delegated to {@code FlowGatewayRouter}.
  * </p>
  * <p>
  * This handler returns empty outputs so the engine can record a step snapshot

@@ -3,13 +3,7 @@ package io.softa.starter.flow.service;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,7 +12,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.ModelService;
@@ -32,20 +25,13 @@ import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.entity.FlowInstance;
-import io.softa.starter.flow.enums.ApprovalOutcomeType;
-import io.softa.starter.flow.enums.ApprovalStatus;
-import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.enums.FlowScenario;
-import io.softa.starter.flow.enums.WithdrawPolicy;
-import io.softa.starter.flow.runtime.LeaveRequest;
-import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
-import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
-import io.softa.starter.flow.runtime.StubFlowInstanceStore;
-import io.softa.starter.flow.runtime.TestFlowRuntimeFactory;
+import io.softa.starter.flow.enums.*;
+import io.softa.starter.flow.runtime.*;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
+import io.softa.starter.flow.runtime.exception.FlowNoApproverException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
@@ -61,10 +47,9 @@ import io.softa.starter.flow.service.impl.FlowLaunchServiceImpl;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.argThat;
 
 /**
  * Record submission end to end on the in-memory engine: the submit trigger chooses the flow, the
@@ -186,6 +171,22 @@ class FlowRecordSubmissionTest {
         order.verify(handler).validate(argThat(leave -> leave.getDays() == 3 && "Annual".equals(leave.getLeaveType())));
         order.verify(handler).submission(any());
         order.verify(handler).afterSubmitted(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.PENDING));
+        verify(handler, never()).afterOutcome(any(), any());
+    }
+
+    @Test
+    void aStepWithNobodyToApproveRefusesTheSubmissionWhole() {
+        // No approver, and the empty-approver strategy is Error unless set.
+        publishService.publish("annual", approvalFlow("Annual leave", List.of()));
+
+        FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
+                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+
+        assertEquals("No approver was found for step 'Manager'. Ask your HR administrator to set one up, then try again.",
+                refused.getMessage());
+        // The submission's transaction rolls back the record with it; the engine keeps no failed instance either.
+        assertTrue(instanceStore.listByStatus(FlowExecutionStatus.FAILED).isEmpty());
+        assertTrue(createdAt.isEmpty(), "no instance was saved");
         verify(handler, never()).afterOutcome(any(), any());
     }
 

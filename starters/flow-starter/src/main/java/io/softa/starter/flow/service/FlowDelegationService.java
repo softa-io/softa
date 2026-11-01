@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import io.softa.starter.flow.dto.FlowDelegationFlowView;
 import io.softa.starter.flow.entity.FlowDelegation;
 
 /**
@@ -15,6 +16,13 @@ public interface FlowDelegationService {
      * Create a delegation rule and return the saved entity.
      */
     FlowDelegation createDelegation(FlowDelegation delegation);
+
+    /**
+     * The approval flows a delegation rule can be scoped to: every enabled Approval flow of the current tenant with
+     * an effective revision, with that revision's approval steps, by flow name. Read with the caller's permissions;
+     * the endpoint serving it waives row scope.
+     */
+    List<FlowDelegationFlowView> listDelegableFlows();
 
 
     /**

@@ -43,6 +43,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
+import io.softa.starter.flow.runtime.TestActorAccounts;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
@@ -221,6 +222,24 @@ class FlowApprovalPreviewTest {
     }
 
     @Test
+    void aDelegationToSomeoneWhoCannotActDoesNotApply() {
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approvers", List.of(MANAGER)))));
+        FlowDelegation delegation = new FlowDelegation();
+        delegation.setId(9L);
+        delegation.setDelegatorId(MANAGER);
+        delegation.setDelegateId(DEPUTY);
+        when(delegations.findActiveDelegation(eq(MANAGER), any(), any(), any())).thenReturn(Optional.of(delegation));
+        // The deputy's account is frozen.
+        ReflectionTestUtils.setField(ReflectionTestUtils.getField(pendingApprovalFactory, "autoDelegationService"),
+                "actorAccounts", TestActorAccounts.of(Map.of(2003L, "Frozen"), NAMES));
+
+        FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
+
+        // The step stays with the manager, as it would once submitted.
+        assertEquals(List.of(new Actor(MANAGER, "Bob")), preview.getSteps().getFirst().getApprovers());
+    }
+
+    @Test
     void nothingIsSubmittedStartedOrWritten() {
         publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approvers", List.of(MANAGER))),
                 approval("self", "Self review", Map.of("approvers", List.of(SUBMITTER)))));
@@ -280,8 +299,10 @@ class FlowApprovalPreviewTest {
 
         assertEquals(List.of(StepOutcome.NO_APPROVER_APPROVED, StepOutcome.NO_APPROVER_SKIPPED,
                 StepOutcome.NO_APPROVER_FAILS), outcomes(preview));
-        // The approval would stop there with an error: the steps after it are never reached.
-        assertEquals(new Stop("stop", "Stop", "Approval node 'stop' resolved an empty approver list (strategy=ERROR)"),
+        // The submission would be refused there, with the message it would be refused with: the steps after it are
+        // never reached.
+        assertEquals(new Stop("stop", "Stop", "No approver was found for step 'Stop'. "
+                        + "Ask your HR administrator to set one up, then try again."),
                 preview.getFailure());
     }
 

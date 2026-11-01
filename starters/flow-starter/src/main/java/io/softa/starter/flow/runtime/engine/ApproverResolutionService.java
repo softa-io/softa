@@ -35,6 +35,10 @@ public class ApproverResolutionService {
     @Autowired(required = false)
     private OrganizationService organizationService;
 
+    /** Who can act: approvers and CC recipients whose account cannot are dropped, wherever they were found. */
+    @Autowired(required = false)
+    private ActorAccounts actorAccounts;
+
     public List<String> resolveApprovers(CompiledFlowNode node) {
         if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApprovers() == null) {
             return List.of();
@@ -61,7 +65,8 @@ public class ApproverResolutionService {
 
     /**
      * People found the way an approval step's approvers are — named users, or a dynamic source in
-     * {@code approverSource}'s shape — for a list that is not a step's: a flow's CC rule.
+     * {@code approverSource}'s shape — for a list that is not a step's: a flow's CC rule. Those who cannot
+     * act are left out, as a step's approvers are.
      */
     public List<String> resolvePeople(List<String> users, Map<String, Object> source, FlowExecutionState state) {
         CompiledFlowNode asStep = CompiledFlowNode.builder()
@@ -70,7 +75,17 @@ public class ApproverResolutionService {
         return resolveApprovers(asStep, resolutionVariables(state.getVariables(), state.getInitiatorId()));
     }
 
+    /**
+     * The approvers of a step reached with {@code variables}: its named users, or those its dynamic source finds —
+     * less the users who cannot act ({@link ActorAccounts}), dropped the way the organization lookups drop a
+     * supervisor who left. A step left with nobody follows its empty-approver strategy.
+     */
     public List<String> resolveApprovers(CompiledFlowNode node, Map<String, Object> variables) {
+        List<String> approvers = resolveCandidates(node, variables);
+        return actorAccounts == null || approvers.isEmpty() ? approvers : actorAccounts.usable(approvers);
+    }
+
+    private List<String> resolveCandidates(CompiledFlowNode node, Map<String, Object> variables) {
         if (!hasDynamicApproverSource(node)) {
             return resolveApprovers(node);
         }

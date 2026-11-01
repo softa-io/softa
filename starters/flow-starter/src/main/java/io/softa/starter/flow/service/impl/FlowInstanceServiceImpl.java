@@ -47,6 +47,7 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 import io.softa.starter.flow.service.FlowInstanceService;
+import io.softa.starter.flow.service.support.CallerConditions;
 import io.softa.starter.flow.service.support.FlowUserNames;
 import io.softa.starter.flow.service.support.RecordFieldDefinitions;
 
@@ -247,6 +248,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
 
     @Override
     public Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId) {
+        CallerConditions.requireStoredFields(modelName, request.filters(), request.orders());
         Filters filters = new Filters();
         if (request.flowId() != null) {
             filters.eq(FlowInstance::getFlowId, request.flowId());
@@ -295,7 +297,9 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             filters.eq(FlowInstance::getStatus, FlowExecutionStatus.RETURNED)
                     .ne(FlowInstance::getSuperseded, true);
         }
-        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowInstance::getCreatedTime));
+        // The caller's own conditions narrow what the rest selects — the initiator pin included — never widen it.
+        FlexQuery query = new FlexQuery(CallerConditions.and(filters, request.filters()),
+                CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowInstance::getCreatedTime)));
         query.select(INSTANCE_SUMMARY_FIELDS);
         Page<FlowInstance> page = Page.of(
                 request.pageNumber() == null ? 1 : request.pageNumber(),

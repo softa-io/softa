@@ -114,6 +114,11 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         try {
             orchestrator.executeRoot(definition, state);
         } catch (RuntimeException e) {
+            if (recordApproval) {
+                // A record's approval starts within its submission: a start that fails fails the submission,
+                // atomically — no instance is kept and nobody is told, and the record rolls back with it.
+                throw e;
+            }
             orchestrator.failState(state, definition.getFlowId(), null, e.getMessage());
             // Record the FAILED instance in its own transaction so it survives this method's
             // rollback — the failed node's partial writes still roll back with the outer transaction,

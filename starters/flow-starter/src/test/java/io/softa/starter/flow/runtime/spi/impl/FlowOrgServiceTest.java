@@ -147,6 +147,21 @@ class FlowOrgServiceTest {
     }
 
     @Test
+    void theAccountsThatCannotActComeWithTheirStatus() {
+        accounts(Map.of(1001L, "Active", 1002L, "Frozen", 1003L, "Invited"));
+
+        withAccounts(() -> {
+            Map<Long, String> expected = new LinkedHashMap<>();
+            expected.put(1002L, "Frozen");
+            expected.put(1003L, "Invited");
+            expected.put(1099L, null);
+            assertEquals(expected, org.getUnusableAccounts(List.of(1001L, 1002L, 1003L, 1099L)),
+                    "an account the tenant does not have cannot act either");
+        });
+        assertEquals(Map.of(), org.getUnusableAccounts(List.of(1002L)), "without an account model every account can act");
+    }
+
+    @Test
     void everyReadSkipsTheCallersPermissionChecks() {
         org.getEmployeeIdOfUser(1001L);
         org.getSupervisorOfEmployee(1L, 1);

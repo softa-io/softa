@@ -50,13 +50,18 @@ public class FlowPublishServiceImpl implements FlowPublishService {
                 .map(design -> FlowDesignServiceImpl.alignedDefinition(design.getDesignJson(), design))
                 .orElseThrow(() -> new FlowRuntimeException("FlowDesign not found: " + flowId));
         CompiledFlowDefinition compiled = publish(flowId, definition);
-        if (bundleService != null && StringUtils.hasText(changeDescription)) {
+        boolean described = StringUtils.hasText(changeDescription);
+        if (bundleService != null && described) {
             bundleService.findById(compiled.getBundleId()).ifPresent(bundle -> {
                 bundle.setChangeDescription(changeDescription);
                 bundleService.saveBundle(bundle);
             });
         }
-        return FlowBundleViews.summarize(compiled);
+        FlowBundleSummaryView summary = FlowBundleViews.summarize(compiled);
+        // A revision is its flow's effective one once published, as the revision history then lists it.
+        summary.setActive(true);
+        summary.setChangeDescription(described ? changeDescription : null);
+        return summary;
     }
 
     @Override
