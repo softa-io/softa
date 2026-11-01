@@ -700,8 +700,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             account.setClosedEmail(account.getEmail());
             account.setEmail(null);
         }
-        // ⑤ Close the membership.
+        // ⑤ Close the membership, and stop its devices receiving the company's notifications.
         account.setStatus(AccountStatus.DEACTIVATED);
+        this.unregisterDevices(account.getId());
         this.logStatusChange(account, previous, AccountStatus.DEACTIVATED, SecurityLogSource.SYSTEM, null);
         return true;
     }
@@ -973,6 +974,17 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 identity.setLoginMobile(taken ? null : next);
                 identityService.updateOne(identity, false);
             });
+        }
+    }
+
+    /**
+     * Drop the push registrations of an account that can no longer be entered. Its sessions are left
+     * to the per-request check, which ends them on their next request; a device that never asks again
+     * would otherwise go on receiving the company's notifications.
+     */
+    private void unregisterDevices(Long accountId) {
+        if (pushDeviceRegistry != null && accountId != null) {
+            pushDeviceRegistry.unregisterAccount(accountId);
         }
     }
 
@@ -1529,6 +1541,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         AccountStatus previous = user.getStatus();
         user.setStatus(AccountStatus.FROZEN);
         this.updateOne(user);
+        this.unregisterDevices(user.getId());
         this.logStatusChange(user, previous, AccountStatus.FROZEN, SecurityLogSource.USER_ACCOUNTS, reason);
         log.info("Account {} frozen. Reason: {}", userId, reason);
     }

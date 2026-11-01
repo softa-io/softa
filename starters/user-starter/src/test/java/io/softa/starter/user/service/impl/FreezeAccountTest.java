@@ -67,6 +67,19 @@ class FreezeAccountTest {
     }
 
     @Test
+    void freezing_dropsTheAccountsPushDevices() {
+        // A frozen company must not keep notifying the person; the sessions end on their next
+        // request, but a device that never asks again would go on receiving pushes.
+        given(AccountStatus.ACTIVE);
+        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+
+        accountService.freezeAccount(ACCOUNT, "Under investigation");
+
+        verify(devices).unregisterAccount(ACCOUNT);
+    }
+
+    @Test
     void freezingALockedAccount_clearsThePasswordLockOnTheWayThrough() {
         UserAccount account = given(AccountStatus.LOCKED);
         UserIdentity person = new UserIdentity();
