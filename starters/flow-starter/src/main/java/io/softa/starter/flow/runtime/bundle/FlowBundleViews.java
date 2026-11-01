@@ -1,11 +1,14 @@
 package io.softa.starter.flow.runtime.bundle;
 
+import io.softa.starter.flow.dto.FlowBundleDetailView;
 import io.softa.starter.flow.dto.FlowBundleSummaryView;
+import io.softa.starter.flow.entity.FlowBundle;
 
 /**
  * Engine-side mapper from a {@link CompiledFlowDefinition} to the lightweight
- * {@link FlowBundleSummaryView} list projection. Kept out of the SDK
- * {@code dto} package so the view stays a pure data record.
+ * {@link FlowBundleSummaryView} list projection, and from a stored bundle to its
+ * {@link FlowBundleDetailView}. Kept out of the SDK {@code dto} package so the
+ * views stay pure data records.
  */
 public final class FlowBundleViews {
 
@@ -33,5 +36,14 @@ public final class FlowBundleViews {
                 .transitionCount(def.getTransitionIndex() == null ? 0 : def.getTransitionIndex().size())
                 .capabilitySummary(def.getCapabilitySummary())
                 .build();
+    }
+
+    /**
+     * One stored revision as {@code GET /flow/bundles/{bundleId}} returns it: its summary and, with
+     * {@code includeDesign}, the design snapshot taken at publish — what re-renders its canvas.
+     */
+    public static FlowBundleDetailView detail(FlowBundle entity, boolean includeDesign) {
+        return new FlowBundleDetailView(summarize(FlowBundleMapper.toDefinition(entity)),
+                includeDesign ? entity.getDesignJson() : null);
     }
 }

@@ -47,7 +47,8 @@ class FlowSelfServiceScopeWaiverTest {
         assertChecked(FlowApprovalTaskController.class, "getTasksByInstance");
         assertChecked(FlowApprovalRecordController.class, "getByInstance");
         assertChecked(FlowInstanceController.class, "getInstance", "getOverlay", "getTrace",
-                "getRecordApprovals", "previewRecordApproval", "getInstanceRecord", "getFormPermissions");
+                "getRecordApprovals", "previewRecordApproval", "getInstanceRecord", "getRecordThroughApprovals",
+                "getInstanceSummary", "getInstanceDesign", "getFormPermissions");
         assertChecked(InProcessFlowClient.class, "getInstance", "recordApprovals", "previewRecord", "tasksByInstance",
                 "recordsByInstance", "getFormPermissions");
     }

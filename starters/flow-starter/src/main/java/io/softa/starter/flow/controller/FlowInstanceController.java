@@ -1,11 +1,12 @@
 package io.softa.starter.flow.controller;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,38 +15,34 @@ import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Page;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.flow.dto.FlowApprovalPreview;
-import io.softa.starter.flow.dto.FlowBatchActionResult;
-import io.softa.starter.flow.dto.FlowInstanceOverlay;
-import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
-import io.softa.starter.flow.dto.FlowInstanceSummaryView;
-import io.softa.starter.flow.dto.FlowRecordApprovalsView;
-import io.softa.starter.flow.dto.FlowTraceEntryView;
-import io.softa.starter.flow.dto.FlowUrgeStatus;
-import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.dto.*;
+import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.api.*;
-import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
-import io.softa.starter.flow.runtime.engine.FormPermissionService;
-import io.softa.starter.flow.runtime.engine.BatchApprovalExecutor;
-import io.softa.starter.flow.runtime.engine.UrgeThrottle;
-import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
+import io.softa.starter.flow.runtime.bundle.FlowBundleViews;
+import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
+import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
+import io.softa.starter.flow.service.support.FlowInstanceAccessGuard.RecordAdmission;
 import io.softa.starter.flow.service.support.FlowUserNames;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 
 /**
- * Runtime flow instances: launch, the caller's own instance search, per-instance reads (state,
- * canvas overlay, trace, node form permissions), a record's approvals and the preview of its next
- * one, and the approval actions. Every endpoint acts as
- * the authenticated user. Trigger evaluation lives on {@link FlowAutomationController},
+ * Runtime flow instances: launch, the caller's own instance search, per-instance reads (state, summary,
+ * canvas overlay, trace, the revision it runs, node form permissions, the record it approves), a
+ * record's approvals, the record read through them and the preview of its next one, and the approval
+ * actions. Every endpoint acts as
+ * the authenticated user. The per-instance reads are ruled on by {@link FlowInstanceAccessGuard}, not by
+ * the caller's permissions on the flow models, so an approval page reads everything it shows here.
+ * Trigger evaluation lives on {@link FlowAutomationController},
  * published-revision reads on {@code FlowBundleController}; engine-internal callbacks are handled
  * in-process by consumers.
  */
@@ -66,6 +63,7 @@ public class FlowInstanceController {
     private final BatchApprovalExecutor batchExecutor;
     private final FlowInstanceSummaryComposer summaryComposer;
     private final FlowUserNames names;
+    private final FlowBundleService bundleService;
 
     public FlowInstanceController(FlowRuntimeEngine runtimeEngine,
                                   FormPermissionService formPermissionService,
@@ -77,7 +75,8 @@ public class FlowInstanceController {
                                   WithdrawPolicyGuard withdrawPolicyGuard,
                                   BatchApprovalExecutor batchExecutor,
                                   FlowInstanceSummaryComposer summaryComposer,
-                                  FlowUserNames names) {
+                                  FlowUserNames names,
+                                  FlowBundleService bundleService) {
         this.runtimeEngine = runtimeEngine;
         this.formPermissionService = formPermissionService;
         this.instanceService = instanceService;
@@ -89,6 +88,7 @@ public class FlowInstanceController {
         this.batchExecutor = batchExecutor;
         this.summaryComposer = summaryComposer;
         this.names = names;
+        this.bundleService = bundleService;
     }
 
     @PostMapping("/start")
@@ -186,23 +186,114 @@ public class FlowInstanceController {
 
     @GetMapping("/{instanceId}/record")
     @Operation(summary = "Get the record an instance approves",
-            description = "The business record a record's approval runs on, for its initiator and the people it "
-                    + "gives a task to: read past their own row permissions. Any other instance is refused. Every "
-                    + "field, dynamic ones included, but the sensitive ones the caller may see on no row; the field "
-                    + "permissions of the waiting steps the caller approves are laid over that — what they list as "
-                    + "Readonly, Editable or Required is shown, what they mark Hidden is not. Callers with no "
-                    + "waiting step besides the initiator also miss what any approval step hides. Relations and "
-                    + "options come as references, and masked fields are masked as on every model read.")
+            description = "The business record a record's approval runs on, as { record, fields }. Any other "
+                    + "instance is refused. Its initiator and the people it gives or gave a task to read it past their "
+                    + "own row permissions: every field, dynamic ones included, but the sensitive ones the caller may "
+                    + "see on no row; the field permissions of the waiting steps the caller approves are laid over "
+                    + "that — what they list as Readonly, Editable or Required is shown, what they mark Hidden is "
+                    + "not. Callers with no waiting step besides the initiator also miss what any approval step "
+                    + "hides. A one-to-many's rows lose the sensitive fields of their own model the caller may see "
+                    + "on no row, unless a waiting step of the caller lists the one-to-many as Readonly, Editable "
+                    + "or Required: then they come whole. fields holds, by model, the definitions of the fields "
+                    + "shown that the caller's own metadata leaves out, as the metadata API serves a field. Anyone "
+                    + "else who can read the record with their own permissions gets it through the model's "
+                    + "ordinary read, with no fields. Relations and options come as references, and masked fields "
+                    + "are masked as on every model read.")
     @DataMask
-    public ApiResponse<Map<String, Object>> getInstanceRecord(@PathVariable String instanceId) {
+    public ApiResponse<FlowInstanceRecordView> getInstanceRecord(@PathVariable String instanceId) {
         return runtimeEngine.getInstance(instanceId)
                 .map(state -> {
                     String viewerId = currentUserId();
-                    accessGuard.requireRecordGrantee(state, viewerId);
-                    return instanceService.recordOf(state, viewerId)
+                    Optional<FlowInstanceRecordView> record = switch (accessGuard.requireRecordAccess(state, viewerId)) {
+                        case GRANTED -> instanceService.recordOf(state, viewerId);
+                        case OWN_PERMISSIONS -> instanceService.recordThroughOwnPermissions(state.getModelName(),
+                                state.getRowId());
+                    };
+                    return record
                             .map(ApiResponse::success)
                             .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                                     "The record of flow instance " + instanceId + " does not exist"));
+                })
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
+    }
+
+    @GetMapping("/by-record/record")
+    @Operation(summary = "Get a record through its approvals",
+            description = "The business record, as GET /flow/instances/{instanceId}/record returns it ({ record, "
+                    + "fields }), whichever of its approvals is current: for a page keyed by the record that shows "
+                    + "them all as its history. The newest of the record's approvals in which the caller took part — "
+                    + "as its initiator or a person it gives or gave a task to — lends it to them as that instance "
+                    + "would: an approver it waits on sees the record as their step shows it, someone who took part "
+                    + "only in an earlier submission as that one shows it to a participant with no waiting step. "
+                    + "Anyone else who can read the record with their own permissions gets it through the model's "
+                    + "ordinary read, with no fields — the only way a record never submitted is read here; everyone "
+                    + "else is refused. A model that does not exist is not found, and so is a record deleted under "
+                    + "someone who took part in its approvals; to anyone else, a missing record is refused like one "
+                    + "they cannot read. Relations and options come as references, and masked fields are masked as on "
+                    + "every model read.")
+    @DataMask
+    public ApiResponse<FlowInstanceRecordView> getRecordThroughApprovals(@RequestParam String modelName,
+                                                                         @RequestParam String rowId) {
+        if (!ModelManager.existModel(modelName)) {
+            return ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND, "Model not found: " + modelName);
+        }
+        String viewerId = currentUserId();
+        RecordAdmission admission = accessGuard.requireRecordAccess(modelName, rowId, viewerId);
+        Optional<FlowInstanceRecordView> record = switch (admission.access()) {
+            case GRANTED -> instanceService.recordOf(admission.approval(), viewerId);
+            case OWN_PERMISSIONS -> instanceService.recordThroughOwnPermissions(modelName, rowId);
+        };
+        return record
+                .map(ApiResponse::success)
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "The " + modelName + " record " + rowId + " does not exist"));
+    }
+
+    @GetMapping("/{instanceId}/summary")
+    @Operation(summary = "Get an instance's summary",
+            description = "The instance as POST /flow/instances/search composes its rows: the steps it waits on "
+                    + "with the approvers still to act, what a record's approval kept of its record (subject, "
+                    + "department, effective date, record code), whether it awaits revision, whether its record was "
+                    + "deleted or cancelled and where an approved change stands, every user and department named; on "
+                    + "the caller's own approval waiting on its approvers, whether they may withdraw or urge it now. "
+                    + "Allowed to whoever may view the instance.")
+    public ApiResponse<FlowInstanceSummaryView> getInstanceSummary(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
+                .flatMap(state -> {
+                    String userId = currentUserId();
+                    accessGuard.requireInstanceViewer(state, userId);
+                    // Allowed to see the instance, so its row — composed past the row scope the guard just ruled
+                    // on, as the caller's own search composes its rows.
+                    return ContextUtils.withoutPermissionChecks(() -> summaryComposer
+                            .summarize(instanceService.findByInstanceIds(List.of(instanceId)), userId)
+                            .stream()
+                            .findFirst());
+                })
+                .map(ApiResponse::success)
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
+    }
+
+    @GetMapping("/{instanceId}/design")
+    @Operation(summary = "Get the design an instance runs",
+            description = "The revision the instance runs on, as GET /flow/bundles/{bundleId}?include=design returns "
+                    + "it: its summary and the design snapshot taken at publish, to draw the instance's diagram. "
+                    + "Allowed to whoever may view the instance, whatever their own permissions on the flow's "
+                    + "revisions.")
+    public ApiResponse<FlowBundleDetailView> getInstanceDesign(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
+                .map(state -> {
+                    accessGuard.requireInstanceViewer(state, currentUserId());
+                    Long bundleId = state.getBundleId();
+                    // Allowed to see the instance, so the revision it runs — read past the caller's permissions on
+                    // the flow's revisions, which an approver seldom holds.
+                    Optional<FlowBundle> bundle = bundleId == null ? Optional.empty()
+                            : ContextUtils.withoutPermissionChecks(() -> bundleService.findById(bundleId));
+                    return bundle
+                            .map(entity -> ApiResponse.success(FlowBundleViews.detail(entity, true)))
+                            .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                                    "Flow bundle not found: " + bundleId));
                 })
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow instance not found: " + instanceId));

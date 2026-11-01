@@ -330,19 +330,31 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 | `GET` | `/flow/instances/{instanceId}/withdraw` | Whether the caller may withdraw the instance now — `true` exactly when a withdrawal would be accepted, by the same `WithdrawPolicyGuard`. Allowed to whoever may view the instance |
 | `POST` | `/flow/instances/urge` | Remind the approvers the approval waits on — its initiator only, on a flow whose `urgeEnabled` is not turned off. Each waiting step is urged at most once per the flow's `urgeIntervalMinutes` (default 240), by the initiator or an administrator alike; each step urged gets its own `URGE` history entry, and when every step is still inside the interval the urge is refused. Returns `FlowUrgeStatus`, not the instance |
 | `GET` | `/flow/instances/{instanceId}/urge` | Whether the caller may urge the approval now, and if not, when (`FlowUrgeStatus`) — never, for the initiator of a flow that turns `urgeEnabled` off. Allowed to whoever may view the instance |
-| `POST` | `/flow/instances/comment` | Add a comment audit entry while the instance runs — its participants only: the initiator and the people it gives or gave a task to. An instance that has ended takes no more comments. Returns `true`, not the instance |
+| `POST` | `/flow/instances/comment` | Add a comment audit entry while the instance runs — its participants only: the initiator and the people it gives or gave a task to, by the same rule as viewing it (an approver whose step another's vote carried still comments; an administrator who urged it does not). An instance that has ended takes no more comments. Returns `true`, not the instance |
 | `GET` | `/flow/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
 | `GET` | `/flow/instances/by-record?modelName=&rowId=` | A business record's approval history: its approval instances newest first, with the steps still waiting, the approvers yet to act and the approval actions, every user named (names are resolved only once the caller is allowed); a failed instance says where and why it stopped (`failure`). Allowed to whoever took part in its approvals or can read the record |
 | `GET` | `/flow/instances/preview?modelName=&rowId=` | What submitting the record would do now, without submitting it: the Submit flow it would get and its approval steps, each with the approvers who would be asked or why it passes on its own; a refusal, no applicable flow or several are reported, a route decided only once the approval runs is reported as undecided. For a record in approval, the rest of its path (`InProgress`): the step it waits on now, then those after it. Nothing is started or written. Allowed to whoever can read the record (see [Previewing a record's approval](#previewing-a-records-approval)) |
-| `GET` | `/flow/instances/{instanceId}/record` | The business record a record's approval runs on — any other instance is refused, since its record was named freely rather than submitted — for its initiator and the people it gives a task to: read past their own row permissions. Every field, dynamic ones included, but the sensitive ones the caller may see on no row; the field permissions of the waiting steps the caller approves are laid over that — what they list as `Readonly` / `Editable` / `Required` shows, sensitive or not, and what they mark `Hidden` does not. The initiator sees every field but those unseen sensitive ones; anyone else with no waiting step also misses what any approval step hides. Read as the model read API returns a record (relations and options as references, masked fields masked), with each one-to-many's rows in full — an expense claim comes with its lines |
+| `GET` | `/flow/instances/{instanceId}/record` | The business record a record's approval runs on, as `{ record, fields }` — any other instance is refused, since its record was named freely rather than submitted. Its initiator and the people it gives or gave a task to read it past their own row permissions, field by field as the approval's steps show it, one-to-many rows included; anyone else who can read the record with their own permissions gets the model's ordinary read of it. `fields` holds the definitions of the fields shown that the caller's own metadata leaves out. See [The record an approval runs on](#the-record-an-approval-runs-on) |
+| `GET` | `/flow/instances/by-record/record?modelName=&rowId=` | The business record, as `.../{instanceId}/record` returns it (`{ record, fields }`), whichever of its approvals is current — for a page keyed by the record that shows them all as its history. The newest approval the caller took part in lends it as that instance would; anyone else who can read the record gets the model's ordinary read, with no `fields` — the only read here of a record never submitted; everyone else is refused. See [The record an approval runs on](#the-record-an-approval-runs-on) |
+| `GET` | `/flow/instances/{instanceId}/summary` | The instance as a row of `POST /flow/instances/search` shows it (`FlowInstanceSummaryView`, composed the same way): the steps it waits on with the approvers still to act, what a record's approval kept of its record, `awaitingRevision`, `recordDeleted` / `recordCancelled`, `effectStatus`, every user and department named; on the caller's own approval waiting on its approvers, `withdrawable` and `urge`. Allowed to whoever may view the instance |
+| `GET` | `/flow/instances/{instanceId}/design` | The revision the instance runs on, exactly as `GET /flow/bundles/{bundleId}?include=design` returns it (`FlowBundleDetailView`: its `summary` and the `design` snapshot taken at publish) — to draw the instance's diagram. Allowed to whoever may view the instance: the bundle is read past their permissions on `FlowBundle`, which an approver seldom holds |
 
 An action's `comment` is at most 256 characters, as a batch action's comment and an administrator's reason are; a
 longer one is refused (`400`) before anything runs.
 
-Who may view an instance: its initiator and the people it gives a task to (approvers pending or done, CC
-recipients, transfer, delegation and add-sign targets) by default; anyone else through the standard role and
-data-scope configuration — they may read the `FlowInstance` row with their own permissions, or, for a
-record's approval, read the record itself.
+Who may view an instance: by default its participants — its initiator and the people it gives or gave a task
+to: approvers pending or done, CC recipients, transfer, delegation and add-sign targets, and the approvers a step
+closed without them (the pending approvers a termination cleared, the other approvers of a step someone else's
+vote carried). The instance's state and approval history name most of them (`FlowParticipants`); the rest are
+named only by their task, which stays when it closes, so the access guard asks the instance's `FlowApprovalTask`
+rows — CC tasks included, whatever their status — when the state and history name nobody, in one query however
+many instances it asks about (`FlowInstanceAccessGuard.isParticipant`). An administrator's actions make nobody a
+participant: urging or terminating an instance, or reassigning one of its tasks (recorded as the approver's
+`TRANSFER` with the administrator as `operatorId`), gives them no task. Everyone else, administrators included,
+goes through the standard role and data-scope configuration — they may read the `FlowInstance` row with their own
+permissions, or, for a record's approval, read the record itself. The same participants comment on an instance
+while it runs, read its record past their own row permissions and see their record's approval history. Reading the
+record through the instance follows narrower rules: see [The record an approval runs on](#the-record-an-approval-runs-on).
 
 The defaults need no grant on the flow models, which no business role holds. The engine's own bookkeeping —
 loading and saving instances, the approval ledger, the task and branch projections, delegation and auto-CC
@@ -353,6 +365,79 @@ and `POST /flow/instances/search`, with their `FlowClient` counterparts — carr
 pinned to the caller, row scope could only empty them. The per-instance reads (`.../instance/{instanceId}`,
 the instance detail endpoints) are not waived, because the guard judges everyone but the initiator and the
 task holders by their own permissions.
+
+### The record an approval runs on
+
+The approval page (`/approvals/{instanceId}`, the link of every approval email) is opened by approvers who
+may hold neither the menu of the record's model nor any permission on the flow models, so it reads everything
+through the instance: `GET /flow/instances/{instanceId}` and `.../summary` for the instance, `.../design` for its
+diagram, `.../record` for the record. Only a record's approval lends its record
+(`FlowInstanceAccessGuard.requireRecordAccess`):
+
+- **Its participants — its initiator and the people it gives or gave a task to** read it past their own row
+  permissions. They see every field, dynamic ones included, but the sensitive ones they may see on no row
+  (`PermissionService.getHiddenSensitiveFields`); the field permissions (`formPermissions`) of the waiting steps
+  they approve are laid over that — what a step lists as `Readonly` / `Editable` / `Required` shows, sensitive or
+  not, what it marks `Hidden` does not, and with several steps a field any of them shows is shown. The initiator
+  sees the default; anyone else with no waiting step — a CC recipient, an earlier approver, an approver a
+  termination cleared — also misses what any approval step hides.
+- **A one-to-many's rows follow the same rule on their own model**: each row loses the sensitive fields of its
+  model the caller may see on no row, unless a waiting step of the caller lists the one-to-many itself as
+  `Readonly`, `Editable` or `Required` — that grants its rows whole. A step marking the one-to-many `Hidden` leaves
+  it out. The initiator and everyone else get the rows without the fields their own roles withhold. So a step
+  that shows a salary adjustment's amounts to approvers who hold no salary set lists its lines:
+  `"formPermissions": {"salaryAdjustmentDetailIds": "Readonly"}`; without it, they see the lines without them.
+- **Anyone else who can read the record with their own permissions** — an administrator following a link — gets
+  the model's ordinary permission-checked read of the same fields: their row scope, field blocks and masking, on
+  the rows of each one-to-many too. Reading the `FlowInstance` row is not enough; everyone else is refused (`403`).
+
+A page keyed by the record, which shows each of its approvals as its history, cannot read the record through one
+of them: `GET /flow/instances/by-record/record?modelName=&rowId=` returns the same `{ record, fields }` whichever
+approval is current (`FlowInstanceAccessGuard.requireRecordAccess(modelName, rowId, requesterId)`). The record's
+approvals are walked newest first, read past the caller's permissions; the first the caller took part in — as its
+initiator or a person it gives or gave a task to, a terminated approval's cleared approver by their task (the tasks
+of all the approvals newer than the first one whose state and history name the caller are asked in one query) —
+lends the record as `.../record` of that instance would; the record's approval history (`.../by-record`) admits the
+same people. An approver it waits on sees the record as their step shows it; someone who took part only in an
+earlier submission sees what that approval shows a participant with no waiting step — the default, without what an
+approval step of its revision hides. Anyone else who can read the record with their own permissions gets the
+model's ordinary read, with empty `fields` — the only way a record never submitted, a draft its owner opens, is read
+here; everyone else is refused (`403`). A model that does not exist is `404`, and so is a record deleted under
+someone who took part in its approvals; to anyone else a missing record is refused like one they cannot read, so the
+endpoint never tells them whether it exists.
+
+The response is `{ record, fields }` (`FlowInstanceRecordView`). `record` is read as the model read API returns a
+record: relations and options as references, each one-to-many with its rows, a field with a `maskingType` masked.
+`@DataMask` walks no response — it turns masking on for the request and the read pipeline masks each row as it
+reads it — so the wrapper changes nothing. `fields` holds, by model name — the record's model, and the model of a
+one-to-many's rows — the definitions of the fields `record` shows that the caller's own metadata leaves out: the
+sensitive fields a step grants, which `GET /metadata/getMetaModel` withholds from them. Each is a `MetaFieldDTO`,
+as the metadata API serves a field, for the client to merge into the models it loaded. It is empty for a reader of
+the record and whenever nothing withheld is shown. The definitions come from metadata-starter's own mapping
+(`MetadataFieldDefinitions`), an optional dependency; an application without metadata-starter serves no metadata to
+merge them into, and gets none.
+
+```json
+{
+  "record": {
+    "id": "7",
+    "code": "SA-0007",
+    "employeeId": {"id": "42", "displayName": "Alice Tan"},
+    "salaryAdjustmentDetailIds": [
+      {"id": "71", "salaryProfileItemId": {"id": "3", "displayName": "Basic Salary"},
+       "oldAmount": "5000.00", "newAmount": "5500.00"}
+    ]
+  },
+  "fields": {
+    "SalaryAdjustmentDetail": [
+      {"fieldName": "newAmount", "modelName": "SalaryAdjustmentDetail", "fieldType": "BigDecimal", "label": "New Amount", "scale": 2},
+      {"fieldName": "oldAmount", "modelName": "SalaryAdjustmentDetail", "fieldType": "BigDecimal", "label": "Old Amount", "scale": 2}
+    ]
+  }
+}
+```
+
+(A definition carries every `MetaFieldDTO` attribute; the example shows a few.)
 
 ### Instance search
 
@@ -434,6 +519,9 @@ The tasks are a projection of the approval history, brought up to date on every 
   is: the others' later votes do not copy it;
 - a CC task per recipient, step and cycle: `Pending` until they read it, then `Read`, ending when they read it.
 
+A task, open or closed, keeps its holder a participant of the instance (see [Instance APIs](#instance-apis)): the
+approver a termination cleared still opens the approval from their task email.
+
 ### Approval Records
 
 Base path: `/flow/approvalRecords`
@@ -507,7 +595,8 @@ and data scope; taking part in an instance is not enough. A department scope (`D
 department-id column the permission-starter scopes filter by the ids of the departments in range — so a role
 scoped to the departments it manages sees and administers their approvals; an automation run belongs to no
 department. Opening another user's instance (detail / overlay / trace / approval history) follows the viewing rule
-under [Instance APIs](#instance-apis), as for any viewer who is not a participant.
+under [Instance APIs](#instance-apis), as for any viewer who is not a participant — and what the console does to an
+instance (urge, terminate, reassign) makes no administrator one.
 
 | Method | Path | Description |
 |---|---|---|
@@ -1125,6 +1214,7 @@ Before enabling `flow-starter` in a real app, verify:
 - check the organization follows the default HR conventions, or override `softa.flow.org.*`, or provide your own `OrganizationService`
 - for business records: extend `ApprovalModel` (with an `employeeId`, or a `subject()` naming the employee field) and `ApprovalModelController`, implement a `ModelApprovalHandler<T>` per model — with `effectStatuses` when its approval takes effect later — and ship each default flow as a tenant seed file
 - grant the monitoring console's endpoints and a data scope on `FlowInstance` to the administrators' roles (a department scope narrows by the subject's department)
+- list the per-instance reads the approval page makes — `GET /flow/instances/{instanceId}` and its `/summary`, `/design`, `/record`, `/overlay`, `/trace`, `/urge`, `/withdraw` — and, for a page keyed by the record, `GET /flow/instances/by-record/record`, in the permissions that open approvals: the endpoint gate refuses an endpoint no permission lists, and the access guard decides the rest
 - enable Pulsar topics if using triggers or async tasks
 - provide timer scheduling/publishing if using `TIMER` nodes
 - enable `CALL_SERVICE` explicitly (plus its bean-name allow-list) if flows need to invoke Spring beans; all other task node types ship working executors, conditionally registered on their capability beans

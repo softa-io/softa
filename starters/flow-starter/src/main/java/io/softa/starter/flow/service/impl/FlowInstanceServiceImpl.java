@@ -29,6 +29,7 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.orm.utils.IdUtils;
+import io.softa.starter.flow.dto.FlowInstanceRecordView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
@@ -44,8 +45,10 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
+import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.support.FlowUserNames;
+import io.softa.starter.flow.service.support.RecordFieldDefinitions;
 
 /**
  * ORM-backed flow instance service.
@@ -66,6 +69,10 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     /** Absent without a permission system: then no field is hidden from anyone. */
     @Autowired(required = false)
     private PermissionService permissionService;
+
+    /** Absent without metadata-starter: then no field definition comes with a record. */
+    @Autowired(required = false)
+    private RecordFieldDefinitions fieldDefinitions;
 
     /** The states of an instance that has not ended. */
     private static final List<FlowExecutionStatus> UNFINISHED = Arrays.stream(FlowExecutionStatus.values())
@@ -314,11 +321,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     public FlowRecordApprovalsView recordApprovals(String modelName, String rowId,
                                                    Consumer<FlowRecordApprovalsView> authorize) {
         List<FlowRecordApprovalsView.Instance> instances = ContextUtils.withoutPermissionChecks(
-                () -> findByModelNameAndRowId(modelName, rowId).stream()
-                        // Other instances may run on the record — automation, debug runs: not its approval.
-                        .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
-                        .sorted(Comparator.comparing(FlowInstance::getCreatedTime,
-                                Comparator.nullsLast(Comparator.reverseOrder())))
+                () -> approvalsOf(modelName, rowId).stream()
                         .map(this::approvalRun)
                         .map(ApprovalRun::toView)
                         .toList());
@@ -326,6 +329,25 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         authorize.accept(history);
         nameUsers(history);
         return history;
+    }
+
+    @Override
+    public List<FlowExecutionState> recordApprovalStates(String modelName, String rowId) {
+        return approvalsOf(modelName, rowId).stream()
+                .map(FlowExecutionStateMapper::toState)
+                .toList();
+    }
+
+    /**
+     * A record's approvals, newest first. Other instances may run on the record — automation, debug runs: not its
+     * approval.
+     */
+    private List<FlowInstance> approvalsOf(String modelName, String rowId) {
+        return findByModelNameAndRowId(modelName, rowId).stream()
+                .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
+                .sorted(Comparator.comparing(FlowInstance::getCreatedTime,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
     }
 
     private ApprovalRun approvalRun(FlowInstance instance) {
@@ -369,46 +391,146 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
-    public Optional<Map<String, Object>> recordOf(FlowExecutionState state, String viewerId) {
-        String modelName = state.getModelName();
-        if (!StringUtils.hasText(modelName) || !StringUtils.hasText(state.getRowId())
-                || !ModelManager.existModel(modelName)) {
+    public Optional<FlowInstanceRecordView> recordOf(FlowExecutionState state, String viewerId) {
+        RecordRead read = RecordRead.of(state.getModelName(), state.getRowId());
+        if (read == null) {
             return Optional.empty();
         }
-        Serializable id = IdUtils.formatId(modelName, state.getRowId());
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> records = (ModelService<Serializable>) (ModelService<?>) modelService;
         // Asked as the viewer, before the read below sets every permission check aside.
-        Set<String> unseen = permissionService == null ? Set.of()
-                : permissionService.getHiddenSensitiveFields().getOrDefault(modelName, Set.of());
-        RecordFields shown = recordFields(state, viewerId, unseen);
-        // The record as its detail page shows it: every stored field, every dynamic one (cascaded and
-        // computed), each one-to-many's rows in full (an expense claim's lines), a many-to-many as
-        // references. REFERENCE, as the model read API returns it: relations and options come with their
-        // display names.
-        List<String> fields = new ArrayList<>(ModelManager.getModelStoredFields(modelName));
-        SubQueries childRows = new SubQueries();
-        for (MetaField field : ModelManager.getModelFields(modelName)) {
-            if (FieldType.TO_MANY_TYPES.contains(field.getFieldType())) {
-                fields.add(field.getFieldName());
-                if (FieldType.ONE_TO_MANY.equals(field.getFieldType())) {
-                    childRows.expand(field.getFieldName(), new SubQuery());
-                }
-            } else if (field.isDynamic()) {
-                fields.add(field.getFieldName());
-            }
+        Map<String, Set<String>> withheld = permissionService == null ? Map.of()
+                : permissionService.getHiddenSensitiveFields();
+        RecordFields shown = recordFields(state, viewerId, withheld.getOrDefault(read.modelName(), Set.of()));
+        return ContextUtils.withoutPermissionChecks(() -> read.fetch(records()))
+                .map(row -> shownTo(row, read, shown, withheld));
+    }
+
+    @Override
+    public Optional<FlowInstanceRecordView> recordThroughOwnPermissions(String modelName, String rowId) {
+        RecordRead read = RecordRead.of(modelName, rowId);
+        if (read == null) {
+            return Optional.empty();
         }
-        return ContextUtils.withoutPermissionChecks(
-                        () -> records.getById(modelName, id, fields, childRows, ConvertType.REFERENCE))
+        // The model's own read, as the caller: their row scope, field blocks and masking, on the rows of each
+        // one-to-many too. Nothing it returns is left out of their metadata.
+        return read.fetch(records()).map(row -> new FlowInstanceRecordView(row, Map.of()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private ModelService<Serializable> records() {
+        return (ModelService<Serializable>) (ModelService<?>) modelService;
+    }
+
+    /**
+     * The record as the viewer is shown it ({@link RecordFields}). A one-to-many's rows lose the fields of their
+     * model the viewer may see on no row ({@code withheld}) — the rule the record's own fields follow — unless a
+     * waiting step of the viewer lists the one-to-many as Readonly, Editable or Required: the designer granted the
+     * rows, and they come whole. Every withheld field still shown comes with its definition, under its model.
+     */
+    private FlowInstanceRecordView shownTo(Map<String, Object> row, RecordRead read, RecordFields shown,
+                                           Map<String, Set<String>> withheld) {
+        Map<String, Object> visible = new LinkedHashMap<>();
+        Map<String, Set<String>> granted = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            String field = entry.getKey();
+            if (!shown.includes(field)) {
+                continue;
+            }
+            if (shown.unseen().contains(field)) {
+                // Withheld from the viewer, yet shown: a step of theirs grants it.
+                granted.computeIfAbsent(read.modelName(), model -> new LinkedHashSet<>()).add(field);
+            }
+            Object value = entry.getValue();
+            String rowModel = read.childModels().get(field);
+            Set<String> rowWithheld = rowModel == null ? Set.of() : withheld.getOrDefault(rowModel, Set.of());
+            if (!rowWithheld.isEmpty()) {
+                if (shown.grants(field)) {
+                    granted.computeIfAbsent(rowModel, model -> new LinkedHashSet<>())
+                            .addAll(carriedByRows(rowModel, rowWithheld));
+                } else {
+                    value = withoutFields(value, rowWithheld);
+                }
+            }
+            visible.put(field, value);
+        }
+        return new FlowInstanceRecordView(visible, definitions(granted));
+    }
+
+    /** Of the fields of a one-to-many's model, those its rows carry: every one but a to-many, left unexpanded. */
+    private static List<String> carriedByRows(String rowModel, Set<String> fields) {
+        return fields.stream()
+                .filter(field -> {
+                    MetaField metaField = ModelManager.getModelFieldOrNull(rowModel, field);
+                    return metaField != null && !FieldType.TO_MANY_TYPES.contains(metaField.getFieldType());
+                })
+                .toList();
+    }
+
+    /** A one-to-many's rows, each without {@code fields}. */
+    private static Object withoutFields(Object rows, Set<String> fields) {
+        if (!(rows instanceof Collection<?> list)) {
+            return rows;
+        }
+        return list.stream()
                 .map(row -> {
-                    Map<String, Object> visible = new LinkedHashMap<>();
-                    row.forEach((field, value) -> {
-                        if (shown.includes(field)) {
-                            visible.put(field, value);
-                        }
-                    });
-                    return visible;
-                });
+                    if (!(row instanceof Map<?, ?> map)) {
+                        return row;
+                    }
+                    Map<Object, Object> kept = new LinkedHashMap<>(map);
+                    kept.keySet().removeAll(fields);
+                    return kept;
+                })
+                .toList();
+    }
+
+    /** The definitions of the {@code granted} fields, by model — none without metadata-starter to describe them. */
+    private Map<String, List<Object>> definitions(Map<String, Set<String>> granted) {
+        if (granted.isEmpty() || fieldDefinitions == null) {
+            return Map.of();
+        }
+        Map<String, List<Object>> definitions = new LinkedHashMap<>();
+        granted.forEach((model, fields) -> {
+            List<Object> found = fieldDefinitions.definitionsOf(model, fields);
+            if (!found.isEmpty()) {
+                definitions.put(model, found);
+            }
+        });
+        return definitions;
+    }
+
+    /**
+     * How the record of an instance is read: as its detail page shows it — every stored field, every dynamic one
+     * (cascaded and computed), each one-to-many's rows in full (an expense claim's lines), a many-to-many as
+     * references. REFERENCE, as the model read API returns it: relations and options come with their display
+     * names. {@code childModels} names the model of each one-to-many's rows.
+     */
+    private record RecordRead(String modelName, Serializable id, List<String> fields, SubQueries childRows,
+                              Map<String, String> childModels) {
+
+        /** The read of a record; null when none is named, or one of no model there is. */
+        static RecordRead of(String modelName, String rowId) {
+            if (!StringUtils.hasText(modelName) || !StringUtils.hasText(rowId) || !ModelManager.existModel(modelName)) {
+                return null;
+            }
+            List<String> fields = new ArrayList<>(ModelManager.getModelStoredFields(modelName));
+            SubQueries childRows = new SubQueries();
+            Map<String, String> childModels = new HashMap<>();
+            for (MetaField field : ModelManager.getModelFields(modelName)) {
+                if (FieldType.TO_MANY_TYPES.contains(field.getFieldType())) {
+                    fields.add(field.getFieldName());
+                    if (FieldType.ONE_TO_MANY.equals(field.getFieldType())) {
+                        childRows.expand(field.getFieldName(), new SubQuery());
+                        childModels.put(field.getFieldName(), field.getRelatedModel());
+                    }
+                } else if (field.isDynamic()) {
+                    fields.add(field.getFieldName());
+                }
+            }
+            return new RecordRead(modelName, IdUtils.formatId(modelName, rowId), fields, childRows, childModels);
+        }
+
+        Optional<Map<String, Object>> fetch(ModelService<Serializable> records) {
+            return records.getById(modelName, id, fields, childRows, ConvertType.REFERENCE);
+        }
     }
 
     /**
@@ -467,6 +589,17 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                 });
             }
             return !unseen.contains(field) && !hidden.contains(field);
+        }
+
+        /**
+         * Whether a waiting step of the viewer lists the field as Readonly, Editable or Required: the designer
+         * granted it, sensitive or not — a one-to-many so listed with its rows whole.
+         */
+        boolean grants(String field) {
+            return ownSteps != null && ownSteps.stream().anyMatch(permissions -> {
+                FormFieldPermission permission = permissions.get(field);
+                return permission != null && permission != FormFieldPermission.HIDDEN;
+            });
         }
     }
 

@@ -43,7 +43,10 @@ class FlowInstanceAndAutomationRoutesTest {
                         "GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions",
                         "GET /flow/instances/by-record",
                         "GET /flow/instances/preview",
-                        "GET /flow/instances/{instanceId}/record")),
+                        "GET /flow/instances/{instanceId}/record",
+                        "GET /flow/instances/by-record/record",
+                        "GET /flow/instances/{instanceId}/summary",
+                        "GET /flow/instances/{instanceId}/design")),
                 routes(FlowInstanceController.class));
     }
 
