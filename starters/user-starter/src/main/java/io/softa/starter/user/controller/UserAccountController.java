@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.*;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BusinessException;
@@ -620,6 +621,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
             return rows;
         }
         showClosedEmail(rows);
+        stampEmployee(rows);
         Set<Long> people = rows.stream().map(UserAccountController::profileIdOf)
                 .filter(Objects::nonNull).collect(Collectors.toSet());
         Set<Long> locked = identityService.findPasswordLockedProfiles(people);
@@ -638,6 +640,40 @@ public class UserAccountController extends EntityController<UserAccountService, 
      * Only rows whose read asked for the email are touched.
      */
     private static final String EMAIL_FIELD = "email";
+    /** The employee record, by model name: an HR deployment has one, others do not. */
+    private static final String EMPLOYEE_MODEL = "Employee";
+    private static final String EMPLOYEE_NAME_FIELD = "employeeName";
+    private static final String EMPLOYEE_CODE_FIELD = "employeeCode";
+
+    /**
+     * The employee each row's account signs in — name and code — for the list's Employee column.
+     * Derived on every read, like {@code locked}; a row no employee record points at gets nulls. Read
+     * past row scope: the caller already sees the account, and the name beside it is what identifies
+     * it, not a search into employees.
+     */
+    private void stampEmployee(List<Map<String, Object>> rows) {
+        List<Long> ids = rows.stream().map(row -> idOf(row.get(ModelConstant.ID))).filter(Objects::nonNull).toList();
+        Map<Long, Map<String, Object>> byAccount = new HashMap<>();
+        if (!ids.isEmpty() && ModelManager.existModel(EMPLOYEE_MODEL)) {
+            Context context = ContextHolder.cloneContext();
+            context.setSkipPermissionCheck(true);
+            List<Map<String, Object>> employees = ContextHolder.callWith(context, () -> modelService.searchList(
+                    EMPLOYEE_MODEL, new FlexQuery(List.of(ModelConstant.ID, "userId", "fullName", "code"),
+                            new Filters().in("userId", ids))));
+            for (Map<String, Object> employee : employees) {
+                Long accountId = idOf(employee.get("userId") instanceof Map<?, ?> ref ? ref.get(ModelConstant.ID)
+                        : employee.get("userId"));
+                if (accountId != null) {
+                    byAccount.putIfAbsent(accountId, employee);
+                }
+            }
+        }
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> employee = byAccount.get(idOf(row.get(ModelConstant.ID)));
+            row.put(EMPLOYEE_NAME_FIELD, employee == null ? null : employee.get("fullName"));
+            row.put(EMPLOYEE_CODE_FIELD, employee == null ? null : employee.get("code"));
+        }
+    }
 
     private void showClosedEmail(List<Map<String, Object>> rows) {
         List<Long> ids = rows.stream()
@@ -713,6 +749,9 @@ public class UserAccountController extends EntityController<UserAccountService, 
      */
     private static void dropDerivedLock(Map<String, Object> row) {
         row.remove(LOCKED_FIELD);
+        // The employee columns are derived the same way, and a write of them has nowhere to go.
+        row.remove(EMPLOYEE_NAME_FIELD);
+        row.remove(EMPLOYEE_CODE_FIELD);
     }
 
     /**

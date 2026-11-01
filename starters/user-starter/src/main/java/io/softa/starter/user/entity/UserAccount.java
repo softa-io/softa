@@ -141,6 +141,14 @@ public class UserAccount extends AuditableModel {
     @Field(label = "Password lock", dynamic = true, readonly = true)
     private Boolean locked;
 
+    // DERIVED, not stored, like locked: the employee record this account signs in, read per row by
+    // the account list. Null when no employee record points at the account.
+    @Field(label = "Employee Name", dynamic = true, readonly = true)
+    private String employeeName;
+
+    @Field(label = "Employee Code", dynamic = true, readonly = true)
+    private String employeeCode;
+
     @Field
     private AccountStatus status;
     
