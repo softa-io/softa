@@ -6,7 +6,6 @@ import org.springframework.util.StringUtils;
 
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.state.AddSignPosition;
 import io.softa.starter.flow.runtime.state.PendingApproval;
@@ -142,17 +141,19 @@ public class ApprovalLifecycleService {
         }
     }
 
-    public void assertActorNotBlockedByPrerequisite(PendingApproval pendingApproval,
-                                                    String actorId,
-                                                    CompiledFlowNode node) {
-        if (isBlockedByPrerequisite(pendingApproval, actorId)) {
-            throw new FlowActionValidationException("Actor '" + actorId + "' is blocked by prerequisite signer '"
-                    + pendingApproval.getPrerequisiteActorId() + "' for node: " + node.getNodeId());
-        }
-    }
-
     public boolean hasUnresolvedAddSignDependency(PendingApproval pendingApproval) {
         return hasAddSignDependency(pendingApproval) && blockedActorPending(pendingApproval);
+    }
+
+    /**
+     * Whether {@code actorId}'s turn waits on a signer added before them who has not approved yet — refused by
+     * {@link ApprovalActorValidator#requireNotBlockedByPrerequisite}.
+     */
+    public boolean isBlockedByPrerequisite(PendingApproval pendingApproval, String actorId) {
+        return hasAddSignDependency(pendingApproval)
+                && blockedActorPending(pendingApproval)
+                && blockedActorMatches(pendingApproval, actorId)
+                && !isPrerequisiteResolved(pendingApproval);
     }
 
     // --- internal helpers ---
@@ -160,13 +161,6 @@ public class ApprovalLifecycleService {
     private boolean hasAddSignDependency(PendingApproval pendingApproval) {
         return StringUtils.hasText(pendingApproval.getBlockedActorId())
                 && StringUtils.hasText(pendingApproval.getPrerequisiteActorId());
-    }
-
-    private boolean isBlockedByPrerequisite(PendingApproval pendingApproval, String actorId) {
-        return hasAddSignDependency(pendingApproval)
-                && blockedActorPending(pendingApproval)
-                && blockedActorMatches(pendingApproval, actorId)
-                && !isPrerequisiteResolved(pendingApproval);
     }
 
     private boolean blockedActorPending(PendingApproval pendingApproval) {

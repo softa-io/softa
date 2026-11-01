@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.mockito.Mockito;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.ModelService;
@@ -110,7 +111,21 @@ public final class TestFlowRuntimeFactory {
                                                      ApprovalNodeExecutionHandler approvalHandler,
                                                      ApprovalNotificationService notificationService) {
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
-                Mockito.mock(ModelService.class), notificationService);
+                Mockito.mock(ModelService.class), notificationService, null);
+    }
+
+    /**
+     * As {@link #createWithNotifications}, with {@code accounts} telling who can act and naming people: the
+     * approvers and CC recipients a flow resolves are checked against it, and so are the people an action names.
+     */
+    public static FlowRuntimeFacade createWithAccounts(FlowBundleRegistry bundleRegistry,
+                                                FlowInstanceStore instanceStore,
+                                                DefaultNodeHandlerRegistry nodeHandlerRegistry,
+                                                ApprovalNodeExecutionHandler approvalHandler,
+                                                ApprovalNotificationService notificationService,
+                                                ActorAccounts accounts) {
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
+                Mockito.mock(ModelService.class), notificationService, accounts);
     }
 
     private static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
@@ -121,15 +136,33 @@ public final class TestFlowRuntimeFactory {
                                     FlowStateChangeListener recordSyncListener,
                                     ModelService<?> recordModelService,
                                     ApprovalNotificationService notificationService) {
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
+                recordSyncListener, recordModelService, notificationService, null);
+    }
+
+    private static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
+                                    FlowInstanceStore instanceStore,
+                                    DefaultNodeHandlerRegistry nodeHandlerRegistry,
+                                    ApprovalNodeExecutionHandler approvalHandler,
+                                    FlowStateChangeListener taskSyncListener,
+                                    FlowStateChangeListener recordSyncListener,
+                                    ModelService<?> recordModelService,
+                                    ApprovalNotificationService notificationService,
+                                    ActorAccounts accounts) {
         FlowProjectionPublisher projectionPublisher =
                 new FlowProjectionPublisher(List.of(taskSyncListener, recordSyncListener));
 
         ApprovalAuditReader auditReader = new ApprovalAuditReader(new NoopApprovalActionLedger());
         FlowAuditService auditService = new FlowAuditService(auditReader);
         ApproverResolutionService approverResolutionService = new ApproverResolutionService();
+        if (accounts != null) {
+            ReflectionTestUtils.setField(approverResolutionService, "actorAccounts", accounts);
+        }
         PendingApprovalFactory pendingApprovalFactory = new PendingApprovalFactory(approverResolutionService, auditReader);
         ApprovalLifecycleService lifecycleService = new ApprovalLifecycleService(pendingApprovalFactory);
-        ApprovalActorValidator actorValidator = new ApprovalActorValidator(lifecycleService);
+        ApprovalActorValidator actorValidator = accounts == null
+                ? new ApprovalActorValidator(lifecycleService)
+                : new ApprovalActorValidator(lifecycleService, accounts);
         FlowActionContextService contextService = new FlowActionContextService(instanceStore, bundleRegistry, projectionPublisher);
 
         FlowGatewayRouter gatewayRouter = new FlowGatewayRouter();
@@ -155,7 +188,7 @@ public final class TestFlowRuntimeFactory {
                 new AddSignAfterActionHandler(contextService, actorValidator, lifecycleService, auditService),
                 new CcActionHandler(contextService, actorValidator, auditService, notificationService),
                 new ReadCcActionHandler(contextService, auditService),
-                new ReturnApprovalActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
+                new ReturnApprovalActionHandler(contextService, actorValidator, auditService, notificationService),
                 new WithdrawActionHandler(contextService, auditService, new WithdrawPolicyGuard(bundleRegistry, auditReader)),
                 new UrgeActionHandler(contextService, auditService, notificationService,
                         new UrgeThrottle(bundleRegistry, auditReader)),

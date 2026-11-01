@@ -32,10 +32,9 @@ class FlowSelfServiceScopeWaiverTest {
     @Test
     @DisplayName("every self-service entry point waives row scope")
     void selfServiceEntryPointsWaiveRowScope() {
-        assertWaived(FlowApprovalTaskController.class,
-                "counts", "pagePendingTasks", "pageCompletedTasks", "pageCcTasks", "getInbox");
+        assertWaived(FlowApprovalTaskController.class, "counts", "searchTasks", "getInbox");
         assertWaived(FlowApprovalRecordController.class, "getHistory", "getSentCcHistory");
-        assertWaived(FlowDelegationController.class, "myDelegations", "delegationsToMe", "cancel");
+        assertWaived(FlowDelegationController.class, "myDelegations", "delegationsToMe", "delegableFlows", "cancel");
         assertWaived(FlowInstanceController.class, "searchInstances");
         assertWaived(InProcessFlowClient.class, "myInstances", "inbox", "pendingTasks", "completedTasks",
                 "ccTasks", "approvalHistory", "sentCcHistory");

@@ -8,10 +8,12 @@ import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
+import io.softa.starter.flow.runtime.TestActorAccounts;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
+import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -331,6 +333,24 @@ class ApproverResolutionServiceOrgTest {
         List<String> result = service.resolveApprovers(node);
 
         assertEquals(List.of("alice", "bob"), result);
+    }
+
+    @Test
+    void approversWhoCannotActAreDroppedFromEverySource() throws Exception {
+        var field = ApproverResolutionService.class.getDeclaredField("actorAccounts");
+        field.setAccessible(true);
+        field.set(service, TestActorAccounts.of(Map.of(2002L, "Frozen"), Map.of()));
+        CompiledFlowNode named = CompiledFlowNode.builder().nodeId("a1").type(FlowNodeType.APPROVAL)
+                .parsedConfig(ApprovalNodeConfig.builder().approvers(List.of("2001", "2002")).build())
+                .build();
+        Map<String, Object> vars = varsWithInitiator("100");
+        vars.put("myApprovers", List.of("2002", "2003"));
+
+        assertEquals(List.of("2001"), service.resolveApprovers(named, vars), "static approvers");
+        assertEquals(List.of("2003"), service.resolveApprovers(approvalNode(Map.of("type", "VariableList",
+                "variable", "myApprovers")), vars), "a variable list");
+        FlowExecutionState state = FlowExecutionState.builder().initiatorId("100").variables(new LinkedHashMap<>()).build();
+        assertEquals(List.of(), service.resolvePeople(List.of("2002"), null, state), "a CC rule's recipients");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

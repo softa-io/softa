@@ -29,7 +29,8 @@ public interface FlowRuntimeEngine {
      * {@link #start}, as the approval of the request's record: the instance's result is written
      * back to the record, and the record can have only one such instance in progress. Only record
      * submission ({@code FlowLaunchService.submitRecord}) starts one; a debug run of the same flow
-     * runs on the record without being its approval.
+     * runs on the record without being its approval. A start that fails throws without keeping a
+     * failed instance or telling anyone: the submission fails with it, and its transaction rolls back.
      */
     FlowExecutionState startRecordApproval(FlowStartRequest request);
 

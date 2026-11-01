@@ -1,5 +1,6 @@
 package io.softa.starter.flow.service.impl;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.flow.entity.FlowApprovalTask;
+import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
@@ -27,6 +29,7 @@ import io.softa.starter.flow.service.support.FlowUserNames;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
@@ -38,12 +41,14 @@ import static org.mockito.Mockito.*;
 class FlowApprovalTaskSyncTest {
 
     private static final LocalDateTime T0 = LocalDateTime.of(2026, 10, 30, 15, 38, 49);
+    private static final LocalDateTime SUBMITTED = LocalDateTime.of(2026, 10, 30, 9, 12, 5);
 
     /** The rows as the table holds them: an empty actor list reads back as null. */
     private final List<FlowApprovalTask> stored = new ArrayList<>();
     private final List<FlowApprovalTask> created = new ArrayList<>();
     private final List<FlowApprovalTask> updated = new ArrayList<>();
     private long nextId = 1;
+    private final FlowInstanceService instanceService = mock(FlowInstanceService.class);
     private FlowApprovalTaskServiceImpl service;
 
     @BeforeEach
@@ -52,7 +57,8 @@ class FlowApprovalTaskSyncTest {
         service = spy(new FlowApprovalTaskServiceImpl(new FlowApprovalTaskProjector(reader),
                 mock(FlowInstanceAccessGuard.class), reader,
                 new TaskInstanceContextEnricher(mock(FlowInstanceService.class), mock(FlowUserNames.class),
-                        mock(FlowBundleRegistry.class))));
+                        mock(FlowBundleRegistry.class)),
+                instanceService));
         doAnswer(invocation -> List.copyOf(stored)).when(service).searchList(any(Filters.class));
         doAnswer(invocation -> {
             List<FlowApprovalTask> rows = invocation.getArgument(0);
@@ -164,6 +170,69 @@ class FlowApprovalTaskSyncTest {
 
         FlowApprovalTask mgrs = stored.stream().filter(row -> "mgr".equals(row.getActorId())).findFirst().orElseThrow();
         assertEquals(FlowApprovalTaskStatus.CANCELED, mgrs.getStatus(), "closed by someone else's vote, not theirs");
+    }
+
+    @Test
+    void aTaskIsWrittenWithTheListFieldsOfItsInstanceAsItsRowHoldsThem() {
+        when(instanceService.findByInstanceIds(List.of("i1"))).thenReturn(List.of(submittedClaim()));
+        FlowExecutionState state = waitingOn(step(List.of("mgr")));
+        state.getApprovalAuditDelta().add(entry(ApprovalActionType.CC, "mgr", "cc-1", "for you"));
+        service.onStateChanged(state);
+
+        assertEquals(2, created.size(), "the approval task and the CC");
+        created.forEach(FlowApprovalTaskSyncTest::assertCarriesTheClaim);
+        verify(instanceService, times(1)).findByInstanceIds(anyCollection());
+    }
+
+    @Test
+    void anOpenTaskWrittenBeforeTasksStoredThemGetsThemOnItsNextUpdateAndIsNotReadForThemAgain() {
+        FlowApprovalTask earlier = new FlowApprovalTask();
+        earlier.setInstanceId("i1");
+        earlier.setNodeId("manager");
+        earlier.setCycleNumber(1);
+        earlier.setActorId("mgr");
+        earlier.setTaskType(FlowApprovalTaskType.APPROVAL);
+        earlier.setStatus(FlowApprovalTaskStatus.PENDING);
+        earlier.setStartTime(T0);
+        stored.add(asStored(earlier));
+        when(instanceService.findByInstanceIds(List.of("i1"))).thenReturn(List.of(submittedClaim()));
+        FlowExecutionState state = waitingOn(step(List.of("mgr")));
+
+        service.onStateChanged(state);
+        assertTrue(created.isEmpty(), "the open task is updated in place, not copied");
+        assertEquals(List.of(earlier), updated);
+        assertCarriesTheClaim(earlier);
+
+        clearInvocations(instanceService);
+        service.onStateChanged(state);
+        verify(instanceService, never()).findByInstanceIds(anyCollection());
+    }
+
+    private static FlowInstance submittedClaim() {
+        FlowInstance instance = new FlowInstance();
+        instance.setInstanceId("i1");
+        instance.setTitle("Taxi to the airport");
+        instance.setRecordCode("EXP-0042");
+        instance.setModelName("ExpenseClaim");
+        instance.setRowId("42");
+        instance.setInitiatorId("u-7");
+        instance.setCreatedTime(SUBMITTED);
+        instance.setSubjectId(7L);
+        instance.setDepartmentId(30L);
+        instance.setEffectiveDate(LocalDate.of(2026, 11, 1));
+        return instance;
+    }
+
+    private static void assertCarriesTheClaim(FlowApprovalTask task) {
+        assertEquals("Taxi to the airport", task.getInstanceTitle());
+        assertEquals("EXP-0042", task.getRecordCode());
+        assertEquals("ExpenseClaim", task.getModelName());
+        assertEquals("42", task.getRowId());
+        assertEquals("u-7", task.getInitiatorId());
+        assertEquals(SUBMITTED, task.getSubmittedTime(), "the instance's start, not the task's");
+        assertEquals(7L, task.getSubjectId());
+        assertEquals(30L, task.getDepartmentId());
+        assertEquals(LocalDate.of(2026, 11, 1), task.getEffectiveDate());
     }
 
     private List<FlowApprovalTask> ccRows(String recipient) {

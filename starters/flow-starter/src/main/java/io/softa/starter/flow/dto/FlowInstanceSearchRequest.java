@@ -4,12 +4,16 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
  * Paged instance search for monitoring views. Results are summary rows — the
  * heavy JSON state columns and the trace are excluded; fetch a single instance
- * (or its overlay) for detail.
+ * (or its overlay) for detail. Besides the typed filters, {@code filters} and
+ * {@code orders} carry what a metadata-driven table over {@code FlowInstance}
+ * asks for, ANDed onto everything else.
  */
 @Schema(name = "FlowInstanceSearchRequest")
 public record FlowInstanceSearchRequest(
@@ -56,6 +60,15 @@ public record FlowInstanceSearchRequest(
                 + "replaced — the records still waiting to be edited and submitted again")
         Boolean awaitingRevision,
 
+        @Schema(description = "Conditions on the stored fields of FlowInstance, nested with AND / OR, ANDed onto every "
+                + "other filter and onto who the search reads for; `searchName` matches the model's searchName fields "
+                + "(title, recordCode). A field the model does not store is refused (400)")
+        Filters filters,
+
+        @Schema(description = "Sort on stored fields of FlowInstance, e.g. [[\"createdTime\", \"ASC\"]]; default: "
+                + "newest first")
+        Orders orders,
+
         @Schema(description = "1-based page number; default 1")
         Integer pageNumber,
 
@@ -66,6 +79,6 @@ public record FlowInstanceSearchRequest(
     /** A search by flow and status alone, of the first page. */
     public static FlowInstanceSearchRequest of(String flowId, FlowExecutionStatus status) {
         return new FlowInstanceSearchRequest(flowId, status, null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 }

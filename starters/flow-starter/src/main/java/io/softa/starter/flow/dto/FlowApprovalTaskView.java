@@ -120,7 +120,8 @@ public class FlowApprovalTaskView {
     @Schema(description = "Urgency marker propagated from urge actions")
     private String urgency;
 
-    @Schema(description = "Title of the owning instance (batch-enriched; null when the instance row is gone)")
+    @Schema(description = "Title of the owning instance (batch-enriched; the task's stored copy when the instance row "
+            + "is gone)")
     private String instanceTitle;
 
     @Schema(description = "Business model bound to the owning instance")

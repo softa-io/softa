@@ -20,6 +20,8 @@ public class OrganizationServiceProperties {
     private String accountIdField = "userId";
     /** Field on the employee model that holds the display name. */
     private String nameField = "fullName";
+    /** Field on the employee model that holds the employee code, shown beside the name in the directory. */
+    private String codeField = "code";
     /** Field on the employee model that holds the department id. */
     private String deptIdField = "departmentId";
     /** Field on the employee model that holds the job position id. */
@@ -31,6 +33,8 @@ public class OrganizationServiceProperties {
     private String departmentModel = "Department";
     /** Field on the department model that holds its name. */
     private String deptNameField = "name";
+    /** Field on the department model that holds its code, shown beside the name in the directory. */
+    private String deptCodeField = "code";
     /** Field on the department model that holds the department leader's employee id. */
     private String deptLeaderIdField = "picEmpId";
     /** Field on the department model that holds the department HRBP's employee id. */

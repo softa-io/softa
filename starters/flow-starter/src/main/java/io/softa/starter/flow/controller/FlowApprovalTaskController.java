@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.flow.dto.FlowApprovalTaskSearchRequest;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.dto.FlowInboxCountView;
 import io.softa.starter.flow.dto.FlowInboxView;
@@ -20,7 +21,8 @@ import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
  * Query endpoints for persistent flow approval tasks.
  *
  * <p>The current user's own tasks carry {@link SkipPermissionCheck}: their filters pin every row to
- * the caller, so row scope cannot narrow them — it could only empty them, because
+ * the caller (the filters a search adds are ANDed on, never in their place), so row scope cannot narrow them — it
+ * could only empty them, because
  * {@code FlowApprovalTask} is a model no business role is granted. A user sees their own to-dos
  * without any configuration. The waiver sits here, where the caller's id is taken from the request
  * context, and not on the service methods, which take the actor as a parameter. An instance's task
@@ -43,48 +45,24 @@ public class FlowApprovalTaskController {
 
     @GetMapping("/counts")
     @Operation(summary = "Inbox badge counts for current user",
-            description = "Pending approval count and unread CC count — same filter definitions as the "
-                    + "paged /pending and /cc?read=false queries, but a cheap COUNT instead of a page probe.")
+            description = "Pending approval count and unread CC count — the Pending box of POST /search and its "
+                    + "unread CC tasks, but a cheap COUNT instead of a page probe.")
     @SkipPermissionCheck
     public ApiResponse<FlowInboxCountView> counts() {
         return ApiResponse.success(flowApprovalTaskService.countInbox(currentUserId()));
     }
 
-    @GetMapping("/pending")
-    @Operation(summary = "Page pending tasks for current user")
+    @PostMapping("/search")
+    @Operation(summary = "Search the current user's tasks",
+            description = "One page of the caller's own tasks in a box — Pending: approval tasks waiting on them, "
+                    + "newest first; Handled: approval tasks that closed, latest closed first; Cc: CC tasks, read "
+                    + "and unread, oldest first. filters (nested AND / OR, searchName for the toolbar search) and "
+                    + "orders may name only stored fields of FlowApprovalTask, else 400; the filters are ANDed onto "
+                    + "the caller and the box, never replacing them, and orders replace the box's order. Each "
+                    + "task comes with its instance's context and every account it names, as the other reads.")
     @SkipPermissionCheck
-    public ApiResponse<Page<FlowApprovalTaskView>> pagePendingTasks(@RequestParam(required = false) String flowId,
-                                                                    @RequestParam(required = false) String instanceId,
-                                                                    @RequestParam(required = false) String nodeId,
-                                                                    @RequestParam(defaultValue = "1") Integer pageNumber,
-                                                                    @RequestParam(defaultValue = "50") Integer pageSize) {
-        return ApiResponse.success(flowApprovalTaskService
-                .pagePendingTasks(currentUserId(), flowId, instanceId, nodeId, pageNumber, pageSize));
-    }
-
-    @GetMapping("/completed")
-    @Operation(summary = "Page completed tasks for current user")
-    @SkipPermissionCheck
-    public ApiResponse<Page<FlowApprovalTaskView>> pageCompletedTasks(@RequestParam(required = false) String flowId,
-                                                                      @RequestParam(required = false) String instanceId,
-                                                                      @RequestParam(required = false) String nodeId,
-                                                                      @RequestParam(defaultValue = "1") Integer pageNumber,
-                                                                      @RequestParam(defaultValue = "50") Integer pageSize) {
-        return ApiResponse.success(flowApprovalTaskService
-                .pageCompletedTasks(currentUserId(), flowId, instanceId, nodeId, pageNumber, pageSize));
-    }
-
-    @GetMapping("/cc")
-    @Operation(summary = "Page CC tasks for current user", description = "Queries unread or read CC tasks for the current user. read=false returns unread CC tasks, read=true returns acknowledged CC tasks, and omitting read returns both.")
-    @SkipPermissionCheck
-    public ApiResponse<Page<FlowApprovalTaskView>> pageCcTasks(@RequestParam(required = false) Boolean read,
-                                                               @RequestParam(required = false) String flowId,
-                                                               @RequestParam(required = false) String instanceId,
-                                                               @RequestParam(required = false) String nodeId,
-                                                               @RequestParam(defaultValue = "1") Integer pageNumber,
-                                                               @RequestParam(defaultValue = "50") Integer pageSize) {
-        return ApiResponse.success(flowApprovalTaskService
-                .pageCcTasks(currentUserId(), read, flowId, instanceId, nodeId, pageNumber, pageSize));
+    public ApiResponse<Page<FlowApprovalTaskView>> searchTasks(@RequestBody FlowApprovalTaskSearchRequest request) {
+        return ApiResponse.success(flowApprovalTaskService.searchTasks(currentUserId(), request));
     }
 
     @GetMapping("/inbox")

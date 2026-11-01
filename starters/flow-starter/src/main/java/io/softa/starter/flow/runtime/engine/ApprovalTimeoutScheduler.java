@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.enums.ApprovalTimeoutStrategy;
@@ -26,7 +27,8 @@ import io.softa.starter.flow.runtime.store.FlowInstanceStore;
  * node's timeout strategy: Remind reminds the approvers still to act at the deadline, then every
  * {@code remindIntervalHours}, at most {@code maxRemindTimes} times (3 unless set) — with no interval, once;
  * AutoApprove and AutoReject decide for them; Escalate hands the step to {@code escalateToUserId} with a new
- * deadline. Nothing is sent before the deadline.
+ * deadline — or, while that user cannot act ({@link ActorAccounts}), reminds as Remind does. Nothing is sent before
+ * the deadline.
  */
 @Slf4j
 @Component
@@ -42,6 +44,9 @@ public class ApprovalTimeoutScheduler {
     private final FlowRuntimeEngine runtimeEngine;
     private final ApprovalNotificationService notificationService;
     private final PendingApprovalFactory pendingApprovalFactory;
+
+    @Autowired(required = false)
+    private ActorAccounts actorAccounts;
 
     public ApprovalTimeoutScheduler(FlowInstanceStore instanceStore, FlowBundleRegistry bundleRegistry,
                                     FlowRuntimeEngine runtimeEngine, ApprovalNotificationService notificationService,
@@ -172,6 +177,13 @@ public class ApprovalTimeoutScheduler {
         if (escalateTo == null || escalateTo.isBlank()) {
             log.warn("No escalation user configured for instance {}, node {}. Falling back to REMIND.",
                     state.getInstanceId(), pending.getNodeId());
+            remindOverdue(state, pending, config, now);
+            return;
+        }
+        if (actorAccounts != null && actorAccounts.usable(List.of(escalateTo)).isEmpty()) {
+            // Dropped like any approver who cannot act: the step stays with its approvers, reminded instead.
+            log.warn("Escalation user {} of instance {}, node {} cannot act. Falling back to REMIND.",
+                    escalateTo, state.getInstanceId(), pending.getNodeId());
             remindOverdue(state, pending, config, now);
             return;
         }

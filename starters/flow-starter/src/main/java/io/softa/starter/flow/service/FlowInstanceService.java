@@ -133,7 +133,9 @@ public interface FlowInstanceService {
      * Paged summary search shared by the caller's "my instances" reads
      * ({@code POST /flow/instances/search} and {@code FlowClient.myInstances}) and the
      * cross-initiator monitor endpoint. Builds the summary projection (heavy JSON
-     * state columns excluded) and the filter set from the request, newest first.
+     * state columns excluded) and the filter set from the request, newest first; the
+     * request's {@code filters} are ANDed onto that set and its {@code orders} replace the
+     * default order. Both may name only fields {@code FlowInstance} stores, else 400.
      *
      * @param request           search filters and paging
      * @param forcedInitiatorId when non-null, overrides any requested initiator filter and keeps

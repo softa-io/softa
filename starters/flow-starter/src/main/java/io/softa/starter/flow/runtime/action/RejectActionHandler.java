@@ -65,7 +65,7 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
         FlowExecutionStatus statusBefore = ctx.statusBefore();
 
         actorValidator.validateRejectActor(pendingApproval, request.getActorId(), node);
-        lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
+        actorValidator.requireNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
         // A rejection says why: the submitter is told, and the record's approval history keeps it.
         if (!StringUtils.hasText(request.getComment())) {
             throw new FlowActionValidationException("A comment is required to reject approval node: " + request.getNodeId());
@@ -74,12 +74,7 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
             if (!StringUtils.hasText(request.getActorId())) {
                 throw new FlowActionValidationException("actorId is required to reject this approval node: " + request.getNodeId());
             }
-            if (pendingApproval.getApprovedActors().contains(request.getActorId())) {
-                throw new FlowActionValidationException("Approver has already approved this approval node: " + request.getActorId());
-            }
-            if (pendingApproval.getRejectedActors().contains(request.getActorId())) {
-                throw new FlowActionValidationException("Approver has already rejected this approval node: " + request.getActorId());
-            }
+            actorValidator.requireNotVoted(pendingApproval, request.getActorId(), node);
             pendingApproval.getRejectedActors().add(request.getActorId());
             if (pendingApproval.getRejectedActors().size() < pendingApproval.getRequiredRejectCount()) {
                 auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.WAIT_APPROVAL,
