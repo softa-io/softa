@@ -696,6 +696,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             cleared.setOldValue(account.getEmail());
             cleared.setReason("Deactivated");
             securityLog.record(cleared);
+            // Kept for the account list only, which still shows what the closed account had.
+            account.setClosedEmail(account.getEmail());
             account.setEmail(null);
         }
         // ⑤ Close the membership.
@@ -756,6 +758,27 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED
                         && !Objects.equals(account.getId(), exceptAccountId))
                 .anyMatch(account -> account.getProfileId() != null && !account.getProfileId().equals(profileId));
+    }
+
+    @Override
+    @CrossTenant
+    @SkipPermissionCheck
+    @Transactional
+    public void followLoginMobile(Long profileId) {
+        if (profileId == null) {
+            return;
+        }
+        String loginMobile = workContact(identityService.findByProfile(profileId)
+                .map(UserIdentity::getLoginMobile).orElse(null));
+        for (UserAccount account : this.listMembershipsOf(profileId)) {
+            if (JOINED_STATUSES.contains(account.getStatus())
+                    && !Objects.equals(loginMobile, account.getMobile())) {
+                // The whole loaded row, written null-preserving: a person with no login mobile left
+                // shows none.
+                account.setMobile(loginMobile);
+                acrossTenants(() -> this.updateOne(account, false));
+            }
+        }
     }
 
     /** A status change, in the security log. */
@@ -821,6 +844,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
         identity.setLoginMobile(newMobile);
         identityService.updateOne(identity);
+        this.followLoginMobile(account.getProfileId());
         // Every device of the person, in every company: whoever holds the old number may be signed
         // in somewhere. And no device keeps receiving their notifications.
         sessionService.revokePerson(account.getProfileId(), null, SessionRevokeReason.RESET_USER);
@@ -1054,6 +1078,17 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 ctx.setSkipPermissionCheck(previous);
             }
         }
+    }
+
+    @SkipPermissionCheck
+    @Override
+    public WorkContacts archiveContactsForAccount(Long userId) {
+        String loginMobile = userId == null ? null : this.getById(userId)
+                .map(UserAccount::getProfileId)
+                .flatMap(identityService::findByProfile)
+                .map(UserIdentity::getLoginMobile)
+                .orElse(null);
+        return this.archiveWorkContacts(userId).withMobiles(this.archivePersonalMobile(userId), loginMobile);
     }
 
     @SkipPermissionCheck
@@ -1334,6 +1369,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      */
     void reviveWith(UserAccount account, String workEmail, String workMobile) {
         account.setEmail(workContact(workEmail));
+        account.setClosedEmail(null);
         account.setMobile(workContact(workMobile));
         account.setStatus(AccountStatus.PENDING);
         account.setActivationTime(null);

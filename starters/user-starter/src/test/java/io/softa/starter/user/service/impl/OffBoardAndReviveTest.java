@@ -216,6 +216,49 @@ class OffBoardAndReviveTest {
     }
 
     @Test
+    void theResetAndUnbindDialogs_getThePersonalAndTheLoginMobile_besideTheWorkContacts() {
+        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", "+6590000001");
+        doReturn(Optional.of(membership)).when(accountService).getById(ACCOUNT);
+        workContacts("alice@acme.com", "+6594444444");
+        doReturn("+6592222222").when(accountService).archivePersonalMobile(ACCOUNT);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity(null, "+6591111111")));
+
+        WorkContacts contacts = accountService.archiveContactsForAccount(ACCOUNT);
+
+        // The work mobile stays what it was — off-boarding compares against it.
+        assertThat(contacts.mobile()).isEqualTo("+6594444444");
+        assertThat(contacts.personalMobile()).isEqualTo("+6592222222");
+        assertThat(contacts.loginMobile()).isEqualTo("+6591111111");
+    }
+
+    @Test
+    void reviving_dropsTheEmailTheAccountClosedWith() {
+        UserAccount closed = account(AccountStatus.DEACTIVATED, null, null);
+        closed.setClosedEmail("old@acme.com");
+
+        accountService.reviveWith(closed, "new@acme.com", null);
+
+        assertThat(closed.getClosedEmail()).isNull();
+    }
+
+    @Test
+    void theListedMobile_followsTheLoginMobile_onJoinedAccountsOnly() {
+        UserAccount joined = account(AccountStatus.ACTIVE, "a@acme.com", "+6590000001");
+        UserAccount invited = account(AccountStatus.INVITED, "a@globex.com", "+6590000001");
+        invited.setId(200L);
+        doReturn(List.of(joined, invited)).when(accountService).listMembershipsOf(PROFILE);
+        doReturn(true).when(accountService).updateOne(any(UserAccount.class), anyBoolean());
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity(null, "+6598765432")));
+
+        accountService.followLoginMobile(PROFILE);
+
+        assertThat(joined.getMobile()).isEqualTo("+6598765432");
+        verify(accountService).updateOne(joined, false);
+        // Before joining, the invitation mobile is what the list shows.
+        assertThat(invited.getMobile()).isEqualTo("+6590000001");
+    }
+
+    @Test
     void reviving_aRowNobodyJoinedSinceItWasLastReopened_keepsThePersonItRemembers() {
         UserAccount reopenedAndClosedAgain = account(AccountStatus.DEACTIVATED, null, "+8613800000000");
         reopenedAndClosedAgain.setProfileId(null);
@@ -239,6 +282,8 @@ class OffBoardAndReviveTest {
         accountService.offBoardWith(membership);
 
         assertThat(membership.getEmail()).isNull();
+        // The list still shows what the closed account had.
+        assertThat(membership.getClosedEmail()).isEqualTo("alice@acme.com");
         assertThat(logged.getOldValue()).isEqualTo("alice@acme.com");
         verify(securityLog).record(logged);
     }

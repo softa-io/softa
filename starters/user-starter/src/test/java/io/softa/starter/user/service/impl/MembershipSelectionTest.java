@@ -81,7 +81,7 @@ class MembershipSelectionTest {
     }
 
     @Test
-    void theApp_cannotPickACompanyBeforeSettingThePasswordItOwes() {
+    void cannotPickACompanyBeforeSettingThePasswordItOwes() {
         // The sign-in token alone used to be enough to enter: the step "set a password first" was
         // only advice, and an APP that skipped it got a session.
         ClientRequests.fromApp();
@@ -96,16 +96,14 @@ class MembershipSelectionTest {
     }
 
     @Test
-    void web_stillPicksACompanyFirst_andSetsThePasswordInside() {
-        // Web sets the first password from inside a session; refusing it here would leave it no way in.
+    void web_isHeldToTheSameRule() {
         givenNoPassword();
         givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE), membership(200L, 2L, AccountStatus.ACTIVE));
-        when(profileService.getUserInfo(100L)).thenReturn(new UserInfo());
 
-        AuthenticationResult result = loginService.selectTenant(TOKEN, 100L);
-
-        assertThat(result.isResolved()).isTrue();
-        assertThat(result.mustSetPassword()).isTrue();
+        assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.PASSWORD_REQUIRED);
     }
 
     @Test
@@ -140,6 +138,8 @@ class MembershipSelectionTest {
         UserIdentity identity = new UserIdentity();
         identity.setId(11L);
         identity.setProfileId(PROFILE);
+        // A lock is on a password the person has.
+        identity.setPassword("hash");
         identity.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(5));
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
         when(identityService.isPasswordLocked(identity)).thenReturn(true);

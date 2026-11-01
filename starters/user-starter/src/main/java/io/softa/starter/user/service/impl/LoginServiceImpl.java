@@ -480,14 +480,10 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             throw new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
         }
         Long autoEnter = autoEnterAccount(options);
-        // A password owed comes first for the APP: no session until it is set, even when the entry
-        // rule already knows where the person will go — setFirstPassword enters it after.
-        // TODO: Web still sets the first password through /UserAccount/setMyFirstPassword, which
-        // needs a session, so a request without the APP header is entered as before and told the
-        // password is owed. Drop this branch once Web calls /login/setFirstPassword.
-        boolean passwordGatesEntry = mustSetPassword && ClientInfo.current().isApp();
-        if (autoEnter != null && !passwordGatesEntry) {
-            return AuthenticationResult.resolved(profileId, profileService.getUserInfo(autoEnter), mustSetPassword);
+        // A password owed comes first: no session until it is set, even when the entry rule already
+        // knows where the person will go — setFirstPassword enters it after.
+        if (autoEnter != null && !mustSetPassword) {
+            return AuthenticationResult.resolved(profileId, profileService.getUserInfo(autoEnter), false);
         }
         AuthenticationResult.NoEnterableReason reason = this.noEnterableReason(profileId, options);
         // A choice is pending (or a password is), so authentication succeeded but no session is
@@ -495,7 +491,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // and setFirstPassword read the person from it, never from a client-supplied id — otherwise
         // the next step would be an unauthenticated "issue me a session for profileId X". Nobody
         // needs one with nowhere to go and nothing owed.
-        String token = reason == null || passwordGatesEntry ? issuePreAuthToken(profileId) : null;
+        // Owing a password earns a token even with nowhere to enter: setting it is the one step the
+        // person can still take.
+        String token = reason == null || mustSetPassword ? issuePreAuthToken(profileId) : null;
         return AuthenticationResult.choicePending(profileId, options, mustSetPassword, token, autoEnter, reason);
     }
 
@@ -994,9 +992,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             throw orgUnavailable(accountDeniedMessage(chosen.status()));
         }
         boolean mustSetPassword = this.mustSetPassword(profileId);
-        // The APP owes the first password before any session: picking a company does not skip it.
-        // Web is let through for the reason afterAuthentication gives (see the TODO there).
-        if (mustSetPassword && ClientInfo.current().isApp()) {
+        // The first password is owed before any session: picking a company does not skip it.
+        if (mustSetPassword) {
             throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_REQUIRED,
                     "Set your password before entering a company.");
         }

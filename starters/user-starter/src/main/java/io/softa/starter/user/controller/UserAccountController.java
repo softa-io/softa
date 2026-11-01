@@ -71,6 +71,7 @@ import io.softa.starter.user.dto.FreezeAccountsDTO;
 import io.softa.starter.user.dto.UnbindAndReinviteDTO;
 import io.softa.starter.user.dto.UserAccountDTO;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.PermissionCacheInvalidator;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
@@ -618,6 +619,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         if (rows == null || rows.isEmpty()) {
             return rows;
         }
+        showClosedEmail(rows);
         Set<Long> people = rows.stream().map(UserAccountController::profileIdOf)
                 .filter(Objects::nonNull).collect(Collectors.toSet());
         Set<Long> locked = identityService.findPasswordLockedProfiles(people);
@@ -628,6 +630,43 @@ public class UserAccountController extends EntityController<UserAccountService, 
             row.put(LOCKED_FIELD, profileId != null && locked.contains(profileId));
         }
         return rows;
+    }
+
+    /**
+     * A closed account's email column shows the address it had when it closed. Closing clears the
+     * enterprise email itself — the mailbox goes to the next hire — and keeps a copy for this list.
+     * Only rows whose read asked for the email are touched.
+     */
+    private static final String EMAIL_FIELD = "email";
+
+    private void showClosedEmail(List<Map<String, Object>> rows) {
+        List<Long> ids = rows.stream()
+                .filter(row -> row.containsKey(EMAIL_FIELD) && row.get(EMAIL_FIELD) == null)
+                .map(row -> idOf(row.get(ModelConstant.ID)))
+                .filter(Objects::nonNull)
+                .toList();
+        if (ids.isEmpty()) {
+            return;
+        }
+        Map<Long, String> closed = service.searchList(new Filters()
+                        .in(ModelConstant.ID, ids)
+                        .eq(UserAccount::getStatus, AccountStatus.DEACTIVATED)).stream()
+                .filter(account -> account.getClosedEmail() != null)
+                .collect(Collectors.toMap(UserAccount::getId, UserAccount::getClosedEmail));
+        for (Map<String, Object> row : rows) {
+            String email = closed.get(idOf(row.get(ModelConstant.ID)));
+            if (email != null && row.containsKey(EMAIL_FIELD) && row.get(EMAIL_FIELD) == null) {
+                row.put(EMAIL_FIELD, email);
+            }
+        }
+    }
+
+    private static Long idOf(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        String id = value == null ? null : value.toString();
+        return StringUtils.isNumeric(id) ? Long.valueOf(id) : null;
     }
 
     /**
@@ -835,7 +874,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         // onRosterAccounts for the same reason those are — a platform super-admin works a roster
         // that spans tenants, and the account may not be in the ambient one.
         return ApiResponse.success(onRosterAccounts(List.of(id),
-                () -> service.archiveWorkContacts(id)));
+                () -> service.archiveContactsForAccount(id)));
     }
 
     @Operation(summary = "Reset a membership's work contacts — keeps the person, their password "

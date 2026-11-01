@@ -102,11 +102,21 @@ public class UserAccount extends AuditableModel {
     // scanner never auto-DROPs, so rolling the binary back still finds its credentials. Dropping
     // them for real is a separate release step (user-02-drop-old-credential-columns.sql).
 
+    /** This company's enterprise email: the employee record's Work Email. Cleared when the account closes. */
     @Field
     private String email;
 
+    /**
+     * The mobile the account list shows and searches: the invitation mobile until the person joins,
+     * their login mobile after (kept in step when it changes), and on a closed account the number it
+     * had when it closed.
+     */
     @Field
     private String mobile;
+
+    @Field(copyable = false, description = "The enterprise email the account had when it closed; "
+            + "shown in the account list, never a login or a uniqueness check")
+    private String closedEmail;
 
     @Field(copyable = false)
     private LocalDateTime activationTime;

@@ -22,6 +22,7 @@ import io.softa.starter.user.spi.PushDeviceRegistry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -64,6 +65,9 @@ class ResetUserTest {
         person.setLoginMobile(OLD);
         person.setPassword("hash");
         doReturn(Optional.of(account)).when(accountService).getById(ACCOUNT);
+        doReturn(List.of(account)).when(accountService).listMembershipsOf(PROFILE);
+        doReturn(true).when(accountService).updateOne(any(UserAccount.class), anyBoolean());
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(person));
         when(identityService.requireIdentity(account)).thenReturn(person);
         when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
         doReturn(NEW).when(accountService).archivePersonalMobile(ACCOUNT);
@@ -84,7 +88,8 @@ class ResetUserTest {
         assertThat(account.getEmail()).isEqualTo("ada@acme.com");
         assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
         assertThat(person.getPassword()).isEqualTo("hash");
-        verify(accountService, never()).updateOne(any(UserAccount.class), any(Boolean.class));
+        // The account list shows and finds the number the person now signs in with.
+        assertThat(account.getMobile()).isEqualTo(NEW);
     }
 
     @Test

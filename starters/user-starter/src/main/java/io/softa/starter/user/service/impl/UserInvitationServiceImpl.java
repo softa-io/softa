@@ -681,6 +681,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
         account.setProfileId(profileId);
         account.setStatus(AccountStatus.ACTIVE);
+        // From here the list shows the number the person signs in with, not the invitation's.
+        identityService.findByProfile(profileId)
+                .map(UserIdentity::getLoginMobile)
+                .filter(StringUtils::isNotBlank)
+                .ifPresent(account::setMobile);
         account.setActivationTime(LocalDateTime.now());
         accountService.updateOne(account);
 

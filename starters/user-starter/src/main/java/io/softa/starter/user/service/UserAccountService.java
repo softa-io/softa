@@ -72,6 +72,13 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     boolean isEmailHeldByAnotherPerson(String email, Long profileId, Long exceptAccountId);
 
     /**
+     * Put the person's login mobile on every account they have joined, so the account list shows and
+     * finds the number they sign in with. Accounts not joined yet keep their invitation mobile, and
+     * closed ones the number they closed with.
+     */
+    void followLoginMobile(Long profileId);
+
+    /**
      * Get user by mobile
      *
      * @param mobile mobile
@@ -208,6 +215,12 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      * @return the record's contacts, or {@link WorkContacts#none()} when there is no record
      */
     WorkContacts archiveWorkContacts(Long userId);
+
+    /**
+     * {@link #archiveWorkContacts} with the personal mobile on the record and the current login
+     * mobile of the account's person: what the Reset User and Unbind &amp; Re-invite dialogs show.
+     */
+    WorkContacts archiveContactsForAccount(Long userId);
 
     /**
      * The personal mobile on the employee record behind this account — what the invitation is sent

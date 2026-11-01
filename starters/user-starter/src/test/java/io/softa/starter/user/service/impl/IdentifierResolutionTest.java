@@ -221,16 +221,39 @@ class IdentifierResolutionTest {
     }
 
     @Test
-    void aPasswordOwed_onWeb_stillEntersWithASession_andSaysSo() {
-        // Web sets the first password from inside a session; until it calls setFirstPassword, it
-        // must be entered as before or it cannot get anywhere.
+    void aPasswordOwed_onWebToo_comesBeforeAnySession() {
+        // No header-based exception any more: Web sets the first password with the sign-in token
+        // as the APP does.
         person(null);
         givenMemberships(membership(ACCOUNT, AccountStatus.ACTIVE));
 
         AuthenticationResult result = loginService.authenticateByCode(EMAIL, "123456");
 
-        assertThat(result.isResolved()).isTrue();
+        assertThat(result.isResolved()).isFalse();
         assertThat(result.mustSetPassword()).isTrue();
+        assertThat(result.authToken()).isNotBlank();
+    }
+
+    @Test
+    void aPasswordOwed_withNowhereToEnter_stillGetsTheTokenToSetIt() {
+        // Every company frozen: nothing to pick, but setting the password is a step the person can
+        // still take, and without the token they could not.
+        person(null);
+        givenMemberships(membership(ACCOUNT, AccountStatus.FROZEN));
+
+        AuthenticationResult result = loginService.authenticateByCode(EMAIL, "123456");
+
+        assertThat(result.mustSetPassword()).isTrue();
+        assertThat(result.noEnterableReason()).isEqualTo(AuthenticationResult.NoEnterableReason.DEACTIVATED);
+        assertThat(result.authToken()).isNotBlank();
+
+        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE.toString());
+        AuthenticationResult after = loginService.setFirstPassword("tok", "N3w-Passw0rd!");
+
+        verify(identityService).setPassword(11L, "N3w-Passw0rd!");
+        assertThat(after.isResolved()).isFalse();
+        assertThat(after.mustSetPassword()).isFalse();
+        assertThat(after.noEnterableReason()).isEqualTo(AuthenticationResult.NoEnterableReason.DEACTIVATED);
     }
 
     @Test
