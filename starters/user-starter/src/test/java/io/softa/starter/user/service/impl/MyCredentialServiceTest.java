@@ -251,6 +251,7 @@ class MyCredentialServiceTest {
         verify(accountService).releaseDormantLoginMobile(eq(NEW_MOBILE), anyString());
         assertThat(ada.getLoginMobile()).isEqualTo(NEW_MOBILE);
         verify(identityService).updateOne(ada);
+        verify(accountService).followLoginMobile(ADA);
         verify(sessions).revokePerson(ADA, SESSION, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
         verify(securityLog).entry(eq(SecurityAction.LOGIN_MOBILE_CHANGED), any(), eq(account), any());
     }

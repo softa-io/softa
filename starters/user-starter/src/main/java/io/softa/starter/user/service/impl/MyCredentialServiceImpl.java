@@ -193,6 +193,8 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         String previous = identity.getLoginMobile();
         identity.setLoginMobile(held.mobile());
         identityService.updateOne(identity);
+        // The account list shows and finds the number the person signs in with, in every company.
+        accountService.followLoginMobile(identity.getProfileId());
         this.spend(ticket);
         this.signOutOtherDevices(account.getProfileId());
         UserSecurityLog row = securityLog.entry(SecurityAction.LOGIN_MOBILE_CHANGED, this.source(), account, null);
