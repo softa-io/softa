@@ -23,7 +23,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Whether a file runs again is read off its records: never loaded, loaded and unchanged, changed — reloading
- * or not — or failed.
+ * or not — or failed, which runs again unless it was a reapply.
  */
 class SeedLoadLogTest {
 
@@ -83,6 +83,44 @@ class SeedLoadLogTest {
         // And a success after the failure settles it.
         assertEquals(FileState.LOADED, stateOf(ONCE,
                 record(1, "v2", SeedRecordStatus.FAILED), record(2, "v2", SeedRecordStatus.SUCCEEDED)));
+    }
+
+    @Test
+    void aFailedReapplyIsShownWithoutRunningAgain() {
+        // A run-once file changed after load, reapplied as it is now, and the reapply failed: the tenant keeps what
+        // it had. Shown as such — and still not run, which would load it over what the tenant changed.
+        assertEquals(FileState.REAPPLY_FAILED, stateOf(ONCE,
+                record(1, "v1", SeedRecordStatus.SUCCEEDED), record(2, "v2", SeedRecordStatus.FAILED)));
+        assertFalse(FileState.REAPPLY_FAILED.pending());
+        // A reapply of a file loaded as it is now fails as visibly, whatever the file's mode.
+        for (SeedFile file : List.of(ONCE, APPEND, OVERWRITE)) {
+            FileState state = stateOf(file,
+                    record(1, "v2", SeedRecordStatus.SUCCEEDED), record(2, "v2", SeedRecordStatus.FAILED));
+            assertEquals(FileState.REAPPLY_FAILED, state, file.file());
+        }
+        // So does one made after a rollback, over what a newer build loaded.
+        when(catalog.buildTime()).thenReturn(OLDER_BUILD);
+        assertEquals(FileState.REAPPLY_FAILED, stateOf(APPEND,
+                loadedBy(NEWER_BUILD), record(2, "v2", SeedRecordStatus.FAILED)));
+        // A file that reloads and changed runs again, whatever failed last.
+        when(catalog.buildTime()).thenReturn(null);
+        assertEquals(FileState.FAILED, stateOf(APPEND,
+                record(1, "v1", SeedRecordStatus.SUCCEEDED), record(2, "v2", SeedRecordStatus.FAILED)));
+        assertEquals(FileState.FAILED, stateOf(PLATFORM,
+                record(1, "v1", SeedRecordStatus.SUCCEEDED), record(2, "v2", SeedRecordStatus.FAILED)));
+        // And a reapply that succeeds settles it.
+        assertEquals(FileState.LOADED, stateOf(ONCE, record(1, "v1", SeedRecordStatus.SUCCEEDED),
+                record(2, "v2", SeedRecordStatus.FAILED), record(3, "v2", SeedRecordStatus.SUCCEEDED)));
+    }
+
+    @Test
+    void aFailureOnContentTheFileHasSinceLeftSaysNothingAboutIt() {
+        // A draft was reapplied and failed, and the file has changed since: what is here was never tried.
+        assertEquals(FileState.CHANGED_AFTER_LOAD, stateOf(ONCE,
+                record(1, "v1", SeedRecordStatus.SUCCEEDED), record(2, "draft", SeedRecordStatus.FAILED)));
+        // v3 failed to reload, and the build went back to the v2 the scope has.
+        assertEquals(FileState.LOADED, stateOf(OVERWRITE,
+                record(1, "v2", SeedRecordStatus.SUCCEEDED), record(2, "v3", SeedRecordStatus.FAILED)));
     }
 
     @Test

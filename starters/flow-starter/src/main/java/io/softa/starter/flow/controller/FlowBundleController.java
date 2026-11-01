@@ -10,8 +10,6 @@ import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowBundleDetailView;
 import io.softa.starter.flow.dto.FlowBundleSummaryView;
-import io.softa.starter.flow.entity.FlowBundle;
-import io.softa.starter.flow.runtime.bundle.FlowBundleMapper;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.bundle.FlowBundleViews;
 import io.softa.starter.flow.service.FlowBundleService;
@@ -57,7 +55,7 @@ public class FlowBundleController {
     public ApiResponse<FlowBundleDetailView> get(@PathVariable Long bundleId,
                                                  @RequestParam(required = false) String include) {
         return bundleService.findById(bundleId)
-                .map(entity -> toDetail(entity, "design".equalsIgnoreCase(include)))
+                .map(entity -> FlowBundleViews.detail(entity, "design".equalsIgnoreCase(include)))
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow bundle not found: " + bundleId));
@@ -73,10 +71,5 @@ public class FlowBundleController {
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow bundle not found: " + bundleId));
-    }
-
-    private static FlowBundleDetailView toDetail(FlowBundle entity, boolean includeDesign) {
-        FlowBundleSummaryView summary = FlowBundleViews.summarize(FlowBundleMapper.toDefinition(entity));
-        return new FlowBundleDetailView(summary, includeDesign ? entity.getDesignJson() : null);
     }
 }

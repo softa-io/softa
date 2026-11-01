@@ -1,8 +1,10 @@
 package io.softa.starter.flow.runtime;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +25,7 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowTransferRequest;
 import io.softa.starter.flow.runtime.api.FlowUrgeRequest;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
+import io.softa.starter.flow.runtime.engine.FlowParticipants;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.UrgeThrottle;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
@@ -54,6 +57,7 @@ class FlowActionScenarioTest {
     private static final String INITIATOR = "initiator-1";
     private static final String APPROVER = "manager-1";
     private static final String OTHER = "manager-2";
+    private static final String DIRECTOR = "director-1";
 
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
     private final StubFlowBundleRegistry bundleRegistry = new StubFlowBundleRegistry();
@@ -169,6 +173,47 @@ class FlowActionScenarioTest {
 
         FlowExecutionState afterComment = engine.addComment(comment(started, INITIATOR));
         assertEquals(1, entries(afterComment, ApprovalActionType.COMMENT).size());
+    }
+
+    @Test
+    void anApproverWhoseStepPassedOnAnothersVoteStillCommentsWhileTheApprovalRuns() {
+        Map<String, Set<String>> taskHolders = new HashMap<>();
+        FlowRuntimeEngine tracked = TestFlowRuntimeFactory.createWithTasks(bundleRegistry, new StubFlowInstanceStore(),
+                new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
+                approvalHandler, taskHolders);
+        // Either manager carries the first step; a director approves next.
+        publishService.publish("9103", flowDefinition().trigger(new SubmitTrigger("LeaveRequest", "true"))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                node("start", FlowNodeType.START),
+                                FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
+                                        .config(Map.of("approvers", List.of(APPROVER, OTHER), "approvalMode", "AnyOne"))
+                                        .build(),
+                                approvalNode("director", DIRECTOR),
+                                node("end", FlowNodeType.END)))
+                        .edges(List.of(
+                                edge("e1", "start", "approval"),
+                                edge("e2", "approval", "director"),
+                                edge("e3", "director", "end")))
+                        .build())
+                .build());
+        FlowStartRequest start = new FlowStartRequest();
+        start.setFlowId("9103");
+        start.setInitiatorId(INITIATOR);
+        FlowExecutionState started = tracked.start(start);
+        FlowApproveRequest approve = new FlowApproveRequest();
+        approve.setInstanceId(started.getInstanceId());
+        approve.setNodeId("approval");
+        approve.setActorId(APPROVER);
+
+        FlowExecutionState atDirector = tracked.approve(approve);
+
+        assertEquals(FlowExecutionStatus.WAITING, atDirector.getStatus());
+        // The other manager never voted: their step is gone, and the history names only who did...
+        assertFalse(FlowParticipants.isParticipant(atDirector, atDirector.getApprovalAuditDelta(), OTHER));
+        // ...yet the approval gave them a task, so they comment while it runs; whom it gave none still may not.
+        assertEquals(1, entries(tracked.addComment(comment(started, OTHER)), ApprovalActionType.COMMENT).size());
+        assertThrows(FlowAuthorizationException.class, () -> tracked.addComment(comment(started, "stranger")));
     }
 
     @Test

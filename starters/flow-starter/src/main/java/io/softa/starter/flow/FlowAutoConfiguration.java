@@ -39,6 +39,8 @@ import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.FlowPublishService;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
+import io.softa.starter.flow.service.support.MetadataFieldDefinitions;
+import io.softa.starter.flow.service.support.RecordFieldDefinitions;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 import io.softa.starter.message.service.MessageService;
 
@@ -138,6 +140,21 @@ public class FlowAutoConfiguration {
         @Bean
         SeedFlowPublisher flowSeedFlowPublisher(FlowPublishService publishService) {
             return new SeedFlowPublisher(publishService);
+        }
+    }
+
+    /**
+     * Hands out field definitions in the metadata API's own shape — with an approval's record, for the fields an
+     * approval step shows past the caller's metadata — when the application uses metadata-starter (an optional
+     * dependency: the class is checked by name before anything loads it).
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "io.softa.starter.metadata.service.impl.MetadataDtoMapper")
+    static class MetadataFieldDefinitionsConfiguration {
+
+        @Bean
+        RecordFieldDefinitions flowRecordFieldDefinitions() {
+            return new MetadataFieldDefinitions();
         }
     }
 }

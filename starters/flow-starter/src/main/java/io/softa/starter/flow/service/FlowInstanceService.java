@@ -3,13 +3,13 @@ package io.softa.starter.flow.service;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
+import io.softa.starter.flow.dto.FlowInstanceRecordView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
@@ -178,6 +178,17 @@ public interface FlowInstanceService {
                                             Consumer<FlowRecordApprovalsView> authorize);
 
     /**
+     * A business record's approvals — the instances its submissions started; automation and debug runs on it
+     * are not — newest first, each as the engine loads an instance (trace not hydrated): the instances
+     * {@link #recordApprovals} lists, for deciding who takes part in which.
+     *
+     * @param modelName the record's model
+     * @param rowId     the record
+     * @return the approvals; none when the record was never submitted
+     */
+    List<FlowExecutionState> recordApprovalStates(String modelName, String rowId);
+
+    /**
      * The business record an instance runs on, as {@code viewerId} is shown it: read past the viewer's own
      * row and field checks — the caller checks who may — every field, dynamic ones included, but the
      * sensitive ones the viewer may see on no row. The waiting steps the viewer is an approver of lay their
@@ -185,9 +196,26 @@ public interface FlowInstanceService {
      * not, and what they mark Hidden is not. The initiator sees every field but the unseen sensitive ones;
      * anyone else also misses whatever an approval step of the flow hides.
      *
+     * <p>A one-to-many's rows lose the sensitive fields the viewer may see on no row of their own model,
+     * unless a waiting step of the viewer lists the one-to-many itself as Readonly, Editable or Required:
+     * then they come whole. The view carries the definitions of every field it shows that the viewer's own
+     * metadata leaves out, by model.
+     *
      * @param state    the instance
      * @param viewerId the user the record is shown to
      * @return the record, or empty when the instance names none or it no longer exists
      */
-    Optional<Map<String, Object>> recordOf(FlowExecutionState state, String viewerId);
+    Optional<FlowInstanceRecordView> recordOf(FlowExecutionState state, String viewerId);
+
+    /**
+     * A business record read with the caller's own permissions — the same fields as {@link #recordOf}, with
+     * their row scope, field blocks and masking, as the model's read API would return it. Nothing in it is left
+     * out of the caller's metadata, so the view carries no field definitions. It needs no instance: a record
+     * never submitted is read the same way.
+     *
+     * @param modelName the record's model
+     * @param rowId     the record
+     * @return the record, or empty when its model does not exist or the read finds no such row
+     */
+    Optional<FlowInstanceRecordView> recordThroughOwnPermissions(String modelName, String rowId);
 }

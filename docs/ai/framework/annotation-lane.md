@@ -152,7 +152,8 @@ the annotation change** for the cases it can't express:
   field fail with `SequenceNotFoundException` (fail-closed by design).
 
 ```sql
--- deploy/migrations/mysql/V_N__rename_..._with_data.sql
+-- release script of the deploying app (softa keeps no migration files),
+-- run before the new jar boots, e.g. NN-before-jar-rename-customer-legacy-id.sql
 ALTER TABLE customer CHANGE COLUMN legacy_id external_id BIGINT NULL;
 UPDATE sys_field SET field_name = 'externalId', column_name = 'external_id'
  WHERE model_name = 'Customer' AND field_name = 'legacyId';

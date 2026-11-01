@@ -333,9 +333,10 @@ before, a separate `RoleCompany` table held the grant and the two could disagree
 company scope while leaving the grant alone still showed every company's departments and reports.
 A rule that genuinely wants "the caller's own company" is still expressible as a `CUSTOM` rule naming
 `USER_COMP_ID`, where the per-user behaviour is visible in the configuration rather than implied by a
-type name. Retiring the type needs its stored rows migrated (`deploy/migrations/mysql/V40`) **before**
-the new binary: `ScopeType.valueOf` skips an unknown name silently, and a model left with no rule is not
-narrowed at all.
+type name. Retiring the type needs its stored rows migrated **before** the new binary: `ScopeType.valueOf`
+skips an unknown name silently, and a model left with no rule is not narrowed at all. An app upgrading
+across the retirement ships that migration with its release; the MySQL script softa shipped for it is in
+git history (`git show ae7d9570^:deploy/migrations/mysql/V40__retire_legal_entity_scope_type.sql`).
 
 ### Adding a scope type
 

@@ -47,6 +47,14 @@
             <version>${project.version}</version>
             <optional>true</optional>
         </dependency>
+        <!-- Optional: metadata-starter, whose field definitions an approval's record read hands out for the
+             fields an approval step shows past the caller's own metadata -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>metadata-starter</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
 </project>
 

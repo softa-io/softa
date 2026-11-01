@@ -406,10 +406,9 @@ public class TenantSeedRunner {
             List<SeedFile> due = planner.dueFiles(tenantId);
             for (SeedFile file : due) {
                 FileState state = loadLog.state(file, tenantRecords.get(file.file()));
-                loaded += state == FileState.LOADED || state == FileState.CHANGED_AFTER_LOAD
-                        || state == FileState.LOADED_BY_NEWER_BUILD ? 1 : 0;
+                loaded += state.pending() ? 0 : 1;
                 pending += state.pending() ? 1 : 0;
-                failed += state == FileState.FAILED ? 1 : 0;
+                failed += state == FileState.FAILED || state == FileState.REAPPLY_FAILED ? 1 : 0;
                 changedAfterLoad += state == FileState.CHANGED_AFTER_LOAD ? 1 : 0;
             }
             LocalDateTime lastLoadedAt = tenantRecords.values().stream()
