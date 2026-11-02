@@ -32,7 +32,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Consultant accounts sign in on the web only: on the APP no consultancy is offered or entered, by
+ * Consultant and platform accounts sign in on the web only (the platform's below): on the APP no consultancy is offered or entered, by
  * code, by password, by picking a company or by any other route to a session. The web is unchanged.
  */
 class ConsultantOnAppTest {
@@ -169,6 +169,65 @@ class ConsultantOnAppTest {
 
         assertThatThrownBy(() -> loginService.generateSessionId(CONSULTANCY))
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.CONSULTANT_APP_UNSUPPORTED));
+        verify(sessionStore, never()).create(any(), any(), any(), any(), any(), any());
+    }
+
+    // ── platform accounts: web-only as well ─────────────────────────
+
+    private static final Long PLATFORM_ACCOUNT = 300L;
+
+    private UserAccount platformAccount() {
+        UserAccount account = new UserAccount();
+        account.setId(PLATFORM_ACCOUNT);
+        account.setTenantId(io.softa.framework.base.constant.BaseConstant.PLATFORM_TENANT_ID);
+        account.setProfileId(PROFILE);
+        account.setStatus(AccountStatus.ACTIVE);
+        when(accountService.getById(PLATFORM_ACCOUNT)).thenReturn(Optional.of(account));
+        return account;
+    }
+
+    @Test
+    void aPlatformAdmin_isRefusedOnTheApp_byCodeAndByPassword() {
+        when(consultantService.isConsultant(PROFILE)).thenReturn(false);
+        UserAccount platform = platformAccount();
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(platform));
+        when(identityService.matchesPassword(identity, "pw")).thenReturn(true);
+        ClientRequests.fromApp();
+
+        assertThatThrownBy(() -> loginService.authenticateByCode(EMAIL, "123456"))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED))
+                .hasMessage("Platform accounts can only sign in on the web.");
+        assertThatThrownBy(() -> loginService.authenticateByPassword(EMAIL, "pw"))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED));
+    }
+
+    @Test
+    void theSamePlatformAdmin_onTheWeb_isUnaffected() {
+        when(consultantService.isConsultant(PROFILE)).thenReturn(false);
+        UserAccount platform = platformAccount();
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(platform));
+
+        AuthenticationResult result = loginService.authenticateByCode(EMAIL, "123456");
+
+        assertThat(result.isResolved()).isTrue();
+        verify(profileService).getUserInfo(PLATFORM_ACCOUNT);
+    }
+
+    @Test
+    void thePlatformAccount_isNeitherListedNorEnterableOnTheApp() {
+        when(consultantService.isConsultant(PROFILE)).thenReturn(false);
+        UserAccount platform = platformAccount();
+        UserAccount employment = employment();
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(platform, employment));
+        ClientRequests.fromApp();
+
+        assertThat(loginService.listTenants("tok")).extracting(o -> o.accountId()).containsExactly(EMPLOYMENT);
+        assertThatThrownBy(() -> loginService.selectTenant("tok", PLATFORM_ACCOUNT))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED));
+        assertThatThrownBy(() -> loginService.switchTenant(EMPLOYMENT, PLATFORM_ACCOUNT))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED));
+        assertThatThrownBy(() -> loginService.generateSessionId(PLATFORM_ACCOUNT))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED));
         verify(sessionStore, never()).create(any(), any(), any(), any(), any(), any());
     }
 }

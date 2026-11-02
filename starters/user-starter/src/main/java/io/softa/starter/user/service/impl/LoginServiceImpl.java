@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.Assert;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.Operator;
@@ -234,14 +235,38 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     /**
-     * Picking a consultancy on the APP is refused as such, rather than as the "not available" a
-     * filtered-out row would get — the person should learn to use the web, not that it vanished.
+     * Picking a web-only account on the APP — a consultancy, or the platform's own — is refused as
+     * such, rather than as the "not available" a filtered-out row would get: the person should learn
+     * to use the web, not that it vanished.
      */
     private void refuseConsultancyOnApp(Long accountId) {
-        if (accountId != null && ClientInfo.current().isApp()
-                && accountService.getById(accountId).map(UserAccount::getConsultant).orElse(false)) {
-            throw consultantOnApp();
+        if (accountId == null || !ClientInfo.current().isApp()) {
+            return;
         }
+        BusinessException refusal = accountService.getById(accountId).map(LoginServiceImpl::webOnlyRefusal).orElse(null);
+        if (refusal != null) {
+            throw refusal;
+        }
+    }
+
+    /**
+     * Why this account cannot be entered from the APP, or null when it can: the APP is for
+     * employees, and both a consultancy and the platform's own accounts are worked on the web.
+     */
+    static BusinessException webOnlyRefusal(UserAccount account) {
+        if (BaseConstant.PLATFORM_TENANT_ID.equals(account.getTenantId())) {
+            return platformOnApp();
+        }
+        if (Boolean.TRUE.equals(account.getConsultant())) {
+            return consultantOnApp();
+        }
+        return null;
+    }
+
+    /** Platform accounts sign in on the web only. */
+    static BusinessException platformOnApp() {
+        return AccountErrorCodes.refusal(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED,
+                "Platform accounts can only sign in on the web.");
     }
 
     /** Consultant accounts sign in on the web only. */
@@ -492,10 +517,16 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         Long profileId = identity.getProfileId();
         boolean mustSetPassword = mustSetPasswordFor(identity);
         List<MembershipOption> options = this.resolveMemberships(profileId);
-        if (options.isEmpty() && ClientInfo.current().isApp() && consultantService.isConsultant(profileId)) {
-            // The APP lists no consultancy (resolveMemberships), so a consultant with no employment
-            // to enter has nothing there at all — said as what it is, not as "no company".
-            throw consultantOnApp();
+        if (options.isEmpty() && ClientInfo.current().isApp()) {
+            // The APP lists no consultancy and no platform account (resolveMemberships), so someone
+            // holding only those has nothing there at all — said as what it is, not as "no company".
+            if (accountService.listMembershipsOf(profileId).stream()
+                    .anyMatch(account -> BaseConstant.PLATFORM_TENANT_ID.equals(account.getTenantId()))) {
+                throw platformOnApp();
+            }
+            if (consultantService.isConsultant(profileId)) {
+                throw consultantOnApp();
+            }
         }
         if (options.isEmpty() && holdsOnlyConsultantMemberships(profileId, accountService.listMembershipsOf(profileId))) {
             // A consultant whose grants have all lapsed is not an employee with no company: the
@@ -911,10 +942,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         Optional<UserIdentity> identity = identityService.findByProfile(profileId);
         boolean locked = identity.map(identityService::isPasswordLocked).orElse(false);
         Long lastAccountId = identity.map(UserIdentity::getLastAccountId).orElse(null);
-        // The APP is for employees: a consultancy is never offered there, only on the web.
+        // The APP is for employees: a consultancy or a platform account is never offered there, only
+        // on the web.
         boolean app = ClientInfo.current().isApp();
         return accountService.listMembershipsOf(profileId).stream()
-                .filter(account -> !app || !Boolean.TRUE.equals(account.getConsultant()))
+                .filter(account -> !app || webOnlyRefusal(account) == null)
                 // Two kinds of membership, two rules. An EMPLOYMENT that cannot be entered is still
                 // shown greyed — it is a standing relationship the person can ask about. A
                 // CONSULTANCY that is off is simply absent, whichever side turned it off: a lapsed
@@ -1141,9 +1173,10 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         UserAccount account = validateAccountActive(userId);
         ClientInfo client = ClientInfo.current();
         // The one choke point every session passes, so no route into the APP is left open to a
-        // consultancy — whatever picked the account.
-        if (client.isApp() && Boolean.TRUE.equals(account.getConsultant())) {
-            throw consultantOnApp();
+        // consultancy or a platform account — whatever picked it.
+        BusinessException webOnly = client.isApp() ? webOnlyRefusal(account) : null;
+        if (webOnly != null) {
+            throw webOnly;
         }
         String sessionId = sessionStore.create(account.getId(), account.getProfileId(), account.getTenantId(),
                 client.platform(), client.appVersion(), client.deviceModel());
