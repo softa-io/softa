@@ -31,18 +31,23 @@ models, before the first load. `sys_pre_data` needs nothing — only the entity'
 | Whose rows | Shared models, or the platform tenant (-1) | Each tenant's own copy |
 | `mode` in the manifest | `overwrite` (the default) or `startup` | `once` (the default), `append` or `overwrite` |
 | Loaded by | The files the build owns (`startup`): every start, wherever they are pending, before the application takes traffic. The others: the platform admin, from the Seed Data page, after a deploy (the first time, by initializing the environment) | Each new tenant's setup, and the platform admin's **Run** for tenants that are already set up |
-| When it changes | Loads again, whole (`OVERWRITE`) | `once`: never runs again in a tenant that ran it; new tenants get the new version. `append`: runs again, creating only the rows a tenant lacks. `overwrite`: runs again, whole. The platform admin can **Reapply** any file |
+| When it changes | Loads again, every row (`OVERWRITE`) | `once`: never runs again in a tenant that ran it; new tenants get the new version. `append`: runs again, creating only the rows a tenant lacks. `overwrite`: runs again, every row. The platform admin can **Reapply** any file |
 | Write mode | `OVERWRITE` | `ADDITIVE` for `once`, `APPEND` for `append`, `OVERWRITE` for `overwrite` |
 
 Every decision is made per **file**: a file is loaded in a scope or it is not, and no row-level state is
-consulted to decide whether to load it. The three write modes (`LoadMode`) apply once a file loads:
+consulted to decide whether to load it.
 
-- **`OVERWRITE`**: the file is the data. A row the scope already has is rewritten whole, so a field the
-  file leaves out is cleared. A seeded row the scope deleted is created again. Seeded children that the
-  file no longer lists are deleted; children added by hand carry no binding and are kept.
-- **`ADDITIVE`**: a row the scope already has gets only the fields the file names. No child is deleted, and
-  a seeded row the scope deleted stays deleted, together with the rows nested in it and any new row that
-  refers to it.
+In every mode, a row the scope already has that is written to gets **only the fields the file names**, as any
+update does: a field the file leaves out keeps what the row holds — the default it was created with, or what the
+scope wrote since. To clear a value a file wrote before, name the field with `null`; deleting the key leaves the
+stored value. The three write modes (`LoadMode`) differ over whole rows:
+
+- **`OVERWRITE`**: the file's rows win. A row the scope already has gets the fields the file names, whatever
+  the scope wrote to them. A seeded row the scope deleted is created again. Seeded children that the file no
+  longer lists are deleted; children added by hand carry no binding and are kept.
+- **`ADDITIVE`**: a row the scope already has gets the fields the file names. No child is deleted, and a
+  seeded row the scope deleted stays deleted, together with the rows nested in it and any new row that refers
+  to it.
 - **`APPEND`**: only the rows the scope lacks. A row with no binding in the scope is created, wherever it
   sits in the file — a new child under a row the scope has included. A row the scope has gets nothing
   written to it, whatever the file now says of it. As in `ADDITIVE`, no child is deleted, and a seeded row
@@ -257,10 +262,10 @@ file.
 
 `POST /SeedData/tenants/reapply` with `{"tenantIds": [...], "fileNames": [...]}` runs the named tenant files again
 in the named tenants, whatever their states — loaded and unchanged, changed after load, even loaded by a newer
-build. Each file loads whole over the tenant's copy, as an `overwrite` file does (`OVERWRITE`): the rows the tenant
-has are rewritten from the file, a field the file leaves out is cleared, the seeded rows the tenant deleted are
-created again, and the seeded children the file no longer lists are deleted. What the tenant changed in those rows
-is lost. This is the platform admin's way past *a tenant runs a file once*: while a seed is still being written and
+build. Each file loads over the tenant's copy, as an `overwrite` file does (`OVERWRITE`): the fields the file names
+take the file's values again, the seeded rows the tenant deleted are created again, and the seeded children the
+file no longer lists are deleted. What the tenant changed in those fields is lost; a field the file leaves out keeps
+the tenant's value. This is the platform admin's way past *a tenant runs a file once*: while a seed is still being written and
 the tenants of a development or test environment should have what it says now, or for a tenant whose copy went
 wrong. A release still reaches existing tenants with patches and data migrations.
 

@@ -55,9 +55,10 @@ import static io.softa.framework.orm.constant.ModelConstant.*;
  * predefined-data domain logic only — preId binding, main/sub-model ordering, and create-or-update reconciliation.
  * <p>
  * Every load runs in a {@link LoadMode}, bound for the length of the load and read wherever a row the scope
- * already has is met: {@code OVERWRITE} rewrites it from the file, {@code ADDITIVE} writes only what the file
- * names and leaves deletions standing, {@code APPEND} writes nothing to it and creates only the rows the scope
- * lacks.
+ * already has is met. A row that is written to gets the fields the file names and keeps every other one, in
+ * every mode; the modes differ over whole rows: {@code OVERWRITE} creates the seeded rows the scope deleted again
+ * and deletes the seeded children the file no longer lists, {@code ADDITIVE} leaves deletions standing, and
+ * {@code APPEND} writes nothing to a row the scope has and creates only the rows it lacks.
  */
 @Slf4j
 @Service
@@ -177,8 +178,8 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
 
     /**
      * Whether the load in progress overwrites. A record handed straight to {@link #handlePredefinedData} — a
-     * unit test — does, as every load did before modes existed. The other modes clear nothing, delete nothing,
-     * and leave what the scope deleted deleted.
+     * unit test — does, as every load did before modes existed. The other modes delete nothing and leave what
+     * the scope deleted deleted.
      */
     private static boolean overwriting() {
         return !MODE.isBound() || MODE.get() == LoadMode.OVERWRITE;
@@ -590,19 +591,13 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 recordUpdated(model, rowId);
                 return rowId;
             }
-            // Overwriting, the update payload is `resolved` plus a null for every updatable field the file
-            // leaves out — "clear what the seed no longer says". Additive, it is `resolved` alone. Held apart
-            // from `resolved` because the recreate path below must not inherit those nulls: a default value
-            // is filled only when the key is ABSENT (BaseProcessor's computeIfAbsent), so creating from the
-            // cleared map would write nulls over the model's defaults and produce a row a first load never
-            // would.
+            // Only the fields the file names, in every mode, as any update writes: a field the file leaves out
+            // keeps what the row holds — the default it was created with, or what the scope wrote since — and a
+            // file clears a field by naming it with null. An overwrite once wrote null to every field left out,
+            // which wiped defaults the first load had filled (an `active` flag, and with it the row, gone from
+            // every read) and fields the seed never wrote.
             Map<String, Object> updatePayload = new LinkedHashMap<>(resolved);
             updatePayload.put(ID, rowId);
-            if (overwriting()) {
-                Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
-                clearedFields.removeAll(updatePayload.keySet());
-                clearedFields.forEach(fieldName -> updatePayload.put(fieldName, null));
-            }
             // A row named by its id alone — a patch reaching a parent only to add children under it — has
             // nothing to write.
             boolean result = updatePayload.size() > 1 && modelService.updateOne(model, updatePayload);
@@ -765,9 +760,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * the stored ones (the framework's version insert cuts its neighbours to fit). Versions the file does not
      * describe are left as they are, as rows taken out of a file are.
      *
-     * <p>On an overwriting load, fields the file leaves out are cleared, as on any re-load, except the
-     * timeline's own: the end date is computed from the next version, so clearing it would make a version
-     * that was cut short run on under the next one. An additive load clears nothing.
+     * <p>Only the fields the file names are written, as for any seed row: a version corrected in place keeps the
+     * others, and an inserted one takes them from the version next to it, as every new version does. The slice id
+     * and the end date never come from the file: one is generated, the other follows from the next version.
      */
     private void writeTimelineVersion(String model, Serializable rowId, String preId, Map<String, Object> resolved) {
         LocalDate startDate = DateUtils.dateToLocalDate(resolved.get(EFFECTIVE_START_DATE));
@@ -778,12 +773,6 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         version.put(EFFECTIVE_START_DATE, startDate);
         version.remove(SLICE_ID);
         version.remove(EFFECTIVE_END_DATE);
-        if (overwriting()) {
-            Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
-            clearedFields.removeAll(version.keySet());
-            clearedFields.removeAll(TIMELINE_FIELDS);
-            clearedFields.forEach(fieldName -> version.put(fieldName, null));
-        }
         // Same start date: the stored version is corrected in place. Any other: the version is inserted.
         modelService.addVersion(model, version);
     }
