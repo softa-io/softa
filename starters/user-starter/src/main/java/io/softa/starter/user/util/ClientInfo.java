@@ -48,9 +48,9 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
                 StringUtils.trimToNull(request.getHeader(DEVICE_MODEL_HEADER)));
     }
 
-    /** Whether the call came from the APP rather than Web / H5. */
+    /** Whether the call came from the APP rather than Web / H5: it names its platform or its version. */
     public boolean isApp() {
-        return platform != null;
+        return platform != null || appVersion != null;
     }
 
     /** One line naming the device, for the security log: "iPhone15,2 (ios 1.2.0)", or null for Web. */

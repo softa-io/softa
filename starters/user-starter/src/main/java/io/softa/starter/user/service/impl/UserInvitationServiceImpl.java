@@ -801,7 +801,18 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 tenantInfoService == null ? null : tenantInfoService.getTenantName(membership.getTenantId()),
                 membership.getNickname(),
                 ContactMasking.email(membership.getEmail()),
-                mobile.masked(), mobile.dialCode(), mobile.countryName());
+                mobile.masked(), mobile.dialCode(), mobile.countryName(),
+                invitation.getPurpose() == InvitationPurpose.REINVITE);
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public boolean isRebindLink(String rawToken) {
+        return StringUtils.isNotBlank(rawToken) && this.searchOne(new Filters()
+                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                .map(invitation -> invitation.getPurpose() == InvitationPurpose.REINVITE)
+                .orElse(false);
     }
 
     /**

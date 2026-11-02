@@ -39,6 +39,8 @@ public final class AccountErrorCodes {
     public static final String PASSWORD_ALREADY_SET = "PASSWORD_ALREADY_SET";
     /** The APP asked to enter a company before setting the first password it owes. */
     public static final String PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
+    /** A consultant tried to sign in on the APP; consultant accounts sign in on the web only. */
+    public static final String CONSULTANT_APP_UNSUPPORTED = "CONSULTANT_APP_UNSUPPORTED";
     /** The single-use sign-in token expired or was already used. */
     public static final String AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED";
 
