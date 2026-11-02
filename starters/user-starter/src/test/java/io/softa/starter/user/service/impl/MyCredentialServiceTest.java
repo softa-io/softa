@@ -254,6 +254,11 @@ class MyCredentialServiceTest {
         verify(accountService).followLoginMobile(ADA);
         verify(sessions).revokePerson(ADA, SESSION, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
         verify(securityLog).entry(eq(SecurityAction.LOGIN_MOBILE_CHANGED), any(), eq(account), any());
+        // Both numbers masked as shown everywhere: dial code, space, first three, four stars, last two.
+        org.mockito.ArgumentCaptor<UserSecurityLog> rows = org.mockito.ArgumentCaptor.forClass(UserSecurityLog.class);
+        verify(securityLog).record(rows.capture());
+        assertThat(rows.getValue().getOldValue()).isEqualTo("+65 912****67");
+        assertThat(rows.getValue().getNewValue()).isEqualTo("+65 987****32");
     }
 
     @Test

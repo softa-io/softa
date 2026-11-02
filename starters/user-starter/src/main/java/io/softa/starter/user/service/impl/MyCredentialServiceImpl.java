@@ -255,8 +255,8 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         this.spend(ticket);
         this.signOutOtherDevices(account.getProfileId());
         UserSecurityLog row = securityLog.entry(SecurityAction.LOGIN_MOBILE_CHANGED, this.source(), account, null);
-        row.setOldValue(ContactMasking.mobile(previous));
-        row.setNewValue(ContactMasking.mobile(held.mobile()));
+        row.setOldValue(mobileFormat.format(previous).masked());
+        row.setNewValue(mobileFormat.format(held.mobile()).masked());
         securityLog.record(row);
     }
 
