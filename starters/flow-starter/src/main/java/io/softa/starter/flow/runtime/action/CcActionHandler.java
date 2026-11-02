@@ -21,7 +21,8 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 /**
  * Handles an approver CC'ing people on their pending step — one or more in one action. People who already see the
  * approval from this step — its approvers, the actor among them, and anyone CC'd on it this cycle — are skipped;
- * the others get one {@code CC} entry each and are told together. Refused when nobody is left.
+ * the others get one {@code CC} entry each and are told together. Refused when nobody is left, and as a whole when
+ * anyone chosen cannot act — whose account is frozen, say — naming them.
  */
 @Component
 public class CcActionHandler implements FlowActionHandler<FlowCcRequest> {
@@ -62,6 +63,7 @@ public class CcActionHandler implements FlowActionHandler<FlowCcRequest> {
         FlowExecutionStatus statusBefore = ctx.statusBefore();
 
         actorValidator.validateCcActor(pendingApproval, request.getActorId(), node);
+        actorValidator.validateCcRecipients(chosen);
         List<String> recipients = chosen.stream()
                 .filter(recipient -> !pendingApproval.getApprovers().contains(recipient))
                 .filter(recipient -> auditService.findCcAudit(state, node.getNodeId(), pendingApproval.getCycleNumber(),

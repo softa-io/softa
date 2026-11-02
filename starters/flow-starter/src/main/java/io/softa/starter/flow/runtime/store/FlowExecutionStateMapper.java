@@ -13,9 +13,13 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
  * Bidirectional mapper between {@link FlowExecutionState} (runtime) and
  * {@link FlowInstance} (persistence entity).
  * Complex nested objects are serialized as JSON strings for DB storage.
+ *
+ * <p>{@link #toState} is public for the reads that already hold the rows: a record's approvals come
+ * as states from the one query that finds them ({@code FlowInstanceService.recordApprovalStates}).
+ * Writing stays with the store.</p>
  */
 @Slf4j
-final class FlowExecutionStateMapper {
+public final class FlowExecutionStateMapper {
 
     private FlowExecutionStateMapper() {
     }
@@ -60,9 +64,10 @@ final class FlowExecutionStateMapper {
     }
 
     /**
-     * Convert persistence entity to runtime state.
+     * Convert persistence entity to runtime state — the state {@link FlowInstanceStore#get} loads: the trace and
+     * the approval audit stay empty delta buffers.
      */
-    static FlowExecutionState toState(FlowInstance entity) {
+    public static FlowExecutionState toState(FlowInstance entity) {
         return FlowExecutionState.builder()
                 .instanceId(entity.getInstanceId())
                 .version(entity.getVersion())

@@ -77,7 +77,7 @@ public final class SysJdbcLoader {
             log.warn("SysJdbcLoader: SELECT failed — the sys_* catalog schema is behind the "
                     + "entities on this classpath. A boot with a non-empty scanner-scope converges "
                     + "it automatically (catalog reconcile); in checker-only environments apply the "
-                    + "pending deploy/migrations scripts. Treating from-db state as empty.", e);
+                    + "release's migration SQL. Treating from-db state as empty.", e);
             return AnnotationScanResult.empty();
         }
     }

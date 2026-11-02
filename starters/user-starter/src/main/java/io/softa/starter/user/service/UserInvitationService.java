@@ -43,6 +43,12 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     JoinEntry inspectJoinToken(String rawToken);
 
     /**
+     * Whether this token is an Unbind &amp; Re-invite link. The membership exists already, so the
+     * flow ends when the password is set: no confirm-join step.
+     */
+    boolean isRebindLink(String rawToken);
+
+    /**
      * Resolves the PLAINTEXT address the invitation names, for the caller to send a code to.
      *
      * <p>Exists because the join page is shown MASKED contacts by design (a leaked link must not

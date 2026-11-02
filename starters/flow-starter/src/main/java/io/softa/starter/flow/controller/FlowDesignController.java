@@ -141,7 +141,8 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @Operation(summary = "Validate flow definition",
             description = "Runs the full compile pipeline on the posted document (which need not be saved) "
                     + "and returns every diagnostic as a success payload — each anchored to nodeId/edgeId/field "
-                    + "for on-canvas markers. An empty diagnostics list means the document compiles.")
+                    + "for on-canvas markers. The document compiles (valid) when no diagnostic is an Error; a Warning "
+                    + "— an approver whose account cannot act, say — is advice and does not stop a publish.")
     public ApiResponse<FlowValidationResult> validate(@RequestBody DesignFlowDefinition definition) {
         return ApiResponse.success(FlowValidationResult.of(flowCompiler.validate(definition)));
     }

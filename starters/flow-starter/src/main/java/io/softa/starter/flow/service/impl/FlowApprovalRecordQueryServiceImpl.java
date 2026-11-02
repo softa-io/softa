@@ -18,6 +18,7 @@ import io.softa.framework.orm.domain.Page;
 import io.softa.starter.flow.dto.FlowApprovalRecordView;
 import io.softa.starter.flow.dto.FlowSentCcView;
 import io.softa.starter.flow.entity.FlowApprovalRecord;
+import io.softa.starter.flow.runtime.engine.FlowParticipants;
 import io.softa.starter.flow.service.FlowApprovalRecordQueryService;
 import io.softa.starter.flow.service.query.ApprovalRecordQuerySupport;
 import io.softa.starter.flow.service.query.SentCcHistoryComposer;
@@ -60,8 +61,10 @@ public class FlowApprovalRecordQueryServiceImpl implements FlowApprovalRecordQue
     @Override
     public List<FlowApprovalRecordView> getByInstanceId(String instanceId, String requesterId) {
         List<FlowApprovalRecord> records = getRecordEntitiesByInstanceId(instanceId);
+        // Whoever acted — but for an administrator's urge or termination — or was acted toward takes part.
         boolean participant = records.stream().anyMatch(record -> requesterId != null
-                && (requesterId.equals(record.getActorId()) || requesterId.equals(record.getTargetActorId())));
+                && ((FlowParticipants.actorTakesPart(record.getAction()) && requesterId.equals(record.getActorId()))
+                || requesterId.equals(record.getTargetActorId())));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
         List<FlowApprovalRecordView> views = FlowApprovalRecordViewMapper.toViews(records);
         // The instance's history, read by its participants: whoever acted and whom they acted toward, named.

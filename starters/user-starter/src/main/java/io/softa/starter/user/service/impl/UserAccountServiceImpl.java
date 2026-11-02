@@ -105,6 +105,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @Autowired
     private LoginHistoryRecorder loginHistory;
 
+    /** Masks the numbers the security log records, in the one form shown everywhere. */
+    @Autowired
+    private JoinMobileFormat mobileFormat;
+
     /** @Lazy: the invitation service reads and writes accounts through this one. */
     @Autowired
     @Lazy
@@ -678,7 +682,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             if (releasedMobile != null) {
                 UserSecurityLog released = securityLog.entry(SecurityAction.WORK_MOBILE_RELEASED,
                         SecurityLogSource.SYSTEM, account, null);
-                released.setOldValue(ContactMasking.mobile(releasedMobile));
+                released.setOldValue(mobileFormat.mask(releasedMobile));
                 securityLog.record(released);
             }
         });
@@ -729,7 +733,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         identityService.updateOne(holder, false);
         UserSecurityLog row = securityLog.entry(SecurityAction.DORMANT_MOBILE_RELEASED,
                 SecurityLogSource.SYSTEM, null, holder.getProfileId());
-        row.setOldValue(ContactMasking.mobile(released));
+        row.setOldValue(mobileFormat.mask(released));
         row.setReason(scenario);
         securityLog.record(row);
         log.info("Released dormant login mobile from profile {} ({}).", holder.getProfileId(), scenario);
@@ -873,8 +877,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
         UserSecurityLog row = securityLog.entry(SecurityAction.RESET_USER, SecurityLogSource.USER_ACCOUNTS, account, null);
         row.setReason(reason.trim());
-        row.setOldValue(ContactMasking.mobile(oldMobile));
-        row.setNewValue(ContactMasking.mobile(newMobile));
+        row.setOldValue(mobileFormat.mask(oldMobile));
+        row.setNewValue(mobileFormat.mask(newMobile));
         row.setReminderChannels(String.join(",", channels));
         row.setReminderResult(String.join(",", results));
         securityLog.record(row);

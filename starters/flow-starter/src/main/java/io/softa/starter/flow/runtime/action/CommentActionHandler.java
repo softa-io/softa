@@ -5,34 +5,35 @@ import org.springframework.util.StringUtils;
 
 import io.softa.starter.flow.runtime.api.FlowCommentRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
-import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
-import io.softa.starter.flow.runtime.engine.FlowParticipants;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 
 /**
- * Handles adding a comment to a flow instance without changing its status. Only its participants
- * ({@link FlowParticipants}) comment on it — its initiator and the people it gives or gave a task to.
+ * Handles adding a comment to a flow instance without changing its status. Only its participants comment on it —
+ * its initiator and the people it gives or gave a task to, by the rule its viewers are admitted by
+ * ({@link FlowInstanceAccessGuard#isParticipant}): an approver whose step passed on the others' votes still
+ * comments while the approval runs, and an administrator who urged it does not.
  */
 @Component
 public class CommentActionHandler implements FlowActionHandler<FlowCommentRequest> {
 
     private final FlowActionContextService contextService;
     private final FlowAuditService auditService;
-    private final ApprovalAuditReader auditReader;
+    private final FlowInstanceAccessGuard accessGuard;
 
     public CommentActionHandler(FlowActionContextService contextService,
                                 FlowAuditService auditService,
-                                ApprovalAuditReader auditReader) {
+                                FlowInstanceAccessGuard accessGuard) {
         this.contextService = contextService;
         this.auditService = auditService;
-        this.auditReader = auditReader;
+        this.accessGuard = accessGuard;
     }
 
     @Override
@@ -49,7 +50,7 @@ public class CommentActionHandler implements FlowActionHandler<FlowCommentReques
             throw new FlowActionValidationException("Flow instance has ended and takes no more comments: "
                     + request.getInstanceId());
         }
-        if (!FlowParticipants.isParticipant(state, auditReader.fullHistory(state), request.getActorId())) {
+        if (!accessGuard.isParticipant(state, request.getActorId())) {
             throw new FlowAuthorizationException("Only the initiator and the people flow instance "
                     + request.getInstanceId() + " gives a task to may comment on it");
         }

@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Pins the method and path of every instance, monitor and automation endpoint. The permission manifests of
- * the applications that embed the engine list these pairs, so a change here ships with theirs.
+ * Pins the method and path of every instance, approval task, monitor and automation endpoint. The permission
+ * manifests of the applications that embed the engine list these pairs, so a change here ships with theirs.
  */
 class FlowInstanceAndAutomationRoutesTest {
 
@@ -43,7 +43,10 @@ class FlowInstanceAndAutomationRoutesTest {
                         "GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions",
                         "GET /flow/instances/by-record",
                         "GET /flow/instances/preview",
-                        "GET /flow/instances/{instanceId}/record")),
+                        "GET /flow/instances/{instanceId}/record",
+                        "GET /flow/instances/by-record/record",
+                        "GET /flow/instances/{instanceId}/summary",
+                        "GET /flow/instances/{instanceId}/design")),
                 routes(FlowInstanceController.class));
     }
 
@@ -60,6 +63,18 @@ class FlowInstanceAndAutomationRoutesTest {
                         "GET /flow/monitor/delegations",
                         "POST /flow/monitor/delegations/{id}/cancel")),
                 routes(FlowMonitorController.class));
+    }
+
+    @Test
+    void approvalTaskEndpoints() {
+        // The approval center's lists read through POST /search; the GETs it replaced (/pending, /completed, /cc)
+        // are gone.
+        assertEquals(new TreeSet<>(Set.of(
+                        "GET /flow/approvalTasks/counts",
+                        "POST /flow/approvalTasks/search",
+                        "GET /flow/approvalTasks/inbox",
+                        "GET /flow/approvalTasks/instance/{instanceId}")),
+                routes(FlowApprovalTaskController.class));
     }
 
     @Test

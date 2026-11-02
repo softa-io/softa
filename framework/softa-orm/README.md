@@ -77,7 +77,7 @@ public enum CustomerTier {
 | `label` | String | `""` | `label` | empty → humanized class name (`DeptInfo`→"Dept Info"); i18n translations override by id |
 | `tableName` | String | `""` | `tableName` | empty → `snake_case(modelName)` |
 | `description` | String | `""` | `description` | **≤512 chars**, parse-time enforced (catalog column width); concise user-facing summary — design notes go in Javadoc |
-| `displayName` | String[] | `{}` | `displayName` | list-display defaults |
+| `displayName` | String[] | `{}` | `displayName` | list-display defaults: a row's name is these fields' values joined with ` / `, blank ones left out; a relation among them reads as its own name, an option as its label (`DisplayNames`) |
 | `searchName` | String[] | `{}` | `searchName` | search-field defaults |
 | `defaultOrder` | String[] | `{}` | `defaultOrder` | e.g. `"createdTime:desc"` |
 | `softDelete` | boolean | `false` | `softDelete` | requires a `deleted` field on the class; every read appends `deleted = false` (bypass via `FilterControl.bypassSoftDelete()`), and the starting value `false` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT FALSE` |

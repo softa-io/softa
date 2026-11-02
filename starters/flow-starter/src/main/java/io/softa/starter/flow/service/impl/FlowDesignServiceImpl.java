@@ -268,14 +268,15 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
         if (bundleService == null) {
             throw new FlowRuntimeException("FlowBundleService is not available; cannot restore from bundle");
         }
+        // What the caller asked for is wrong, not the engine: each is refused (400) with why.
         FlowBundle bundle = bundleService.findById(bundleId)
-                .orElseThrow(() -> new FlowRuntimeException("Flow bundle not found: " + bundleId));
+                .orElseThrow(() -> new FlowActionValidationException("Flow bundle not found: " + bundleId));
         if (bundle.getDesignJson() == null) {
-            throw new FlowRuntimeException("Bundle " + bundleId + " carries no design snapshot to restore");
+            throw new FlowActionValidationException("Bundle " + bundleId + " carries no design snapshot to restore");
         }
         // Ownership check: the bundle must belong to this design.
         if (bundle.getFlowId() == null || !bundle.getFlowId().equals(flowId)) {
-            throw new FlowRuntimeException(
+            throw new FlowActionValidationException(
                     "Bundle " + bundleId + " does not belong to design " + flowId);
         }
         FlowDesign design = requireDesign(flowId);

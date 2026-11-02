@@ -28,7 +28,8 @@ public record TenantFileStatus(
         SeedFileMode mode,
 
         @Schema(description = "Where the file stands in this tenant; NOT_LOADED and FAILED run next time, and so does "
-                + "CHANGED, which only an append or overwrite file reaches")
+                + "CHANGED, which only an append or overwrite file reaches. REAPPLY_FAILED does not: a reapply failed, "
+                + "and the tenant keeps what it had")
         FileState state,
 
         @Schema(description = "SHA-256 of the file in the running build, CRLF read as LF")

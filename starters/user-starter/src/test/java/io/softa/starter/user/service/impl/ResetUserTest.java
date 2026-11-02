@@ -12,6 +12,7 @@ import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.service.UserIdentityService;
@@ -93,6 +94,15 @@ class ResetUserTest {
     }
 
     @Test
+    void theLog_masksBothNumbers_asTheyAreShownEverywhere() {
+        accountService.resetWorkContacts(ACCOUNT, "Verified by passport");
+
+        UserSecurityLog row = logged(SecurityAction.RESET_USER);
+        assertThat(row.getOldValue()).isEqualTo("+65 911****11");
+        assertThat(row.getNewValue()).isEqualTo("+65 922****22");
+    }
+
+    @Test
     void everySessionAndDeviceOfThePersonEnds_theOldNumberAndTheEmailAreTold_andItIsLogged() {
         accountService.resetWorkContacts(ACCOUNT, "Verified by passport");
 
@@ -152,5 +162,12 @@ class ResetUserTest {
                 .isInstanceOf(BusinessException.class);
         verify(identityService, never()).updateOne(any(UserIdentity.class));
         assertThat(List.of()).isEmpty();
+    }
+
+    /** The security-log row of this action that was written. */
+    private UserSecurityLog logged(SecurityAction action) {
+        org.mockito.ArgumentCaptor<UserSecurityLog> rows = org.mockito.ArgumentCaptor.forClass(UserSecurityLog.class);
+        verify(securityLog, org.mockito.Mockito.atLeastOnce()).record(rows.capture());
+        return rows.getAllValues().stream().filter(row -> row.getAction() == action).findFirst().orElseThrow();
     }
 }

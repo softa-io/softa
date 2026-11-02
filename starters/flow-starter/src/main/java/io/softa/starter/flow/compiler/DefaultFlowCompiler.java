@@ -68,15 +68,18 @@ public class DefaultFlowCompiler {
     /**
      * Validate without compiling: returns every diagnostic the compile pipeline would
      * raise, as a normal result instead of an exception — the editor's lint surface.
-     * An empty list means the definition compiles.
+     * The definition compiles when none of them is an error; warnings are advice.
      */
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition) {
         return analyze(definition).diagnostics;
     }
 
+    /**
+     * Compiles the definition, refused with every diagnostic when any of them is an error. Warnings do not stop it.
+     */
     public CompiledFlowDefinition compile(DesignFlowDefinition definition) {
         Analysis analysis = analyze(definition);
-        if (!analysis.diagnostics.isEmpty()) {
+        if (analysis.diagnostics.stream().anyMatch(d -> d.severity() == CompileDiagnostic.Severity.ERROR)) {
             throw new FlowCompileException(analysis.diagnostics);
         }
         FlowGraphContext context = analysis.context;

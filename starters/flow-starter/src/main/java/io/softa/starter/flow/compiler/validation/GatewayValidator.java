@@ -1,7 +1,11 @@
 package io.softa.starter.flow.compiler.validation;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,7 +29,9 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.context.RecordVariables;
 
 /**
- * Validates routing node structure and edge-condition rules.
+ * Validates routing node structure and edge-condition rules. A node has at most one default edge — the one without a
+ * condition — an inclusive gateway included, and no branch of an inclusive gateway reaches a parallel join: a join
+ * waits for every branch coming in, and a branch the gateway does not take never arrives.
  */
 public class GatewayValidator implements FlowValidator {
 
@@ -36,6 +42,7 @@ public class GatewayValidator implements FlowValidator {
     private static final String CONFLICTING_EDGE_CONDITIONS = "CONFLICTING_EDGE_CONDITIONS";
     private static final String RULE_WITHOUT_RECORD        = "RULE_WITHOUT_RECORD";
     private static final String INVALID_RULE_CONDITION     = "INVALID_RULE_CONDITION";
+    private static final String INCLUSIVE_BRANCH_JOINED    = "INCLUSIVE_BRANCH_JOINED";
 
     @Override
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition, FlowGraphContext context) {
@@ -54,11 +61,11 @@ public class GatewayValidator implements FlowValidator {
                             INSUFFICIENT_GATEWAY_EDGES,
                             "Inclusive gateway '" + node.getId() + "' must have at least 2 outgoing edges"));
                 }
+                validateNoJoinAfterInclusiveGateway(node, context, d);
             }
 
-            if (isExclusiveEdgeNode(node) && outgoing > 1) {
-                validateAtMostOneDefaultEdge(node.getId(), node.getType().getType(),
-                        context.outgoingEdgeIds().get(node.getId()), context.edgeMap(), d);
+            if (!FlowNodeType.PARALLEL_FORK.equals(node.getType()) && outgoing > 1) {
+                validateAtMostOneDefaultEdge(node, context.outgoingEdgeIds().get(node.getId()), context.edgeMap(), d);
             }
 
             if (FlowNodeType.PARALLEL_FORK.equals(node.getType()) && outgoing < 2) {
@@ -104,7 +111,11 @@ public class GatewayValidator implements FlowValidator {
         }
     }
 
-    private void validateAtMostOneDefaultEdge(String nodeId, String nodeType,
+    /**
+     * At most one edge without a condition — the default, taken only when no condition holds. An inclusive gateway's
+     * too: it does not take every edge without a condition alongside the ones that hold.
+     */
+    private void validateAtMostOneDefaultEdge(FlowGraphNode node,
                                               List<String> outgoingEdgeIds,
                                               Map<String, FlowGraphEdge> edgeMap,
                                               List<CompileDiagnostic> d) {
@@ -116,9 +127,56 @@ public class GatewayValidator implements FlowValidator {
             }
         }
         if (defaultEdgeCount > 1) {
-            d.add(CompileDiagnostic.nodeLevel(nodeId, nodeType, MULTIPLE_DEFAULT_EDGES,
-                    "Node '" + nodeId + "' can only define one default edge"));
+            d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), MULTIPLE_DEFAULT_EDGES,
+                    FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())
+                            ? "Inclusive gateway '" + node.getId() + "' can only define one default edge: the edge "
+                                    + "without a condition is taken only when no condition holds, so give the others "
+                                    + "a condition"
+                            : "Node '" + node.getId() + "' can only define one default edge"));
         }
+    }
+
+    /**
+     * No path from an inclusive gateway's outgoing edges reaches a parallel join. A join waits for as many arrivals as
+     * it has incoming edges, and a branch the gateway does not take never arrives: the instance would run out of work
+     * waiting there and complete, skipping everything after the join.
+     */
+    private static void validateNoJoinAfterInclusiveGateway(FlowGraphNode gateway, FlowGraphContext context,
+                                                            List<CompileDiagnostic> d) {
+        Set<String> joins = new LinkedHashSet<>();
+        Set<String> visited = new HashSet<>();
+        Deque<String> queue = new ArrayDeque<>(targetsOf(gateway.getId(), context));
+        while (!queue.isEmpty()) {
+            String nodeId = queue.removeFirst();
+            if (!visited.add(nodeId)) {
+                continue;
+            }
+            FlowGraphNode node = context.nodeMap().get(nodeId);
+            if (node != null && FlowNodeType.PARALLEL_JOIN.equals(node.getType())) {
+                joins.add(nodeId);
+            }
+            queue.addAll(targetsOf(nodeId, context));
+        }
+        if (!joins.isEmpty()) {
+            d.add(CompileDiagnostic.nodeLevel(gateway.getId(), gateway.getType().getType(), INCLUSIVE_BRANCH_JOINED,
+                    "Inclusive gateway '" + gateway.getId() + "' has branches that reach parallel join "
+                            + joins.stream().map(join -> "'" + join + "'").collect(Collectors.joining(", "))
+                            + ". A parallel join waits for every branch coming in, but a branch the gateway does not "
+                            + "take never arrives, so the flow would finish there and skip everything after the join. "
+                            + "Let each branch of the gateway end on its own instead."));
+        }
+    }
+
+    /** The nodes the node's outgoing edges lead to. */
+    private static List<String> targetsOf(String nodeId, FlowGraphContext context) {
+        List<String> targets = new ArrayList<>();
+        for (String edgeId : context.outgoingEdgeIds().getOrDefault(nodeId, List.of())) {
+            FlowGraphEdge edge = context.edgeMap().get(edgeId);
+            if (edge != null && edge.getTarget() != null) {
+                targets.add(edge.getTarget());
+            }
+        }
+        return targets;
     }
 
     /**
@@ -182,11 +240,6 @@ public class GatewayValidator implements FlowValidator {
     /** The model of the record the flow starts on, as its trigger names it; none when it starts on no record. */
     private static String recordModelOf(DesignFlowDefinition definition) {
         return definition.getTrigger() == null ? null : definition.getTrigger().modelName();
-    }
-
-    private static boolean isExclusiveEdgeNode(FlowGraphNode node) {
-        return !FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())
-                && !FlowNodeType.PARALLEL_FORK.equals(node.getType());
     }
 
     private static int sizeOf(List<String> values) {

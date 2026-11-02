@@ -202,19 +202,23 @@ preserved) — data is carried, not divorced. A skipped-version chain or an
 
 **When is manual DDL/DML needed at all?** Additive structure (new
 model/field/index/option, attribute widening) is annotation-only and
-self-applies — **except new columns on the `sys_*` / `design_*` catalog
-tables themselves**: the scanner's strict catalog read SELECTs every entity
-column and runs *before* any auto-DDL, so a catalog-table column added in
-code crashes the boot of every existing environment until its migration has
-run (chicken-and-egg; fresh installs are unaffected — the baseline DDL
-already carries it). Hand-written SQL is therefore reserved for catalog-table
-columns, data transformation, destructive cleanup, Studio/connector-managed
-rows, and business-data DML. Migrations live in
-`deploy/migrations/<db>/V<N>__<slug>.sql` — the next free number is the
-registration, and the header comment carries the context, variants, and
-run-before-boot ordering contract (copy the structure of
-`V34__add_auto_sequence_to_sys_field.sql`); see also the *DB schema or data
-change* branch of [`docs/README.md`](docs/README.md)'s decision tree.
+self-applies — the `sys_*` catalog tables included: a boot with a non-empty
+`scanner-scope` first reconciles the five boot-read catalog tables from their
+own annotations (`DdlOrchestrator.reconcilePhysical`, before the strict
+catalog read), so a fresh database bootstraps with no baseline DDL and a new
+catalog column needs no migration. Hand-written SQL is therefore reserved for
+data transformation (including the backfill `UPDATE` a new column needs on
+rows the scanner does not manage), destructive cleanup,
+Studio/connector-managed rows, business-data DML, and any change on an
+environment with an empty `scanner-scope` (checker-only — nothing
+auto-applies there, catalog included). Softa keeps no migration files: the
+change states the transition, its variants and when it must run (before or
+after the new jar boots) in its PR and module README, and the deploying app
+ships the script with its release — in zingkey-hcm,
+`deploy/hcm-app/release/<Release>/<batch>/NN-<phase>-<slug>.sql` (model:
+`Release-20261030/20261029-approval-center/01-before-jar-withdraw-policy.sql`);
+see also the *DB schema or data change* branch of
+[`docs/README.md`](docs/README.md)'s decision tree.
 
 ### Runtime catalog identity (`app_code`)
 

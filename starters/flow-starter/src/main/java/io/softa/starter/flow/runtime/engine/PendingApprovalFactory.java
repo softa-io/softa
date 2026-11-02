@@ -2,9 +2,7 @@ package io.softa.starter.flow.runtime.engine;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -12,7 +10,7 @@ import org.springframework.stereotype.Component;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
+import io.softa.starter.flow.runtime.exception.FlowNoApproverException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
@@ -44,14 +42,15 @@ public class PendingApprovalFactory {
      * @return the pending approval, or {@code null} when the node resolves to nobody and its
      *         empty-approver strategy skips or auto-approves it — the caller tells which with
      *         {@link #resolveEmptyApproverStrategy}
-     * @throws FlowRuntimeException when the node resolves to nobody and its strategy is ERROR
+     * @throws FlowNoApproverException when the node resolves to nobody and its strategy is ERROR: the action that
+     *         reached it is refused
      */
     public PendingApproval buildPendingApproval(CompiledFlowDefinition definition,
                                                 CompiledFlowNode node,
                                                 FlowExecutionState state) {
         PendingApproval pendingApproval = resolvePendingApproval(definition, node, state, true);
         if (pendingApproval == null && EmptyApproverStrategy.ERROR.equals(resolveEmptyApproverStrategy(node))) {
-            throw new FlowRuntimeException(emptyApproverMessage(node));
+            throw new FlowNoApproverException(node.getNodeId(), node.getLabel());
         }
         return pendingApproval;
     }
@@ -70,9 +69,9 @@ public class PendingApprovalFactory {
         return resolvePendingApproval(definition, node, state, false);
     }
 
-    /** Why a node that resolves to nobody fails under its {@code ERROR} empty-approver strategy. */
+    /** Why a node that resolves to nobody is refused under its {@code ERROR} empty-approver strategy. */
     static String emptyApproverMessage(CompiledFlowNode node) {
-        return "Approval node '" + node.getNodeId() + "' resolved an empty approver list (strategy=ERROR)";
+        return FlowNoApproverException.messageOf(node.getNodeId(), node.getLabel());
     }
 
     private PendingApproval resolvePendingApproval(CompiledFlowDefinition definition,

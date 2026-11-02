@@ -15,9 +15,12 @@ package io.softa.starter.user.dto;
  *                     mis-addressed invitation before accepting it
  * @param maskedEmail  masked work email, or null when the invitation had none
  * @param maskedMobile masked work mobile, or null when the invitation had none
+ * @param rebind       whether this is an Unbind &amp; Re-invite link: the membership already exists, so
+ *                     the flow is verify → set the login password → done, with no confirm-join step
  */
 public record JoinEntry(boolean usable, Reason reason, String companyName, String employeeName,
-                        String maskedEmail, String maskedMobile, String dialCode, String countryName) {
+                        String maskedEmail, String maskedMobile, String dialCode, String countryName,
+                        boolean rebind) {
 
     /** Why a link cannot be used. The first four all render as "this link has expired". */
     public enum Reason {
@@ -34,22 +37,23 @@ public record JoinEntry(boolean usable, Reason reason, String companyName, Strin
     }
 
     public static JoinEntry rejected(Reason reason) {
-        return new JoinEntry(false, reason, null, null, null, null, null, null);
+        return new JoinEntry(false, reason, null, null, null, null, null, null, false);
     }
 
     public static JoinEntry usable(String companyName, String employeeName,
             String maskedEmail, String maskedMobile) {
-        return usable(companyName, employeeName, maskedEmail, maskedMobile, null, null);
+        return usable(companyName, employeeName, maskedEmail, maskedMobile, null, null, false);
     }
 
     /**
      * @param maskedMobile "+65 912****67" — the dial code, then the masked national number
      * @param dialCode     the mobile's country dial code, "+65"
      * @param countryName  that country's name, for the page to show beside it
+     * @param rebind       an Unbind &amp; Re-invite link
      */
     public static JoinEntry usable(String companyName, String employeeName,
-            String maskedEmail, String maskedMobile, String dialCode, String countryName) {
+            String maskedEmail, String maskedMobile, String dialCode, String countryName, boolean rebind) {
         return new JoinEntry(true, Reason.NONE, companyName, employeeName, maskedEmail, maskedMobile,
-                dialCode, countryName);
+                dialCode, countryName, rebind);
     }
 }

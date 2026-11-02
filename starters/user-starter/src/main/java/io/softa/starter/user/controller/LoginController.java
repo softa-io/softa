@@ -186,16 +186,16 @@ public class LoginController {
     }
 
     /**
-     * Set a first password mid-join, where no session exists yet. Authorized by the invitation, and
-     * narrow because of it: it reaches only the profile the invitation names, only when that
-     * profile has no password.
+     * Set the login password mid-join, where no session exists yet. Authorized by the invitation and
+     * the proof of the code just passed. On an Unbind &amp; Re-invite link this also finishes the join
+     * ({@code completed}); on any other invitation the confirm-join step follows.
      */
-    @Operation(summary = "Set the first password during the join flow")
+    @Operation(summary = "Set the login password during the join flow; completes an Unbind & Re-invite link")
     @PostMapping("/setJoinPassword")
     @SwitchUser(SystemUser.REGISTERED_USER)
-    public ApiResponse<Void> setJoinPassword(@RequestBody @Valid SetJoinPasswordDTO dto) {
-        loginService.setJoinPassword(dto.getToken(), dto.getProfileId(), dto.getNewPassword(), dto.getProof());
-        return ApiResponse.success();
+    public ApiResponse<JoinPasswordResult> setJoinPassword(@RequestBody @Valid SetJoinPasswordDTO dto) {
+        return ApiResponse.success(loginService.setJoinPassword(dto.getToken(), dto.getProfileId(),
+                dto.getNewPassword(), dto.getProof()));
     }
 
     /**
