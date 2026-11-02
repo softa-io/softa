@@ -31,7 +31,8 @@ class FlowApprovalTaskCountTest {
                 new ApprovalAuditReader(new NoopApprovalActionLedger()),
                 new TaskInstanceContextEnricher(mock(FlowInstanceService.class),
                         mock(io.softa.starter.flow.service.support.FlowUserNames.class),
-                        mock(io.softa.starter.flow.runtime.bundle.FlowBundleRegistry.class))));
+                        mock(io.softa.starter.flow.runtime.bundle.FlowBundleRegistry.class)),
+                mock(FlowInstanceService.class)));
     }
 
     @Test

@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -19,6 +20,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.flow.dto.FlowApprovalTaskSearchRequest;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.dto.FlowInboxCountView;
 import io.softa.starter.flow.entity.FlowApprovalTask;
@@ -26,13 +28,16 @@ import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.engine.FlowStateChangeListener;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
+import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.query.ApprovalTaskQuerySupport;
 import io.softa.starter.flow.service.query.TaskInstanceContextEnricher;
+import io.softa.starter.flow.service.support.CallerConditions;
 import io.softa.starter.flow.service.support.FlowApprovalTaskProjector;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.view.FlowApprovalTaskViewMapper;
@@ -53,15 +58,18 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     private final FlowInstanceAccessGuard accessGuard;
     private final ApprovalAuditReader auditReader;
     private final TaskInstanceContextEnricher instanceContextEnricher;
+    private final FlowInstanceService instanceService;
 
     public FlowApprovalTaskServiceImpl(FlowApprovalTaskProjector projector,
                                        FlowInstanceAccessGuard accessGuard,
                                        ApprovalAuditReader auditReader,
-                                       TaskInstanceContextEnricher instanceContextEnricher) {
+                                       TaskInstanceContextEnricher instanceContextEnricher,
+                                       FlowInstanceService instanceService) {
         this.projector = projector;
         this.accessGuard = accessGuard;
         this.auditReader = auditReader;
         this.instanceContextEnricher = instanceContextEnricher;
+        this.instanceService = instanceService;
     }
 
     @Override
@@ -79,10 +87,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         ApprovalTaskQuerySupport.requireActorId(actorId);
         Filters filters = ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
         applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        // Newest first: what reached the approver last is what they look for.
-        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowApprovalTask::getStartTime)
-                .addDesc(FlowApprovalTask::getId));
-        return mapPage(this.searchPage(query, Page.of(pageNumber, pageSize)), pageNumber, pageSize);
+        return page(filters, newestStartedFirst(), pageNumber, pageSize);
     }
 
     @Override
@@ -100,9 +105,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         ApprovalTaskQuerySupport.requireActorId(actorId);
         Filters filters = ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
         applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowApprovalTask::getEndTime)
-                .addDesc(FlowApprovalTask::getId));
-        return mapPage(this.searchPage(query, Page.of(pageNumber, pageSize)), pageNumber, pageSize);
+        return page(filters, latestClosedFirst(), pageNumber, pageSize);
     }
 
     @Override
@@ -126,15 +129,34 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         } else if (Boolean.TRUE.equals(read)) {
             filters = ApprovalTaskQuerySupport.readCcFilters(actorId);
         } else {
-            filters = new Filters()
-                    .eq(FlowApprovalTask::getActorId, actorId)
-                    .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC);
+            filters = ApprovalTaskQuerySupport.ccFilters(actorId);
         }
         applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        Orders orders = Boolean.TRUE.equals(read)
-                ? Orders.ofDesc(FlowApprovalTask::getEndTime).addDesc(FlowApprovalTask::getId)
-                : Orders.ofAsc(FlowApprovalTask::getStartTime).addAsc(FlowApprovalTask::getId);
-        return mapPage(this.searchPage(new FlexQuery(filters, orders), Page.of(pageNumber, pageSize)), pageNumber, pageSize);
+        Orders orders = Boolean.TRUE.equals(read) ? latestClosedFirst() : oldestStartedFirst();
+        return page(filters, orders, pageNumber, pageSize);
+    }
+
+    @Override
+    public Page<FlowApprovalTaskView> searchTasks(String actorId, FlowApprovalTaskSearchRequest request) {
+        ApprovalTaskQuerySupport.requireActorId(actorId);
+        if (request == null || request.box() == null) {
+            throw new FlowActionValidationException("Choose the tasks to search: Pending, Handled or Cc");
+        }
+        CallerConditions.requireStoredFields(modelName, request.filters(), request.orders());
+        // The box pins the rows to the actor; the caller's filters only narrow them.
+        Filters own = switch (request.box()) {
+            case PENDING -> ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
+            case HANDLED -> ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
+            case CC -> ApprovalTaskQuerySupport.ccFilters(actorId);
+        };
+        // Each box's default is the order of the read it stands for: pending, completed, CC read and unread.
+        Orders defaults = switch (request.box()) {
+            case PENDING -> newestStartedFirst();
+            case HANDLED -> latestClosedFirst();
+            case CC -> oldestStartedFirst();
+        };
+        return page(CallerConditions.and(own, request.filters()),
+                CallerConditions.ordersOr(request.orders(), defaults), request.pageNumber(), request.pageSize());
     }
 
     @Override
@@ -177,6 +199,26 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         if (StringUtils.hasText(nodeId)) {
             filters.eq(FlowApprovalTask::getNodeId, nodeId);
         }
+    }
+
+    private Page<FlowApprovalTaskView> page(Filters filters, Orders orders, Integer pageNumber, Integer pageSize) {
+        return mapPage(this.searchPage(new FlexQuery(filters, orders), Page.of(pageNumber, pageSize)),
+                pageNumber, pageSize);
+    }
+
+    /** Newest first: what reached the approver last is what they look for. */
+    private static Orders newestStartedFirst() {
+        return Orders.ofDesc(FlowApprovalTask::getStartTime).addDesc(FlowApprovalTask::getId);
+    }
+
+    /** Latest closed first. */
+    private static Orders latestClosedFirst() {
+        return Orders.ofDesc(FlowApprovalTask::getEndTime).addDesc(FlowApprovalTask::getId);
+    }
+
+    /** Oldest first, in the order they arrived. */
+    private static Orders oldestStartedFirst() {
+        return Orders.ofAsc(FlowApprovalTask::getStartTime).addAsc(FlowApprovalTask::getId);
     }
 
     private Page<FlowApprovalTaskView> mapPage(Page<FlowApprovalTask> source,
@@ -233,12 +275,40 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             toUpdate.add(staleOpenTask);
         }
 
+        copyInstanceFields(state.getInstanceId(), toCreate, toUpdate);
         if (!toCreate.isEmpty()) {
             this.createList(toCreate);
         }
         if (!toUpdate.isEmpty()) {
             this.updateList(toUpdate);
         }
+    }
+
+    /**
+     * Gives the rows about to be written their instance's list fields, as its row holds them — what the views are
+     * enriched with: every new row, and a row written before tasks stored them when the sync next updates it. The
+     * instance is read once, and only when a row lacks them; the fields never change for its life.
+     */
+    private void copyInstanceFields(String instanceId, List<FlowApprovalTask> toCreate, List<FlowApprovalTask> toUpdate) {
+        List<FlowApprovalTask> lacking = Stream.concat(toCreate.stream(), toUpdate.stream())
+                .filter(task -> task.getSubmittedTime() == null)
+                .toList();
+        if (lacking.isEmpty()) {
+            return;
+        }
+        ContextUtils.withoutPermissionChecks(() -> instanceService.findByInstanceIds(List.of(instanceId))).stream()
+                .findFirst()
+                .ifPresent(instance -> lacking.forEach(task -> {
+                    task.setInstanceTitle(instance.getTitle());
+                    task.setRecordCode(instance.getRecordCode());
+                    task.setModelName(instance.getModelName());
+                    task.setRowId(instance.getRowId());
+                    task.setInitiatorId(instance.getInitiatorId());
+                    task.setSubmittedTime(instance.getCreatedTime());
+                    task.setSubjectId(instance.getSubjectId());
+                    task.setDepartmentId(instance.getDepartmentId());
+                    task.setEffectiveDate(instance.getEffectiveDate());
+                }));
     }
 
     private static FlowApprovalTask latestTask(FlowApprovalTask left, FlowApprovalTask right) {

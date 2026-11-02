@@ -47,6 +47,13 @@ public final class FlowApprovalTaskViewMapper {
                 .blockedByActorId(task.getBlockedByActorId())
                 .dueTime(task.getDueTime())
                 .urgency(task.getUrgency())
+                // The instance's fields as the task stored them; the enricher sets them again from the instance.
+                .instanceTitle(task.getInstanceTitle())
+                .modelName(task.getModelName())
+                .rowId(task.getRowId())
+                .submittedTime(task.getSubmittedTime())
+                .effectiveDate(task.getEffectiveDate())
+                .recordCode(task.getRecordCode())
                 .build();
     }
 

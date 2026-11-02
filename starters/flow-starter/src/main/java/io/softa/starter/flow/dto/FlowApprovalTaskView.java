@@ -3,6 +3,7 @@ package io.softa.starter.flow.dto;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -109,13 +110,18 @@ public class FlowApprovalTaskView {
     @Schema(description = "Actor who must act before this blocked task can proceed")
     private String blockedByActorId;
 
+    @Schema(description = "The names of the accounts the task names — its holder, the step's candidates, those who "
+            + "approved or rejected, who closed it and who blocks it — by account id (batch-enriched)")
+    private Map<String, String> actorNames;
+
     @Schema(description = "Approval deadline derived from the node's timeout config; null = no deadline")
     private LocalDateTime dueTime;
 
     @Schema(description = "Urgency marker propagated from urge actions")
     private String urgency;
 
-    @Schema(description = "Title of the owning instance (batch-enriched; null when the instance row is gone)")
+    @Schema(description = "Title of the owning instance (batch-enriched; the task's stored copy when the instance row "
+            + "is gone)")
     private String instanceTitle;
 
     @Schema(description = "Business model bound to the owning instance")

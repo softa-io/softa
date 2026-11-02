@@ -2,12 +2,14 @@ package io.softa.starter.flow.service.query;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.ContextUtils;
@@ -60,12 +62,22 @@ public class TaskInstanceContextEnricher {
         if (views == null || views.isEmpty()) {
             return;
         }
-        Map<String, String> holders = names.namesOf(views.stream()
-                .map(FlowApprovalTaskView::getActorId)
-                .filter(Objects::nonNull)
+        // One lookup for every account the page names: the holders, and who else each task names.
+        Map<String, String> accountNames = names.namesOf(views.stream()
+                .flatMap(view -> actorIdsOf(view).stream())
                 .distinct()
                 .toList());
-        views.forEach(view -> view.setActorName(holders.get(view.getActorId())));
+        views.forEach(view -> {
+            view.setActorName(accountNames.get(view.getActorId()));
+            Map<String, String> named = new LinkedHashMap<>();
+            actorIdsOf(view).forEach(id -> {
+                String name = accountNames.get(id);
+                if (name != null) {
+                    named.put(id, name);
+                }
+            });
+            view.setActorNames(named);
+        });
         List<String> instanceIds = views.stream()
                 .map(FlowApprovalTaskView::getInstanceId)
                 .filter(Objects::nonNull)
@@ -115,6 +127,18 @@ public class TaskInstanceContextEnricher {
         names.name(initiators);
         names.nameEmployees(subjects);
         names.nameDepartments(departments);
+    }
+
+    /** The accounts a task names: its holder, the step's candidates, who approved, rejected, closed or blocks it. */
+    private static List<String> actorIdsOf(FlowApprovalTaskView view) {
+        List<String> ids = new ArrayList<>();
+        ids.add(view.getActorId());
+        Stream.of(view.getCandidateActors(), view.getApprovedActors(), view.getRejectedActors())
+                .filter(Objects::nonNull)
+                .forEach(ids::addAll);
+        ids.add(view.getClosedByActorId());
+        ids.add(view.getBlockedByActorId());
+        return ids.stream().filter(Objects::nonNull).distinct().toList();
     }
 
     /**

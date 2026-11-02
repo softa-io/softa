@@ -13,7 +13,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.entity.FlowDesign;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.service.FlowBundleService;
 
 @Service
@@ -169,7 +169,7 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
         }
         FlowBundle bundle = target.get();
         if (Boolean.TRUE.equals(bundle.getDebug())) {
-            throw new FlowRuntimeException("Debug bundle " + bundleId + " cannot be activated");
+            throw new FlowActionValidationException("Debug bundle " + bundleId + " cannot be activated");
         }
         markAsActive(bundle.getFlowId(), bundle.getRevision());
         return target;

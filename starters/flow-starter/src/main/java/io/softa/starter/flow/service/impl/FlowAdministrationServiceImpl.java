@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -26,6 +27,7 @@ import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.runtime.api.FlowReassignRequest;
 import io.softa.starter.flow.runtime.api.FlowTerminateRequest;
+import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.service.FlowAdministrationService;
@@ -54,6 +56,10 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
     private final FlowDelegationService delegationService;
 
     private final ModelService<Long> modelService;
+
+    /** Whether the new approver can act; without it, anyone can. */
+    @Autowired(required = false)
+    private ActorAccounts actorAccounts;
 
     @SuppressWarnings("unchecked")
     public FlowAdministrationServiceImpl(FlowRuntimeEngine runtimeEngine, FlowInstanceAccessGuard accessGuard,
@@ -91,7 +97,7 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
 
     @Override
     public FlowReassignPreview previewReassign(String fromActorId, String toActorId) {
-        requireDifferent(fromActorId, toActorId);
+        requireNewApprover(fromActorId, toActorId);
         List<Map<String, Object>> tasks = reassignableTasks(fromActorId);
         int instances = (int) tasks.stream().map(task -> task.get(INSTANCE_ID)).distinct().count();
         return new FlowReassignPreview(tasks.size(), instances);
@@ -99,7 +105,7 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
 
     @Override
     public FlowBatchActionResult reassign(String fromActorId, String toActorId, String reason, String operatorId) {
-        requireDifferent(fromActorId, toActorId);
+        requireNewApprover(fromActorId, toActorId);
         if (!StringUtils.hasText(reason)) {
             throw new FlowActionValidationException("A reason is required to reassign approval tasks");
         }
@@ -148,12 +154,16 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
                 .toList();
     }
 
-    private static void requireDifferent(String fromActorId, String toActorId) {
+    /** Two different approvers, the new one able to act: a whole reassignment, or its preview, is refused otherwise. */
+    private void requireNewApprover(String fromActorId, String toActorId) {
         if (!StringUtils.hasText(fromActorId) || !StringUtils.hasText(toActorId)) {
             throw new FlowActionValidationException("Both the original and the new approver are required");
         }
         if (fromActorId.equals(toActorId)) {
             throw new FlowActionValidationException("The new approver must be someone else");
+        }
+        if (actorAccounts != null) {
+            actorAccounts.requireUsable(List.of(toActorId));
         }
     }
 

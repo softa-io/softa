@@ -274,7 +274,7 @@ public enum CustomerTier {
   any more (`MultiCompanyScope` is retired — the grant is the whole answer). It is the role's data scope
   on the company model (`role_data_scope` where `model = 'Company'`), resolved by
   `DefaultPermissionSnapshotProvider.readGrantedCompanyIds`, with no store of its own and no company
-  scope type (`ScopeType.LEGAL_ENTITY` is retired, migration `V40`). Tri-state: `null` = unrestricted,
+  scope type (`ScopeType.LEGAL_ENTITY` is retired). Tri-state: `null` = unrestricted,
   **empty** = reaches no company, non-empty = exactly those. With grant pairs (permission-starter README §Grant pairs) each role's rows are also bounded by **that role's** company
   grant; the user-level union above remains for menus, the country domain and models no role holds an
   action on. The *countries* (`grantedCountries` →
@@ -428,7 +428,7 @@ every boot with a non-empty `scanner-scope`, the scanner first physically
 reconciles the five boot-read catalog tables from their own annotations
 (`DdlOrchestrator.reconcilePhysical`, before the strict catalog read) — a
 fresh database bootstraps its catalog with no baseline DDL, and a
-catalog-column addition (the old V34/V37 chicken-and-egg) converges without a
+catalog-column addition (the old chicken-and-egg) converges without a
 migration. The whole boot DDL window is serialized across instances by a
 database session lock (`DbSessionLock`, key `boot-ddl`, 60s wait budget). Hand-written SQL is
 therefore reserved for: **data-carrying transitions** (a catalog column whose
@@ -440,11 +440,16 @@ renames not expressible as single-step `renamedFrom`, business-data DML, and
 any change on an environment that runs with an empty `scanner-scope`
 (checker-only — nothing auto-applies there, catalog included; `design_*`
 studio tables are also not covered by the boot reconcile).
-Migrations live in `deploy/migrations/<db>/V<N>__<slug>.sql` — the next free
-number is the registration, and the header comment carries the context,
-variants, and run-before-boot ordering contract (copy the structure of
-`V34__add_auto_sequence_to_sys_field.sql`); see also the *DB schema or data
-change* branch of [`docs/README.md`](docs/README.md)'s decision tree.
+Softa keeps no migration files. The change that needs SQL states the
+transition, its variants and when it must run (before or after the new jar
+boots) in its PR and in the README of the module it touches; the deploying
+app ships the script with its release — in zingkey-hcm,
+`deploy/hcm-app/release/<Release>/<batch>/NN-<phase>-<slug>.sql`, phases and
+run order per that folder's `README.md`. Model it on
+`Release-20261030/20261029-approval-center/01-before-jar-withdraw-policy.sql`
+there: context and ordering in the header comment, idempotent,
+self-checking. See also the *DB schema or data change* branch of
+[`docs/README.md`](docs/README.md)'s decision tree.
 
 ### Metadata identity (`app_code`)
 
@@ -534,6 +539,19 @@ source) in the same change; when neither needs to change, the summary says why.
 
 - Logging: `@Slf4j`.
 - Enums: add `@JsonValue` for stable serialization.
+  - **A stored code is data.** Renaming or removing an enum code that is stored — an OPTION column, or a value
+    inside a JSON / DTO column such as `FlowDesign.designJson` or `FlowBundle.designJson` / `compiledJson` — ships
+    a migration SQL that rewrites the stored rows, in the same change. A read throws on a code the enum no longer
+    has (`BeanTool` / `JsonUtils` read through Jackson, and `JacksonConfig` deliberately does not read unknown enum
+    values as null), and the metadata scanner reconciles the option catalog, never business data: when
+    `FlowScenario.Process` was split into `Approval` / `Automation` without a migration, flows stored as `Process`
+    could not load, publish or reapply until a hand-written SQL rewrote them. Renaming a key inside a stored JSON
+    needs the same — an unknown key reads as absent, so its value is silently lost. Model the SQL on zingkey-hcm's
+    `deploy/hcm-app/release/Release-20261030/20261029-approval-center/01-before-jar-withdraw-policy.sql`, which
+    moved `allowInitiatorWithdraw` to `withdrawPolicy` inside the three flow JSON columns, text or jsonb:
+    idempotent, self-checking, run before the new jar starts. In flow-starter, `StoredDesignJsonTest` reads stored
+    designs and fails the build when an enum change strands one — answer it with the migration, never by editing
+    its fixtures.
 - Default language: English (comments, log messages, exception messages).
 - Dates: `LocalDate` / `LocalDateTime`.
 

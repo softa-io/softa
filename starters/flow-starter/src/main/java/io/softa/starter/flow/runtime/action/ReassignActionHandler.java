@@ -20,8 +20,8 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 /**
  * An administrator moving an approver's pending task to someone else — a transfer the approver did not make.
  * The history records it as the approver's transfer, with the administrator as its operator and their reason;
- * a new approver already on the step merges with the old one's place. The new approver is given the task and
- * the initiator is told who now holds it.
+ * a new approver already on the step merges with the old one's place, and one who cannot act is refused. The new
+ * approver is given the task and the initiator is told who now holds it.
  *
  * <p>Only the step the instance waits on now moves: a later step resolves its approvers when it is reached.
  */
@@ -64,7 +64,7 @@ public class ReassignActionHandler implements FlowActionHandler<FlowReassignRequ
         FlowExecutionState state = ctx.state();
         PendingApproval pendingApproval = ctx.pendingApproval();
 
-        actorValidator.validateReassignActor(pendingApproval, request.getActorId(), ctx.node());
+        actorValidator.validateReassignActor(pendingApproval, request.getActorId(), request.getTargetActorId(), ctx.node());
         lifecycleService.mergeApprover(pendingApproval, request.getActorId(), request.getTargetActorId());
 
         auditService.addTrace(state, ctx.definition().getFlowId(), ctx.node(), FlowTraceEventType.APPROVAL_TRANSFERRED,

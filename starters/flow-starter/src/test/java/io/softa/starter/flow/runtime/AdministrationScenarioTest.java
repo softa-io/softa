@@ -1,7 +1,9 @@
 package io.softa.starter.flow.runtime;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
@@ -13,11 +15,16 @@ import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
+import io.softa.starter.flow.runtime.api.FlowCommentRequest;
 import io.softa.starter.flow.runtime.api.FlowReassignRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowTerminateRequest;
+import io.softa.starter.flow.runtime.api.FlowUrgeRequest;
+import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
+import io.softa.starter.flow.runtime.engine.FlowParticipants;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
@@ -26,15 +33,21 @@ import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.PendingApproval;
+import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
+import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * What an administrator does to an approval from the monitoring console: terminate it — the instance cancelled,
- * its history saying who and why — and move an approver's pending task to someone else.
+ * its history saying who and why — and move an approver's pending task to someone else. None of it makes the
+ * administrator a participant, while the approver a termination cleared stays one by the task they were given.
  */
 class AdministrationScenarioTest {
 
@@ -47,11 +60,14 @@ class AdministrationScenarioTest {
     private final StubFlowBundleRegistry bundleRegistry = new StubFlowBundleRegistry();
     private final FlowPublishServiceImpl publishService = new FlowPublishServiceImpl(new DefaultFlowCompiler(), bundleRegistry);
     private final ApprovalNodeExecutionHandler approvalHandler = new ApprovalNodeExecutionHandler();
-    private final FlowRuntimeEngine engine = TestFlowRuntimeFactory.create(
+    /** Who holds a task of which instance, as the task rows the engine's projection writes keep it. */
+    private final Map<String, Set<String>> taskHolders = new HashMap<>();
+    private final FlowRuntimeEngine engine = TestFlowRuntimeFactory.createWithTasks(
             bundleRegistry,
             new StubFlowInstanceStore(),
             new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
-            approvalHandler);
+            approvalHandler,
+            taskHolders);
 
     private FlowExecutionState start(List<String> approvers, String approvalMode) {
         publishService.publish(FLOW_ID, flow(approvers, approvalMode));
@@ -66,6 +82,21 @@ class AdministrationScenarioTest {
         request.setInstanceId(instanceId);
         request.setActorId(ADMIN);
         request.setComment(reason);
+        return request;
+    }
+
+    private static FlowUrgeRequest urge(String instanceId) {
+        FlowUrgeRequest request = new FlowUrgeRequest();
+        request.setInstanceId(instanceId);
+        request.setActorId(ADMIN);
+        return request;
+    }
+
+    private static FlowCommentRequest comment(String instanceId, String actorId) {
+        FlowCommentRequest request = new FlowCommentRequest();
+        request.setInstanceId(instanceId);
+        request.setActorId(actorId);
+        request.setComment("Is the employee right?");
         return request;
     }
 
@@ -92,6 +123,34 @@ class AdministrationScenarioTest {
         assertEquals(ApprovalActionType.TERMINATE, last.getAction());
         assertEquals(ADMIN, last.getActorId());
         assertEquals("Filed for the wrong employee", last.getComment());
+    }
+
+    @Test
+    void theApproverATerminationClearedStillTakesPartByTheirTaskAndTheAdministratorWhoEndedItDoesNot() {
+        FlowExecutionState started = start(List.of(ALICE), "AnyOne");
+        engine.urgeAsAdministrator(urge(started.getInstanceId()));
+
+        FlowExecutionState state = engine.terminate(terminate(started.getInstanceId(), "Filed for the wrong employee"));
+
+        // Alice never acted: the termination cleared her step, and the history names only the administrator...
+        assertFalse(FlowParticipants.isParticipant(state, state.getApprovalAuditDelta(), ALICE));
+        assertFalse(FlowParticipants.isParticipant(state, state.getApprovalAuditDelta(), ADMIN));
+        // ...but the task the approval gave her stays, and she still sees it; the administrator was given none.
+        assertEquals(Set.of(ALICE), taskHolders.get(started.getInstanceId()));
+        FlowInstanceAccessGuard guard = new FlowInstanceAccessGuard(mock(FlowInstanceService.class),
+                new ApprovalAuditReader(new NoopApprovalActionLedger()), TestFlowRuntimeFactory.taskRows(taskHolders));
+        assertDoesNotThrow(() -> guard.requireInstanceViewer(state, ALICE));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(state, ADMIN));
+    }
+
+    @Test
+    void anAdministratorWhoUrgedAnApprovalDoesNotCommentOnIt() {
+        FlowExecutionState started = start(List.of(ALICE), "AnyOne");
+        engine.urgeAsAdministrator(urge(started.getInstanceId()));
+
+        assertThrows(FlowAuthorizationException.class, () -> engine.addComment(comment(started.getInstanceId(), ADMIN)));
+        // Alice, whom it waits on, does.
+        assertDoesNotThrow(() -> engine.addComment(comment(started.getInstanceId(), ALICE)));
     }
 
     @Test

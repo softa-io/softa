@@ -1,0 +1,79 @@
+{
+  "name": "Expense Claim Approval",
+  "scenario": "Approval",
+  "trigger": {
+    "type": "Submit",
+    "modelName": "ExpenseClaim"
+  },
+  "allowInitiatorWithdraw": true,
+  "sync": false,
+  "rollbackOnFail": false,
+  "approverDedup": "Global",
+  "graph": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "Start",
+        "label": "Submitted",
+        "position": { "x": 0, "y": 0 }
+      },
+      {
+        "id": "approval_manager",
+        "type": "Approval",
+        "label": "Direct Manager",
+        "position": { "x": 0, "y": 160 },
+        "config": {
+          "approverSource": { "type": "Supervisor", "level": 1 },
+          "emptyApproverStrategy": "Skip",
+          "approvalMode": "AnyOne",
+          "rejectMode": "AnyOne",
+          "returnEnabled": true,
+          "formPermissions": {
+            "claimNumber": "Readonly",
+            "claimName": "Readonly",
+            "businessPurpose": "Readonly",
+            "totalAmount": "Readonly",
+            "currency": "Readonly",
+            "startDate": "Readonly",
+            "endDate": "Readonly",
+            "expenseLineIds": "Readonly"
+          }
+        }
+      },
+      {
+        "id": "approval_tenant_admin",
+        "type": "Approval",
+        "label": "Tenant Admin",
+        "position": { "x": 0, "y": 320 },
+        "config": {
+          "approverSource": { "type": "RoleQuery", "roleCodes": ["TENANT_ADMIN"] },
+          "emptyApproverStrategy": "Error",
+          "approvalMode": "AnyOne",
+          "rejectMode": "AnyOne",
+          "returnEnabled": true,
+          "formPermissions": {
+            "claimNumber": "Readonly",
+            "claimName": "Readonly",
+            "businessPurpose": "Readonly",
+            "totalAmount": "Readonly",
+            "currency": "Readonly",
+            "startDate": "Readonly",
+            "endDate": "Readonly",
+            "expenseLineIds": "Readonly"
+          }
+        }
+      },
+      {
+        "id": "end",
+        "type": "End",
+        "label": "Approved",
+        "position": { "x": 0, "y": 480 }
+      }
+    ],
+    "edges": [
+      { "id": "edge_start_manager", "source": "start", "target": "approval_manager" },
+      { "id": "edge_manager_admin", "source": "approval_manager", "target": "approval_tenant_admin" },
+      { "id": "edge_admin_end", "source": "approval_tenant_admin", "target": "end" }
+    ]
+  }
+}

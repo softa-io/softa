@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.flow.dto.FlowDelegationFlowView;
 import io.softa.starter.flow.dto.FlowDelegationView;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.service.FlowDelegationService;
@@ -20,7 +21,9 @@ import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
  *
  * <p>The reads and the cancel carry {@link SkipPermissionCheck}: they are pinned to the caller (the
  * cancel by its ownership check), and {@code FlowDelegation} is granted to no business role, so row
- * scope could only empty the lists and turn a cancel into a silent no-op. Creating needs no waiver.
+ * scope could only empty the lists and turn a cancel into a silent no-op. The flows a rule can be scoped
+ * to are the tenant's, whoever asks — an employee's row scope on the flow models would leave them none.
+ * Creating needs no waiver.
  */
 @Tag(name = "Flow Delegation")
 @RestController
@@ -37,8 +40,9 @@ public class FlowDelegationController {
 
     @PostMapping
     @Operation(summary = "Create delegation rule", description = "Creates a new delegation rule, in force from its "
-            + "creation. The delegator is resolved from the login context; the delegate must be someone else, and a "
-            + "rule with both times ends after it starts.")
+            + "creation. The delegator is resolved from the login context; the delegate must be someone else whose "
+            + "account can act, a rule with both times ends after it starts, and a rule of scope Flow or Node names "
+            + "one of the flows (and steps) GET /flow/delegations/flows lists.")
     public ApiResponse<FlowDelegation> create(@RequestBody FlowDelegation delegation) {
         delegation.setDelegatorId(currentUserId());
         return ApiResponse.success(delegationService.createDelegation(delegation));
@@ -56,6 +60,15 @@ public class FlowDelegationController {
     @SkipPermissionCheck
     public ApiResponse<List<FlowDelegationView>> delegationsToMe() {
         return ApiResponse.success(views.of(delegationService.getDelegationsToMe(currentUserId())));
+    }
+
+    @GetMapping("/flows")
+    @Operation(summary = "Flows to delegate", description = "The approval flows a delegation rule can be scoped to: "
+            + "every enabled Approval flow of the caller's tenant with an effective revision, with that revision's "
+            + "approval steps (for scope Node), sorted by flow name.")
+    @SkipPermissionCheck
+    public ApiResponse<List<FlowDelegationFlowView>> delegableFlows() {
+        return ApiResponse.success(delegationService.listDelegableFlows());
     }
 
     @PostMapping("/{id}/cancel")

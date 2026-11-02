@@ -19,7 +19,9 @@ import io.softa.starter.flow.service.FlowDelegationService;
  * <p>
  * For each approver in the pending list, checks whether an active delegation
  * rule exists and replaces the approver with the delegate. Circular delegation
- * chains (A→B→A) are detected and skipped.
+ * chains (A→B→A) are detected and skipped. A rule whose delegate cannot act — their account
+ * is frozen, say ({@link ActorAccounts}) — does not apply: the task stays with the approver it
+ * reached, the trace says why, and nobody is told.
  * </p>
  * <p>
  * The rules are read and their usage counted past the caller's data permissions: they belong to the
@@ -35,6 +37,9 @@ public class AutoDelegationService {
 
     @Autowired(required = false)
     private FlowAuditService auditService;
+
+    @Autowired(required = false)
+    private ActorAccounts actorAccounts;
 
     /**
      * Apply auto-delegation to a pending approval.
@@ -57,7 +62,8 @@ public class AutoDelegationService {
 
         for (int i = 0; i < approvers.size(); i++) {
             String currentApprover = approvers.get(i);
-            String resolvedDelegate = resolveDelegateChain(currentApprover, flowId, nodeId, now, approvers, recordUsage);
+            String resolvedDelegate = resolveDelegateChain(currentApprover, flowId, nodeId, now, approvers, recordUsage,
+                    state, node);
             if (resolvedDelegate != null && !resolvedDelegate.equals(currentApprover)) {
                 log.info("Auto-delegating approval at node {} from {} to {}", nodeId, currentApprover, resolvedDelegate);
                 approvers.set(i, resolvedDelegate);
@@ -77,12 +83,14 @@ public class AutoDelegationService {
     }
 
     /**
-     * Follow delegation chain, detecting cycles.
+     * Follow delegation chain, detecting cycles. It stops at a delegate who cannot act: the task stays with
+     * whoever the chain reached before them.
      *
      * @return the final delegate, or null if no delegation applies
      */
     private String resolveDelegateChain(String actorId, String flowId, String nodeId,
-                                        LocalDateTime now, List<String> existingApprovers, boolean recordUsage) {
+                                        LocalDateTime now, List<String> existingApprovers, boolean recordUsage,
+                                        FlowExecutionState state, CompiledFlowNode node) {
         Set<String> visited = new HashSet<>();
         visited.add(actorId);
         String current = actorId;
@@ -104,6 +112,16 @@ public class AutoDelegationService {
                 log.info("Delegate {} is already an approver for this node. Skipping delegation from {}.", delegate, current);
                 break;
             }
+            String unusable = whyUnusable(delegate);
+            if (unusable != null) {
+                log.info("Delegate {} cannot act ({}). Skipping delegation from {}.", delegate, unusable, current);
+                if (auditService != null && state != null && node != null) {
+                    auditService.addTrace(state, flowId, node, FlowTraceEventType.APPROVAL_DELEGATED,
+                            "Delegation from " + current + " to " + delegate + " not applied at node " + nodeId
+                                    + ": " + unusable);
+                }
+                break;
+            }
             visited.add(delegate);
             if (recordUsage) {
                 Long delegationId = delegation.get().getId();
@@ -114,5 +132,9 @@ public class AutoDelegationService {
 
         return current;
     }
-}
 
+    /** Why the delegate cannot act, or null when they can. */
+    private String whyUnusable(String delegate) {
+        return actorAccounts == null ? null : actorAccounts.whyUnusable(List.of(delegate)).get(delegate);
+    }
+}

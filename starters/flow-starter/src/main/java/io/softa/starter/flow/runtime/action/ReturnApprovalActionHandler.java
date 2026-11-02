@@ -9,7 +9,6 @@ import io.softa.starter.flow.runtime.api.FlowReturnRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.engine.ApprovalActorValidator;
-import io.softa.starter.flow.runtime.engine.ApprovalLifecycleService;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
@@ -31,18 +30,15 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
 
     private final FlowActionContextService contextService;
     private final ApprovalActorValidator actorValidator;
-    private final ApprovalLifecycleService lifecycleService;
     private final FlowAuditService auditService;
     private final ApprovalNotificationService notificationService;
 
     public ReturnApprovalActionHandler(FlowActionContextService contextService,
                                        ApprovalActorValidator actorValidator,
-                                       ApprovalLifecycleService lifecycleService,
                                        FlowAuditService auditService,
                                        ApprovalNotificationService notificationService) {
         this.contextService = contextService;
         this.actorValidator = actorValidator;
-        this.lifecycleService = lifecycleService;
         this.auditService = auditService;
         this.notificationService = notificationService;
     }
@@ -67,7 +63,7 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
             throw new FlowActionValidationException("Flow instance does not record an initiator and cannot be returned: " + state.getInstanceId());
         }
         actorValidator.validateApprovalActor(pendingApproval, request.getActorId(), node);
-        lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
+        actorValidator.requireNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
         // A return says what to change: the initiator edits the record and submits it again.
         if (!StringUtils.hasText(request.getComment())) {
             throw new FlowActionValidationException("A comment is required to return approval node: " + request.getNodeId());

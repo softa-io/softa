@@ -54,7 +54,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 // (dedicated wait token, assignee resolution, completion API) and the node is
                 // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from
                 // version control when the runtime lands.
-                structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Routes to every matching edge",       "git-merge",        21, null),
+                structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Takes every edge whose condition holds, else the edge without a condition", "git-merge", 21, null),
                 structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null),
                 structural(FlowNodeType.PARALLEL_JOIN,     "Parallel Join",    "Waits for all forked branches",       "git-pull-request", 23, null),
                 structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, scriptConfigSchema()),

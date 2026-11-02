@@ -1,6 +1,7 @@
 package io.softa.starter.flow.entity;
 
 import java.io.Serial;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.Data;
@@ -19,12 +20,17 @@ import io.softa.starter.flow.runtime.state.ApprovalActionType;
 
 /**
  * Persistent approval task projection for flow runtime instances.
+ *
+ * <p>A task also stores the list fields of its instance — title, record, initiator, submission time, subject,
+ * department, effective date — copied when the projection sync writes it, so the approval center can search,
+ * filter and sort a user's tasks by them in the database. They are the instance's, unchanged for its life.
  */
 @Data
 @Model(
     multiTenant = true,
     idStrategy = IdStrategy.DISTRIBUTED_LONG,
-    copyable = false
+    copyable = false,
+    searchName = {"instanceTitle", "recordCode"}
 )
 @Index(indexName = "idx_tenant_instance_node", fields = {"tenantId", "instanceId", "nodeId"})
 @Index(indexName = "idx_tenant_actor_status_start", fields = {"tenantId", "actorId", "status", "startTime"})
@@ -133,4 +139,32 @@ public class FlowApprovalTask extends AuditableModel {
 
     @Field(label = "Blocked By Actor ID", description = "Actor who must act before this blocked task can proceed")
     private String blockedByActorId;
+
+    @Field(length = 200, description = "The instance's title")
+    private String instanceTitle;
+
+    @Field(description = "A record's approval: the record's own number, as at submission")
+    private String recordCode;
+
+    @Field(length = 100, description = "The instance's related model name")
+    private String modelName;
+
+    @Field(label = "Row ID", description = "The instance's related row data ID")
+    private String rowId;
+
+    @Field(label = "Initiator ID", description = "The instance's initiator id")
+    private String initiatorId;
+
+    @Field(description = "When the instance started — a record's approval: when the record was submitted")
+    private LocalDateTime submittedTime;
+
+    @Field(label = "Subject ID", description = "A record's approval: the employee the record is about, as at "
+            + "submission")
+    private Long subjectId;
+
+    @Field(label = "Department ID", description = "A record's approval: the subject's department at submission")
+    private Long departmentId;
+
+    @Field(description = "A record's approval: the date the record takes effect, when its model has one")
+    private LocalDate effectiveDate;
 }
