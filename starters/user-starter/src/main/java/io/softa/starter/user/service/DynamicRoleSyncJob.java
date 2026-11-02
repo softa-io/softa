@@ -1,11 +1,10 @@
 package io.softa.starter.user.service;
 
 import java.util.List;
-import java.util.Map;
 
 import tools.jackson.databind.JsonNode;
 
-import io.softa.framework.orm.domain.Page;
+import io.softa.starter.user.dto.DynamicMembersPreview;
 
 /**
  * Re-evaluates role.dynamic_filter for every active role and synchronizes
@@ -76,18 +75,19 @@ public interface DynamicRoleSyncJob {
     int syncMembershipForUser(Long tenantId, Long userId);
 
     /**
-     * Who a dynamic rule would grant, a page at a time, without writing anything: the members a sync of
-     * a role with this rule would write — employees the rule matches whose account is Active — in
-     * employee code order, each read with {@code fields}.
+     * Who a dynamic rule would grant, without writing anything: the members a sync of a role with this
+     * rule would write — employees the rule matches whose account is Active, tenant-wide — counted in
+     * full, and a page of those the caller may see listed in employee code order, each read with
+     * {@code fields}.
      *
      * <p>Lets an editor show the result of a rule before it is saved, worked out by the same code that
-     * writes the grants, so the two cannot disagree. Runs under the caller's {@code Context.tenantId}
-     * and permissions, as an admin-triggered {@link #syncRole} does.
+     * writes the grants, so the two cannot disagree. Runs under the caller's {@code Context.tenantId};
+     * the caller's data scope decides only which members are listed.
      *
      * @param dynamicFilter the rule, in the form {@code Role.dynamicFilter} stores it; null or not an
      *                      array matches nobody
      * @param fields        the Employee fields to read for each member; the id is always read
      */
-    Page<Map<String, Object>> previewMembers(JsonNode dynamicFilter, List<String> fields,
-                                             Integer pageNumber, Integer pageSize);
+    DynamicMembersPreview previewMembers(JsonNode dynamicFilter, List<String> fields,
+                                         Integer pageNumber, Integer pageSize);
 }

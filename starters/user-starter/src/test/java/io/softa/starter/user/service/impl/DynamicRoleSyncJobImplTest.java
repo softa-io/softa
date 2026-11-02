@@ -199,18 +199,20 @@ class DynamicRoleSyncJobImplTest {
     }
 
     @Test
-    void syncRole_writesTheMembershipAsASystemWrite_butLooksEmployeesUpAsBefore() {
-        // The rule was checked when the role was saved; the cron or consumer running it has nobody
-        // for "may this caller assign the role" to ask about. Only the write is lifted.
+    void syncRole_matchesTheRuleTenantWide_andWritesAsASystemWrite() {
+        // Who the rule grants is not the saver's data scope to narrow: an HR scoped to a few
+        // departments must not take the role away from everyone outside them. The tenant stays.
         Role role = roleWithDynamic(500L, "OnCall");
         when(roleService.getById(500L)).thenReturn(Optional.of(role));
         when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of());
         when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
-        boolean[] skippedAtLookup = {true};
+        boolean[] skippedAtLookup = {false};
+        Long[] tenantAtLookup = {null};
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenAnswer(inv -> {
                     skippedAtLookup[0] = ContextHolder.getContext().isSkipPermissionCheck();
+                    tenantAtLookup[0] = ContextHolder.getContext().getTenantId();
                     return List.of(java.util.Map.of("id", 101L, "userId", 1L));
                 });
         boolean[] skippedAtWrite = {false};
@@ -221,7 +223,8 @@ class DynamicRoleSyncJobImplTest {
 
         ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
-        assertThat(skippedAtLookup[0]).isFalse();
+        assertThat(skippedAtLookup[0]).isTrue();
+        assertThat(tenantAtLookup[0]).isEqualTo(10L);
         assertThat(skippedAtWrite[0]).isTrue();
     }
 
@@ -355,33 +358,47 @@ class DynamicRoleSyncJobImplTest {
     // ─── previewMembers ───
 
     @Test
-    void previewMembers_listsWhoASyncWouldGrant_aPageAtATime() {
-        // Employees 101..103 match the rule; account 2 is not Active, so 102 is not a member.
+    void previewMembers_countsEveryMember_listsOnlyThoseTheCallerSees() {
+        // Employees 101, 102, 105, 106 match the rule; account 2 is not Active, so 102 is not a
+        // member. The caller's scope reaches 101 and 105, not 106.
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
-                .thenReturn(List.of(
-                        java.util.Map.of("id", 101L, "userId", 1L),
-                        java.util.Map.of("id", 102L, "userId", 2L),
-                        java.util.Map.of("id", 105L, "userId", 5L)))
-                .thenReturn(List.of(java.util.Map.of("id", 105L, "code", "E5")));
-        activeAccounts(1L, 5L);
+                .thenAnswer(inv -> {
+                    io.softa.framework.orm.domain.FlexQuery q = inv.getArgument(1);
+                    if (ContextHolder.getContext().isSkipPermissionCheck()) {
+                        return List.of(
+                                java.util.Map.of("id", 101L, "userId", 1L),
+                                java.util.Map.of("id", 102L, "userId", 2L),
+                                java.util.Map.of("id", 105L, "userId", 5L),
+                                java.util.Map.of("id", 106L, "userId", 6L));
+                    }
+                    if (q.getFields().contains("code")) {
+                        return List.of(java.util.Map.of("id", 105L, "code", "E5"));
+                    }
+                    return List.of(java.util.Map.of("id", 105L), java.util.Map.of("id", 101L));
+                });
+        activeAccounts(1L, 5L, 6L);
 
-        io.softa.framework.orm.domain.Page<java.util.Map<String, Object>> page = ContextHolder.callWith(ctx(10L),
+        io.softa.starter.user.dto.DynamicMembersPreview preview = ContextHolder.callWith(ctx(10L),
                 () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 2, 1));
 
-        assertThat(page.getTotalCount()).isEqualTo(2);
-        assertThat(page.getRows()).extracting(row -> row.get("id")).containsExactly(105L);
+        assertThat(preview.memberCount()).isEqualTo(3);
+        assertThat(preview.outsideScopeCount()).isEqualTo(1);
+        assertThat(preview.visible().getTotalCount()).isEqualTo(2);
+        // Member order (101 then 105), not the order the visibility read came back in.
+        assertThat(preview.visible().getRows()).extracting(row -> row.get("id")).containsExactly(105L);
         verify(userRoleRelService, never()).createList(any());
         verify(userRoleRelService, never()).deleteByFilters(any());
     }
 
     @Test
     void previewMembers_noRule_matchesNobody() {
-        io.softa.framework.orm.domain.Page<java.util.Map<String, Object>> page = ContextHolder.callWith(ctx(10L),
+        io.softa.starter.user.dto.DynamicMembersPreview preview = ContextHolder.callWith(ctx(10L),
                 () -> job.previewMembers(null, List.of("code"), 1, 20));
 
-        assertThat(page.getTotalCount()).isZero();
-        assertThat(page.getRows()).isEmpty();
+        assertThat(preview.memberCount()).isZero();
+        assertThat(preview.outsideScopeCount()).isZero();
+        assertThat(preview.visible().getRows()).isEmpty();
         verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class));
     }

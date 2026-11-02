@@ -3,11 +3,11 @@ package io.softa.starter.user.controller;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.constant.RoleConstant;
+import io.softa.starter.user.dto.DynamicMembersPreview;
 import io.softa.starter.user.dto.DynamicMembersPreviewDTO;
 import io.softa.starter.user.dto.EffectiveAccess;
 import io.softa.starter.user.dto.RoleActiveDTO;
@@ -115,13 +115,14 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
 
     /**
      * Who a membership rule would grant, before it is saved: the members a sync of the rule would write
-     * — employees it matches whose account is Active — a page at a time. Worked out by the sync's own
-     * code, so the wizard's preview is the grant it is about to make.
+     * — employees it matches whose account is Active, tenant-wide — counted in full, with a page of
+     * those the caller may see. Worked out by the sync's own code, so the wizard's preview is the grant
+     * it is about to make.
      */
     @PostMapping("/previewDynamicMembers")
     @Operation(summary = "Preview a dynamic membership rule — the employees a sync would grant (matching the rule, "
             + "with an Active account), paged; writes nothing")
-    public ApiResponse<Page<Map<String, Object>>> previewDynamicMembers(@RequestBody DynamicMembersPreviewDTO body) {
+    public ApiResponse<DynamicMembersPreview> previewDynamicMembers(@RequestBody DynamicMembersPreviewDTO body) {
         return ApiResponse.success(dynamicRoleSyncJob.previewMembers(
                 body.dynamicFilter(), body.fields(), body.pageNumber(), body.pageSize()));
     }
