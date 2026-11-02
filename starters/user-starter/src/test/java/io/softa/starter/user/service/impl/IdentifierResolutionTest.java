@@ -178,13 +178,34 @@ class IdentifierResolutionTest {
     }
 
     @Test
-    void everyMembershipFrozen_isDeactivated_withoutASession() {
+    void everyMembershipFrozen_isListedGreyed_withNoReason_andNothingEntered() {
+        // The person sees their companies and that they were frozen, rather than an "account
+        // deactivated" dialog with nothing behind it.
         person("hash");
         givenMemberships(membership(ACCOUNT, AccountStatus.FROZEN));
 
         AuthenticationResult result = loginService.authenticateByPassword(EMAIL, PASSWORD);
 
         assertThat(result.isResolved()).isFalse();
+        assertThat(result.noEnterableReason()).isNull();
+        assertThat(result.autoEnterAccountId()).isNull();
+        assertThat(result.tenants()).singleElement().satisfies(option -> {
+            assertThat(option.status()).isEqualTo(AccountStatus.FROZEN);
+            assertThat(option.selectable()).isFalse();
+        });
+        // A token to list the companies again; picking the frozen one is still refused.
+        assertThat(result.authToken()).isNotBlank();
+    }
+
+    @Test
+    void nothingLeftToList_isDeactivated() {
+        // Every account closed: listMembershipsOf leaves Deactivated out, so there is nothing to show.
+        person("hash");
+        givenMemberships();
+
+        AuthenticationResult result = loginService.authenticateByPassword(EMAIL, PASSWORD);
+
+        assertThat(result.tenants()).isEmpty();
         assertThat(result.noEnterableReason()).isEqualTo(AuthenticationResult.NoEnterableReason.DEACTIVATED);
     }
 
@@ -236,10 +257,10 @@ class IdentifierResolutionTest {
 
     @Test
     void aPasswordOwed_withNowhereToEnter_stillGetsTheTokenToSetIt() {
-        // Every company frozen: nothing to pick, but setting the password is a step the person can
+        // Every account closed: nothing to pick, but setting the password is a step the person can
         // still take, and without the token they could not.
         person(null);
-        givenMemberships(membership(ACCOUNT, AccountStatus.FROZEN));
+        givenMemberships();
 
         AuthenticationResult result = loginService.authenticateByCode(EMAIL, "123456");
 

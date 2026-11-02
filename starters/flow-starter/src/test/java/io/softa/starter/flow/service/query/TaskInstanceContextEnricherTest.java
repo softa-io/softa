@@ -168,6 +168,30 @@ class TaskInstanceContextEnricherTest {
         assertFalse(task.getBatchable());
     }
 
+    // #2316: the task drawer listed the step's candidates, who approved and who blocked by account id.
+    @Test
+    void everyAccountATaskNamesIsNamedInOneLookup() {
+        when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("i1")))).thenReturn(List.of());
+        when(names.namesOf(argThat(ids -> ids != null && ids.contains("u1")))).thenReturn(Map.of(
+                "u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei", "u4", "Dee Ong"));
+        FlowApprovalTaskView task = FlowApprovalTaskView.builder()
+                .instanceId("i1")
+                .actorId("u1")
+                .candidateActors(List.of("u1", "u2", "u-unknown"))
+                .approvedActors(List.of("u3"))
+                .blockedByActorId("u4")
+                .closedByActorId("u2")
+                .build();
+
+        enricher.enrich(List.of(task));
+
+        verify(names, times(1)).namesOf(argThat(ids ->
+                ids.containsAll(List.of("u1", "u2", "u3", "u4", "u-unknown")) && ids.size() == 5));
+        assertEquals("Ann Lee", task.getActorName());
+        // An account the lookup cannot name is left out, for the client to show as it is.
+        assertEquals(Map.of("u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei", "u4", "Dee Ong"), task.getActorNames());
+    }
+
     @Test
     void missingInstanceRowsLeaveViewsUntouched() {
         when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("gone"))))

@@ -8,6 +8,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.service.UserIdentityService;
@@ -53,6 +54,16 @@ class DormantLoginMobileTest {
     }
 
     @Test
+    void theReleasedNumber_isLoggedMaskedAsEverywhere() {
+        holder();
+        doReturn(List.of()).when(accountService).listMembershipsOf(LEAVER);
+
+        accountService.releaseDormantLoginMobile(NUMBER, "Join");
+
+        assertThat(logged(SecurityAction.DORMANT_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 912****67");
+    }
+
+    @Test
     void aHolderWithOnlyClosedAccounts_isDormant_andLosesTheNumber() {
         UserIdentity identity = holder();
         doReturn(List.of()).when(accountService).listMembershipsOf(LEAVER);
@@ -93,5 +104,12 @@ class DormantLoginMobileTest {
 
         assertThat(identity.getLoginMobile()).isEqualTo(NUMBER);
         verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+    }
+
+    /** The security-log row of this action that was written. */
+    private UserSecurityLog logged(SecurityAction action) {
+        org.mockito.ArgumentCaptor<UserSecurityLog> rows = org.mockito.ArgumentCaptor.forClass(UserSecurityLog.class);
+        verify(securityLog, org.mockito.Mockito.atLeastOnce()).record(rows.capture());
+        return rows.getAllValues().stream().filter(row -> row.getAction() == action).findFirst().orElseThrow();
     }
 }

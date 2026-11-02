@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.constant.BaseConstant;
-import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.IllegalArgumentException;
@@ -42,6 +41,7 @@ import io.softa.framework.orm.service.versioning.VersioningStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
+import io.softa.framework.orm.utils.DisplayNames;
 import io.softa.framework.orm.vo.ModelReference;
 
 /**
@@ -729,12 +729,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         List<Map<String, Object>> rows = this.searchListIgnoringRowScope(modelName, flexQuery);
         Map<K, String> displayNames = new HashMap<>();
         for (Map<String, Object> row : rows) {
-            // Filter out field values for null or empty strings
-            List<Object> displayValues = displayFields.stream()
-                    .map(row::get).filter(v -> v != null && v != "")
-                    .toList();
-            String name = StringUtils.join(displayValues, StringConstant.DISPLAY_NAME_SEPARATOR);
-            displayNames.put(Cast.of(row.get(ModelConstant.ID)), name);
+            displayNames.put(Cast.of(row.get(ModelConstant.ID)), DisplayNames.of(row, displayFields));
         }
         return displayNames;
     }
@@ -1584,11 +1579,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         flexQuery.select(displayFields);
         List<Map<String, Object>> rows = searchList(modelName, flexQuery, applyRowScope);
         for (Map<String, Object> row : rows) {
-            // Filter out field values for null or empty strings
-            List<Object> displayValues = displayFields.stream().map(row::get)
-                    .filter(v -> v != null && v != "").collect(Collectors.toList());
-            String name = StringUtils.join(displayValues, StringConstant.DISPLAY_NAME_SEPARATOR);
-            row.put(ModelConstant.DISPLAY_NAME, name);
+            // A relation or option among the display fields reads as a reference: its name, not the object.
+            row.put(ModelConstant.DISPLAY_NAME, DisplayNames.of(row, displayFields));
         }
         return rows;
     }

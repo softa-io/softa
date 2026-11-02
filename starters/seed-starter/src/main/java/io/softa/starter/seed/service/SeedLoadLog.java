@@ -220,12 +220,22 @@ public class SeedLoadLog {
 
     /**
      * Where a file stands in a scope: never loaded, loaded and unchanged, changed since — reloading or not,
-     * as the file's level and flag say, unless a newer build than this one loaded it — or failed on its
-     * latest attempt.
+     * as the file's mode says, unless a newer build than this one loaded it — or failed on its latest attempt:
+     * {@link FileState#FAILED} when it runs again, {@link FileState#REAPPLY_FAILED} when it does not, which only a
+     * reapply can have attempted.
      *
      * @param records the file's records in the scope, or null when it has none
      */
     public FileState state(SeedFile file, FileRecords records) {
+        FileState state = loadState(file, records);
+        // A file that does not run again has loaded, and only a reapply attempts it again. A failure on other
+        // content than the file as it is here — a version it has since moved away from — says nothing about this one.
+        return !state.pending() && records.latest().getStatus() == SeedRecordStatus.FAILED
+                && catalog.checksum(file).equals(records.latest().getChecksum()) ? FileState.REAPPLY_FAILED : state;
+    }
+
+    /** Where a file stands as its loads say, a failed reapply aside. */
+    private FileState loadState(SeedFile file, FileRecords records) {
         if (records == null || records.latestSuccess() == null) {
             return records != null && records.latest().getStatus() == SeedRecordStatus.FAILED
                     ? FileState.FAILED : FileState.NOT_LOADED;

@@ -24,7 +24,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
     multiTenant = true,
     idStrategy = IdStrategy.DISTRIBUTED_LONG,
     versionLock = true,
-    copyable = false
+    copyable = false,
+    searchName = {"title", "recordCode"}
 )
 @Index(indexName = "uk_instance_id", fields = {"instanceId"}, unique = true)
 @Index(indexName = "idx_tenant_flow_status", fields = {"tenantId", "flowId", "status"})

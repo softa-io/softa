@@ -27,6 +27,14 @@ public class JoinMobileFormat {
     public record Formatted(String dialCode, String countryName, String masked) {
     }
 
+    /**
+     * The one masked form of a mobile, wherever it is shown or recorded: "+65 912****67" — the dial
+     * code, a space, the first three national digits, four stars, the last two. Null for none.
+     */
+    public String mask(String mobile) {
+        return this.format(mobile).masked();
+    }
+
     public Formatted format(String mobile) {
         if (StringUtils.isBlank(mobile)) {
             return new Formatted(null, null, null);

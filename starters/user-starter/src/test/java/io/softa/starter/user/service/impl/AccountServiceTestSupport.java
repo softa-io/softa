@@ -32,6 +32,7 @@ final class AccountServiceTestSupport {
         ReflectionTestUtils.setField(accountService, "sessionService", mock(UserSessionService.class));
         ReflectionTestUtils.setField(accountService, "invitationService", mock(UserInvitationService.class));
         ReflectionTestUtils.setField(accountService, "loginHistory", mock(LoginHistoryRecorder.class));
+        ReflectionTestUtils.setField(accountService, "mobileFormat", InvitationServiceTestSupport.mobileFormat());
         return securityLog;
     }
 }

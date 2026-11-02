@@ -23,9 +23,15 @@ import io.softa.starter.flow.runtime.context.FlowVariableContext;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 
 /**
- * Resolves outgoing transitions for a node, including condition evaluation.
- * Ordinary nodes use exclusive edge semantics, while inclusive gateways may
- * route to every matching edge.
+ * Resolves outgoing transitions for a node, including condition evaluation. Every node routes over its outgoing
+ * edges, and the edge without a condition is its default — at most one per node, taken only when no condition holds:
+ * <ul>
+ *   <li>an ordinary node routes exclusively: at most one conditional edge may hold, else the instance fails;</li>
+ *   <li>an inclusive gateway takes every conditional edge whose condition holds, as BPMN's does — its default only
+ *       when none holds;</li>
+ *   <li>a parallel fork takes every edge, its conditions unread.</li>
+ * </ul>
+ * A node with several outgoing edges where nothing is taken fails the instance.
  */
 @Component
 public class FlowGatewayRouter {
@@ -136,23 +142,39 @@ public class FlowGatewayRouter {
                 + "' did not match any outgoing edge");
     }
 
+    /**
+     * Every conditional edge whose condition holds — each condition is decided — or, when none holds, the default
+     * edge: the one without a condition.
+     */
     private List<String> resolveInclusiveGatewayNextNodeIds(CompiledFlowDefinition definition,
                                                             CompiledFlowNode node,
                                                             Predicate<CompiledFlowTransition> condition) {
         List<String> matched = new ArrayList<>();
+        CompiledFlowTransition defaultTransition = null;
         for (String edgeId : node.getOutgoingEdgeIds()) {
             CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
             if (transition == null) {
                 continue;
             }
-            if (!transition.hasCondition() || condition.test(transition)) {
+            if (!transition.hasCondition()) {
+                if (defaultTransition != null) {
+                    throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
+                            + "' has multiple default outgoing edges");
+                }
+                defaultTransition = transition;
+                continue;
+            }
+            if (condition.test(transition)) {
                 matched.add(transition.getTarget());
             }
         }
-        if (matched.isEmpty()) {
-            throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
-                    + "' did not match any outgoing edge");
+        if (!matched.isEmpty()) {
+            return matched;
         }
-        return matched;
+        if (defaultTransition != null) {
+            return List.of(defaultTransition.getTarget());
+        }
+        throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
+                + "' did not match any outgoing edge");
     }
 }

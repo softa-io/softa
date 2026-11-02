@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.Assert;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.Operator;
@@ -32,6 +33,7 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.dto.JoinContacts;
+import io.softa.starter.user.dto.JoinPasswordResult;
 import io.softa.starter.user.dto.JoinVerification;
 import io.softa.starter.user.dto.InvitationInfo;
 import io.softa.starter.user.dto.MembershipOption;
@@ -230,6 +232,47 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             return account;
         }
         throw orgUnavailable(accountDeniedMessage(account.getStatus()));
+    }
+
+    /**
+     * Picking a web-only account on the APP — a consultancy, or the platform's own — is refused as
+     * such, rather than as the "not available" a filtered-out row would get: the person should learn
+     * to use the web, not that it vanished.
+     */
+    private void refuseConsultancyOnApp(Long accountId) {
+        if (accountId == null || !ClientInfo.current().isApp()) {
+            return;
+        }
+        BusinessException refusal = accountService.getById(accountId).map(LoginServiceImpl::webOnlyRefusal).orElse(null);
+        if (refusal != null) {
+            throw refusal;
+        }
+    }
+
+    /**
+     * Why this account cannot be entered from the APP, or null when it can: the APP is for
+     * employees, and both a consultancy and the platform's own accounts are worked on the web.
+     */
+    static BusinessException webOnlyRefusal(UserAccount account) {
+        if (BaseConstant.PLATFORM_TENANT_ID.equals(account.getTenantId())) {
+            return platformOnApp();
+        }
+        if (Boolean.TRUE.equals(account.getConsultant())) {
+            return consultantOnApp();
+        }
+        return null;
+    }
+
+    /** Platform accounts sign in on the web only. */
+    static BusinessException platformOnApp() {
+        return AccountErrorCodes.refusal(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED,
+                "Platform accounts can only sign in on the web.");
+    }
+
+    /** Consultant accounts sign in on the web only. */
+    static BusinessException consultantOnApp() {
+        return AccountErrorCodes.refusal(AccountErrorCodes.CONSULTANT_APP_UNSUPPORTED,
+                "Consultant accounts can only sign in on the web.");
     }
 
     /** A company that cannot be entered right now, with the code the APP re-runs the entry rule on. */
@@ -474,6 +517,17 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         Long profileId = identity.getProfileId();
         boolean mustSetPassword = mustSetPasswordFor(identity);
         List<MembershipOption> options = this.resolveMemberships(profileId);
+        if (options.isEmpty() && ClientInfo.current().isApp()) {
+            // The APP lists no consultancy and no platform account (resolveMemberships), so someone
+            // holding only those has nothing there at all — said as what it is, not as "no company".
+            if (accountService.listMembershipsOf(profileId).stream()
+                    .anyMatch(account -> BaseConstant.PLATFORM_TENANT_ID.equals(account.getTenantId()))) {
+                throw platformOnApp();
+            }
+            if (consultantService.isConsultant(profileId)) {
+                throw consultantOnApp();
+            }
+        }
         if (options.isEmpty() && holdsOnlyConsultantMemberships(profileId, accountService.listMembershipsOf(profileId))) {
             // A consultant whose grants have all lapsed is not an employee with no company: the
             // platform, not a tenant, is who can help, and the two reasons below cannot say that.
@@ -543,8 +597,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // Read BEFORE the membership activates: accepting spends the invitation, and the row can no
         // longer be resolved from the token after. So is the contact the proof was minted for.
         Optional<UserAccount> joining = invitationService.resolveJoinAccount(rawToken);
-        String channel = proofGuard.channelOf(proof);
-        JoinContacts contacts = joining.isPresent() ? invitationService.resolveJoinContacts(rawToken) : null;
+        AuthenticationResult.JoinPrefill prefill = joining.isPresent() ? this.joinPrefill(rawToken, proof) : null;
 
         invitationService.confirmJoin(rawToken, profileId, proof);
 
@@ -561,14 +614,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 profileService.getUserInfo(joining.get().getId()), mustSetPasswordFor(identity));
         // The full contact they just verified — only ever to them — so the "get the APP" page can
         // prefill the login screen; the page itself only ever saw it masked.
-        if (contacts != null && channel != null) {
-            String value = "mobile".equals(channel) ? contacts.mobile() : contacts.email();
-            if (StringUtils.isNotBlank(value)) {
-                result = result.withPrefill(new AuthenticationResult.JoinPrefill(channel,
-                        "mobile".equals(channel) ? LoginIdentifiers.normalize(value) : value));
-            }
-        }
-        return result;
+        return prefill == null ? result : result.withPrefill(prefill);
     }
 
     @Override
@@ -669,6 +715,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * branch above has just seen the code pass, and the proof must mean exactly that.
      */
     private JoinVerification verified(String rawToken, Long profileId, String channel) {
+        // An Unbind & Re-invite link always sets the password: the membership is the person's again
+        // the moment it is set, and someone who already had one resets it here.
+        if (invitationService.isRebindLink(rawToken)) {
+            return JoinVerification.rebindVerified(profileId, proofGuard.mint(rawToken, profileId, channel));
+        }
         boolean mustSetPassword = identityService.findByProfile(profileId)
                 .map(identity -> StringUtils.isBlank(identity.getPassword())).orElse(true);
         return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel));
@@ -676,7 +727,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
     @Override
     @Transactional
-    public void setJoinPassword(String rawToken, Long profileId, String newPassword, String proof) {
+    public JoinPasswordResult setJoinPassword(String rawToken, Long profileId, String newPassword, String proof) {
         // The proof comes FIRST, before anything about the invitation or the person is looked up.
         // This endpoint is anonymous and takes the profileId from the caller; the proof exists only
         // if verifyJoinCode saw the code pass for this invitation AND decided on this person (after
@@ -691,14 +742,49 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         }
         UserIdentity identity = identityService.findByProfile(profileId)
                 .orElseThrow(() -> new BusinessException("Person record not found."));
+        boolean rebind = invitationService.isRebindLink(rawToken);
+        boolean hadPassword = StringUtils.isNotBlank(identity.getPassword());
         // A first-password path, not a reset: someone who already has a password signs in with it.
-        if (StringUtils.isNotBlank(identity.getPassword())) {
+        // Except on an Unbind & Re-invite link, which resets it on purpose.
+        if (hadPassword && !rebind) {
             throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_ALREADY_SET,
                     "A password is already set — sign in with it instead.");
         }
-        // Strength rules live inside setPassword, checked against this person's own contacts.
         identityService.setPassword(identity.getId(), newPassword);
         history.record(LoginEvent.PASSWORD_SET, profileId, account.getId(), account.getTenantId(), null, null, null);
+        if (!rebind) {
+            return JoinPasswordResult.notCompleted();
+        }
+        // Read before the bind: it spends the proof and the link, after which neither resolves.
+        AuthenticationResult.JoinPrefill prefill = this.joinPrefill(rawToken, proof);
+        // Already a member: the account is this person's again and active now, with no confirm step.
+        invitationService.confirmJoin(rawToken, profileId, proof);
+        if (hadPassword) {
+            // A replaced password ends every session that knew the old one, as a reset does.
+            sessionService.revokePerson(profileId, null, SessionRevokeReason.PASSWORD_RESET);
+            securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB,
+                    account, profileId));
+        }
+        return new JoinPasswordResult(true, prefill);
+    }
+
+    /**
+     * The contact the person verified for this link, in full — only ever to them, so the next screen
+     * can prefill the APP's sign-in. Null when the proof names no channel or the link has no such
+     * contact.
+     */
+    private AuthenticationResult.JoinPrefill joinPrefill(String rawToken, String proof) {
+        String channel = proofGuard.channelOf(proof);
+        if (channel == null) {
+            return null;
+        }
+        JoinContacts contacts = invitationService.resolveJoinContacts(rawToken);
+        String value = contacts == null ? null : "mobile".equals(channel) ? contacts.mobile() : contacts.email();
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        return new AuthenticationResult.JoinPrefill(channel,
+                "mobile".equals(channel) ? LoginIdentifiers.normalize(value) : value);
     }
 
     @Override
@@ -856,7 +942,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         Optional<UserIdentity> identity = identityService.findByProfile(profileId);
         boolean locked = identity.map(identityService::isPasswordLocked).orElse(false);
         Long lastAccountId = identity.map(UserIdentity::getLastAccountId).orElse(null);
+        // The APP is for employees: a consultancy or a platform account is never offered there, only
+        // on the web.
+        boolean app = ClientInfo.current().isApp();
         return accountService.listMembershipsOf(profileId).stream()
+                .filter(account -> !app || webOnlyRefusal(account) == null)
                 // Two kinds of membership, two rules. An EMPLOYMENT that cannot be entered is still
                 // shown greyed — it is a standing relationship the person can ask about. A
                 // CONSULTANCY that is off is simply absent, whichever side turned it off: a lapsed
@@ -919,12 +1009,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     /**
-     * Why there is nowhere to enter, or null when somewhere is enterable. NOT_JOINED only when the
-     * person holds nothing but unconfirmed invitations; anything else — every membership Frozen or
-     * Deactivated — is DEACTIVATED.
+     * Why there is no company to show, or null when there is one — enterable or not. A person whose
+     * only companies are Frozen is shown them, greyed with their badge, so they can see they were
+     * frozen; the reason is for having nothing to list at all: NOT_JOINED when the person holds
+     * nothing but unconfirmed invitations, DEACTIVATED otherwise (every account closed, or none).
      */
     private AuthenticationResult.NoEnterableReason noEnterableReason(Long profileId, List<MembershipOption> options) {
-        if (options.stream().anyMatch(MembershipOption::selectable)) {
+        if (!options.isEmpty()) {
             return null;
         }
         boolean onlyInvitations = !accountService.listMembershipsOf(profileId).isEmpty()
@@ -982,6 +1073,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     @Override
     public AuthenticationResult selectTenant(String authToken, Long accountId) {
         Long profileId = resolvePreAuthToken(authToken);
+        this.refuseConsultancyOnApp(accountId);
         MembershipOption chosen = this.resolveMemberships(profileId).stream()
                 .filter(option -> option.accountId().equals(accountId))
                 .findFirst()
@@ -1017,6 +1109,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     @Override
     public AuthenticationResult switchTenant(Long currentAccountId, Long accountId) {
         Long profileId = personBehind(currentAccountId);
+        this.refuseConsultancyOnApp(accountId);
         MembershipOption chosen = this.resolveMemberships(profileId).stream()
                 .filter(option -> option.accountId().equals(accountId))
                 .findFirst()
@@ -1080,6 +1173,12 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         validateTenantActive(userId);
         UserAccount account = validateAccountActive(userId);
         ClientInfo client = ClientInfo.current();
+        // The one choke point every session passes, so no route into the APP is left open to a
+        // consultancy or a platform account — whatever picked it.
+        BusinessException webOnly = client.isApp() ? webOnlyRefusal(account) : null;
+        if (webOnly != null) {
+            throw webOnly;
+        }
         String sessionId = sessionStore.create(account.getId(), account.getProfileId(), account.getTenantId(),
                 client.platform(), client.appVersion(), client.deviceModel());
         this.rememberLastAccount(account);

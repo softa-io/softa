@@ -110,5 +110,46 @@ public interface OrganizationService {
     default Map<Long, String> getDeptNames(Collection<Long> deptIds) {
         return Map.of();
     }
+
+    /**
+     * Of these login accounts, the ones that cannot act in an approval — whose account does not sign in — each with
+     * its account status, or with null when there is no such account. Nobody approves, is CC'd on or is handed a
+     * task while their account cannot act. Empty unless overridden: every account can act.
+     */
+    default Map<Long, String> getUnusableAccounts(Collection<Long> userIds) {
+        return Map.of();
+    }
+
+    /**
+     * The directory: the people anyone in the tenant may pick to hand work to, copy or delegate to — employees with a
+     * login account, matched on {@code keyword} (all of them when blank), by name, at most {@code limit}. Only those
+     * whose account signs in, unless {@code includeInactive};  DirectoryPerson.active then tells. Empty unless
+     * overridden.
+     */
+    default List<DirectoryPerson> searchPeople(String keyword, boolean includeInactive, int limit) {
+        return List.of();
+    }
+
+    /**
+     * These login accounts as the directory shows them, in the order asked, whether they sign in or not: what names a
+     * picked person once the search has moved on. An account without an employee record is left out. Empty unless
+     * overridden.
+     */
+    default List<DirectoryPerson> getPeople(Collection<Long> userIds) {
+        return List.of();
+    }
+
+    /**
+     * Departments matching {@code keyword} (all of them when blank), open ones only, by name, at most {@code limit}:
+     * what a flow can name. Empty unless overridden.
+     */
+    default List<DirectoryDepartment> searchDepartments(String keyword, int limit) {
+        return List.of();
+    }
+
+    /** These departments, closed ones included, in the order asked. Empty unless overridden. */
+    default List<DirectoryDepartment> getDepartments(Collection<Long> deptIds) {
+        return List.of();
+    }
 }
 
