@@ -16,11 +16,11 @@ import io.softa.starter.flow.service.FlowDirectoryService;
  * The directory behind the people and department pickers: who to transfer to, add as a signer, CC or delegate to,
  * whose requests to filter by, and the departments a flow names.
  *
- * <p>Meant for everyone signed in: the application lists {@code /flow/directory/**} in
- * {@code permission.authenticated-bypass-patterns}. An employee's row scope on the employee model would leave them
- * only themselves to pick, and opening that model to them would open every HR field with it; this shows a name, an
- * employee code, a department and a position, and only of people with a login account. Read past the caller's row
- * scope, the tenant still applying.
+ * <p>Granted with the pages whose pickers read it: the application lists these endpoints in those pages' permissions,
+ * not in {@code permission.authenticated-bypass-patterns}, which would skip the endpoint gate and a consultant's
+ * expiry with it. An employee's row scope on the employee model would leave them only themselves to pick, and opening
+ * that model to them would open every HR field with it; this shows a name, an employee code, a department and a
+ * position, and only of people with a login account. Read past the caller's row scope, the tenant still applying.
  */
 @Tag(name = "Flow Directory")
 @RestController

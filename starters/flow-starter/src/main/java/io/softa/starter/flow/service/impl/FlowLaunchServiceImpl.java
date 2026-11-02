@@ -20,6 +20,8 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
@@ -189,8 +191,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     public FlowExecutionState submitRecord(String modelName, String rowId, String initiatorId) {
         requireRecordKey(modelName, rowId, "submit");
         ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
-        // Nothing moves for a record the submitter cannot reach with their own permissions.
-        if (modelService.getById(modelName, IdUtils.formatId(modelName, rowId), List.of(ModelConstant.ID)).isEmpty()) {
+        // Nothing moves for a record the submitter could not change with their own permissions.
+        if (!withinCallersEditRange(modelName, rowId)) {
             throw new BusinessException(NO_SUCH_RECORD, modelName, rowId);
         }
         return submit(handler, modelName, rowId, initiatorId);
@@ -376,8 +378,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     public void cancelRecord(String modelName, String rowId, String actorId) {
         requireRecordKey(modelName, rowId, "cancel");
         ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
-        // Nothing moves for a record the applicant cannot reach with their own permissions.
-        if (modelService.getById(modelName, IdUtils.formatId(modelName, rowId), List.of(ModelConstant.ID)).isEmpty()) {
+        // Nothing moves for a record the applicant could not change with their own permissions.
+        if (!withinCallersEditRange(modelName, rowId)) {
             throw new BusinessException(NO_SUCH_RECORD, modelName, rowId);
         }
         cancel(handler, modelName, rowId, actorId);
@@ -442,6 +444,19 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     }
 
     /** The whole record, read past the submitter's field and row checks: submit conditions see every field. */
+    /**
+     * Whether the caller reaches the record within the range they may edit it in. Submitting and cancelling write the
+     * record, so the range that counts is that of the caller's roles holding its update action, not the wider one of
+     * every role that may view it: a role that only views a department's requests submits or cancels none of them.
+     * A caller none of whose roles holds the update action keeps the range they read in, as for every write
+     * authorized elsewhere.
+     */
+    private boolean withinCallersEditRange(String modelName, String rowId) {
+        Serializable id = IdUtils.formatId(modelName, rowId);
+        return AccessScope.callAs(AccessType.UPDATE, modelName,
+                () -> modelService.getById(modelName, id, List.of(ModelConstant.ID))).isPresent();
+    }
+
     private Map<String, Object> readRecord(String modelName, String rowId) {
         Serializable id = IdUtils.formatId(modelName, rowId);
         return ContextUtils.withoutPermissionChecks(() -> modelService.getById(modelName, id))

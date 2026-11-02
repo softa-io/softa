@@ -65,8 +65,8 @@ public interface FlowClient {
 
     /**
      * Cancels the draft for good as the current user, its applicant: refused unless the record is a
-     * draft the user can read and its handler's {@code validateCancel} passes. Joins the caller's
-     * transaction.
+     * draft within the range the user may edit it in and its handler's {@code validateCancel} passes. Joins
+     * the caller's transaction.
      */
     void cancelRecord(String modelName, String rowId);
 

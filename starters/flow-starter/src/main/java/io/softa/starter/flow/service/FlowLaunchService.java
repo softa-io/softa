@@ -24,8 +24,9 @@ public interface FlowLaunchService {
     FlowLaunchResponse debugRunDraft(String flowId, FlowStartRequest request);
 
     /**
-     * Submits a business record for approval, in the caller's transaction: the submitter must read the
-     * record with their own permissions and it must be a draft; its model's
+     * Submits a business record for approval, in the caller's transaction: the submitter must reach the
+     * record within the range their roles may edit it in — submitting writes it, so being able to view it is
+     * not enough — and it must be a draft; its model's
      * {@code ModelApprovalHandler} checks it and supplies the title and routing variables, the flow
      * is chosen by the flows' submit triggers (exactly one active flow of the tenant must match the
      * model and the record), the record becomes {@code Pending} and the record's approval starts.
@@ -76,8 +77,8 @@ public interface FlowLaunchService {
     FlowExecutionState withdrawRecord(String modelName, String rowId, String actorId, String comment);
 
     /**
-     * Cancels a draft for good, in the caller's transaction: the actor must read the record with their
-     * own permissions, it must be a draft, and its handler's {@code validateCancel} must pass. The record
+     * Cancels a draft for good, in the caller's transaction: the actor must reach the record within the
+     * range their roles may edit it in, it must be a draft, and its handler's {@code validateCancel} must pass. The record
      * becomes {@code Cancelled} and its handler is handed a {@code CANCELLED} result with no instance.
      *
      * @param modelName the record's model

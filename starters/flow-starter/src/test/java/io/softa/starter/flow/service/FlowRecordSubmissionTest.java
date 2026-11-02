@@ -14,6 +14,8 @@ import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
@@ -214,6 +216,40 @@ class FlowRecordSubmissionTest {
 
         verify(handler, never()).validate(any());
         assertEquals("Draft", record.get("approvalStatus"));
+    }
+
+    /**
+     * Submitting writes the record, so the submitter's reach is the range they may edit it in: a role that only views
+     * a department's requests submits none of them.
+     */
+    @Test
+    void theSubmittersReachIsTheRangeTheyMayEditTheRecordIn() {
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
+        List<AccessType> readAs = recordReachReadAs();
+
+        launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(List.of(AccessType.UPDATE), readAs);
+    }
+
+    /** Cancelling writes the record too: the applicant's reach is the range they may edit it in. */
+    @Test
+    void theApplicantsReachForACancellationIsTheRangeTheyMayEditTheRecordIn() {
+        List<AccessType> readAs = recordReachReadAs();
+
+        launchService.cancelRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(List.of(AccessType.UPDATE), readAs);
+    }
+
+    /** The action each check of the caller's reach on the record is read for, as the read sees it. */
+    private List<AccessType> recordReachReadAs() {
+        List<AccessType> readAs = new ArrayList<>();
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenAnswer(invocation -> {
+            readAs.add(AccessScope.currentFor(MODEL));
+            return Optional.of(Map.of("id", 42L));
+        });
+        return readAs;
     }
 
     @Test
