@@ -61,8 +61,14 @@ public class CompiledFlowNode {
     @Schema(description = "Incoming edge ids")
     private List<String> incomingEdgeIds;
 
-    @Schema(description = "Outgoing edge ids")
+    @Schema(description = "Outgoing edge ids, in the order a node that is not a gateway tries them: by priority, the "
+            + "default last")
     private List<String> outgoingEdgeIds;
+
+    @Schema(description = "On an inclusive gateway whose branches meet: the join they meet at, which counts the branches "
+            + "the gateway does not take as arrived. Null when its branches each end on their own, and on every other "
+            + "node")
+    private String pairedJoinId;
 
     @Schema(description = "Original design-time canvas position")
     private FlowGraphPosition position;

@@ -25,7 +25,14 @@ public record DirectoryPerson(
         @Schema(description = "Position name")
         String positionName,
 
-        @Schema(description = "Whether the account signs in, and so can be handed work")
-        boolean active
+        @Schema(description = "Whether the account signs in, and so can be handed work. Told by the designer and "
+                + "operations directory alone (/flow/directory/people/all); null elsewhere, where only people who can "
+                + "act are offered and who cannot is not the caller's to learn")
+        Boolean active
 ) {
+
+    /** This person without saying whether they can act: as the directory answers anyone but a designer or an operator. */
+    public DirectoryPerson withoutActive() {
+        return active == null ? this : new DirectoryPerson(id, name, code, departmentName, positionName, null);
+    }
 }

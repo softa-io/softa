@@ -3,11 +3,9 @@ package io.softa.starter.seed.service.impl;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.AfterAll;
@@ -33,7 +31,6 @@ import io.softa.starter.seed.service.LoadMode;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -160,17 +157,16 @@ class SysPreDataTimelineTest {
     }
 
     @Test
-    void fieldsTheFileLeavesOutAreClearedButNotTheComputedEndDate() {
+    void aVersionGetsOnlyWhatTheFileNames() {
         storedVersions(Y2025, Y2026);
 
         load(row("8000.00", "2025-01-01"));
 
         Map<String, Object> version = addedVersion();
-        // "Clear what the seed no longer says" still holds for the model's own fields…
-        assertTrue(version.containsKey("description"));
-        assertNull(version.get("description"));
-        // …but the 2025 version ends the day before 2026 began; clearing that would let it run on under
-        // the 2026 one.
+        // A field the file leaves out is not written: corrected in place, the version keeps it; inserted, it
+        // takes it from the version next to it.
+        assertFalse(version.containsKey("description"), version.toString());
+        // Nor are the timeline's own fields: the 2025 version ends the day before 2026 began.
         assertFalse(version.containsKey("effectiveEndDate"), version.toString());
         assertFalse(version.containsKey("sliceId"), version.toString());
     }
@@ -318,9 +314,6 @@ class SysPreDataTimelineTest {
             mm.when(() -> ModelManager.getModelField(MODEL, "value")).thenReturn(value);
             mm.when(() -> ModelManager.getModelField(MODEL, "effectiveStartDate")).thenReturn(start);
             mm.when(() -> ModelManager.getIdStrategy(MODEL)).thenReturn(IdStrategy.DISTRIBUTED_LONG);
-            // Mutable: the update removes the seeded keys from it in place.
-            mm.when(() -> ModelManager.getModelUpdatableFieldsWithoutXToMany(MODEL)).thenReturn(new HashSet<>(
-                    Set.of("code", "value", "description", "effectiveStartDate", "effectiveEndDate")));
             return action.get();
         }
     }

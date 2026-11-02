@@ -79,5 +79,14 @@ public class PendingApproval {
 
     @Schema(description = "Timestamp of the last timeout reminder sent")
     private LocalDateTime lastRemindTime;
+
+    @Schema(description = "The roles the step went to because it found nobody (empty-approver strategy AssignToRole), "
+            + "by name: its approvers are their holders, any one of whom decides. Empty otherwise")
+    private List<String> assignedRoles;
+
+    /** Whether the step went to the holders of roles because it found nobody: any one of them decides. */
+    public boolean assignedToRoles() {
+        return assignedRoles != null && !assignedRoles.isEmpty();
+    }
 }
 

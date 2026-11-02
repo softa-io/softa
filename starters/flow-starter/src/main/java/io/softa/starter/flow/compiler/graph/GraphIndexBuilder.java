@@ -1,6 +1,7 @@
 package io.softa.starter.flow.compiler.graph;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -26,6 +27,11 @@ public final class GraphIndexBuilder {
     public static final String MISSING_EDGE_ID       = "MISSING_EDGE_ID";
     public static final String MISSING_EDGE_ENDPOINT = "MISSING_EDGE_ENDPOINT";
     public static final String DUPLICATE_EDGE_ID     = "DUPLICATE_EDGE_ID";
+
+    /** Conditional edges first, by priority, unset after set; the default last. Stable: ties keep drawing order. */
+    private static final Comparator<FlowGraphEdge> TRY_ORDER = Comparator
+            .comparing((FlowGraphEdge edge) -> !edge.hasCondition())
+            .thenComparing(edge -> edge.getPriority() == null ? Integer.MAX_VALUE : edge.getPriority());
 
     private GraphIndexBuilder() {}
 
@@ -81,13 +87,24 @@ public final class GraphIndexBuilder {
         return incoming;
     }
 
+    /**
+     * Each node's outgoing edges in the order a node that is not a gateway tries them: the conditional edges by their
+     * {@code priority}, those without one after, in drawing order; the default — the edge without a condition — last.
+     * A gateway takes every edge that holds whatever the order, so the order is the same for every node.
+     */
     public static Map<String, List<String>> buildOutgoingEdgeIds(Collection<FlowGraphEdge> edges) {
-        Map<String, List<String>> outgoing = new HashMap<>();
+        Map<String, List<FlowGraphEdge>> outgoing = new HashMap<>();
         for (FlowGraphEdge edge : edges) {
-            outgoing.computeIfAbsent(edge.getSource(), _ -> new ArrayList<>()).add(edge.getId());
+            outgoing.computeIfAbsent(edge.getSource(), _ -> new ArrayList<>()).add(edge);
         }
-        return outgoing;
+        Map<String, List<String>> ordered = new HashMap<>();
+        outgoing.forEach((source, list) -> ordered.put(source, list.stream()
+                .sorted(TRY_ORDER)
+                .map(FlowGraphEdge::getId)
+                .collect(Collectors.toCollection(ArrayList::new))));
+        return ordered;
     }
+
 
     /**
      * The flow's entry is its Start node — never inferred from the graph shape, so a node

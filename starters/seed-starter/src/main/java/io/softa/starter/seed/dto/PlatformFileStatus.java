@@ -20,7 +20,7 @@ public record PlatformFileStatus(
                 + "rows (data-platform/)")
         SeedLevel level,
 
-        @Schema(description = "The file's mode in the manifest. overwrite: loads whole from this page whenever it "
+        @Schema(description = "The file's mode in the manifest. overwrite: loads again from this page whenever it "
                 + "changes. startup: the build owns the file — it loads at startup, before the application takes "
                 + "traffic, and never from this page")
         SeedFileMode mode,

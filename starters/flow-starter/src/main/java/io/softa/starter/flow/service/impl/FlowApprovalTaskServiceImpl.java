@@ -149,11 +149,12 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             case HANDLED -> ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
             case CC -> ApprovalTaskQuerySupport.ccFilters(actorId);
         };
-        // Each box's default is the order of the read it stands for: pending, completed, CC read and unread.
+        // Each box's default puts what reached the caller last first: pending and copied by when they arrived,
+        // handled by when they closed. The CC box holds read and unread alike, so oldest first left the copy just
+        // received on the last page.
         Orders defaults = switch (request.box()) {
-            case PENDING -> newestStartedFirst();
+            case PENDING, CC -> newestStartedFirst();
             case HANDLED -> latestClosedFirst();
-            case CC -> oldestStartedFirst();
         };
         return page(CallerConditions.and(own, request.filters()),
                 CallerConditions.ordersOr(request.orders(), defaults), request.pageNumber(), request.pageSize());

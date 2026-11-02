@@ -117,6 +117,24 @@ class ApprovalTimeoutSchedulerTest {
     }
 
     @Test
+    void anEscalationLeavesOneApproverWhoseVoteDecidesTheStep() {
+        ReflectionTestUtils.setField(scheduler, "actorAccounts", TestActorAccounts.of(Map.of(), Map.of()));
+        FlowExecutionState state = start(Map.of("timeoutHours", 24, "timeoutStrategy", "Escalate",
+                "escalateToUserId", "2009"));
+        PendingApproval step = instanceStore.get(state.getInstanceId()).orElseThrow().getPendingApprovals().getFirst();
+        step.setDueTime(LocalDateTime.now().minusMinutes(1));
+        // A step that needed two rejections, from the approvers it had before.
+        step.setRequiredRejectCount(2);
+
+        scheduler.handleTimedOutTasks();
+
+        PendingApproval escalated = instanceStore.get(state.getInstanceId()).orElseThrow().getPendingApprovals().getFirst();
+        assertEquals(List.of("2009"), escalated.getApprovers());
+        assertEquals(1, escalated.getRequiredApprovalCount());
+        assertEquals(1, escalated.getRequiredRejectCount(), "the one approver left rejects it alone");
+    }
+
+    @Test
     void anIntervalWithoutAMostRemindsThreeTimes() {
         ApprovalTimeoutConfig config = ApprovalTimeoutConfig.builder().timeoutHours(24).remindIntervalHours(1).build();
         LocalDateTime now = LocalDateTime.now();

@@ -16,9 +16,10 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.*;
 
 /**
- * The directory the pickers read: searches go to the organization past the caller's permissions, within a bounded
- * size; picked people are named in the order asked — an employee as the organization shows them, an account without
- * an employee record by its name, with whether it can act.
+ * The directory the pickers read, within a bounded size. A person's search goes to the organization with their own
+ * permissions and says nothing of who cannot act; the designer's and the operations console's go past them and say it.
+ * Picked people are named in the order asked — an employee as the organization shows them, an account without an
+ * employee record by its name — whether they can act said only to the designer and the console.
  */
 class FlowDirectoryServiceImplTest {
 
@@ -35,23 +36,38 @@ class FlowDirectoryServiceImplTest {
     }
 
     @Test
-    void aSearchAsksTheOrganizationPastTheCallersPermissionsTwentyByDefault() {
-        boolean[] skipped = {false};
-        when(organization.searchPeople("ann", false, 20)).thenAnswer(invocation -> {
-            skipped[0] = ContextHolder.getContext().isSkipPermissionCheck();
+    void aPersonsSearchAsksTheOrganizationAsThemTwentyByDefaultSayingNothingOfWhoCannotAct() {
+        boolean[] skipped = {true};
+        when(organization.searchPeople("ann", 20)).thenAnswer(invocation -> {
+            skipped[0] = ContextHolder.existContext() && ContextHolder.getContext().isSkipPermissionCheck();
             return List.of(new DirectoryPerson(1L, "Ann Lee", "E001", "Finance", null, true));
         });
 
-        assertEquals(1, directory.searchPeople("ann", false, null).size());
-        assertTrue(skipped[0]);
+        assertEquals(List.of(new DirectoryPerson(1L, "Ann Lee", "E001", "Finance", null, null)),
+                directory.searchPeople("ann", null));
+        assertFalse(skipped[0], "with the caller's own permissions");
 
         directory.searchDepartments("fin", 50);
         verify(organization).searchDepartments("fin", 50);
     }
 
     @Test
+    void theWholeDirectoryIsAskedPastTheCallersPermissions() {
+        boolean[] skipped = {false};
+        when(organization.searchAllPeople("ann", true, 20)).thenAnswer(invocation -> {
+            skipped[0] = ContextHolder.getContext().isSkipPermissionCheck();
+            return List.of(new DirectoryPerson(1L, "Ann Lee", "E001", "Finance", null, false));
+        });
+
+        assertEquals(List.of(new DirectoryPerson(1L, "Ann Lee", "E001", "Finance", null, false)),
+                directory.searchAllPeople("ann", true, null));
+        assertTrue(skipped[0]);
+    }
+
+    @Test
     void aSearchReturnsOneToFiftyRows() {
-        assertThrows(RuntimeException.class, () -> directory.searchPeople("a", false, 0));
+        assertThrows(RuntimeException.class, () -> directory.searchPeople("a", 0));
+        assertThrows(RuntimeException.class, () -> directory.searchAllPeople("a", false, 51));
         assertThrows(RuntimeException.class, () -> directory.searchDepartments("a", 51));
         verifyNoInteractions(organization);
     }
@@ -67,10 +83,13 @@ class FlowDirectoryServiceImplTest {
         unusable.put(9L, null);
         when(organization.getUnusableAccounts(List.of(3L, 2L, 9L))).thenReturn(unusable);
 
-        List<DirectoryPerson> people = directory.getPeople(List.of(3L, 1L, 3L, 2L, 9L));
+        List<DirectoryPerson> people = directory.getAllPeople(List.of(3L, 1L, 3L, 2L, 9L));
 
         assertEquals(List.of(new DirectoryPerson(3L, "Tenant Admin", null, null, null, true), ann,
                 new DirectoryPerson(2L, "old.user", null, null, null, false)), people);
+        // Named for anyone else too, without saying who cannot act.
+        assertEquals(List.of(new DirectoryPerson(3L, "Tenant Admin", null, null, null, null), ann.withoutActive(),
+                new DirectoryPerson(2L, "old.user", null, null, null, null)), directory.getPeople(List.of(3L, 1L, 2L, 9L)));
     }
 
     @Test
@@ -78,7 +97,7 @@ class FlowDirectoryServiceImplTest {
         DirectoryPerson ann = new DirectoryPerson(1L, "Ann Lee", "E001", null, null, true);
         when(organization.getPeople(List.of(1L))).thenReturn(List.of(ann));
 
-        assertEquals(List.of(ann), directory.getPeople(List.of(1L)));
+        assertEquals(List.of(ann), directory.getAllPeople(List.of(1L)));
         verifyNoInteractions(userNames);
         verify(organization, never()).getUnusableAccounts(anyCollection());
     }

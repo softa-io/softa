@@ -3,6 +3,7 @@ package io.softa.starter.flow.runtime.spi.impl;
 import java.util.List;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.StringUtils;
 
 /**
  * Configuration properties for the default {@link FlowOrgService}: the models and fields it reads
@@ -16,6 +17,15 @@ public class OrganizationServiceProperties {
 
     /** Employee model. */
     private String employeeModel = "Employee";
+    /**
+     * The model the people pickers search: a directory of the employees — typically a read-only projection of the
+     * employee model with only what a directory shows — whose row scope, granted per role, decides whom each caller
+     * may pick. Its fields go by the employee model's names ({@code accountIdField}, {@code nameField},
+     * {@code codeField}, {@code deptIdField}, {@code positionIdField}). Unset, the employee model itself, its row
+     * scope included. Finding approvers by rule never reads it: a supervisor or a department leader is found whatever
+     * the submitter may see.
+     */
+    private String directoryModel;
     /** Field on the employee model that holds the employee's login account id — the approver id. */
     private String accountIdField = "userId";
     /** Field on the employee model that holds the display name. */
@@ -52,6 +62,8 @@ public class OrganizationServiceProperties {
     private String roleDefinitionModel = "Role";
     /** Field on the role model that holds the role code. */
     private String roleCodeField = "code";
+    /** Field on the role model that holds the role name. */
+    private String roleNameField = "name";
 
     /** Login account model (user-starter's), whose status says whether an account signs in. */
     private String accountModel = "UserAccount";
@@ -66,4 +78,9 @@ public class OrganizationServiceProperties {
 
     /** Maximum depth of department traversal, up or down (guards against cycles). */
     private int maxDeptDepth = 10;
+
+    /** The model the people pickers search: {@code directoryModel}, else the employee model. */
+    public String getDirectoryModel() {
+        return StringUtils.hasText(directoryModel) ? directoryModel : employeeModel;
+    }
 }

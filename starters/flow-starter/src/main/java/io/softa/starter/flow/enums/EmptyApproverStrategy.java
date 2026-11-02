@@ -17,6 +17,12 @@ public enum EmptyApproverStrategy {
     SKIP("Skip"),
     /** Auto-approve the node and continue execution. */
     AUTO_APPROVE("AutoApprove"),
+    /**
+     * Hand the step to the holders of the node's {@code emptyApproverRoleIds} / {@code emptyApproverRoleCodes} who can
+     * act, the submitter and the employee the record is about left out: any one of them approves or rejects it. With
+     * nobody left, as {@link #ERROR}.
+     */
+    ASSIGN_TO_ROLE("AssignToRole"),
     ;
 
     @JsonValue

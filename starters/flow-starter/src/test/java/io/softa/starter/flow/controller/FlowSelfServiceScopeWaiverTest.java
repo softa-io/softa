@@ -52,6 +52,18 @@ class FlowSelfServiceScopeWaiverTest {
                 "recordsByInstance", "getFormPermissions");
     }
 
+    @Test
+    @DisplayName("a person's directory search keeps their row scope; the rest of the directory waives it")
+    void theDirectorySearchKeepsTheCallersRowScope() {
+        for (Method method : declared(FlowDirectoryController.class, "searchPeople")) {
+            assertNull(method.getAnnotation(SkipPermissionCheck.class), "FlowDirectoryController.searchPeople reads "
+                    + "the directory model with the caller's row scope, which decides whom they may pick; a waiver "
+                    + "would hand every person the whole tenant.");
+        }
+        assertWaived(FlowDirectoryController.class, "getPeople", "searchAllPeople", "getAllPeople", "searchDepartments",
+                "getDepartments");
+    }
+
     private static void assertWaived(Class<?> type, String... names) {
         for (String name : names) {
             for (Method method : declared(type, name)) {

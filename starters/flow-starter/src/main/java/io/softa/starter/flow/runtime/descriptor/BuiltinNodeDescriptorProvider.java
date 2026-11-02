@@ -56,7 +56,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 // version control when the runtime lands.
                 structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Takes every edge whose condition holds, else the edge without a condition", "git-merge", 21, null),
                 structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null),
-                structural(FlowNodeType.PARALLEL_JOIN,     "Parallel Join",    "Waits for all forked branches",       "git-pull-request", 23, null),
+                structural(FlowNodeType.PARALLEL_JOIN,     "Join",             "Waits for the branches of a parallel fork, or those an inclusive gateway took, then goes on once", "git-pull-request", 23, null),
                 structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, scriptConfigSchema()),
                 // FOR_EACH is intentionally omitted: its runtime child-node iteration is not yet
                 // implemented and it is rejected at compile time. Restore this entry
@@ -147,8 +147,15 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         // that value, not the constant name (a chosen constant name made the whole config unreadable).
         schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "Empty-approver strategy",
                 "options", List.of(EmptyApproverStrategy.ERROR.getType(), EmptyApproverStrategy.AUTO_APPROVE.getType(),
-                        EmptyApproverStrategy.SKIP.getType()),
+                        EmptyApproverStrategy.SKIP.getType(), EmptyApproverStrategy.ASSIGN_TO_ROLE.getType()),
                 "default", EmptyApproverStrategy.ERROR.getType()));
+        // Who a step that finds nobody goes to under AssignToRole, as a role query names roles: ids reach the tenant's
+        // own roles, codes the built-in ones, the same in every tenant.
+        String assignToRole = EmptyApproverStrategy.ASSIGN_TO_ROLE.getType();
+        schema.put("emptyApproverRoleIds", ordered("type", "rolePicker", "label", "Assign to roles", "multiple", true,
+                "depends", Map.of("emptyApproverStrategy", assignToRole)));
+        schema.put("emptyApproverRoleCodes", ordered("type", "rolePicker", "label", "Assign to built-in roles",
+                "multiple", true, "valueField", "code", "depends", Map.of("emptyApproverStrategy", assignToRole)));
         // ── Vote thresholds ──────────────────────────────────────────────────
         String minCount = VoteThresholdMode.MIN_COUNT.getType();
         String percentage = VoteThresholdMode.PERCENTAGE.getType();

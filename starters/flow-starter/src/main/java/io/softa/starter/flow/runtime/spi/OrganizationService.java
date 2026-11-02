@@ -121,21 +121,39 @@ public interface OrganizationService {
     }
 
     /**
-     * The directory: the people anyone in the tenant may pick to hand work to, copy or delegate to — employees with a
-     * login account, matched on {@code keyword} (all of them when blank), by name, at most {@code limit}. Only those
-     * whose account signs in, unless {@code includeInactive};  DirectoryPerson.active then tells. Empty unless
-     * overridden.
+     * The directory as the caller may read it: the people they may pick to hand work to, copy or delegate to —
+     * employees whose login account signs in, matched on {@code keyword} (all of them when blank), by name, at most
+     * {@code limit}, read with the caller's own permissions, so their roles' scope on the directory decides whom.
+     * Empty unless overridden.
      */
-    default List<DirectoryPerson> searchPeople(String keyword, boolean includeInactive, int limit) {
+    default List<DirectoryPerson> searchPeople(String keyword, int limit) {
         return List.of();
     }
 
     /**
-     * These login accounts as the directory shows them, in the order asked, whether they sign in or not: what names a
-     * picked person once the search has moved on. An account without an employee record is left out. Empty unless
-     * overridden.
+     * The whole directory, for the flow designer and the operations console: every login account matching
+     * {@code keyword} (all of them when blank) — employees, and accounts without an employee record by their own name —
+     * by name, at most {@code limit}, past the caller's permissions. Only those that sign in unless
+     * {@code includeInactive}; each says whether it does (@link DirectoryPerson#active). Empty unless overridden.
+     */
+    default List<DirectoryPerson> searchAllPeople(String keyword, boolean includeInactive, int limit) {
+        return List.of();
+    }
+
+    /**
+     * These login accounts as the directory shows them, in the order asked, whether they sign in or not, past the
+     * caller's permissions: what names a picked person once the search has moved on. An account without an employee
+     * record is left out. Empty unless overridden.
      */
     default List<DirectoryPerson> getPeople(Collection<Long> userIds) {
+        return List.of();
+    }
+
+    /**
+     * The names of these roles — named by id, by code, or both — in the order asked, ids first; a role the tenant does
+     * not have is left out. What says which roles a step went to when it found nobody. Empty unless overridden.
+     */
+    default List<String> getRoleNames(Collection<Long> roleIds, Collection<String> roleCodes) {
         return List.of();
     }
 

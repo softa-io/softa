@@ -128,9 +128,6 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(label = "Batch ID", description = "Batch ID for batch approval operations")
     private Long batchId;
 
-    @Field(fieldType = FieldType.TEXT, description = "Form data snapshot at the time the task was created (JSON)")
-    private String formSnapshot;
-
     @Field(label = "Closed By Actor ID", description = "Actor who closed this task when available")
     private String closedByActorId;
 

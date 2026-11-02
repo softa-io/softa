@@ -65,15 +65,16 @@ public interface FlowClient {
 
     /**
      * Cancels the draft for good as the current user, its applicant: refused unless the record is a
-     * draft the user can read and its handler's {@code validateCancel} passes. Joins the caller's
-     * transaction.
+     * draft within the range the user may edit it in and its handler's {@code validateCancel} passes. Joins
+     * the caller's transaction.
      */
     void cancelRecord(String modelName, String rowId);
 
     /**
      * The record's approval history — its approval instances newest first, with steps, approvers
-     * and actions, every user named — the same answer as {@code GET /flow/instances/by-record},
-     * under the same check: the current user can read the record or took part in its approvals.
+     * and actions, every user named, each saying whether the current user may open it — the same
+     * answer as {@code GET /flow/instances/by-record}, under the same check: the current user can
+     * read the record or took part in its approvals.
      */
     FlowRecordApprovalsView recordApprovals(String modelName, String rowId);
 

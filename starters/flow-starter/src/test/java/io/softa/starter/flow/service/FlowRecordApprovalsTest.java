@@ -23,6 +23,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
@@ -563,6 +564,35 @@ class FlowRecordApprovalsTest {
             assertThrows(FlowAuthorizationException.class,
                     () -> as(refused, () -> page.getRecordThroughApprovals(MODEL, ROW)));
         }
+    }
+
+    @Test
+    void eachApprovalInTheHistorySaysWhetherTheCallerMayOpenIt() {
+        resubmittedClaim();
+        FlowInstanceController page = recordPage();
+
+        // An approver of the earlier submission sees the history, but the approval in progress is not theirs to
+        // open: its detail would be refused them.
+        assertEquals(Map.of("second", false, "first", true), viewable(historyAs(EARLIER_APPROVER, page)));
+        assertEquals(Map.of("second", true, "first", false), viewable(historyAs(CURRENT_APPROVER, page)));
+        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(INITIATOR, page)));
+        // Roles that read the approvals' rows open them, as the monitoring console does.
+        when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("instanceId", "second")));
+        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(EARLIER_APPROVER, page)));
+        // Whoever reads the record opens them all.
+        when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.of(Map.of("id", 7L)));
+        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(READER, page)));
+    }
+
+    private static FlowRecordApprovalsView historyAs(String userId, FlowInstanceController page) {
+        return as(userId, () -> page.getRecordApprovals(MODEL, ROW)).getData();
+    }
+
+    private static Map<String, Boolean> viewable(FlowRecordApprovalsView history) {
+        Map<String, Boolean> viewable = new LinkedHashMap<>();
+        history.getInstances().forEach(instance -> viewable.put(instance.getInstanceId(), instance.isViewable()));
+        return viewable;
     }
 
     /**
