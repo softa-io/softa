@@ -1009,12 +1009,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     /**
-     * Why there is nowhere to enter, or null when somewhere is enterable. NOT_JOINED only when the
-     * person holds nothing but unconfirmed invitations; anything else — every membership Frozen or
-     * Deactivated — is DEACTIVATED.
+     * Why there is no company to show, or null when there is one — enterable or not. A person whose
+     * only companies are Frozen is shown them, greyed with their badge, so they can see they were
+     * frozen; the reason is for having nothing to list at all: NOT_JOINED when the person holds
+     * nothing but unconfirmed invitations, DEACTIVATED otherwise (every account closed, or none).
      */
     private AuthenticationResult.NoEnterableReason noEnterableReason(Long profileId, List<MembershipOption> options) {
-        if (options.stream().anyMatch(MembershipOption::selectable)) {
+        if (!options.isEmpty()) {
             return null;
         }
         boolean onlyInvitations = !accountService.listMembershipsOf(profileId).isEmpty()
