@@ -120,6 +120,8 @@ class OffBoardAndReviveTest {
         assertThat(person.getLoginMobile()).isNull();
         verify(identityService).updateOne(person, false);
         verify(securityLog).entry(eq(SecurityAction.WORK_MOBILE_RELEASED), eq(SecurityLogSource.SYSTEM), eq(membership), any());
+        // Masked as everywhere: dial code, space, first three, four stars, last two.
+        assertThat(logged(SecurityAction.WORK_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 900****00");
     }
 
     @Test
@@ -329,5 +331,12 @@ class OffBoardAndReviveTest {
         accountService.reviveWith(closed, "new@acme.com", null);
 
         verify(roleRelService).deleteByFilters(any(Filters.class));
+    }
+
+    /** The security-log row of this action that was written. */
+    private UserSecurityLog logged(SecurityAction action) {
+        org.mockito.ArgumentCaptor<UserSecurityLog> rows = org.mockito.ArgumentCaptor.forClass(UserSecurityLog.class);
+        verify(securityLog, org.mockito.Mockito.atLeastOnce()).record(rows.capture());
+        return rows.getAllValues().stream().filter(row -> row.getAction() == action).findFirst().orElseThrow();
     }
 }
