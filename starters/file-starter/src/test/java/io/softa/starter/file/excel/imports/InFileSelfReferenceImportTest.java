@@ -76,7 +76,7 @@ class InFileSelfReferenceImportTest {
         assertThat(staff).doesNotContainKey(FileConstant.FAILED_REASON).doesNotContainKey("piEmployeeId");
         // A manager already stored resolves as it always did; one found nowhere still fails.
         assertThat(stored.get("piEmployeeId")).isEqualTo(700L);
-        assertThat(unknown.get(FileConstant.FAILED_REASON)).isEqualTo("Cannot find Employee by code=E404");
+        assertThat(unknown.get(FileConstant.FAILED_REASON)).isEqualTo("Employee not found: E404");
     }
 
     @Test

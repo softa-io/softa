@@ -23,6 +23,7 @@ import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.CascadeFieldWalker;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.meta.WithheldFields;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.metadata.checksum.AggregateChecksumIndex;
@@ -65,6 +66,10 @@ public class MetadataServiceImpl implements MetadataService {
      * caller, so neither does their definition — a screen offers no input, column or filter for them.
      * Fields hidden on some records only stay; which records is a per-record answer.
      *
+     * <p>A relation onto a model the caller can read nothing of goes with them: when every field of the
+     * related model but its plumbing is withheld, the relation would offer a column, an export field and
+     * a filter that can only ever come back empty ({@link WithheldFields}).
+     *
      * @param modelName model name
      * @return metaModelDTO object
      */
@@ -79,12 +84,12 @@ public class MetadataServiceImpl implements MetadataService {
 
     /** {@code dto} with the caller's withheld fields of its model removed; the DTO is built per request. */
     private static MetaModelDTO withoutWithheldFields(MetaModelDTO dto, Map<String, Set<String>> withheld) {
-        Set<String> fields = withheld.get(dto.getModelName());
-        if (fields == null || fields.isEmpty() || dto.getModelFields() == null) {
+        if (withheld.isEmpty() || dto.getModelFields() == null) {
             return dto;
         }
         Map<String, MetaFieldDTO> kept = new LinkedHashMap<>(dto.getModelFields());
-        kept.keySet().removeAll(fields);
+        kept.values().removeIf(field -> WithheldFields.isWithheld(dto.getModelName(), field.getFieldName(),
+                field.getFieldType(), field.getRelatedModel(), withheld));
         dto.setModelFields(kept);
         return dto;
     }
@@ -128,8 +133,8 @@ public class MetadataServiceImpl implements MetadataService {
                 public void onSegment(int index, String currentModel, MetaField field) {
                     localAccess.computeIfAbsent(currentModel, k -> new HashSet<>())
                             .add(field.getFieldName());
-                    if (firstWithheld[0] == null
-                            && withheld.getOrDefault(currentModel, Set.of()).contains(field.getFieldName())) {
+                    if (firstWithheld[0] == null && WithheldFields.isWithheld(currentModel, field.getFieldName(),
+                            field.getFieldType(), field.getRelatedModel(), withheld)) {
                         firstWithheld[0] = new WithheldSegment(index, currentModel, field.getFieldName());
                     }
                 }

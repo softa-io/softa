@@ -63,6 +63,27 @@ public class WriteValidationException extends IllegalArgumentException {
         return new WriteValidationException(List.of(new FieldError(0, field, e.getMessage())), e.getMessage());
     }
 
+    /**
+     * A required field left empty, said the way the person reading it knows the field: by the model's
+     * and the field's labels — "Company: Company Name is required." — rather than by
+     * their code names. The sentence reaches whoever caused the write, including the import's failure
+     * reason and any page that did not check the field first, so it has to read as an answer.
+     */
+    public static WriteValidationException requiredField(MetaField field) {
+        return forField(field.getFieldName(), "{0}: {1} is required.",
+                modelLabelOf(field.getModelName()), labelOrName(field.getLabel(), field.getFieldName()));
+    }
+
+    private static String modelLabelOf(String modelName) {
+        return ModelManager.existModel(modelName)
+                ? labelOrName(ModelManager.getModel(modelName).getLabel(), modelName)
+                : modelName;
+    }
+
+    private static String labelOrName(String label, String name) {
+        return StringUtils.isBlank(label) ? name : label;
+    }
+
     private WriteValidationException(List<FieldError> errors, String formattedMessage) {
         super(formattedMessage);
         this.errors = List.copyOf(errors);

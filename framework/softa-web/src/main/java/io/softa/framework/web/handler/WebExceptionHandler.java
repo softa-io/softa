@@ -26,6 +26,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BaseException;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.web.response.ApiResponse;
@@ -129,6 +130,25 @@ public class WebExceptionHandler {
     @ExceptionHandler(value = BaseException.class)
     public ResponseEntity<ApiResponse<Void>> handleException(BaseException e) {
         return handler(e.getResponseCode(), e);
+    }
+
+    /**
+     * A refusal that names fields carries them as {@code fieldErrors}: those sentences are written for
+     * the user, where the message of any other refusal is detail for the server log. Logged and coded
+     * like every other permission refusal.
+     *
+     * @param e Exception
+     * @return ResponseEntity
+     */
+    @ExceptionHandler(value = PermissionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(PermissionException e) {
+        ResponseEntity<ApiResponse<Void>> response = handler(e.getResponseCode(), e);
+        if (e.getFieldErrors() == null || e.getFieldErrors().isEmpty()) {
+            return response;
+        }
+        ApiResponseErrorDetails<Void> body = (ApiResponseErrorDetails<Void>) response.getBody();
+        body.setFieldErrors(e.getFieldErrors());
+        return response;
     }
 
     /**

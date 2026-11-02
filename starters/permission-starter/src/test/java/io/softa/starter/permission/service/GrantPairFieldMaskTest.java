@@ -235,7 +235,10 @@ class GrantPairFieldMaskTest {
             service.checkIdsFieldsAccess("Employee", List.of(2L), Set.of("basePay"), AccessType.UPDATE);
             return null;
         })).isInstanceOf(PermissionException.class)
-                .hasMessage("You don't have permission to edit Pay fields for this employee.");
+                .hasMessage("You don't have permission to edit Pay fields for this employee.")
+                // The sentence is the user's, so it rides on the field for a client to show.
+                .extracting(e -> ((PermissionException) e).getFieldErrors())
+                .isEqualTo(Map.of("basePay", "You don't have permission to edit Pay fields for this employee."));
     }
 
     @Test

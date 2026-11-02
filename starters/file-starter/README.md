@@ -160,12 +160,20 @@ The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic impor
 - When a lookup fails (no matching record found):
   - If `skipException = true`: the row is marked as failed with a reason message.
   - If `skipException = false`: a `ValidationException` is thrown immediately.
+  - The reason names the relation by its label, the way the sheet's reader knows the column: `IPA Position not found: Bar Bender`. Several lookup columns name each field and say they must describe one record: `Department not found: code=D1, name=Sales — these must all describe the same Department; …`.
 - **A row may name another row of the same file through a many-to-one onto its own model** — an employee's `piEmployeeId.code`, a department's `parentId.code`. The lookup only sees stored rows and runs before any row of the file is written, so such a value used to fail as "Cannot find …" whatever the row order. Now, when it matches nothing stored but matches another row's own values for the same fields (`code`, compared trimmed), it is recorded as an in-file reference (`InFileReferences`, carried on `ImportDataDTO.inFileReferences`) instead of failing, and the file is **written in layers**: rows naming nobody in the file first, then the rows naming them, and so on. Each layer's references are filled from the ids the earlier layers went in under, so a row is inserted with its manager already set — write validators see it — rather than patched afterwards. The rules:
   - Only a plain many-to-one onto the importing model qualifies (not to-many, not one-to-one); every other lookup is unchanged, and a file without such references is written in one go as before.
   - Settled before anything is written, in the preview too: rows naming each other round a loop fail together (`Manager forms a loop within this file: E1 → E2 → E1.`), a row naming itself fails, and a row naming a row that failed fails with that reason (`Manager E1 is a row of this file that was not imported.`), transitively. A target that fails at the write takes its dependants down the same way at the next layer.
   - `skipException = true` commits layer by layer, as it already committed row by row on a failed batch. `skipException = false` writes every layer in one transaction, so the file stays all or nothing.
   - The custom handler still sees the whole file once, and `afterImportData` is called once with every layer's rows.
   - **To the custom handler such a field reads as empty** — the write fills it in later — so a rule that reads it would mistake a department whose parent is in the file for a root. While the handler runs, `InFileReferences.targetOf(row, field)` returns the row of the file that `row` names through `field` (or `null`); a handler whose rules read a self-referencing field must ask it first.
+
+**Which field to look up by.** `LookupKeys.of(relation)` (softa-orm) answers it for a ManyToOne onto any model but a code-as-id master (whose id is already the code a person writes), and serves it as `MetaFieldDTO.lookupFields` so an import screen can default a column naming the relation to `relation.<first>` instead of the bare id. Every field it returns identifies one row on its own; the first is recommended:
+1. the related model's first `displayName` field, when a unique index covers it alone (plus `tenantId` on a multi-tenant model) — a name a person writes and an export writes, so a filled-in or exported sheet matches as it is;
+2. otherwise its `businessKey`, when one component is left after those the relation's own `filters` pin;
+3. then any other field a unique index covers alone.
+
+A name unique only under a parent (a department per parent department) does not count, nor does a composite key with more than one free component — both would match several rows — and a code-as-id master (`CountryRegion`) needs none, its id being the code. The `RelationIdHandler` hint for a bare column filled with a non-id (`map this column to ipaPositionId.name`) suggests the same first field.
 
 #### 1.1.1 Nested OneToOne Import (Cascade Write)
 
@@ -323,6 +331,16 @@ curl -X POST http://localhost:8080/import/dynamicImport \
   grant on `ImportHistory` finish their own run instead of leaving it `PROCESSING`.
 - Writes made by an import run inside `ImportScope`, so a permission refusal reads "update" for the
   uploader rather than "edit".
+- **Columns follow the caller's field permissions** (`ImportFieldAccess`). A column whose field the
+  caller may not write — a field of a sensitive field set none of their roles grants, asked of the field
+  the column lands on (`empBankAccountId.methodOfPayment` is the bank account's `methodOfPayment`) — is
+  left out of the downloaded template, out of the fields `POST /ImportTemplate/listByModel` returns for
+  the import dialog, and out of the required checks and the write. A create-or-update template drops a
+  column refused for either. A file that still carries such a column (made from another caller's
+  template) is read: a row that fills it fails with `You do not have permission to set <header>.`, and
+  an empty one is ignored. Admins and consultants are blocked from nothing, so their templates are
+  unchanged. Before this, a caller without the set was handed a template requiring a column the save
+  then refused — a file that could not succeed either way.
 - Import status can be `PROCESSING`, `SUCCESS`, `FAILURE`, `PARTIAL_FAILURE`; a validation run
   (§5) records `VALIDATION_SUCCESS` / `VALIDATION_FAILURE` instead and attaches a result file in the
   **same format**, named `<uploaded file name>_Validation Result` — kept apart by name because a

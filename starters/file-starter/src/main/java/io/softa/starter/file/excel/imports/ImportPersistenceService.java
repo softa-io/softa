@@ -356,9 +356,9 @@ public class ImportPersistenceService {
      *
      * <p>With {@code ignoreEmpty} on, the importer leaves the model's requiredness to the ORM (see
      * {@code ImportHandlerFactory#promoteModelRequired}), so a create with a blank mandatory cell is
-     * refused here, as {@code Model field Company:name is a required field and cannot be null!} — a
-     * model and field name, on a sheet whose column is "Company Name". It is reworded to the message
-     * the importer's own check gives, so the reason reads the same whichever layer caught it. Only a
+     * refused here, as {@code Company: Company Name is required.} — the model's and the field's labels,
+     * which need not be the sheet's column header. It is reworded to the message the importer's own
+     * check gives, naming the column, so the reason reads the same whichever layer caught it. Only a
      * refusal we can be sure is that one is reworded: the field is required on the model and the row
      * carried no value for it. Anything else keeps the ORM's message.
      */

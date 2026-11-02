@@ -363,7 +363,7 @@ public class RelationLookupResolver {
             if (group.oneToOne()) {
                 resolveNestedOneToOneGroup(modelName, rows, group, skipException);
             } else if (group.toMany()) {
-                resolveToManyGroup(rows, group, skipException);
+                resolveToManyGroup(modelName, rows, group, skipException);
             } else {
                 resolveToOneGroup(modelName, rows, group, skipException, inFile);
             }
@@ -404,15 +404,6 @@ public class RelationLookupResolver {
             key.add(normalized);
         }
         return key;
-    }
-
-    private static String labelOf(String modelName, String fieldName) {
-        try {
-            String label = ModelManager.getModelField(modelName, fieldName).getLabel();
-            return StringUtils.isBlank(label) ? fieldName : label;
-        } catch (RuntimeException e) {
-            return fieldName;
-        }
     }
 
     /**
@@ -532,7 +523,8 @@ public class RelationLookupResolver {
                     }
                     Object resolvedId = resolvedByPath.get(nestedLookup.dottedPath()).idFor(row, List.of(raw));
                     if (resolvedId == null) {
-                        markFailure(row, buildNotFoundMessage(nestedLookup.relatedModel(),
+                        markFailure(row, buildNotFoundMessage(subjectOf(group.relatedModel(), nestedLookup.nestedField(),
+                                nestedLookup.relatedModel()),
                                 List.of(nestedLookup.lookupField()), List.of(raw)), skipException);
                         failed = true;
                         break;
@@ -605,6 +597,7 @@ public class RelationLookupResolver {
         boolean selfReference = isSelfReference(modelName, group);
         Map<List<Object>, Map<String, Object>> fileRows = selfReference
                 ? rowsByOwnKey(rows, group.lookupFields()) : Map.of();
+        String subject = subjectOf(modelName, group.rootField(), group.relatedModel());
 
         // Step 3: Write back the FK id and remove dotted-path columns
         for (Map<String, Object> row : rows) {
@@ -625,15 +618,14 @@ public class RelationLookupResolver {
                 List<Object> key = selfReference ? normalizedKey(keyValues) : null;
                 Map<String, Object> target = key == null ? null : fileRows.get(key);
                 if (target == row) {
-                    markFailure(row, labelOf(modelName, group.rootField()) + " cannot be the row itself.",
-                            skipException);
+                    markFailure(row, subject + " cannot be the row itself.", skipException);
                 } else if (target != null) {
                     // Left unset: the row it names gets its id when the file is written, and the write
                     // fills it in before this row goes in.
                     inFile.add(new InFileReferences.Reference(row, group.rootField(),
-                            labelOf(modelName, group.rootField()), group.lookupFields(), key, target));
+                            subject, group.lookupFields(), key, target));
                 } else {
-                    markFailure(row, buildNotFoundMessage(group, keyValues), skipException);
+                    markFailure(row, buildNotFoundMessage(subject, group, keyValues), skipException);
                 }
             }
             removeDottedPaths(row, group);
@@ -646,7 +638,8 @@ public class RelationLookupResolver {
      * <p>Example: {@code roleIds.code -> roleIds} where the source cell may contain
      * comma-separated values such as {@code ADMIN,USER}.</p>
      */
-    private void resolveToManyGroup(List<Map<String, Object>> rows, LookupGroup group, boolean skipException) {
+    private void resolveToManyGroup(String modelName, List<Map<String, Object>> rows, LookupGroup group,
+                                    boolean skipException) {
         Set<List<Object>> distinctKeys = new LinkedHashSet<>();
         Map<Map<String, Object>, List<List<Object>>> rowResolvedKeys = new IdentityHashMap<>();
         for (Map<String, Object> row : rows) {
@@ -690,7 +683,8 @@ public class RelationLookupResolver {
                 }
             }
             if (!missingKeys.isEmpty()) {
-                String message = missingKeys.stream().map(keys -> buildNotFoundMessage(group, keys))
+                String subject = subjectOf(modelName, group.rootField(), group.relatedModel());
+                String message = missingKeys.stream().map(keys -> buildNotFoundMessage(subject, group, keys))
                         .collect(Collectors.joining("; "));
                 markFailure(row, message, skipException);
             } else {
@@ -865,24 +859,47 @@ public class RelationLookupResolver {
      * catching it looks like. Left unexplained, the reader sees two values they know exist and
      * concludes the import is broken rather than that it just did its job.
      */
-    private String buildNotFoundMessage(LookupGroup group, List<Object> keyValues) {
-        return buildNotFoundMessage(group.relatedModel(), group.lookupFields(), keyValues);
+    private String buildNotFoundMessage(String subject, LookupGroup group, List<Object> keyValues) {
+        return buildNotFoundMessage(subject, group.lookupFields(), keyValues);
     }
 
-    private String buildNotFoundMessage(String relatedModel, List<String> lookupFields,
-                                        List<Object> keyValues) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Cannot find ").append(relatedModel).append(" by ");
+    /**
+     * "IPA Position not found: Bar Bender" — named the way the sheet's reader knows the column, by the
+     * relation's label, not by the model behind it ({@code IpaPosition}) and the field it was matched
+     * on, which they never see. Several columns name the fields, since the reader needs to know which
+     * values were taken together.
+     */
+    private String buildNotFoundMessage(String subject, List<String> lookupFields, List<Object> keyValues) {
+        StringBuilder sb = new StringBuilder(subject).append(" not found: ");
+        if (lookupFields.size() == 1) {
+            return sb.append(keyValues.getFirst()).toString();
+        }
         for (int i = 0; i < lookupFields.size(); i++) {
             if (i > 0) {
                 sb.append(", ");
             }
             sb.append(lookupFields.get(i)).append("=").append(keyValues.get(i));
         }
-        if (lookupFields.size() > 1) {
-            sb.append(" — these must all describe the same ").append(relatedModel)
-                    .append("; no one record matches them together.");
-        }
+        sb.append(" — these must all describe the same ").append(subject)
+                .append("; no one record matches them together.");
         return sb.toString();
+    }
+
+    /**
+     * What a missed lookup is called in its message: the relation's own label on {@code modelName}, or —
+     * when the field is not known there — the related model's label, and its name as a last resort.
+     */
+    private static String subjectOf(String modelName, String rootField, String relatedModel) {
+        MetaField field = modelName == null ? null : ModelManager.getModelFieldOrNull(modelName, rootField);
+        if (field != null && StringUtils.isNotBlank(field.getLabel())) {
+            return field.getLabel();
+        }
+        if (StringUtils.isNotBlank(relatedModel) && ModelManager.existModel(relatedModel)) {
+            String label = ModelManager.getModel(relatedModel).getLabel();
+            if (StringUtils.isNotBlank(label)) {
+                return label;
+            }
+        }
+        return relatedModel;
     }
 }

@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.meta.WithheldFields;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.EntitlementService;
 import io.softa.framework.orm.service.PermissionService;
@@ -70,16 +71,20 @@ public class MeController {
     }
 
     /**
-     * Add the sensitive fields the caller can never see, per model.
+     * Add the fields the caller can never see, per model.
      *
      * <p>Asked of the permission engine on every request rather than read from the cached snapshot:
      * it is the same computation the write guard refuses by, so the screen and the server cannot
      * disagree about it. Only field names leave the server — not the set catalogue behind them.
+     *
+     * <p>Besides the sensitive fields, the relations onto a model the caller can read nothing of
+     * ({@link WithheldFields}): the metadata leaves those out too, and a screen takes a declared field
+     * the metadata lacks for a mistake unless this list names it.
      */
     private void appendHiddenFields(UiContext info) {
         PermissionService permissionService = permissionServiceProvider.getIfAvailable();
         Map<String, Set<String>> hidden = permissionService == null ? null : permissionService.getHiddenSensitiveFields();
-        info.setModelHiddenFieldsMap(hidden == null ? Map.of() : hidden);
+        info.setModelHiddenFieldsMap(hidden == null ? Map.of() : WithheldFields.withRelations(hidden));
     }
 
     /**

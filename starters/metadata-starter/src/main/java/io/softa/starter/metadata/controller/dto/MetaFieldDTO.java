@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.controller.dto;
 
 import java.util.List;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -65,4 +66,13 @@ public class MetaFieldDTO {
      * date-picker bounds derived from {@code invalidWhen}). Null when the field declares none.
      */
     private FieldConstraints constraints;
+
+    /**
+     * For a to-one relation: the fields of the related model a value can be looked up by, each one
+     * identifying a single row, the recommended first — an import column naming this relation is
+     * matched by it rather than by the related row's id. Null when there is none to offer: the related
+     * id is itself a code, or no single field identifies a row — and then left out of the JSON.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<String> lookupFields;
 }
