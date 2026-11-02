@@ -35,13 +35,28 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
     }
 
     @Override
-    public List<DirectoryPerson> searchPeople(String keyword, boolean includeInactive, Integer limit) {
+    public List<DirectoryPerson> searchPeople(String keyword, Integer limit) {
         int size = limitOf(limit);
-        return ask(organization -> organization.searchPeople(keyword, includeInactive, size), List.of());
+        // As the caller: their roles' scope on the directory model decides whom they find.
+        OrganizationService organization = organizationService.getIfAvailable();
+        return organization == null ? List.of() : organization.searchPeople(keyword, size).stream()
+                .map(DirectoryPerson::withoutActive)
+                .toList();
     }
 
     @Override
     public List<DirectoryPerson> getPeople(List<Long> userIds) {
+        return getAllPeople(userIds).stream().map(DirectoryPerson::withoutActive).toList();
+    }
+
+    @Override
+    public List<DirectoryPerson> searchAllPeople(String keyword, boolean includeInactive, Integer limit) {
+        int size = limitOf(limit);
+        return ask(organization -> organization.searchAllPeople(keyword, includeInactive, size), List.of());
+    }
+
+    @Override
+    public List<DirectoryPerson> getAllPeople(List<Long> userIds) {
         List<Long> ids = idsOf(userIds);
         if (ids.isEmpty()) {
             return List.of();

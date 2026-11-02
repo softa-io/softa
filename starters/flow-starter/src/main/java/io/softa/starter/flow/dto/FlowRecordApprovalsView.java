@@ -62,6 +62,11 @@ public class FlowRecordApprovalsView {
 
         @Schema(description = "Where and why the approval stopped, when it failed; its submitter withdraws the record to take it back")
         private Failure failure;
+
+        @Schema(description = "Whether the caller may open this approval — its detail, progress diagram and trace. "
+                + "False for one they take no part in and their permissions do not reach: an approver of an earlier "
+                + "submission sees the one in progress listed, but not inside it")
+        private boolean viewable;
     }
 
     @Data

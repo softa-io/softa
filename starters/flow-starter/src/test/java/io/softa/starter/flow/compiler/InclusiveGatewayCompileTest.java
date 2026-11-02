@@ -15,11 +15,12 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * An inclusive gateway has at most one default edge, and none of its branches reaches a parallel join — which would
- * wait for a branch the gateway did not take and let the approval finish there.
+ * An inclusive gateway has at most one default edge, and its branches either each end on their own or all meet at one
+ * join, which it is paired with: the engine counts the branches it does not take as arrived there.
  */
 class InclusiveGatewayCompileTest {
 
@@ -50,19 +51,45 @@ class InclusiveGatewayCompileTest {
     }
 
     @Test
-    void aBranchReachingAParallelJoinIsRefused() {
+    void branchesMeetingAtOneJoinArePairedWithIt() {
+        DesignFlowDefinition design = flow(List.of(
+                edge("g-finance", "gateway", "finance", "amount > 1000"),
+                edge("g-travel", "gateway", "travel", "abroad == true"),
+                edge("g-join", "gateway", "join", null),
+                edge("finance-join", "finance", "join", null),
+                edge("travel-join", "travel", "join", null),
+                edge("join-end", "join", "end", null)), true);
+
+        assertEquals(List.of(), compiler.validate(design));
+        assertEquals("join", compiler.compile(design).getNodeIndex().get("gateway").getPairedJoinId());
+    }
+
+    @Test
+    void branchesEndingOnTheirOwnArePairedWithNoJoin() {
+        DesignFlowDefinition design = flow(List.of(
+                edge("g-finance", "gateway", "finance", "amount > 1000"),
+                edge("g-travel", "gateway", "travel", "abroad == true"),
+                edge("finance-end", "finance", "end", null),
+                edge("travel-end", "travel", "end", null)), false);
+
+        assertNull(compiler.compile(design).getNodeIndex().get("gateway").getPairedJoinId());
+    }
+
+    @Test
+    void aBranchThatEndsBeforeTheJoinIsRefused() {
         List<CompileDiagnostic> diagnostics = compiler.validate(flow(List.of(
                 edge("g-finance", "gateway", "finance", "amount > 1000"),
                 edge("g-travel", "gateway", "travel", "abroad == true"),
                 edge("finance-join", "finance", "join", null),
-                edge("travel-join", "travel", "join", null),
+                edge("travel-end", "travel", "end", null),
+                edge("g-join", "gateway", "join", null),
                 edge("join-end", "join", "end", null)), true));
 
-        assertEquals(List.of("INCLUSIVE_BRANCH_JOINED"), codes(diagnostics));
-        CompileDiagnostic joined = diagnostics.getFirst();
-        assertEquals(CompileDiagnostic.Severity.ERROR, joined.severity());
-        assertEquals("gateway", joined.nodeId());
-        assertTrue(joined.message().contains("parallel join 'join'"), joined.message());
+        assertEquals(List.of("INCLUSIVE_JOIN_UNPAIRED"), codes(diagnostics));
+        CompileDiagnostic unpaired = diagnostics.getFirst();
+        assertEquals(CompileDiagnostic.Severity.ERROR, unpaired.severity());
+        assertEquals("gateway", unpaired.nodeId());
+        assertTrue(unpaired.message().contains("Branch 'g-travel' may end before join 'join'"), unpaired.message());
     }
 
     private static List<String> codes(List<CompileDiagnostic> diagnostics) {

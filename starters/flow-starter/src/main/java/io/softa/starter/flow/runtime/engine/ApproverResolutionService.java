@@ -115,6 +115,70 @@ public class ApproverResolutionService {
         return normalizeApprovers(resolved);
     }
 
+    /**
+     * Who a step that found nobody goes to under {@code AssignToRole}: the holders of its empty-approver roles
+     * ({@code emptyApproverRoleIds}, {@code emptyApproverRoleCodes}) who can act, found as a role query finds them —
+     * every company's — less the submitter and the employee the record is about. Otherwise the step would go back to
+     * them, and pass as their own: HR submitting their own leave with no manager would approve it themselves. Empty
+     * when the node names no role, or nobody is left.
+     *
+     * @param variables   the instance's variables
+     * @param initiatorId the submitter's account
+     */
+    public List<String> resolveEmptyApproverRoleHolders(CompiledFlowNode node, Map<String, Object> variables,
+                                                        String initiatorId) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || !namesEmptyApproverRoles(cfg)) {
+            return List.of();
+        }
+        Map<String, Object> source = new LinkedHashMap<>();
+        source.put("type", "RoleQuery");
+        source.put("roleIds", cfg.getEmptyApproverRoleIds());
+        source.put("roleCodes", cfg.getEmptyApproverRoleCodes());
+        CompiledFlowNode asStep = CompiledFlowNode.builder()
+                .parsedConfig(ApprovalNodeConfig.builder().approverSource(source).build())
+                .build();
+        Map<String, Object> resolution = resolutionVariables(variables, initiatorId);
+        Set<String> leftOut = new HashSet<>();
+        if (StringUtils.hasText(initiatorId)) {
+            leftOut.add(initiatorId);
+        }
+        Long subject = parseLong(lookupValue(resolution, SUBJECT_ID_KEY));
+        Long subjectUser = subject == null || organizationService == null ? null
+                : organizationService.getUserIdOfEmployee(subject);
+        if (subjectUser != null) {
+            leftOut.add(subjectUser.toString());
+        }
+        return resolveApprovers(asStep, resolution).stream().filter(holder -> !leftOut.contains(holder)).toList();
+    }
+
+    /**
+     * The names of a step's empty-approver roles, for saying where it went or why it found nobody there: as the
+     * organization names them, else the ids and codes as written.
+     */
+    public List<String> emptyApproverRoleNames(CompiledFlowNode node) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || !namesEmptyApproverRoles(cfg)) {
+            return List.of();
+        }
+        List<Long> ids = parseLongList(cfg.getEmptyApproverRoleIds());
+        List<String> codes = cfg.getEmptyApproverRoleCodes() == null ? List.of() : cfg.getEmptyApproverRoleCodes();
+        List<String> names = organizationService == null ? List.of()
+                : organizationService.getRoleNames(ids == null ? List.of() : ids, codes);
+        if (!names.isEmpty()) {
+            return names;
+        }
+        List<String> written = new ArrayList<>();
+        if (cfg.getEmptyApproverRoleIds() != null) {
+            written.addAll(cfg.getEmptyApproverRoleIds());
+        }
+        written.addAll(codes);
+        return written;
+    }
+
+    private static boolean namesEmptyApproverRoles(ApprovalNodeConfig cfg) {
+        return (cfg.getEmptyApproverRoleIds() != null && !cfg.getEmptyApproverRoleIds().isEmpty())
+                || (cfg.getEmptyApproverRoleCodes() != null && !cfg.getEmptyApproverRoleCodes().isEmpty());
+    }
+
     public boolean hasDynamicApproverSource(CompiledFlowNode node) {
         return node != null
                 && node.getParsedConfig() instanceof ApprovalNodeConfig cfg
@@ -128,10 +192,14 @@ public class ApproverResolutionService {
         return cfg.getApprovalMode();
     }
 
+    /**
+     * The approvals that pass the step: its approval mode's count over {@code approvers}, never more than there are
+     * approvers — the people who cannot act were already left out, so a "two of them" step left with one asks that one.
+     */
     public int resolveRequiredApprovalCount(CompiledFlowNode node, List<String> approvers) {
         VoteThresholdMode approvalMode = resolveApprovalMode(node);
         ApprovalNodeConfig cfg = node.getParsedConfig() instanceof ApprovalNodeConfig c ? c : null;
-        return switch (approvalMode) {
+        int required = switch (approvalMode) {
             case ANY_ONE -> 1;
             case UNANIMOUS -> approvers.isEmpty() ? 1 : approvers.size();
             case MIN_COUNT -> cfg != null && cfg.getMinCount() != null ? cfg.getMinCount() : 0;
@@ -140,6 +208,28 @@ public class ApproverResolutionService {
                 yield (int) Math.ceil((approvers.size() * pct) / 100.0d);
             }
         };
+        return capRequiredApprovals(required, approvers.size());
+    }
+
+    /**
+     * The approvals a step of {@code approvers} people can need: no more than there are. The one rule every
+     * change of a step's approvers applies too — a reassignment that merges two of them, an add-sign, an
+     * escalation.
+     */
+    public static int capRequiredApprovals(int required, int approvers) {
+        return approvers > 0 ? Math.min(required, approvers) : required;
+    }
+
+    /**
+     * The rejections a step of {@code approvers} people can need beside {@code requiredApprovals}: no more than
+     * {@code approvers - requiredApprovals + 1}, and at least one. With more, a vote that splits — one approves, one
+     * rejects — reaches neither threshold, every approver has voted, and the step waits for ever.
+     */
+    public static int capRequiredRejections(int required, int approvers, int requiredApprovals) {
+        if (approvers <= 0) {
+            return required;
+        }
+        return Math.min(required, Math.max(1, approvers - requiredApprovals + 1));
     }
 
     public VoteThresholdMode resolveRejectMode(CompiledFlowNode node) {
@@ -149,10 +239,14 @@ public class ApproverResolutionService {
         return cfg.getRejectMode();
     }
 
+    /**
+     * The rejections that reject the step: its reject mode's count over {@code approvers}, capped against the
+     * approvals it needs ({@link #capRequiredRejections}) so that a split vote always decides it.
+     */
     public int resolveRequiredRejectCount(CompiledFlowNode node, List<String> approvers) {
         VoteThresholdMode rejectMode = resolveRejectMode(node);
         ApprovalNodeConfig cfg = node.getParsedConfig() instanceof ApprovalNodeConfig c ? c : null;
-        return switch (rejectMode) {
+        int required = switch (rejectMode) {
             case ANY_ONE -> 1;
             case UNANIMOUS -> approvers.isEmpty() ? 1 : approvers.size();
             case MIN_COUNT -> cfg != null && cfg.getRejectMinCount() != null ? cfg.getRejectMinCount() : 0;
@@ -161,6 +255,7 @@ public class ApproverResolutionService {
                 yield (int) Math.ceil((approvers.size() * pct) / 100.0d);
             }
         };
+        return capRequiredRejections(required, approvers.size(), resolveRequiredApprovalCount(node, approvers));
     }
 
     // ── Org-aware resolution methods ────────────────────────────────────

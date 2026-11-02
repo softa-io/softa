@@ -98,8 +98,10 @@ public class InProcessFlowClient implements FlowClient {
     @Override
     public FlowRecordApprovalsView recordApprovals(String modelName, String rowId) {
         String requesterId = currentUserId();
-        return instances.recordApprovals(modelName, rowId,
-                history -> accessGuard.requireRecordViewer(modelName, rowId, history, requesterId));
+        return instances.recordApprovals(modelName, rowId, history -> {
+            accessGuard.requireRecordViewer(modelName, rowId, history, requesterId);
+            accessGuard.markViewable(modelName, rowId, history, requesterId);
+        });
     }
 
     @Override

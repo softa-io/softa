@@ -89,7 +89,7 @@ class FlowApprovalTaskSearchTest {
     }
 
     @Test
-    void theBoxesSelectTheCallersTasksAsThePendingCompletedAndCcReadsDidInTheirOrder() {
+    void theBoxesSelectTheCallersTasksInTheirOrder() {
         search(FlowApprovalTaskBox.PENDING, null, null);
         assertEquals(List.of("my pending hotel", "my pending taxi"), matched());
         assertEquals("startTime DESC, id DESC", query.getValue().getOrders().toString());
@@ -100,7 +100,7 @@ class FlowApprovalTaskSearchTest {
 
         search(FlowApprovalTaskBox.CC, null, null);
         assertEquals(List.of("my read cc", "my unread cc"), matched(), "read and unread");
-        assertEquals("startTime ASC, id ASC", query.getValue().getOrders().toString());
+        assertEquals("startTime DESC, id DESC", query.getValue().getOrders().toString(), "newest first, as Pending");
     }
 
     @Test

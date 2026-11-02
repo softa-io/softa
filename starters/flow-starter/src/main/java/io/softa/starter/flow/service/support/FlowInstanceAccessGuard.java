@@ -3,6 +3,7 @@ package io.softa.starter.flow.service.support;
 import java.io.Serializable;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -107,6 +108,51 @@ public class FlowInstanceAccessGuard {
             return;
         }
         throw new FlowAuthorizationException("User may not view the approvals of " + modelName + " " + rowId);
+    }
+
+    /**
+     * Marks each approval of a record's history the caller may open — its detail, progress diagram and trace, which
+     * {@link #requireInstanceViewer(FlowExecutionState, String)} guards — as {@code viewable}: every one for whoever
+     * can read the record; otherwise the ones they take part in, as {@link #isParticipant} rules, and the ones whose
+     * {@code FlowInstance} row their own permissions read. Seeing the history is wider: an approver of an earlier
+     * submission sees the approval in progress listed, but may not open it. The approvals are read past the caller's
+     * permissions; the record, the instance rows and the tasks are asked once each, however many approvals.
+     *
+     * @param modelName   the record's model
+     * @param rowId       the record
+     * @param history     the record's approval history, the caller already allowed to see it
+     * @param requesterId the authenticated caller's user id
+     */
+    public void markViewable(String modelName, String rowId, FlowRecordApprovalsView history, String requesterId) {
+        if (history == null || history.getInstances() == null || history.getInstances().isEmpty()) {
+            return;
+        }
+        Set<String> viewable = viewableApprovals(modelName, rowId, requesterId);
+        history.getInstances().forEach(instance -> instance.setViewable(viewable.contains(instance.getInstanceId())));
+    }
+
+    /** Of a record's approvals, the ids of those the caller may open: see {@link #markViewable}. */
+    private Set<String> viewableApprovals(String modelName, String rowId, String requesterId) {
+        if (!StringUtils.hasText(requesterId)) {
+            return Set.of();
+        }
+        List<FlowExecutionState> approvals = ContextUtils.withoutPermissionChecks(
+                () -> instanceService.recordApprovalStates(modelName, rowId));
+        List<String> ids = presentIds(approvals.stream().map(FlowExecutionState::getInstanceId).toList());
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+        if (canReadRecord(modelName, rowId)) {
+            return Set.copyOf(ids);
+        }
+        Set<String> viewable = new HashSet<>(administrableInstanceIds(ids));
+        viewable.addAll(instancesGivingTaskTo(ids, requesterId));
+        for (FlowExecutionState approval : approvals) {
+            if (!viewable.contains(approval.getInstanceId()) && namedByInstance(approval, requesterId)) {
+                viewable.add(approval.getInstanceId());
+            }
+        }
+        return viewable;
     }
 
     /**

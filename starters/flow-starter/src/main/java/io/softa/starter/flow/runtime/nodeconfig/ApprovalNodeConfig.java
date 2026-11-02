@@ -47,6 +47,18 @@ public class ApprovalNodeConfig {
     @Builder.Default
     private EmptyApproverStrategy emptyApproverStrategy = EmptyApproverStrategy.ERROR;
 
+    /**
+     * Under {@code AssignToRole}: the roles, by id, whose holders the step goes to when it finds nobody — a tenant's
+     * own roles, which have no code. With {@link #emptyApproverRoleCodes}, either or both.
+     */
+    private List<String> emptyApproverRoleIds;
+
+    /**
+     * Under {@code AssignToRole}: the roles, by code, whose holders the step goes to when it finds nobody — the
+     * built-in roles, whose codes are the same in every tenant, so a flow seeded to many tenants names them so.
+     */
+    private List<String> emptyApproverRoleCodes;
+
     // ── Vote thresholds ────────────────────────────────────────────────────
 
     @Builder.Default

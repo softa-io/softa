@@ -198,6 +198,7 @@ public class FlowExecutionOrchestrator {
             if (shouldWaitForParallelJoin(definition, state, node)) {
                 continue;
             }
+            requireFirstEntry(definition, state, node);
 
             auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.ENTER_NODE,
                     "Entering node " + node.getNodeId());
@@ -292,9 +293,79 @@ public class FlowExecutionOrchestrator {
             enqueueNextNodes(definition, node, queue, state, ctx);
         }
 
+        requireJoinsComplete(definition, state);
         if (!subflow) {
             finalizeRootState(state, announcesCompletion(definition, notifyOnComplete));
         }
+    }
+
+    /**
+     * A node runs once in an instance — an end aside, which each branch may reach: the graph has no cycles, and a
+     * return or a resubmission starts a new instance. A parallel join counts as entered when its last branch
+     * arrives. Entered again, branches have met at the node without a join (or one branch reached a join twice): it
+     * would ask its approvers again and run everything after it twice. The run fails instead — a record's submission
+     * or an approval is refused and rolls back — naming the node. Publishing refuses such graphs
+     * ({@code CONCURRENT_BRANCHES_MEET}, {@code BRANCH_ENTERS_JOIN_TWICE}); this catches revisions published before.
+     */
+    private static void requireFirstEntry(CompiledFlowDefinition definition, FlowExecutionState state,
+                                          CompiledFlowNode node) {
+        if (isEnd(node)) {
+            return;
+        }
+        String nodeId = node.getNodeId();
+        boolean entered = state.getCompletedNodeIds().contains(nodeId)
+                || state.getPendingApprovals().stream().anyMatch(pending -> nodeId.equals(pending.getNodeId()))
+                || state.findWaitToken(nodeId) != null;
+        if (entered) {
+            throw new FlowRuntimeException("Flow '" + definition.getFlowName() + "' reached node '" + nodeId
+                    + "' a second time: branches that run at the same time meet there without a parallel join, so "
+                    + "it would run once for each. Join the branches with a parallel join first, or let each end on "
+                    + "its own, and publish the flow again.");
+        }
+    }
+
+    /**
+     * With nothing left to wait for, every parallel join a branch reached has had all of its branches: a join still
+     * short of one never goes on, and the instance would complete there, skipping the steps after it — an approval
+     * written back as approved. The run fails instead, naming the join. Publishing refuses the graphs that leave a
+     * join short ({@code BRANCH_SKIPS_JOIN}, {@code BRANCH_ENTERS_JOIN_TWICE}, {@code INCLUSIVE_JOIN_UNPAIRED}); this
+     * catches revisions published before. A flow a Return Value ended skips the check: it ends with its branches.
+     */
+    private static void requireJoinsComplete(CompiledFlowDefinition definition, FlowExecutionState state) {
+        if (FlowExecutionStatus.FAILED.equals(state.getStatus()) || state.hasWaitTokens()
+                || !state.getPendingApprovals().isEmpty()) {
+            return;
+        }
+        Map<String, CompiledFlowNode> nodes = definition.getNodeIndex();
+        boolean returned = state.getCompletedNodeIds().stream()
+                .map(nodes::get)
+                .anyMatch(node -> node != null && FlowNodeType.RETURN_VALUE.equals(node.getType()));
+        if (returned) {
+            return;
+        }
+        String prefix = definition.getFlowId() + ":";
+        for (Map.Entry<String, Integer> arrivals : state.getJoinArrivalCounts().entrySet()) {
+            if (!arrivals.getKey().startsWith(prefix)) {
+                continue;
+            }
+            CompiledFlowNode join = nodes.get(arrivals.getKey().substring(prefix.length()));
+            if (join == null || !isParallelJoin(join)) {
+                continue;
+            }
+            int branches = join.getIncomingEdgeIds().size();
+            if (arrivals.getValue() < branches) {
+                throw new FlowRuntimeException("Flow '" + definition.getFlowName() + "' has nothing left to run, but "
+                        + "parallel join '" + join.getNodeId() + "' has had " + arrivals.getValue() + " of its "
+                        + branches + " branches: the others took a way that skips it, so the steps after it would "
+                        + "never run. Let every branch that goes on to the join reach it by one edge, and publish the "
+                        + "flow again.");
+            }
+        }
+    }
+
+    /** Where a path ends: an End, or a Return Value, which ends the flow. */
+    private static boolean isEnd(CompiledFlowNode node) {
+        return FlowNodeType.END.equals(node.getType()) || FlowNodeType.RETURN_VALUE.equals(node.getType());
     }
 
     /**
@@ -426,6 +497,21 @@ public class FlowExecutionOrchestrator {
         return arrivals < node.getIncomingEdgeIds().size();
     }
 
+    /**
+     * Counts, at the join an inclusive gateway is paired with, the branches it did not take as arrived: each of its
+     * edges leads to one edge into the join, so the join waits for the {@code taken} it did take, and goes on once,
+     * after the last of them. A gateway whose branches each end on their own, or compiled before pairing, names no
+     * join. The approval path preview counts the same way.
+     */
+    static void creditUntakenBranches(CompiledFlowDefinition definition, FlowExecutionState state,
+                                      CompiledFlowNode gateway, int taken) {
+        String join = gateway.getPairedJoinId();
+        int untaken = gateway.getOutgoingEdgeIds().size() - taken;
+        if (join != null && untaken > 0) {
+            state.getJoinArrivalCounts().merge(definition.getFlowId() + ":" + join, untaken, Integer::sum);
+        }
+    }
+
     // ── Transition resolution ─────────────────────────────────────────────────
 
     private void enqueueNextNodes(CompiledFlowDefinition definition,
@@ -448,6 +534,9 @@ public class FlowExecutionOrchestrator {
         if (!isGateway && nextNodeIds.size() > 1) {
             throw new FlowRuntimeException("Node '" + node.getNodeId()
                     + "' produced multiple outgoing branches without a gateway");
+        }
+        if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
+            creditUntakenBranches(definition, state, node, nextNodeIds.size());
         }
         nextNodeIds.forEach(queue::addLast);
     }

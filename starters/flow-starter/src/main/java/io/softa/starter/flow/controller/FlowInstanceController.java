@@ -160,13 +160,16 @@ public class FlowInstanceController {
     @Operation(summary = "Get a record's approval history",
             description = "The approval instances of a business record, newest first: status, initiator, "
                     + "the steps still waiting with the approvers yet to act, and the approval actions, "
-                    + "every user named. For the record page's approval panel and the inbox task detail. "
+                    + "every user named; each says whether the caller may open it (viewable) — its detail, "
+                    + "progress diagram and trace. For the record page's approval panel and the inbox task detail. "
                     + "Allowed to whoever took part in the record's approvals or can read the record.")
     public ApiResponse<FlowRecordApprovalsView> getRecordApprovals(@RequestParam String modelName,
                                                                   @RequestParam String rowId) {
         String requesterId = currentUserId();
-        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId,
-                history -> accessGuard.requireRecordViewer(modelName, rowId, history, requesterId)));
+        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId, history -> {
+            accessGuard.requireRecordViewer(modelName, rowId, history, requesterId);
+            accessGuard.markViewable(modelName, rowId, history, requesterId);
+        }));
     }
 
     @GetMapping("/preview")

@@ -33,6 +33,7 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String UNKNOWN_APPROVER_SOURCE_TYPE = "UNKNOWN_APPROVER_SOURCE_TYPE";
     private static final String INVALID_SUPERVISOR_LEVEL     = "INVALID_SUPERVISOR_LEVEL";
     private static final String MISSING_ROLE_IDS             = "MISSING_ROLE_IDS";
+    private static final String MISSING_EMPTY_APPROVER_ROLES = "MISSING_EMPTY_APPROVER_ROLES";
     private static final String MISSING_POSITION_IDS         = "MISSING_POSITION_IDS";
     private static final String MISSING_DEPT_IDS             = "MISSING_DEPT_IDS";
     private static final String INVALID_RELATIVE_TO          = "INVALID_RELATIVE_TO";
@@ -65,6 +66,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                 continue;
             }
             validateApproverSource(node.getId(), cfg, d);
+            validateEmptyApproverRoles(node.getId(), cfg, d);
             validateVoteThresholds(node.getId(), cfg, d);
             validateTimeout(node.getId(), cfg, d);
         }
@@ -93,6 +95,16 @@ public class ApprovalConfigValidator implements FlowValidator {
                     : CompileDiagnostic.fieldLevel(node.getId(), APPROVAL_TYPE, field.toString(), UNREADABLE_CONFIG,
                             message));
             return null;
+        }
+    }
+
+    /** {@code AssignToRole} hands a step that finds nobody to roles: it names at least one, by id or by code. */
+    private void validateEmptyApproverRoles(String nodeId, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
+        if (EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(cfg.getEmptyApproverStrategy())
+                && isEmptyCollection(cfg.getEmptyApproverRoleIds()) && isEmptyCollection(cfg.getEmptyApproverRoleCodes())) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.emptyApproverRoleIds",
+                    MISSING_EMPTY_APPROVER_ROLES, "Approval node '" + nodeId + "' hands a step that finds nobody to "
+                            + "roles (AssignToRole), but names none: pick at least one role."));
         }
     }
 
