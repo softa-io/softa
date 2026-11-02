@@ -11,6 +11,7 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.user.dto.WorkContacts;
+import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserInvitation;
 import io.softa.starter.user.enums.AccountStatus;
@@ -25,6 +26,7 @@ import io.softa.starter.user.service.UserIdentityService;
 
 import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -87,6 +89,66 @@ class UnbindAndReinviteTest {
         doReturn(List.of()).when(invitationService).searchList(any(Filters.class));
         doReturn(1L).when(invitationService).createOne(any(UserInvitation.class));
         return account;
+    }
+
+    private static UserInvitation sentTo(String email, String mobile, InvitationPurpose purpose, int minutesAgo) {
+        UserInvitation invitation = new UserInvitation();
+        invitation.setId(60L + minutesAgo);
+        invitation.setUserId(ACCOUNT);
+        invitation.setStatus(InvitationStatus.REVOKED);
+        invitation.setPurpose(purpose);
+        invitation.setEmail(email);
+        invitation.setMobile(mobile);
+        invitation.setCreatedTime(LocalDateTime.now().minusMinutes(minutesAgo));
+        return invitation;
+    }
+
+    @Test
+    void unchangedContacts_areRefused_beforeAnyoneIsSignedOutOrDetached() {
+        // Re-inviting to what the last invitation went to reaches the same wrong person again.
+        UserAccount account = given(AccountStatus.ACTIVE);
+        UserSessionService sessions = mock(UserSessionService.class);
+        ReflectionTestUtils.setField(invitationService, "sessionService", sessions);
+        // Spelt differently, case differs: still the same mobile and the same mailbox.
+        doReturn(List.of(sentTo("Right@Acme.com", "+65 9123 4567", InvitationPurpose.INVITE, 5)))
+                .when(invitationService).searchList(any(Filters.class));
+
+        assertThatThrownBy(() -> invitationService.unbindAndReinvite(ACCOUNT, "Wrong hire", OPERATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("The personal mobile and work email are the same as the last invitation. "
+                        + "Update the employee profile first.")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.INVITATION_UNCHANGED);
+        verify(sessions, never()).revokeAccount(any(), any());
+        verify(accountService, never()).updateOne(any(UserAccount.class), anyBoolean());
+        assertThat(account.getProfileId()).isEqualTo(PROFILE);
+    }
+
+    @Test
+    void aBlankEmailOnBothSides_countsAsTheSame() {
+        given(AccountStatus.ACTIVE);
+        when(accountService.archiveWorkContacts(ACCOUNT)).thenReturn(new WorkContacts(null, null));
+        doReturn(List.of(sentTo(" ", "+6591234567", InvitationPurpose.REINVITE, 5)))
+                .when(invitationService).searchList(any(Filters.class));
+
+        assertThatThrownBy(() -> invitationService.unbindAndReinvite(ACCOUNT, "Wrong hire", OPERATOR))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.INVITATION_UNCHANGED);
+    }
+
+    @Test
+    void onlyTheLastInvitationCounts_andAForgotPasswordLinkIsNotOne() {
+        // The older invitation went to the same contacts; the newest one did not — so the record has
+        // changed since. A forgot-password link to the same address is no invitation at all.
+        given(AccountStatus.ACTIVE);
+        doReturn(List.of(
+                sentTo("right@acme.com", "+6591234567", InvitationPurpose.INVITE, 60),
+                sentTo("right@acme.com", "+6599999999", InvitationPurpose.REINVITE, 30),
+                sentTo("right@acme.com", "+6591234567", InvitationPurpose.PASSWORD_RESET, 5)))
+                .when(invitationService).searchList(any(Filters.class));
+
+        assertThatCode(() -> invitationService.unbindAndReinvite(ACCOUNT, "Wrong hire", OPERATOR))
+                .doesNotThrowAnyException();
     }
 
     @Test

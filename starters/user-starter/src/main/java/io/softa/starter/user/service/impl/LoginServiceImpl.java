@@ -566,8 +566,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // Read BEFORE the membership activates: accepting spends the invitation, and the row can no
         // longer be resolved from the token after. So is the contact the proof was minted for.
         Optional<UserAccount> joining = invitationService.resolveJoinAccount(rawToken);
-        String channel = proofGuard.channelOf(proof);
-        JoinContacts contacts = joining.isPresent() ? invitationService.resolveJoinContacts(rawToken) : null;
+        AuthenticationResult.JoinPrefill prefill = joining.isPresent() ? this.joinPrefill(rawToken, proof) : null;
 
         invitationService.confirmJoin(rawToken, profileId, proof);
 
@@ -584,14 +583,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 profileService.getUserInfo(joining.get().getId()), mustSetPasswordFor(identity));
         // The full contact they just verified — only ever to them — so the "get the APP" page can
         // prefill the login screen; the page itself only ever saw it masked.
-        if (contacts != null && channel != null) {
-            String value = "mobile".equals(channel) ? contacts.mobile() : contacts.email();
-            if (StringUtils.isNotBlank(value)) {
-                result = result.withPrefill(new AuthenticationResult.JoinPrefill(channel,
-                        "mobile".equals(channel) ? LoginIdentifiers.normalize(value) : value));
-            }
-        }
-        return result;
+        return prefill == null ? result : result.withPrefill(prefill);
     }
 
     @Override
@@ -730,8 +722,10 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         identityService.setPassword(identity.getId(), newPassword);
         history.record(LoginEvent.PASSWORD_SET, profileId, account.getId(), account.getTenantId(), null, null, null);
         if (!rebind) {
-            return new JoinPasswordResult(false);
+            return JoinPasswordResult.notCompleted();
         }
+        // Read before the bind: it spends the proof and the link, after which neither resolves.
+        AuthenticationResult.JoinPrefill prefill = this.joinPrefill(rawToken, proof);
         // Already a member: the account is this person's again and active now, with no confirm step.
         invitationService.confirmJoin(rawToken, profileId, proof);
         if (hadPassword) {
@@ -740,7 +734,26 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB,
                     account, profileId));
         }
-        return new JoinPasswordResult(true);
+        return new JoinPasswordResult(true, prefill);
+    }
+
+    /**
+     * The contact the person verified for this link, in full — only ever to them, so the next screen
+     * can prefill the APP's sign-in. Null when the proof names no channel or the link has no such
+     * contact.
+     */
+    private AuthenticationResult.JoinPrefill joinPrefill(String rawToken, String proof) {
+        String channel = proofGuard.channelOf(proof);
+        if (channel == null) {
+            return null;
+        }
+        JoinContacts contacts = invitationService.resolveJoinContacts(rawToken);
+        String value = contacts == null ? null : "mobile".equals(channel) ? contacts.mobile() : contacts.email();
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        return new AuthenticationResult.JoinPrefill(channel,
+                "mobile".equals(channel) ? LoginIdentifiers.normalize(value) : value);
     }
 
     @Override

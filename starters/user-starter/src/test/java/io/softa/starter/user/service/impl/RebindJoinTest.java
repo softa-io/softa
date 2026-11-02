@@ -7,6 +7,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.dto.JoinContacts;
 import io.softa.starter.user.dto.JoinPasswordResult;
 import io.softa.starter.user.dto.JoinVerification;
@@ -83,6 +84,7 @@ class RebindJoinTest {
         when(identityService.findByProfile(ADA)).thenReturn(Optional.of(ada));
         when(proofGuard.mint(any(), any(), any())).thenReturn("proof");
         when(securityLog.entry(any(), any(), any(), any())).thenReturn(new UserSecurityLog());
+        when(proofGuard.channelOf("proof")).thenReturn("mobile");
     }
 
     @Test
@@ -111,6 +113,8 @@ class RebindJoinTest {
         JoinPasswordResult result = loginService.setJoinPassword(TOKEN, ADA, "N3w-Passw0rd!", "proof");
 
         assertThat(result.completed()).isTrue();
+        // The contact just verified, in full, for the "done" page to hand to the APP.
+        assertThat(result.prefill()).isEqualTo(new AuthenticationResult.JoinPrefill("mobile", MOBILE));
         verify(identityService).setPassword(11L, "N3w-Passw0rd!");
         // Bound and activated in the same step: no confirm screen follows.
         verify(invitationService).confirmJoin(TOKEN, ADA, "proof");
@@ -139,7 +143,10 @@ class RebindJoinTest {
                 .isEqualTo(AccountErrorCodes.PASSWORD_ALREADY_SET);
 
         ada.setPassword(null);
-        assertThat(loginService.setJoinPassword(TOKEN, ADA, "N3w-Passw0rd!", "proof").completed()).isFalse();
+        JoinPasswordResult result = loginService.setJoinPassword(TOKEN, ADA, "N3w-Passw0rd!", "proof");
+        assertThat(result.completed()).isFalse();
+        // Nothing to prefill yet: confirm joining hands it over.
+        assertThat(result.prefill()).isNull();
         verify(invitationService, never()).confirmJoin(anyString(), any(), anyString());
     }
 }

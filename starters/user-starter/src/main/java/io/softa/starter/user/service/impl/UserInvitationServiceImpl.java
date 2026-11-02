@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -202,6 +203,9 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (!UNBINDABLE.contains(account.getStatus())) {
             throw new BusinessException("This account cannot be unbound in its current state.");
         }
+        // The record has to have changed: re-inviting to the very contacts the last invitation went
+        // to reaches the same wrong person again. Asked before anyone is signed out or detached.
+        this.refuseUnchangedInvitation(userId, email, mobile);
         // Refused here rather than at the unique index: "this email is already registered" from a
         // constraint violation names no account and arrives after the unbind has been written.
         accountService.findContactHolderInTenant(email, userId)
@@ -235,6 +239,32 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         securityLog.record(row);
         log.warn("Account {} unbound from profile {} and re-invited by {}. Reason: {}",
                 userId, previousProfileId, operatedBy, reason.trim());
+    }
+
+    /**
+     * Refuse when the record's personal mobile and work email both equal what this account's last
+     * invitation went to. Mobiles are compared in their normalised form, a blank email equals a blank
+     * one. An account never invited has nothing to compare and is let through. A forgot-password
+     * link is not an invitation and does not count.
+     */
+    private void refuseUnchangedInvitation(Long accountId, String email, String mobile) {
+        Optional<UserInvitation> last = this.searchList(new Filters().eq(UserInvitation::getUserId, accountId)).stream()
+                .filter(invitation -> invitation.getPurpose() != InvitationPurpose.PASSWORD_RESET)
+                .max(java.util.Comparator.comparing(UserInvitation::getCreatedTime,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
+                        .thenComparing(UserInvitation::getId, java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())));
+        if (last.isEmpty()) {
+            return;
+        }
+        boolean sameMobile = Objects.equals(LoginIdentifiers.normalize(StringUtils.trimToNull(mobile)),
+                LoginIdentifiers.normalize(StringUtils.trimToNull(last.get().getMobile())));
+        boolean sameEmail = StringUtils.equalsIgnoreCase(StringUtils.trimToNull(email),
+                StringUtils.trimToNull(last.get().getEmail()));
+        if (sameMobile && sameEmail) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.INVITATION_UNCHANGED,
+                    "The personal mobile and work email are the same as the last invitation. "
+                            + "Update the employee profile first.");
+        }
     }
 
     @SkipPermissionCheck
