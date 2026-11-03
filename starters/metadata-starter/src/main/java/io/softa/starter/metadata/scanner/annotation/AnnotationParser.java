@@ -361,6 +361,7 @@ public final class AnnotationParser {
         m.setMultiCompany(anno.multiCompany());
         m.setCopyable(anno.copyable());
         m.setEnableAuditLog(anno.enableAuditLog());
+        m.setEnableDepartmentGrant(anno.enableDepartmentGrant());
         if (anno.projection() && anno.storageType() != StorageType.RDBMS) {
             throw new IllegalStateException("Model " + modelName + " declares projection = true with storageType "
                     + anno.storageType() + " — a projection reads a physical table it does not own,"

@@ -123,6 +123,7 @@ rows by business key. Per-tenant metadata customization is **not supported**.
     versionLock = false,
     copyable = true,                            // default true; false = copy APIs reject + UI hides Duplicate (runtime/log models)
     enableAuditLog = true,                      // default true; false = writes build no change log (derived/report models): no Audit Log history, no change-triggered flows
+    enableDepartmentGrant = true,               // default true; false = role department grant does not bound this model (departmentId is configuration, not ownership)
     projection = false                          // default false; true = read-only model over a table it does NOT own: no DDL ever, writes rejected, @Index rejected
 )
 @Index(fields = {"status", "createdTime"})            // @Repeatable; index names are GLOBALLY unique (≤60 chars, boot-enforced)

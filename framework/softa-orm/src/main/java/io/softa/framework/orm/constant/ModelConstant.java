@@ -74,6 +74,25 @@ public interface ModelConstant {
      * attribute, and takes no part in the company axis.
      */
     String COMPANY_FIELD = "companyId";
+
+    /**
+     * The organisation-tree model a role's department grant is written against. Hard-coded for the
+     * reason {@link #COMPANY_MODEL} is: an application either has this dimension under this name or
+     * does not have it, and the grant degrades to a no-op when the model is absent. Its rows store
+     * their place in the tree as a materialized {@code idPath}, which is how a granted department
+     * expands to its descendants.
+     */
+    String DEPARTMENT_MODEL = "Department";
+
+    /**
+     * The field a model belongs to a department through — the anchor the department grant bounds,
+     * when it is a {@code MANY_TO_ONE} / {@code ONE_TO_ONE} onto {@link #DEPARTMENT_MODEL}. Fixed by
+     * name for the reason {@link #COMPANY_FIELD} is: a model may reference departments for other
+     * reasons, and only this name says "the row is that department's". A model whose field of this
+     * name is configuration rather than ownership opts out with
+     * {@code @Model(enableDepartmentGrant = false)}.
+     */
+    String DEPARTMENT_FIELD = "departmentId";
     // Reserved field: Version number identifier, used for optimistic lock control
     String VERSION = "version";
     // Starting value of the optimistic-lock version, materialized into the catalog

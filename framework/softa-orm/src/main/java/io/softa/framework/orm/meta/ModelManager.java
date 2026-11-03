@@ -1148,6 +1148,19 @@ public class ModelManager {
     }
 
     /**
+     * Check whether a role's department grant may bound the model's rows
+     * ({@code @Model(enableDepartmentGrant = ...)}). Says nothing about whether the model carries the
+     * department anchor; the permission layer asks that separately.
+     *
+     * @param modelName model name
+     * @return false only when the model explicitly opted out (null reads as enabled)
+     */
+    public static boolean isDepartmentGrantEnabled(String modelName) {
+        validateModel(modelName);
+        return !Boolean.FALSE.equals(modelMap().get(modelName).getEnableDepartmentGrant());
+    }
+
+    /**
      * Check whether the model is a read-only projection over a table it does not
      * own ({@code @Model(projection = ...)}) — the write APIs are disabled for it.
      *

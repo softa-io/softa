@@ -112,6 +112,11 @@ public class SysModel extends AuditableModel {
     @Field(label = "Enable Audit Log", defaultValue = "true")
     private Boolean enableAuditLog = Boolean.TRUE;
 
+    // Mirrors @Model.enableDepartmentGrant: false ⇒ a role's department grant does not bound the
+    // model. Initialized true (column DEFAULT 1); a NULL row reads as enabled, as for enableAuditLog.
+    @Field(label = "Enable Department Grant", defaultValue = "true")
+    private Boolean enableDepartmentGrant = Boolean.TRUE;
+
     /**
      * Read-only projection over a table this model does not own — another model's table, or
      * one created externally (e.g. by a BI pipeline). The scanner generates no DDL for it and

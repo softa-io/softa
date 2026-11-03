@@ -112,7 +112,8 @@ represented as separate `sys_*` rows.
     softDelete = false, activeControl = false, timeline = false,
     versionLock = false,
     copyable = true,                            // default true; false = copy APIs reject + UI hides Duplicate (runtime/log models)
-    enableAuditLog = true                       // default true; false = writes build no change log (derived/report models): no Audit Log history, no change-triggered flows
+    enableAuditLog = true,                      // default true; false = writes build no change log (derived/report models): no Audit Log history, no change-triggered flows
+    enableDepartmentGrant = true                // default true; false = role department grant does not bound this model (departmentId is configuration, not ownership)
 )
 @Index(fields = {"status", "createdTime"})            // @Repeatable; index names are GLOBALLY unique (≤60 chars, boot-enforced)
 @Index(indexName = "uk_customer_email", fields = {"email"}, unique = true,

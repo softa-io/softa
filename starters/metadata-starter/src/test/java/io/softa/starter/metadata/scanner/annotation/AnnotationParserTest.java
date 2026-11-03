@@ -90,6 +90,21 @@ class AnnotationParserTest {
         assertEquals(false, m.getMultiTenant());
         assertEquals(Boolean.TRUE, m.getCopyable(), "copyable defaults to true");
         assertEquals(Boolean.TRUE, m.getEnableAuditLog(), "enableAuditLog defaults to true");
+        assertEquals(Boolean.TRUE, m.getEnableDepartmentGrant(), "enableDepartmentGrant defaults to true");
+    }
+
+    @Test
+    void modelEnableDepartmentGrant_falseIsParsed() {
+        @Model(enableDepartmentGrant = false)
+        @SuppressWarnings("unused")
+        class ApprovalRule extends AuditableModel {
+            @Override
+            public Serializable getId() {
+                return null;
+            }
+        }
+        SysModel m = parser.parse(List.of(ApprovalRule.class), List.of()).models().get(0);
+        assertEquals(Boolean.FALSE, m.getEnableDepartmentGrant());
     }
 
     @Test

@@ -115,6 +115,25 @@ public @interface Model {
      */
     boolean multiCompany() default false;
 
+    /**
+     * Whether a role's department grant bounds this model's rows. On by default, and inert on a model
+     * without the anchor: the permission layer ANDs a role's granted departments (each with all of its
+     * descendants) onto every read of a model carrying a {@code departmentId} {@code MANY_TO_ONE} /
+     * {@code ONE_TO_ONE} onto {@code Department}, and onto {@code Department} itself by its own id. Roles
+     * without a department grant see every department's rows, so a model only changes behaviour once a
+     * role is configured with one.
+     *
+     * <p>Set {@code false} where {@code departmentId} is configuration rather than ownership — a rule
+     * that applies to a department, a template defaulted per department — whose rows are shared reference
+     * data that a role limited to some departments must still read. Unlike {@link #multiCompany()},
+     * which a model opts into, this is opt-out: a field of that name is, in the overwhelming majority of
+     * models, the department the row belongs to, and an opt-in would leave every model nobody remembered
+     * to mark unbounded with nothing on screen saying so.
+     *
+     * <p>Exposed as {@code SysModel.enableDepartmentGrant}.
+     */
+    boolean enableDepartmentGrant() default true;
+
 
     /**
      * Whether rows of this model may be duplicated via {@code copyById} /
