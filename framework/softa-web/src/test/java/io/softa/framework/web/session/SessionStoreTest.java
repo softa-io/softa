@@ -64,11 +64,15 @@ class SessionStoreTest {
         store.touch("fresh");
         // At most one Redis write a day for an active client.
         verify(cacheService, never()).expire(anyString(), anyInt());
+        verify(publisher, never()).publishEvent(any(SessionRenewedEvent.class));
 
         live("aging", ACCOUNT, RedisConstant.ONE_DAY * 5L);
         assertThat(store.touch("aging")).isPresent();
         verify(cacheService).expire(RedisConstant.SESSION + "aging", RedisConstant.ONE_WEEK);
         verify(cacheService).expire("account-sessions:" + ACCOUNT, RedisConstant.ONE_WEEK);
+        // Announced once per slide, so a copy of "this session is alive" can follow it.
+        verify(publisher).publishEvent(org.mockito.ArgumentMatchers.<SessionRenewedEvent>argThat(
+                event -> event.sessionId().equals("aging") && event.session().accountId().equals(ACCOUNT)));
     }
 
     @Test
