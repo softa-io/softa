@@ -41,6 +41,8 @@ public enum FlowTraceEventType {
     LOOP_END("LoopEnd"),
     FLOW_COMPLETED("FlowCompleted"),
     FLOW_FAILED("FlowFailed"),
+    /** An administrator ran the steps after an approval again, after they had failed. */
+    FLOW_RETRIED("FlowRetried"),
     NODE_ERROR_RETRIED("NodeErrorRetried"),
     FLOW_URGED("FlowUrged"),
     ;

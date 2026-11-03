@@ -10,6 +10,7 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.context.FlowVariableContext;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,10 +45,11 @@ class FlowGatewayRouterInclusiveTest {
 
     @Test
     void withoutADefaultNothingHoldingFailsTheInstance() {
-        FlowRuntimeException failed = assertThrows(FlowRuntimeException.class,
+        // Refused with what to do about it — a submission is told so, an instance past an approval fails with it.
+        FlowActionValidationException failed = assertThrows(FlowActionValidationException.class,
                 () -> route(gateway(OVER_BUDGET, ABROAD), 10, false));
 
-        assertTrue(failed.getMessage().contains("did not match any outgoing edge"), failed.getMessage());
+        assertTrue(failed.getMessage().contains("has no default route"), failed.getMessage());
     }
 
     @Test

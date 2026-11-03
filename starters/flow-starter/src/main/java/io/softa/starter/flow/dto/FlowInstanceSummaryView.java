@@ -101,6 +101,9 @@ public class FlowInstanceSummaryView {
     @Schema(description = "Node where execution failed (status = Failed)")
     private String failedNodeId;
 
+    @Schema(description = "Whether it failed in the steps after an approval, which an administrator can run again")
+    private Boolean retryable;
+
     @Schema(description = "Earliest timer due time")
     private LocalDateTime nextFireAt;
 

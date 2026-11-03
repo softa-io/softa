@@ -45,6 +45,8 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String REMINDERS_OUTSIDE_REMIND     = "REMINDERS_OUTSIDE_REMIND";
     private static final String MISSING_ESCALATE_TARGET      = "MISSING_ESCALATE_TARGET";
     private static final String UNREADABLE_CONFIG            = "UNREADABLE_CONFIG";
+    private static final String MISSING_FIELD_PERMISSION     = "MISSING_FIELD_PERMISSION";
+    private static final String FORM_PERMISSIONS             = "formPermissions";
 
     /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["timeout"]}. */
     private static final Pattern READ_REFERENCE = Pattern.compile("\\[\"([^\"]+)\"]");
@@ -61,7 +63,7 @@ public class ApprovalConfigValidator implements FlowValidator {
             if (!FlowNodeType.APPROVAL.equals(node.getType()) || node.getConfig() == null) {
                 continue;
             }
-            ApprovalNodeConfig cfg = readConfig(node, d);
+            ApprovalNodeConfig cfg = readConfig(node, withPermissionsNamed(node, d), d);
             if (cfg == null) {
                 continue;
             }
@@ -73,13 +75,45 @@ public class ApprovalConfigValidator implements FlowValidator {
     }
 
     /**
+     * Every field a step lists names its permission. A field listed with none — a row saved before its permission
+     * was picked — was read as no rule at all, and published as one: the designer believed the field set, the step
+     * did not (zingkey-hcm#2406). Refused, so validating says so and publishing waits for it; not read as
+     * {@code Readonly}, which shows a step's approvers a sensitive field their own permissions withhold, where a
+     * field left unlisted does not. Checked on the config as stored, before it is read — the read takes an empty
+     * permission for none — and the fields refused are left out of what the rest of the validation reads.
+     */
+    private static Map<String, Object> withPermissionsNamed(FlowGraphNode node, List<CompileDiagnostic> d) {
+        Map<String, Object> config = node.getConfig();
+        if (!(config.get(FORM_PERMISSIONS) instanceof Map<?, ?> permissions)) {
+            return config;
+        }
+        Map<Object, Object> named = new LinkedHashMap<>();
+        permissions.forEach((field, permission) -> {
+            if (permission == null || permission instanceof String text && !StringUtils.hasText(text)) {
+                d.add(CompileDiagnostic.fieldLevel(node.getId(), APPROVAL_TYPE, "config." + FORM_PERMISSIONS,
+                        MISSING_FIELD_PERMISSION, "Approval node '" + node.getId() + "' lists field '" + field
+                                + "' without a permission: pick Hidden, Readonly, Editable or Required."));
+            } else {
+                named.put(field, permission);
+            }
+        });
+        if (named.size() == permissions.size()) {
+            return config;
+        }
+        Map<String, Object> read = new LinkedHashMap<>(config);
+        read.put(FORM_PERMISSIONS, named);
+        return read;
+    }
+
+    /**
      * The node's config, or null when a value in it cannot be read — an option the designer does not offer, such
      * as one saved by a designer that offered constant names — reported against the field it is in, so the
      * validation answers instead of failing whole.
      */
-    private static ApprovalNodeConfig readConfig(FlowGraphNode node, List<CompileDiagnostic> d) {
+    private static ApprovalNodeConfig readConfig(FlowGraphNode node, Map<String, Object> config,
+                                                 List<CompileDiagnostic> d) {
         try {
-            return BeanTool.objectToObject(node.getConfig(), ApprovalNodeConfig.class);
+            return BeanTool.objectToObject(config, ApprovalNodeConfig.class);
         } catch (RuntimeException e) {
             String detail = Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName());
             StringJoiner field = new StringJoiner(".", "config.", "").setEmptyValue("");

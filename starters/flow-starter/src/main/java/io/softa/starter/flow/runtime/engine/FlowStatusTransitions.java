@@ -44,8 +44,9 @@ public final class FlowStatusTransitions {
                 FlowExecutionStatus.RUNNING, FlowExecutionStatus.REJECTED,
                 FlowExecutionStatus.RETURNED, FlowExecutionStatus.WITHDRAWN,
                 FlowExecutionStatus.CANCELLED));
-        // A failed instance is over unless an administrator terminates it: the one way out, to cancelled.
-        ALLOWED.put(FlowExecutionStatus.FAILED, EnumSet.of(FlowExecutionStatus.CANCELLED));
+        // A failed instance is over unless an administrator terminates it (to cancelled) or — when the steps after an
+        // approval failed — runs those steps again (back to running).
+        ALLOWED.put(FlowExecutionStatus.FAILED, EnumSet.of(FlowExecutionStatus.CANCELLED, FlowExecutionStatus.RUNNING));
         // REJECTED / RETURNED / WITHDRAWN / CANCELLED / COMPLETED are terminal: no outgoing business
         // transition. A returned initiator submits again, as a new instance.
     }

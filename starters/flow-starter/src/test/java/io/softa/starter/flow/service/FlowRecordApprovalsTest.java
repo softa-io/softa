@@ -169,10 +169,25 @@ class FlowRecordApprovalsTest {
 
         FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
 
+        // Not after an approval: nothing to run again — its submitter takes the record back.
         assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager",
-                        "Approval node 'approval' resolved an empty approver list (strategy=ERROR)"),
+                        "Approval node 'approval' resolved an empty approver list (strategy=ERROR)", false),
                 history.getInstances().getFirst().getFailure());
         assertNull(history.getInstances().get(1).getFailure());
+    }
+
+    @Test
+    void anApprovalThatFailedInTheStepsAfterAnApprovalCanRunAgain() {
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
+        instance("failed", approval, true, FlowExecutionStatus.FAILED, LocalDateTime.of(2026, 10, 20, 9, 0), null);
+        instances.getLast().setFailedNodeId("approval");
+        instances.getLast().setRetryAfterNodeId("approval");
+        instances.getLast().setErrorMessage("Webhook answered 502");
+
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
+
+        assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager", "Webhook answered 502", true),
+                history.getInstances().getFirst().getFailure());
     }
 
     @Test

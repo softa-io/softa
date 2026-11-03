@@ -11,10 +11,11 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.context.FlowVariableContext;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A node that is not a gateway takes the first of its conditional edges, in order, whose condition holds — two holding
@@ -56,7 +57,9 @@ class FlowGatewayRouterExclusiveTest {
 
     @Test
     void withoutADefaultNothingHoldingStillFailsTheInstance() {
-        assertThrows(FlowRuntimeException.class, () -> route(node(CEO, FINANCE), 10));
+        FlowActionValidationException failed = assertThrows(FlowActionValidationException.class,
+                () -> route(node(CEO, FINANCE), 10));
+        assertTrue(failed.getMessage().contains("has no default route"), failed.getMessage());
     }
 
     private List<String> route(CompiledFlowDefinition definition, int amount) {

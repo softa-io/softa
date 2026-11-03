@@ -208,7 +208,9 @@ before priorities lists them in drawing order, and two conditions holding there 
 one drawn first is taken. The exceptions: `InclusiveGateway`, which takes every conditional edge that holds, as
 BPMN's does, and its default edge only when none holds (at most one default there too), and `ParallelFork`, which
 takes all of them (a condition there is not read) — neither reads `priority`. Nothing taken at a node with several
-edges fails the instance. `FlowGatewayRouter` decides; the approval path preview decides the same way. The designer
+edges — no condition holding, no default — is refused with a message naming the step and asking for a default route
+(`FlowActionValidationException`, `400`): a submission is refused, and so is an approval whose next steps it stops,
+the step staying with its approver (zingkey-hcm#2382). `FlowGatewayRouter` decides; the approval path preview decides the same way. The designer
 shows a node's order on its edges ("1", "2"… and "Other" on the default) and moves an edge up or down in it.
 
 An `InclusiveGateway`'s branches either each end on their own, or all meet at one `ParallelJoin` — its paired join
@@ -270,8 +272,10 @@ Defined `FlowExecutionStatus` values:
 - `Cancelled` — ended by an administrator (*terminate*, see [Monitor](#monitor)); a record's approval cancels its
   record with it
 - `Completed`
-- `Failed` — a step could not run. It stays failed unless an administrator terminates it (→ `Cancelled`); the
-  submitter of a record's approval can instead take the record back (see [Approving Business Records](#approving-business-records))
+- `Failed` — a step could not run. It stays failed unless an administrator terminates it (→ `Cancelled`) or —
+  when an automated step after an approval failed, the approval kept — runs the steps after the approval again
+  (→ `Running`, see [When a step after an approval fails](#when-a-step-after-an-approval-fails)); the submitter of
+  a record's approval can instead take the record back (see [Approving Business Records](#approving-business-records))
 
 ## API Overview
 
@@ -380,7 +384,10 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 | `GET` | `/flow/instances/{instanceId}/design` | The revision the instance runs on, exactly as `GET /flow/bundles/{bundleId}?include=design` returns it (`FlowBundleDetailView`: its `summary` and the `design` snapshot taken at publish) — to draw the instance's diagram. Allowed to whoever may view the instance: the bundle is read past their permissions on `FlowBundle`, which an approver seldom holds |
 
 An action's `comment` is at most 256 characters, as a batch action's comment and an administrator's reason are; a
-longer one is refused (`400`) before anything runs.
+longer one is refused (`400`) before anything runs. An action on a step that no longer waits — handled by someone
+else, or on another page, since the caller's was loaded — is refused (`400`, "This step no longer waits for
+approval…") rather than failed as an error, so the page refreshes and shows where the approval stands
+(zingkey-hcm#2386).
 
 Who may view an instance: by default its participants — its initiator and the people it gives or gave a task
 to: approvers pending or done, CC recipients, transfer, delegation and add-sign targets, and the approvers a step
@@ -412,7 +419,11 @@ the initiator and the task holders by their own permissions.
 The approval page (`/approvals/{instanceId}`, the link of every approval email) is opened by approvers who
 may hold neither the menu of the record's model nor any permission on the flow models, so it reads everything
 through the instance: `GET /flow/instances/{instanceId}` and `.../summary` for the instance, `.../design` for its
-diagram, `.../record` for the record. Only a record's approval lends its record
+diagram, `.../record` for the record. The instance comes without the record's values — `inputPayload`,
+`variables` and `returnData` are left out of it, and out of every approval action's answer (approve, reject, return,
+transfer, delegate, add-sign, CC, CC read, withdraw): the variables hold the record's fields as submitted, past the
+field permissions below, so a field a step hid could be read off the instance (zingkey-hcm#2402). The record is read
+through `.../record` alone. Only a record's approval lends its record
 (`FlowInstanceAccessGuard.requireRecordAccess`):
 
 - **Its participants — its initiator and the people it gives or gave a task to** read it past their own row
@@ -720,7 +731,7 @@ department-id column the permission-starter scopes filter by the ids of the depa
 scoped to the departments it manages sees and administers their approvals; an automation run belongs to no
 department. Opening another user's instance (detail / overlay / trace / approval history) follows the viewing rule
 under [Instance APIs](#instance-apis), as for any viewer who is not a participant — and what the console does to an
-instance (urge, terminate, reassign) makes no administrator one.
+instance (urge, terminate, retry, reassign) makes no administrator one.
 
 | Method | Path | Description |
 |---|---|---|
@@ -728,6 +739,7 @@ instance (urge, terminate, reassign) makes no administrator one.
 | `POST` | `/flow/monitor/instances/search` | Cross-initiator paged instance summaries, read with the caller's own permissions: the `FlowInstance` rows their data scope reaches. Honors the request's `initiatorId` filter when present; otherwise as [Instance search](#instance-search) |
 | `POST` | `/flow/monitor/instances/urge` | Urge an approval as an administrator rather than its initiator: whoever may read the instance's `FlowInstance` row with their own permissions, whether or not the flow's `urgeEnabled` lets its initiator urge. The flow's `urgeIntervalMinutes` applies — a step urged within it, by anyone, is not urged again. Returns `FlowUrgeStatus` |
 | `POST` | `/flow/monitor/instances/terminate` | End each instance named (`instanceIds`, at most 100) that is running, waiting or failed, with one `reason` (required): its pending approvals close, it ends `Cancelled` — a record's approval cancels its record — and the history records a `TERMINATE` entry with the reason, which the initiator is sent. Only instances the caller's permissions read; each in its own transaction. Returns `FlowBatchActionResult` |
+| `POST` | `/flow/monitor/instances/retry` | Run again the steps after an approval of each instance named (`instanceIds`, at most 100; an optional `comment`) that failed in them — see [When a step after an approval fails](#when-a-step-after-an-approval-fails): the approval goes on from the step it failed after, and the history records a `RETRY` entry by the caller; should a step fail again, the instance fails again. Refused for an instance that failed otherwise, and for a record taken back by its submitter or submitted again since. Granted with terminating — whoever may end a failed approval may carry it on. Only instances the caller's permissions read; each in its own transaction. Returns `FlowBatchActionResult`: an instance run again and failed again is `Failed`, with the step and the error |
 | `POST` | `/flow/monitor/approvers/reassign/preview` | How many of an approver's pending approval tasks (`fromActorId` → `toActorId`), on the instances the caller's permissions read, a reassignment would move: `FlowReassignPreview` (`tasks`, `instances`). A new approver who cannot act is refused (`400`), naming them |
 | `POST` | `/flow/monitor/approvers/reassign` | Move each of those tasks to the new approver, with a `reason` (required), each in its own transaction: recorded as the approver's `TRANSFER` with the caller as `operatorId`; the new approver is given the task, the initiator is told who now holds it. Only the steps the instances wait on now move — a step not reached yet resolves its approvers when reached; CC tasks stay. A new approver who cannot act is refused as a whole (`400`) before any task moves. Returns `FlowBatchActionResult` |
 | `POST` | `/flow/monitor/delegations` | Create a delegation rule on an approver's behalf (the body names the `delegatorId` and the `delegateId`), checked as the approver's own is (see [Delegation](#delegation)): their tasks arriving from then on go to the delegate, and the approver sees the rule among theirs. It affects all of the approver's tasks whatever the caller's data scope, so it is a permission of its own |
@@ -868,7 +880,11 @@ Set aside means **every** permission check, not only row scope — sensitive-fie
 The node's form configuration (its field permissions, `formPermissions`) is the only authorization for the
 fields the approver edits. Only the fields it marks `EDITABLE` or `REQUIRED` are written back; any other key
 in the approve request's `formData` — a `HIDDEN` or `READONLY` field, or one the node does not list — is
-dropped, and a node with no `formPermissions` writes nothing. A `REQUIRED` field must hold a value once the
+dropped, and a node with no `formPermissions` writes nothing. Every field the node lists names its permission:
+one listed without — a row saved before its permission was picked, which read as no rule at all and published
+as one — is refused by validation and publishing (`MISSING_FIELD_PERMISSION`, checked on the config as stored,
+since the config read takes an empty permission for none), never read as `READONLY`, which shows the step's
+approvers a sensitive field their own permissions withhold. A `REQUIRED` field must hold a value once the
 edits land — the one sent, or else the one the record stores — so an approve that sends nothing is still
 refused when the record lacks it. After the write, a record's approval reads its routing variables again from
 the edited record — its own fields, then its handler's `submission` on top — and they replace the ones the
@@ -958,10 +974,16 @@ selects the executor — there is no separate `executor` field in config.
   `INVALID_TEMPLATE_PLACEHOLDER`, naming the node and the setting (`to[1]`, `templateVariables.owner`)
 - `options` is executor-specific
 - `outputVariable`, when present, stores the raw executor result under one variable name
+- The input may also sit at the top of the config, one key per field, beside the node's own keys
+  (`outputVariable`, `outputMapping`, `options`) — the way the designer writes it, field by field as the
+  executor's descriptor (`getConfigSchema`) lists them. With no `input` map, everything else at the top is the
+  input (`NodeConfigParser`); a config may also wrap either form in `task`. Read only from `input` before, a
+  designed task node ran with no input and published without its required fields checked (zingkey-hcm#2384)
 
 Every task node type has a **typed input config DTO** registered in `TaskConfigTypes`:
-the compiler parses `config.input` into the DTO at publish time and rejects missing
-required keys (`MISSING_REQUIRED_INPUT`), so a misconfigured node fails at publish
+the compiler parses the input into the DTO at publish time and rejects missing
+required keys (`MISSING_REQUIRED_INPUT`), naming the field where it sits — `config.input.url` in a nested
+config, `config.url` in a designed one — so a misconfigured node fails at publish
 instead of mid-execution. `DefaultTaskExecutorRegistry` asserts at boot that every
 registered executor's node type has such an entry.
 
@@ -1084,8 +1106,10 @@ with permission checks skipped, so a handler that throws vetoes the action. A re
 still `Pending`: a finished instance saved again (on a comment or a CC read) changes nothing, and
 `afterOutcome` runs once per result. Keep it to writes in this database that belong with the result; anything
 that leaves it — a payment, an external system — goes after the commit. A failed instance writes nothing and
-leaves its record `Pending`, with two ways out: its submitter takes the record back by withdrawing it (a draft
-again), or an administrator terminates the approval (the record `Cancelled`). The record becomes `Pending` before the instance starts
+leaves its record `Pending`, with two ways out — three when an automated step after an approval failed: its
+submitter takes the record back by withdrawing it (a draft again), an administrator terminates the approval (the
+record `Cancelled`), or an administrator runs the steps after the approval again (see
+[When a step after an approval fails](#when-a-step-after-an-approval-fails)). The record becomes `Pending` before the instance starts
 because a flow with no approval step completes while it starts.
 
 A record's approval starts within its submission, so a start that fails fails the submission, atomically: the
@@ -1094,8 +1118,40 @@ the transaction, still a draft. A step whose approvers resolve to nobody under i
 (the default) refuses with `FlowNoApproverException`, a `FlowActionValidationException` (`400`), and one message
 whatever its approver source: "No approver was found for step '{label}'. Ask your HR administrator to set one up,
 then try again." Under `AssignToRole`, when its roles leave nobody either, the message names them. An approve that moves the approval into such a step is refused the same way and rolls back: the
-task stays where it was. So a record's approval fails only after its start, when a timer or an async callback
-resumes it into an error; the record's approval preview shows a step that would find nobody before anyone submits.
+task stays where it was. So a record's approval fails only after its start: when an automated step after an
+approval fails, or when a timer or an async callback resumes it into an error; the record's approval preview shows
+a step that would find nobody before anyone submits.
+
+### When a step after an approval fails
+
+An approval runs what follows it in the approver's request (`FlowExecutionOrchestrator.runAfterApproval`): an
+automated step — a task (`CallWebhook`, `SendEmail`, `UpdateRecord`…), a subflow, a data step — failing there does
+not undo the approval (zingkey-hcm#2385). Before the steps run, the instance is copied as the approval left it and a
+savepoint taken; when one fails:
+
+- its writes are undone to the savepoint, apart from the approval, and so is what the steps arranged for the
+  commit (`UndoableSteps`): the callbacks they registered — messages to send once it commits — are dropped, each
+  told it rolled back, and the change logs they added go too, with the flows those would have started;
+- the error is logged (`ERROR`, with the stack trace);
+- the instance, as the approval left it, fails at that step (`FAILED`, `failedNodeId`, `errorMessage`), remembering
+  the approval step to run again after (`retryAfterNodeId`) — its initiator and the tenant's administrators are told
+  ("Approval failed: …", with the error);
+- the approver's request goes through: the approval stands, and they get the failed instance, not the error. The
+  record stays `Pending`.
+
+The engine refusing to go on is not a step failing: nobody to approve the next step, branches meeting a step wrongly,
+no route out of a step — the approval is refused as before, the task left with its approver.
+
+An administrator then runs the steps after the approval again — `POST /flow/monitor/instances/retry`, granted with
+terminating (`RetryActionHandler`): the instance goes back to `Running` from the step it failed after, the history
+records a `RETRY` entry by them, and the steps run as they would have after the approval, permission checks set
+aside. Should a step fail again, the instance fails again and the same people are told again; once they run through,
+the approval goes on — and completes, its `onApproved` CCs sent, as it would have. Only an instance with a
+`retryAfterNodeId` runs again: one that failed otherwise — an automation run, a timer or a callback — is terminated
+instead. A record's approval runs again only while the record waits on it: not once its submitter took it back (a
+draft again), nor once it was submitted again. The steps run again in full — what one of them sent before it failed,
+an email or a webhook call, may be sent again — so a step that must not repeat checks for itself.
+
 
 On a submit flow the record's own people are approved for by default ("本人是审批人时"): when a step's
 approvers include the submitter, or the user of the employee the record is about, they are counted as having
@@ -1203,7 +1259,7 @@ One mapping (`ApprovalNotices`) decides who is told what, on both channels:
 | A step past its deadline, under the `Remind` timeout strategy | Its approvers still to act | yes | — (not emailed) |
 | Approved; rejected or returned (with the comment) | The initiator | yes | `flow.approved`, `flow.rejected`, `flow.returned` |
 | Terminated, or a step reassigned, by an administrator (with the reason) | The initiator | yes | `flow.terminated`, `flow.reassigned` |
-| A record's approval fails once started — a timer or callback resuming it into an error (with the error); a submission that cannot start tells nobody | The initiator and the holders of the roles in `flow.notification.failure-role-codes` (default `TENANT_ADMIN`) | yes | `flow.failed` |
+| A record's approval fails once started — an automated step after an approval failing (the approval kept, see [When a step after an approval fails](#when-a-step-after-an-approval-fails)), a timer or callback resuming it into an error; with the error. A submission that cannot start tells nobody | The initiator and the holders of the roles in `flow.notification.failure-role-codes` (default `TENANT_ADMIN`) | yes | `flow.failed` |
 
 Only an Approval flow announces its completion: an Automation run is not something the user whose write triggered
 it asked to hear about, and an automation run that fails is the operators' to watch. Messages are written after
@@ -1292,7 +1348,7 @@ Validation or Compute flow is evaluated transiently, like any of their runs.
 |---|---|
 | `FlowDesign` | Draft working copy |
 | `FlowBundle` | Published compiled bundle |
-| `FlowInstance` | Persisted runtime instance state (trace and approval history are NOT embedded — see the two dedicated tables), with what a record's approval recorded at submission: `subjectId`, `departmentId`, `effectiveDate`, `recordCode`, `superseded`. Approval instances are kept; finished Automation runs, with their trace, branches and the trigger event log, are purged after `flow.automation.retention-days` (default 30) by the `flow_automation_purge` cron |
+| `FlowInstance` | Persisted runtime instance state (trace and approval history are NOT embedded — see the two dedicated tables), with what a record's approval recorded at submission: `subjectId`, `departmentId`, `effectiveDate`, `recordCode`, `superseded`; and, on an instance whose steps after an approval failed, `retryAfterNodeId` — the approval step they run again after. Its `variables` are JSON, which the app writes a `Long` or a `BigDecimal` into as text: on load the record's routed fields come back as numbers (`RecordVariables.restoreNumbers`), so a route after an approval compares an amount or an id as a number, not as text that fails the comparison or never matches (zingkey-hcm#2382); an id stays text where the related model is known by a code. Approval instances are kept; finished Automation runs, with their trace, branches and the trigger event log, are purged after `flow.automation.retention-days` (default 30) by the `flow_automation_purge` cron |
 | `FlowExecutionTrace` | Append-only execution trace rows (the in-memory state keeps only the current attempt's delta) |
 | `FlowApprovalTask` | Pending/completed/CC task projections, each with its instance's list fields copied in (`instanceTitle`, `recordCode`, `submittedTime`, …) for the approval center's search |
 | `FlowApprovalRecord` | Approval action audit ledger — the authoritative approval history, flushed by the instance store in the same transaction as the instance row; `operatorId` names an administrator who acted on the actor's behalf |

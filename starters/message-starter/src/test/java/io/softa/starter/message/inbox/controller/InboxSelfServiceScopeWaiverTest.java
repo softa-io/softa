@@ -38,6 +38,7 @@ class InboxSelfServiceScopeWaiverTest {
         assertWaived("myRecent", int.class);
         assertWaived("myMarkAsRead", Long.class);
         assertWaived("myMarkAllAsRead");
+        assertWaived("myMarkAsReadBySource", String.class, String.class);
     }
 
     @Test

@@ -943,6 +943,7 @@ Self-service endpoints for the signed-in user (always scoped to
 | GET | `/InboxNotification/myRecent?limit=` | Recent list (max 50) |
 | POST | `/InboxNotification/myMarkAsRead?id=` | Mark one owned row read |
 | POST | `/InboxNotification/myMarkAllAsRead` | Mark all owned rows read |
+| POST | `/InboxNotification/myMarkAsReadBySource?sourceModel=&sourceId=` | Mark the owned unread rows about one object read — an approval its recipient opened |
 
 Grant the FE `my-inbox` custom permission (or whitelist these paths under
 `permission.authenticated-bypass-patterns`) so every employee can use the
