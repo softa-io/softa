@@ -886,7 +886,11 @@ as one — is refused by validation and publishing (`MISSING_FIELD_PERMISSION`, 
 since the config read takes an empty permission for none), never read as `READONLY`, which shows the step's
 approvers a sensitive field their own permissions withhold. A `REQUIRED` field must hold a value once the
 edits land — the one sent, or else the one the record stores — so an approve that sends nothing is still
-refused when the record lacks it. After the write, a record's approval reads its routing variables again from
+refused when the record lacks it. Right after the write, a record's approval hands the record as the edits left it,
+and the fields they wrote, to its handler's `afterApproverEdit` — the model's own rules on such edits, as its page
+applies them on save (values the server works out, lines that must stay consistent); throwing refuses the approve,
+the edits with it, so an edit no page would have saved is refused there and then rather than when the approval's
+result is applied. After the write, a record's approval reads its routing variables again from
 the edited record — its own fields, then its handler's `submission` on top — and they replace the ones the
 flow started with: a later route sees what the approver changed, a cleared field included. An approver whose roles hold no sensitive
 field set covering a field can therefore still write it if the node's form exposes it as editable. Flow
@@ -1048,6 +1052,7 @@ knows:
 | The one state machine below: only a draft is submitted or cancelled; one approval of a record at a time | `validateCancel(record)`: who may cancel the draft beyond seeing it, such as only its claimant |
 | Freezing every record that is not a draft (`ApprovalLockValidator`) | `submission(record)`: an `ApprovalSubmission(title, variables, effectiveDate, code)` — the instance title and the routing variables it adds to the record's own fields (*Routing variables*), worked out from the record alone, and, when the model has them, the date the record takes effect and its own number, which the approval lists show and filter on |
 | Writing each result back, once | `afterSubmitted(record)`: what a submission sets off, such as reserving a leave balance |
+| Writing an approver's edits — only the fields their step lets them change | `afterApproverEdit(record, editedFields)`: the model's own rules on what an approver changed, as its page applies them on save — values the server works out, lines that must stay consistent; throwing refuses the approve, the edits with it |
 | What a submission records on the instance: subject, department, effective date, number | `afterOutcome(record, outcome)`: the follow-up actions of a result, such as deducting the balance — or releasing it after a rejection or a cancellation |
 | | `effectStatuses(rowIds)`: for a model whose approval takes effect later, where each approved record's change stands (`RecordEffectStatus`: `Scheduled`, `Applied`, `Failed`), read from the records themselves, never guessed from dates. Empty by default, for a model whose approval takes effect at once |
 

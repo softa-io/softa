@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -33,8 +34,9 @@ import static io.softa.framework.orm.constant.ModelConstant.ID;
  * they are written back to the business row via {@link ModelService#updateByFilter}. Because this is a
  * <em>partial</em> update (editable fields only), every other column is simply left untouched.
  *
- * <p>A record's approval then routes on the record as the edits left it: its handler's
- * {@code submission} is worked out again and its variables replace the ones the flow started with, so a
+ * <p>A record's approval then holds the edits to its model's own rules — its handler's
+ * {@code afterApproverEdit}, which may refuse the approve — and routes on the record as the edits left it: its
+ * handler's {@code submission} is worked out again and its variables replace the ones the flow started with, so a
  * later condition sees what the approver changed.
  *
  * <p>The write rides the framework model RPC: {@code @RPCCheckpoint} + {@code SwitchServiceAspect} route
@@ -77,7 +79,10 @@ public class ApprovalFormWriteService {
         }
         modelService.updateByFilter(state.getModelName(), new Filters().eq(ID, state.getRowId()), sanitized);
         if (state.isApprovalOfRecord()) {
-            handlerRegistry.find(state.getModelName()).ifPresent(handler -> refreshVariables(handler, state));
+            handlerRegistry.find(state.getModelName()).ifPresent(handler -> {
+                holdToModelRules(handler, state, Set.copyOf(sanitized.keySet()));
+                refreshVariables(handler, state);
+            });
         }
     }
 
@@ -86,6 +91,17 @@ public class ApprovalFormWriteService {
         Serializable id = IdUtils.formatId(state.getModelName(), state.getRowId());
         return ContextUtils.withoutPermissionChecks(() -> modelService.getById(state.getModelName(), id, fields))
                 .orElse(Map.of());
+    }
+
+    /**
+     * The record as the edits left it, held to its model's own rules on an approver's edits; throwing refuses the
+     * approve, the edits with it.
+     */
+    private <T extends ApprovalModel> void holdToModelRules(ModelApprovalHandler<T> handler, FlowExecutionState state,
+                                                            Set<String> editedFields) {
+        Serializable id = IdUtils.formatId(state.getModelName(), state.getRowId());
+        ContextUtils.withoutPermissionChecks(() -> modelService.getById(state.getModelName(), id)).ifPresent(row ->
+                handler.afterApproverEdit(BeanTool.mapToObject(row, handler.modelClass()), editedFields));
     }
 
     /** The record as the edits left it, and its handler's on top: the variables its flow now routes on. */
