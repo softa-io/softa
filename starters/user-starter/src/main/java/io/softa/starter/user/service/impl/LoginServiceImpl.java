@@ -531,7 +531,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         if (options.isEmpty() && holdsOnlyConsultantMemberships(profileId, accountService.listMembershipsOf(profileId))) {
             // A consultant whose grants have all lapsed is not an employee with no company: the
             // platform, not a tenant, is who can help, and the two reasons below cannot say that.
-            throw new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CONSULTANT_NO_ACCESS, CONSULTANT_NO_ACCESS_MESSAGE);
         }
         Long autoEnter = autoEnterAccount(options);
         // A password owed comes first: no session until it is set, even when the entry rule already
@@ -1051,12 +1051,14 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // the employee wording, which is the half they can still act on.
         List<UserAccount> memberships = accountService.listMembershipsOf(profileId);
         if (holdsOnlyConsultantMemberships(profileId, memberships)) {
-            return new BusinessException(CONSULTANT_NO_ACCESS_MESSAGE);
+            return AccountErrorCodes.refusal(AccountErrorCodes.CONSULTANT_NO_ACCESS, CONSULTANT_NO_ACCESS_MESSAGE);
         }
         boolean invited = memberships.stream()
                 .anyMatch(account -> account.getStatus() == AccountStatus.PENDING
                         || account.getStatus() == AccountStatus.INVITED);
-        return new BusinessException(invited ? INVITATION_PENDING_MESSAGE : NO_COMPANY_MESSAGE);
+        return invited
+                ? AccountErrorCodes.refusal(AccountErrorCodes.INVITATION_PENDING, INVITATION_PENDING_MESSAGE)
+                : AccountErrorCodes.refusal(AccountErrorCodes.NO_COMPANY, NO_COMPANY_MESSAGE);
     }
 
     @Override
