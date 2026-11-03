@@ -53,6 +53,20 @@ public class CacheServiceImpl implements CacheService {
             return value
             """, String.class);
 
+    private static final RedisScript<Long> ADD_TO_BOUNDED_SET_SCRIPT = RedisScript.of("""
+            if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then
+                return 1
+            end
+            if redis.call('SCARD', KEYS[1]) >= tonumber(ARGV[2]) then
+                return 0
+            end
+            redis.call('SADD', KEYS[1], ARGV[1])
+            if redis.call('TTL', KEYS[1]) < 0 then
+                redis.call('EXPIRE', KEYS[1], ARGV[3])
+            end
+            return 1
+            """, Long.class);
+
     /** Keys requested per SCAN step, and removed per UNLINK. */
     private static final int SCAN_BATCH = 1000;
 
@@ -321,6 +335,13 @@ public class CacheServiceImpl implements CacheService {
         String cacheKey = this.getKeyPath(key);
         stringRedisTemplate.opsForSet().add(cacheKey, member);
         stringRedisTemplate.expire(cacheKey, Duration.ofSeconds(expireSeconds));
+    }
+
+    @Override
+    public boolean addToBoundedSet(String key, String member, int maxSize, int expireSeconds) {
+        Long added = stringRedisTemplate.execute(ADD_TO_BOUNDED_SET_SCRIPT, List.of(this.getKeyPath(key)),
+                member, String.valueOf(maxSize), String.valueOf(expireSeconds));
+        return added != null && added == 1L;
     }
 
     @Override

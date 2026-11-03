@@ -3,7 +3,6 @@ package io.softa.starter.user.service.impl;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +10,7 @@ import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -260,15 +260,10 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * in "taken" is counted like any other. A number already named today is not counted again.
      */
     private void countNewMobile(Long profileId, String mobile) {
-        String key = dailyKey("new-mobile", profileId);
-        Set<String> named = cacheService.getSetMembers(key);
-        if (named != null && named.contains(mobile)) {
-            return;
-        }
-        if (named != null && named.size() >= DAILY_NEW_MOBILE_LIMIT) {
+        // One atomic step, so two requests at once cannot both slip in as the fifth number.
+        if (!cacheService.addToBoundedSet(dailyKey("new-mobile", profileId), mobile, DAILY_NEW_MOBILE_LIMIT, DAY_SECONDS)) {
             throw tooMany();
         }
-        cacheService.addToSet(key, mobile, DAY_SECONDS);
     }
 
     private void withinDailyLimit(String key, int limit) {
@@ -304,7 +299,12 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             }
             String previous = identity.getLoginMobile();
             identity.setLoginMobile(held.mobile());
-            identityService.updateOne(identity);
+            try {
+                identityService.updateOne(identity);
+            } catch (DuplicateKeyException e) {
+                // Someone else confirmed the same number a moment earlier: theirs now.
+                throw this.mobileTaken();
+            }
             // The account list shows and finds the number the person signs in with, in every company.
             accountService.followLoginMobile(identity.getProfileId());
             UserSecurityLog row = securityLog.entry(SecurityAction.LOGIN_MOBILE_CHANGED, this.source(), account, null);
@@ -366,7 +366,16 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      */
     private void signOutOtherDevicesAfterCommit(Long profileId) {
         String keep = sessionService.currentSessionId();
-        Runnable signOut = () -> sessionService.revokePerson(profileId, keep, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
+        Runnable signOut = () -> {
+            try {
+                sessionService.revokePerson(profileId, keep, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
+            } catch (RuntimeException e) {
+                // The change is committed and this device's caller must hear so: a failure to sign
+                // the others out is logged, not turned into an error for a change that took effect.
+                log.error("Other devices of profile {} not signed out after a credential change: {}",
+                        profileId, e.getMessage());
+            }
+        };
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             signOut.run();
             return;
@@ -448,16 +457,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * back with the lifetime it had left, and the person can try again on the same screen.
      */
     private <T> T spending(String token, Step step, UserAccount account, Function<Ticket, T> work) {
-        String value = StringUtils.isBlank(token) ? null : cacheService.getAndClear(ticketKey(token));
-        Ticket ticket = value == null ? null : parse(value);
-        if (ticket == null) {
-            throw ticketExpired();
-        }
-        if (!this.isFor(ticket, step, account)) {
-            // Taken by someone it was not issued to, or at the wrong step: it stays its owner's.
-            this.store(token, ticket);
-            throw ticketExpired();
-        }
+        Ticket ticket = this.held(token, step, account, true);
         try {
             return work.apply(ticket);
         } catch (RuntimeException e) {
@@ -471,17 +471,30 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * otherwise. Read only, for a step that does not move the person on (resending the code).
      */
     private Ticket require(String token, Step step, UserAccount account) {
-        String value = StringUtils.isBlank(token) ? null : cacheService.get(ticketKey(token));
+        return this.held(token, step, account, false);
+    }
+
+    /**
+     * The ticket for this step, issued to the person signed into this very account — read, or taken
+     * out of the cache when {@code take}. Refused otherwise; one taken by someone it was not issued
+     * to, or at the wrong step, is put back for its owner.
+     */
+    private Ticket held(String token, Step step, UserAccount account, boolean take) {
+        String key = StringUtils.isBlank(token) ? null : ticketKey(token);
+        String value = key == null ? null : take ? cacheService.getAndClear(key) : cacheService.get(key);
         Ticket ticket = value == null ? null : parse(value);
-        if (ticket == null || !this.isFor(ticket, step, account)) {
+        if (ticket == null) {
+            throw ticketExpired();
+        }
+        boolean theirs = ticket.step() == step && Objects.equals(ticket.profileId(), account.getProfileId())
+                && Objects.equals(ticket.accountId(), account.getId());
+        if (!theirs) {
+            if (take) {
+                this.store(token, ticket);
+            }
             throw ticketExpired();
         }
         return ticket;
-    }
-
-    private boolean isFor(Ticket ticket, Step step, UserAccount account) {
-        return ticket.step() == step && Objects.equals(ticket.profileId(), account.getProfileId())
-                && Objects.equals(ticket.accountId(), account.getId());
     }
 
     private static BusinessException ticketExpired() {

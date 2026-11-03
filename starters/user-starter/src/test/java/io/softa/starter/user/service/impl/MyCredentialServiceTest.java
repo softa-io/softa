@@ -126,6 +126,16 @@ class MyCredentialServiceTest {
                 .when(cacheService).addToSet(anyString(), anyString(), anyInt());
         when(cacheService.getSetMembers(anyString()))
                 .thenAnswer(inv -> sets.getOrDefault(inv.<String>getArgument(0), Set.of()));
+        when(cacheService.addToBoundedSet(anyString(), anyString(), anyInt(), anyInt())).thenAnswer(inv -> {
+            Set<String> set = sets.computeIfAbsent(inv.getArgument(0), k -> new HashSet<>());
+            if (set.contains(inv.<String>getArgument(1))) {
+                return true;
+            }
+            if (set.size() >= inv.<Integer>getArgument(2)) {
+                return false;
+            }
+            return set.add(inv.getArgument(1));
+        });
         return cacheService;
     }
 
@@ -361,6 +371,35 @@ class MyCredentialServiceTest {
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
+    }
+
+    @Test
+    void aSignOutThatFailsAfterCommit_isLogged_notReportedAsAFailedChange() {
+        String ticket = signedIn(() -> service.verifyCodeForPassword("123456"));
+        doThrow(new IllegalStateException("redis down")).when(sessions).revokePerson(any(), any(), any());
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
+
+            org.assertj.core.api.Assertions.assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit)).doesNotThrowAnyException();
+            verify(sessions).revokePerson(ADA, SESSION, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void twoPeopleConfirmingOneNumber_theSecondIsToldItIsTaken() {
+        String verified = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        String confirm = signedIn(() -> service.checkNewMobile(verified, NEW_MOBILE));
+        // Both passed the check before either wrote; the unique index decides.
+        doThrow(new org.springframework.dao.DuplicateKeyException("uk_user_identity_login_mobile"))
+                .when(identityService).updateOne(ada);
+
+        assertThatThrownBy(() -> signedIn(() -> service.confirmNewMobile(confirm, "654321")))
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo(AccountErrorCodes.MOBILE_TAKEN));
+        verify(sessions, never()).revokePerson(any(), any(), any());
     }
 
     @Test
