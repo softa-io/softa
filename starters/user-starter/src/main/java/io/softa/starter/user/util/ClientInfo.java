@@ -13,7 +13,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * standard headers; {@code X-Device-Model} is optional. Web and H5 send none of them, so all three
  * are null there.
  *
- * @param ip          the client address — first hop of {@code X-Forwarded-For}, else {@code X-Real-IP},
+ * @param ip          the client address — last hop of {@code X-Forwarded-For}, else {@code X-Real-IP},
  *                    else the socket peer
  * @param userAgent   the {@code User-Agent} header
  * @param platform    {@code X-App-Platform}, lower-cased
@@ -62,10 +62,17 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
         return model + "(" + platform + (appVersion == null ? "" : " " + appVersion) + ")";
     }
 
+    /**
+     * The client address as the proxy in front of us saw it: the LAST hop of {@code X-Forwarded-For}.
+     * Every earlier entry was written by whoever sent the request and can say anything; the last one
+     * is the one our own proxy appended (a proxy that replaces the header instead leaves only that
+     * one). Trusting the first hop let a caller rotate a forged address past the per-address limits.
+     */
     private static String clientIp(HttpServletRequest request) {
         String clientIp = request.getHeader("X-Forwarded-For");
         if (StringUtils.isNotBlank(clientIp)) {
-            return clientIp.split(",")[0].trim();
+            String[] hops = clientIp.split(",");
+            return hops[hops.length - 1].trim();
         }
         clientIp = request.getHeader("X-Real-IP");
         if (StringUtils.isNotBlank(clientIp)) {

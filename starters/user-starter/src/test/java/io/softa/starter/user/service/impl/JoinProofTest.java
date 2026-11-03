@@ -19,6 +19,7 @@ import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
 import io.softa.starter.user.enums.AccountStatus;
+import io.softa.starter.user.enums.InvitationPurpose;
 import io.softa.starter.user.enums.InvitationStatus;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
@@ -225,5 +226,23 @@ class JoinProofTest {
 
         assertThatCode(() -> realInvitationService.confirmJoin(TOKEN, ADA, proof)).doesNotThrowAnyException();
         verify(accountService).updateOne(revived);   // once — the second tap wrote nothing
+    }
+
+    @Test
+    void aForgotPasswordLink_cannotJoin_anyoneIntoAnything() {
+        // Someone signed in can mail themselves a reset link — an account long joined, a token still
+        // pending. Read as a join link it lands on "already joined", past the proof check that guards
+        // binding; it must read as no link at all.
+        UserInvitation reset = pendingInvitation();
+        reset.setPurpose(InvitationPurpose.PASSWORD_RESET);
+        doAnswer(inv -> Optional.of(reset)).when(realInvitationService).searchOne(any(Filters.class));
+        revived.setActivationTime(LocalDateTime.now().minusDays(30));
+        revived.setStatus(AccountStatus.ACTIVE);
+
+        assertThat(realInvitationService.inspectJoinToken(TOKEN).reason())
+                .isEqualTo(io.softa.starter.user.dto.JoinEntry.Reason.LINK_INVALID);
+        assertThatThrownBy(() -> realInvitationService.confirmJoin(TOKEN, STRANGER, "anything"))
+                .isInstanceOf(BusinessException.class);
+        verify(accountService, never()).updateOne(any(UserAccount.class));
     }
 }

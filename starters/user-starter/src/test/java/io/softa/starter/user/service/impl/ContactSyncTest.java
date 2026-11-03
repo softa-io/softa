@@ -67,6 +67,18 @@ class ContactSyncTest {
     }
 
     @Test
+    void aClosedAccount_takesNoEmailBack() {
+        // Closing released the address for the next hire; writing it back would block them.
+        account.setStatus(AccountStatus.DEACTIVATED);
+        account.setEmail(null);
+
+        accountService.syncEnterpriseEmail(ACCOUNT, "old@acme.com");
+
+        assertThat(account.getEmail()).isNull();
+        verify(accountService, never()).updateOne(any(UserAccount.class), anyBoolean());
+    }
+
+    @Test
     void anInvitedAccountsEmailChange_isSilent() {
         account.setStatus(AccountStatus.INVITED);
 

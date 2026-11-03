@@ -311,7 +311,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      */
     private String generateNumericCode(String identifier) {
         codeGuard.beforeSend(identifier);
-        String code = RandomStringUtils.insecure()
+        String code = RandomStringUtils.secure()
                 .nextNumeric(VerificationCodeGuard.CODE_LENGTH);
         codeGuard.store(identifier, code);
         return code;
@@ -601,17 +601,26 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
         invitationService.confirmJoin(rawToken, profileId, proof);
 
+        // A re-entrant confirm — the link already spent, a double tap — has no proof behind it any
+        // more, and the profileId is only what the caller sent: no session and no sign-in token for
+        // it. The person signs in like anyone else.
+        if (joining.isEmpty()) {
+            return AuthenticationResult.requireSignIn();
+        }
         UserIdentity identity = identityService.findByProfile(profileId)
                 .orElseThrow(() -> new BusinessException("Person record not found."));
+        // A password still owed comes first, as at sign-in: no session until it is set; the
+        // sign-in token lets setFirstPassword set it and enter.
+        if (mustSetPasswordFor(identity)) {
+            AuthenticationResult owed = AuthenticationResult.choicePending(profileId, this.resolveMemberships(profileId),
+                    true, issuePreAuthToken(profileId), joining.get().getId(), null);
+            return prefill == null ? owed : owed.withPrefill(prefill);
+        }
         // Who this is was settled by the codes verified before (the mobile one included, when the
         // email alone could not settle it), so the person goes straight into the company just
-        // joined, whatever else they belong to. A re-entrant confirm (the
-        // link already spent) has no row to name, and falls back to the ordinary entry rule.
-        if (joining.isEmpty()) {
-            return this.afterAuthentication(identity);
-        }
+        // joined, whatever else they belong to.
         AuthenticationResult result = AuthenticationResult.resolved(profileId,
-                profileService.getUserInfo(joining.get().getId()), mustSetPasswordFor(identity));
+                profileService.getUserInfo(joining.get().getId()), false);
         // The full contact they just verified — only ever to them — so the "get the APP" page can
         // prefill the login screen; the page itself only ever saw it masked.
         return prefill == null ? result : result.withPrefill(prefill);

@@ -109,6 +109,16 @@ class UserProfileServiceLoadUserInfoTest {
     }
 
     @Test
+    void aLegacyLockedAccount_isActive_asItIsAtSignIn() {
+        // Sign-in lets LOCKED in; read as inactive here, every session it got would end on its first
+        // request and hand out a re-entry token, round and round.
+        when(cacheService.get(eq(RedisConstant.USER_INFO + USER_ID), eq(UserInfo.class))).thenReturn(null);
+        accountIs(AccountStatus.LOCKED);
+
+        assertThat(service.loadUserInfo(USER_ID).getActive()).isTrue();
+    }
+
+    @Test
     void reportsAFrozenAccountAsInactiveRatherThanRefusingToBuild() {
         // The whole reason the HR-side eviction exists. A frozen account must still produce a
         // UserInfo — it is the `active=false` on it that lets ContextBuilder's gate destroy the
