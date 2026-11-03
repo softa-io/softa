@@ -50,14 +50,21 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  *   <li>its navigations, permissions and sensitive field sets are all ones the caller holds;</li>
  *   <li>for every action it grants on a model, one of the caller's roles holds that same action and
  *       reaches at least the rows the role would — the role's scope rules on the model are among that
- *       caller role's, under the same additional condition, and on a multi-company model within that
- *       caller role's companies. One caller role has to cover the action and the rows together, because
+ *       caller role's, under the same additional condition, on a multi-company model within that caller
+ *       role's companies, and on a model bounded by the department grant within that caller role's
+ *       departments. One caller role has to cover the action and the rows together, because
  *       that is how they combine at read time: a role that may view everyone and another that may edit
  *       one department add up to editing that department, not editing everyone.</li>
  * </ul>
  * Rules are compared as written, not by what they resolve to. That is deliberately narrow — a rule the
  * caller holds is a rule they may pass on, anything else is refused — and it keeps the check free of
  * any judgement about which rule is wider than another.
+ *
+ * <p>The department grant is the one exception, compared by where the departments sit rather than by
+ * how the rule is written: a role may be given any department inside one of the caller role's granted
+ * subtrees, judged on the stored {@code idPath}. Comparing as written would let a caller granted a
+ * division pass on exactly that division and none of the teams under it, which is the delegation the
+ * grant exists for.
  */
 @Component
 public class RoleGrantCeiling {
@@ -170,7 +177,8 @@ public class RoleGrantCeiling {
             Set<String> permissions = new HashSet<>(target.permissions());
             caller.forEach(g -> permissions.addAll(g.permissions()));
             return firstViolation(target, caller, modelsOf(permissions), modelsOfSets(target.sensitiveFieldSets()),
-                    model -> ModelManager.existModel(model) && ModelManager.getModel(model).isMultiCompany())
+                    model -> ModelManager.existModel(model) && ModelManager.getModel(model).isMultiCompany(),
+                    DepartmentGrants::bounds)
                     .map(this::describe);
         });
     }
@@ -191,6 +199,8 @@ public class RoleGrantCeiling {
                 yield "this role would reach " + model + " records beyond your own. Narrow its " + model
                         + " scope to no more than you can see yourself";
             }
+            case DEPARTMENTS -> "this role would reach " + modelLabel(v.subject()) + " records in departments "
+                    + "beyond your own. Grant it only departments within those you are granted yourself";
         };
     }
 
@@ -238,6 +248,21 @@ public class RoleGrantCeiling {
                                            Map<String, String> modelByPermission,
                                            Map<String, Set<String>> modelsBySet,
                                            Predicate<String> multiCompany) {
+        return firstViolation(target, caller, modelByPermission, modelsBySet, multiCompany, model -> false);
+    }
+
+    /**
+     * {@link #firstViolation(Grants, List, Map, Map, Predicate)}, with the department grant applied to the
+     * models it bounds.
+     *
+     * @param departmentBound whether the department grant bounds a model's rows
+     */
+    static Optional<Violation> firstViolation(Grants target, List<Grants> caller,
+                                           Map<String, String> modelByPermission,
+                                           Map<String, Set<String>> modelsBySet,
+                                           Predicate<String> multiCompany,
+                                           Predicate<String> departmentBound) {
+        Axes axes = new Axes(multiCompany, departmentBound);
         Set<String> navigations = union(caller, Grants::navigations);
         for (String navigation : target.navigations()) {
             if (!navigations.contains(navigation)) {
@@ -256,7 +281,7 @@ public class RoleGrantCeiling {
         for (String fieldSet : target.sensitiveFieldSets()) {
             Set<String> models = modelsBySet.getOrDefault(fieldSet, Set.of());
             boolean covered = caller.stream().anyMatch(c -> c.sensitiveFieldSets().contains(fieldSet)
-                    && models.stream().allMatch(m -> reachesRows(c, target, m, multiCompany.test(m))));
+                    && models.stream().allMatch(m -> reachesRows(c, target, m, axes)));
             if (!covered) {
                 return Optional.of(new Violation(Violation.Kind.FIELD_SET, fieldSet));
             }
@@ -270,9 +295,10 @@ public class RoleGrantCeiling {
             }
             modelsWithAction.add(model);
             boolean covered = caller.stream().anyMatch(c -> c.permissions().contains(permission)
-                    && reachesRows(c, target, model, multiCompany.test(model)));
+                    && reachesRows(c, target, model, axes));
             if (!covered) {
-                return Optional.of(new Violation(Violation.Kind.RECORDS, model));
+                return Optional.of(recordsViolation(caller, target, model, axes,
+                        c -> c.permissions().contains(permission)));
             }
         }
         // Rules on a model no granted action names directly — a lookup the role reads through — still
@@ -281,17 +307,39 @@ public class RoleGrantCeiling {
             if (ModelConstant.COMPANY_MODEL.equals(model) || modelsWithAction.contains(model)) {
                 continue;
             }
-            boolean covered = caller.stream().anyMatch(c -> reachesRows(c, target, model, multiCompany.test(model)));
+            boolean covered = caller.stream().anyMatch(c -> reachesRows(c, target, model, axes));
             if (!covered) {
-                return Optional.of(new Violation(Violation.Kind.RECORDS, model));
+                return Optional.of(recordsViolation(caller, target, model, axes, c -> true));
             }
         }
         return Optional.empty();
     }
 
+    /** Which role-level grants bound a model's rows besides its rules. */
+    private record Axes(Predicate<String> multiCompany, Predicate<String> departmentBound) {
+        Axes withoutDepartments() {
+            return new Axes(multiCompany, model -> false);
+        }
+    }
+
+    /**
+     * The rows of {@code model} are out of reach: named as a department fault when the department grant
+     * is all that stands in the way — some caller role eligible for the action would reach the rows
+     * but for its departments — so the message points at the grant rather than at the scope.
+     */
+    private static Violation recordsViolation(List<Grants> caller, Grants target, String model, Axes axes,
+                                              Predicate<Grants> eligible) {
+        boolean departmentsOnly = axes.departmentBound().test(model) && caller.stream()
+                .anyMatch(c -> eligible.test(c) && reachesRows(c, target, model, axes.withoutDepartments()));
+        return new Violation(departmentsOnly ? Violation.Kind.DEPARTMENTS : Violation.Kind.RECORDS, model);
+    }
+
     /** Whether caller role {@code c} reaches every row {@code target} would on {@code model}. */
-    private static boolean reachesRows(Grants c, Grants target, String model, boolean multiCompany) {
-        if (multiCompany && !coversCompanies(c, target)) {
+    private static boolean reachesRows(Grants c, Grants target, String model, Axes axes) {
+        if (axes.multiCompany().test(model) && !coversCompanies(c, target)) {
+            return false;
+        }
+        if (axes.departmentBound().test(model) && !coversDepartments(c, target)) {
             return false;
         }
         Scope mine = c.scopes().get(model);
@@ -321,6 +369,23 @@ public class RoleGrantCeiling {
         return theirs != null && mine.rules().containsAll(theirs.rules());
     }
 
+    /**
+     * Department axis: a caller role without a department grant reaches every department, so anything
+     * is within it; otherwise each of the target's granted departments must sit inside one of the
+     * caller role's, and an unbounded target is wider than any bounded caller.
+     */
+    private static boolean coversDepartments(Grants c, Grants target) {
+        Set<String> mine = c.departmentPaths();
+        if (mine == null) {
+            return true;
+        }
+        Set<String> theirs = target.departmentPaths();
+        if (theirs == null) {
+            return false;
+        }
+        return theirs.stream().allMatch(path -> mine.stream().anyMatch(root -> DepartmentGrants.within(path, root)));
+    }
+
     private static Set<String> union(List<Grants> grants, java.util.function.Function<Grants, Set<String>> part) {
         Set<String> out = new HashSet<>();
         grants.forEach(g -> out.addAll(part.apply(g)));
@@ -331,14 +396,32 @@ public class RoleGrantCeiling {
 
     /** What the caller lacks: a page, an action, a field set (all by id), or the rows of a model. */
     public record Violation(Kind kind, String subject) {
-        public enum Kind { NAVIGATION, PERMISSION, FIELD_SET, RECORDS }
+        public enum Kind { NAVIGATION, PERMISSION, FIELD_SET, RECORDS, DEPARTMENTS }
     }
 
-    /** One role's static grants. */
+    /**
+     * One role's static grants.
+     *
+     * @param departmentPaths the stored {@code idPath} of each department the role's department grant
+     *                        names, or {@code null} when the role is not bounded by department (no grant,
+     *                        or all departments). Empty reaches no department; a named department that no
+     *                        longer exists is left out, since it reaches nothing.
+     */
     public record Grants(Set<String> navigations, Set<String> permissions, Set<String> sensitiveFieldSets,
-                         Map<String, Scope> scopes) {
+                         Map<String, Scope> scopes, @Nullable Set<String> departmentPaths) {
+
+        /** A role not bounded by department. */
+        public Grants(Set<String> navigations, Set<String> permissions, Set<String> sensitiveFieldSets,
+                      Map<String, Scope> scopes) {
+            this(navigations, permissions, sensitiveFieldSets, scopes, null);
+        }
+
         static Grants empty() {
             return new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(), new LinkedHashSet<>(), new LinkedHashMap<>());
+        }
+
+        Grants withDepartmentPaths(@Nullable Set<String> paths) {
+            return new Grants(navigations, permissions, sensitiveFieldSets, scopes, paths);
         }
     }
 
@@ -401,7 +484,42 @@ public class RoleGrantCeiling {
                 g.sensitiveFieldSets().add(r.getSensitiveFieldSetId());
             }
         }
+        loadDepartmentPaths(out);
         return out;
+    }
+
+    /**
+     * Each role's department grant, as the {@code idPath} of every department it names. Read only where
+     * the role model declares the grant; a role without one keeps {@code null}, which is every role of an
+     * application that has not configured any.
+     */
+    private void loadDepartmentPaths(Map<Long, Grants> grants) {
+        if (!DepartmentGrants.declared()) {
+            return;
+        }
+        Map<Long, Set<Long>> rootsByRole = new LinkedHashMap<>();
+        for (Role role : roleService.searchList(new Filters().in(Role::getId, grants.keySet()))) {
+            Set<Long> roots = DepartmentGrants.roots(role.getDepartmentGrant());
+            if (roots != null && grants.containsKey(role.getId())) {
+                rootsByRole.put(role.getId(), roots);
+            }
+        }
+        if (rootsByRole.isEmpty()) {
+            return;
+        }
+        Set<Long> allRoots = new HashSet<>();
+        rootsByRole.values().forEach(allRoots::addAll);
+        Map<Long, String> paths = DepartmentGrants.idPathsOf(modelService, allRoots);
+        rootsByRole.forEach((roleId, roots) -> {
+            Set<String> rolePaths = new LinkedHashSet<>();
+            roots.forEach(root -> {
+                String path = paths.get(root);
+                if (path != null) {
+                    rolePaths.add(path);
+                }
+            });
+            grants.put(roleId, grants.get(roleId).withDepartmentPaths(rolePaths));
+        });
     }
 
     /** Same reading the permission snapshot does: entries without a type are skipped. */

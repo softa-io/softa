@@ -67,6 +67,16 @@ public class Role extends AuditableModel {
     @Field(description = "Dynamic membership filter (JSON FilterCondition). DynamicRoleSyncJob auto-assigns matching users (source=DYNAMIC)")
     private JsonNode dynamicFilter;
 
+    /**
+     * The departments this role reaches on every model that belongs to a department — an outer bound,
+     * AND-ed per role onto its rules like the company grant. A JSON array of rules in the data-scope
+     * form, limited to {@code {"scopeType":"ALL"}} and
+     * {@code {"scopeType":"DEPT_SUBTREE","scopeExpr":{"deptId":"<id>"}}} (that department and everything
+     * under it). {@code null} = not configured, unrestricted; {@code []} = no department.
+     */
+    @Field(description = "Department grant (JSON rules: ALL, or DEPT_SUBTREE with a fixed deptId). NULL = unrestricted, [] = none")
+    private JsonNode departmentGrant;
+
     // Reverse relations (mirror live sys_field). Dynamic (not stored) — loaded only when requested.
     @Field(fieldType = FieldType.MANY_TO_MANY, relatedModel = UserAccount.class,
             joinModel = UserRoleRel.class, joinLeft = "roleId", joinRight = "userId",
