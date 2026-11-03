@@ -24,6 +24,15 @@ public class UserInfo implements Serializable {
     private Long tenantId;
 
     /**
+     * Display name of the tenant, so the client can show which company the session is in. Null
+     * when the deployment has no tenant names.
+     *
+     * <p>Set when the UserInfo is built and cached with the rest of it, so a renamed tenant shows
+     * its new name only once the cached entry is rebuilt.
+     */
+    private String tenantName;
+
+    /**
      * Whether the account may operate. Re-checked per request in {@code ContextBuilder}
      * so a frozen / off-boarded account is force-logged-out even mid-session. Nullable:
      * a legacy UserInfo serialized before this field existed deserializes to {@code null}
