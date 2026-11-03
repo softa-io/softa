@@ -59,4 +59,17 @@ public class RoleGrant implements Serializable {
      */
     @Schema(description = "Legal entities this role reaches; null = unrestricted")
     private Set<Long> grantedCompanyIds;
+
+    /**
+     * The departments this role reaches, already expanded to their subtrees — each granted department
+     * and every department under it. Tri-state like {@link #grantedCompanyIds}: {@code null}
+     * unrestricted (the role has no department grant, or grants all departments), empty none,
+     * otherwise exactly those ids.
+     *
+     * <p>Bounds, per role, every model carrying {@code departmentId} as a to-one onto the department
+     * model, and the department model itself by its id — see
+     * {@code DefaultPermissionSnapshotProvider.readGrantedDepartmentIds}.
+     */
+    @Schema(description = "Departments this role reaches, subtrees expanded; null = unrestricted")
+    private Set<Long> grantedDepartmentIds;
 }

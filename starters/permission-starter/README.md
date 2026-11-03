@@ -400,6 +400,21 @@ plane lets the user reach.
 The shape changed, so **clear `perm:*` after deploying**; a snapshot cached before that reads by the old
 union until it expires.
 
+**Department grant.** Beside its company grant a role may carry a department grant: the departments it
+reaches, each with every department under it. It is stored on the role itself (`Role.departmentGrant`,
+written by the role wizard's `roleUpdate`), not as a data scope on `Department` — that row is the role's
+per-model rule for reading departments and stays one. The value is a JSON array of rules in the
+data-scope form, limited to `{"scopeType":"ALL"}` and
+`{"scopeType":"DEPT_SUBTREE","scopeExpr":{"deptId":"<id>"}}`; three states as for companies — column
+`null` unrestricted, `ALL` unrestricted, anything else exactly the subtrees it names (`[]` = none). The
+snapshot expands it per role into `RoleGrant.grantedDepartmentIds` by `idPath` (so a department created
+under a granted one joins when the snapshot is rebuilt), and `PermissionServiceImpl` ANDs it onto that
+role's rows of every model with `departmentId` as a to-one onto `Department`, and of `Department` itself
+by `id` — next to the company grant, per role, before the roles are OR-ed. There is no user-level union.
+A model whose `departmentId` is configuration rather than ownership opts out with
+`@Model(enableDepartmentGrant = false)`. With no role carrying a grant, nothing changes; an application
+whose `Role` model does not declare the column is not asked for it.
+
 **Rows, per action.** The row scope of an action on a model is the OR of the scopes of the roles that
 hold that action (`holders`), each role bounded by its own company grant and its own `scopeCondition`
 (an optional `Filters` AND-ed onto that role's rules for the model). Which action is asked:

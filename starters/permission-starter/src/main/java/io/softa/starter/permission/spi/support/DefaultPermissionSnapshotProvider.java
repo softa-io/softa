@@ -32,6 +32,7 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.framework.base.utils.NavIds;
+import io.softa.starter.permission.scope.IdPath;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.spi.PermissionInfo;
@@ -91,6 +92,12 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     private static final String M_PERMISSION = "Permission";
     private static final String M_USER_ACCOUNT = "UserAccount";
     private static final String F_CONSULTANT = "consultant";
+    /** The role's department grant — see {@link #readGrantedDepartmentIds}. */
+    static final String F_DEPARTMENT_GRANT = "departmentGrant";
+    /** The wire form of a rule granting every department, and of a rule granting one subtree. */
+    private static final String RULE_ALL = ScopeType.ALL.name();
+    private static final String RULE_SUBTREE = ScopeType.DEPT_SUBTREE.name();
+    private static final String SUBTREE_ROOT = "deptId";
 
     private final CacheService cacheService;
     private final ModelService<?> modelService;
@@ -490,6 +497,23 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 ? readGrantedCompanyIds(modelScopeMap)
                 : unionOfCompanyGrants(grantsByRole.values());
         Set<String> grantedCountries = readGrantedCountries(grantedCompanyIds);
+
+        // 3b-3. The department axis, one per role and never unioned: there is no "my departments"
+        // value domain to feed, and the data plane reads it per role only. Roles carrying the same
+        // grant share one resolution, as the company grants above do.
+        Map<JsonNode, Set<Long>> departmentsByGrant = new HashMap<>();
+        for (RoleView role : activeRoles) {
+            RoleGrant grant = grantsByRole.get(role.getId());
+            JsonNode departmentGrant = role.getDepartmentGrant();
+            if (grant == null || isUnconfigured(departmentGrant)) {
+                continue;
+            }
+            if (!departmentsByGrant.containsKey(departmentGrant)) {
+                departmentsByGrant.put(departmentGrant, readGrantedDepartmentIds(departmentGrant));
+            }
+            Set<Long> departments = departmentsByGrant.get(departmentGrant);
+            grant.setGrantedDepartmentIds(departments == null ? null : new HashSet<>(departments));
+        }
         // 3c. Sensitive-field-set grants, keyed by the SFS's canonical model.
         Map<String, Set<String>> modelSensitiveFieldSetsMap = new HashMap<>();
         List<RoleSfsView> sfsGrants = modelService.searchList(M_ROLE_SFS,
@@ -523,6 +547,122 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         info.setGrantedCountries(grantedCountries);
         info.setRoleGrants(new ArrayList<>(grantsByRole.values()));
         return info;
+    }
+
+    /**
+     * The departments one role's department grant reaches, each expanded to its subtree.
+     *
+     * <h3>Where the grant lives, and why not on the department model's scope row</h3>
+     * The company grant is the role's data scope on the company model, because the company list is
+     * bounded by nothing else. The department model's scope row is already taken: it says which
+     * departments a role may <b>read</b> — "departments I manage" — and is one card among the role's
+     * per-model rules. The grant is a different statement, an outer bound on every model that belongs
+     * to a department, and reusing that row would force the two to be configured as one. So it is a
+     * column of the role itself, {@code departmentGrant}, read with the role.
+     *
+     * <h3>Shape</h3>
+     * A JSON array of rules in the same {@code {scopeType, scopeExpr}} form as a data scope, limited to
+     * two types: {@code ALL}, and {@code DEPT_SUBTREE} with a fixed {@code scopeExpr.deptId} — that
+     * department and everything under it. The type that already means "a department and its
+     * descendants" is reused rather than a new one invented, so a client that edits data scopes can edit
+     * this too. A subtree rule without a fixed root (the caller's own department) and any other type
+     * contribute nothing — the write path refuses them, and a row written past it fails closed.
+     *
+     * <h3>The three states, as for the company grant</h3>
+     * <ul>
+     *   <li><b>no grant</b> (column null) → never reaches here: unrestricted, which is what every role
+     *       written before the grant existed resolves to;</li>
+     *   <li><b>an {@code ALL} rule</b> → {@code null} too, not the ids of every department, so a
+     *       department created after the snapshot was cached is not missing from it;</li>
+     *   <li><b>anything else</b> → the subtree ids, possibly <b>empty</b>: an empty array, roots that no
+     *       longer exist, or a value that is not an array. Fail-closed is right because it was configured.</li>
+     * </ul>
+     *
+     * <h3>Subtrees and staleness</h3>
+     * The roots are read by id for their {@code idPath}, then every department at or under one of
+     * those paths — whole segments, so {@code /1/12} is not under {@code /1/1}. Materialised as ids,
+     * like the company grant, so a read pays an {@code IN} rather than a join onto the department
+     * tree; the cost is that a department created under, or moved into, a granted subtree joins the
+     * grant when the snapshot is rebuilt (its TTL, or a role write evicting it).
+     *
+     * <p>An application without the department model, or whose department model stores no
+     * {@code idPath}, has no department axis: {@code null}, costing neither a query nor an exception.
+     * Runs under the {@code @SkipPermissionCheck} that {@code get()} set for the whole build.
+     *
+     * @param departmentGrant the role's stored grant, already known to be configured
+     * @return the department ids reached, or {@code null} for unrestricted
+     */
+    Set<Long> readGrantedDepartmentIds(JsonNode departmentGrant) {
+        if (!ModelManager.existModel(ModelConstant.DEPARTMENT_MODEL)
+                || ModelManager.getModelFieldOrNull(ModelConstant.DEPARTMENT_MODEL, IdPath.FIELD) == null) {
+            return null;
+        }
+        if (!departmentGrant.isArray()) {
+            log.warn("A role's department grant is not an array ({}); it reaches no department", departmentGrant);
+            return new HashSet<>();
+        }
+        Set<Long> roots = new HashSet<>();
+        for (JsonNode rule : departmentGrant) {
+            JsonNode type = rule == null ? null : rule.get("scopeType");
+            if (type == null || !type.isString()) {
+                continue;
+            }
+            if (RULE_ALL.equals(type.asString())) {
+                return null;
+            }
+            if (RULE_SUBTREE.equals(type.asString())) {
+                Long root = subtreeRoot(rule.get("scopeExpr"));
+                if (root != null) {
+                    roots.add(root);
+                }
+            }
+        }
+        if (roots.isEmpty()) {
+            return new HashSet<>();
+        }
+        List<String> rootPaths = new ArrayList<>();
+        for (Map<String, Object> row : modelService.searchList(ModelConstant.DEPARTMENT_MODEL,
+                new FlexQuery(List.of(ModelConstant.ID, IdPath.FIELD), new Filters().in(ModelConstant.ID, roots)))) {
+            if (row.get(IdPath.FIELD) instanceof CharSequence path && !path.isEmpty()) {
+                rootPaths.add(path.toString());
+            }
+        }
+        if (rootPaths.isEmpty()) {
+            return new HashSet<>();
+        }
+        rootPaths.sort(null);
+        Set<Long> departments = new HashSet<>();
+        for (Map<String, Object> row : modelService.searchList(ModelConstant.DEPARTMENT_MODEL,
+                new FlexQuery(List.of(ModelConstant.ID), IdPath.subtreesOf(IdPath.FIELD, rootPaths)))) {
+            if (row.get(ModelConstant.ID) instanceof Number n) {
+                departments.add(n.longValue());
+            }
+        }
+        return departments;
+    }
+
+    /** A subtree rule's fixed root, as a string (how clients send ids) or a number; null when absent. */
+    private static Long subtreeRoot(JsonNode scopeExpr) {
+        JsonNode root = scopeExpr == null || !scopeExpr.isObject() ? null : scopeExpr.get(SUBTREE_ROOT);
+        if (root == null) {
+            return null;
+        }
+        if (root.isIntegralNumber()) {
+            return root.asLong();
+        }
+        if (root.isString()) {
+            try {
+                return Long.valueOf(root.asString().trim());
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** No department grant at all: the column is null, or holds a JSON null. */
+    private static boolean isUnconfigured(JsonNode departmentGrant) {
+        return departmentGrant == null || departmentGrant.isNull() || departmentGrant.isMissingNode();
     }
 
     private static RoleGrant newRoleGrant(RoleView role) {
@@ -592,9 +732,14 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         if (roleIds.isEmpty()) {
             return List.of();
         }
+        List<String> fields = new ArrayList<>(List.of("id", "code", "name", "active"));
+        // Asked for only where the column is declared, so an application that has not added it yet
+        // builds exactly the snapshot it built before rather than failing on an unknown field.
+        if (ModelManager.getModelFieldOrNull(M_ROLE, F_DEPARTMENT_GRANT) != null) {
+            fields.add(F_DEPARTMENT_GRANT);
+        }
         return modelService.searchList(M_ROLE,
-                new FlexQuery(List.of("id", "code", "name", "active"),
-                        new Filters().in("id", roleIds).eq("active", true)),
+                new FlexQuery(fields, new Filters().in("id", roleIds).eq("active", true)),
                 RoleView.class);
     }
 
@@ -840,6 +985,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         private String code;
         private String name;
         private Boolean active;
+        private JsonNode departmentGrant;
     }
 
     @Data public static class UserRoleRelView {

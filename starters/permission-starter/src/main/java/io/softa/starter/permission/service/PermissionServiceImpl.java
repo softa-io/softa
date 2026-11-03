@@ -568,7 +568,7 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     private Filters computeGrantScope(Grant g, String model) {
-        Filters company = companyScope(model, g.companies());
+        Filters company = roleAxes(model, g);
         Filters rows;
         if (hasExplicitRules(g, model)) {
             rows = scopeCompiler.compile(withDeclaredScope(g.rules(model), model), model);
@@ -595,6 +595,15 @@ public class PermissionServiceImpl implements PermissionService {
         return scopeCompiler.compile(List.of(rule), model);
     }
 
+    /**
+     * The bounds a role puts on {@code model} regardless of its rules: its company grant AND its
+     * department grant. {@code null} when neither narrows — which, for a role with neither grant
+     * configured, is every model.
+     */
+    private Filters roleAxes(String model, Grant g) {
+        return allOf(companyScope(model, g.companies()), departmentScope(model, g.departments()));
+    }
+
     /** AND of two scopes where {@code null} is "no restriction". */
     private static Filters allOf(Filters a, Filters b) {
         if (a == null) return b;
@@ -619,25 +628,27 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * One role's grant, as the data plane reads it — or the snapshot's unions read as one role, for a
      * snapshot that predates per-role grants. A missing permission set, rule map, condition map or
-     * sensitive-set map is read as an empty one. {@code companies} keeps the snapshot's tri-state:
-     * {@code null} is no company restriction, empty reaches no company, otherwise exactly those.
+     * sensitive-set map is read as an empty one. {@code companies} and {@code departments} keep the
+     * snapshot's tri-state: {@code null} is no restriction on that axis, empty reaches nothing on it,
+     * otherwise exactly those. The unions carry no department grant — it exists per role only — so a
+     * snapshot read as one role is not bounded by departments, as before the grant existed.
      */
     record Grant(Set<String> permissions, Map<String, List<ScopeRule>> scopes,
                  Map<String, JsonNode> conditions, Map<String, Set<String>> sensitiveSets,
-                 Set<Long> companies) {
+                 Set<Long> companies, Set<Long> departments) {
 
         static Grant of(RoleGrant g) {
             return new Grant(orEmpty(g.getPermissions()), orEmpty(g.getModelScopeMap()),
                     orEmpty(g.getModelScopeConditions()), orEmpty(g.getModelSensitiveFieldSetsMap()),
-                    g.getGrantedCompanyIds());
+                    g.getGrantedCompanyIds(), g.getGrantedDepartmentIds());
         }
 
         static Grant union(PermissionInfo pi) {
             if (pi == null) {
-                return new Grant(Set.of(), Map.of(), Map.of(), Map.of(), null);
+                return new Grant(Set.of(), Map.of(), Map.of(), Map.of(), null, null);
             }
             return new Grant(orEmpty(pi.getPermissions()), orEmpty(pi.getModelScopeMap()), Map.of(),
-                    orEmpty(pi.getModelSensitiveFieldSetsMap()), pi.getGrantedCompanyIds());
+                    orEmpty(pi.getModelSensitiveFieldSetsMap()), pi.getGrantedCompanyIds(), null);
         }
 
         List<ScopeRule> rules(String model) {
@@ -710,6 +721,9 @@ public class PermissionServiceImpl implements PermissionService {
         }
         for (Grant g : grantsOf(pi)) {
             if (hasExplicitRules(g, model)) return true;
+            // A department grant bounds the model on its own, like the company axis above — asked only
+            // when one is configured, so a caller without one is answered exactly as before.
+            if (g.departments() != null && departmentAnchorOf(model) != null) return true;
         }
         return false;
     }
@@ -1732,8 +1746,9 @@ public class PermissionServiceImpl implements PermissionService {
         }
         // Rows a grant reaches without rules of its own still stay inside its companies. Reads were bounded
         // so (computeGrantScope); the writes below returned "no restriction" and were not, so a role granted
-        // one company could change or delete another company's cost centres by id.
-        Filters company = companyScope(model, g.companies());
+        // one company could change or delete another company's cost centres by id. The department grant
+        // rides with it, for the same reason.
+        Filters company = roleAxes(model, g);
         if (judgedOnOwner(g, model, accessType)) {
             return company;
         }
@@ -1889,6 +1904,63 @@ public class PermissionServiceImpl implements PermissionService {
         return ModelManager.getModel(model).isMultiCompany() ? ModelConstant.COMPANY_FIELD : null;
     }
 
+
+    /**
+     * The role's department grant on {@code model} as a filter, {@code null} when it does not narrow.
+     * {@link #roleAxes} ANDs it onto that role's rows, beside the company grant.
+     *
+     * <p>{@code granted} holds department ids already expanded to their subtrees by the snapshot, so
+     * this is a plain {@code IN} on the anchor: {@code departmentId} on a model belonging to a
+     * department, {@code id} on the department model itself. A {@code departmentId} declared as a
+     * dynamic cascaded field is filtered by name like any other — the query builder rewrites it onto
+     * its cascade path — so a model that reaches its department through another one is bounded too.
+     *
+     * <p>Same three states as {@link #companyScope}: {@code null} unrestricted — every role nobody gave
+     * a department grant, which is what keeps this inert until one is configured — empty matches
+     * nothing, otherwise those departments. Rows with no department at all fall outside a configured
+     * grant, as rows with no company fall outside a company grant.
+     */
+    // Package-private for test, like companyScope.
+    Filters departmentScope(String model, Set<Long> granted) {
+        if (granted == null) {
+            return null;   // no department grant configured → unrestricted
+        }
+        if (model == null || !ModelManager.existModel(model)) {
+            return null;
+        }
+        String anchor = departmentAnchorOf(model);
+        if (anchor == null) {
+            return null;
+        }
+        if (granted.isEmpty()) {
+            return ScopeRuleCompiler.matchNone();
+        }
+        // Sorted for a stable statement text, as companyScope does.
+        List<Serializable> ids = new ArrayList<>(granted);
+        ids.sort(null);
+        return Filters.of(anchor, Operator.IN, ids);
+    }
+
+    /**
+     * The field a model is bounded by the department grant through, or null when the grant does not
+     * reach it: the department model by its own {@code id}; any other model by {@code departmentId},
+     * when that field is a to-one onto the department model and the model has not opted out with
+     * {@code @Model(enableDepartmentGrant = false)}. A {@code departmentId} that is a plain number
+     * column, or that points elsewhere, is not an anchor: the grant would compare ids across models.
+     */
+    private static String departmentAnchorOf(String model) {
+        if (!ModelManager.existModel(model) || !ModelManager.isDepartmentGrantEnabled(model)) {
+            return null;
+        }
+        if (ModelConstant.DEPARTMENT_MODEL.equals(model)) {
+            return ModelConstant.ID;
+        }
+        MetaField field = ModelManager.getModelFieldOrNull(model, ModelConstant.DEPARTMENT_FIELD);
+        boolean anchored = field != null
+                && FieldType.TO_ONE_TYPES.contains(field.getFieldType())
+                && ModelConstant.DEPARTMENT_MODEL.equals(field.getRelatedModel());
+        return anchored ? ModelConstant.DEPARTMENT_FIELD : null;
+    }
 
     private static boolean hasExplicitRules(Grant g, String model) {
         List<ScopeRule> r = g.rules(model);
