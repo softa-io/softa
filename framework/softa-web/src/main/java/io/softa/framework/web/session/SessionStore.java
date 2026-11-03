@@ -49,6 +49,17 @@ public class SessionStore {
 
     public static final String ACCOUNT_SESSIONS = "account-sessions:";
 
+    /**
+     * What is left of a session ended because its organisation became unavailable. A client fires
+     * several requests at once; the first one ends the session, and without this the others would
+     * find nothing and answer SESSION_EXPIRED — which the client is free to act on first, sending the
+     * person to the login page instead of to their other organisations.
+     */
+    public static final String ORG_UNAVAILABLE_SESSIONS = "session-org-unavailable:";
+
+    /** Long enough for the requests already in flight when the session ended. */
+    static final int ORG_UNAVAILABLE_MARK_SECONDS = RedisConstant.ONE_MINUTES;
+
     private final CacheService cacheService;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -135,12 +146,32 @@ public class SessionStore {
     }
 
     /**
+     * The session as it was, when it ended in the last minute because its organisation became
+     * unavailable. Empty otherwise — never expired, ended for another reason, or too long ago.
+     */
+    public Optional<SessionRecord> endedForUnavailableOrg(String sessionId) {
+        if (StringUtils.isBlank(sessionId)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(cacheService.get(ORG_UNAVAILABLE_SESSIONS + sessionId, SessionRecord.class));
+        } catch (JSONException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Remove one session.
      *
      * @return whether a live session was removed
      */
     public boolean revoke(String sessionId, SessionRevokeReason reason) {
         Optional<SessionRecord> session = this.peek(sessionId);
+        // Marked before the session goes, so a concurrent request never sees neither.
+        if (reason == SessionRevokeReason.ORG_UNAVAILABLE) {
+            session.ifPresent(s -> cacheService.save(ORG_UNAVAILABLE_SESSIONS + sessionId, s,
+                    ORG_UNAVAILABLE_MARK_SECONDS));
+        }
         cacheService.clear(sessionKey(sessionId));
         session.ifPresent(s -> {
             cacheService.removeFromSet(accountKey(s.accountId()), sessionId);

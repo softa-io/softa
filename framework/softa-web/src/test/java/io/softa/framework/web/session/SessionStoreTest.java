@@ -143,4 +143,27 @@ class SessionStoreTest {
         assertThat(SessionStore.sessionIdOf(new MockHttpServletRequest())).isNull();
         verify(publisher, never()).publishEvent(any());
     }
+
+    @Test
+    void endingASessionForAnUnavailableOrg_leavesAShortLivedMark_otherReasonsDoNot() {
+        live("frozen", ACCOUNT, RedisConstant.ONE_WEEK);
+        live("loggedOut", ACCOUNT, RedisConstant.ONE_WEEK);
+
+        store.revoke("frozen", SessionRevokeReason.ORG_UNAVAILABLE);
+        store.revoke("loggedOut", SessionRevokeReason.LOGOUT);
+
+        verify(cacheService).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"), any(SessionRecord.class),
+                eq(RedisConstant.ONE_MINUTES));
+        verify(cacheService, never()).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "loggedOut"), any(), anyInt());
+    }
+
+    @Test
+    void endedForUnavailableOrg_readsTheMark() {
+        when(cacheService.get(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen", SessionRecord.class))
+                .thenReturn(record(ACCOUNT));
+
+        assertThat(store.endedForUnavailableOrg("frozen")).map(SessionRecord::profileId).contains(PROFILE);
+        assertThat(store.endedForUnavailableOrg("other")).isEmpty();
+        assertThat(store.endedForUnavailableOrg(null)).isEmpty();
+    }
 }
