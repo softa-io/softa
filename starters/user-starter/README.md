@@ -269,6 +269,26 @@ social-oauth:
   linkedin: { enable: false, client-id: ..., client-secret: ... }
 ```
 
+### Sign-in protection
+
+Per-address limits and how the caller's address is read (prefix `softa.user.login-protection`,
+bound by `LoginProtectionProperties`):
+
+```yaml
+softa:
+  user:
+    login-protection:
+      trusted-proxies: 1                  # proxies in front of the app that append to X-Forwarded-For
+      attempts-per-address-per-hour: 300  # codes sent + codes checked + passwords tried, together
+```
+
+`trusted-proxies` must match the deployment: the caller's address is read that many entries from
+the right of `X-Forwarded-For`, and everything further left was written by the caller. Set it to 1
+behind a single reverse proxy (or one that replaces the header), 2 behind a load balancer and a
+reverse proxy that both append. Too low puts every caller behind one address into one bucket; too
+high trusts an entry the caller wrote. Looking up an identifier nobody signs in with is limited
+separately (30 misses per address per hour); a spent miss budget refuses misses only.
+
 ### First platform administrator
 
 `PlatformAdminBootstrap` creates the platform's first super-administrator at startup, so a fresh

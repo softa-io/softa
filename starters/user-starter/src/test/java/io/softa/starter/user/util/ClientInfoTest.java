@@ -27,4 +27,34 @@ class ClientInfoTest {
         direct.setRemoteAddr("198.51.100.7");
         assertThat(ClientInfo.of(direct).ip()).isEqualTo("198.51.100.7");
     }
+
+    @Test
+    void behindTwoAppendingProxies_theAddressIsTheSecondFromTheRight() {
+        // A load balancer and a reverse proxy both append: the caller's own entry stays ignored.
+        ClientInfo.trustProxies(2);
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.addHeader("X-Forwarded-For", "1.2.3.4, 203.0.113.9, 10.0.0.5");
+            assertThat(ClientInfo.of(request).ip()).isEqualTo("203.0.113.9");
+
+            // Fewer entries than proxies: the leftmost is all there is.
+            MockHttpServletRequest short_ = new MockHttpServletRequest();
+            short_.addHeader("X-Forwarded-For", "203.0.113.9");
+            assertThat(ClientInfo.of(short_).ip()).isEqualTo("203.0.113.9");
+        } finally {
+            ClientInfo.trustProxies(1);
+        }
+    }
+
+    @Test
+    void zeroOrLessTrustedProxies_isReadAsOne() {
+        ClientInfo.trustProxies(0);
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.addHeader("X-Forwarded-For", "1.2.3.4, 203.0.113.9");
+            assertThat(ClientInfo.of(request).ip()).isEqualTo("203.0.113.9");
+        } finally {
+            ClientInfo.trustProxies(1);
+        }
+    }
 }

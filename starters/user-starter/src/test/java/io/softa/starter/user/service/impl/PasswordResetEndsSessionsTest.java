@@ -73,6 +73,24 @@ class PasswordResetEndsSessionsTest {
     }
 
     @Test
+    void aWeakPassword_isRefusedBeforeTheCodeIsSpent() {
+        UserIdentity identity = new UserIdentity();
+        identity.setId(11L);
+        identity.setProfileId(PROFILE);
+        when(identityService.findByLoginIdentifier("ada@acme.com")).thenReturn(Optional.of(identity));
+        VerificationCodeGuard codes = mock(VerificationCodeGuard.class);
+        ReflectionTestUtils.setField(loginService, "codeGuard", codes);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> loginService.resetPasswordByCode("ada@acme.com", "123456", "weak"))
+                .isInstanceOf(io.softa.framework.base.exception.BusinessException.class)
+                .hasMessageContaining("requirements");
+
+        verify(codes, never()).verify(any(), any());
+        verify(identityService, never()).setPassword(any(Long.class), any());
+    }
+
+    @Test
     void aLockThatAlreadyRanOut_isNotRecordedAsUnlockedAgain() {
         // The field outlives the lock; only a lock still in force is lifted by the reset.
         UserIdentity identity = new UserIdentity();

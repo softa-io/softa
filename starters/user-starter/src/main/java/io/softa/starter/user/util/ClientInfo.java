@@ -13,8 +13,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * standard headers; {@code X-Device-Model} is optional. Web and H5 send none of them, so all three
  * are null there.
  *
- * @param ip          the client address — last hop of {@code X-Forwarded-For}, else {@code X-Real-IP},
- *                    else the socket peer
+ * @param ip          the client address — the {@code X-Forwarded-For} entry the trusted proxies
+ *                    put there, else {@code X-Real-IP}, else the socket peer
  * @param userAgent   the {@code User-Agent} header
  * @param platform    {@code X-App-Platform}, lower-cased
  * @param appVersion  {@code X-App-Version}
@@ -27,6 +27,14 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
     public static final String DEVICE_MODEL_HEADER = "X-Device-Model";
 
     private static final ClientInfo NONE = new ClientInfo(null, null, null, null, null);
+
+    /** Proxies that append to {@code X-Forwarded-For}; set from configuration at startup. */
+    private static volatile int trustedProxies = 1;
+
+    /** How many proxies in front of the application append to {@code X-Forwarded-For} (at least one). */
+    public static void trustProxies(int count) {
+        trustedProxies = Math.max(1, count);
+    }
 
     /** The calling client, or all-null outside an HTTP request (a scheduled job, a test). */
     public static ClientInfo current() {
@@ -63,16 +71,17 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
     }
 
     /**
-     * The client address as the proxy in front of us saw it: the LAST hop of {@code X-Forwarded-For}.
-     * Every earlier entry was written by whoever sent the request and can say anything; the last one
-     * is the one our own proxy appended (a proxy that replaces the header instead leaves only that
-     * one). Trusting the first hop let a caller rotate a forged address past the per-address limits.
+     * The client address as the outermost of our own proxies saw it: counting the trusted proxies
+     * from the right of {@code X-Forwarded-For}. Each of them appends the address it received from,
+     * so with one proxy that is the last entry, with two the one before it. Every entry further left
+     * was written by whoever sent the request and can say anything; trusting the first one let a
+     * caller rotate a forged address past the per-address limits.
      */
     private static String clientIp(HttpServletRequest request) {
         String clientIp = request.getHeader("X-Forwarded-For");
         if (StringUtils.isNotBlank(clientIp)) {
             String[] hops = clientIp.split(",");
-            return hops[hops.length - 1].trim();
+            return hops[Math.max(0, hops.length - trustedProxies)].trim();
         }
         clientIp = request.getHeader("X-Real-IP");
         if (StringUtils.isNotBlank(clientIp)) {

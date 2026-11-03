@@ -157,6 +157,21 @@ class JoinProofTest {
     }
 
     @Test
+    void joiningAReopenedAccount_endsTheSessionsStillNamingIt() {
+        // Reopened for a re-hire: nobody is behind it until now, and whatever session still names the
+        // account was opened for whoever held it before.
+        io.softa.starter.user.service.UserSessionService sessions = mock(io.softa.starter.user.service.UserSessionService.class);
+        ReflectionTestUtils.setField(realInvitationService, "sessionService", sessions);
+        String proof = passTheCode();
+        revived.setProfileId(null);
+
+        realInvitationService.confirmJoin(TOKEN, ADA, proof);
+
+        verify(sessions).revokeAccount(100L, io.softa.framework.web.session.SessionRevokeReason.UNBOUND);
+        assertThat(revived.getProfileId()).isEqualTo(ADA);
+    }
+
+    @Test
     void withoutAProof_setJoinPasswordIsRefused_beforeAnythingIsLookedUp() {
         // The attack itself: token and roster id in hand, no code ever passed.
         for (String missing : new String[] {null, "", "   "}) {
@@ -213,6 +228,28 @@ class JoinProofTest {
         assertThatThrownBy(() -> realInvitationService.confirmJoin(TOKEN, ADA, proof))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Verify the code sent to your contact first.");
+    }
+
+    @Test
+    void aSecondTap_afterTheInvitationIsMarkedAccepted_returnsQuietly_forTheSamePersonOnly() {
+        // As it really happens: the first confirm marks the invitation ACCEPTED, and the entry check
+        // reads an accepted link as spent. The person's own second tap is not an error; a tap naming
+        // someone else is still refused.
+        UserInvitation invitation = pendingInvitation();
+        doReturn(Optional.of(invitation)).when(realInvitationService).searchOne(any(Filters.class));
+        String proof = passTheCode();
+        realInvitationService.confirmJoin(TOKEN, ADA, proof);
+        assertThat(invitation.getStatus()).isEqualTo(InvitationStatus.ACCEPTED);
+        // Whatever the account's activation says, the invitation's status is what is read first.
+        revived.setActivationTime(null);
+
+        assertThatCode(() -> realInvitationService.confirmJoin(TOKEN, ADA, proof)).doesNotThrowAnyException();
+        verify(accountService).updateOne(revived);   // once — the second tap wrote nothing
+        assertThat(realInvitationService.resolveJoinAccount(TOKEN)).isEmpty();   // so LoginService asks to sign in
+
+        assertThatThrownBy(() -> realInvitationService.confirmJoin(TOKEN, STRANGER, proof))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("no longer valid");
     }
 
     @Test

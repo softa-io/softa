@@ -44,6 +44,15 @@ public class CacheServiceImpl implements CacheService {
             return count
             """, Long.class);
 
+    // GET then DEL in one script rather than GETDEL, which needs Redis 6.2.
+    private static final RedisScript<String> GET_AND_CLEAR_SCRIPT = RedisScript.of("""
+            local value = redis.call('GET', KEYS[1])
+            if value then
+                redis.call('DEL', KEYS[1])
+            end
+            return value
+            """, String.class);
+
     /** Keys requested per SCAN step, and removed per UNLINK. */
     private static final int SCAN_BATCH = 1000;
 
@@ -225,6 +234,11 @@ public class CacheServiceImpl implements CacheService {
     public void clear(String key) {
         String cacheKey = this.getKeyPath(key);
         stringRedisTemplate.delete(cacheKey);
+    }
+
+    @Override
+    public String getAndClear(String key) {
+        return stringRedisTemplate.execute(GET_AND_CLEAR_SCRIPT, List.of(this.getKeyPath(key)));
     }
 
     /**
