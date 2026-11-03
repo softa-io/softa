@@ -177,7 +177,7 @@ class LoginControllerTenantSwitchTest {
 
         // Load-bearing: the previous session id is invalidated. Left standing, a copy of the old
         // cookie keeps the previous company open next to the new one.
-        verify(cacheService).clear("session:" + OLD_SESSION);
+        verify(cacheService).clear(java.util.List.of("session:" + OLD_SESSION));
 
         assertThat(response.getHeader("Set-Cookie")).contains(BaseConstant.SESSION_ID + "=" + newSessionId);
         // And in the body, for the APP, which sends it back as X-Session-Id rather than a cookie.

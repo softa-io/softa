@@ -71,6 +71,7 @@ class ContextBuilderUserInfoRebuildTest {
         when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
                 .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
         when(cacheService.getExpire(RedisConstant.SESSION + SESSION_ID)).thenReturn((long) SessionStore.TTL_SECONDS);
+        when(cacheService.clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID))).thenReturn(1L);
     }
 
     private MockHttpServletRequest request() {
@@ -131,7 +132,7 @@ class ContextBuilderUserInfoRebuildTest {
                 .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
         // And this one really is over: the session is destroyed, not merely unresolvable.
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
         verify(cacheService).removeFromSet(SessionStore.ACCOUNT_SESSIONS + USER_ID, SESSION_ID);
     }
 
@@ -159,7 +160,7 @@ class ContextBuilderUserInfoRebuildTest {
                 .extracting(e -> ((UserNotFoundException) e).getErrorCode())
                 .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
     }
 
     @Test
@@ -191,7 +192,7 @@ class ContextBuilderUserInfoRebuildTest {
                 .isInstanceOf(UserNotFoundException.class)
                 .extracting(e -> ((UserNotFoundException) e).getErrorCode())
                 .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
         // Read off the cached entry: no extra query per request.
         verify(userInfoService, never()).loadUserInfo(any());
     }

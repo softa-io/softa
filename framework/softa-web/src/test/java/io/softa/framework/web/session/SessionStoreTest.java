@@ -1,6 +1,7 @@
 package io.softa.framework.web.session;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,7 @@ class SessionStoreTest {
     private void live(String sessionId, Long accountId, long secondsLeft) {
         when(cacheService.get(RedisConstant.SESSION + sessionId, SessionRecord.class)).thenReturn(record(accountId));
         when(cacheService.getExpire(RedisConstant.SESSION + sessionId)).thenReturn(secondsLeft);
+        when(cacheService.clear(List.of(RedisConstant.SESSION + sessionId))).thenReturn(1L);
     }
 
     @Test
@@ -109,7 +111,7 @@ class SessionStoreTest {
 
         assertThat(store.revoke("s1", SessionRevokeReason.LOGOUT)).isTrue();
 
-        verify(cacheService).clear(RedisConstant.SESSION + "s1");
+        verify(cacheService).clear(List.of(RedisConstant.SESSION + "s1"));
         verify(cacheService).removeFromSet("account-sessions:" + ACCOUNT, "s1");
         ArgumentCaptor<SessionRevokedEvent> event = ArgumentCaptor.forClass(SessionRevokedEvent.class);
         verify(publisher).publishEvent(event.capture());
@@ -127,9 +129,9 @@ class SessionStoreTest {
         int revoked = store.revokeAccount(ACCOUNT, "keep", SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
 
         assertThat(revoked).isEqualTo(2);
-        verify(cacheService).clear(RedisConstant.SESSION + "a");
-        verify(cacheService).clear(RedisConstant.SESSION + "b");
-        verify(cacheService, never()).clear(RedisConstant.SESSION + "keep");
+        verify(cacheService).clear(List.of(RedisConstant.SESSION + "a"));
+        verify(cacheService).clear(List.of(RedisConstant.SESSION + "b"));
+        verify(cacheService, never()).clear(List.of(RedisConstant.SESSION + "keep"));
         // A member that had already expired is dropped from the index, without an event.
         verify(cacheService).removeFromSet("account-sessions:" + ACCOUNT, "gone");
     }
@@ -165,5 +167,17 @@ class SessionStoreTest {
         assertThat(store.endedForUnavailableOrg("frozen")).map(SessionRecord::profileId).contains(PROFILE);
         assertThat(store.endedForUnavailableOrg("other")).isEmpty();
         assertThat(store.endedForUnavailableOrg(null)).isEmpty();
+    }
+
+    @Test
+    void twoRequestsRevokingTheSameSession_announceItOnce() {
+        live("s1", ACCOUNT, 100);
+        // The second caller read the session too, but its delete found the key already gone.
+        when(cacheService.clear(List.of(RedisConstant.SESSION + "s1"))).thenReturn(1L, 0L);
+
+        assertThat(store.revoke("s1", SessionRevokeReason.ORG_UNAVAILABLE)).isTrue();
+        assertThat(store.revoke("s1", SessionRevokeReason.ORG_UNAVAILABLE)).isFalse();
+
+        verify(publisher).publishEvent(any(SessionRevokedEvent.class));
     }
 }

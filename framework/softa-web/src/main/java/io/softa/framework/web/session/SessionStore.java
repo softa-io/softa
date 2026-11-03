@@ -2,6 +2,7 @@ package io.softa.framework.web.session;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import jakarta.servlet.http.HttpServletRequest;
@@ -172,12 +173,16 @@ public class SessionStore {
             session.ifPresent(s -> cacheService.save(ORG_UNAVAILABLE_SESSIONS + sessionId, s,
                     ORG_UNAVAILABLE_MARK_SECONDS));
         }
-        cacheService.clear(sessionKey(sessionId));
-        session.ifPresent(s -> {
+        // Two requests can both read the session before either removes it; only the one whose delete
+        // took the key announces the removal, so its listeners (the login history) record it once.
+        Long deleted = cacheService.clear(List.of(sessionKey(sessionId)));
+        boolean removed = session.isPresent() && deleted != null && deleted > 0;
+        if (removed) {
+            SessionRecord s = session.get();
             cacheService.removeFromSet(accountKey(s.accountId()), sessionId);
             eventPublisher.publishEvent(new SessionRevokedEvent(sessionId, s, reason));
-        });
-        return session.isPresent();
+        }
+        return removed;
     }
 
     /**
