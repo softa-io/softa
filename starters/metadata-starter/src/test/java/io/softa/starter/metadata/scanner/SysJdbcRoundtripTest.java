@@ -86,7 +86,6 @@ class SysJdbcRoundtripTest {
                   multi_company TINYINT NOT NULL DEFAULT 0,
                   copyable TINYINT NOT NULL DEFAULT 1,
                   enable_audit_log TINYINT DEFAULT 1,
-                  enable_department_grant TINYINT DEFAULT 1,
                   projection TINYINT NOT NULL DEFAULT 0,
                   data_source VARCHAR(64),
                   service_name VARCHAR(64),

@@ -140,11 +140,10 @@ public final class DepartmentGrants {
 
     /**
      * Whether the department grant bounds {@code model}: the department model itself, or a model whose
-     * {@code departmentId} is a to-one onto it and that did not opt out with
-     * {@code @Model(enableDepartmentGrant = false)}. The same reading the enforcing side makes.
+     * {@code departmentId} is a to-one onto it. The same reading the enforcing side makes.
      */
     public static boolean bounds(String model) {
-        if (model == null || !ModelManager.existModel(model) || !ModelManager.isDepartmentGrantEnabled(model)) {
+        if (model == null || !ModelManager.existModel(model)) {
             return false;
         }
         if (ModelConstant.DEPARTMENT_MODEL.equals(model)) {

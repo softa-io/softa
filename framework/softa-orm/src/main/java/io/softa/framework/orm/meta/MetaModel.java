@@ -74,11 +74,6 @@ public class MetaModel implements Serializable {
     // (a scanner-off environment before its migration), where SELECT * returns no value.
     private Boolean enableAuditLog = Boolean.TRUE;
 
-    // Same Boolean-with-initializer shape as enableAuditLog, for the same reason: a NULL or missing
-    // sys_model column must not take a model off the department grant
-    // (ModelManager.isDepartmentGrantEnabled reads null as enabled).
-    private Boolean enableDepartmentGrant = Boolean.TRUE;
-
     /** Read-only projection over a table another model (or an external process) owns; writes are rejected. */
     private boolean projection;
 

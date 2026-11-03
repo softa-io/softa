@@ -110,11 +110,6 @@ public class DesignModel extends AuditableModel {
     @Field(label = "Enable Audit Log", defaultValue = "true")
     private Boolean enableAuditLog = Boolean.TRUE;
 
-    // Structural mirror of sys_model.enableDepartmentGrant; the cross-lane checksum requires the
-    // same declaration on both sides. Initialized true (column DEFAULT 1).
-    @Field(label = "Enable Department Grant", defaultValue = "true")
-    private Boolean enableDepartmentGrant = Boolean.TRUE;
-
     // Structural mirror of sys_model.projection (read-only model over a table it does not own);
     // required for the cross-lane checksum. Studio does not support AUTHORING projections yet —
     // DesignModelController rejects a true value, so this stays false until that lane is designed.

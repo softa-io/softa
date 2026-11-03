@@ -88,9 +88,8 @@ public interface ModelConstant {
      * The field a model belongs to a department through — the anchor the department grant bounds,
      * when it is a {@code MANY_TO_ONE} / {@code ONE_TO_ONE} onto {@link #DEPARTMENT_MODEL}. Fixed by
      * name for the reason {@link #COMPANY_FIELD} is: a model may reference departments for other
-     * reasons, and only this name says "the row is that department's". A model whose field of this
-     * name is configuration rather than ownership opts out with
-     * {@code @Model(enableDepartmentGrant = false)}.
+     * reasons, and only this name says "the row is that department's"; a reference that is
+     * configuration rather than ownership is named otherwise.
      */
     String DEPARTMENT_FIELD = "departmentId";
     // Reserved field: Version number identifier, used for optimistic lock control

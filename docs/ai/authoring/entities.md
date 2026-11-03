@@ -106,7 +106,6 @@ Common attributes — omit any that equals the default:
 | `idStrategy` | `DB_AUTO_ID` | use `DISTRIBUTED_LONG` for CosID distributed IDs; `EXTERNAL_ID` for code-as-id masters |
 | `copyable` | `true` | `false` = row can't be duplicated (log / runtime models) |
 | `enableAuditLog` | `true` | `false` = writes build no change log, for derived / report models rewritten in bulk. The model then has no Audit Log history and fires no change-triggered flows — check none is bound to it first |
-| `enableDepartmentGrant` | `true` | `false` = a role's department grant does not bound this model even though it carries `departmentId` — for models whose `departmentId` is configuration (a rule or template per department) rather than the department the row belongs to |
 | `versionLock` | `false` | optimistic locking: declare a `@Field(required = true) private Long version;` on the class. The starting value is materialized to `0` for you (don't set `defaultValue`); the framework stamps it on insert and increments it on every update; an update that carries a stale `version` throws `VersionException` |
 | `renamedFrom` | `""` | previous class name, for a safe rename — see §5 |
 

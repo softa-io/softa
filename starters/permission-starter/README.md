@@ -413,8 +413,8 @@ snapshot expands it per role into `RoleGrant.grantedDepartmentIds` by `idPath` (
 under a granted one joins when the snapshot is rebuilt), and `PermissionServiceImpl` ANDs it onto that
 role's rows of every model with `departmentId` as a to-one onto `Department`, and of `Department` itself
 by `id` — next to the company grant, per role, before the roles are OR-ed. There is no user-level union.
-A model whose `departmentId` is configuration rather than ownership opts out with
-`@Model(enableDepartmentGrant = false)`. With no role carrying a grant, nothing changes; an application
+A model whose department reference is configuration rather than ownership names that field otherwise
+(not `departmentId`), and is not bounded. With no role carrying a grant, nothing changes; an application
 whose `Role` model does not declare the column is not asked for it.
 
 **Rows, per action.** The row scope of an action on a model is the OR of the scopes of the roles that

@@ -2019,12 +2019,13 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * The field a model is bounded by the department grant through, or null when the grant does not
      * reach it: the department model by its own {@code id}; any other model by {@code departmentId},
-     * when that field is a to-one onto the department model and the model has not opted out with
-     * {@code @Model(enableDepartmentGrant = false)}. A {@code departmentId} that is a plain number
-     * column, or that points elsewhere, is not an anchor: the grant would compare ids across models.
+     * when that field is a to-one onto the department model. A {@code departmentId} that is a plain
+     * number column, or that points elsewhere, is not an anchor: the grant would compare ids across
+     * models. A model that references departments as configuration rather than ownership names the
+     * field otherwise, and so is not bounded.
      */
     private static String departmentAnchorOf(String model) {
-        if (!ModelManager.existModel(model) || !ModelManager.isDepartmentGrantEnabled(model)) {
+        if (!ModelManager.existModel(model)) {
             return null;
         }
         if (ModelConstant.DEPARTMENT_MODEL.equals(model)) {

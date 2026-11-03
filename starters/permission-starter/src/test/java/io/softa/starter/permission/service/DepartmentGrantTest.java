@@ -72,10 +72,9 @@ class DepartmentGrantTest {
         return new PermissionServiceImpl(null, null, null, null, null).departmentScope(model, granted);
     }
 
-    /** A model carrying {@code departmentId} of the given type and target, taking part unless opted out. */
-    private void model(String name, FieldType type, String relatedModel, boolean enabled) {
+    /** A model carrying {@code departmentId} of the given type and target. */
+    private void model(String name, FieldType type, String relatedModel) {
         modelManager.when(() -> ModelManager.existModel(name)).thenReturn(true);
-        modelManager.when(() -> ModelManager.isDepartmentGrantEnabled(name)).thenReturn(enabled);
         MetaModel meta = mock(MetaModel.class);
         modelManager.when(() -> ModelManager.getModel(name)).thenReturn(meta);
         if (type != null) {
@@ -88,7 +87,7 @@ class DepartmentGrantTest {
     }
 
     private void anchored(String name) {
-        model(name, FieldType.MANY_TO_ONE, ModelConstant.DEPARTMENT_MODEL, true);
+        model(name, FieldType.MANY_TO_ONE, ModelConstant.DEPARTMENT_MODEL);
     }
 
     // ---- the three states ------------------------------------------------
@@ -127,7 +126,7 @@ class DepartmentGrantTest {
     @Test
     @DisplayName("the department model is bounded by its own id")
     void boundsTheDepartmentListItself() {
-        model(ModelConstant.DEPARTMENT_MODEL, null, null, true);
+        model(ModelConstant.DEPARTMENT_MODEL, null, null);
 
         Filters result = scope(ModelConstant.DEPARTMENT_MODEL, GRANTED);
 
@@ -136,9 +135,9 @@ class DepartmentGrantTest {
     }
 
     @Test
-    @DisplayName("a model that opted out is left alone")
-    void leavesAModelThatOptedOut() {
-        model("ApprovalRule", FieldType.MANY_TO_ONE, ModelConstant.DEPARTMENT_MODEL, false);
+    @DisplayName("a model referencing departments under another name is left alone")
+    void leavesAModelWhoseDepartmentReferenceIsNamedOtherwise() {
+        model("ApprovalRule", null, null);
 
         assertThat(scope("ApprovalRule", GRANTED)).isNull();
     }
@@ -146,8 +145,8 @@ class DepartmentGrantTest {
     @Test
     @DisplayName("a departmentId that is a plain number, or points at another model, is not an anchor")
     void leavesADepartmentIdThatIsNotARelationOntoTheDepartmentModel() {
-        model("FlowRecord", FieldType.LONG, null, true);
-        model("CostCentre", FieldType.MANY_TO_ONE, "OrgUnit", true);
+        model("FlowRecord", FieldType.LONG, null);
+        model("CostCentre", FieldType.MANY_TO_ONE, "OrgUnit");
 
         assertThat(scope("FlowRecord", GRANTED)).isNull();
         assertThat(scope("CostCentre", GRANTED)).isNull();
@@ -156,7 +155,7 @@ class DepartmentGrantTest {
     @Test
     @DisplayName("a model without departmentId is left alone")
     void leavesAModelWithoutTheAnchor() {
-        model("Currency", null, null, true);
+        model("Currency", null, null);
 
         assertThat(scope("Currency", GRANTED)).isNull();
     }
