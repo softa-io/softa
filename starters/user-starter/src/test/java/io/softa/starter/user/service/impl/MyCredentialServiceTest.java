@@ -2,13 +2,17 @@ package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -39,6 +43,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -58,6 +63,9 @@ class MyCredentialServiceTest {
     private static final String SESSION = "this-device";
 
     private final Map<String, String> cache = new HashMap<>();
+    private final Map<String, Integer> ttls = new HashMap<>();
+    private final Map<String, Long> counters = new HashMap<>();
+    private final Map<String, Set<String>> sets = new HashMap<>();
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final LoginService loginService = mock(LoginService.class);
@@ -105,10 +113,19 @@ class MyCredentialServiceTest {
 
     private CacheService inMemoryCache() {
         CacheService cacheService = mock(CacheService.class);
-        doAnswer(inv -> cache.put(inv.getArgument(0), inv.getArgument(1).toString()))
-                .when(cacheService).save(anyString(), any(), anyInt());
+        doAnswer(inv -> {
+            ttls.put(inv.getArgument(0), inv.getArgument(2));
+            return cache.put(inv.getArgument(0), inv.getArgument(1).toString());
+        }).when(cacheService).save(anyString(), any(), anyInt());
         when(cacheService.get(anyString())).thenAnswer(inv -> cache.get(inv.<String>getArgument(0)));
+        when(cacheService.getAndClear(anyString())).thenAnswer(inv -> cache.remove(inv.<String>getArgument(0)));
         doAnswer(inv -> cache.remove(inv.<String>getArgument(0))).when(cacheService).clear(anyString());
+        when(cacheService.increment(anyString(), anyLong()))
+                .thenAnswer(inv -> counters.merge(inv.getArgument(0), 1L, Long::sum));
+        doAnswer(inv -> sets.computeIfAbsent(inv.getArgument(0), k -> new HashSet<>()).add(inv.getArgument(1)))
+                .when(cacheService).addToSet(anyString(), anyString(), anyInt());
+        when(cacheService.getSetMembers(anyString()))
+                .thenAnswer(inv -> sets.getOrDefault(inv.<String>getArgument(0), Set.of()));
         return cacheService;
     }
 
@@ -268,6 +285,94 @@ class MyCredentialServiceTest {
         assertThatThrownBy(() -> signedIn(() -> service.confirmNewMobile(verified, "654321")))
                 .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo(AccountErrorCodes.TICKET_EXPIRED));
         assertThat(ada.getLoginMobile()).isEqualTo(MOBILE);
+        // Presented at the wrong step, it is not used up: it still opens the step it was issued for.
+        assertThat(signedIn(() -> service.checkNewMobile(verified, NEW_MOBILE))).isNotBlank();
+    }
+
+    @Test
+    void aNumberWithoutItsCountryCode_orOfTheWrongLength_isRefused_andTheTicketKept() {
+        String ticket = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+
+        for (String typed : List.of("91234567", "+65 123", "+1234567890123456", "+65 9123 456a")) {
+            assertThatThrownBy(() -> signedIn(() -> service.checkNewMobile(ticket, typed)))
+                    .as(typed).isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("country code");
+        }
+        verify(codeGuard, never()).beforeSend(anyString());
+        assertThat(signedIn(() -> service.checkNewMobile(ticket, "+65 9876-5432"))).isNotBlank();
+        verify(codeGuard).beforeSend(NEW_MOBILE);
+    }
+
+    @Test
+    void probingNumbers_isCappedPerDay_takenOnesIncluded_butTheSameNumberAgainIsFree() {
+        UserIdentity holder = new UserIdentity();
+        holder.setProfileId(9L);
+        when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.of(holder));
+        String ticket = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+
+        for (int i = 0; i < MyCredentialServiceImpl.DAILY_NEW_MOBILE_LIMIT; i++) {
+            String probe = "+659000000" + i;
+            // The answer stays what it was — "taken" — while each probe counts toward the cap.
+            assertThatThrownBy(() -> signedIn(() -> service.checkNewMobile(ticket, probe)))
+                    .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo(AccountErrorCodes.MOBILE_TAKEN));
+        }
+        assertThatThrownBy(() -> signedIn(() -> service.checkNewMobile(ticket, "+6590000009")))
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo(AccountErrorCodes.TOO_MANY_REQUESTS));
+        // A number already named today is asked again without counting.
+        assertThatThrownBy(() -> signedIn(() -> service.checkNewMobile(ticket, "+6590000000")))
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo(AccountErrorCodes.MOBILE_TAKEN));
+    }
+
+    @Test
+    void provingItIsThem_isCappedPerDay_soAPasswordCannotOpenEndlessSends() {
+        when(identityService.matchesPassword(ada, "right")).thenReturn(true);
+        for (int i = 0; i < MyCredentialServiceImpl.DAILY_VERIFY_LIMIT; i++) {
+            assertThat(signedIn(() -> service.verifyCurrentForMobile("password", null, "right"))).isNotBlank();
+        }
+
+        assertThatThrownBy(() -> signedIn(() -> service.verifyCurrentForMobile("password", null, "right")))
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo(AccountErrorCodes.TOO_MANY_REQUESTS));
+    }
+
+    @Test
+    void aTicketIsTakenAtomically_andPutBackWithTheLifetimeItHadLeft_whenTheStepFails() {
+        String ticket = signedIn(() -> service.verifyCodeForPassword("123456"));
+        doThrow(new BusinessException("Password too weak.")).when(identityService).setPassword(11L, "weak");
+
+        assertThatThrownBy(() -> signedIn(() -> service.changePassword(ticket, "weak")))
+                .hasMessage("Password too weak.");
+
+        String key = cache.keySet().stream().filter(k -> k.startsWith("me:ticket:")).findFirst().orElseThrow();
+        assertThat(ttls.get(key)).isBetween(1, MyCredentialServiceImpl.TICKET_TTL_SECONDS);
+        signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
+        verify(identityService).setPassword(11L, "N3w-Passw0rd!");
+    }
+
+    @Test
+    void otherDevicesAreSignedOut_onlyOnceTheChangeCommits() {
+        String ticket = signedIn(() -> service.verifyCodeForPassword("123456"));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
+            verify(sessions, never()).revokePerson(any(), any(), any());
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+            verify(sessions).revokePerson(ADA, SESSION, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void aSecurityLogThatFails_signsNobodyOut_andKeepsTheTicket() {
+        String ticket = signedIn(() -> service.verifyCodeForPassword("123456"));
+        doThrow(new IllegalStateException("log down")).when(securityLog).record(any());
+
+        assertThatThrownBy(() -> signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!")))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(sessions, never()).revokePerson(any(), any(), any());
+        assertThat(cache.keySet()).anyMatch(k -> k.startsWith("me:ticket:"));
     }
 
     // ── summary ─────────────────────────────────────────────────────

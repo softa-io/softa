@@ -3,6 +3,9 @@ package io.softa.starter.user.service.impl;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -10,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -47,14 +52,32 @@ public class MyCredentialServiceImpl implements MyCredentialService {
     private static final int TICKET_BYTES = 32;
     /** Same template and copy as the login code: one code, one message, whichever screen asked. */
     private static final String TEMPLATE_CODE = "user.verification-code";
+    private static final int DAY_SECONDS = 86400;
+    /**
+     * Times a day one person may prove themselves to change their mobile. Each pass opens a ticket
+     * that can send a code to a number of their choosing, so a password that never runs out of
+     * passes would never run out of texts either.
+     */
+    static final int DAILY_VERIFY_LIMIT = 10;
+    /**
+     * Different numbers one person may name in a day. Naming one also says whether it signs someone
+     * else in, so this bounds the probing as well as the texts; trying the same number again is free.
+     */
+    static final int DAILY_NEW_MOBILE_LIMIT = 5;
+    /** A full international number: a plus, then 7 to 15 digits (E.164 allows at most 15). */
+    private static final Pattern INTERNATIONAL_MOBILE = Pattern.compile("\\+[0-9]{7,15}");
 
     /** The step a ticket opens. */
     enum Step {
         CHANGE_PASSWORD, NAME_NEW_MOBILE, CONFIRM_NEW_MOBILE
     }
 
-    /** What a ticket stands for: this step, for this person signed into this account. */
-    record Ticket(Step step, Long profileId, Long accountId, String mobile) {
+    /**
+     * What a ticket stands for: this step, for this person signed into this account, until
+     * {@code expiresAt} (epoch seconds) — kept so a ticket put back after a failed step keeps the
+     * lifetime it had, rather than starting a new one.
+     */
+    record Ticket(Step step, Long profileId, Long accountId, String mobile, long expiresAt) {
     }
 
     @Autowired
@@ -180,29 +203,32 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         UserAccount account = this.currentAccount();
         UserIdentity identity = this.identityOf(account);
         codeGuard.verify(this.loginMobileOf(identity), code);
-        return this.issue(new Ticket(Step.CHANGE_PASSWORD, account.getProfileId(), account.getId(), null));
+        return this.issue(Step.CHANGE_PASSWORD, account, null);
     }
 
     private void changePasswordAsSelf(String ticket, String newPassword) {
         UserAccount account = this.currentAccount();
-        Ticket held = this.require(ticket, Step.CHANGE_PASSWORD, account);
-        UserIdentity identity = this.identityOf(account);
-        boolean wasLocked = identityService.isPasswordLocked(identity);
-        // Strength rules, the lock and the failure count all live in setPassword: a new password
-        // lifts the lock exactly as a forgot-password reset does.
-        identityService.setPassword(identity.getId(), newPassword);
-        this.spend(ticket);
-        if (wasLocked) {
-            history.record(LoginEvent.UNLOCKED, held.profileId(), account.getId(), account.getTenantId(),
-                    null, null, null);
-        }
-        this.signOutOtherDevices(account.getProfileId());
-        securityLog.record(securityLog.entry(SecurityAction.PASSWORD_CHANGED, this.source(), account, null));
+        this.spending(ticket, Step.CHANGE_PASSWORD, account, held -> {
+            UserIdentity identity = this.identityOf(account);
+            boolean wasLocked = identityService.isPasswordLocked(identity);
+            // Strength rules, the lock and the failure count all live in setPassword: a new password
+            // lifts the lock exactly as a forgot-password reset does.
+            identityService.setPassword(identity.getId(), newPassword);
+            if (wasLocked) {
+                history.record(LoginEvent.UNLOCKED, held.profileId(), account.getId(), account.getTenantId(),
+                        null, null, null);
+            }
+            securityLog.record(securityLog.entry(SecurityAction.PASSWORD_CHANGED, this.source(), account, null));
+            this.signOutOtherDevicesAfterCommit(account.getProfileId());
+            return null;
+        });
     }
 
     private String verifyCurrentForMobileAsSelf(String method, String code, String password) {
         UserAccount account = this.currentAccount();
         UserIdentity identity = this.identityOf(account);
+        // Counted before the proof is checked: a failed try is a try too.
+        this.withinDailyLimit(dailyKey("verify", account.getProfileId()), DAILY_VERIFY_LIMIT);
         if ("password".equalsIgnoreCase(method)) {
             this.checkPassword(identity, account, password);
         } else if ("code".equalsIgnoreCase(method)) {
@@ -210,22 +236,54 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         } else {
             throw new BusinessException("Verify with a code or with your password.");
         }
-        return this.issue(new Ticket(Step.NAME_NEW_MOBILE, account.getProfileId(), account.getId(), null));
+        return this.issue(Step.NAME_NEW_MOBILE, account, null);
     }
 
     private String checkNewMobileAsSelf(String ticket, String newMobile) {
         UserAccount account = this.currentAccount();
-        this.require(ticket, Step.NAME_NEW_MOBILE, account);
-        String mobile = LoginIdentifiers.normalize(StringUtils.trimToNull(newMobile));
-        if (mobile == null || mobile.contains("@")) {
-            throw new BusinessException("Enter a mobile number with its country code.");
+        // A refused step — a malformed or taken number, a send refused as too soon — puts the
+        // ticket back, so the person stays on this step and can try another number.
+        return this.spending(ticket, Step.NAME_NEW_MOBILE, account, held -> {
+            String mobile = LoginIdentifiers.normalize(StringUtils.trimToNull(newMobile));
+            if (mobile == null || !INTERNATIONAL_MOBILE.matcher(mobile).matches()) {
+                throw new BusinessException("Enter a mobile number with its country code, such as +65 9123 4567.");
+            }
+            this.countNewMobile(account.getProfileId(), mobile);
+            this.refuseUnusable(this.identityOf(account), mobile);
+            this.sendCode(mobile);
+            return this.issue(Step.CONFIRM_NEW_MOBILE, account, mobile);
+        });
+    }
+
+    /**
+     * Counts a number toward the day's limit before anything is said about it, so a probe that ends
+     * in "taken" is counted like any other. A number already named today is not counted again.
+     */
+    private void countNewMobile(Long profileId, String mobile) {
+        String key = dailyKey("new-mobile", profileId);
+        Set<String> named = cacheService.getSetMembers(key);
+        if (named != null && named.contains(mobile)) {
+            return;
         }
-        this.refuseUnusable(this.identityOf(account), mobile);
-        // Sent before the ticket is spent: a refused send (too soon, too many today) leaves the
-        // person on this step with a ticket that still works.
-        this.sendCode(mobile);
-        this.spend(ticket);
-        return this.issue(new Ticket(Step.CONFIRM_NEW_MOBILE, account.getProfileId(), account.getId(), mobile));
+        if (named != null && named.size() >= DAILY_NEW_MOBILE_LIMIT) {
+            throw tooMany();
+        }
+        cacheService.addToSet(key, mobile, DAY_SECONDS);
+    }
+
+    private void withinDailyLimit(String key, int limit) {
+        Long count = cacheService.increment(key, DAY_SECONDS);
+        if (count != null && count > limit) {
+            throw tooMany();
+        }
+    }
+
+    private static String dailyKey(String what, Long profileId) {
+        return "me:" + what + ":" + profileId;
+    }
+
+    private static BusinessException tooMany() {
+        return AccountErrorCodes.refusal(AccountErrorCodes.TOO_MANY_REQUESTS, "Too many requests. Try again later.");
     }
 
     private void resendNewMobileCodeAsSelf(String ticket) {
@@ -235,37 +293,35 @@ public class MyCredentialServiceImpl implements MyCredentialService {
 
     private void confirmNewMobileAsSelf(String ticket, String code) {
         UserAccount account = this.currentAccount();
-        Ticket held = this.require(ticket, Step.CONFIRM_NEW_MOBILE, account);
-        codeGuard.verify(held.mobile(), code);
-        UserIdentity identity = this.identityOf(account);
-        // Asked again: the number may have gone to someone in the minutes since it was named.
-        this.refuseUnusable(identity, held.mobile());
-        // A dormant holder gives the number up now, once the new owner has proved they have it.
-        boolean heldByOther = identityService.findByLoginIdentifier(held.mobile())
-                .filter(other -> !Objects.equals(other.getProfileId(), identity.getProfileId()))
-                .isPresent();
-        if (heldByOther && !accountService.releaseDormantLoginMobile(held.mobile(), "Login mobile changed")) {
-            throw this.mobileTaken();
-        }
-        String previous = identity.getLoginMobile();
-        identity.setLoginMobile(held.mobile());
-        identityService.updateOne(identity);
-        // The account list shows and finds the number the person signs in with, in every company.
-        accountService.followLoginMobile(identity.getProfileId());
-        this.spend(ticket);
-        this.signOutOtherDevices(account.getProfileId());
-        UserSecurityLog row = securityLog.entry(SecurityAction.LOGIN_MOBILE_CHANGED, this.source(), account, null);
-        row.setOldValue(mobileFormat.format(previous).masked());
-        row.setNewValue(mobileFormat.format(held.mobile()).masked());
-        securityLog.record(row);
+        this.spending(ticket, Step.CONFIRM_NEW_MOBILE, account, held -> {
+            codeGuard.verify(held.mobile(), code);
+            UserIdentity identity = this.identityOf(account);
+            // Asked again: the number may have gone to someone in the minutes since it was named.
+            // A dormant holder gives the number up now, once the new owner has proved they have it.
+            if (this.refuseUnusable(identity, held.mobile())
+                    && !accountService.releaseDormantLoginMobile(held.mobile(), "Login mobile changed")) {
+                throw this.mobileTaken();
+            }
+            String previous = identity.getLoginMobile();
+            identity.setLoginMobile(held.mobile());
+            identityService.updateOne(identity);
+            // The account list shows and finds the number the person signs in with, in every company.
+            accountService.followLoginMobile(identity.getProfileId());
+            UserSecurityLog row = securityLog.entry(SecurityAction.LOGIN_MOBILE_CHANGED, this.source(), account, null);
+            row.setOldValue(mobileFormat.format(previous).masked());
+            row.setNewValue(mobileFormat.format(held.mobile()).masked());
+            securityLog.record(row);
+            this.signOutOtherDevicesAfterCommit(account.getProfileId());
+            return null;
+        });
     }
 
     /**
-     * Why this number cannot become the person's login mobile: it already is, or it signs in someone
-     * who is still in a company. A dormant holder does not block — their number is released on
-     * confirm.
+     * Refuses a number that cannot become the person's login mobile: it already is, or it signs in
+     * someone who is still in a company. A dormant holder does not block — their number is released
+     * on confirm — and is what a {@code true} return means.
      */
-    private void refuseUnusable(UserIdentity identity, String mobile) {
+    private boolean refuseUnusable(UserIdentity identity, String mobile) {
         if (mobile.equals(LoginIdentifiers.normalize(identity.getLoginMobile()))) {
             throw AccountErrorCodes.refusal(AccountErrorCodes.MOBILE_UNCHANGED,
                     "This is already your login mobile. Enter a different number.");
@@ -276,6 +332,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         if (heldByOther && !accountService.isDormantLoginMobile(mobile)) {
             throw this.mobileTaken();
         }
+        return heldByOther;
     }
 
     private BusinessException mobileTaken() {
@@ -303,10 +360,23 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         identityService.clearPasswordFailures(identity.getId());
     }
 
-    /** Every other device of the person, in every company; the one making the change stays. */
-    private void signOutOtherDevices(Long profileId) {
-        sessionService.revokePerson(profileId, sessionService.currentSessionId(),
-                SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
+    /**
+     * Every other device of the person, in every company; the one making the change stays. Only
+     * once the change is committed: a change that rolls back must not have signed anyone out.
+     */
+    private void signOutOtherDevicesAfterCommit(Long profileId) {
+        String keep = sessionService.currentSessionId();
+        Runnable signOut = () -> sessionService.revokePerson(profileId, keep, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            signOut.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                signOut.run();
+            }
+        });
     }
 
     private SecurityLogSource source() {
@@ -317,7 +387,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
     private void sendCode(String mobile) {
         String number = LoginIdentifiers.normalize(mobile);
         codeGuard.beforeSend(number);
-        String code = RandomStringUtils.insecure().nextNumeric(VerificationCodeGuard.CODE_LENGTH);
+        String code = RandomStringUtils.secure().nextNumeric(VerificationCodeGuard.CODE_LENGTH);
         codeGuard.store(number, code);
         eventPublisher.publishEvent(new SmsRequestMessage(List.of(number), TEMPLATE_CODE,
                 Map.of("code", code, "expiryMinutes", VerificationCodeGuard.CODE_TTL_SECONDS / 60)));
@@ -357,41 +427,79 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         return "me:ticket:" + EncryptUtils.computeSha256(ticket);
     }
 
-    private String issue(Ticket ticket) {
-        String token = RandomUtils.randomString(TICKET_BYTES);
-        cacheService.save(ticketKey(token), String.join("|", ticket.step().name(),
-                ticket.profileId().toString(), ticket.accountId().toString(),
-                StringUtils.defaultString(ticket.mobile())), TICKET_TTL_SECONDS);
+    private String issue(Step step, UserAccount account, String mobile) {
+        return this.store(RandomUtils.randomString(TICKET_BYTES), new Ticket(step, account.getProfileId(),
+                account.getId(), mobile, nowSeconds() + TICKET_TTL_SECONDS));
+    }
+
+    private String store(String token, Ticket ticket) {
+        long left = ticket.expiresAt() - nowSeconds();
+        if (left > 0) {
+            cacheService.save(ticketKey(token), String.join("|", ticket.step().name(),
+                    ticket.profileId().toString(), ticket.accountId().toString(),
+                    StringUtils.defaultString(ticket.mobile()), Long.toString(ticket.expiresAt())), (int) left);
+        }
         return token;
     }
 
     /**
+     * Spends the ticket on one step. It is taken out of the cache in one atomic read-and-delete, so
+     * two requests presenting it at once cannot both get through; if the step then fails, it is put
+     * back with the lifetime it had left, and the person can try again on the same screen.
+     */
+    private <T> T spending(String token, Step step, UserAccount account, Function<Ticket, T> work) {
+        String value = StringUtils.isBlank(token) ? null : cacheService.getAndClear(ticketKey(token));
+        Ticket ticket = value == null ? null : parse(value);
+        if (ticket == null) {
+            throw ticketExpired();
+        }
+        if (!this.isFor(ticket, step, account)) {
+            // Taken by someone it was not issued to, or at the wrong step: it stays its owner's.
+            this.store(token, ticket);
+            throw ticketExpired();
+        }
+        try {
+            return work.apply(ticket);
+        } catch (RuntimeException e) {
+            this.store(token, ticket);
+            throw e;
+        }
+    }
+
+    /**
      * The live ticket for this step, issued to the person signed into this very account; refused
-     * otherwise. Not spent here — a step that fails leaves it usable for another try.
+     * otherwise. Read only, for a step that does not move the person on (resending the code).
      */
     private Ticket require(String token, Step step, UserAccount account) {
         String value = StringUtils.isBlank(token) ? null : cacheService.get(ticketKey(token));
         Ticket ticket = value == null ? null : parse(value);
-        if (ticket == null || ticket.step() != step || !Objects.equals(ticket.profileId(), account.getProfileId())
-                || !Objects.equals(ticket.accountId(), account.getId())) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.TICKET_EXPIRED,
-                    "This step has expired. Please start again.");
+        if (ticket == null || !this.isFor(ticket, step, account)) {
+            throw ticketExpired();
         }
         return ticket;
     }
 
-    private void spend(String token) {
-        cacheService.clear(ticketKey(token));
+    private boolean isFor(Ticket ticket, Step step, UserAccount account) {
+        return ticket.step() == step && Objects.equals(ticket.profileId(), account.getProfileId())
+                && Objects.equals(ticket.accountId(), account.getId());
+    }
+
+    private static BusinessException ticketExpired() {
+        return AccountErrorCodes.refusal(AccountErrorCodes.TICKET_EXPIRED, "This step has expired. Please start again.");
+    }
+
+    private static long nowSeconds() {
+        return System.currentTimeMillis() / 1000;
     }
 
     private static Ticket parse(String value) {
         String[] parts = value.split("\\|", -1);
-        if (parts.length != 4) {
+        if (parts.length != 5) {
             return null;
         }
         try {
             return new Ticket(Step.valueOf(parts[0]), Long.valueOf(parts[1]), Long.valueOf(parts[2]),
-                    StringUtils.trimToNull(parts[3]));
+                    StringUtils.trimToNull(parts[3]), Long.parseLong(parts[4]));
         } catch (IllegalArgumentException e) {
             return null;
         }
