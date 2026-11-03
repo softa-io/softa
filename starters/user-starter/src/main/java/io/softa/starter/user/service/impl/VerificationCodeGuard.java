@@ -1,5 +1,6 @@
 package io.softa.starter.user.service.impl;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,6 +56,16 @@ public class VerificationCodeGuard {
 
     private final CacheService cacheService;
 
+    /** The per-address budget shared with password attempts; absent in a bare unit test. */
+    @Autowired(required = false)
+    private AddressAttemptLimiter addressLimiter;
+
+    private void countAddress() {
+        if (addressLimiter != null) {
+            addressLimiter.count();
+        }
+    }
+
     private static String key(String suffix, String identifier) {
         return RedisConstant.VERIFICATION_CODE + suffix + ":" + identifier;
     }
@@ -70,6 +81,7 @@ public class VerificationCodeGuard {
      * @throws BusinessException when banned, too soon, or over the daily cap
      */
     public void beforeSend(String identifier) {
+        countAddress();
         requireNotBanned(identifier);
 
         String cooldownKey = key("cooldown", identifier);
@@ -102,6 +114,7 @@ public class VerificationCodeGuard {
      *         "wrong" from "this code is now dead, request a new one", because the remedies differ)
      */
     public void verify(String identifier, String submitted) {
+        countAddress();
         requireNotBanned(identifier);
 
         String expected = cacheService.get(key("code", identifier));

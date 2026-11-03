@@ -704,9 +704,11 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             account.setClosedEmail(account.getEmail());
             account.setEmail(null);
         }
-        // ⑤ Close the membership.
+        // ⑤ Close the membership, and every session signed into it: a closed account may be reopened
+        // for someone else, and a session left alive would be theirs the moment they join.
         account.setStatus(AccountStatus.DEACTIVATED);
         this.logStatusChange(account, previous, AccountStatus.DEACTIVATED, SecurityLogSource.SYSTEM, null);
+        sessionService.revokeAccount(account.getId(), SessionRevokeReason.ORG_UNAVAILABLE);
         return true;
     }
 
@@ -1283,37 +1285,32 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (!CONTACTS_EDITABLE.contains(account.getStatus())) {
             throw new BusinessException(RESET_INSTEAD);
         }
-        if (account.getProfileId() == null) {
-            return;     // no person yet, so no login identifier to keep in step
+        // Only the mobile has a copy on the person to keep in step. An email signs in through the
+        // joined account that carries it, so the account's own email is the whole of it; the
+        // identity's login email is read for consultants alone, whose address is never a company's.
+        if (account.getProfileId() == null || !mobileChanged) {
+            return;     // no person yet, or nothing they sign in with has changed
         }
-        identityService.findByProfile(account.getProfileId()).ifPresent(identity -> {
-            boolean moved = false;
-            if (emailChanged && isSameLoginIdentifier(account.getEmail(), identity.getLoginEmail())) {
-                identity.setLoginEmail(this.claimableBy(identity, (String) row.get(EMAIL_FIELD), "email"));
-                moved = true;
-            }
-            if (mobileChanged && isSameLoginIdentifier(account.getMobile(), identity.getLoginMobile())) {
-                identity.setLoginMobile(this.claimableBy(identity, (String) row.get(MOBILE_FIELD), "mobile"));
-                moved = true;
-            }
-            if (moved) {
-                // updateOne(entity, false): clearing a channel writes a null, which the default drops.
-                identityService.updateOne(identity, false);
-            }
-        });
+        identityService.findByProfile(account.getProfileId())
+                .filter(identity -> isSameLoginIdentifier(account.getMobile(), identity.getLoginMobile()))
+                .ifPresent(identity -> {
+                    identity.setLoginMobile(this.claimableBy(identity, (String) row.get(MOBILE_FIELD)));
+                    // updateOne(entity, false): clearing the mobile writes a null, which the default drops.
+                    identityService.updateOne(identity, false);
+                });
     }
 
     /**
      * The canonical identifier for {@code contact}, refused when it already signs in someone else —
      * one identifier naming two people would let a code sent there open either.
      */
-    private String claimableBy(UserIdentity identity, String contact, String label) {
-        String identifier = LoginIdentifiers.normalize(contact);
+    private String claimableBy(UserIdentity identity, String mobile) {
+        String identifier = LoginIdentifiers.normalize(mobile);
         if (identifier != null) {
             identityService.findByLoginIdentifier(identifier)
                     .filter(other -> !Objects.equals(other.getProfileId(), identity.getProfileId()))
                     .ifPresent(other -> {
-                        throw new BusinessException("That " + label + " already signs in another person.");
+                        throw new BusinessException("That mobile already signs in another person.");
                     });
         }
         return identifier;
@@ -1381,6 +1378,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
         Long previousPerson = account.getProfileId();
         reviveWith(account, workEmail, workMobile);
+        // Nobody is behind the reopened row until /join: whatever session still names it is ended.
+        sessionService.revokeAccount(account.getId(), SessionRevokeReason.UNBOUND);
         this.logStatusChange(account, AccountStatus.DEACTIVATED, AccountStatus.PENDING,
                 SecurityLogSource.EMPLOYEE_PROFILE, null);
         // updateOne(entity, false): reviveWith clears activationTime to null, which the default

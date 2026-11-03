@@ -83,6 +83,8 @@ class PasswordLockoutTest {
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
+        // Every company here is a live customer unless a test says otherwise.
+        when(tenantInfoService.isTenantActive(org.mockito.ArgumentMatchers.any())).thenReturn(true);
     }
 
     private static UserIdentity identity(LocalDateTime lockedUntil) {

@@ -181,6 +181,33 @@ class ContextBuilderUserInfoRebuildTest {
     }
 
     @Test
+    void aSessionOpenedForThePreviousHolder_endsOnceTheAccountBelongsToSomeoneElse() {
+        // The session was opened for person 7; the account was closed, reopened and joined by 8.
+        UserInfo now = userInfo(true);
+        now.setProfileId(8L);
+        cachedUserInfo(now);
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
+        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        // Read off the cached entry: no extra query per request.
+        verify(userInfoService, never()).loadUserInfo(any());
+    }
+
+    @Test
+    void theSamePerson_orAnEntryCachedBeforeTheFieldExisted_passes() {
+        UserInfo same = userInfo(true);
+        same.setProfileId(7L);
+        cachedUserInfo(same);
+        assertThat(contextBuilder.buildUserContext(request()).getUserId()).isEqualTo(USER_ID);
+
+        cachedUserInfo(userInfo(true));
+        assertThat(contextBuilder.buildUserContext(request()).getUserId()).isEqualTo(USER_ID);
+    }
+
+    @Test
     void aSessionNamingAMissingUserIsStillRejected() {
         // The account or profile is gone. Nothing to rebuild, so the original answer stands.
         cachedUserInfo(null);

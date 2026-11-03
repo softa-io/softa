@@ -72,7 +72,8 @@ class ConsultantOnAppTest {
         when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of(CONSULTANCY));
         when(consultantService.isConsultant(PROFILE)).thenReturn(true);
         when(consultantService.grantStands(any(), any())).thenReturn(true);
-        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE.toString());
+        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
+        when(cacheService.getAndClear("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
         UserInfo info = new UserInfo();
         info.setUserId(CONSULTANCY);
         when(profileService.getUserInfo(anyLong())).thenReturn(info);

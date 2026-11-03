@@ -109,6 +109,8 @@ class RebindJoinTest {
     @Test
     void settingThePassword_onARebindLink_completesTheJoin_andEndsTheOldPasswordsSessions() {
         when(invitationService.isRebindLink(TOKEN)).thenReturn(true);
+        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        ReflectionTestUtils.setField(loginService, "pushDeviceRegistry", devices);
 
         JoinPasswordResult result = loginService.setJoinPassword(TOKEN, ADA, "N3w-Passw0rd!", "proof");
 
@@ -119,6 +121,8 @@ class RebindJoinTest {
         // Bound and activated in the same step: no confirm screen follows.
         verify(invitationService).confirmJoin(TOKEN, ADA, "proof");
         verify(sessionService).revokePerson(ADA, null, SessionRevokeReason.PASSWORD_RESET);
+        // And no device keeps receiving notifications, as after a forgot-password reset.
+        verify(devices).unregisterPerson(ADA);
         verify(securityLog).entry(eq(SecurityAction.PASSWORD_RESET), any(), eq(account), eq(ADA));
     }
 

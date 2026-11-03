@@ -24,6 +24,14 @@ public class UserInfo implements Serializable {
     private Long tenantId;
 
     /**
+     * The person the account belonged to when this was built. A session names the person it was
+     * opened for, and a closed account reopened for someone else must not carry the old person's
+     * sessions into it, so the two are compared per request. Nullable: an entry cached before this
+     * field existed, or an account nobody has joined yet, compares as nothing.
+     */
+    private Long profileId;
+
+    /**
      * Whether the account may operate. Re-checked per request in {@code ContextBuilder}
      * so a frozen / off-boarded account is force-logged-out even mid-session. Nullable:
      * a legacy UserInfo serialized before this field existed deserializes to {@code null}

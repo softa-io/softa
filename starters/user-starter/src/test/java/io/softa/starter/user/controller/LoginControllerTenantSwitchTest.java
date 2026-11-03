@@ -97,6 +97,8 @@ class LoginControllerTenantSwitchTest {
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
+        // Every company here is a live customer unless a test says otherwise.
+        when(tenantInfoService.isTenantActive(org.mockito.ArgumentMatchers.any())).thenReturn(true);
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(controller, "loginService", loginService);
         ReflectionTestUtils.setField(controller, "sessionStore", sessionStore);

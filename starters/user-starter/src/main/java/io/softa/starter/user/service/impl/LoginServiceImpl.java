@@ -140,6 +140,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     @Autowired(required = false)
     private TenantInfoService tenantInfoService;
 
+    @Autowired(required = false)
+    private AddressAttemptLimiter addressLimiter;
+
     @Autowired
     private UserInvitationService invitationService;
 
@@ -283,6 +286,12 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     /** Human-readable reason for refusing login to a non-ACTIVE account. */
+    /** Why a listed company cannot be entered: the company itself, or the account in it. */
+    private static String deniedMessage(MembershipOption chosen) {
+        return chosen.unavailableReason() != null ? "Login denied: tenant is not active."
+                : accountDeniedMessage(chosen.status());
+    }
+
     private static String accountDeniedMessage(AccountStatus status) {
         // No default branch on purpose: the switch is exhaustive over the six-value axis, so
         // adding a status makes this fail to COMPILE rather than silently fall through to
@@ -344,20 +353,23 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * lookup gets the TYPED form, as every identifier lookup here does (see {@link LoginIdentifiers}).
      */
     private UserIdentity requireLinked(String identifier) {
+        Optional<UserIdentity> found = identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier))
+                .filter(identity -> !accountService.listAccountIdsOf(identity.getProfileId()).isEmpty());
+        if (found.isPresent()) {
+            // A spent miss budget refuses misses only: an address shared by an office must not lock
+            // its real employees out because someone there mistyped, or probed, too often.
+            return found.get();
+        }
         String misses = unknownLookupKey();
         if (misses != null && NumberUtils.toLong(cacheService.get(misses)) >= UNKNOWN_LOOKUPS_PER_HOUR) {
             throw AccountErrorCodes.refusal(AccountErrorCodes.TOO_MANY_REQUESTS,
                     "Too many attempts. Please try again later.");
         }
-        return identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier))
-                .filter(identity -> !accountService.listAccountIdsOf(identity.getProfileId()).isEmpty())
-                .orElseThrow(() -> {
-                    if (misses != null) {
-                        cacheService.increment(misses, UNKNOWN_LOOKUP_WINDOW_SECONDS);
-                    }
-                    return AccountErrorCodes.refusal(AccountErrorCodes.ACCOUNT_NOT_FOUND,
-                            "This account does not exist. Please contact your HR.");
-                });
+        if (misses != null) {
+            cacheService.increment(misses, UNKNOWN_LOOKUP_WINDOW_SECONDS);
+        }
+        throw AccountErrorCodes.refusal(AccountErrorCodes.ACCOUNT_NOT_FOUND,
+                "This account does not exist. Please contact your HR.");
     }
 
     /** The miss counter of the calling address, or null when the address is unknown (no request). */
@@ -431,6 +443,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     @Override
     public AuthenticationResult authenticateByPassword(String identifier, String password) {
         LoginChannel channel = LoginChannel.of(identifier);
+        if (addressLimiter != null) {
+            addressLimiter.count();
+        }
         UserIdentity identity = this.requireLinkedToSignIn(identifier, channel, LoginMethod.PASSWORD);
         Long profileId = identity.getProfileId();
 
@@ -516,11 +531,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     private AuthenticationResult afterAuthentication(UserIdentity identity) {
         Long profileId = identity.getProfileId();
         boolean mustSetPassword = mustSetPasswordFor(identity);
-        List<MembershipOption> options = this.resolveMemberships(profileId);
+        // Read once for the whole decision: the options, and each refusal below, look at the same rows.
+        List<UserAccount> memberships = accountService.listMembershipsOf(profileId);
+        List<MembershipOption> options = this.resolveMemberships(profileId, memberships);
         if (options.isEmpty() && ClientInfo.current().isApp()) {
             // The APP lists no consultancy and no platform account (resolveMemberships), so someone
             // holding only those has nothing there at all — said as what it is, not as "no company".
-            if (accountService.listMembershipsOf(profileId).stream()
+            if (memberships.stream()
                     .anyMatch(account -> BaseConstant.PLATFORM_TENANT_ID.equals(account.getTenantId()))) {
                 throw platformOnApp();
             }
@@ -528,7 +545,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 throw consultantOnApp();
             }
         }
-        if (options.isEmpty() && holdsOnlyConsultantMemberships(profileId, accountService.listMembershipsOf(profileId))) {
+        if (options.isEmpty() && holdsOnlyConsultantMemberships(profileId, memberships)) {
             // A consultant whose grants have all lapsed is not an employee with no company: the
             // platform, not a tenant, is who can help, and the two reasons below cannot say that.
             throw AccountErrorCodes.refusal(AccountErrorCodes.CONSULTANT_NO_ACCESS, CONSULTANT_NO_ACCESS_MESSAGE);
@@ -539,7 +556,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         if (autoEnter != null && !mustSetPassword) {
             return AuthenticationResult.resolved(profileId, profileService.getUserInfo(autoEnter), false);
         }
-        AuthenticationResult.NoEnterableReason reason = this.noEnterableReason(profileId, options);
+        AuthenticationResult.NoEnterableReason reason = noEnterableReason(memberships, options);
         // A choice is pending (or a password is), so authentication succeeded but no session is
         // issued yet. Mint a single-use token proving THIS person just authenticated; selectTenant
         // and setFirstPassword read the person from it, never from a client-supplied id — otherwise
@@ -575,21 +592,56 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     /** The person a live pre-auth token stands for, or a refusal if it expired / never existed. */
     private Long resolvePreAuthToken(String authToken) {
         String value = StringUtils.isBlank(authToken) ? null : cacheService.get(preAuthKey(authToken));
-        Long profileId = null;
-        if (value != null) {
-            String[] parts = value.split(":", 2);
-            profileId = Long.valueOf(parts[0]);
-            long issuedAt = parts.length > 1 ? Long.parseLong(parts[1]) : 0L;
-            if (sessionService.credentialsChangedSince(profileId, issuedAt)) {
-                cacheService.clear(preAuthKey(authToken));
-                profileId = null;
-            }
+        Long profileId = this.personOf(value);
+        if (profileId == null && value != null) {
+            cacheService.clear(preAuthKey(authToken));
         }
         if (profileId == null) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.AUTH_TOKEN_EXPIRED,
-                    "Your sign-in step expired. Please log in again.");
+            throw preAuthExpired();
         }
         return profileId;
+    }
+
+    /**
+     * Spends a pre-auth token on a step that mints something with it. The token is taken in one
+     * atomic read-and-delete, so two requests presenting it at once cannot both get through; a step
+     * that fails puts it back for the rest of its lifetime, so the person can try again without
+     * signing in over.
+     */
+    private <T> T spendingPreAuthToken(String authToken, java.util.function.Function<Long, T> step) {
+        String value = StringUtils.isBlank(authToken) ? null : cacheService.getAndClear(preAuthKey(authToken));
+        Long profileId = this.personOf(value);
+        if (profileId == null) {
+            throw preAuthExpired();
+        }
+        try {
+            return step.apply(profileId);
+        } catch (RuntimeException e) {
+            long left = PREAUTH_TTL_SECONDS - (System.currentTimeMillis() - issuedAtOf(value)) / 1000;
+            if (left > 0) {
+                cacheService.save(preAuthKey(authToken), value, (int) left);
+            }
+            throw e;
+        }
+    }
+
+    /** The person a token value names, or null when there is none or a credential changed since. */
+    private Long personOf(String value) {
+        if (value == null) {
+            return null;
+        }
+        Long profileId = Long.valueOf(value.split(":", 2)[0]);
+        return sessionService.credentialsChangedSince(profileId, issuedAtOf(value)) ? null : profileId;
+    }
+
+    private static long issuedAtOf(String value) {
+        String[] parts = value.split(":", 2);
+        return parts.length > 1 ? Long.parseLong(parts[1]) : 0L;
+    }
+
+    private static BusinessException preAuthExpired() {
+        return AccountErrorCodes.refusal(AccountErrorCodes.AUTH_TOKEN_EXPIRED,
+                "Your sign-in step expired. Please log in again.");
     }
 
     @Override
@@ -769,8 +821,12 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // Already a member: the account is this person's again and active now, with no confirm step.
         invitationService.confirmJoin(rawToken, profileId, proof);
         if (hadPassword) {
-            // A replaced password ends every session that knew the old one, as a reset does.
+            // A replaced password ends every session that knew the old one, and every device's
+            // notifications, as a reset does.
             sessionService.revokePerson(profileId, null, SessionRevokeReason.PASSWORD_RESET);
+            if (pushDeviceRegistry != null) {
+                pushDeviceRegistry.unregisterPerson(profileId);
+            }
             securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB,
                     account, profileId));
         }
@@ -802,6 +858,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // Mobile, or the enterprise email of a joined account: the same person either way, and it is
         // their one password that is reset.
         UserIdentity identity = this.requireLinked(identifier);
+        // The strength rules first: verifying spends the code, and a weak password refused after it
+        // would send the person back for a new one.
+        PasswordPolicy.validate(newPassword);
         this.verifyCode(LoginIdentifiers.normalize(identifier), code);
         boolean wasLocked = identityService.isPasswordLocked(identity);
         // Strength rules and the lock reset both live inside setPassword — a reset must clear the
@@ -828,20 +887,20 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     public AuthenticationResult setFirstPassword(String authToken, String newPassword) {
         // The person comes from the single-use sign-in token, never from the request: this is
         // anonymous, and "set the first password of profile X" must not be callable by anyone.
-        Long profileId = resolvePreAuthToken(authToken);
-        UserIdentity identity = identityService.findByProfile(profileId)
-                .orElseThrow(() -> new BusinessException("Person record not found."));
-        if (StringUtils.isNotBlank(identity.getPassword())) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_ALREADY_SET,
-                    "A password is already set — sign in with it instead.");
-        }
-        // Strength rules live inside setPassword, checked against this person's own contacts.
-        identityService.setPassword(identity.getId(), newPassword);
-        cacheService.clear(preAuthKey(authToken));
-        history.record(LoginEvent.PASSWORD_SET, profileId, null, null, null, null, null);
-        identity.setPassword("set");
-        // Now the entry rule decides where to go, exactly as if they had signed in with a password.
-        return this.afterAuthentication(identity);
+        return this.spendingPreAuthToken(authToken, profileId -> {
+            UserIdentity identity = identityService.findByProfile(profileId)
+                    .orElseThrow(() -> new BusinessException("Person record not found."));
+            if (StringUtils.isNotBlank(identity.getPassword())) {
+                throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_ALREADY_SET,
+                        "A password is already set — sign in with it instead.");
+            }
+            // Strength rules live inside setPassword, checked against this person's own contacts.
+            identityService.setPassword(identity.getId(), newPassword);
+            history.record(LoginEvent.PASSWORD_SET, profileId, null, null, null, null, null);
+            identity.setPassword("set");
+            // Now the entry rule decides where to go, exactly as if they had signed in with a password.
+            return this.afterAuthentication(identity);
+        });
     }
 
     @Override
@@ -946,6 +1005,10 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     private List<MembershipOption> resolveMemberships(Long profileId) {
+        return this.resolveMemberships(profileId, accountService.listMembershipsOf(profileId));
+    }
+
+    private List<MembershipOption> resolveMemberships(Long profileId, List<UserAccount> memberships) {
         // The lock lives on the person's credential, so it is read once and stamped on every
         // option rather than looked up per company. So does "the company entered last time".
         Optional<UserIdentity> identity = identityService.findByProfile(profileId);
@@ -954,7 +1017,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // The APP is for employees: a consultancy or a platform account is never offered there, only
         // on the web.
         boolean app = ClientInfo.current().isApp();
-        return accountService.listMembershipsOf(profileId).stream()
+        return memberships.stream()
                 .filter(account -> !app || webOnlyRefusal(account) == null)
                 // Two kinds of membership, two rules. An EMPLOYMENT that cannot be entered is still
                 // shown greyed — it is a standing relationship the person can ask about. A
@@ -975,12 +1038,12 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                                 : tenantInfoService.getTenantName(account.getTenantId()),
                         displayStatus(account.getStatus(), locked),
                         locked, Boolean.TRUE.equals(account.getConsultant()),
-                        // Consultant rows only. The frozen-company reason is about the consultant's switcher; an
-                        // employment into a frozen company already reads as such through its own
-                        // status badge, and giving it a second mechanism would change a path this
-                        // feature has no business changing.
-                        Boolean.TRUE.equals(account.getConsultant())
-                                ? unavailableReason(account.getTenantId()) : null,
+                        // Every row, employment included: an Active account in a company the
+                        // platform has suspended cannot be entered either, and left selectable it
+                        // was entered automatically as the company used last time and refused on
+                        // the spot — every sign-in failed, with the person's other companies never
+                        // offered.
+                        unavailableReason(account.getTenantId()),
                         Objects.equals(account.getId(), lastAccountId)))
                 // Selectable first: the common case is one usable company among some frozen ones,
                 // and making the person hunt for it in a mixed list is a needless step.
@@ -1023,12 +1086,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * frozen; the reason is for having nothing to list at all: NOT_JOINED when the person holds
      * nothing but unconfirmed invitations, DEACTIVATED otherwise (every account closed, or none).
      */
-    private AuthenticationResult.NoEnterableReason noEnterableReason(Long profileId, List<MembershipOption> options) {
+    private static AuthenticationResult.NoEnterableReason noEnterableReason(List<UserAccount> memberships,
+                                                                            List<MembershipOption> options) {
         if (!options.isEmpty()) {
             return null;
         }
-        boolean onlyInvitations = !accountService.listMembershipsOf(profileId).isEmpty()
-                && accountService.listMembershipsOf(profileId).stream()
+        boolean onlyInvitations = !memberships.isEmpty()
+                && memberships.stream()
                         .allMatch(account -> account.getStatus() == AccountStatus.PENDING
                                 || account.getStatus() == AccountStatus.INVITED);
         return onlyInvitations ? AuthenticationResult.NoEnterableReason.NOT_JOINED
@@ -1083,7 +1147,12 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
     @Override
     public AuthenticationResult selectTenant(String authToken, Long accountId) {
-        Long profileId = resolvePreAuthToken(authToken);
+        // Spent only once the session is actually minted: a failed attempt puts the token back, so
+        // "could not enter that company" is followed by a retry, not by signing in from the start.
+        return this.spendingPreAuthToken(authToken, profileId -> this.enter(profileId, accountId));
+    }
+
+    private AuthenticationResult enter(Long profileId, Long accountId) {
         this.refuseConsultancyOnApp(accountId);
         MembershipOption chosen = this.resolveMemberships(profileId).stream()
                 .filter(option -> option.accountId().equals(accountId))
@@ -1092,7 +1161,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 // naming any accountId would mint a session in a company they are not a member of.
                 .orElseThrow(() -> new BusinessException("That company is not available for your account."));
         if (!chosen.selectable()) {
-            throw orgUnavailable(accountDeniedMessage(chosen.status()));
+            throw orgUnavailable(deniedMessage(chosen));
         }
         boolean mustSetPassword = this.mustSetPassword(profileId);
         // The first password is owed before any session: picking a company does not skip it.
@@ -1100,16 +1169,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_REQUIRED,
                     "Set your password before entering a company.");
         }
-        AuthenticationResult result = AuthenticationResult.resolved(
-                profileId, profileService.getUserInfo(accountId), mustSetPassword);
-        // Single use: consume the token so a leaked one cannot be replayed into another session.
-        // Consumed only once the session is actually minted, not before: a token burned by a failed
-        // attempt leaves the person facing "could not enter that company, please try again" over a
-        // step that can no longer succeed — the retry reports the sign-in as expired and they must
-        // start the whole login over. A failed attempt mints nothing, so leaving its token alive
-        // costs no replay safety.
-        cacheService.clear(preAuthKey(authToken));
-        return result;
+        return AuthenticationResult.resolved(profileId, profileService.getUserInfo(accountId), mustSetPassword);
     }
 
     @Override
@@ -1128,7 +1188,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 // caller names a company, and nothing else about it is theirs to assert.
                 .orElseThrow(() -> new BusinessException("That company is not available for your account."));
         if (!chosen.selectable()) {
-            throw orgUnavailable(accountDeniedMessage(chosen.status()));
+            throw orgUnavailable(deniedMessage(chosen));
         }
         // No session minted here — the controller does that, and only after generateSessionId has
         // run the tenant and account gates on the TARGET membership.

@@ -325,6 +325,7 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         // The tenant comes from the MEMBERSHIP, not the person: a person is global, and which
         // company this session is in is exactly what the chosen account represents.
         userInfo.setTenantId(account.getTenantId());
+        userInfo.setProfileId(account.getProfileId());
         // Reflect the account's live status so ContextBuilder can force-logout a frozen account.
         // LOCKED is legacy data (the lock lives on the person now) and enters like ACTIVE at sign-in;
         // reading it as inactive here would end every session it is given, on its first request.

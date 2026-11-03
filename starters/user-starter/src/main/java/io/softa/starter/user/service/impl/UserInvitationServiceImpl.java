@@ -692,8 +692,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         Assert.notNull(profileId, "profileId is required");
         JoinEntry entry = this.inspectJoinToken(rawToken);
         if (!entry.usable()) {
-            if (entry.reason() == JoinEntry.Reason.ALREADY_JOINED) {
-                return;   // re-entrant: a double tap is not an error
+            // Re-entrant: a double tap is not an error. The first confirm marked the invitation
+            // accepted, which the entry check reads as a spent link, so a tap that follows it lands
+            // here too and is told nothing it does not already know.
+            if (entry.reason() == JoinEntry.Reason.ALREADY_JOINED || this.acceptedBy(rawToken, profileId)) {
+                return;
             }
             throw new BusinessException("This link is no longer valid. Please contact your administrator.");
         }
@@ -741,6 +744,10 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                     "This email is already linked to another account. Please contact your HR.");
         }
 
+        if (!profileId.equals(account.getProfileId())) {
+            // Sessions still naming this account were opened for whoever held it before.
+            sessionService.revokeAccount(account.getId(), SessionRevokeReason.UNBOUND);
+        }
         account.setProfileId(profileId);
         account.setStatus(AccountStatus.ACTIVE);
         // From here the list shows the number the person signs in with, not the invitation's.
@@ -871,6 +878,17 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 ContactMasking.email(membership.getEmail()),
                 mobile.masked(), mobile.dialCode(), mobile.countryName(),
                 invitation.getPurpose() == InvitationPurpose.REINVITE);
+    }
+
+    /** Whether this join link was accepted, and by this very person: their own second tap. */
+    private boolean acceptedBy(String rawToken, Long profileId) {
+        return StringUtils.isNotBlank(rawToken) && this.searchOne(new Filters()
+                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                .filter(invitation -> invitation.getStatus() == InvitationStatus.ACCEPTED
+                        && invitation.getPurpose() != InvitationPurpose.PASSWORD_RESET)
+                .flatMap(invitation -> accountService.getById(invitation.getUserId()))
+                .map(account -> profileId.equals(account.getProfileId()))
+                .orElse(false);
     }
 
     @SkipPermissionCheck
