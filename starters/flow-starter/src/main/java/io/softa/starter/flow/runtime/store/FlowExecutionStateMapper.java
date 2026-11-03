@@ -7,6 +7,7 @@ import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
@@ -22,6 +23,25 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 public final class FlowExecutionStateMapper {
 
     private FlowExecutionStateMapper() {
+    }
+
+    /**
+     * {@code state} as a save would keep it and a load give it back — through the same mapping — with what a save is
+     * yet to write, its new trace and approval audit entries, and where their numbering stands: the point the steps
+     * after an approval are undone to, should one fail (zingkey-hcm#2385). Nothing is saved.
+     */
+    public static FlowExecutionState copyOf(FlowExecutionState state) {
+        FlowExecutionState copy = toState(toEntity(state, null));
+        copy.setFlowName(state.getFlowName());
+        copy.setInitiatorName(state.getInitiatorName());
+        copy.setTrace(state.getTrace() == null ? new ArrayList<>() : new ArrayList<>(state.getTrace()));
+        copy.setPersistedTraceCount(state.getPersistedTraceCount());
+        copy.setTraceSequenceBase(state.getTraceSequenceBase());
+        copy.setApprovalAuditDelta(state.getApprovalAuditDelta() == null
+                ? new ArrayList<>() : new ArrayList<>(state.getApprovalAuditDelta()));
+        copy.setPersistedAuditCount(state.getPersistedAuditCount());
+        copy.setAuditSequenceBase(state.getAuditSequenceBase());
+        return copy;
     }
 
     /**
@@ -51,6 +71,7 @@ public final class FlowExecutionStateMapper {
         entity.setStatus(state.getStatus());
         entity.setErrorMessage(state.getErrorMessage());
         entity.setFailedNodeId(state.getFailedNodeId());
+        entity.setRetryAfterNodeId(state.getRetryAfterNodeId());
         entity.setInputPayload(JsonUtils.objectToString(state.getInputPayload()));
         entity.setVariables(JsonUtils.objectToString(state.getVariables()));
         entity.setWaitTokens(JsonUtils.objectToString(state.getWaitTokens()));
@@ -88,8 +109,11 @@ public final class FlowExecutionStateMapper {
                 .status(entity.getStatus())
                 .errorMessage(entity.getErrorMessage())
                 .failedNodeId(entity.getFailedNodeId())
+                .retryAfterNodeId(entity.getRetryAfterNodeId())
                 .inputPayload(JsonUtils.stringToObject(entity.getInputPayload(), new TypeReference<>() {}, new LinkedHashMap<>()))
-                .variables(JsonUtils.stringToObject(entity.getVariables(), new TypeReference<>() {}, new LinkedHashMap<>()))
+                // The record's numbers come back as text from the JSON; the routes compare them as numbers.
+                .variables(RecordVariables.restoreNumbers(entity.getModelName(),
+                        JsonUtils.stringToObject(entity.getVariables(), new TypeReference<>() {}, new LinkedHashMap<>())))
                 .waitTokens(JsonUtils.stringToObject(entity.getWaitTokens(), new TypeReference<>() {}, new ArrayList<>()))
                 .completedNodeIds(JsonUtils.stringToObject(entity.getCompletedNodeIds(), new TypeReference<>() {}, new ArrayList<>()))
                 .pendingApprovals(JsonUtils.stringToObject(entity.getPendingApprovals(), new TypeReference<>() {}, new ArrayList<>()))

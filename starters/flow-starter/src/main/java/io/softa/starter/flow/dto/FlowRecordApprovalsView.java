@@ -83,6 +83,10 @@ public class FlowRecordApprovalsView {
 
         @Schema(description = "Why it stopped")
         private String message;
+
+        @Schema(description = "Whether it stopped in the steps after an approval: the approval stands, and an "
+                + "administrator can run those steps again; otherwise its submitter takes the record back")
+        private boolean retryable;
     }
 
     @Data

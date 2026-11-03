@@ -114,10 +114,10 @@ class FlowInstanceServiceImplSearchTest {
     void summaryProjectionExcludesJsonStateColumns() {
         runSearch(request(null, null, null, null, null), null);
         List<String> fields = queryCaptor.getValue().getFields();
-        assertEquals(22, fields.size());
+        assertEquals(23, fields.size());
         assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName", "scenario",
                 "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "status",
-                "failedNodeId", "nextFireAt", "createdTime", "updatedTime",
+                "failedNodeId", "retryAfterNodeId", "nextFireAt", "createdTime", "updatedTime",
                 "subjectId", "departmentId", "effectiveDate", "recordCode", "superseded")));
         assertFalse(fields.contains("variables"));
         assertFalse(fields.contains("inputPayload"));

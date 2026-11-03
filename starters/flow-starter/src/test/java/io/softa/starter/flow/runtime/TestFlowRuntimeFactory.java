@@ -190,8 +190,8 @@ public final class TestFlowRuntimeFactory {
 
         AutoCcService autoCcService = new AutoCcService(contextService, auditService, auditReader, notificationService,
                 approverResolutionService);
-        FlowInstanceAccessGuard accessGuard = new FlowInstanceAccessGuard(Mockito.mock(FlowInstanceService.class),
-                auditReader, recordModelService);
+        FlowInstanceService instanceService = Mockito.mock(FlowInstanceService.class);
+        FlowInstanceAccessGuard accessGuard = new FlowInstanceAccessGuard(instanceService, auditReader, recordModelService);
 
         return new FlowRuntimeFacade(contextService, orchestrator, instanceStore, autoCcService,
                 new ApproveActionHandler(contextService, actorValidator, lifecycleService, auditService, orchestrator, notificationService,
@@ -209,6 +209,7 @@ public final class TestFlowRuntimeFactory {
                         new UrgeThrottle(bundleRegistry, auditReader)),
                 new CommentActionHandler(contextService, auditService, accessGuard),
                 new TerminateActionHandler(contextService, auditService, notificationService),
-                new ReassignActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService));
+                new ReassignActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
+                new RetryActionHandler(contextService, auditService, orchestrator, instanceService, recordModelService));
     }
 }

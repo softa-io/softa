@@ -26,6 +26,8 @@ public enum ApprovalActionType {
     COMMENT("Comment"),
     /** An administrator ended the approval: the instance is cancelled and its record with it. */
     TERMINATE("Terminate"),
+    /** An administrator ran the steps after an approval again, after they had failed: the approval goes on. */
+    RETRY("Retry"),
     ;
 
     @JsonValue

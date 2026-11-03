@@ -3,10 +3,12 @@ package io.softa.starter.flow.runtime.engine;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
+import io.softa.starter.flow.enums.FlowNodeCategory;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
@@ -21,6 +23,7 @@ import io.softa.starter.flow.runtime.handler.NodeOutcome;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
+import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 
 /**
  * Encapsulates compiled-flow execution traversal, parallel-join bookkeeping, and synchronous subflow orchestration.
@@ -33,6 +36,7 @@ import io.softa.starter.flow.runtime.state.*;
  * is synced back to {@code FlowExecutionState#getVariables()} for persistence-layer
  * compatibility.</p>
  */
+@Slf4j
 @Component
 public class FlowExecutionOrchestrator {
 
@@ -88,20 +92,69 @@ public class FlowExecutionOrchestrator {
     /**
      * Resume execution after an approval node has been approved.
      */
-    public void resumeApprovedNode(FlowExecutionState state,
-                                   PendingApproval pendingApproval,
-                                   CompiledFlowDefinition definition,
-                                   CompiledFlowNode node) {
+    public FlowExecutionState resumeApprovedNode(FlowExecutionState state,
+                                                 PendingApproval pendingApproval,
+                                                 CompiledFlowDefinition definition,
+                                                 CompiledFlowNode node) {
         state.getPendingApprovals().removeIf(item -> pendingApproval.getNodeId().equals(item.getNodeId()));
         addCompletedNode(state, node.getNodeId());
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RESUMED,
                 "Approval granted for node " + node.getNodeId());
         FlowStatusTransitions.apply(state, FlowExecutionStatus.RUNNING);
-
-        FlowVariableContext ctx = buildContextFromState(state);
-        executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, node, ctx), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
+        return runAfterApproval(state, definition, node);
     }
+
+    /**
+     * Runs the steps after an approval step — those its approval resumes, or, on a retry, the same steps again —
+     * without letting an automated step's failure undo the approval (zingkey-hcm#2385).
+     *
+     * <p>Should an automated step fail — a task, a subflow, a data step: a webhook that does not answer, a record
+     * that will not save — the steps' writes are undone apart from the approval, with what they arranged for the
+     * commit (messages, change logs and the flows those would start); the error is logged; and the instance, as the
+     * approval left it, fails at that step, remembering where to run again from — its initiator and the tenant's
+     * administrators are told. The approval stands: the caller gets the failed instance, to save, not the error. An
+     * administrator runs the steps again ({@code RetryActionHandler}) or terminates the instance; its submitter can
+     * take the record back.
+     *
+     * <p>The engine refusing to go on is not a step failing, and refuses the approval as before, the task left with
+     * its approver: nobody to approve the next step, branches meeting a step wrongly, no route out of a step.
+     *
+     * @return the state to go on with: {@code state} once the steps ran, else the instance as the approval left it,
+     *         failed
+     */
+    public FlowExecutionState runAfterApproval(FlowExecutionState state, CompiledFlowDefinition definition,
+                                               CompiledFlowNode approved) {
+        FlowExecutionState approvedState = FlowExecutionStateMapper.copyOf(state);
+        UndoableSteps steps = UndoableSteps.begin();
+        try {
+            FlowVariableContext ctx = buildContextFromState(state);
+            executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, approved, ctx), false,
+                    new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
+            steps.keep();
+            state.setRetryAfterNodeId(null);
+            return state;
+        } catch (RuntimeException e) {
+            // The step that was running, while the trace still says.
+            String failedNodeId = deriveFailedNodeId(state);
+            CompiledFlowNode failedNode = failedNodeId == null || definition.getNodeIndex() == null ? null
+                    : definition.getNodeIndex().get(failedNodeId);
+            if (failedNode == null || !AUTOMATED.contains(failedNode.getType().getCategory())) {
+                throw e;
+            }
+            steps.undo();
+            log.error("Step '{}' after approval step '{}' of flow instance {} failed; the approval stands and the "
+                    + "instance has failed until it is run again", failedNodeId, approved.getNodeId(),
+                    state.getInstanceId(), e);
+            approvedState.setRetryAfterNodeId(approved.getNodeId());
+            failState(approvedState, definition.getFlowId(), failedNode,
+                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            return approvedState;
+        }
+    }
+
+    /** The steps that work on their own — a failure of theirs fails the instance, not the approval before them. */
+    private static final Set<FlowNodeCategory> AUTOMATED = EnumSet.of(
+            FlowNodeCategory.TASK, FlowNodeCategory.SUBFLOW, FlowNodeCategory.DATA);
 
     /**
      * Resume execution after an async-task callback or timer fires.

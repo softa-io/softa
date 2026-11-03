@@ -20,6 +20,7 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.context.FlowVariableContext;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 
 /**
@@ -138,8 +139,7 @@ public class FlowGatewayRouter {
         if (node.getOutgoingEdgeIds().size() <= 1) {
             return List.of();
         }
-        throw new FlowRuntimeException("Node '" + node.getNodeId()
-                + "' did not match any outgoing edge");
+        throw noRoute(node);
     }
 
     /**
@@ -174,7 +174,17 @@ public class FlowGatewayRouter {
         if (defaultTransition != null) {
             return List.of(defaultTransition.getTarget());
         }
-        throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
-                + "' did not match any outgoing edge");
+        throw noRoute(node);
+    }
+
+    /**
+     * No route out of {@code node} fits the request, and none is the default: a gap in the flow, refused with a
+     * message its reader can act on rather than failed as an unexpected error (zingkey-hcm#2382). At submission the
+     * submitter is refused; after an approval the instance fails with it, and its administrators are told.
+     */
+    private static FlowActionValidationException noRoute(CompiledFlowNode node) {
+        String step = StringUtils.hasText(node.getLabel()) ? node.getLabel() : node.getNodeId();
+        return new FlowActionValidationException("No route after '" + step + "' fits this request, and the step has "
+                + "no default route. An administrator needs to add one to the approval flow.");
     }
 }

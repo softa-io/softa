@@ -107,6 +107,19 @@ public class InboxNotificationController
         return ApiResponse.success();
     }
 
+    /**
+     * The caller opened what their notifications are about — an approval, say — so those still unread are news no
+     * more. Bounded by the caller like the rest of {@code my*}: another user's notifications are never touched.
+     */
+    @SkipPermissionCheck
+    @Operation(summary = "Mark the current user's notifications about one object as read",
+            description = "Marks read every unread notification of the current user whose source is the object named "
+                    + "— a flow instance, when its approval is opened. Returns how many were marked.")
+    @PostMapping("/myMarkAsReadBySource")
+    public ApiResponse<Integer> myMarkAsReadBySource(@RequestParam String sourceModel, @RequestParam String sourceId) {
+        return ApiResponse.success(inboxNotificationService.markReadBySource(requireUserId(), sourceModel, sourceId));
+    }
+
     @Operation(summary = "Mark all of the current user's notifications as read")
     @PostMapping("/myMarkAllAsRead")
     @SkipPermissionCheck

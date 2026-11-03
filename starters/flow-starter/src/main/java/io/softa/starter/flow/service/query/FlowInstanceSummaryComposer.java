@@ -290,6 +290,8 @@ public class FlowInstanceSummaryComposer {
                 && FlowExecutionStatus.RETURNED.equals(instance.getStatus())
                 && !Boolean.TRUE.equals(instance.getSuperseded()));
         view.setFailedNodeId(instance.getFailedNodeId());
+        view.setRetryable(FlowExecutionStatus.FAILED.equals(instance.getStatus())
+                && instance.getRetryAfterNodeId() != null && !instance.getRetryAfterNodeId().isBlank());
         view.setNextFireAt(instance.getNextFireAt());
         view.setCreatedTime(instance.getCreatedTime());
         view.setUpdatedTime(instance.getUpdatedTime());

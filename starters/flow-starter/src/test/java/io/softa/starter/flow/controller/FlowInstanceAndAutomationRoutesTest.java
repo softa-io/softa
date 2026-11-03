@@ -56,6 +56,7 @@ class FlowInstanceAndAutomationRoutesTest {
                         "GET /flow/monitor/health",
                         "POST /flow/monitor/instances/search",
                         "POST /flow/monitor/instances/urge",
+                        "POST /flow/monitor/instances/retry",
                         "POST /flow/monitor/instances/terminate",
                         "POST /flow/monitor/approvers/reassign/preview",
                         "POST /flow/monitor/approvers/reassign",

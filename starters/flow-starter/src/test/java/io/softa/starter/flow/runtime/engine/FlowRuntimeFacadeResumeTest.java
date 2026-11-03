@@ -25,7 +25,7 @@ class FlowRuntimeFacadeResumeTest {
 
     private FlowRuntimeFacade facade() {
         return new FlowRuntimeFacade(contextService, orchestrator, instanceStore, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private FlowExecutionState waitingState() {
