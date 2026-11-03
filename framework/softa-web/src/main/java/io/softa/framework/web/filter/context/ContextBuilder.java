@@ -136,6 +136,14 @@ public class ContextBuilder implements SmartInitializingSingleton {
         SessionRecord session = sessionStore.touch(sessionId)
                 .orElseThrow(() -> sessionExpired("Invalid session ID"));
         UserInfo userInfo = this.getUserInfo(session.accountId());
+        // The account now belongs to someone else: closed, reopened and joined by another person. A
+        // session opened for the person before stays theirs and never becomes the new one's. Read
+        // from the cached UserInfo, which every write to the account evicts, so no query is added.
+        if (userInfo.getProfileId() != null && session.profileId() != null
+                && !userInfo.getProfileId().equals(session.profileId())) {
+            this.revokeWithRequest(request, sessionId, SessionRevokeReason.UNBOUND);
+            throw sessionExpired("The account now belongs to another person; session terminated.");
+        }
         // Account lifecycle gate: a session outlives credential entry, so re-check that
         // the account is still active on every request (symmetric to the tenant gate in
         // setMultiTenancyEnv). A Frozen / Deactivated account loses THIS session only — the

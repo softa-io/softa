@@ -93,10 +93,22 @@ class AccountContactEditTest {
 
         assertThat(edit(patch("email", "New@Acme.com", "mobile", "+6590000002"))).isTrue();
 
-        // Stored the way login looks it up; the old address no longer names this person.
-        assertThat(identity.getLoginEmail()).isEqualTo("new@acme.com");
+        // The mobile is stored the way login looks it up; the old number no longer names this person.
         assertThat(identity.getLoginMobile()).isEqualTo("+6590000002");
         verify(identityService).updateOne(identity, false);
+        // The email has no copy on the person to move: it signs in through the account itself.
+        assertThat(identity.getLoginEmail()).isEqualTo("old@acme.com");
+    }
+
+    @Test
+    void anEmailOnlyEdit_touchesNoCredential() {
+        given(AccountStatus.PENDING, "old@acme.com", null);
+        person("old@acme.com", null);
+
+        assertThat(edit(patch("email", "new@acme.com"))).isTrue();
+
+        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).findByProfile(any());
     }
 
     @Test
@@ -144,14 +156,14 @@ class AccountContactEditTest {
     }
 
     @Test
-    void anAddressAnotherPersonSignsInWithIsRefused() {
-        given(AccountStatus.PENDING, "old@acme.com", null);
-        person("old@acme.com", null);
+    void aNumberAnotherPersonSignsInWithIsRefused() {
+        given(AccountStatus.PENDING, null, "+6590000001");
+        person(null, "+6590000001");
         UserIdentity someoneElse = new UserIdentity();
         someoneElse.setProfileId(8L);
-        when(identityService.findByLoginIdentifier("taken@acme.com")).thenReturn(Optional.of(someoneElse));
+        when(identityService.findByLoginIdentifier("+6590000009")).thenReturn(Optional.of(someoneElse));
 
-        assertThatThrownBy(() -> edit(patch("email", "taken@acme.com")))
+        assertThatThrownBy(() -> edit(patch("mobile", "+6590000009")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("already signs in another person");
     }

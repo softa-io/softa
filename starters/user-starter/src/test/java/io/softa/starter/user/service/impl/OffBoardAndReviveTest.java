@@ -139,6 +139,20 @@ class OffBoardAndReviveTest {
     }
 
     @Test
+    void offBoarding_endsEverySessionSignedIntoTheAccount() {
+        // A closed account may be reopened for someone else; a session left alive would be theirs.
+        UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);
+        workContacts(null, null);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
+        io.softa.starter.user.service.UserSessionService sessions = (io.softa.starter.user.service.UserSessionService)
+                ReflectionTestUtils.getField(accountService, "sessionService");
+
+        accountService.offBoardWith(membership);
+
+        verify(sessions).revokeAccount(ACCOUNT, io.softa.framework.web.session.SessionRevokeReason.ORG_UNAVAILABLE);
+    }
+
+    @Test
     void offBoarding_clearsThePasswordLock() {
         // A Locked row leaves through "termination (clear the lock first) → Deactivated".
         // Left standing, the lock survives the re-hire that REVIVES this row, and the returning
@@ -337,6 +351,9 @@ class OffBoardAndReviveTest {
 
         assertThat(reopenedAndClosedAgain.getStatus()).isEqualTo(AccountStatus.PENDING);
         assertThat(reopenedAndClosedAgain.getEmail()).isEqualTo("back@acme.com");
+        // Nobody is behind the reopened row: no session may still name it.
+        verify((io.softa.starter.user.service.UserSessionService) ReflectionTestUtils.getField(accountService, "sessionService"))
+                .revokeAccount(ACCOUNT, io.softa.framework.web.session.SessionRevokeReason.UNBOUND);
     }
 
     @Test

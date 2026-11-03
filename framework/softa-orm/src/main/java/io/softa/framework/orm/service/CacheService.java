@@ -112,6 +112,15 @@ public interface CacheService {
     void clear(String key);
 
     /**
+     * Read a string value and remove it in one atomic step: of two callers racing for the same key,
+     * exactly one gets the value. For one-time tokens.
+     *
+     * @param key cache key
+     * @return the value, or null when the key was absent
+     */
+    String getAndClear(String key);
+
+    /**
      * Clear key list.
      *
      * @param keys key list

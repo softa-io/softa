@@ -65,6 +65,8 @@ class IdentifierResolutionTest {
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
+        // Every company here is a live customer unless a test says otherwise.
+        when(tenantInfoService.isTenantActive(org.mockito.ArgumentMatchers.any())).thenReturn(true);
         ReflectionTestUtils.setField(loginService, "codeGuard", mock(VerificationCodeGuard.class));
         when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of(ACCOUNT));
     }
@@ -268,7 +270,8 @@ class IdentifierResolutionTest {
         assertThat(result.noEnterableReason()).isEqualTo(AuthenticationResult.NoEnterableReason.DEACTIVATED);
         assertThat(result.authToken()).isNotBlank();
 
-        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE.toString());
+        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
+        when(cacheService.getAndClear("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
         AuthenticationResult after = loginService.setFirstPassword("tok", "N3w-Passw0rd!");
 
         verify(identityService).setPassword(11L, "N3w-Passw0rd!");
@@ -301,19 +304,38 @@ class IdentifierResolutionTest {
                 .thenReturn(String.valueOf(LoginServiceImpl.UNKNOWN_LOOKUPS_PER_HOUR));
         assertThatThrownBy(() -> loginService.sendMobileCode("+6590000002"))
                 .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("TOO_MANY_REQUESTS"));
-        verify(identityService, never()).findByLoginIdentifier("+6590000002");
+    }
+
+    @Test
+    void aSpentMissBudget_refusesMissesOnly_aRealEmployeeAtTheSameAddressStillGetsIn() {
+        // An office shares one address: someone there probing, or mistyping, must not lock out the
+        // people whose numbers are real.
+        ClientRequests.fromAddress("203.0.113.9");
+        when(cacheService.get("login:unknown-identifier:203.0.113.9"))
+                .thenReturn(String.valueOf(LoginServiceImpl.UNKNOWN_LOOKUPS_PER_HOUR));
+        person(null);
+        givenMemberships(membership(ACCOUNT, AccountStatus.ACTIVE));
+        ReflectionTestUtils.setField(loginService, "eventPublisher",
+                mock(org.springframework.context.ApplicationEventPublisher.class));
+
+        loginService.sendEmailCode(EMAIL);
+
+        verify(cacheService, never()).increment(eq("login:unknown-identifier:203.0.113.9"), anyLong());
     }
 
     @Test
     void setFirstPassword_usesTheSignInToken_thenEnters() {
         UserIdentity identity = person(null);
         givenMemberships(membership(ACCOUNT, AccountStatus.ACTIVE));
-        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE.toString());
+        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
+        when(cacheService.getAndClear("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
 
         AuthenticationResult result = loginService.setFirstPassword("tok", "N3w-Passw0rd!");
 
         verify(identityService).setPassword(identity.getId(), "N3w-Passw0rd!");
-        verify(cacheService).clear("login:preauth:tok");
+        // Taken in one atomic read-and-delete, and not put back: the step succeeded.
+        verify(cacheService).getAndClear("login:preauth:tok");
+        verify(cacheService, never()).save(eq("login:preauth:tok"), any(), anyInt());
         verify(history).record(eq(LoginEvent.PASSWORD_SET), eq(PROFILE), any(), any(), any(), any(), any());
         assertThat(result.isResolved()).isTrue();
         assertThat(result.autoEnterAccountId()).isEqualTo(ACCOUNT);
@@ -322,7 +344,8 @@ class IdentifierResolutionTest {
     @Test
     void setFirstPassword_refusesAPersonWhoAlreadyHasOne() {
         person("hash");
-        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE.toString());
+        when(cacheService.get("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
+        when(cacheService.getAndClear("login:preauth:tok")).thenReturn(PROFILE + ":" + System.currentTimeMillis());
 
         assertThatThrownBy(() -> loginService.setFirstPassword("tok", "N3w-Passw0rd!"))
                 .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("PASSWORD_ALREADY_SET"));
@@ -332,6 +355,7 @@ class IdentifierResolutionTest {
     @Test
     void setFirstPassword_withoutALiveToken_isRefused() {
         when(cacheService.get("login:preauth:gone")).thenReturn(null);
+        when(cacheService.getAndClear("login:preauth:gone")).thenReturn(null);
 
         assertThatThrownBy(() -> loginService.setFirstPassword("gone", "N3w-Passw0rd!"))
                 .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("AUTH_TOKEN_EXPIRED"));
