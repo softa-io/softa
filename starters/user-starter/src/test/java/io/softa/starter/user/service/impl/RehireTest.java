@@ -287,11 +287,13 @@ class RehireTest {
         verify(accountService).updateOne(closed, false);
         verify(accountService, never()).reviveMembership(any(), any(), any());
         // Load-bearing: the holder checks name tenant 9, the row's, and never the operator's 2.
+        // (The cross-company check on the email names no tenant at all, by design.)
         ArgumentCaptor<Filters> holderQueries = ArgumentCaptor.forClass(Filters.class);
-        verify(accountService, times(4)).searchList(holderQueries.capture());
-        assertThat(holderQueries.getAllValues()).allSatisfy(f -> assertThat(f.toString())
-                .contains("[\"tenantId\",\"=\",9]")
-                .doesNotContain("[\"tenantId\",\"=\"," + THIS_TENANT + "]"));
+        verify(accountService, org.mockito.Mockito.atLeast(4)).searchList(holderQueries.capture());
+        assertThat(holderQueries.getAllValues()).filteredOn(f -> f.toString().contains("tenantId")).hasSize(4)
+                .allSatisfy(f -> assertThat(f.toString())
+                        .contains("[\"tenantId\",\"=\",9]")
+                        .doesNotContain("[\"tenantId\",\"=\"," + THIS_TENANT + "]"));
     }
 
     @Test

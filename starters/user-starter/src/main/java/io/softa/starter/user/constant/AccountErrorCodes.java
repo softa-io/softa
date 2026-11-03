@@ -48,6 +48,12 @@ public final class AccountErrorCodes {
      * last invitation went to, so re-inviting would reach the same wrong person again.
      */
     public static final String INVITATION_UNCHANGED = "INVITATION_UNCHANGED";
+    /** Signed in, but not linked to any company: nothing to enter and nothing pending. */
+    public static final String NO_COMPANY = "NO_COMPANY";
+    /** Signed in, but holding nothing except invitations not accepted yet. */
+    public static final String INVITATION_PENDING = "INVITATION_PENDING";
+    /** A consultant whose authorizations have all ended: the platform, not a company, can extend them. */
+    public static final String CONSULTANT_NO_ACCESS = "CONSULTANT_NO_ACCESS";
     /** The single-use sign-in token expired or was already used. */
     public static final String AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED";
 
