@@ -738,6 +738,79 @@ class DefaultFlowCompilerTest {
                 .allMatch(d -> d.severity() == CompileDiagnostic.Severity.ERROR));
     }
 
+    @Test
+    void validate_requiresEveryNodeToHaveALabel() {
+        // People see the label as the step's name; without one they would see the generated id
+        DesignFlowDefinition definition = DesignFlowDefinition.builder()
+                .name("Unnamed Step")
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest"))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                node("start", FlowNodeType.START),
+                                labelled("approval_x7k2", FlowNodeType.APPROVAL, " "),
+                                node("end", FlowNodeType.END)))
+                        .edges(List.of(
+                                edge("e1", "start", "approval_x7k2"),
+                                edge("e2", "approval_x7k2", "end")))
+                        .build())
+                .build();
+
+        List<CompileDiagnostic> missing = compiler.validate(definition).stream()
+                .filter(d -> "MISSING_NODE_LABEL".equals(d.code()))
+                .toList();
+
+        assertEquals(1, missing.size(), missing.toString());
+        assertEquals(CompileDiagnostic.Severity.ERROR, missing.getFirst().severity());
+        assertEquals("approval_x7k2", missing.getFirst().nodeId());
+        assertEquals("label", missing.getFirst().field());
+        assertThrows(FlowCompileException.class, () -> compiler.compile(definition), "publishing is refused");
+    }
+
+    @Test
+    void validate_namesNodesAndEdgesAsPeopleSeeThem() {
+        // A node by its label, an edge without a label by the nodes it joins — never by a generated id
+        DesignFlowDefinition definition = DesignFlowDefinition.builder()
+                .name("Named Steps")
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest"))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                node("start", FlowNodeType.START),
+                                labelled("approval_x7k2", FlowNodeType.APPROVAL, "Direct Manager"),
+                                labelled("approval_p3q9", FlowNodeType.APPROVAL, "HR Review"),
+                                labelled("end_k1", FlowNodeType.END, "Approved")))
+                        .edges(List.of(
+                                edge("e1", "start", "approval_x7k2"),
+                                edge("e2", "approval_x7k2", "end_k1", "amount >"),
+                                edge("e3", "approval_p3q9", "end_k1")))
+                        .build())
+                .build();
+
+        List<CompileDiagnostic> diagnostics = compiler.validate(definition);
+
+        assertEquals("Node 'HR Review' cannot be reached from the Start node — connect it or delete it",
+                messageOf(diagnostics, "UNREACHABLE_NODE"));
+        assertEquals("Node 'Direct Manager' has invalid condition expression on edge 'Direct Manager → Approved': "
+                + "amount >", messageOf(diagnostics, "INVALID_CONDITION_EXPR"));
+    }
+
+    private static String messageOf(List<CompileDiagnostic> diagnostics, String code) {
+        return diagnostics.stream()
+                .filter(d -> code.equals(d.code()))
+                .map(CompileDiagnostic::message)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No " + code + " in " + diagnostics));
+    }
+
+    private static FlowGraphNode labelled(String id, FlowNodeType type, String label) {
+        return FlowGraphNode.builder()
+                .id(id)
+                .type(type)
+                .label(label)
+                .build();
+    }
+
     private static FlowGraphNode node(String id, FlowNodeType type) {
         return FlowGraphNode.builder()
                 .id(id)

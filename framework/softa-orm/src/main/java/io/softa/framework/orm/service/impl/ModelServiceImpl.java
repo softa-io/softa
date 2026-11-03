@@ -1651,12 +1651,11 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     public <R> Page<R> searchPage(String modelName, FlexQuery flexQuery, Page<R> page, Class<R> returnClass) {
         Page<Map<String, Object>> mapPage = new Page<>(page.getPageNumber(), page.getPageSize(), page.isCursorPage(), page.isCount());
         this.searchPage(modelName, flexQuery, mapPage);
-        if (!CollectionUtils.isEmpty(mapPage.getRows())) {
-            List<R> objects = BeanTool.mapListToObjects(mapPage.getRows(), returnClass, modelName);
-            page.setRows(objects);
-            if (page.isCount()) {
-                page.setTotalCount(mapPage.getTotalCount());
-            }
+        // Set even when empty: a page reused for the next read must not keep the rows of the one before.
+        page.setRows(CollectionUtils.isEmpty(mapPage.getRows()) ? Collections.emptyList()
+                : BeanTool.mapListToObjects(mapPage.getRows(), returnClass, modelName));
+        if (page.isCount()) {
+            page.setTotalCount(mapPage.getTotalCount());
         }
         return page;
     }

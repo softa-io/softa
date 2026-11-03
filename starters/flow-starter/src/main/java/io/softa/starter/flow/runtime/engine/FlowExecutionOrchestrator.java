@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
-import io.softa.starter.flow.enums.FlowNodeCategory;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
@@ -106,18 +105,21 @@ public class FlowExecutionOrchestrator {
 
     /**
      * Runs the steps after an approval step — those its approval resumes, or, on a retry, the same steps again —
-     * without letting an automated step's failure undo the approval (zingkey-hcm#2385).
+     * without letting anything that stops them undo the approval (zingkey-hcm#2385, #2382).
      *
-     * <p>Should an automated step fail — a task, a subflow, a data step: a webhook that does not answer, a record
-     * that will not save — the steps' writes are undone apart from the approval, with what they arranged for the
-     * commit (messages, change logs and the flows those would start); the error is logged; and the instance, as the
-     * approval left it, fails at that step, remembering where to run again from — its initiator and the tenant's
-     * administrators are told. The approval stands: the caller gets the failed instance, to save, not the error. An
-     * administrator runs the steps again ({@code RetryActionHandler}) or terminates the instance; its submitter can
-     * take the record back.
+     * <p>The approver has done their part, and what stops the approval going on after it is not theirs to put right:
+     * an automated step failing — a webhook that does not answer, a record that will not save — no route out of a
+     * step, nobody to approve the next one, branches meeting a step wrongly. Whichever it is, the steps' writes are
+     * undone apart from the approval, with what they arranged for the commit (messages, change logs and the flows
+     * those would start); the error is logged; and the instance, as the approval left it, fails at the step that
+     * stopped it, remembering where to run again from — its initiator and the tenant's administrators are told. The
+     * approval stands: the caller gets the failed instance, to save, not the error. Its submitter can take the record
+     * back and submit it again, on the flow as it is by then; an administrator can run the steps again once the cause
+     * is gone ({@code RetryActionHandler}) — a system back up, an approver set up — or terminate the instance.
      *
-     * <p>The engine refusing to go on is not a step failing, and refuses the approval as before, the task left with
-     * its approver: nobody to approve the next step, branches meeting a step wrongly, no route out of a step.
+     * <p>What the approver can put right is refused before this runs, the approval with it: a step already handled,
+     * a required field left empty, an edit the record's rules refuse. So is a veto of the record's handler on the
+     * approval's result, which runs as the instance is saved.
      *
      * @return the state to go on with: {@code state} once the steps ran, else the instance as the approval left it,
      *         failed
@@ -134,16 +136,13 @@ public class FlowExecutionOrchestrator {
             state.setRetryAfterNodeId(null);
             return state;
         } catch (RuntimeException e) {
-            // The step that was running, while the trace still says.
-            String failedNodeId = deriveFailedNodeId(state);
-            CompiledFlowNode failedNode = failedNodeId == null || definition.getNodeIndex() == null ? null
-                    : definition.getNodeIndex().get(failedNodeId);
-            if (failedNode == null || !AUTOMATED.contains(failedNode.getType().getCategory())) {
-                throw e;
-            }
+            // The step that was running, while the trace still says — else the approval, whose routes led nowhere.
+            String failedNodeId = Objects.requireNonNullElse(deriveFailedNodeId(state), approved.getNodeId());
+            CompiledFlowNode failedNode = definition.getNodeIndex() == null ? approved
+                    : definition.getNodeIndex().getOrDefault(failedNodeId, approved);
             steps.undo();
             log.error("Step '{}' after approval step '{}' of flow instance {} failed; the approval stands and the "
-                    + "instance has failed until it is run again", failedNodeId, approved.getNodeId(),
+                    + "instance has failed until it is run again", failedNode.getNodeId(), approved.getNodeId(),
                     state.getInstanceId(), e);
             approvedState.setRetryAfterNodeId(approved.getNodeId());
             failState(approvedState, definition.getFlowId(), failedNode,
@@ -151,10 +150,6 @@ public class FlowExecutionOrchestrator {
             return approvedState;
         }
     }
-
-    /** The steps that work on their own — a failure of theirs fails the instance, not the approval before them. */
-    private static final Set<FlowNodeCategory> AUTOMATED = EnumSet.of(
-            FlowNodeCategory.TASK, FlowNodeCategory.SUBFLOW, FlowNodeCategory.DATA);
 
     /**
      * Resume execution after an async-task callback or timer fires.
@@ -356,8 +351,9 @@ public class FlowExecutionOrchestrator {
      * A node runs once in an instance — an end aside, which each branch may reach: the graph has no cycles, and a
      * return or a resubmission starts a new instance. A parallel join counts as entered when its last branch
      * arrives. Entered again, branches have met at the node without a join (or one branch reached a join twice): it
-     * would ask its approvers again and run everything after it twice. The run fails instead — a record's submission
-     * or an approval is refused and rolls back — naming the node. Publishing refuses such graphs
+     * would ask its approvers again and run everything after it twice. The run fails instead, naming the node — a
+     * record's submission is refused and rolls back; after an approval, the instance fails with the approval kept
+     * ({@link #runAfterApproval}). Publishing refuses such graphs
      * ({@code CONCURRENT_BRANCHES_MEET}, {@code BRANCH_ENTERS_JOIN_TWICE}); this catches revisions published before.
      */
     private static void requireFirstEntry(CompiledFlowDefinition definition, FlowExecutionState state,
@@ -370,7 +366,7 @@ public class FlowExecutionOrchestrator {
                 || state.getPendingApprovals().stream().anyMatch(pending -> nodeId.equals(pending.getNodeId()))
                 || state.findWaitToken(nodeId) != null;
         if (entered) {
-            throw new FlowRuntimeException("Flow '" + definition.getFlowName() + "' reached node '" + nodeId
+            throw new FlowRuntimeException("Flow '" + definition.getFlowName() + "' reached node '" + node.displayName()
                     + "' a second time: branches that run at the same time meet there without a parallel join, so "
                     + "it would run once for each. Join the branches with a parallel join first, or let each end on "
                     + "its own, and publish the flow again.");
@@ -408,7 +404,7 @@ public class FlowExecutionOrchestrator {
             int branches = join.getIncomingEdgeIds().size();
             if (arrivals.getValue() < branches) {
                 throw new FlowRuntimeException("Flow '" + definition.getFlowName() + "' has nothing left to run, but "
-                        + "parallel join '" + join.getNodeId() + "' has had " + arrivals.getValue() + " of its "
+                        + "parallel join '" + join.displayName() + "' has had " + arrivals.getValue() + " of its "
                         + branches + " branches: the others took a way that skips it, so the steps after it would "
                         + "never run. Let every branch that goes on to the join reach it by one edge, and publish the "
                         + "flow again.");
@@ -585,7 +581,7 @@ public class FlowExecutionOrchestrator {
         boolean isGateway = FlowNodeType.PARALLEL_FORK.equals(node.getType())
                 || FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType());
         if (!isGateway && nextNodeIds.size() > 1) {
-            throw new FlowRuntimeException("Node '" + node.getNodeId()
+            throw new FlowRuntimeException("Node '" + node.displayName()
                     + "' produced multiple outgoing branches without a gateway");
         }
         if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {

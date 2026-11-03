@@ -7,9 +7,10 @@ import io.softa.framework.base.i18n.I18n;
 
 /**
  * An approval step resolved to nobody under its {@code Error} empty-approver strategy — or under {@code AssignToRole},
- * its roles leaving nobody either. The action that reached the step — a submission, an approval — is refused
- * ({@code 400}) and changes nothing. The message is the same whatever the step's approver source, the roles named:
- * whoever reads it cannot fix it and has to ask for an approver to be set up.
+ * its roles leaving nobody either. A submission that reaches the step is refused ({@code 400}) and changes nothing;
+ * reached after an approval, the instance fails with it, the approval kept, and its initiator and the tenant's
+ * administrators are told (zingkey-hcm#2385). The message is the same whatever the step's approver source, the roles
+ * named: whoever reads it cannot fix it and has to ask for an approver to be set up.
  */
 @Getter
 public class FlowNoApproverException extends FlowActionValidationException {

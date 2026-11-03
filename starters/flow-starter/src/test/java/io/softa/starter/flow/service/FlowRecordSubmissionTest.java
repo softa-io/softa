@@ -95,7 +95,8 @@ class FlowRecordSubmissionTest {
     private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
             publishService, engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
             new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null,
-            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger())));
+            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger()),
+                    new FailedApprovalRecords(instanceService, modelService)));
 
     /** The record as its table holds it: reads return a copy, updates land on it. */
     private final Map<String, Object> record = new LinkedHashMap<>(

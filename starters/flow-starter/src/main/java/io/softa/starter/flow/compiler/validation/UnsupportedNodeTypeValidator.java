@@ -53,7 +53,7 @@ public class UnsupportedNodeTypeValidator implements FlowValidator {
                 continue;
             }
             d.add(CompileDiagnostic.nodeLevel(node.getId(), type.getType(), UNSUPPORTED_NODE_TYPE,
-                    type.getType() + " node '" + node.getId() + "' is not supported yet: " + REASONS.get(type)));
+                    type.getType() + " node '" + node.displayName() + "' is not supported yet: " + REASONS.get(type)));
         }
         return d;
     }

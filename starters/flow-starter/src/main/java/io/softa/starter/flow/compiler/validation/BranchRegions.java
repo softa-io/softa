@@ -2,6 +2,7 @@ package io.softa.starter.flow.compiler.validation;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -10,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import io.softa.starter.flow.compiler.FlowGraphContext;
@@ -117,7 +119,7 @@ public final class BranchRegions {
             return Pairing.NONE;
         }
         for (int i = 0; i < branches.size(); i++) {
-            String problem = problemOf(branches.get(i), walks.get(i), join);
+            String problem = problemOf(branches.get(i), walks.get(i), join, context);
             if (problem != null) {
                 return new Pairing(null, problem);
             }
@@ -127,8 +129,9 @@ public final class BranchRegions {
                 Set<String> shared = new LinkedHashSet<>(walks.get(i).nodes());
                 shared.retainAll(walks.get(j).nodes());
                 if (!shared.isEmpty()) {
-                    return new Pairing(null, "Branches '" + branches.get(i).getId() + "' and '" + branches.get(j).getId()
-                            + "' meet at " + quoted(shared) + " before join '" + join + "'");
+                    return new Pairing(null, "Branches '" + context.edgeName(branches.get(i).getId()) + "' and '"
+                            + context.edgeName(branches.get(j).getId()) + "' meet at "
+                            + quoted(shared, context::nodeName) + " before join '" + context.nodeName(join) + "'");
                 }
             }
         }
@@ -139,8 +142,9 @@ public final class BranchRegions {
                     boolean inside = edge != null && (edgeId.equals(branches.get(i).getId())
                             || walks.get(i).nodes().contains(edge.getSource()));
                     if (!inside) {
-                        return new Pairing(null, "Edge '" + edgeId + "' enters branch '" + branches.get(i).getId()
-                                + "' from outside the gateway's branches, at '" + nodeId + "'");
+                        return new Pairing(null, "Edge '" + context.edgeName(edgeId) + "' enters branch '"
+                                + context.edgeName(branches.get(i).getId())
+                                + "' from outside the gateway's branches, at '" + context.nodeName(nodeId) + "'");
                     }
                 }
             }
@@ -151,29 +155,31 @@ public final class BranchRegions {
         Set<String> incoming = new LinkedHashSet<>(context.incomingEdgeIds().getOrDefault(join, List.of()));
         incoming.removeAll(entries);
         if (!incoming.isEmpty()) {
-            return new Pairing(null, "Join '" + join + "' is also entered from outside the gateway's branches, by "
-                    + quoted(incoming));
+            return new Pairing(null, "Join '" + context.nodeName(join) + "' is also entered from outside the gateway's "
+                    + "branches, by " + quoted(incoming, context::edgeName));
         }
         return new Pairing(join, null);
     }
 
     /** Why one branch of a gateway whose branches meet at {@code join} goes wrong, or null. */
-    private static String problemOf(FlowGraphEdge branch, Branch walk, String join) {
+    private static String problemOf(FlowGraphEdge branch, Branch walk, String join, FlowGraphContext context) {
+        String name = "Branch '" + context.edgeName(branch.getId()) + "'";
+        String joinName = "join '" + context.nodeName(join) + "'";
         if (walk.reachesEnd()) {
-            return "Branch '" + branch.getId() + "' may end before join '" + join + "'";
+            return name + " may end before " + joinName;
         }
         Set<String> others = new LinkedHashSet<>(walk.joinEntries().keySet());
         others.remove(join);
         if (!others.isEmpty()) {
-            return "Branch '" + branch.getId() + "' reaches join " + quoted(others) + " instead of join '" + join + "'";
+            return name + " reaches join " + quoted(others, context::nodeName) + " instead of " + joinName;
         }
         List<String> entries = walk.joinEntries().get(join);
         if (entries == null) {
-            return "Branch '" + branch.getId() + "' does not reach join '" + join + "'";
+            return name + " does not reach " + joinName;
         }
         if (entries.size() > 1) {
-            return "Branch '" + branch.getId() + "' enters join '" + join + "' by " + entries.size() + " edges ("
-                    + String.join(", ", entries) + ")";
+            return name + " enters " + joinName + " by " + entries.size() + " edges ("
+                    + quoted(entries, context::edgeName) + ")";
         }
         return null;
     }
@@ -194,7 +200,8 @@ public final class BranchRegions {
         return FlowNodeType.END.equals(node.getType()) || FlowNodeType.RETURN_VALUE.equals(node.getType());
     }
 
-    private static String quoted(Set<String> ids) {
-        return ids.stream().map(id -> "'" + id + "'").collect(Collectors.joining(", "));
+    /** The ids by name, each quoted: {@code 'Manager', 'Finance'}. */
+    static String quoted(Collection<String> ids, Function<String, String> name) {
+        return ids.stream().map(id -> "'" + name.apply(id) + "'").collect(Collectors.joining(", "));
     }
 }

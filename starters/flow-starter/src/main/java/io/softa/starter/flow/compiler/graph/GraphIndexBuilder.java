@@ -46,7 +46,7 @@ public final class GraphIndexBuilder {
             }
             if (node.getType() == null) {
                 diagnostics.add(CompileDiagnostic.nodeLevel(node.getId(), null, MISSING_NODE_TYPE,
-                        "Node '" + node.getId() + "' must define a type"));
+                        "Node '" + node.displayName() + "' must define a type"));
                 continue;
             }
             if (nodeMap.putIfAbsent(node.getId(), node) != null) {

@@ -72,4 +72,9 @@ public class CompiledFlowNode {
 
     @Schema(description = "Original design-time canvas position")
     private FlowGraphPosition position;
+
+    /** What a message calls the node: its label — the step's name people see — or its id when it has none. */
+    public String displayName() {
+        return label != null && !label.isBlank() ? label : nodeId;
+    }
 }

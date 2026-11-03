@@ -2,7 +2,6 @@ package io.softa.starter.flow.compiler.validation;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Stream;
 import org.springframework.util.StringUtils;
 
@@ -41,7 +40,7 @@ public class TimerConfigValidator implements FlowValidator {
     private static void validateTimer(FlowGraphNode node, List<CompileDiagnostic> d) {
         TimerNodeConfig config = node.getConfig() == null ? new TimerNodeConfig()
                 : BeanTool.objectToObject(node.getConfig(), TimerNodeConfig.class);
-        String name = "Timer '" + Objects.requireNonNullElse(node.getLabel(), node.getId()) + "'";
+        String name = "Timer '" + node.displayName() + "'";
         long ways = Stream.of(config.getDurationSeconds() != null, StringUtils.hasText(config.getCronExpression()),
                 StringUtils.hasText(config.getDeadlineExpression())).filter(Boolean::booleanValue).count();
         if (ways != 1) {

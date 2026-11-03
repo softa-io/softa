@@ -146,7 +146,7 @@ class FlowApprovalPreviewTest {
                 instanceService, modelService, previewer,
                 new FlowInstanceAccessGuard(instanceService, auditReader, modelService),
                 new FlowUserNames(organizationProvider, modelService),
-                new WithdrawPolicyGuard(bundleRegistry, auditReader));
+                new WithdrawPolicyGuard(bundleRegistry, auditReader, new FailedApprovalRecords(instanceService, modelService)));
     }
 
     @AfterEach

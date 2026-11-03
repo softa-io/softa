@@ -30,10 +30,11 @@ import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * A step that resolves to nobody under its {@code Error} empty-approver strategy refuses the action that reaches it
- * — {@code 400}, one message whatever the step's source — and changes nothing: a record's submission leaves no failed
- * instance and tells nobody; an approve leaves the task where it was. Starts that are not a record's approval keep
- * recording the failed instance.
+ * A step that resolves to nobody under its {@code Error} empty-approver strategy — one message whatever the step's
+ * source. A record's submission that reaches it is refused ({@code 400}) and changes nothing: no failed instance, nobody
+ * told. Reached after an approval, the approval stands and the instance fails with the message, its initiator and the
+ * administrators told (zingkey-hcm#2385): the approver cannot set up an approver. Starts that are not a record's
+ * approval keep recording the failed instance.
  */
 class NoApproverScenarioTest {
 
@@ -91,23 +92,27 @@ class NoApproverScenarioTest {
     }
 
     @Test
-    void anApproveIntoAStepWithNobodyIsRefusedAndTheTaskStays() {
+    void anApproveIntoAStepWithNobodyKeepsTheApprovalAndFailsTheInstance() {
         publish(true);
         FlowExecutionState started = engine.startRecordApproval(startRequest());
         assertEquals(FlowExecutionStatus.WAITING, started.getStatus());
-        int savedBefore = saves.get();
-        int toldBefore = notices.size();
         FlowApproveRequest approve = new FlowApproveRequest();
         approve.setInstanceId(started.getInstanceId());
         approve.setNodeId("manager");
         approve.setActorId(MANAGER);
 
-        FlowNoApproverException refused = assertThrows(FlowNoApproverException.class, () -> engine.approve(approve));
+        FlowExecutionState failed = engine.approve(approve);
 
-        assertEquals(MESSAGE, refused.getMessage());
-        // Nothing was saved, so the approve's transaction rolls back whole: the instance still waits on the manager.
-        assertEquals(savedBefore, saves.get());
-        assertEquals(toldBefore, notices.size(), "neither a completed task nor a failure is announced");
+        assertEquals(FlowExecutionStatus.FAILED, failed.getStatus());
+        assertEquals("hr", failed.getFailedNodeId(), "fails at the step nobody approves");
+        assertEquals(MESSAGE, failed.getErrorMessage());
+        assertEquals("manager", failed.getRetryAfterNodeId(), "run again after the manager's approval");
+        assertTrue(failed.getCompletedNodeIds().contains("manager"), "the manager's approval stands");
+        assertTrue(failed.getPendingApprovals().isEmpty());
+        assertEquals(FlowExecutionStatus.FAILED,
+                instanceStore.get(started.getInstanceId()).orElseThrow().getStatus());
+        assertTrue(notices.stream().anyMatch(notice -> notice instanceof FlowNotificationEvent.FlowFailed flowFailed
+                && "hr".equals(flowFailed.failedNodeId())), "its initiator and the administrators are told");
     }
 
     /** START → (Manager approval →) HR approval, whose supervisor source finds nobody here, under Error → END. */

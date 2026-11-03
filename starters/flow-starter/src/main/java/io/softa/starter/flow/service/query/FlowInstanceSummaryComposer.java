@@ -160,13 +160,16 @@ public class FlowInstanceSummaryComposer {
         }));
     }
 
-    /** Withdraw and urge, on the requester's own approvals that wait on their approvers. */
+    /**
+     * Withdraw and urge, on the requester's own approvals that wait on their approvers — and withdraw on those of
+     * their records' approvals that failed, which takes the record back (zingkey-hcm#2385).
+     */
     private void applyInitiatorActions(List<FlowInstanceSummaryView> views, String requesterId) {
         if (requesterId == null) {
             return;
         }
         Map<String, FlowInstanceSummaryView> own = views.stream()
-                .filter(view -> isWaitingApproval(view)
+                .filter(view -> (isWaitingApproval(view) || isFailedRecordApproval(view))
                         && view.getInitiator() != null && requesterId.equals(view.getInitiator().getId()))
                 .collect(Collectors.toMap(FlowInstanceSummaryView::getInstanceId, Function.identity(), (a, b) -> a,
                         LinkedHashMap::new));
@@ -178,9 +181,15 @@ public class FlowInstanceSummaryComposer {
             FlowInstanceSummaryView view = own.get(state.getInstanceId());
             if (view != null) {
                 view.setWithdrawable(withdrawPolicyGuard.withdrawable(state, requesterId));
-                view.setUrge(urgeThrottle.status(state, requesterId, now));
+                if (isWaitingApproval(view)) {
+                    view.setUrge(urgeThrottle.status(state, requesterId, now));
+                }
             }
         }
+    }
+
+    private static boolean isFailedRecordApproval(FlowInstanceSummaryView view) {
+        return Boolean.TRUE.equals(view.getRecordApproval()) && FlowExecutionStatus.FAILED.equals(view.getStatus());
     }
 
     /**

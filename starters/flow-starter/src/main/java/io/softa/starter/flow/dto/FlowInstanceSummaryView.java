@@ -78,7 +78,8 @@ public class FlowInstanceSummaryView {
     private Boolean awaitingRevision;
 
     @Schema(description = "The caller's own approval waiting on its approvers: whether they may withdraw it now, by "
-            + "the flow's withdraw policy; null on any other row")
+            + "the flow's withdraw policy; their own record's approval that failed: whether they may take the record "
+            + "back (while it still waits on it); null on any other row")
     private Boolean withdrawable;
 
     @Schema(description = "The caller's own approval waiting on its approvers: whether they may urge it now, by the "
