@@ -170,7 +170,9 @@ class LoginControllerLeaveTenantTest {
 
         assertThatThrownBy(() -> controller.leaveTenant(request, response))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("No accessible tenant. Please contact the platform administrator.");
+                .hasMessage("No accessible tenant. Please contact the platform administrator.")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(io.softa.starter.user.constant.AccountErrorCodes.CONSULTANT_NO_ACCESS);
 
         verify(cacheService, never()).clear(anyString());
         assertThat(response.getCookie(BaseConstant.SESSION_ID)).isNull();

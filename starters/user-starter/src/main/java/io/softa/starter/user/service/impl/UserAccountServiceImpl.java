@@ -906,7 +906,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     public String enterpriseEmailRefusal(Long accountId, String email) {
         String wanted = workContact(email);
         UserAccount account = accountId == null ? null : this.getById(accountId).orElse(null);
-        if (wanted == null || account == null) {
+        // A closed account takes no enterprise email (syncEnterpriseEmail leaves it alone), so there
+        // is nothing to refuse until a re-hire reopens it — and that is checked then.
+        if (wanted == null || account == null || account.getStatus() == AccountStatus.DEACTIVATED) {
             return null;
         }
         if (this.contactHolderInTenant(account.getTenantId(), wanted, accountId).isPresent()) {
@@ -925,7 +927,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     public void syncEnterpriseEmail(Long accountId, String email) {
         UserAccount account = this.getById(accountId).orElse(null);
         String wanted = workContact(email);
-        if (account == null || Objects.equals(StringUtils.lowerCase(wanted), StringUtils.lowerCase(account.getEmail()))) {
+        // A closed account carries no enterprise email: closing released the address for the next
+        // hire, and writing it back would block them. A re-hire takes it again when the row reopens.
+        if (account == null || account.getStatus() == AccountStatus.DEACTIVATED
+                || Objects.equals(StringUtils.lowerCase(wanted), StringUtils.lowerCase(account.getEmail()))) {
             return;
         }
         String refusal = this.enterpriseEmailRefusal(accountId, wanted);
@@ -1367,6 +1372,13 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 .ifPresent(other -> {
                     throw new BusinessException("That work mobile already belongs to another account.");
                 });
+        // And across companies: an enterprise email is one person's everywhere (closed accounts
+        // aside). The person coming back is the one this row belonged to.
+        Long returning = account.getProfileId() != null ? account.getProfileId() : account.getFormerProfileId();
+        if (this.isEmailHeldByAnotherPerson(workEmail, returning, account.getId())) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN,
+                    "That work email is already linked to another person's account.");
+        }
         Long previousPerson = account.getProfileId();
         reviveWith(account, workEmail, workMobile);
         this.logStatusChange(account, AccountStatus.DEACTIVATED, AccountStatus.PENDING,

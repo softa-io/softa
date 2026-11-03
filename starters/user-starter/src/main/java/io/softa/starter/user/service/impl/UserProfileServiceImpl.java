@@ -326,7 +326,9 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         // company this session is in is exactly what the chosen account represents.
         userInfo.setTenantId(account.getTenantId());
         // Reflect the account's live status so ContextBuilder can force-logout a frozen account.
-        userInfo.setActive(AccountStatus.ACTIVE == account.getStatus());
+        // LOCKED is legacy data (the lock lives on the person now) and enters like ACTIVE at sign-in;
+        // reading it as inactive here would end every session it is given, on its first request.
+        userInfo.setActive(AccountStatus.ACTIVE == account.getStatus() || AccountStatus.LOCKED == account.getStatus());
         this.validateTenantInfo(profile, userInfo.getTenantId());
         if (profile.getPhotoId() != null) {
             // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time

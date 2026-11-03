@@ -185,7 +185,10 @@ class MembershipSelectionTest {
 
         assertThatThrownBy(() -> loginService.resolveSingleMembership(PROFILE))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("not linked to any company");
+                .hasMessageContaining("not linked to any company")
+                // A code for the client to word it by, not the English sentence.
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.NO_COMPANY);
     }
 
     @Test
@@ -212,7 +215,9 @@ class MembershipSelectionTest {
         assertThatThrownBy(() -> loginService.resolveSingleMembership(PROFILE))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("invitation has not been accepted")
-                .hasMessageNotContaining("not linked to any company");
+                .hasMessageNotContaining("not linked to any company")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.INVITATION_PENDING);
     }
 
     @Test

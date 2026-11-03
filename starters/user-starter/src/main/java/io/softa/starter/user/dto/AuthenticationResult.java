@@ -39,8 +39,8 @@ import io.softa.framework.base.context.UserInfo;
  * @param tenants       the options when a choice is pending; empty when one already resolved
  * @param mustSetPassword whether the client must force the Set Password step first
  * @param authToken       single-use proof of authentication for the company step; null once resolved
- * @param signInRequired  kept on the wire for older clients; always false now that /join verifies the
- *                        person before confirming (see {@code LoginServiceImpl.confirmJoin})
+ * @param signInRequired  true only when confirming a join that already happened (a double tap, a spent
+ *                        link): nothing is issued, and the person signs in as usual
  * @param sessionToken    the session id when a session was issued, for the APP to send as
  *                        {@code X-Session-Id}; null when no session was issued
  * @param autoEnterAccountId the account the entry rule enters directly (the only enterable one, or

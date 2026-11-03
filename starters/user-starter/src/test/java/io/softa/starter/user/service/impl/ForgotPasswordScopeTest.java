@@ -168,6 +168,21 @@ class ForgotPasswordScopeTest {
     }
 
     @Test
+    void aNewEmployee_signingInByTheirEnterpriseEmail_getsTheLinkThere() {
+        // Nothing writes a login email any more: the address that signs a new employee in is the
+        // enterprise email of the account they joined, and that is where the reset goes.
+        UserIdentity identity = ada(null, "hash");
+        when(identityService.findByLoginIdentifier(WORK_EMAIL)).thenReturn(Optional.of(identity));
+        UserAccount acme = row(300L, 3L, AccountStatus.ACTIVE, WORK_EMAIL);
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(acme));
+
+        service.forgotPassword(WORK_EMAIL);
+
+        assertThat(issuedInvitation().getUserId()).isEqualTo(300L);
+        assertThat(sentMail().to()).containsExactly(WORK_EMAIL);
+    }
+
+    @Test
     void aLoginThatIsAlsoTheRowsWorkEmail_isMailedThere_andFiledUnderThatRow() {
         // Two ACTIVE tenants, the person's login IS one company's address: the link goes to that
         // address (it is hers to sign in with), filed under that company's row rather than

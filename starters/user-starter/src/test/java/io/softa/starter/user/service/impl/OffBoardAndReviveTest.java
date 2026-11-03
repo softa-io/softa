@@ -20,6 +20,7 @@ import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserRoleRelService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
@@ -302,6 +303,22 @@ class OffBoardAndReviveTest {
         accountService.offBoard(ACCOUNT);
 
         verify(accountService).updateOne(membership, false);
+    }
+
+    @Test
+    void reopening_underAnEmailAnotherPersonHolds_isRefused() {
+        // One person's address everywhere (closed accounts aside): the returning employee cannot
+        // come back under a mailbox someone else signs in with.
+        UserAccount closed = account(AccountStatus.DEACTIVATED, null, null);
+        closed.setTenantId(1L);
+        doReturn(Optional.of(closed)).when(accountService).getById(ACCOUNT);
+        doReturn(List.of()).when(accountService).searchList(any(Filters.class));
+        doReturn(true).when(accountService).isEmailHeldByAnotherPerson("taken@acme.com", PROFILE, ACCOUNT);
+
+        assertThatThrownBy(() -> accountService.reviveAccount(ACCOUNT, "taken@acme.com", null))
+                .isInstanceOf(io.softa.framework.base.exception.BusinessException.class)
+                .hasMessageContaining("another person");
+        assertThat(closed.getStatus()).isEqualTo(AccountStatus.DEACTIVATED);
     }
 
     @Test

@@ -44,6 +44,7 @@ import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
 import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.spi.PushDeviceRegistry;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
@@ -95,6 +96,10 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
     @Autowired
     private UserSessionService sessionService;
+
+    /** Optional: present only where APP push is deployed. */
+    @Autowired(required = false)
+    private PushDeviceRegistry pushDeviceRegistry;
 
     public UserInvitationServiceImpl(UserAccountService accountService,
                                      UserIdentityService identityService,
@@ -365,15 +370,19 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
      * has no mailbox to prove, so it gets nothing.
      */
     private Optional<ResetTarget> resolveResetTarget(String identifier) {
+        // A reset link is mailed: only an email can carry it. A mobile resolves the person too, but
+        // there is no mailbox in it to prove.
+        if (identifier == null || !identifier.contains("@")) {
+            return Optional.empty();
+        }
         String typed = LoginIdentifiers.typedForm(identifier);
         Optional<UserIdentity> identity = identityService.findByLoginIdentifier(typed);
         if (identity.isEmpty() || StringUtils.isBlank(identity.get().getPassword())) {
             return Optional.empty();
         }
+        // The lookup itself proved the address signs this person in — the enterprise email of an
+        // account they have joined, or a consultant's own address — so it is theirs to reset by.
         String canonical = LoginIdentifiers.normalize(identifier);
-        if (!canonical.equals(LoginIdentifiers.normalize(identity.get().getLoginEmail()))) {
-            return Optional.empty();
-        }
         List<UserAccount> active = accountService.listMembershipsOf(identity.get().getProfileId()).stream()
                 .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
                 .toList();
@@ -613,7 +622,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 : identityService.findByProfile(account.getProfileId());
         if (account.getStatus() != AccountStatus.ACTIVE
                 || identity.isEmpty() || StringUtils.isBlank(identity.get().getPassword())
-                || !addressedToTheirLogin(invitation, identity.get())) {
+                || !this.addressedToThem(invitation, identity.get())) {
             throw new BusinessException("This link is no longer valid. Please contact your administrator.");
         }
         // The password goes on the PERSON, so accepting an invitation from company B when you
@@ -624,14 +633,37 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         invitation.setAcceptedAt(LocalDateTime.now());
         this.updateOne(invitation);
 
+        // As a reset by code ends: whoever knew the old password may be signed in somewhere, so every
+        // session of the person ends (and the sign-in tokens issued before), and no device keeps
+        // receiving their notifications.
+        Long profileId = identity.get().getProfileId();
+        sessionService.revokePerson(profileId, null, SessionRevokeReason.PASSWORD_RESET);
+        if (pushDeviceRegistry != null) {
+            pushDeviceRegistry.unregisterPerson(profileId);
+        }
+        securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB, account, profileId));
+
         log.info("User {} set password via {} token (invitation {}).",
                 invitation.getUserId(), invitation.getPurpose(), invitation.getId());
     }
 
-    /** Whether the link was mailed to the person's own login email — canonical forms, blank never matches. */
-    private static boolean addressedToTheirLogin(UserInvitation invitation, UserIdentity identity) {
-        String sentTo = LoginIdentifiers.normalize(invitation.getEmail());
-        return sentTo != null && sentTo.equals(LoginIdentifiers.normalize(identity.getLoginEmail()));
+    /**
+     * Whether the link went to an address that signs this very person in — the enterprise email of an
+     * account they have joined, or a consultant's own address. A blank one, or one that now signs in
+     * nobody or someone else, never matches.
+     */
+    private boolean addressedToThem(UserInvitation invitation, UserIdentity identity) {
+        String sentTo = StringUtils.trimToNull(invitation.getEmail());
+        if (sentTo == null) {
+            return false;
+        }
+        try {
+            return identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(sentTo))
+                    .map(holder -> Objects.equals(holder.getProfileId(), identity.getProfileId()))
+                    .orElse(false);
+        } catch (BusinessException shared) {
+            return false;   // the address names more than one person: not proof of this one
+        }
     }
 
     /**
@@ -807,6 +839,12 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
             return JoinEntry.rejected(JoinEntry.Reason.LINK_INVALID);
         }
         UserInvitation invitation = found.get();
+        // Only an invitation is a join link. A forgot-password link names an account its owner has
+        // long joined — treated as one, it lands on "already joined" and walks past the proof
+        // check that guards binding. It answers like an unknown token.
+        if (invitation.getPurpose() == InvitationPurpose.PASSWORD_RESET) {
+            return JoinEntry.rejected(JoinEntry.Reason.LINK_INVALID);
+        }
         // ② past its 7-day life
         if (invitation.getExpiresAt() != null && invitation.getExpiresAt().isBefore(LocalDateTime.now())) {
             return JoinEntry.rejected(JoinEntry.Reason.LINK_EXPIRED);
