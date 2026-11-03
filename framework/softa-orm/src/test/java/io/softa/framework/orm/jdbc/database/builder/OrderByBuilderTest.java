@@ -8,6 +8,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
@@ -26,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The alias must be auto-expanded to its underlying `a.b` cascade path,
  * producing `tN.column` plus the matching LEFT JOIN.
  * <p>Also verifies that DISTINCT queries never receive an implicit ORDER BY
- * (model `defaultOrder` fallback, cursor-page id stabilizer) — MySQL error 3065 /
+ * (model `defaultOrder` fallback, cursor-page primary-key stabilizer) — MySQL error 3065 /
  * PostgreSQL reject ORDER BY columns outside the DISTINCT select list.</p>
  */
 class OrderByBuilderTest {
@@ -214,6 +215,28 @@ class OrderByBuilderTest {
         }
     }
 
+    /**
+     * Read across the timeline, the slices of one record share its {@code id}: only {@code sliceId}, the
+     * physical key, makes a cursor page's order total, so a page boundary that falls between two slices
+     * of one record neither repeats nor skips either.
+     */
+    @Test
+    void cursorPageOnTimelineModelEndsWithSliceId() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            stubMainModel(mm);
+            mm.when(() -> ModelManager.isTimelineModel(MAIN_MODEL)).thenReturn(true);
+            mm.when(() -> ModelManager.getModelPrimaryKey(MAIN_MODEL)).thenReturn(ModelConstant.SLICE_ID);
+            mm.when(() -> ModelManager.getModelFieldColumn(MAIN_MODEL, ModelConstant.SLICE_ID)).thenReturn("slice_id");
+
+            SqlWrapper sqlWrapper = new SqlWrapper(MAIN_MODEL);
+            Page<Object> page = Page.ofCursorPage(50);
+
+            new OrderByBuilder(sqlWrapper, new FlexQuery(), page).build();
+
+            assertEquals("t.id ASC,t.slice_id ASC,", orderByClause(sqlWrapper));
+        }
+    }
+
     // -- helpers --
 
     private static void stubMainModel(MockedStatic<ModelManager> mm) {
@@ -236,6 +259,9 @@ class OrderByBuilderTest {
 
         mm.when(() -> ModelManager.isTimelineModel(Mockito.anyString())).thenReturn(false);
         mm.when(() -> ModelManager.isMultiTenantControl(Mockito.anyString())).thenReturn(false);
+        mm.when(() -> ModelManager.getModelPrimaryKey(Mockito.anyString())).thenReturn(ModelConstant.ID);
+        mm.when(() -> ModelManager.getModelFieldColumn(MAIN_MODEL, ModelConstant.ID)).thenReturn("id");
+        stubStoredField(mm, MAIN_MODEL, ModelConstant.ID, "id");
     }
 
     private static void stubManagerNameCascade(MockedStatic<ModelManager> mm) {

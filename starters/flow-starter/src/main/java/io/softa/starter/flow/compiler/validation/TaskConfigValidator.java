@@ -74,7 +74,7 @@ public class TaskConfigValidator implements FlowValidator {
         }
         if (node.getConfig() == null || node.getConfig().isEmpty()) {
             d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), MISSING_TASK_CONFIG,
-                    "Task node '" + node.getId() + "' of type '" + node.getType().getType()
+                    "Task node '" + node.displayName() + "' of type '" + node.getType().getType()
                             + "' must define config"));
         }
     }
@@ -96,7 +96,7 @@ public class TaskConfigValidator implements FlowValidator {
             dto = BeanTool.objectToObject(input, configType);
         } catch (RuntimeException e) {
             d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), INVALID_TASK_CONFIG,
-                    "Task node '" + node.getId() + "' has malformed "
+                    "Task node '" + node.displayName() + "' has malformed "
                             + at.substring(0, at.length() - 1) + ": " + e.getMessage()));
             return;
         }
@@ -124,7 +124,7 @@ public class TaskConfigValidator implements FlowValidator {
                 requirePresent(node, at + "phoneNumbers", sms.getPhoneNumbers(), d);
                 if (!StringUtils.hasText(sms.getContent()) && !StringUtils.hasText(sms.getTemplateCode())) {
                     d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(),
-                            at + "content", MISSING_REQUIRED_INPUT, "Task node '" + node.getId()
+                            at + "content", MISSING_REQUIRED_INPUT, "Task node '" + node.displayName()
                                     + "' requires " + at + "content or " + at + "templateCode"));
                 }
             }
@@ -178,7 +178,7 @@ public class TaskConfigValidator implements FlowValidator {
         int argCount = cs.getArgs() == null ? 0 : cs.getArgs().size();
         if (cs.getArgTypes().size() != argCount) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), at + "argTypes",
-                    ARG_TYPES_ARITY, "Task node '" + node.getId() + "' argTypes length ("
+                    ARG_TYPES_ARITY, "Task node '" + node.displayName() + "' argTypes length ("
                             + cs.getArgTypes().size() + ") must match args length (" + argCount + ")"));
         }
     }
@@ -186,14 +186,14 @@ public class TaskConfigValidator implements FlowValidator {
     private void requireText(FlowGraphNode node, String field, String value, List<CompileDiagnostic> d) {
         if (!StringUtils.hasText(value)) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field,
-                    MISSING_REQUIRED_INPUT, "Task node '" + node.getId() + "' requires " + field));
+                    MISSING_REQUIRED_INPUT, "Task node '" + node.displayName() + "' requires " + field));
         }
     }
 
     private void requireMap(FlowGraphNode node, String field, Map<?, ?> value, List<CompileDiagnostic> d) {
         if (value == null || value.isEmpty()) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field,
-                    MISSING_REQUIRED_INPUT, "Task node '" + node.getId() + "' requires " + field));
+                    MISSING_REQUIRED_INPUT, "Task node '" + node.displayName() + "' requires " + field));
         }
     }
 
@@ -210,7 +210,7 @@ public class TaskConfigValidator implements FlowValidator {
         };
         if (!present) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field,
-                    MISSING_REQUIRED_INPUT, "Task node '" + node.getId() + "' requires " + field));
+                    MISSING_REQUIRED_INPUT, "Task node '" + node.displayName() + "' requires " + field));
         }
     }
 }

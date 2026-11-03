@@ -3,15 +3,12 @@ package io.softa.framework.orm.domain;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.Setter;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.entity.AbstractModel;
 
 /**
  * Paging object
@@ -27,44 +24,17 @@ public class Page<T> implements Serializable {
     private int pageNumber;
 
     /**
-     * Enables cursor-based pagination for improved stability and performance during data pagination.
-     * In cursor pagination, the system tracks the last processed record's unique identifier, such as `lastMaxId`,
-     * to fetch the next set of records. This approach ensures stable pagination by avoiding the limitations
-     * of offset-based pagination, such as skipping records or performance degradation in large datasets.
+     * A page for walking a query to its end without counting it, the way a batch job reads:
+     * {@code do { ... } while (page.toNext())}, moving on while each page comes back full.
      * <p>
-     * When using cursor pagination, the backend retrieves the next page of data using the condition
-     * `WHERE id > lastMaxId`, ensuring that the query remains efficient, especially in cases of large datasets
-     * where offset-based pagination would otherwise require scanning and skipping many rows.
+     * The order is made total so that consecutive pages neither repeat nor skip a row: the query's own
+     * order (or the model's {@code defaultOrder}, or {@code id}) is followed by the model's physical
+     * primary key — {@code sliceId} on a timeline model, whose slices share their record's {@code id},
+     * and {@code id} otherwise.
      * <p>
-     * By default, backend data processing uses cursor pagination for efficiency.
-     * However, client-side APIs continue to use traditional offset pagination.
-     * Cursor pagination is only activated when the paging parameters include `lastMaxId`, which signals the backend
-     * to switch from offset-based pagination to cursor-based pagination for improved query performance.
-     * <p>
-     * When additional sorting conditions are specified, such as `ORDER BY name ASC, code DESC`, and the `id`
-     * is sequentially increasing, cursor-based pagination can still be applied.
-     * In this case, the SQL query needs to account for both the sorting fields (`name`, `code`) and the unique `id`
-     * to ensure proper ordering and pagination stability.
-     * <p>
-     * For example, consider the following SQL query:
-     * - Offset Pagination:
-     *   `SELECT * FROM articles WHERE (other filters) ORDER BY name ASC, code DESC LIMIT 10 OFFSET 50`
-     * <p>
-     * - Cursor Pagination (when `lastMaxId`, `name`, and `code` are provided):
-     *   `SELECT * FROM articles
-     *    WHERE (other filters)
-     *          AND (name > 'John'
-     *              OR (name = 'John' AND code < 'X001')
-     *              OR (name = 'John' AND code = 'X001' AND id > lastMaxId))
-     *    ORDER BY name ASC, code DESC LIMIT 10`
-     * <p>
-     * In this query:
-     * - The system continues sorting by `name ASC` and `code DESC`.
-     * - The `name > 'John'` condition fetches records where the name is alphabetically after "John".
-     * - The `name = 'John' AND code < 'X001'` condition handles records where the name is the same but the `code` is in descending order.
-     * - The `id > lastMaxId` ensures that, when both `name` and `code` are the same, records after the last processed `id` are retrieved, maintaining the correct order and avoiding duplicates.
-     * <p>
-     * This structure ensures stable and efficient cursor-based pagination, even with complex sorting and filtering criteria.
+     * The pages are read by offset. A keyset condition ({@code WHERE id > ?}) would spare a deep page from
+     * reading the rows before it, but it only fits a query ordered by the key alone, and these pages keep
+     * the caller's order.
      */
     @JsonIgnore
     private final boolean cursorPage;
@@ -85,9 +55,6 @@ public class Page<T> implements Serializable {
     @JsonIgnore
     private int currentPageSize;
 
-    @JsonIgnore
-    private Serializable lastMaxId;
-
     /**
      * Default first page, page size is 50, and ensure that pageSize is between [1, MAX_BATCH_SIZE]
      * <p>
@@ -98,16 +65,13 @@ public class Page<T> implements Serializable {
      *
      * @param pageNumber Current page number
      * @param pageSize Page size, null for the default; must be within [1, MAX_BATCH_SIZE] when stated
-     * @param cursorPage Whether to enforce a stable order
+     * @param cursorPage Whether to walk the query in a total order without counting it
      * @param count Whether to perform a count query first
      */
     public Page(Integer pageNumber, Integer pageSize, boolean cursorPage, boolean count) {
-        if (cursorPage) {
-            // In cursor pagination, pageNumber is irrelevant, so it can be ignored.
-            this.pageNumber = BaseConstant.DEFAULT_PAGE_NUMBER;
-        } else {
-            this.pageNumber = pageNumber == null || pageNumber < 1 ? BaseConstant.DEFAULT_PAGE_NUMBER : pageNumber;
-        }
+        // A cursor page is read by its number too, so a copy made to run the query (the typed searchPage
+        // makes one) has to ask for the same page rather than the first one again.
+        this.pageNumber = pageNumber == null || pageNumber < 1 ? BaseConstant.DEFAULT_PAGE_NUMBER : pageNumber;
         if (pageSize == null) {
             this.pageSize = BaseConstant.DEFAULT_PAGE_SIZE;
         } else {
@@ -122,9 +86,9 @@ public class Page<T> implements Serializable {
     }
 
     /**
-     * Stable cursor-based paging object constructor, the default page size is 50, without count query.
+     * A cursor page of the default size 50: total order, no count query.
      *
-     * @return Stable cursor-based paging object
+     * @return Cursor page, on its first page
      * @param <T> Generic type
      */
     public static <T> Page<T> ofCursorPage() {
@@ -132,9 +96,9 @@ public class Page<T> implements Serializable {
     }
 
     /**
-     * Stable cursor-based paging object constructor with custom page size, without count query.
+     * A cursor page of the given size: total order, no count query.
      *
-     * @return Stable cursor-based paging object
+     * @return Cursor page, on its first page
      * @param <T> Generic type
      */
     public static <T> Page<T> ofCursorPage(Integer pageSize) {
@@ -193,28 +157,25 @@ public class Page<T> implements Serializable {
     }
 
     /**
-     * If there is a next page, go to the next page and return true, otherwise return false.
-     * Suitable for do { ... } while (page.toNext()) paging operation, automatically judge and go to the next page.
-     * <p>
-     *     * Cursor-based paging:
-     *      The next page might exist condition: `currentPageSize == pageSize`
-     *     * Offset-based paging:
-     *      The next page exists condition: `pageNumber > 1 && pageNumber <= totalPages`.
+     * Moves to the next page and returns true when there may be one, for {@code do { ... } while (page.toNext())}.
+     * <ul>
+     *   <li>Cursor page: while the page just read came back full. A last page that happens to be full is
+     *   followed by one read that comes back empty.</li>
+     *   <li>Offset page: while the page number stays within {@code totalPages}, which needs the count.</li>
+     * </ul>
+     * A loop that reads every page through one {@link FlexQuery} restores its own filters before each read:
+     * {@code ModelService.searchPage} writes the access-scoped filters back into the query it is given, so
+     * a query reused as it was carries one more copy of the scope into every page after the first.
      *
-     * @return True if there is a next page, otherwise false
+     * @return true when the next page is to be read
      */
     public boolean toNext() {
         if (cursorPage) {
-            boolean hasNext = currentPageSize == pageSize;
-            if (hasNext) {
-                T lastObject = rows.getLast();
-                if (lastObject instanceof Map<?, ?> mapObj) {
-                    lastMaxId = (Serializable) mapObj.get(ModelConstant.ID);
-                } else if (lastObject instanceof AbstractModel modelObj) {
-                    lastMaxId = modelObj.getId();
-                }
+            boolean full = currentPageSize == pageSize;
+            if (full) {
+                pageNumber++;
             }
-            return currentPageSize == pageSize;
+            return full;
         } else {
             pageNumber ++;
             return pageNumber > 1 && pageNumber <= totalPages;

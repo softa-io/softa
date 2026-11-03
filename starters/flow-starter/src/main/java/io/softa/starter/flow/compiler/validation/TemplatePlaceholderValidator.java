@@ -3,7 +3,6 @@ package io.softa.starter.flow.compiler.validation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.placeholder.PlaceholderKind;
@@ -52,7 +51,7 @@ public class TemplatePlaceholderValidator implements FlowValidator {
     }
 
     private static void checkText(FlowGraphNode node, String path, String text, List<CompileDiagnostic> d) {
-        String name = "Node '" + Objects.requireNonNullElse(node.getLabel(), node.getId()) + "' (" + path + ")";
+        String name = "Node '" + node.displayName() + "' (" + path + ")";
         int open = text.lastIndexOf(StringConstant.PLACEHOLDER_PREFIX);
         if (text.indexOf(StringConstant.PLACEHOLDER_SUFFIX, open) < 0) {
             d.add(diagnostic(node, name + ": a placeholder opens with {{ and is not closed with }}"));

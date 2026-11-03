@@ -55,5 +55,10 @@ public class FlowGraphNode {
 
     @Schema(description = "Opaque data bag passed to the frontend node component")
     private Map<String, Object> data;
+
+    /** What a message calls the node: its label — the name people see — or its id when it has none. */
+    public String displayName() {
+        return label != null && !label.isBlank() ? label : id;
+    }
 }
 

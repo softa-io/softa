@@ -47,10 +47,11 @@ class ApproverAccountValidatorTest {
 
         assertEquals(List.of(
                 new CompileDiagnostic(Severity.WARNING, null, "manager", "Approval", "config.approvers",
-                        "UNUSABLE_APPROVER", "Approval node 'manager' names approvers who cannot act now and are "
+                        "UNUSABLE_APPROVER", "Approval node 'Manager approval' names approvers who cannot act now and are "
                                 + "passed over when the step is reached: Bob Wu's account is frozen"),
                 new CompileDiagnostic(Severity.WARNING, null, "manager", "Approval", "config.timeout.escalateToUserId",
-                        "UNUSABLE_ESCALATE_TARGET", "Approval node 'manager' escalates to someone who cannot act now, "
+                        "UNUSABLE_ESCALATE_TARGET", "Approval node 'Manager approval' escalates to someone who cannot "
+                                + "act now, "
                                 + "so an overdue step is reminded instead: Hal Ko's account is frozen"),
                 new CompileDiagnostic(Severity.WARNING, null, null, null, null, "UNUSABLE_CC_RECIPIENT",
                         "CC rule 1 names recipients who cannot act now and are not CC'd: 3002 has no account")),

@@ -56,7 +56,7 @@ class BranchesMeetingCompileTest {
         assertEquals(List.of("CONCURRENT_BRANCHES_MEET"), codes(diagnostics));
         CompileDiagnostic met = diagnostics.getFirst();
         assertEquals("gateway", met.nodeId());
-        assertTrue(met.message().contains("'gateway-finance' and 'gateway-travel'"), met.message());
+        assertTrue(met.message().contains("'gateway → finance' and 'gateway → travel'"), met.message());
         assertTrue(met.message().contains("'hr'"), met.message());
     }
 
@@ -178,8 +178,8 @@ class BranchesMeetingCompileTest {
         assertEquals(List.of("BRANCH_ENTERS_JOIN_TWICE"), codes(diagnostics));
         CompileDiagnostic twice = diagnostics.getFirst();
         assertEquals("fork", twice.nodeId());
-        assertTrue(twice.message().contains("'fork-finance'"), twice.message());
-        assertTrue(twice.message().contains("finance-join, senior-join"), twice.message());
+        assertTrue(twice.message().contains("'fork → finance'"), twice.message());
+        assertTrue(twice.message().contains("'finance → join', 'senior → join'"), twice.message());
     }
 
     @Test
@@ -199,7 +199,7 @@ class BranchesMeetingCompileTest {
         assertEquals(List.of("BRANCH_SKIPS_JOIN"), codes(diagnostics));
         CompileDiagnostic skips = diagnostics.getFirst();
         assertEquals("fork", skips.nodeId());
-        assertTrue(skips.message().contains("'fork-finance'"), skips.message());
+        assertTrue(skips.message().contains("'fork → finance'"), skips.message());
         assertTrue(skips.message().contains("parallel join 'join' or an end"), skips.message());
     }
 

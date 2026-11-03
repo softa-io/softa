@@ -43,7 +43,7 @@ class InclusiveJoinPairingCompileTest {
                         edge("join-end", "join", "end"))));
 
         assertEquals(List.of("INCLUSIVE_JOIN_UNPAIRED"), codes(diagnostics));
-        assertTrue(diagnostics.getFirst().message().contains("entered from outside the gateway's branches, by 'other-join'"),
+        assertTrue(diagnostics.getFirst().message().contains("entered from outside the gateway's branches, by 'other → join'"),
                 diagnostics.getFirst().message());
     }
 

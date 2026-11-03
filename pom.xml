@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.1</version>
+		<version>4.1.2</version>
 	</parent>
 
 	<name>Softa Parent</name>
@@ -28,7 +28,7 @@
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-		<spring.boot.version>4.1.1</spring.boot.version>
+		<spring.boot.version>4.1.2</spring.boot.version>
 		<mockito.version>5.20.0</mockito.version>
 		<spring.ai.version>2.0.0</spring.ai.version>
 

@@ -161,8 +161,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
         return order.stream()
                 .map(nodes::get)
                 .filter(node -> node != null && FlowNodeType.APPROVAL.equals(node.getType()))
-                .map(node -> new FlowDelegationFlowView.Node(node.getNodeId(),
-                        StringUtils.hasText(node.getLabel()) ? node.getLabel() : node.getNodeId()))
+                .map(node -> new FlowDelegationFlowView.Node(node.getNodeId(), node.displayName()))
                 .toList();
     }
 

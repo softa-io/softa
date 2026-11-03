@@ -36,7 +36,7 @@ public class SubflowNodeExecutionHandler implements NodeExecutionHandler {
     public NodeOutcome execute(CompiledFlowNode node, FlowVariableContext ctx) {
         if (!(node.getParsedConfig() instanceof SubflowNodeConfig cfg)
                 || cfg.getSubflowId() == null) {
-            throw new FlowRuntimeException("Subflow node '" + node.getNodeId() + "' must configure subflowId");
+            throw new FlowRuntimeException("Subflow node '" + node.displayName() + "' must configure subflowId");
         }
         return new NodeOutcome.RunSubflow(cfg.getSubflowId(), cfg.getInputMapping(),
                 cfg.getOutputVariable(), cfg.getOutputMapping());

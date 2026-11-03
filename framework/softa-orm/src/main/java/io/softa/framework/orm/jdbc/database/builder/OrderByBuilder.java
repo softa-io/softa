@@ -14,6 +14,7 @@ import io.softa.framework.orm.meta.ModelManager;
  * For paged queries:
  *      When `orders` in flexQuery is empty, using the `defaultOrder` configuration of model.
  *      When 'defaultOrder' is not configured, using the global default order `DEFAULT_PAGED_ORDER`.
+ *      A cursor page's order also ends with the physical primary key (`sliceId` on a timeline model).
  * For non-paged queries:
  *      Order according to the `orders` in flexQuery, or do not specify the sort when it is empty.
  * For DISTINCT queries:
@@ -69,15 +70,18 @@ public class OrderByBuilder extends BaseBuilder implements SqlClauseBuilder {
                 String aliasField = this.parseLogicField(order.get(0), false);
                 sqlWrapper.orderBy(aliasField, order.get(1));
             }
-            // For stable order paging queries, if there is no `id` in the orders parameter,
-            // automatically add `t.id ASC` at the end of the order condition,
-            // to ensure that different page data is as non-repetitive as possible.
-            // Skipped for DISTINCT: `id` is outside the select list (same 3065 failure).
-            // Skipped when grouping does not carry `id`, for the reason given on isSortable.
-            if (page != null && page.isCursorPage() && !distinct
-                    && !orders.getFields().contains(ModelConstant.ID)
-                    && isSortable(ModelConstant.ID)) {
-                sqlWrapper.orderBy(SqlWrapper.MAIN_TABLE_ALIAS + "." + ModelConstant.ID, Orders.ASC);
+            // A cursor page is read page after page, so its order has to be total, or a row could land on
+            // two pages or on none: the physical primary key ends the order unless the order names it. On a
+            // timeline model that is `sliceId`, since the slices of one record share its `id`. The key is
+            // the framework's addition, not the caller's choice, so it is not recorded as a field accessed.
+            // Skipped for DISTINCT: the key is outside the select list (same 3065 failure).
+            // Skipped when grouping does not carry the key, for the reason given on isSortable.
+            if (page != null && page.isCursorPage() && !distinct) {
+                String primaryKey = ModelManager.getModelPrimaryKey(mainModelName);
+                if (!orders.getFields().contains(primaryKey) && isSortable(primaryKey)) {
+                    String column = ModelManager.getModelFieldColumn(mainModelName, primaryKey);
+                    sqlWrapper.orderBy(SqlWrapper.MAIN_TABLE_ALIAS + "." + column, Orders.ASC);
+                }
             }
         }
     }

@@ -119,7 +119,7 @@ public class ApprovalActorValidator {
         requireNotVoted(pendingApproval, request.getActorId(), node);
         requireNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
         if (lifecycleService.hasUnresolvedAddSignDependency(pendingApproval)) {
-            throw new FlowActionValidationException(I18n.get(unresolvedDependencyMessage, stepOf(node)));
+            throw new FlowActionValidationException(I18n.get(unresolvedDependencyMessage, node.displayName()));
         }
         requireUsable(List.of(request.getTargetActorId()));
     }
@@ -156,17 +156,17 @@ public class ApprovalActorValidator {
     /** Refuses an actor who already approved or rejected the step in this cycle. */
     public void requireNotVoted(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
         if (pendingApproval.getApprovedActors() != null && pendingApproval.getApprovedActors().contains(actorId)) {
-            throw new FlowActionValidationException(I18n.get(ALREADY_APPROVED, nameOf(actorId), stepOf(node)));
+            throw new FlowActionValidationException(I18n.get(ALREADY_APPROVED, nameOf(actorId), node.displayName()));
         }
         if (pendingApproval.getRejectedActors() != null && pendingApproval.getRejectedActors().contains(actorId)) {
-            throw new FlowActionValidationException(I18n.get(ALREADY_REJECTED, nameOf(actorId), stepOf(node)));
+            throw new FlowActionValidationException(I18n.get(ALREADY_REJECTED, nameOf(actorId), node.displayName()));
         }
     }
 
     /** Refuses an approver whose turn waits on a signer added before them, until that signer has approved. */
     public void requireNotBlockedByPrerequisite(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
         if (lifecycleService.isBlockedByPrerequisite(pendingApproval, actorId)) {
-            throw new FlowActionValidationException(I18n.get(BLOCKED_BY_PREREQUISITE, nameOf(actorId), stepOf(node),
+            throw new FlowActionValidationException(I18n.get(BLOCKED_BY_PREREQUISITE, nameOf(actorId), node.displayName(),
                     nameOf(pendingApproval.getPrerequisiteActorId())));
         }
     }
@@ -175,19 +175,19 @@ public class ApprovalActorValidator {
 
     private void requireNonEmptyApprovers(PendingApproval pendingApproval, CompiledFlowNode node) {
         if (pendingApproval.getApprovers() == null || pendingApproval.getApprovers().isEmpty()) {
-            throw new FlowActionValidationException(I18n.get(NO_APPROVERS, stepOf(node)));
+            throw new FlowActionValidationException(I18n.get(NO_APPROVERS, node.displayName()));
         }
     }
 
     private void requireActorIsApprover(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
         if (!pendingApproval.getApprovers().contains(actorId)) {
-            throw new FlowActionValidationException(I18n.get(NOT_AN_APPROVER, nameOf(actorId), stepOf(node)));
+            throw new FlowActionValidationException(I18n.get(NOT_AN_APPROVER, nameOf(actorId), node.displayName()));
         }
     }
 
     private void requireTargetNotExisting(PendingApproval pendingApproval, String targetActorId, CompiledFlowNode node) {
         if (pendingApproval.getApprovers().contains(targetActorId)) {
-            throw new FlowActionValidationException(I18n.get(ALREADY_AN_APPROVER, nameOf(targetActorId), stepOf(node)));
+            throw new FlowActionValidationException(I18n.get(ALREADY_AN_APPROVER, nameOf(targetActorId), node.displayName()));
         }
     }
 
@@ -202,10 +202,5 @@ public class ApprovalActorValidator {
             return userId;
         }
         return actorAccounts.namesOf(List.of(userId)).getOrDefault(userId, userId);
-    }
-
-    /** The step as people see it: its label, else its node id. */
-    private static String stepOf(CompiledFlowNode node) {
-        return StringUtils.hasText(node.getLabel()) ? node.getLabel() : node.getNodeId();
     }
 }

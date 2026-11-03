@@ -89,7 +89,8 @@ class InclusiveGatewayCompileTest {
         CompileDiagnostic unpaired = diagnostics.getFirst();
         assertEquals(CompileDiagnostic.Severity.ERROR, unpaired.severity());
         assertEquals("gateway", unpaired.nodeId());
-        assertTrue(unpaired.message().contains("Branch 'g-travel' may end before join 'join'"), unpaired.message());
+        assertTrue(unpaired.message().contains("Branch 'Which checks → Travel' may end before join 'Join'"),
+                unpaired.message());
     }
 
     private static List<String> codes(List<CompileDiagnostic> diagnostics) {

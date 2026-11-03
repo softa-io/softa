@@ -27,7 +27,8 @@ import io.softa.starter.flow.runtime.context.RecordVariables;
 
 /**
  * Validates routing node structure and edge-condition rules. A node has at most one default edge — the one without a
- * condition — an inclusive gateway included, and tries it last. The branches of an inclusive gateway either each end
+ * condition — an inclusive gateway included, and tries it last; a node that picks one of several edges by their
+ * conditions has exactly one, so every request has somewhere to go. The branches of an inclusive gateway either each end
  * on their own or all meet at one join, paired with the gateway ({@link BranchRegions#pairOf}): the engine counts the
  * branches the gateway does not take as arrived there. Branches that may run together meet only at a join or an end,
  * a join goes on by one edge, and a fork's branch that goes on to a join enters it by one edge on every path —
@@ -50,6 +51,7 @@ public class GatewayValidator implements FlowValidator {
     private static final String BRANCH_ENTERS_JOIN_TWICE   = "BRANCH_ENTERS_JOIN_TWICE";
     private static final String BRANCH_SKIPS_JOIN          = "BRANCH_SKIPS_JOIN";
     private static final String DEFAULT_EDGE_NOT_LAST      = "DEFAULT_EDGE_NOT_LAST";
+    private static final String NO_DEFAULT_EDGE            = "NO_DEFAULT_EDGE";
 
     @Override
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition, FlowGraphContext context) {
@@ -59,19 +61,19 @@ public class GatewayValidator implements FlowValidator {
             int outgoing = sizeOf(context.outgoingEdgeIds().get(node.getId()));
 
             validateOutgoingEdgeConditions(node.getId(), node.getType().getType(),
-                    context.outgoingEdgeIds().get(node.getId()), context.edgeMap(), definition.getTrigger(),
+                    context.outgoingEdgeIds().get(node.getId()), context, definition.getTrigger(),
                     recordModelOf(definition), d);
 
             if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
                 if (outgoing < 2) {
                     d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(),
                             INSUFFICIENT_GATEWAY_EDGES,
-                            "Inclusive gateway '" + node.getId() + "' must have at least 2 outgoing edges"));
+                            "Inclusive gateway '" + node.displayName() + "' must have at least 2 outgoing edges"));
                 }
                 BranchRegions.Pairing pairing = BranchRegions.pairOf(node, context);
                 if (pairing.problem() != null) {
                     d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), INCLUSIVE_JOIN_UNPAIRED,
-                            "Inclusive gateway '" + node.getId() + "': " + pairing.problem() + ". Its branches either "
+                            "Inclusive gateway '" + node.displayName() + "': " + pairing.problem() + ". Its branches either "
                                     + "each end on their own, or all meet at one join: every branch, the default "
                                     + "included, goes on to it and enters it by one edge, never ending or reaching "
                                     + "another join first, sharing no node with another branch, and no edge from "
@@ -91,7 +93,7 @@ public class GatewayValidator implements FlowValidator {
 
             if (FlowNodeType.PARALLEL_JOIN.equals(node.getType()) && outgoing > 1) {
                 d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), JOIN_MULTIPLE_OUTGOING,
-                        "Parallel join '" + node.getId() + "' has " + outgoing + " outgoing edges. A join waits for "
+                        "Parallel join '" + node.displayName() + "' has " + outgoing + " outgoing edges. A join waits for "
                                 + "its branches and goes on once, by one edge: with more it stops waiting, and each "
                                 + "branch goes on by itself. Leave it one, and branch after it."));
             }
@@ -103,18 +105,19 @@ public class GatewayValidator implements FlowValidator {
             if (!FlowNodeType.PARALLEL_FORK.equals(node.getType())
                     && !FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType()) && outgoing > 1) {
                 validateDefaultEdgeLast(node, context, d);
+                validateDefaultEdgeWhereConditionsRoute(node, context, d);
             }
 
             if (FlowNodeType.PARALLEL_FORK.equals(node.getType()) && outgoing < 2) {
                 d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(),
                         INSUFFICIENT_GATEWAY_EDGES,
-                        "Parallel fork '" + node.getId() + "' must have at least 2 outgoing edges"));
+                        "Parallel fork '" + node.displayName() + "' must have at least 2 outgoing edges"));
             }
 
             if (FlowNodeType.PARALLEL_JOIN.equals(node.getType()) && incoming < 2) {
                 d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(),
                         INSUFFICIENT_GATEWAY_EDGES,
-                        "Parallel join '" + node.getId() + "' must have at least 2 incoming edges"));
+                        "Parallel join '" + node.displayName() + "' must have at least 2 incoming edges"));
             }
         }
         return d;
@@ -122,28 +125,29 @@ public class GatewayValidator implements FlowValidator {
 
     private void validateOutgoingEdgeConditions(String nodeId, String nodeType,
                                                 List<String> outgoingEdgeIds,
-                                                Map<String, FlowGraphEdge> edgeMap,
+                                                FlowGraphContext context,
                                                 TriggerSource trigger,
                                                 String modelName,
                                                 List<CompileDiagnostic> d) {
         for (String edgeId : outgoingEdgeIds == null ? Collections.<String>emptyList() : outgoingEdgeIds) {
-            FlowGraphEdge edge = edgeMap.get(edgeId);
+            FlowGraphEdge edge = context.edgeMap().get(edgeId);
             if (edge == null) {
                 d.add(CompileDiagnostic.nodeLevel(nodeId, nodeType, UNKNOWN_ROUTING_EDGE,
-                        "Node '" + nodeId + "' references unknown outgoing edge '" + edgeId + "'"));
+                        "Node '" + context.nodeName(nodeId) + "' references unknown outgoing edge '" + edgeId + "'"));
                 continue;
             }
+            String edgeName = context.edgeName(edge.getId());
             boolean rule = !Filters.isEmpty(edge.getCondition());
             if (rule && StringUtils.hasText(edge.getConditionExpression())) {
                 d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, CONFLICTING_EDGE_CONDITIONS,
-                        "Edge '" + edge.getId() + "' has both a rule condition and an expression; keep one"));
+                        "Edge '" + edgeName + "' has both a rule condition and an expression; keep one"));
             } else if (rule) {
-                validateRuleCondition(edge, nodeId, nodeType, trigger, modelName, d);
+                validateRuleCondition(edge, edgeName, nodeId, nodeType, trigger, modelName, d);
             } else if (StringUtils.hasText(edge.getConditionExpression())
                     && !ComputeUtils.validateExpression(edge.getConditionExpression())) {
                 d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, INVALID_CONDITION_EXPR,
-                        "Node '" + nodeId + "' has invalid condition expression on edge '"
-                                + edge.getId() + "': " + edge.getConditionExpression()));
+                        "Node '" + context.nodeName(nodeId) + "' has invalid condition expression on edge '"
+                                + edgeName + "': " + edge.getConditionExpression()));
             }
         }
     }
@@ -166,10 +170,28 @@ public class GatewayValidator implements FlowValidator {
         if (defaultEdgeCount > 1) {
             d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), MULTIPLE_DEFAULT_EDGES,
                     FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())
-                            ? "Inclusive gateway '" + node.getId() + "' can only define one default edge: the edge "
+                            ? "Inclusive gateway '" + node.displayName() + "' can only define one default edge: the edge "
                                     + "without a condition is taken only when no condition holds, so give the others "
                                     + "a condition"
-                            : "Node '" + node.getId() + "' can only define one default edge"));
+                            : "Node '" + node.displayName() + "' can only define one default edge"));
+        }
+    }
+
+    /**
+     * A node that picks one of several edges by their conditions has a default — an edge without a condition, taken
+     * when none holds. Without one, a request no condition fits has nowhere to go: its submission is refused, or,
+     * after an approval, the instance fails (zingkey-hcm#2382). A node whose only edge has a condition is not one: a
+     * request that does not fit ends its branch there. An inclusive gateway is not held to it — its branches, the
+     * default included, are paired with a join — and stops the same way when none of its conditions holds.
+     */
+    private static void validateDefaultEdgeWhereConditionsRoute(FlowGraphNode node, FlowGraphContext context,
+                                                                List<CompileDiagnostic> d) {
+        List<FlowGraphEdge> edges = BranchRegions.outgoingEdges(node.getId(), context);
+        if (edges.size() > 1 && edges.stream().allMatch(FlowGraphEdge::hasCondition)) {
+            d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), NO_DEFAULT_EDGE,
+                    "Node '" + node.displayName() + "' picks its route by conditions but has no default route, so a "
+                            + "request that fits none of them would stop there. Add a route without a condition: it "
+                            + "is taken when no other route's condition holds."));
         }
     }
 
@@ -188,9 +210,10 @@ public class GatewayValidator implements FlowValidator {
                     && (edge.getPriority() == null || edge.getPriority() >= fallback.getPriority()));
             if (before) {
                 d.add(CompileDiagnostic.edgeLevel(fallback.getId(), node.getId(), node.getType().getType(),
-                        DEFAULT_EDGE_NOT_LAST, "Edge '" + fallback.getId() + "' has no condition, so it is the default "
-                                + "of '" + node.getId() + "', taken only when no other edge's condition holds: it is "
-                                + "always tried last. Give it no priority, or one after every conditional edge's."));
+                        DEFAULT_EDGE_NOT_LAST, "Edge '" + context.edgeName(fallback.getId()) + "' has no condition, so "
+                                + "it is the default of '" + node.displayName() + "', taken only when no other edge's "
+                                + "condition holds: it is always tried last. Give it no priority, or one after every "
+                                + "conditional edge's."));
             }
         }
     }
@@ -214,9 +237,10 @@ public class GatewayValidator implements FlowValidator {
                 met.retainAll(reached.get(j));
                 if (!met.isEmpty()) {
                     d.add(CompileDiagnostic.nodeLevel(split.getId(), split.getType().getType(), CONCURRENT_BRANCHES_MEET,
-                            "Branches '" + branches.get(i).getId() + "' and '" + branches.get(j).getId() + "' of '"
-                                    + split.getId() + "' may run at the same time, and both reach "
-                                    + met.stream().map(id -> "'" + id + "'").collect(Collectors.joining(", "))
+                            "Branches '" + context.edgeName(branches.get(i).getId()) + "' and '"
+                                    + context.edgeName(branches.get(j).getId()) + "' of '" + split.displayName()
+                                    + "' may run at the same time, and both reach "
+                                    + BranchRegions.quoted(met, context::nodeName)
                                     + " without a parallel join: it would run once for each. Join them with a parallel "
                                     + "join first, or let each branch end on its own."));
                     return;
@@ -241,21 +265,22 @@ public class GatewayValidator implements FlowValidator {
             for (Map.Entry<String, List<String>> entry : entries.entrySet()) {
                 if (entry.getValue().size() > 1) {
                     d.add(CompileDiagnostic.nodeLevel(fork.getId(), fork.getType().getType(), BRANCH_ENTERS_JOIN_TWICE,
-                            "Branch '" + branch.getId() + "' of '" + fork.getId() + "' enters parallel join '"
-                                    + entry.getKey() + "' by " + entry.getValue().size() + " edges ("
-                                    + String.join(", ", entry.getValue()) + "), of which it takes one: the join "
-                                    + "would wait for the others for ever. Bring the alternatives together before "
-                                    + "the join, and enter it by one edge."));
+                            "Branch '" + context.edgeName(branch.getId()) + "' of '" + fork.displayName()
+                                    + "' enters parallel join '" + context.nodeName(entry.getKey()) + "' by "
+                                    + entry.getValue().size() + " edges ("
+                                    + BranchRegions.quoted(entry.getValue(), context::edgeName) + "), of which it "
+                                    + "takes one: the join would wait for the others for ever. Bring the alternatives "
+                                    + "together before the join, and enter it by one edge."));
                 }
             }
             if (entries.size() > 1 || (reachesEnd && !entries.isEmpty())) {
-                List<String> outs = entries.keySet().stream().map(join -> "parallel join '" + join + "'")
+                List<String> outs = entries.keySet().stream().map(join -> "parallel join '" + context.nodeName(join) + "'")
                         .collect(Collectors.toCollection(ArrayList::new));
                 if (reachesEnd) {
                     outs.add("an end");
                 }
                 d.add(CompileDiagnostic.nodeLevel(fork.getId(), fork.getType().getType(), BRANCH_SKIPS_JOIN,
-                        "Branch '" + branch.getId() + "' of '" + fork.getId() + "' may reach "
+                        "Branch '" + context.edgeName(branch.getId()) + "' of '" + fork.displayName() + "' may reach "
                                 + String.join(" or ", outs) + ", one instead of another: a join it does not reach "
                                 + "would wait for it for ever. Let every path of the branch reach the same join, "
                                 + "or none."));
@@ -267,15 +292,15 @@ public class GatewayValidator implements FlowValidator {
      * A rule condition reads the fields of the record the flow starts on, judged the way a field condition
      * is: an approval's only by the fields its approvals route on, an entity change's by its model's.
      */
-    private static void validateRuleCondition(FlowGraphEdge edge, String nodeId, String nodeType,
+    private static void validateRuleCondition(FlowGraphEdge edge, String edgeName, String nodeId, String nodeType,
                                               TriggerSource trigger, String modelName, List<CompileDiagnostic> d) {
         if (!StringUtils.hasText(modelName) || !ModelManager.existModel(modelName)) {
             d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, RULE_WITHOUT_RECORD,
-                    "Edge '" + edge.getId() + "' has a rule condition, but the flow starts on no record whose"
+                    "Edge '" + edgeName + "' has a rule condition, but the flow starts on no record whose"
                             + " fields a rule could read; write an expression instead"));
             return;
         }
-        String prefix = "Edge '" + edge.getId() + "': ";
+        String prefix = "Edge '" + edgeName + "': ";
         try {
             if (trigger instanceof SubmitTrigger) {
                 checkApprovalRule(edge.getCondition(), modelName, prefix);

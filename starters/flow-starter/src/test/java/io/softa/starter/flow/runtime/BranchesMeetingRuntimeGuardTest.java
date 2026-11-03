@@ -20,7 +20,6 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
@@ -28,13 +27,13 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The runtime safety net under the publish checks, for revisions published before them: a step two branches reach
  * without a join is not run a second time, and a join left short does not let the approval complete. Either way the
- * approval that would do it is refused, naming the node.
+ * instance fails, naming the node; the approval that reached it stands, as any after which the approval cannot go on
+ * (zingkey-hcm#2385).
  */
 class BranchesMeetingRuntimeGuardTest {
 
@@ -64,15 +63,16 @@ class BranchesMeetingRuntimeGuardTest {
         approve(state, "travel");
         assertEquals(1, pendingAt(state, "hr"));
 
-        FlowRuntimeException refused = assertThrows(FlowRuntimeException.class, () -> approve(state, "finance"));
+        approve(state, "finance");
 
-        assertTrue(refused.getMessage().contains("node 'hr' a second time"), refused.getMessage());
-        assertEquals(1, pendingAt(instanceStore.get(state.getInstanceId()).orElseThrow(), "hr"),
-                "HR is not asked a second time");
+        FlowExecutionState failed = instanceStore.get(state.getInstanceId()).orElseThrow();
+        assertEquals(FlowExecutionStatus.FAILED, failed.getStatus());
+        assertTrue(failed.getErrorMessage().contains("node 'hr' a second time"), failed.getErrorMessage());
+        assertEquals(1, pendingAt(failed, "hr"), "HR is not asked a second time");
     }
 
     @Test
-    void aJoinLeftShortRefusesTheApprovalInsteadOfCompletingIt() {
+    void aJoinLeftShortFailsTheInstanceInsteadOfCompletingIt() {
         // Finance may end instead of joining: published before BRANCH_SKIPS_JOIN refused it.
         publishOld("8102", flow(
                 List.of(node("fork", FlowNodeType.PARALLEL_FORK), approval("finance"), approval("travel"),
@@ -93,10 +93,12 @@ class BranchesMeetingRuntimeGuardTest {
         approve(state, "finance");
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus(), "travel still to approve");
 
-        FlowRuntimeException refused = assertThrows(FlowRuntimeException.class, () -> approve(state, "travel"));
+        approve(state, "travel");
 
-        assertTrue(refused.getMessage().contains("parallel join 'join' has had 1 of its 2 branches"),
-                refused.getMessage());
+        FlowExecutionState failed = instanceStore.get(state.getInstanceId()).orElseThrow();
+        assertEquals(FlowExecutionStatus.FAILED, failed.getStatus());
+        assertTrue(failed.getErrorMessage().contains("parallel join 'join' has had 1 of its 2 branches"),
+                failed.getErrorMessage());
         assertTrue(instanceStore.listByStatus(FlowExecutionStatus.COMPLETED).isEmpty(),
                 "the approval is not completed past the join");
     }

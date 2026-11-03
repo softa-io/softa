@@ -5,10 +5,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 import io.softa.framework.orm.domain.Filters;
@@ -28,7 +30,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -195,6 +200,39 @@ class ApprovalFormWriteServiceTest {
         service.applyFormData(state, node, Map.of("days", 5));
 
         assertEquals(Map.of("days", 5, "_subjectId", 5001L), state.getVariables());
+    }
+
+    /**
+     * An approver's edits meet the model's own rules, as its page applies them on save: the handler sees the record as
+     * the edits left it and the fields they wrote — after the write, before the flow routes on it (zingkey-hcm#2323).
+     */
+    @Test
+    void anApproversEditsAreHeldToTheModelsOwnRules() {
+        CompiledFlowNode node = nodeWith(Map.of("days", FormFieldPermission.EDITABLE));
+        FlowExecutionState state = boundState();
+        state.setRecordApproval(true);
+        state.setVariables(new HashMap<>());
+        when(modelService.getById(eq("LeaveRequest"), any())).thenReturn(Optional.of(Map.of("id", 7L, "days", 5)));
+        when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave", Map.of()));
+
+        service.applyFormData(state, node, Map.of("days", 5));
+
+        InOrder order = inOrder(modelService, handler);
+        order.verify(modelService).updateByFilter(eq("LeaveRequest"), any(Filters.class), anyMap());
+        order.verify(handler).afterApproverEdit(argThat(record -> record.getDays() == 5), eq(Set.of("days")));
+        order.verify(handler).submission(any());
+    }
+
+    @Test
+    void theModelRefusingTheEditsRefusesTheApprove() {
+        CompiledFlowNode node = nodeWith(Map.of("days", FormFieldPermission.EDITABLE));
+        FlowExecutionState state = boundState();
+        state.setRecordApproval(true);
+        when(modelService.getById(eq("LeaveRequest"), any())).thenReturn(Optional.of(Map.of("id", 7L, "days", 50)));
+        doThrow(new IllegalStateException("Not that many days")).when(handler).afterApproverEdit(any(), any());
+
+        assertThrows(IllegalStateException.class, () -> service.applyFormData(state, node, Map.of("days", 50)));
+        verify(handler, never()).submission(any());
     }
 
     @Test

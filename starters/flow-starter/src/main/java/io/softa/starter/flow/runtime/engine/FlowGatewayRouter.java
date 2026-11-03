@@ -34,7 +34,10 @@ import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
  *       when none holds;</li>
  *   <li>a parallel fork takes every edge, its conditions unread.</li>
  * </ul>
- * A node with several outgoing edges where nothing is taken fails the instance.
+ * A node with several outgoing edges where nothing is taken has no route ({@link #noRoute}). Publishing gives every
+ * ordinary node that picks its route by conditions a default ({@code NO_DEFAULT_EDGE}), so of those only a revision
+ * published before can stop there; an inclusive gateway none of whose conditions holds still can. A node whose one
+ * edge has a condition that does not hold ends its branch.
  */
 @Component
 public class FlowGatewayRouter {
@@ -128,7 +131,7 @@ public class FlowGatewayRouter {
                 continue;
             }
             if (defaultTransition != null) {
-                throw new FlowRuntimeException("Node '" + node.getNodeId()
+                throw new FlowRuntimeException("Node '" + node.displayName()
                         + "' has multiple default outgoing edges");
             }
             defaultTransition = transition;
@@ -158,7 +161,7 @@ public class FlowGatewayRouter {
             }
             if (!transition.hasCondition()) {
                 if (defaultTransition != null) {
-                    throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
+                    throw new FlowRuntimeException("Inclusive gateway '" + node.displayName()
                             + "' has multiple default outgoing edges");
                 }
                 defaultTransition = transition;
@@ -178,13 +181,13 @@ public class FlowGatewayRouter {
     }
 
     /**
-     * No route out of {@code node} fits the request, and none is the default: a gap in the flow, refused with a
-     * message its reader can act on rather than failed as an unexpected error (zingkey-hcm#2382). At submission the
-     * submitter is refused; after an approval the instance fails with it, and its administrators are told.
+     * No route out of {@code node} fits the request, and none is the default: a gap in the flow, told in words its
+     * reader can act on rather than as an unexpected error (zingkey-hcm#2382). At submission the submitter is refused;
+     * after an approval the instance fails with it, the approval kept, and its initiator and administrators are told
+     * ({@link FlowExecutionOrchestrator#runAfterApproval}).
      */
     private static FlowActionValidationException noRoute(CompiledFlowNode node) {
-        String step = StringUtils.hasText(node.getLabel()) ? node.getLabel() : node.getNodeId();
-        return new FlowActionValidationException("No route after '" + step + "' fits this request, and the step has "
-                + "no default route. An administrator needs to add one to the approval flow.");
+        return new FlowActionValidationException("No route after '" + node.displayName() + "' fits this request, and "
+                + "the step has no default route. An administrator needs to add one to the approval flow.");
     }
 }
