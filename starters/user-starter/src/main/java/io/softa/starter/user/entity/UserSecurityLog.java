@@ -60,6 +60,8 @@ public class UserSecurityLog extends AuditableModel {
     @Field(length = 255, description = "Masked for numbers and addresses; the status name for status changes")
     private String newValue;
 
+    // Source and device are what the client said about itself (request headers), not proven: an
+    // APP / WEB here is a claim, and the device model is whatever the client sent.
     @Field
     private SecurityLogSource source;
 

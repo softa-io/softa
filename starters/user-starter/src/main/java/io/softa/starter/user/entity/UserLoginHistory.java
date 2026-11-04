@@ -76,6 +76,8 @@ public class UserLoginHistory extends AuditableModel {
     @Field(length = 255)
     private String failureReason;
 
+    // Platform, APP version and device model are what the client said about itself (request
+    // headers), not proven.
     @Field(description = "ios / android for the APP; empty for Web")
     private String platform;
 
