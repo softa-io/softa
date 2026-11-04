@@ -118,6 +118,18 @@ class ChangeMyPasswordLockTest {
     }
 
     @Test
+    void theLockIsWrittenInItsOwnTransaction_soTheRefusalCannotRollItBack() throws NoSuchMethodException {
+        // changeMyPassword is transactional and refuses by throwing; in the caller's transaction the
+        // lock would be rolled back with the refusal, while the cache counter is already reset.
+        org.springframework.transaction.annotation.Transactional tx = UserIdentityServiceImpl.class
+                .getMethod("recordPasswordFailure", UserIdentity.class)
+                .getAnnotation(org.springframework.transaction.annotation.Transactional.class);
+        assertThat(tx).isNotNull();
+        assertThat(tx.propagation())
+                .isEqualTo(org.springframework.transaction.annotation.Propagation.REQUIRES_NEW);
+    }
+
+    @Test
     void theRightPassword_clearsTheCount_andChangesIt() {
         change("Right-Passw0rd");
 

@@ -14,6 +14,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -247,9 +249,14 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
                 .collect(Collectors.toSet());
     }
 
+    // REQUIRES_NEW: the wrong password is reported by throwing, and a caller running in a transaction
+    // (changing one's password does) rolls back on that very exception — taking the lock with it,
+    // while the counter in the cache has already been reset. The lock then never holds, and every
+    // tenth guess just starts a fresh window. Its own transaction commits it whatever the caller does.
     @SkipPermissionCheck
     @CrossTenant
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public long recordPasswordFailure(UserIdentity identity) {
         if (identity == null || identity.getId() == null) {
             return 0;
