@@ -740,7 +740,8 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                     accountService.updateOne(account);
                     // As every closed account: no device keeps receiving the company's notifications.
                     if (pushDeviceRegistry != null) {
-                        pushDeviceRegistry.unregisterAccount(account.getId());
+                        AfterCommit.run("Dropping the push devices of account " + account.getId(),
+                                () -> pushDeviceRegistry.unregisterAccount(account.getId()));
                     }
                     // Evicted HERE, because after this write the row is invisible to the sweep that
                     // follows: forgetEntryAnswers reads listMembershipsOf, which hides DEACTIVATED

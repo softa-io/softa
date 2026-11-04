@@ -990,13 +990,15 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     }
 
     /**
-     * Drop the push registrations of an account that can no longer be entered. Its sessions are left
-     * to the per-request check, which ends them on their next request; a device that never asks again
-     * would otherwise go on receiving the company's notifications.
+     * Drop the push registrations of an account that can no longer be entered: a device that never
+     * asks again would otherwise go on receiving the company's notifications. Once the freeze or
+     * closure commits, and never at its expense — a registry that fails leaves a device notified a
+     * while longer, not an account left open.
      */
     private void unregisterDevices(Long accountId) {
         if (pushDeviceRegistry != null && accountId != null) {
-            pushDeviceRegistry.unregisterAccount(accountId);
+            AfterCommit.run("Dropping the push devices of account " + accountId,
+                    () -> pushDeviceRegistry.unregisterAccount(accountId));
         }
     }
 

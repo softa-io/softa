@@ -22,9 +22,7 @@ public interface PushDeviceRegistry {
 
     /**
      * Forget every device registered to this account: it was frozen or closed, and a notification
-     * from a company the person can no longer enter must not reach them. Does nothing by default, so
-     * a registry written before this method existed still compiles.
+     * from a company the person can no longer enter must not reach them.
      */
-    default void unregisterAccount(Long accountId) {
-    }
+    void unregisterAccount(Long accountId);
 }
