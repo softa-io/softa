@@ -93,6 +93,7 @@ class LoginControllerLeaveTenantTest {
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(controller, "loginService", loginService);
         ReflectionTestUtils.setField(controller, "sessionStore", sessionStore);
+        ReflectionTestUtils.setField(controller, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "sessionStore", sessionStore);
 
         when(tenantInfoService.getTenantName(anyLong())).thenReturn("Some Co");

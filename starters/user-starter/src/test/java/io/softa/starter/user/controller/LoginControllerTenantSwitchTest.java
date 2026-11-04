@@ -102,6 +102,7 @@ class LoginControllerTenantSwitchTest {
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(controller, "loginService", loginService);
         ReflectionTestUtils.setField(controller, "sessionStore", sessionStore);
+        ReflectionTestUtils.setField(controller, "profileService", profileService);
         ReflectionTestUtils.setField(controller, "loginHistory", mock(LoginHistoryRecorder.class));
         ReflectionTestUtils.setField(loginService, "sessionStore", sessionStore);
 
@@ -180,8 +181,42 @@ class LoginControllerTenantSwitchTest {
         verify(cacheService).clear(java.util.List.of("session:" + OLD_SESSION));
 
         assertThat(response.getHeader("Set-Cookie")).contains(BaseConstant.SESSION_ID + "=" + newSessionId);
-        // And in the body, for the APP, which sends it back as X-Session-Id rather than a cookie.
-        assertThat(result.sessionToken()).isEqualTo(newSessionId);
+        // Web keeps it in the cookie only: a copy in the body would be readable by page scripts.
+        assertThat(result.sessionToken()).isNull();
+    }
+
+    @Test
+    void aSessionOfThePreviousHolder_cannotSwitch_onceTheAccountIsSomeoneElses() {
+        // The account was closed, reopened and joined by person 8; this session was opened for 7.
+        UserInfo nowHeldBy = userInfoOf(HERE);
+        nowHeldBy.setProfileId(8L);
+        when(profileService.getUserInfo(HERE)).thenReturn(nowHeldBy);
+        MockHttpServletRequest request = signedInAt(HERE);
+
+        assertThatThrownBy(() -> controller.switchTenant(switchTo(THERE), request, response))
+                .isInstanceOf(io.softa.framework.base.exception.UserNotFoundException.class)
+                .extracting(e -> ((io.softa.framework.base.exception.UserNotFoundException) e).getErrorCode())
+                .isEqualTo(io.softa.framework.web.session.SessionErrorCodes.SESSION_EXPIRED);
+        verify(cacheService).clear(java.util.List.of("session:" + OLD_SESSION));
+        verify(accountService, never()).listMembershipsOf(any());
+    }
+
+    @Test
+    void theApp_alsoGetsTheNewSessionInTheBody() {
+        givenMemberships(membership(HERE, 1L, AccountStatus.ACTIVE), membership(THERE, 2L, AccountStatus.ACTIVE));
+        when(profileService.getUserInfo(THERE)).thenReturn(userInfoOf(THERE));
+        MockHttpServletRequest request = signedInAt(HERE);
+        request.addHeader(io.softa.starter.user.util.ClientInfo.PLATFORM_HEADER, "ios");
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(request));
+        try {
+            AuthenticationResult result = controller.switchTenant(switchTo(THERE), request, response).getData();
+
+            // It keeps no cookies and sends it back as X-Session-Id.
+            assertThat(result.sessionToken()).isNotBlank();
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     @Test

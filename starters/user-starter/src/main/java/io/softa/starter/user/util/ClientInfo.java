@@ -14,7 +14,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * are null there.
  *
  * @param ip          the client address — the {@code X-Forwarded-For} entry the trusted proxies
- *                    put there, else {@code X-Real-IP}, else the socket peer
+ *                    put there, else {@code X-Real-IP} when configured as trusted, else the socket
+ *                    peer
  * @param userAgent   the {@code User-Agent} header
  * @param platform    {@code X-App-Platform}, lower-cased
  * @param appVersion  {@code X-App-Version}
@@ -31,9 +32,21 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
     /** Proxies that append to {@code X-Forwarded-For}; set from configuration at startup. */
     private static volatile int trustedProxies = 1;
 
+    /** Whether a proxy in front of the application sets {@code X-Real-IP}; set from configuration. */
+    private static volatile boolean trustRealIp = false;
+
     /** How many proxies in front of the application append to {@code X-Forwarded-For} (at least one). */
     public static void trustProxies(int count) {
         trustedProxies = Math.max(1, count);
+    }
+
+    /**
+     * Whether to read {@code X-Real-IP} when {@code X-Forwarded-For} is absent. Off unless a proxy in
+     * front is known to set it: otherwise it is a header the caller wrote, and any address it names
+     * would pass the per-address limits.
+     */
+    public static void trustRealIp(boolean trust) {
+        trustRealIp = trust;
     }
 
     /** The calling client, or all-null outside an HTTP request (a scheduled job, a test). */
@@ -83,7 +96,7 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
             String[] hops = clientIp.split(",");
             return hops[Math.max(0, hops.length - trustedProxies)].trim();
         }
-        clientIp = request.getHeader("X-Real-IP");
+        clientIp = trustRealIp ? request.getHeader("X-Real-IP") : null;
         if (StringUtils.isNotBlank(clientIp)) {
             return clientIp.trim();
         }

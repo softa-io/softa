@@ -1275,6 +1275,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (account.getProfileId() == null || !mobileChanged) {
             return;     // no person yet, or nothing they sign in with has changed
         }
+        // Only the placeholder minted with the account is the company's to renumber. A real person's
+        // login mobile is theirs, in every company: an account form must not move it, silently, to
+        // whatever number HR typed — that would sign them in, everywhere, wherever the code lands.
+        if (!invitationService.isPlaceholderPerson(account.getProfileId(), account.getId())) {
+            return;
+        }
         identityService.findByProfile(account.getProfileId())
                 .filter(identity -> isSameLoginIdentifier(account.getMobile(), identity.getLoginMobile()))
                 .ifPresent(identity -> {

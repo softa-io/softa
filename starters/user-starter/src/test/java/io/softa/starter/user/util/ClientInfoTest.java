@@ -57,4 +57,19 @@ class ClientInfoTest {
             ClientInfo.trustProxies(1);
         }
     }
+
+    @Test
+    void xRealIp_isTheCallersOwnWords_unlessConfiguredAsTrusted() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.5");
+        request.addHeader("X-Real-IP", "1.2.3.4");
+        assertThat(ClientInfo.of(request).ip()).isEqualTo("10.0.0.5");
+
+        ClientInfo.trustRealIp(true);
+        try {
+            assertThat(ClientInfo.of(request).ip()).isEqualTo("1.2.3.4");
+        } finally {
+            ClientInfo.trustRealIp(false);
+        }
+    }
 }
