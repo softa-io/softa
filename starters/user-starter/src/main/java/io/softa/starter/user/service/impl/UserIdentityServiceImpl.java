@@ -1,8 +1,12 @@
 package io.softa.starter.user.service.impl;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -298,6 +302,76 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         Map<String, Object> fields = new HashMap<>();
         fields.put(LOGIN_MOBILE, loginMobile);
         this.updateFields(identityId, fields);
+    }
+
+    /*
+     * What remains distinguishable BY DESIGN between a known and an unknown identifier, once the
+     * messages, counts, clocks and spelling agree:
+     *
+     *  - The real counter is per PERSON, this one per STRING. A person's email and mobile lock
+     *    together (ten wrong passwords split across them lock both), while two unknown strings never
+     *    share a count. An observer who can pair two identifiers and spend the window on them can
+     *    learn that they belong to one real person. Accepted: keying the real counter per string
+     *    would hand a person with two identifiers twenty guesses, and the pairing already requires
+     *    knowing both of someone's contacts.
+     *  - The storage medium differs. The real lock is persisted on the identity row so a cache flush
+     *    cannot unlock it; the unknown lock lives only in the cache. A flush therefore frees unknown
+     *    identifiers and not real ones — observable only by whoever can cause the flush.
+     *  - Timing. Both branches run the same two identifier queries, but the real branch then hashes
+     *    a password and writes a row on the tenth failure, the unknown one increments a cache key.
+     *    Sub-millisecond, and below what the network jitter of an anonymous form exposes; not
+     *    equalised further.
+     */
+    @Override
+    public long recordUnknownIdentifierFailure(String identifier) {
+        String value = LoginIdentifiers.normalize(identifier);
+        if (value == null) {
+            return 0;
+        }
+        // Same window as the real counter, so the two branches age identically.
+        String digest = unknownDigest(value);
+        Long failures = cacheService.increment(unknownFailureKey(digest), LOCK_MINUTES * 60L);
+        if (failures == null) {
+            return 0;
+        }
+        if (failures >= FAILURES_BEFORE_LOCK) {
+            // Mirror recordPasswordFailure exactly: a lock that runs LOCK_MINUTES from THIS failure,
+            // and a counter reset so the next window starts fresh. Letting the counter stand in for
+            // the lock does not work — its TTL runs from the first failure, the real lock from the
+            // tenth, and between those two expiries the branches give different answers.
+            cacheService.save(unknownLockKey(digest), "1", LOCK_MINUTES * 60);
+            cacheService.clear(unknownFailureKey(digest));
+        }
+        return failures;
+    }
+
+    @Override
+    public boolean isUnknownIdentifierLocked(String identifier) {
+        String value = LoginIdentifiers.normalize(identifier);
+        return value != null && cacheService.hasKey(unknownLockKey(unknownDigest(value)));
+    }
+
+    private static String unknownFailureKey(String digest) {
+        return "login:pwd-failures:unknown:" + digest;
+    }
+
+    private static String unknownLockKey(String digest) {
+        return "login:pwd-lock:unknown:" + digest;
+    }
+
+    private static String unknownDigest(String identifier) {
+        // Hashed rather than stored: the key would otherwise be a list of every identifier ever
+        // guessed at the login form. The input is already in LoginIdentifiers' canonical form and
+        // is hashed as-is: any further transformation here is one the known branch's lookup would
+        // not make, and a difference between the two is the oracle this counter exists to close.
+        byte[] digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256")
+                    .digest(identifier.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is a mandatory JCA algorithm.", e);
+        }
+        return HexFormat.of().formatHex(digest);
     }
 
     @Override

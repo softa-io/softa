@@ -117,24 +117,18 @@ class IdentifierResolutionTest {
     }
 
     @Test
-    void anUnknownNumber_isAccountNotFound_whenSendingAndWhenSigningIn() {
-        when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> loginService.sendMobileCode("+6591234567"))
-                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
-        assertThatThrownBy(() -> loginService.authenticateByPassword(EMAIL, PASSWORD))
-                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
-        assertThatThrownBy(() -> loginService.authenticateByCode(EMAIL, "123456"))
-                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
-    }
-
-    @Test
-    void aPersonNoAccountWasEverCreatedFor_isAccountNotFound_too() {
+    void aPersonNoAccountWasEverCreatedFor_isAnsweredLikeAnUnknownNumber() {
+        // Nobody to sign in as, so nothing is sent — and, as for a number that is nobody's, the
+        // answer does not say so.
         person("hash");
         when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of());
+        org.springframework.context.ApplicationEventPublisher publisher =
+                mock(org.springframework.context.ApplicationEventPublisher.class);
+        ReflectionTestUtils.setField(loginService, "eventPublisher", publisher);
 
-        assertThatThrownBy(() -> loginService.sendEmailCode(EMAIL))
-                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
+        org.assertj.core.api.Assertions.assertThatCode(() -> loginService.sendEmailCode(EMAIL))
+                .doesNotThrowAnyException();
+        verify(publisher, never()).publishEvent(any(Object.class));
     }
 
     @Test
@@ -281,46 +275,13 @@ class IdentifierResolutionTest {
     }
 
     @Test
-    void anUnknownIdentifier_isAFailedSignIn_inTheHistory() {
+    void anUnknownIdentifier_isAFailedSignIn_inTheHistory_butAWrongPasswordToTheCaller() {
+        // The history may say why; the caller may not.
         when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> loginService.authenticateByPassword("nobody@acme.com", PASSWORD))
-                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
+                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("PASSWORD_INCORRECT"));
         verify(history).record(eq(LoginEvent.LOGIN_FAILED), isNull(), any(), any(), any(), any(), eq("ACCOUNT_NOT_FOUND"));
-    }
-
-    @Test
-    void misses_areCountedPerAddress_andTooManyStopTheLookup() {
-        // A miss costs nothing against the per-identifier send limits, so walking a number range
-        // has to be bounded by who is asking.
-        ClientRequests.fromAddress("203.0.113.9");
-        when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> loginService.sendMobileCode("+6590000001"))
-                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("ACCOUNT_NOT_FOUND"));
-        verify(cacheService).increment(eq("login:unknown-identifier:203.0.113.9"), anyLong());
-
-        when(cacheService.get("login:unknown-identifier:203.0.113.9"))
-                .thenReturn(String.valueOf(LoginServiceImpl.UNKNOWN_LOOKUPS_PER_HOUR));
-        assertThatThrownBy(() -> loginService.sendMobileCode("+6590000002"))
-                .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo("TOO_MANY_REQUESTS"));
-    }
-
-    @Test
-    void aSpentMissBudget_refusesMissesOnly_aRealEmployeeAtTheSameAddressStillGetsIn() {
-        // An office shares one address: someone there probing, or mistyping, must not lock out the
-        // people whose numbers are real.
-        ClientRequests.fromAddress("203.0.113.9");
-        when(cacheService.get("login:unknown-identifier:203.0.113.9"))
-                .thenReturn(String.valueOf(LoginServiceImpl.UNKNOWN_LOOKUPS_PER_HOUR));
-        person(null);
-        givenMemberships(membership(ACCOUNT, AccountStatus.ACTIVE));
-        ReflectionTestUtils.setField(loginService, "eventPublisher",
-                mock(org.springframework.context.ApplicationEventPublisher.class));
-
-        loginService.sendEmailCode(EMAIL);
-
-        verify(cacheService, never()).increment(eq("login:unknown-identifier:203.0.113.9"), anyLong());
     }
 
     @Test
