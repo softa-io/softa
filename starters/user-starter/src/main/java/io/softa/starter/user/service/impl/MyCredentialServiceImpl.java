@@ -1,5 +1,6 @@
 package io.softa.starter.user.service.impl;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -17,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.message.MailRequestMessage;
+import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.base.security.EncryptUtils;
 import io.softa.framework.base.utils.RandomUtils;
@@ -29,6 +32,7 @@ import io.softa.starter.user.dto.MyAccountSummary;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserSecurityLog;
+import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
@@ -50,6 +54,12 @@ public class MyCredentialServiceImpl implements MyCredentialService {
     private static final int TICKET_BYTES = 32;
     /** Same template and copy as the login code: one code, one message, whichever screen asked. */
     private static final String TEMPLATE_CODE = "user.verification-code";
+    /**
+     * The login mobile was changed by its owner after proving it with the password: told to the old
+     * number and to the enterprise emails. Variables {@code oldMobile} and {@code newMobile}, both in
+     * full ("+86 13312345678").
+     */
+    static final String TEMPLATE_LOGIN_MOBILE_CHANGED = "user.login-mobile-changed";
     private static final int DAY_SECONDS = 86400;
     /**
      * Times a day one person may prove themselves to change their mobile. Each pass opens a ticket
@@ -78,7 +88,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * {@code expiresAt} (epoch seconds) — kept so a ticket put back after a failed step keeps the
      * lifetime it had, rather than starting a new one.
      */
-    record Ticket(Step step, Long profileId, Long accountId, String mobile, long expiresAt) {
+    record Ticket(Step step, Long profileId, Long accountId, String mobile, long expiresAt, boolean byPassword) {
     }
 
     @Autowired
@@ -204,7 +214,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         UserAccount account = this.currentAccount();
         UserIdentity identity = this.identityOf(account);
         codeGuard.verify(this.loginMobileOf(identity), code);
-        return this.issue(Step.CHANGE_PASSWORD, account, null);
+        return this.issue(Step.CHANGE_PASSWORD, account, null, false);
     }
 
     private void changePasswordAsSelf(String ticket, String newPassword) {
@@ -237,7 +247,10 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         } else {
             throw new BusinessException("Verify with a code or with your password.");
         }
-        return this.issue(Step.NAME_NEW_MOBILE, account, null);
+        // Which proof was given travels with the tickets to the last step: only a change proven with
+        // the password is told to the old number — whoever proved it with a code from that number
+        // already has it in hand.
+        return this.issue(Step.NAME_NEW_MOBILE, account, null, "password".equalsIgnoreCase(method));
     }
 
     private String checkNewMobileAsSelf(String ticket, String newMobile) {
@@ -254,7 +267,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             this.countNewMobile(account.getProfileId(), mobile);
             this.refuseUnusable(this.identityOf(account), mobile);
             this.sendCode(mobile);
-            return this.issue(Step.CONFIRM_NEW_MOBILE, account, mobile);
+            return this.issue(Step.CONFIRM_NEW_MOBILE, account, mobile, held.byPassword());
         });
     }
 
@@ -314,10 +327,71 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             UserSecurityLog row = securityLog.entry(SecurityAction.LOGIN_MOBILE_CHANGED, this.source(), account, null);
             row.setOldValue(mobileFormat.format(previous).masked());
             row.setNewValue(mobileFormat.format(held.mobile()).masked());
-            securityLog.record(row);
+            if (held.byPassword()) {
+                // Told only once the change has committed, and the log row with it, so that it can
+                // say how the telling went; a change that rolls back is told to nobody.
+                String changed = held.mobile();
+                UserSessionServiceImpl.afterCommit(() -> {
+                    this.tellOfMobileChange(identity.getProfileId(), previous, changed, row);
+                    securityLog.record(row);
+                    return 0;
+                });
+            } else {
+                securityLog.record(row);
+            }
             this.signOutOtherDevicesAfterCommit(account.getProfileId());
             return null;
         });
+    }
+
+    /**
+     * Tells the person their login mobile was changed: an SMS to the old number, an email to the
+     * enterprise email of each company they have joined and not left. The numbers go in full — it is
+     * the owner being told their own numbers — and what was attempted, and how it went, goes on the
+     * log row. A send that fails is logged and recorded, never undoes the change.
+     */
+    private void tellOfMobileChange(Long profileId, String oldMobile, String newMobile, UserSecurityLog row) {
+        Map<String, Object> vars = Map.of(
+                "oldMobile", StringUtils.defaultString(mobileFormat.spaced(oldMobile)),
+                "newMobile", StringUtils.defaultString(mobileFormat.spaced(newMobile)));
+        List<String> channels = new ArrayList<>();
+        List<String> results = new ArrayList<>();
+        if (StringUtils.isNotBlank(oldMobile)) {
+            channels.add("sms");
+            results.add("sms:" + remind(() -> eventPublisher.publishEvent(new SmsRequestMessage(
+                    List.of(oldMobile), TEMPLATE_LOGIN_MOBILE_CHANGED, vars))));
+        }
+        // Joined (not merely invited) and not left: the mailboxes the person actually reads at work.
+        // One per address — the same enterprise email on two accounts is one mailbox.
+        List<String> mailed = new ArrayList<>();
+        for (UserAccount membership : accountService.listMembershipsOf(profileId)) {
+            String email = StringUtils.trimToNull(membership.getEmail());
+            if (email == null || !joinedAndNotLeft(membership.getStatus())
+                    || mailed.stream().anyMatch(email::equalsIgnoreCase)) {
+                continue;
+            }
+            mailed.add(email);
+            channels.add("email");
+            results.add("email:" + remind(() -> eventPublisher.publishEvent(new MailRequestMessage(
+                    List.of(email), TEMPLATE_LOGIN_MOBILE_CHANGED, vars, membership.getTenantId(),
+                    MessageScope.TENANT))));
+        }
+        row.setReminderChannels(String.join(",", channels));
+        row.setReminderResult(String.join(",", results));
+    }
+
+    private static boolean joinedAndNotLeft(AccountStatus status) {
+        return status == AccountStatus.ACTIVE || status == AccountStatus.FROZEN || status == AccountStatus.LOCKED;
+    }
+
+    private static String remind(Runnable send) {
+        try {
+            send.run();
+            return "sent";
+        } catch (RuntimeException e) {
+            log.warn("Login-mobile change notice could not be handed off: {}", e.getMessage());
+            return "failed";
+        }
     }
 
     /**
@@ -410,9 +484,9 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         return "me:ticket:" + EncryptUtils.computeSha256(ticket);
     }
 
-    private String issue(Step step, UserAccount account, String mobile) {
+    private String issue(Step step, UserAccount account, String mobile, boolean byPassword) {
         return this.store(RandomUtils.randomString(TICKET_BYTES), new Ticket(step, account.getProfileId(),
-                account.getId(), mobile, nowSeconds() + TICKET_TTL_SECONDS));
+                account.getId(), mobile, nowSeconds() + TICKET_TTL_SECONDS, byPassword));
     }
 
     private String store(String token, Ticket ticket) {
@@ -420,7 +494,8 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         if (left > 0) {
             cacheService.save(ticketKey(token), String.join("|", ticket.step().name(),
                     ticket.profileId().toString(), ticket.accountId().toString(),
-                    StringUtils.defaultString(ticket.mobile()), Long.toString(ticket.expiresAt())), (int) left);
+                    StringUtils.defaultString(ticket.mobile()), Long.toString(ticket.expiresAt()),
+                    ticket.byPassword() ? "password" : ""), (int) left);
         }
         return token;
     }
@@ -481,12 +556,14 @@ public class MyCredentialServiceImpl implements MyCredentialService {
 
     private static Ticket parse(String value) {
         String[] parts = value.split("\\|", -1);
-        if (parts.length != 5) {
+        // Five parts: a ticket issued before the proof was recorded on it — read as proven by code.
+        if (parts.length != 5 && parts.length != 6) {
             return null;
         }
         try {
             return new Ticket(Step.valueOf(parts[0]), Long.valueOf(parts[1]), Long.valueOf(parts[2]),
-                    StringUtils.trimToNull(parts[3]), Long.parseLong(parts[4]));
+                    StringUtils.trimToNull(parts[3]), Long.parseLong(parts[4]),
+                    parts.length == 6 && "password".equals(parts[5]));
         } catch (IllegalArgumentException e) {
             return null;
         }

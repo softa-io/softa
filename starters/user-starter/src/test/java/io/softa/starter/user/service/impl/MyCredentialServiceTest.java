@@ -454,4 +454,123 @@ class MyCredentialServiceTest {
         verify(history).record(eq(io.softa.starter.user.enums.LoginEvent.UNLOCKED), eq(ADA), any(), any(),
                 any(), any(), any());
     }
+
+    // ── telling of a login-mobile change proven with the password ─────────────
+
+    private UserAccount membership(Long id, Long tenantId, AccountStatus status, String email) {
+        UserAccount m = new UserAccount();
+        m.setId(id);
+        m.setTenantId(tenantId);
+        m.setProfileId(ADA);
+        m.setStatus(status);
+        m.setEmail(email);
+        return m;
+    }
+
+    private void changeMobile(String method) {
+        when(identityService.matchesPassword(ada, "right")).thenReturn(true);
+        String verified = "password".equals(method)
+                ? signedIn(() -> service.verifyCurrentForMobile("password", null, "right"))
+                : signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        String confirm = signedIn(() -> service.checkNewMobile(verified, NEW_MOBILE));
+        signedIn(() -> {
+            service.confirmNewMobile(confirm, "654321");
+            return null;
+        });
+    }
+
+    private List<Object> published() {
+        org.mockito.ArgumentCaptor<Object> sent = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(events, org.mockito.Mockito.atLeast(0)).publishEvent(sent.capture());
+        return sent.getAllValues();
+    }
+
+    private List<Object> notices() {
+        return published().stream().filter(m -> (m instanceof SmsRequestMessage sms
+                        && MyCredentialServiceImpl.TEMPLATE_LOGIN_MOBILE_CHANGED.equals(sms.templateCode()))
+                || (m instanceof io.softa.framework.base.message.MailRequestMessage mail
+                        && MyCredentialServiceImpl.TEMPLATE_LOGIN_MOBILE_CHANGED.equals(mail.templateCode())))
+                .toList();
+    }
+
+    private UserSecurityLog loggedChange() {
+        org.mockito.ArgumentCaptor<UserSecurityLog> rows = org.mockito.ArgumentCaptor.forClass(UserSecurityLog.class);
+        verify(securityLog, org.mockito.Mockito.atLeastOnce()).record(rows.capture());
+        return rows.getAllValues().stream()
+                .filter(r -> r.getAction() == SecurityAction.LOGIN_MOBILE_CHANGED).findFirst().orElseThrow();
+    }
+
+    @Test
+    void aChangeProvenWithThePassword_isToldToTheOldNumber_andToEveryWorkMailboxStillInUse() {
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com"),
+                membership(101L, 2L, AccountStatus.FROZEN, "ada@beta.com"),
+                membership(102L, 3L, AccountStatus.INVITED, "ada@gamma.com"),
+                membership(103L, 4L, AccountStatus.ACTIVE, "ADA@acme.com")));
+
+        changeMobile("password");
+
+        List<Object> notices = notices();
+        SmsRequestMessage sms = (SmsRequestMessage) notices.stream()
+                .filter(SmsRequestMessage.class::isInstance).findFirst().orElseThrow();
+        assertThat(sms.to()).containsExactly(MOBILE);
+        // In full, as the owner is being told their own numbers.
+        assertThat(sms.variables()).containsEntry("oldMobile", "+65 91234567")
+                .containsEntry("newMobile", "+65 98765432");
+        List<io.softa.framework.base.message.MailRequestMessage> mails = notices.stream()
+                .filter(io.softa.framework.base.message.MailRequestMessage.class::isInstance)
+                .map(io.softa.framework.base.message.MailRequestMessage.class::cast).toList();
+        // Joined and not left — frozen included, merely invited not; one mailbox once.
+        assertThat(mails).extracting(m -> m.to().get(0)).containsExactly("ada@acme.com", "ada@beta.com");
+        assertThat(mails).extracting(io.softa.framework.base.message.MailRequestMessage::tenantId)
+                .containsExactly(1L, 2L);
+        assertThat(mails.get(0).variables()).isEqualTo(sms.variables());
+        UserSecurityLog row = loggedChange();
+        assertThat(row.getReminderChannels()).isEqualTo("sms,email,email");
+        assertThat(row.getReminderResult()).isEqualTo("sms:sent,email:sent,email:sent");
+    }
+
+    @Test
+    void aChangeProvenWithACodeFromTheOldNumber_isNotTold() {
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com")));
+
+        changeMobile("code");
+
+        assertThat(notices()).isEmpty();
+        assertThat(loggedChange().getReminderChannels()).isNull();
+    }
+
+    @Test
+    void aNoticeThatCannotBeSent_isRecordedAsFailed_andTheChangeStands() {
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com")));
+        doThrow(new IllegalStateException("broker down")).when(events)
+                .publishEvent(any(io.softa.framework.base.message.MailRequestMessage.class));
+
+        changeMobile("password");
+
+        assertThat(ada.getLoginMobile()).isEqualTo(NEW_MOBILE);
+        verify(identityService).updateLoginMobile(11L, NEW_MOBILE);
+        assertThat(loggedChange().getReminderResult()).isEqualTo("sms:sent,email:failed");
+    }
+
+    @Test
+    void theNoticeWaitsForTheCommit() {
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com")));
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            changeMobile("password");
+
+            assertThat(notices()).as("nothing told before the change commits").isEmpty();
+            for (org.springframework.transaction.support.TransactionSynchronization sync
+                    : org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()) {
+                sync.afterCommit();
+            }
+            assertThat(notices()).hasSize(2);
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
 }
