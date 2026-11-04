@@ -275,7 +275,7 @@ class MyCredentialServiceTest {
         verify(codeGuard).verify(NEW_MOBILE, "654321");
         verify(accountService).releaseDormantLoginMobile(eq(NEW_MOBILE), anyString());
         assertThat(ada.getLoginMobile()).isEqualTo(NEW_MOBILE);
-        verify(identityService).updateOne(ada);
+        verify(identityService).updateLoginMobile(11L, NEW_MOBILE);
         verify(accountService).followLoginMobile(ADA);
         verify(sessions).revokePerson(ADA, SESSION, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
         verify(securityLog).entry(eq(SecurityAction.LOGIN_MOBILE_CHANGED), any(), eq(account), any());
@@ -372,7 +372,7 @@ class MyCredentialServiceTest {
         String confirm = signedIn(() -> service.checkNewMobile(verified, NEW_MOBILE));
         // Both passed the check before either wrote; the unique index decides.
         doThrow(new org.springframework.dao.DuplicateKeyException("uk_user_identity_login_mobile"))
-                .when(identityService).updateOne(ada);
+                .when(identityService).updateLoginMobile(11L, NEW_MOBILE);
 
         assertThatThrownBy(() -> signedIn(() -> service.confirmNewMobile(confirm, "654321")))
                 .satisfies(e -> assertThat(errorCodeOf(e)).isEqualTo(AccountErrorCodes.MOBILE_TAKEN));

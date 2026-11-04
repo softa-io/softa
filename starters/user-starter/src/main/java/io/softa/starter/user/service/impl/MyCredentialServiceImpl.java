@@ -303,7 +303,8 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             String previous = identity.getLoginMobile();
             identity.setLoginMobile(held.mobile());
             try {
-                identityService.updateOne(identity);
+                // The mobile alone: writing the row read above would also put back its password.
+                identityService.updateLoginMobile(identity.getId(), held.mobile());
             } catch (DuplicateKeyException e) {
                 // Someone else confirmed the same number a moment earlier: theirs now.
                 throw this.mobileTaken();
