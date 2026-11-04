@@ -141,13 +141,49 @@ class SessionStoreTest {
     }
 
     @Test
-    void sessionIdOf_readsTheCookieFirst_thenTheAppHeader() {
+    void theApp_isReadFromTheHeaderOnly_evenWhenItAlsoCarriesACookie() {
+        // An iOS URLSession keeps cookies unless told not to: the header is what counts.
         MockHttpServletRequest app = new MockHttpServletRequest();
+        app.addHeader(SessionStore.APP_PLATFORM_HEADER, "ios");
         app.addHeader(BaseConstant.SESSION_ID_HEADER, "from-header");
+        app.setCookies(new jakarta.servlet.http.Cookie(BaseConstant.SESSION_ID, "from-cookie"));
         assertThat(SessionStore.sessionIdOf(app)).isEqualTo("from-header");
 
-        assertThat(SessionStore.sessionIdOf(new MockHttpServletRequest())).isNull();
+        MockHttpServletRequest appWithCookieOnly = new MockHttpServletRequest();
+        appWithCookieOnly.addHeader(SessionStore.APP_VERSION_HEADER, "1.0.0");
+        appWithCookieOnly.setCookies(new jakarta.servlet.http.Cookie(BaseConstant.SESSION_ID, "from-cookie"));
+        assertThat(SessionStore.sessionIdOf(appWithCookieOnly)).isNull();
         verify(publisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void web_isReadFromTheCookieOnly_aHeaderIsIgnored() {
+        MockHttpServletRequest web = new MockHttpServletRequest();
+        web.setCookies(new jakarta.servlet.http.Cookie(BaseConstant.SESSION_ID, "from-cookie"));
+        web.addHeader(BaseConstant.SESSION_ID_HEADER, "from-header");
+        assertThat(SessionStore.sessionIdOf(web)).isEqualTo("from-cookie");
+
+        MockHttpServletRequest headerOnly = new MockHttpServletRequest();
+        headerOnly.addHeader(BaseConstant.SESSION_ID_HEADER, "from-header");
+        assertThat(SessionStore.sessionIdOf(headerOnly)).isNull();
+        assertThat(SessionStore.sessionIdOf(new MockHttpServletRequest())).isNull();
+    }
+
+    @Test
+    void aSessionServesOnlyTheKindOfClientItWasIssuedTo() {
+        SessionRecord appSession = new SessionRecord(ACCOUNT, 7L, 1L, "ios", "1.0.0", null, LocalDateTime.now());
+        SessionRecord webSession = new SessionRecord(ACCOUNT, 7L, 1L, null, null, null, LocalDateTime.now());
+        MockHttpServletRequest app = new MockHttpServletRequest();
+        app.addHeader(SessionStore.APP_PLATFORM_HEADER, "android");
+        MockHttpServletRequest web = new MockHttpServletRequest();
+
+        assertThat(SessionStore.sameClient(appSession, app)).isTrue();
+        assertThat(SessionStore.sameClient(webSession, web)).isTrue();
+        assertThat(SessionStore.sameClient(webSession, app)).isFalse();
+        assertThat(SessionStore.sameClient(appSession, web)).isFalse();
+        // Only a version said, no platform: still the APP, on both sides.
+        SessionRecord versionOnly = new SessionRecord(ACCOUNT, 7L, 1L, null, "1.0.0", null, LocalDateTime.now());
+        assertThat(versionOnly.isApp()).isTrue();
     }
 
     @Test

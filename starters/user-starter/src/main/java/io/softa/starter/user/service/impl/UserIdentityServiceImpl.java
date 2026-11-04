@@ -2,7 +2,9 @@ package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -17,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.security.PasswordUtils;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
@@ -52,6 +55,13 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
     /** Consecutive wrong passwords that lock the password path. */
     /** How long it stays locked. */
     private static final int LOCK_MINUTES = 30;
+
+    private static final String ID = LambdaUtils.getAttributeName(UserIdentity::getId);
+    private static final String PASSWORD = LambdaUtils.getAttributeName(UserIdentity::getPassword);
+    private static final String PASSWORD_SALT = LambdaUtils.getAttributeName(UserIdentity::getPasswordSalt);
+    private static final String PASSWORD_LOCKED_UNTIL =
+            LambdaUtils.getAttributeName(UserIdentity::getPasswordLockedUntil);
+    private static final String LOGIN_MOBILE = LambdaUtils.getAttributeName(UserIdentity::getLoginMobile);
 
     private final CacheService cacheService;
 
@@ -199,14 +209,13 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         // caller must remember to apply is a rule that one of them eventually will not.
         PasswordPolicy.validate(rawPassword);
         String salt = PasswordUtils.generateSalt();
-        identity.setPasswordSalt(salt);
-        identity.setPassword(PasswordUtils.hashPassword(rawPassword, salt));
         // A new password ends the window AND the lock: the guesses were against the old password,
         // and leaving the lock standing would mean someone who reset theirs still cannot use it.
-        // updateOne(entity, false) because clearing the lock means writing a null, which the
-        // default overload drops.
-        identity.setPasswordLockedUntil(null);
-        this.updateOne(identity, false);
+        Map<String, Object> fields = new HashMap<>();
+        fields.put(PASSWORD_SALT, salt);
+        fields.put(PASSWORD, PasswordUtils.hashPassword(rawPassword, salt));
+        fields.put(PASSWORD_LOCKED_UNTIL, null);
+        this.updateFields(identity.getId(), fields);
         this.clearPasswordFailures(identityId);
     }
 
@@ -252,14 +261,43 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         if (failures < FAILURES_BEFORE_LOCK) {
             return failures;
         }
-        identity.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(LOCK_MINUTES));
-        this.updateOne(identity);
+        LocalDateTime lockedUntil = LocalDateTime.now().plusMinutes(LOCK_MINUTES);
+        identity.setPasswordLockedUntil(lockedUntil);
+        this.updateFields(identity.getId(), Map.of(PASSWORD_LOCKED_UNTIL, lockedUntil));
         // Counter cleared with the lock, so the next window starts fresh when it expires —
         // otherwise one wrong password after unlocking would immediately re-lock.
         this.clearPasswordFailures(identity.getId());
         log.warn("Password login locked for {} minutes after {} consecutive failures (identity {}).",
                 LOCK_MINUTES, failures, identity.getId());
         return failures;
+    }
+
+    @Override
+    public void updateFields(Long identityId, Map<String, Object> fields) {
+        if (identityId == null) {
+            throw new IllegalArgumentException("Credential row id is required.");
+        }
+        if (fields.isEmpty()) {
+            return;
+        }
+        // HashMap rather than Map.of: the values carry nulls on purpose.
+        Map<String, Object> row = new HashMap<>(fields);
+        row.put(ID, identityId);
+        modelService.updateOne(modelName, row);
+    }
+
+    @Override
+    public void clearPasswordLock(Long identityId) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put(PASSWORD_LOCKED_UNTIL, null);
+        this.updateFields(identityId, fields);
+    }
+
+    @Override
+    public void updateLoginMobile(Long identityId, String loginMobile) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put(LOGIN_MOBILE, loginMobile);
+        this.updateFields(identityId, fields);
     }
 
     @Override

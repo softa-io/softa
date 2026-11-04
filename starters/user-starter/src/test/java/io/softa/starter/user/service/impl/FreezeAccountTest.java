@@ -113,9 +113,8 @@ class FreezeAccountTest {
         accountService.freezeAccount(ACCOUNT, "Under investigation");
 
         assertThat(account.getStatus()).isEqualTo(AccountStatus.FROZEN);
-        assertThat(person.getPasswordLockedUntil()).isNull();
-        // Writing a null, so the overload that keeps them is not optional.
-        verify(identityService).updateOne(person, false);
+        // The lock column alone: writing the row that was read would also put back its password.
+        verify(identityService).clearPasswordLock(11L);
         verify(identityService).clearPasswordFailures(11L);
     }
 

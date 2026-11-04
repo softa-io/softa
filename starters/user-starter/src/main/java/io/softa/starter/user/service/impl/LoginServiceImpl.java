@@ -462,7 +462,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             // the first password attempt after it — and cleared, so it is recorded once.
             history.record(LoginEvent.UNLOCKED, profileId, null, null, channel, null, null);
             identity.setPasswordLockedUntil(null);
-            identityService.updateOne(identity, false);
+            identityService.clearPasswordLock(identity.getId());
         }
         if (!identityService.matchesPassword(identity, password)) {
             // Counted per PERSON, so switching company buys no extra tries.

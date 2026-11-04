@@ -121,6 +121,7 @@ class ContactSyncTest {
         ReflectionTestUtils.setField(accountService, "invitationService", invitations);
         when(invitations.isPlaceholderPerson(7L, ACCOUNT)).thenReturn(true);
         UserIdentity placeholder = new UserIdentity();
+        placeholder.setId(70L);
         placeholder.setProfileId(7L);
         placeholder.setLoginMobile("+6591111111");
         when(identityService.findByProfile(7L)).thenReturn(Optional.of(placeholder));
@@ -129,8 +130,24 @@ class ContactSyncTest {
 
         accountService.syncInviteMobile(ACCOUNT, "+6592222222");
 
-        assertThat(placeholder.getLoginMobile()).isEqualTo("+6592222222");
-        verify(identityService).updateOne(placeholder, false);
+        verify(identityService).updateLoginMobile(70L, "+6592222222");
+    }
+
+    @Test
+    void aRealPersonsLoginMobile_staysTheirs_whenTheInvitationMobileChanges() {
+        // The account was bound to someone who already signs in elsewhere: their login mobile is
+        // theirs, in every company, and an employee record edited here must not move it.
+        UserIdentityService identityService = mock(UserIdentityService.class);
+        ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        UserInvitationService invitations = mock(UserInvitationService.class);
+        ReflectionTestUtils.setField(accountService, "invitationService", invitations);
+        when(invitations.isPlaceholderPerson(7L, ACCOUNT)).thenReturn(false);
+        account.setStatus(AccountStatus.INVITED);
+
+        accountService.syncInviteMobile(ACCOUNT, "+6592222222");
+
+        assertThat(account.getMobile()).isEqualTo("+6592222222");
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test

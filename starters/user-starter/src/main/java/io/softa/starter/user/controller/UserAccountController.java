@@ -33,6 +33,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -57,6 +58,7 @@ import io.softa.framework.web.dto.SearchListParams;
 import io.softa.framework.web.dto.SearchNameParams;
 import io.softa.framework.web.dto.SimpleAggParams;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.session.SessionErrorCodes;
 import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.framework.web.session.SessionStore;
@@ -835,11 +837,16 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @PostMapping("/logout")
     public ApiResponse<Void> logout(@RequestBody(required = false) LogoutDTO body,
                                     HttpServletRequest request, HttpServletResponse response) {
-        // Cookie (Web) or X-Session-Id (APP): the APP holds no cookie, so reading only the cookie
-        // left its session alive after "logging out".
+        // X-Session-Id for the APP, the cookie for Web: each client signs out the session it holds.
         String sessionId = SessionStore.sessionIdOf(request);
-        Long profileId = sessionId == null ? null
-                : sessionStore.peek(sessionId).map(SessionRecord::profileId).orElse(null);
+        SessionRecord session = sessionId == null ? null : sessionStore.peek(sessionId).orElse(null);
+        if (session != null && !SessionStore.sameClient(session, request)) {
+            // Only the kind of client a session was issued to may end it, as only it may use it.
+            UserNotFoundException refused = new UserNotFoundException("This session belongs to another kind of client.");
+            refused.withErrorCode(SessionErrorCodes.SESSION_EXPIRED);
+            throw refused;
+        }
+        Long profileId = session == null ? null : session.profileId();
         if (sessionId != null) {
             sessionStore.revoke(sessionId, SessionRevokeReason.LOGOUT);
         }

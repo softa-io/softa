@@ -145,6 +145,12 @@ public class ContextBuilder implements SmartInitializingSingleton {
                     .orElseThrow(() -> sessionExpired("Invalid session ID"));
             throw this.orgUnavailableError(ended, "Organisation unavailable; session already terminated.");
         }
+        // A session works only for the kind of client it was issued to: a Web session presented
+        // with the APP's headers, or an APP session without them, is refused. Not ended — whoever
+        // presents it this way may not be its holder, and the holder's own client still works.
+        if (!SessionStore.sameClient(session, request)) {
+            throw sessionExpired("This session belongs to another kind of client.");
+        }
         UserInfo userInfo = this.getUserInfo(session.accountId());
         // The account now belongs to someone else: closed, reopened and joined by another person. A
         // session opened for the person before stays theirs and never becomes the new one's. Read

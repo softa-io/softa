@@ -26,4 +26,12 @@ public record SessionRecord(Long accountId, Long profileId, Long tenantId,
 
     @Serial
     private static final long serialVersionUID = 1L;
+
+    /**
+     * Whether the session was issued to the APP: it named its platform or its version when it signed
+     * in. A session issued before either was recorded reads as Web's.
+     */
+    public boolean isApp() {
+        return platform != null || appVersion != null;
+    }
 }

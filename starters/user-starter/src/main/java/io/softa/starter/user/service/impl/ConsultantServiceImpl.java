@@ -389,19 +389,25 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         String canonicalEmail = LoginIdentifiers.normalize(email);
         String canonicalMobile = LoginIdentifiers.normalize(mobile);
         return identityService.findByProfile(profileId).map(identity -> {
+            // A patch carrying only what changed, not the row that was read: writing that back would
+            // also put back whatever password it held, over one changed in the meantime.
+            UserIdentity patch = new UserIdentity();
+            patch.setId(identity.getId());
             boolean changed = false;
             if (canonicalEmail != null && !canonicalEmail.equals(identity.getLoginEmail())) {
                 requireClaimable(canonicalEmail, profileId);
                 identity.setLoginEmail(canonicalEmail);
+                patch.setLoginEmail(canonicalEmail);
                 changed = true;
             }
             if (canonicalMobile != null && !canonicalMobile.equals(identity.getLoginMobile())) {
                 requireClaimable(canonicalMobile, profileId);
                 identity.setLoginMobile(canonicalMobile);
+                patch.setLoginMobile(canonicalMobile);
                 changed = true;
             }
             if (changed) {
-                identityService.updateOne(identity);
+                identityService.updateOne(patch);
             }
             return changed;
         }).orElse(false);
