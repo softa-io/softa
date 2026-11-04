@@ -691,7 +691,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (StringUtils.isNotBlank(account.getEmail())) {
             UserSecurityLog cleared = securityLog.entry(SecurityAction.ENTERPRISE_EMAIL_CHANGED,
                     SecurityLogSource.SYSTEM, account, null);
-            cleared.setOldValue(account.getEmail());
+            cleared.setOldValue(ContactMasking.email(account.getEmail()));
             cleared.setReason("Deactivated");
             securityLog.record(cleared);
             // Kept for the account list only, which still shows what the closed account had.

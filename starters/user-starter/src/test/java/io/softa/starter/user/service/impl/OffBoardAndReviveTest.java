@@ -297,7 +297,8 @@ class OffBoardAndReviveTest {
         assertThat(membership.getEmail()).isNull();
         // The list still shows what the closed account had.
         assertThat(membership.getClosedEmail()).isEqualTo("alice@acme.com");
-        assertThat(logged.getOldValue()).isEqualTo("alice@acme.com");
+        // Masked like every other contact in the log: the log is read more widely than the mailbox.
+        assertThat(logged.getOldValue()).isEqualTo("a***@acme.com");
         verify(securityLog).record(logged);
     }
 
