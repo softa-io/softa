@@ -134,6 +134,23 @@ class ContactSyncTest {
     }
 
     @Test
+    void aRealPersonsLoginMobile_staysTheirs_whenTheInvitationMobileChanges() {
+        // The account was bound to someone who already signs in elsewhere: their login mobile is
+        // theirs, in every company, and an employee record edited here must not move it.
+        UserIdentityService identityService = mock(UserIdentityService.class);
+        ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        UserInvitationService invitations = mock(UserInvitationService.class);
+        ReflectionTestUtils.setField(accountService, "invitationService", invitations);
+        when(invitations.isPlaceholderPerson(7L, ACCOUNT)).thenReturn(false);
+        account.setStatus(AccountStatus.INVITED);
+
+        accountService.syncInviteMobile(ACCOUNT, "+6592222222");
+
+        assertThat(account.getMobile()).isEqualTo("+6592222222");
+        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+    }
+
+    @Test
     void theEmailCheck_neverCountsTheAccountItIsAbout() {
         // /join replacing a placeholder: the account still names the placeholder until the bind is
         // written, and counting it refused every such join with EMAIL_TAKEN.
