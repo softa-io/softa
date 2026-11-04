@@ -205,6 +205,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 .departmentId(request.getDepartmentId())
                 .effectiveDate(request.getEffectiveDate())
                 .recordCode(request.getRecordCode())
+                .summary(request.getSummary())
                 .triggerEventId(request.getTriggerEventId())
                 .status(FlowExecutionStatus.RUNNING)
                 .inputPayload(Map.of())

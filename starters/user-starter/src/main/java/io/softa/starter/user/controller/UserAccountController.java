@@ -2,16 +2,9 @@ package io.softa.starter.user.controller;
 
 import java.io.Serializable;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.*;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,7 +21,6 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
-import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.ResponseCode;
@@ -36,43 +28,19 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.domain.AggFunctions;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.Page;
-import io.softa.framework.orm.domain.PivotTable;
-import io.softa.framework.orm.domain.SubQueries;
+import io.softa.framework.orm.domain.*;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.vo.ModelReference;
 import io.softa.framework.web.controller.EntityController;
-import io.softa.framework.web.dto.BulkUpdateParams;
-import io.softa.framework.web.dto.CountParams;
-import io.softa.framework.web.dto.CountResult;
-import io.softa.framework.web.dto.GetByIdParams;
-import io.softa.framework.web.dto.GetByIdsParams;
-import io.softa.framework.web.dto.QueryParams;
-import io.softa.framework.web.dto.SearchListParams;
-import io.softa.framework.web.dto.SearchNameParams;
-import io.softa.framework.web.dto.SimpleAggParams;
+import io.softa.framework.web.dto.*;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.web.utils.CookieUtils;
-import io.softa.starter.user.dto.ChangePasswordDTO;
-import io.softa.starter.user.dto.WorkContacts;
-import io.softa.starter.user.dto.SetFirstPasswordDTO;
-import io.softa.starter.user.dto.FreezeAccountDTO;
-import io.softa.starter.user.dto.ResetWorkContactsDTO;
-import io.softa.starter.user.dto.FreezeAccountsDTO;
-import io.softa.starter.user.dto.UnbindAndReinviteDTO;
-import io.softa.starter.user.dto.UserAccountDTO;
+import io.softa.starter.user.dto.*;
 import io.softa.starter.user.entity.UserAccount;
-import io.softa.starter.user.service.PermissionCacheInvalidator;
-import io.softa.starter.user.service.UserAccountService;
-import io.softa.starter.user.service.UserIdentityService;
-import io.softa.starter.user.service.UserInvitationService;
-import io.softa.starter.user.service.UserRosterScope;
+import io.softa.starter.user.service.*;
 
 /**
  * UserAccount Controller
@@ -241,7 +209,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
     /**
      * Typed shadow of the generic {@code /UserAccount/searchPage}. {@link UserAccount}
      * is not multi-tenant, so the generic endpoint would return every tenant's
-     * accounts to a tenant admin — {@link #scopeByTenant} confines the result.
+     * accounts to a tenant admin — scopeByTenant confines the result.
      * Spring routes here over the templated {@code /{modelName}/searchPage}
      * (literal path is more specific).
      */
@@ -293,7 +261,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
      * <p>The list the platform super-admin browses spans tenants ({@link #searchPage} /
      * {@link #searchList} above), but the generic getById ran tenant-filtered, so opening any row
      * from another tenant answered "Record Not Found". Same window, same caller gate, and the SAME
-     * BOUNDS: the detail read is re-checked against {@link #scopeToAdminAccounts}, so the super-admin
+     * BOUNDS: the detail read is re-checked against scopeToAdminAccounts, so the super-admin
      * opens exactly what the roster lists — every tenant's admins plus its own tenant's accounts —
      * and an id outside that roster answers like a nonexistent record. Everyone else reads exactly
      * what the generic path read.
@@ -489,10 +457,11 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @DataMask
     public ApiResponse<List<Map<String, Object>>> searchName(
             @RequestBody(required = false) SearchNameParams searchNameParams) {
-        FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(searchNameParams);
+        SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
+        FlexQuery flexQuery = params.toFlexQuery();
         return ApiResponse.success(rosterScope.call(() -> {
             flexQuery.setFilters(rosterScope.scopeByTenant(flexQuery.getFilters()));
-            return modelService.searchName(MODEL, flexQuery);
+            return modelService.searchName(MODEL, flexQuery, params.toPage());
         }));
     }
 

@@ -24,10 +24,8 @@ public class ApprovalConfigValidator implements FlowValidator {
 
     private static final String BLANK_APPROVER           = "BLANK_APPROVER";
     private static final String DUPLICATE_APPROVER       = "DUPLICATE_APPROVER";
-    private static final String UNANIMOUS_NEEDS_APPROVERS = "UNANIMOUS_NEEDS_APPROVERS";
-    private static final String MIN_COUNT_NEEDS_APPROVERS = "MIN_COUNT_NEEDS_APPROVERS";
+    private static final String MISSING_APPROVERS         = "MISSING_APPROVERS";
     private static final String INVALID_MIN_COUNT         = "INVALID_MIN_COUNT";
-    private static final String PERCENTAGE_NEEDS_APPROVERS = "PERCENTAGE_NEEDS_APPROVERS";
     private static final String INVALID_PERCENTAGE         = "INVALID_PERCENTAGE";
     private static final String DEADLOCK_THRESHOLD         = "DEADLOCK_THRESHOLD";
     private static final String UNKNOWN_APPROVER_SOURCE_TYPE = "UNKNOWN_APPROVER_SOURCE_TYPE";
@@ -312,6 +310,12 @@ public class ApprovalConfigValidator implements FlowValidator {
         return false;
     }
 
+    /** Whether the step names a dynamic source: one without a type finds nobody, as the runtime reads it. */
+    private static boolean namesSource(ApprovalNodeConfig cfg) {
+        Object type = cfg.getApproverSource() == null ? null : cfg.getApproverSource().get("type");
+        return type != null && StringUtils.hasText(type.toString());
+    }
+
     // ── Vote thresholds ────────────────────────────────────────────────────
 
     private void validateVoteThresholds(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
@@ -329,6 +333,15 @@ public class ApprovalConfigValidator implements FlowValidator {
                     "Approval node '" + name + "' contains duplicate approvers in config.approvers"));
         }
 
+        // A step names who approves it: users, or a source that finds them. One that names neither finds nobody on every
+        // run — under the default strategy every submission is refused (zingkey-hcm#2450) — so it is not published; the
+        // vote thresholds have nothing to count then, and are not judged.
+        if (nonBlankApprovers.isEmpty() && !namesSource(cfg)) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", MISSING_APPROVERS,
+                    "Approval node '" + name + "' names no approver: pick approvers, or a source that finds them "
+                            + "(a supervisor, a role, ...)."));
+            return;
+        }
         validateApprovalMode(nodeId, name, approvalMode, nonBlankApprovers, hasDynamicApproverSource,
                 cfg.getMinCount(), cfg.getPercentage(), d);
 
@@ -350,17 +363,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                                       List<String> approvers, boolean hasDynamic,
                                       Integer minCount, Integer percentage,
                                       List<CompileDiagnostic> d) {
-        if (VoteThresholdMode.UNANIMOUS.equals(mode) && approvers.isEmpty() && !hasDynamic) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                    UNANIMOUS_NEEDS_APPROVERS,
-                    "Approval node '" + name + "' must define config.approvers for Unanimous approval mode"));
-        }
         if (VoteThresholdMode.MIN_COUNT.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        MIN_COUNT_NEEDS_APPROVERS,
-                        "Approval node '" + name + "' must define config.approvers for MinCount approval mode"));
-            }
             if (minCount == null || minCount < 1 || (!hasDynamic && minCount > approvers.size())) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.minCount",
                         INVALID_MIN_COUNT,
@@ -368,11 +371,6 @@ public class ApprovalConfigValidator implements FlowValidator {
             }
         }
         if (VoteThresholdMode.PERCENTAGE.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        PERCENTAGE_NEEDS_APPROVERS,
-                        "Approval node '" + name + "' must define config.approvers for Percentage approval mode"));
-            }
             if (percentage == null || percentage < 1 || percentage > 100) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.percentage",
                         INVALID_PERCENTAGE,
@@ -385,17 +383,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                                     List<String> approvers, boolean hasDynamic,
                                     Integer rejectMinCount, Integer rejectPercentage,
                                     List<CompileDiagnostic> d) {
-        if (VoteThresholdMode.UNANIMOUS.equals(mode) && approvers.isEmpty() && !hasDynamic) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                    UNANIMOUS_NEEDS_APPROVERS,
-                    "Approval node '" + name + "' must define config.approvers for Unanimous reject mode"));
-        }
         if (VoteThresholdMode.MIN_COUNT.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        MIN_COUNT_NEEDS_APPROVERS,
-                        "Approval node '" + name + "' must define config.approvers for MinCount reject mode"));
-            }
             if (rejectMinCount == null || rejectMinCount < 1 || (!hasDynamic && rejectMinCount > approvers.size())) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.rejectMinCount",
                         INVALID_MIN_COUNT,
@@ -403,11 +391,6 @@ public class ApprovalConfigValidator implements FlowValidator {
             }
         }
         if (VoteThresholdMode.PERCENTAGE.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        PERCENTAGE_NEEDS_APPROVERS,
-                        "Approval node '" + name + "' must define config.approvers for Percentage reject mode"));
-            }
             if (rejectPercentage == null || rejectPercentage < 1 || rejectPercentage > 100) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.rejectPercentage",
                         INVALID_PERCENTAGE,

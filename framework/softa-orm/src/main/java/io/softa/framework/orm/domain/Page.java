@@ -27,10 +27,10 @@ public class Page<T> implements Serializable {
      * A page for walking a query to its end without counting it, the way a batch job reads:
      * {@code do { ... } while (page.toNext())}, moving on while each page comes back full.
      * <p>
-     * The order is made total so that consecutive pages neither repeat nor skip a row: the query's own
-     * order (or the model's {@code defaultOrder}, or {@code id}) is followed by the model's physical
-     * primary key — {@code sliceId} on a timeline model, whose slices share their record's {@code id},
-     * and {@code id} otherwise.
+     * As on every page, the order is made total so that consecutive pages neither repeat nor skip a row: the
+     * query's own order (or the model's {@code defaultOrder}, or {@code id DESC}) is followed by the model's
+     * physical primary key in the direction of the first sort — {@code sliceId} on a timeline model, whose
+     * slices share their record's {@code id}, and {@code id} otherwise.
      * <p>
      * The pages are read by offset. A keyset condition ({@code WHERE id > ?}) would spare a deep page from
      * reading the rows before it, but it only fits a query ordered by the key alone, and these pages keep
@@ -103,6 +103,19 @@ public class Page<T> implements Serializable {
      */
     public static <T> Page<T> ofCursorPage(Integer pageSize) {
         return new Page<>(null, pageSize, true, false);
+    }
+
+    /**
+     * A cursor page of the given size, on the given page: total order, no count query. For a client that
+     * asks for one page at a time, such as a picker loading more candidates as its list scrolls.
+     *
+     * @param pageNumber Page number, counting from 1; null or below 1 for the first
+     * @param pageSize Page size, null for the default
+     * @return Cursor page, on the given page
+     * @param <T> Generic type
+     */
+    public static <T> Page<T> ofCursorPage(Integer pageNumber, Integer pageSize) {
+        return new Page<>(pageNumber, pageSize, true, false);
     }
 
     /**

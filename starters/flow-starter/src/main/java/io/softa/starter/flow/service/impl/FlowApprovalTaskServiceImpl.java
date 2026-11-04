@@ -358,6 +358,8 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         target.setClosedByActorId(source.getClosedByActorId());
         target.setBlocked(source.getBlocked());
         target.setBlockedByActorId(source.getBlockedByActorId());
+        // An escalation sets a new deadline on the step it hands on.
+        target.setDueTime(source.getDueTime());
         if (target.getStartTime() == null) {
             target.setStartTime(source.getStartTime());
         }

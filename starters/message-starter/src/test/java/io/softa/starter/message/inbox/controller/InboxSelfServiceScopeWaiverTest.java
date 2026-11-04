@@ -1,11 +1,13 @@
 package io.softa.starter.message.inbox.controller;
 
 import java.lang.reflect.Method;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
+import io.softa.starter.message.inbox.dto.InboxSearchRequest;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -39,6 +41,8 @@ class InboxSelfServiceScopeWaiverTest {
         assertWaived("myMarkAsRead", Long.class);
         assertWaived("myMarkAllAsRead");
         assertWaived("myMarkAsReadBySource", String.class, String.class);
+        assertWaived("mySearch", InboxSearchRequest.class);
+        assertWaived("myMarkAsReadByIds", List.class);
     }
 
     @Test

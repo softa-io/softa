@@ -62,4 +62,9 @@ public class FlowStartRequest extends AbstractFlowLaunchContextRequest {
     @Schema(description = "A record's approval: the record's own number (server-side only)",
             accessMode = Schema.AccessMode.READ_ONLY)
     private String recordCode;
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Schema(description = "A record's approval: a line saying what the record asks for (server-side only)",
+            accessMode = Schema.AccessMode.READ_ONLY)
+    private String summary;
 }

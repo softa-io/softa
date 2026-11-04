@@ -82,6 +82,41 @@ class ApproverResolutionServiceOrgTest {
         assertTrue(result.isEmpty());
     }
 
+    /**
+     * Why a step found nobody, for the refusal its submitter takes to HR: named for the source it finds people with
+     * (zingkey-hcm#2447).
+     */
+    @Test
+    void whyNobodyNamesWhatIsMissing() {
+        when(orgService.getEmployeeNames(List.of(5000L))).thenReturn(Map.of(5000L, "Alice Tan"));
+        when(orgService.getDeptIdOfEmployee(5000L)).thenReturn(10L);
+        when(orgService.getDeptNames(List.of(10L))).thenReturn(Map.of(10L, "Finance"));
+        // The submitter's account has no employee profile.
+        when(orgService.getEmployeeIdOfUser(100L)).thenReturn(null);
+
+        assertEquals("Alice Tan has no manager who can approve",
+                service.whyNobody(approvalNode(Map.of("type", "Supervisor")), varsWithSubject("100", 5000L)));
+        assertEquals("Alice Tan has no manager 2 levels up who can approve",
+                service.whyNobody(approvalNode(Map.of("type", "Supervisor", "level", 2)), varsWithSubject("100", 5000L)));
+        assertEquals("the submitter has no employee profile",
+                service.whyNobody(approvalNode(Map.of("type", "Supervisor", "relativeTo", "INITIATOR")),
+                        varsWithInitiator("100")));
+        assertEquals("Finance and the departments above it have no leader who can approve",
+                service.whyNobody(approvalNode(Map.of("type", "DeptLeader")), varsWithSubject("100", 5000L)));
+        assertEquals("nobody who can approve holds its roles",
+                service.whyNobody(approvalNode(Map.of("type", "RoleQuery", "roleIds", List.of(1))), Map.of()));
+    }
+
+    @Test
+    void anApproverExpressionThatFailsIsRefusedWithTheStep() {
+        CompiledFlowNode node = approvalNode(Map.of("type", "Expression", "expression", "1 +"));
+
+        var refused = org.junit.jupiter.api.Assertions.assertThrows(
+                io.softa.starter.flow.runtime.exception.FlowActionValidationException.class,
+                () -> service.resolveApprovers(node, varsWithSubject("100", 5000L)));
+        assertTrue(refused.getMessage().startsWith("The approver expression of step '"), refused.getMessage());
+    }
+
     // ── DeptLeader ──────────────────────────────────────────────────────
 
     @Test

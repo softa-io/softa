@@ -21,6 +21,7 @@ import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -122,8 +123,8 @@ public class PivotColumns {
     List<Column> columns(PivotSpec spec) {
         String groupField = spec.getKeyModelGroupField();
         FlexQuery query = new FlexQuery(StringUtils.isBlank(groupField) ? List.of() : List.of(groupField), new Filters());
-        query.setLimitSize(BaseConstant.MAX_BATCH_SIZE);
-        List<Map<String, Object>> keyRows = modelService.searchName(spec.getKeyModel(), query);
+        List<Map<String, Object>> keyRows = modelService.searchName(spec.getKeyModel(), query,
+                Page.ofCursorPage(BaseConstant.MAX_BATCH_SIZE));
         return buildColumns(keyRows, groupField, Boolean.TRUE.equals(spec.getSuffixGroup()));
     }
 

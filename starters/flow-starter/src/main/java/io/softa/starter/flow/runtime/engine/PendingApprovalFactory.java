@@ -53,7 +53,7 @@ public class PendingApprovalFactory {
         PendingApproval pendingApproval = resolvePendingApproval(definition, node, state, true);
         if (pendingApproval == null) {
             switch (resolveEmptyApproverStrategy(node)) {
-                case ERROR -> throw new FlowNoApproverException(node.getNodeId(), node.getLabel());
+                case ERROR -> throw new FlowNoApproverException(node.getNodeId(), node.getLabel(), whyNobody(node, state));
                 case ASSIGN_TO_ROLE -> throw FlowNoApproverException.inRoles(node.getNodeId(), node.getLabel(),
                         approverResolutionService.emptyApproverRoleNames(node));
                 case SKIP, AUTO_APPROVE -> {
@@ -78,12 +78,20 @@ public class PendingApprovalFactory {
         return resolvePendingApproval(definition, node, state, false);
     }
 
-    /** Why a node that resolves to nobody is refused: under {@code ERROR}, or {@code AssignToRole} leaving nobody. */
-    String emptyApproverMessage(CompiledFlowNode node) {
+    /**
+     * Why a node that resolves to nobody is refused: under {@code ERROR}, saying why it found nobody where its source
+     * can tell; or {@code AssignToRole} leaving nobody.
+     */
+    String emptyApproverMessage(CompiledFlowNode node, FlowExecutionState state) {
         return EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(resolveEmptyApproverStrategy(node))
                 ? FlowNoApproverException.messageOf(node.getNodeId(), node.getLabel(),
                         approverResolutionService.emptyApproverRoleNames(node))
-                : FlowNoApproverException.messageOf(node.getNodeId(), node.getLabel());
+                : FlowNoApproverException.messageOf(node.getNodeId(), node.getLabel(), whyNobody(node, state));
+    }
+
+    private String whyNobody(CompiledFlowNode node, FlowExecutionState state) {
+        return approverResolutionService.whyNobody(node, ApproverResolutionService.resolutionVariables(
+                state == null ? null : state.getVariables(), state == null ? null : state.getInitiatorId()));
     }
 
     private PendingApproval resolvePendingApproval(CompiledFlowDefinition definition,

@@ -21,7 +21,7 @@ import io.softa.starter.message.mail.enums.SendProtocol;
  * tenant_id > 0  — tenant-level, tenant_id is auto-filled by the ORM.
  */
 @Data
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, activeControl = true)
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, activeControl = true, defaultOrder = {"sequence", "name"})
 @Index(indexName = "idx_mail_send_cfg_default", fields = {"tenantId", "isDefault"})
 @EqualsAndHashCode(callSuper = true)
 public class MailSendServerConfig extends AuditableModel {

@@ -19,6 +19,7 @@ import io.softa.starter.flow.entity.ApprovalModel;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.spi.ApprovalSubmission;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
@@ -112,8 +113,11 @@ public class ApprovalFormWriteService {
             // A field the edits cleared no longer routes on its old value.
             RecordVariables.routedFields(state.getModelName()).forEach(field -> variables.remove(field.getFieldName()));
             variables.putAll(RecordVariables.of(state.getModelName(), row));
-            variables.putAll(handler.submission(BeanTool.mapToObject(row, handler.modelClass())).variables());
+            ApprovalSubmission submission = handler.submission(BeanTool.mapToObject(row, handler.modelClass()));
+            variables.putAll(submission.variables());
             state.setVariables(variables);
+            // What the lists say the record asks for follows the edits too.
+            state.setSummary(submission.summary());
         });
     }
 }

@@ -35,6 +35,7 @@ public class GraphStructureValidator implements FlowValidator {
     private static final String INVALID_SCENARIO_NODE     = "INVALID_SCENARIO_NODE";
     private static final String SYNC_OUTSIDE_AUTOMATION   = "SYNC_OUTSIDE_AUTOMATION";
     private static final String SYNC_FLOW_WAITS           = "SYNC_FLOW_WAITS";
+    private static final String NO_APPROVAL_STEP          = "NO_APPROVAL_STEP";
     private static final String APPROVAL_SETTING_OUTSIDE_APPROVAL = "APPROVAL_SETTING_OUTSIDE_APPROVAL";
     private static final String INVALID_CC_RULE = "INVALID_CC_RULE";
     private static final String INVALID_URGE_INTERVAL = "INVALID_URGE_INTERVAL";
@@ -215,6 +216,18 @@ public class GraphStructureValidator implements FlowValidator {
                     "urgeIntervalMinutes must be at least 1, but is " + definition.getUrgeIntervalMinutes()));
         }
         validateCcRules(definition.getCc(), d);
+        // An approval flow without an approval step approves a record as it is submitted: allowed — End and every step
+        // are optional — but rarely meant, so the designer says so where the flow starts (zingkey-hcm#2450).
+        if (FlowScenario.APPROVAL.equals(scenario)
+                && nodes.stream().noneMatch(node -> FlowNodeType.APPROVAL.equals(node.getType()))) {
+            String message = "This approval flow has no approval step: a submission is approved as soon as it is made.";
+            FlowGraphNode start = nodes.stream().filter(node -> FlowNodeType.START.equals(node.getType()))
+                    .findFirst().orElse(null);
+            d.add((start == null
+                    ? CompileDiagnostic.flowLevel(NO_APPROVAL_STEP, message)
+                    : CompileDiagnostic.nodeLevel(start.getId(), FlowNodeType.START.getType(), NO_APPROVAL_STEP, message))
+                    .asWarning());
+        }
         boolean sync = Boolean.TRUE.equals(definition.getSync());
         if (!FlowScenario.AUTOMATION.equals(scenario) && (sync || Boolean.TRUE.equals(definition.getRollbackOnFail()))) {
             d.add(CompileDiagnostic.flowLevel(SYNC_OUTSIDE_AUTOMATION,

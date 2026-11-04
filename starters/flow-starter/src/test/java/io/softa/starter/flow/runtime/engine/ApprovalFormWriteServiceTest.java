@@ -186,6 +186,22 @@ class ApprovalFormWriteServiceTest {
         assertThrows(FlowActionValidationException.class, () -> service.applyFormData(boundState(), node, Map.of()));
     }
 
+    /**
+     * A table holds a value while it keeps a row. Before any write, an empty one — stored, or sent whole — is refused
+     * like a blank field (zingkey-hcm#2449).
+     */
+    @Test
+    void anEmptyRequiredTableIsRefusedBeforeAnyWrite() {
+        CompiledFlowNode node = nodeWith(Map.of("lineIds", FormFieldPermission.REQUIRED));
+        when(modelService.getById(eq("LeaveRequest"), any(), eq(List.of("lineIds"))))
+                .thenReturn(Optional.of(Map.of("id", 7L, "lineIds", List.of())));
+
+        assertThrows(FlowActionValidationException.class, () -> service.applyFormData(boundState(), node, null));
+        assertThrows(FlowActionValidationException.class,
+                () -> service.applyFormData(boundState(), node, Map.of("lineIds", List.of())));
+        verify(modelService, never()).updateByFilter(anyString(), any(Filters.class), anyMap());
+    }
+
     @Test
     void editsOfARecordsApprovalRefreshTheVariablesItsFlowRoutesOn() {
         CompiledFlowNode node = nodeWith(Map.of("days", FormFieldPermission.EDITABLE));

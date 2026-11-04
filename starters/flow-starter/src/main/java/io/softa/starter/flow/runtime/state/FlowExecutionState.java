@@ -72,6 +72,9 @@ public class FlowExecutionState {
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
 
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it")
+    private String summary;
+
     @Schema(description = "Identity of the trigger event that started the instance (a change log's uuid); with "
             + "the flow, an event starts a run at most once")
     private String triggerEventId;

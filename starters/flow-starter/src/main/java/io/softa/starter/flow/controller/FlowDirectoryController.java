@@ -40,7 +40,7 @@ public class FlowDirectoryController {
     @GetMapping("/people")
     @Operation(summary = "Search people", description = "People whose login account signs in, matching the keyword on "
             + "code or name (all when blank), by name, as the caller's roles let them read the directory. limit "
-            + "defaults to 20, at most 50.")
+            + "defaults to 20, at most 200: a picker asks again for more as its list is scrolled.")
     public ApiResponse<List<DirectoryPerson>> searchPeople(@RequestParam(required = false) String keyword,
                                                            @RequestParam(required = false) Integer limit) {
         return ApiResponse.success(directoryService.searchPeople(keyword, limit));
@@ -60,7 +60,7 @@ public class FlowDirectoryController {
     @Operation(summary = "Search every account", description = "For the flow designer and the operations console: "
             + "every login account matching the keyword (all when blank) — employees on code or name, accounts without "
             + "an employee record on their own name — by name, each saying whether it can act (active). Only those that "
-            + "can unless includeInactive — as when moving work off someone who left. limit defaults to 20, at most 50.")
+            + "can unless includeInactive — as when moving work off someone who left. limit defaults to 20, at most 200.")
     @SkipPermissionCheck
     public ApiResponse<List<DirectoryPerson>> searchAllPeople(@RequestParam(required = false) String keyword,
                                                               @RequestParam(defaultValue = "false") boolean includeInactive,
@@ -78,7 +78,7 @@ public class FlowDirectoryController {
 
     @GetMapping("/departments")
     @Operation(summary = "Search departments", description = "Open departments matching the keyword on code or name "
-            + "(all when blank), by name, each with its parent's name. limit defaults to 20, at most 50.")
+            + "(all when blank), by name, each with its parent's name. limit defaults to 20, at most 200.")
     @SkipPermissionCheck
     public ApiResponse<List<DirectoryDepartment>> searchDepartments(@RequestParam(required = false) String keyword,
                                                                     @RequestParam(required = false) Integer limit) {

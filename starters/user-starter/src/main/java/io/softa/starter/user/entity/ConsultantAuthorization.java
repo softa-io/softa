@@ -39,7 +39,8 @@ import io.softa.starter.user.enums.AccountStatus;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Model(
-        idStrategy = IdStrategy.DISTRIBUTED_LONG
+        idStrategy = IdStrategy.DISTRIBUTED_LONG,
+        defaultOrder = {"id"}
 )
 // One grant per (consultant, tenant). A second row for the same pair would make "is this grant live
 // today?" ambiguous — two rows could disagree — so the question has exactly one answer by

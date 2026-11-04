@@ -8,6 +8,8 @@ import org.mockito.MockedStatic;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -66,6 +68,8 @@ class FlowOrgServiceDirectoryTest {
         assertTrue(filters.contains("[\"userId.status\",\"IN\","), filters);
         assertEquals(ConvertType.REFERENCE, query.getConvertType());
         assertEquals(20, query.getLimitSize());
+        // By name, then id: asked again for more, two people of one name keep their places.
+        assertEquals(Orders.ofAsc("fullName").addAsc("id").toString(), query.getOrders().toString());
         assertTrue(query.getFields().containsAll(List.of("userId", "fullName", "code", "departmentId", "jobPositionId")));
     }
 
@@ -95,7 +99,7 @@ class FlowOrgServiceDirectoryTest {
         answers.put("UserAccount", List.of(Map.of("id", 1001L, "status", "Active"),
                 Map.of("id", 1002L, "status", "Deactivated"), Map.of("id", 1003L, "status", "Active")));
         // Accounts by their own name: Alice's, who is an employee, and a tenant administrator's, who is not.
-        when(modelService.searchName(anyString(), any(FlexQuery.class))).thenAnswer(invocation -> {
+        when(modelService.searchName(anyString(), any(FlexQuery.class), any())).thenAnswer(invocation -> {
             queries.add(invocation.getArgument(1));
             permissionChecksSkipped.add(ContextHolder.existContext() && ContextHolder.getContext().isSkipPermissionCheck());
             return List.of(Map.of("id", 1001L, "displayName", "alice"), Map.of("id", 1003L, "displayName", "Admin"));
@@ -115,8 +119,10 @@ class FlowOrgServiceDirectoryTest {
     @Test
     void theWholeDirectoryOfThoseWhoCanActAsksForSigningInAccountsOnly() {
         List<FlexQuery> accountSearches = new ArrayList<>();
-        when(modelService.searchName(anyString(), any(FlexQuery.class))).thenAnswer(invocation -> {
+        List<Page<Map<String, Object>>> accountPages = new ArrayList<>();
+        when(modelService.searchName(anyString(), any(FlexQuery.class), any())).thenAnswer(invocation -> {
             accountSearches.add(invocation.getArgument(1));
+            accountPages.add(invocation.getArgument(2));
             return List.of();
         });
 
@@ -127,6 +133,8 @@ class FlowOrgServiceDirectoryTest {
         String accounts = accountSearches.getFirst().getFilters().toString();
         assertTrue(accounts.contains("[\"status\",\"IN\","), accounts);
         assertTrue(accounts.contains("[\"searchName\",\"CONTAINS\",\"adm\"]"), accounts);
+        assertEquals(20, accountPages.getFirst().getPageSize(), "the accounts asked for are the first page of the limit");
+        assertEquals(1, accountPages.getFirst().getPageNumber());
     }
 
     @Test
@@ -167,6 +175,7 @@ class FlowOrgServiceDirectoryTest {
         assertEquals("[\"searchName\",\"CONTAINS\",\"fin\"]", query.getFilters().toString());
         assertEquals(ConvertType.REFERENCE, query.getConvertType());
         assertEquals(10, query.getLimitSize());
+        assertEquals(Orders.ofAsc("name").addAsc("id").toString(), query.getOrders().toString());
         assertFalse(query.getFilterControl().isSkipActiveControl(), "a search lists open departments only");
     }
 

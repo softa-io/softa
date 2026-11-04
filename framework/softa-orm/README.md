@@ -79,7 +79,7 @@ public enum CustomerTier {
 | `description` | String | `""` | `description` | **≤512 chars**, parse-time enforced (catalog column width); concise user-facing summary — design notes go in Javadoc |
 | `displayName` | String[] | `{}` | `displayName` | list-display defaults: a row's name is these fields' values joined with ` / `, blank ones left out; a relation among them reads as its own name, an option as its label (`DisplayNames`) |
 | `searchName` | String[] | `{}` | `searchName` | search-field defaults |
-| `defaultOrder` | String[] | `{}` | `defaultOrder` | e.g. `"createdTime:desc"` |
+| `defaultOrder` | String[] | `{}` | `defaultOrder` | one sort per entry, `"field"` or `"field:dir"`: `{"sequence", "name"}` is sequence, then name (`{"id", "desc"}` would name a field `desc` and fail the boot). Applies to paged and non-paged reads that name no order. Unset, a paged read lists the newest first (`id DESC`), the lines and tags a record's read expands (ONE_TO_MANY, MANY_TO_MANY) come in entry order (`id` ascending, then `sliceId` on a timeline model), and any other non-paged read is not sorted — so records and plain detail lines need no declaration, while master data people pick declares its order (`{"name"}`, `{"fullName", "code"}`) and lines with a business order declare it (`{"effectiveStartDate:desc"}`, `{"lineNo"}`). A paged read then appends the physical primary key, in the direction of the first sort, so pages neither repeat nor skip rows that tie |
 | `softDelete` | boolean | `false` | `softDelete` | requires a `deleted` field on the class; every read appends `deleted = false` (bypass via `FilterControl.bypassSoftDelete()`), and the starting value `false` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT FALSE` |
 | `activeControl` | boolean | `false` | `activeControl` | requires an `active` field on the class; every read appends `active = true` unless the caller's own filters name `active` (or `FilterControl.bypassActiveControl()` is set), so disabling retires a row from reads without deleting it; the starting value `true` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT TRUE` |
 | `timeline` | boolean | `false` | `timeline` | effective-dated rows (see Timeline Model) |
@@ -141,7 +141,7 @@ all. The older spelling `endDate < "{{ @startDate }}"` still parses and produces
 it remains what the JSON form and the stored row carry, since only the authoring layer changed.
 
 Compare an option by its item code: a wrong code never fires and never reports.
-| `required` | boolean | `false` | `required` | NOT NULL constraint |
+| `required` | boolean | `false` | `required` | NOT NULL constraint. On a `ONE_TO_MANY` / `MANY_TO_MANY` (no column): at least one row / link — a create must name one, an update that sends the field must leave one (counted after the write, so a patch deleting every row is refused); an update that leaves the field out is not judged |
 | `readonly` | boolean | `false` | `readonly` | UI hint |
 | `hidden` | boolean | `false` | `hidden` | internal field: left out of the field lists a client builds from metadata on its own (offered list columns, template fields); still read, written and shown where a view names it. Stored as null when unmarked |
 | `translatable` | boolean | `false` | `translatable` | i18n-aware column |

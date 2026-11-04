@@ -3,12 +3,15 @@ package io.softa.framework.orm.jdbc.pipeline.processor;
 import java.util.*;
 import org.apache.commons.lang3.StringUtils;
 
-import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
+import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.PatchType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.validation.WriteValidationException;
 
 /**
@@ -31,6 +34,32 @@ public abstract class BaseProcessor implements FieldProcessor {
         this.modelName = metaField.getModelName();
         this.fieldName = metaField.getFieldName();
         this.accessType = accessType;
+    }
+
+    /**
+     * Gives a record's lines or tags the order they were entered in when neither the read nor the model names one:
+     * {@code id} ascending, then {@code sliceId} on a timeline model, whose slices share their record's id.
+     * <p>They are read without paging, so the paged fallback ({@code id DESC}) never reaches them, and a read naming
+     * no order comes back in whatever order the database returns: on PostgreSQL an edited line moves to the end of
+     * its table. A model that declares a {@code defaultOrder} is left alone, as the SQL builder applies it to every
+     * read of the model.</p>
+     *
+     * @param model the model of the lines, or the join model of the tags
+     * @param query the read of the lines or of the join rows
+     */
+    protected static void orderAsEntered(String model, FlexQuery query) {
+        if (query.getOrders() != null) {
+            return;
+        }
+        Orders defaultOrder = ModelManager.getModel(model).getDefaultOrder();
+        if (defaultOrder != null && !defaultOrder.isEmpty()) {
+            return;
+        }
+        Orders entered = Orders.ofAsc(ModelConstant.ID);
+        if (ModelManager.isTimelineModel(model)) {
+            entered.addAsc(ModelConstant.SLICE_ID);
+        }
+        query.setOrders(entered);
     }
 
     /**

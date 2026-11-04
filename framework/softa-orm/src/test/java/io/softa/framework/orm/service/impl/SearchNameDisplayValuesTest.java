@@ -15,6 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.ModelManager;
@@ -74,7 +75,8 @@ class SearchNameDisplayValuesTest {
                 "salaryProfileItemId", ModelReference.of(891754571066507286L, "Basic Monthly Salary"),
                 "effectiveStartDate", LocalDate.of(2026, 10, 1),
                 "currency", OptionReference.of("SGD", "Singapore Dollar"))));
-        when(jdbcService.selectByFilter(anyString(), any(FlexQuery.class))).thenReturn(rows);
+        when(jdbcService.selectByPage(anyString(), any(FlexQuery.class), any()))
+                .thenAnswer(i -> i.<Page<Map<String, Object>>>getArgument(2).setRows(rows));
     }
 
     @AfterEach
@@ -84,7 +86,7 @@ class SearchNameDisplayValuesTest {
 
     @Test
     void theNameTakesTheNamesOfTheReferencesItIsMadeOf() {
-        List<Map<String, Object>> found = service.searchName(MODEL, new FlexQuery(new Filters()));
+        List<Map<String, Object>> found = service.searchName(MODEL, new FlexQuery(new Filters()), Page.ofCursorPage(10));
 
         assertThat(found).extracting(row -> row.get(ModelConstant.DISPLAY_NAME))
                 .containsExactly("Basic Monthly Salary / 2026-10-01 / Singapore Dollar");

@@ -21,7 +21,8 @@ import io.softa.starter.ai.enums.AiModelType;
         label = "AI Model",
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         softDelete = true,
-        activeControl = true
+        activeControl = true,
+        defaultOrder = {"name"}
 )
 public class AiModel extends AuditableModel {
 
