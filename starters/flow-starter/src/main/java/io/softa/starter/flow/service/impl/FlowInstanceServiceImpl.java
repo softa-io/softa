@@ -300,7 +300,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         }
         // The caller's own conditions narrow what the rest selects — the initiator pin included — never widen it.
         FlexQuery query = new FlexQuery(CallerConditions.and(filters, request.filters()),
-                CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowInstance::getCreatedTime)));
+                CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowInstance::getId)));
         query.select(INSTANCE_SUMMARY_FIELDS);
         Page<FlowInstance> page = Page.of(
                 request.pageNumber() == null ? 1 : request.pageNumber(),

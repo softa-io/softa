@@ -15,7 +15,7 @@ import io.softa.framework.orm.enums.OnDelete;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model
+@Model(defaultOrder = {"sequence"})
 public class ExportTemplateField extends AuditableModel {
 
     @Serial

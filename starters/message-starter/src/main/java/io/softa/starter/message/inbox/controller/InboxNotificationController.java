@@ -84,7 +84,7 @@ public class InboxNotificationController
         int safeLimit = Math.clamp(limit, 1, 50);
         FlexQuery query = new FlexQuery(
                 new Filters().eq(InboxNotification::getRecipientId, requireUserId()),
-                Orders.ofDesc(InboxNotification::getCreatedTime));
+                Orders.ofDesc(InboxNotification::getId));
         query.setLimitSize(safeLimit);
         return ApiResponse.success(inboxNotificationService.searchList(query));
     }

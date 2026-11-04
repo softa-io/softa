@@ -135,7 +135,7 @@ class FlowInstanceServiceImplSearchTest {
         }
         assertEquals(List.of("my taxi claim"), matched(),
                 "the boss's approvals and the caller's automation runs stay out, however the filters are put");
-        assertEquals("createdTime DESC", queryCaptor.getValue().getOrders().toString(), "newest first, unchanged");
+        assertEquals("id DESC", queryCaptor.getValue().getOrders().toString(), "newest first, unchanged");
     }
 
     @Test

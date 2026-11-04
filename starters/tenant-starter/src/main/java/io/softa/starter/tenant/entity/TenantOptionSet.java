@@ -31,7 +31,8 @@ import io.softa.framework.orm.enums.IdStrategy;
         businessKey = {"optionSetCode"},
         displayName = {"label"},
         searchName = {"optionSetCode", "label"},
-        description = "Tenant-authored option sets (per-tenant dropdown domains)"
+        description = "Tenant-authored option sets (per-tenant dropdown domains)",
+        defaultOrder = {"optionSetCode"}
 )
 @Index(indexName = "uk_tenant_option_set", fields = {"tenantId", "optionSetCode"}, unique = true,
         message = "This option set code is already used.")

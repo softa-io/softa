@@ -87,8 +87,13 @@ public interface ModelConstant {
     String LANGUAGE_CODE_COLUMN = "language_code";
     String TRANS_ROW_ID_COLUMN = "row_id";
 
-    // Default order rule: ID ascending order.
-    String DEFAULT_PAGED_ORDER = "id ASC";
+    /**
+     * The order of a paged read that names none, on a model without a {@code defaultOrder}: newest first. A model that
+     * reads better another way (master data by name or sequence) declares its own. Non-paged reads get no fallback; a
+     * record's lines and tags (ONE_TO_MANY, MANY_TO_MANY) are given the order they were entered in by the relation
+     * processors that read them: see {@code BaseProcessor.orderAsEntered}.
+     */
+    String DEFAULT_PAGED_ORDER = "id DESC";
 
     /** Audit fields, which are also reserved fields. */
     String CREATED_TIME = "createdTime";

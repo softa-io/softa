@@ -233,7 +233,102 @@ class OrderByBuilderTest {
 
             new OrderByBuilder(sqlWrapper, new FlexQuery(), page).build();
 
-            assertEquals("t.id ASC,t.slice_id ASC,", orderByClause(sqlWrapper));
+            assertEquals("t.id DESC,t.slice_id DESC,", orderByClause(sqlWrapper));
+        }
+    }
+
+    /**
+     * A list page is a query of its own, like the next one: rows tied on the order could come back in a different
+     * order each time and land on two pages or on none. The primary key ends the order, in the direction of the
+     * first sort, so rows of one date listed newest first stay newest first.
+     */
+    @Test
+    void offsetPageEndsWithThePrimaryKeyInTheFirstSortsDirection() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            stubMainModel(mm);
+            stubStoredField(mm, MAIN_MODEL, "createdAt", "created_at");
+            FlexQuery flexQuery = new FlexQuery();
+            flexQuery.setOrders(Orders.ofDesc("createdAt"));
+
+            SqlWrapper sqlWrapper = new SqlWrapper(MAIN_MODEL);
+            new OrderByBuilder(sqlWrapper, flexQuery, Page.of(2, 50)).build();
+
+            assertEquals("t.created_at DESC,t.id DESC,", orderByClause(sqlWrapper));
+        }
+    }
+
+    @Test
+    void offsetPageInAscendingOrderEndsWithTheKeyAscending() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            stubMainModel(mm, Orders.ofAsc("createdAt"));
+            stubStoredField(mm, MAIN_MODEL, "createdAt", "created_at");
+
+            SqlWrapper sqlWrapper = new SqlWrapper(MAIN_MODEL);
+            new OrderByBuilder(sqlWrapper, new FlexQuery(), Page.of(1, 50)).build();
+
+            assertEquals("t.created_at ASC,t.id ASC,", orderByClause(sqlWrapper));
+        }
+    }
+
+    /** An order that already names the key is total: nothing is added, whichever way it sorts the key. */
+    @Test
+    void offsetPageWhoseOrderNamesTheKeyGetsNothingAdded() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            stubMainModel(mm);
+            stubStoredField(mm, MAIN_MODEL, "createdAt", "created_at");
+            FlexQuery flexQuery = new FlexQuery();
+            flexQuery.setOrders(Orders.ofDesc("createdAt").addAsc(ModelConstant.ID));
+
+            SqlWrapper sqlWrapper = new SqlWrapper(MAIN_MODEL);
+            new OrderByBuilder(sqlWrapper, flexQuery, Page.of(1, 50)).build();
+
+            assertEquals("t.created_at DESC,t.id ASC,", orderByClause(sqlWrapper));
+        }
+    }
+
+    @Test
+    void distinctOffsetPageDoesNotAppendTheKey() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            stubMainModel(mm);
+            stubStoredField(mm, MAIN_MODEL, "createdAt", "created_at");
+            FlexQuery flexQuery = new FlexQuery();
+            flexQuery.setDistinct(true);
+            flexQuery.setOrders(Orders.ofDesc("createdAt"));
+
+            SqlWrapper sqlWrapper = new SqlWrapper(MAIN_MODEL);
+            new OrderByBuilder(sqlWrapper, flexQuery, Page.of(1, 50)).build();
+
+            assertEquals("t.created_at DESC,", orderByClause(sqlWrapper));
+        }
+    }
+
+    /** A paged read naming no order, on a model without a defaultOrder, lists the newest first. */
+    @Test
+    void pagedReadWithoutAnyOrderFallsBackToNewestFirst() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            stubMainModel(mm);
+
+            SqlWrapper sqlWrapper = new SqlWrapper(MAIN_MODEL);
+            new OrderByBuilder(sqlWrapper, new FlexQuery(), Page.of(1, 50)).build();
+
+            assertEquals("t.id DESC,", orderByClause(sqlWrapper));
+        }
+    }
+
+    /**
+     * The fallback is a paged read's only: a non-paged read naming no order, on such a model, is not sorted. A
+     * record's lines and tags are not left this way: the relation processors fill in their order (see
+     * {@code RelationEntryOrderTest}).
+     */
+    @Test
+    void nonPagedReadWithoutAnyOrderIsNotSorted() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            stubMainModel(mm);
+
+            SqlWrapper sqlWrapper = new SqlWrapper(MAIN_MODEL);
+            new OrderByBuilder(sqlWrapper, new FlexQuery()).build();
+
+            assertEquals("", orderByClause(sqlWrapper));
         }
     }
 

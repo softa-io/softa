@@ -437,6 +437,8 @@ public class OneToManyProcessor extends BaseProcessor {
         }
         relatedFlexQuery.setConvertType(flexQuery.getConvertType());
         relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        // The lines read in the order they were entered unless the subQuery or the related model names one.
+        orderAsEntered(metaField.getRelatedModel(), relatedFlexQuery);
         applyAcrossTimeline(relatedFlexQuery);
         // When get the related model rows of OneToMany field, the `relatedField` field of the related model is only
         // needed to get the ID for GroupBy, which might be a ManyToOne field defined in the related model.

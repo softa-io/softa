@@ -472,6 +472,10 @@ public class ManyToManyProcessor extends BaseProcessor {
                 joinModelFlexQuery.setAggregate(false);
             }
         }
+        if (joinModelFlexQuery.getTopN() == null) {
+            // The tags follow the join rows: in the order they were added, unless the join model names one.
+            orderAsEntered(metaField.getJoinModel(), joinModelFlexQuery);
+        }
         return ReflectTool.searchListIgnoringRowScope(metaField.getJoinModel(), joinModelFlexQuery);
     }
 

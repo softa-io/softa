@@ -26,7 +26,8 @@ import io.softa.framework.orm.enums.IdStrategy;
         idStrategy = IdStrategy.EXTERNAL_ID,
         businessKey = {"id"},
         description = "ISO 4217 currency master",
-        searchName = {"id", "name"}
+        searchName = {"id", "name"},
+        defaultOrder = {"name"}
 )
 public class Currency extends AuditableModel {
 

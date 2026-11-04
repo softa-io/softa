@@ -211,7 +211,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
 
     @Override
     public List<FlowDelegation> listAll() {
-        return this.searchList(new FlexQuery(new Filters(), Orders.ofDesc(FlowDelegation::getCreatedTime)));
+        return this.searchList(new FlexQuery(new Filters(), Orders.ofDesc(FlowDelegation::getId)));
     }
 
     @Override
@@ -224,7 +224,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     @Override
     public List<FlowDelegation> getMyDelegations(String delegatorId) {
         Filters filters = new Filters().eq(FlowDelegation::getDelegatorId, delegatorId);
-        return this.searchList(filters);
+        return this.searchList(new FlexQuery(filters, Orders.ofDesc(FlowDelegation::getId)));
     }
 
     @Override
@@ -232,7 +232,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
         Filters filters = new Filters()
                 .eq(FlowDelegation::getDelegateId, delegateId)
                 .eq(FlowDelegation::getActive, true);
-        return this.searchList(filters);
+        return this.searchList(new FlexQuery(filters, Orders.ofDesc(FlowDelegation::getId)));
     }
 
     @Override

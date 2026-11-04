@@ -535,21 +535,21 @@ public class ModelController<K extends Serializable> {
     }
 
     /**
-     * Query the displayNames based on the match field, filters, orders, limitSize.
-     * Default limit to 10.
+     * One page of displayNames, matched on the match field within the filters, in a stable order.
+     * Ten candidates a page unless {@code pageSize} says otherwise; {@code pageNumber} asks for the next ones.
      *
      * @param modelName model name
      * @param searchNameParams SearchNameParams
-     * @return List of data with displayName and additional fields
+     * @return the page's rows, each with displayName and the additional fields
      */
     @PostMapping(value = "/searchName")
-    @Operation(description = "Query the displayNames based on the match field, filters, orders, limitSize. " +
-            "Default limit to 10.")
+    @Operation(description = "Query the displayNames based on the match field, filters and orders, one page at a "
+            + "time: pageNumber (from 1) and pageSize (default 10).")
     @DataMask
     public ApiResponse<List<Map<String, Object>>> searchName(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchNameParams searchNameParams) {
-        FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(searchNameParams);
-        return ApiResponse.success(modelService.searchName(modelName, flexQuery));
+        SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
+        return ApiResponse.success(modelService.searchName(modelName, params.toFlexQuery(), params.toPage()));
     }
 
     /**
