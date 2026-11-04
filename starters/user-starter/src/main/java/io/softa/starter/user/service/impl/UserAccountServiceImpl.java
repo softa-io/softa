@@ -1447,9 +1447,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // The password is the PERSON's, so changing it here changes it for every company they
         // belong to. That is the intended meaning of one global credential.
         UserIdentity identity = identityService.requireIdentity(user);
-        if (!identityService.matchesPassword(identity, currentPassword)) {
-            throw new BusinessException("Incorrect old password.");
-        }
+        // The same lock and counter as signing in: a signed-in session is not a place to guess the
+        // password without limit.
+        CurrentPasswordCheck.require(identityService, loginHistory, identity, user, currentPassword,
+                "Incorrect old password.");
         if (identityService.matchesPassword(identity, newPassword)) {
             throw new BusinessException("New password cannot be the same as the old password.");
         }

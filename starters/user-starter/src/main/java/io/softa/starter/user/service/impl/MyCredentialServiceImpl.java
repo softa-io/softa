@@ -349,19 +349,8 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * counts toward the lock, and the warning names the attempts left as it nears.
      */
     private void checkPassword(UserIdentity identity, UserAccount account, String password) {
-        if (identityService.isPasswordLocked(identity)) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, LoginServiceImpl.lockedMessage());
-        }
-        if (!identityService.matchesPassword(identity, password)) {
-            long failures = identityService.recordPasswordFailure(identity);
-            if (failures >= UserIdentityService.FAILURES_BEFORE_LOCK) {
-                history.record(LoginEvent.LOCKED, identity.getProfileId(), account.getId(), account.getTenantId(),
-                        null, null, null);
-                throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, LoginServiceImpl.lockedMessage());
-            }
-            throw LoginServiceImpl.wrongPassword(failures);
-        }
-        identityService.clearPasswordFailures(identity.getId());
+        CurrentPasswordCheck.require(identityService, history, identity, account, password,
+                "Incorrect account or password.");
     }
 
     /**

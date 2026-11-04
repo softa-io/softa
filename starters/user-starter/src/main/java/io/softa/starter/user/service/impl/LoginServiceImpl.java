@@ -510,12 +510,17 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * first attempt tells whoever is guessing exactly how many tries they have left.
      */
     static BusinessException wrongPassword(long failures) {
+        return wrongPassword("Incorrect account or password.", failures);
+    }
+
+    /** Same, worded for the screen asking: a signed-in person is not told "account or password". */
+    static BusinessException wrongPassword(String refusal, long failures) {
         if (failures < WARN_FROM_FAILURE) {
-            return AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_INCORRECT, "Incorrect account or password.");
+            return AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_INCORRECT, refusal);
         }
         long left = UserIdentityService.FAILURES_BEFORE_LOCK - failures;
         BusinessException e = AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_INCORRECT,
-                "Incorrect account or password. " + left + (left == 1 ? " attempt" : " attempts")
+                refusal + " " + left + (left == 1 ? " attempt" : " attempts")
                         + " left before password login locks for " + LOCK_MINUTES + " minutes.");
         e.withErrorDetail("remainingAttempts", left);
         return e;
