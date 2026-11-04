@@ -103,7 +103,7 @@ class OffBoardAndReviveTest {
         accountService.offBoardWith(membership);
 
         assertThat(person.getLoginMobile()).isEqualTo("+8613800138000");
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
         verify(securityLog, never()).entry(eq(SecurityAction.WORK_MOBILE_RELEASED), any(), any(), any());
     }
 
@@ -118,8 +118,7 @@ class OffBoardAndReviveTest {
 
         accountService.offBoardWith(membership);
 
-        assertThat(person.getLoginMobile()).isNull();
-        verify(identityService).updateOne(person, false);
+        verify(identityService).updateLoginMobile(IDENTITY, null);
         verify(securityLog).entry(eq(SecurityAction.WORK_MOBILE_RELEASED), eq(SecurityLogSource.SYSTEM), eq(membership), any());
         // Masked as everywhere: dial code, space, first three, four stars, last two.
         assertThat(logged(SecurityAction.WORK_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 900****00");
@@ -165,11 +164,9 @@ class OffBoardAndReviveTest {
 
         accountService.offBoardWith(membership);
 
-        assertThat(person.getPasswordLockedUntil()).isNull();
+        verify(identityService).clearPasswordLock(IDENTITY);
         verify(identityService).clearPasswordFailures(IDENTITY);
-        // One read and one write for both facts — the release and the unlock share the row.
         verify(identityService, times(1)).findByProfile(PROFILE);
-        verify(identityService, times(1)).updateOne(person, false);
     }
 
     @Test
@@ -185,9 +182,8 @@ class OffBoardAndReviveTest {
 
         accountService.offBoardWith(membership);
 
-        assertThat(person.getLoginEmail()).isEqualTo("alice.personal@gmail.com");
-        assertThat(person.getPasswordLockedUntil()).isNull();
-        verify(identityService).updateOne(person, false);
+        verify(identityService).clearPasswordLock(IDENTITY);
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
@@ -211,7 +207,7 @@ class OffBoardAndReviveTest {
         // Nothing touched — off-boarding twice is a no-op, not an error, because the caller
         // (an HR workflow) may legitimately fire more than once.
         verify(roleRelService, never()).deleteByFilters(any(Filters.class));
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test

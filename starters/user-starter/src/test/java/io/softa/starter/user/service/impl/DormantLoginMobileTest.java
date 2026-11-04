@@ -70,8 +70,7 @@ class DormantLoginMobileTest {
 
         assertThat(accountService.releaseDormantLoginMobile(NUMBER, "Join")).isTrue();
 
-        assertThat(identity.getLoginMobile()).isNull();
-        verify(identityService).updateOne(identity, false);
+        verify(identityService).updateLoginMobile(11L, null);
         verify(securityLog).entry(eq(SecurityAction.DORMANT_MOBILE_RELEASED), any(), any(), eq(LEAVER));
     }
 
@@ -85,7 +84,7 @@ class DormantLoginMobileTest {
         assertThat(accountService.releaseDormantLoginMobile(NUMBER, "Join")).isFalse();
 
         assertThat(identity.getLoginMobile()).isEqualTo(NUMBER);
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
