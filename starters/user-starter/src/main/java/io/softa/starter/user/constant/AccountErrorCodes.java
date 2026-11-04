@@ -33,6 +33,11 @@ public final class AccountErrorCodes {
     public static final String EMAIL_TAKEN = "EMAIL_TAKEN";
     /** The person already holds a live account in this company. */
     public static final String ALREADY_JOINED = "ALREADY_JOINED";
+    /**
+     * The invitation names a real person and carries no mobile, so the email alone cannot prove the
+     * one joining is them: HR adds the personal mobile and sends the invitation again.
+     */
+    public static final String JOIN_NEEDS_MOBILE = "JOIN_NEEDS_MOBILE";
     /** The contact identifies more than one person, so nobody can be signed in by it. */
     public static final String CONTACT_SHARED = "CONTACT_SHARED";
     /** A password is already set, so the first-password step does not apply. */

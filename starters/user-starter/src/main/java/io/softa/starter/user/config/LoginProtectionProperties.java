@@ -16,6 +16,7 @@ import io.softa.starter.user.util.ClientInfo;
  *   user:
  *     login-protection:
  *       trusted-proxies: 1
+ *       trust-real-ip: false
  *       attempts-per-address-per-hour: 300
  * </pre>
  */
@@ -35,6 +36,13 @@ public class LoginProtectionProperties {
     private int trustedProxies = 1;
 
     /**
+     * Read {@code X-Real-IP} when a request carries no {@code X-Forwarded-For}. Off by default: unless
+     * the proxy in front sets it, the caller does. The gateway is expected to append to
+     * {@code X-Forwarded-For}; turn this on only behind one that sets {@code X-Real-IP} instead.
+     */
+    private boolean trustRealIp;
+
+    /**
      * Codes sent, codes checked and passwords tried from one address in an hour, all together.
      * Generous on purpose: an office behind one address signs everyone in through it.
      */
@@ -43,5 +51,6 @@ public class LoginProtectionProperties {
     @PostConstruct
     void apply() {
         ClientInfo.trustProxies(trustedProxies);
+        ClientInfo.trustRealIp(trustRealIp);
     }
 }

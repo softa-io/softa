@@ -16,13 +16,16 @@ public interface UserSessionService {
      */
     String currentSessionId();
 
-    /** End every session of one account. */
+    /**
+     * End every session of one account — inside a transaction, once it commits (then returning 0).
+     */
     int revokeAccount(Long accountId, SessionRevokeReason reason);
 
     /**
      * End every session of every account of this person, except {@code keepSessionId} when given —
      * the session the change was made from. Also voids every sign-in step this person has started
-     * but not finished (see {@link #credentialsChangedSince}).
+     * but not finished (see {@link #credentialsChangedSince}). Inside a transaction the sessions end
+     * once it commits (then returning 0).
      */
     int revokePerson(Long profileId, String keepSessionId, SessionRevokeReason reason);
 

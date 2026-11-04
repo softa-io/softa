@@ -42,8 +42,15 @@ class AccountContactEditTest {
     private final io.softa.starter.user.service.UserSecurityLogService securityLog =
             AccountServiceTestSupport.quiet(accountService);
 
+    private final io.softa.starter.user.service.UserInvitationService invitations;
+
     AccountContactEditTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        invitations = (io.softa.starter.user.service.UserInvitationService)
+                ReflectionTestUtils.getField(accountService, "invitationService");
+        // The person behind an account nobody has joined yet is, by default, the placeholder minted
+        // with it; a test about a real person says so.
+        when(invitations.isPlaceholderPerson(PROFILE, ACCOUNT)).thenReturn(true);
     }
 
     private void given(AccountStatus status, String email, String mobile) {
@@ -98,6 +105,20 @@ class AccountContactEditTest {
         verify(identityService).updateOne(identity, false);
         // The email has no copy on the person to move: it signs in through the account itself.
         assertThat(identity.getLoginEmail()).isEqualTo("old@acme.com");
+    }
+
+    @Test
+    void aRealPersonsLoginMobile_isNotTheCompanysToMove() {
+        // The account was bound to an existing person (HR created it under their contact): their
+        // login mobile signs them in everywhere, and an account form must not rewrite it.
+        given(AccountStatus.INVITED, null, "+6590000001");
+        UserIdentity identity = person(null, "+6590000001");
+        when(invitations.isPlaceholderPerson(PROFILE, ACCOUNT)).thenReturn(false);
+
+        assertThat(edit(patch("mobile", "+6590000002"))).isTrue();
+
+        assertThat(identity.getLoginMobile()).isEqualTo("+6590000001");
+        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
     }
 
     @Test

@@ -93,6 +93,7 @@ class LoginControllerLeaveTenantTest {
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(controller, "loginService", loginService);
         ReflectionTestUtils.setField(controller, "sessionStore", sessionStore);
+        ReflectionTestUtils.setField(controller, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "sessionStore", sessionStore);
 
         when(tenantInfoService.getTenantName(anyLong())).thenReturn("Some Co");
@@ -146,7 +147,7 @@ class LoginControllerLeaveTenantTest {
         assertThat(result.tenants()).extracting("accountId").containsExactly(THERE);
         verify(cacheService, never()).save(startsWithSession(), any(), anyInt());
         // The session the person was inside is gone, on the server and in the browser.
-        verify(cacheService).clear("session:" + SESSION);
+        verify(cacheService).clear(java.util.List.of("session:" + SESSION));
         Cookie cleared = response.getCookie(BaseConstant.SESSION_ID);
         assertThat(cleared).isNotNull();
         assertThat(cleared.getMaxAge()).isZero();

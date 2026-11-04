@@ -91,6 +91,10 @@ public class ContextBuilder implements SmartInitializingSingleton {
     private UserNotFoundException orgUnavailable(HttpServletRequest request, String sessionId,
                                                  SessionRecord session, String message) {
         this.revokeWithRequest(request, sessionId, SessionRevokeReason.ORG_UNAVAILABLE);
+        return this.orgUnavailableError(session, message);
+    }
+
+    private UserNotFoundException orgUnavailableError(SessionRecord session, String message) {
         UserNotFoundException e = new UserNotFoundException(message);
         e.withErrorCode(SessionErrorCodes.ORG_UNAVAILABLE);
         ReentryTokenIssuer issuer = reentryTokenIssuer == null ? null : reentryTokenIssuer.getIfAvailable();
@@ -133,8 +137,14 @@ public class ContextBuilder implements SmartInitializingSingleton {
             throw sessionExpired("Session ID is missing");
         }
         // Reading the session also slides it: seven days after the last request, not after login.
-        SessionRecord session = sessionStore.touch(sessionId)
-                .orElseThrow(() -> sessionExpired("Invalid session ID"));
+        SessionRecord session = sessionStore.touch(sessionId).orElse(null);
+        if (session == null) {
+            // Ended a moment ago by a concurrent request that found the organisation unavailable:
+            // answer the same, so the client does not act on an expiry it was never told about.
+            SessionRecord ended = sessionStore.endedForUnavailableOrg(sessionId)
+                    .orElseThrow(() -> sessionExpired("Invalid session ID"));
+            throw this.orgUnavailableError(ended, "Organisation unavailable; session already terminated.");
+        }
         UserInfo userInfo = this.getUserInfo(session.accountId());
         // The account now belongs to someone else: closed, reopened and joined by another person. A
         // session opened for the person before stays theirs and never becomes the new one's. Read

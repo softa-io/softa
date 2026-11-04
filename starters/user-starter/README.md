@@ -279,6 +279,7 @@ softa:
   user:
     login-protection:
       trusted-proxies: 1                  # proxies in front of the app that append to X-Forwarded-For
+      trust-real-ip: false                # read X-Real-IP when X-Forwarded-For is absent
       attempts-per-address-per-hour: 300  # codes sent + codes checked + passwords tried, together
 ```
 
@@ -286,7 +287,9 @@ softa:
 the right of `X-Forwarded-For`, and everything further left was written by the caller. Set it to 1
 behind a single reverse proxy (or one that replaces the header), 2 behind a load balancer and a
 reverse proxy that both append. Too low puts every caller behind one address into one bucket; too
-high trusts an entry the caller wrote. Looking up an identifier nobody signs in with is limited
+high trusts an entry the caller wrote. **The gateway must append to `X-Forwarded-For`**: without
+it the address is the socket peer — the proxy itself — unless `trust-real-ip` is on, which is right
+only behind a proxy that sets `X-Real-IP` and drops one sent by the caller. Looking up an identifier nobody signs in with is limited
 separately (30 misses per address per hour); a spent miss budget refuses misses only.
 
 ### First platform administrator
