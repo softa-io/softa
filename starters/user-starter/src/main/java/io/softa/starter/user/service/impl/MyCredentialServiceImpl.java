@@ -329,10 +329,13 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             row.setNewValue(mobileFormat.format(held.mobile()).masked());
             if (held.byPassword()) {
                 // Told only once the change has committed, and the log row with it, so that it can
-                // say how the telling went; a change that rolls back is told to nobody.
-                String changed = held.mobile();
+                // say how the telling went; a change that rolls back is told to nobody. What to send
+                // and to whom is settled HERE, inside the caller's own context: the commit callback
+                // runs after it has been left, where reading the country list or the memberships
+                // would be checked against a role the person may not have.
+                List<Runnable> notices = this.mobileChangeNotices(identity.getProfileId(), previous, held.mobile(), row);
                 UserSessionServiceImpl.afterCommit(() -> {
-                    this.tellOfMobileChange(identity.getProfileId(), previous, changed, row);
+                    this.send(notices, row);
                     securityLog.record(row);
                     return 0;
                 });
@@ -345,21 +348,21 @@ public class MyCredentialServiceImpl implements MyCredentialService {
     }
 
     /**
-     * Tells the person their login mobile was changed: an SMS to the old number, an email to the
-     * enterprise email of each company they have joined and not left. The numbers go in full — it is
-     * the owner being told their own numbers — and what was attempted, and how it went, goes on the
-     * log row. A send that fails is logged and recorded, never undoes the change.
+     * The notices telling the person their login mobile was changed: an SMS to the old number, an
+     * email to the enterprise email of each company they have joined and not left. The numbers go in
+     * full — it is the owner being told their own numbers. The channels are put on the log row now;
+     * {@link #send} adds how each went.
      */
-    private void tellOfMobileChange(Long profileId, String oldMobile, String newMobile, UserSecurityLog row) {
+    private List<Runnable> mobileChangeNotices(Long profileId, String oldMobile, String newMobile, UserSecurityLog row) {
         Map<String, Object> vars = Map.of(
                 "oldMobile", StringUtils.defaultString(mobileFormat.spaced(oldMobile)),
                 "newMobile", StringUtils.defaultString(mobileFormat.spaced(newMobile)));
         List<String> channels = new ArrayList<>();
-        List<String> results = new ArrayList<>();
+        List<Runnable> notices = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
             channels.add("sms");
-            results.add("sms:" + remind(() -> eventPublisher.publishEvent(new SmsRequestMessage(
-                    List.of(oldMobile), TEMPLATE_LOGIN_MOBILE_CHANGED, vars))));
+            notices.add(() -> eventPublisher.publishEvent(new SmsRequestMessage(
+                    List.of(oldMobile), TEMPLATE_LOGIN_MOBILE_CHANGED, vars)));
         }
         // Joined (not merely invited) and not left: the mailboxes the person actually reads at work.
         // One per address — the same enterprise email on two accounts is one mailbox.
@@ -372,11 +375,21 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             }
             mailed.add(email);
             channels.add("email");
-            results.add("email:" + remind(() -> eventPublisher.publishEvent(new MailRequestMessage(
-                    List.of(email), TEMPLATE_LOGIN_MOBILE_CHANGED, vars, membership.getTenantId(),
-                    MessageScope.TENANT))));
+            Long tenantId = membership.getTenantId();
+            notices.add(() -> eventPublisher.publishEvent(new MailRequestMessage(
+                    List.of(email), TEMPLATE_LOGIN_MOBILE_CHANGED, vars, tenantId, MessageScope.TENANT)));
         }
         row.setReminderChannels(String.join(",", channels));
+        return notices;
+    }
+
+    /** Hands each notice off; one that fails is logged and recorded, and never undoes the change. */
+    private static void send(List<Runnable> notices, UserSecurityLog row) {
+        String[] channels = StringUtils.split(StringUtils.defaultString(row.getReminderChannels()), ',');
+        List<String> results = new ArrayList<>();
+        for (int i = 0; i < notices.size(); i++) {
+            results.add(channels[i] + ":" + remind(notices.get(i)));
+        }
         row.setReminderResult(String.join(",", results));
     }
 

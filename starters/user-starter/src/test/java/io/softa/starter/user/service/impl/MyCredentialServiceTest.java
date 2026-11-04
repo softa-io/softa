@@ -556,9 +556,14 @@ class MyCredentialServiceTest {
     }
 
     @Test
-    void theNoticeWaitsForTheCommit() {
-        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
-                membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com")));
+    void theNoticeWaitsForTheCommit_butIsWorkedOutInsideTheCallersContext() {
+        // The commit callback runs after the self-service context has been left. Whatever has to be
+        // read — the memberships, the country list that spaces the numbers — is read before it, or
+        // a person with no role is refused there and told nothing.
+        when(accountService.listMembershipsOf(ADA)).thenAnswer(inv -> {
+            refuseUnlessUnchecked();
+            return List.of(membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com"));
+        });
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {
             changeMobile("password");
@@ -569,6 +574,7 @@ class MyCredentialServiceTest {
                 sync.afterCommit();
             }
             assertThat(notices()).hasSize(2);
+            assertThat(loggedChange().getReminderResult()).isEqualTo("sms:sent,email:sent");
         } finally {
             org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
         }
