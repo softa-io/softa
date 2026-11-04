@@ -9,7 +9,12 @@ import io.softa.framework.base.exception.BusinessException;
  */
 public final class AccountErrorCodes {
 
-    /** The mobile or email is not linked to any account. */
+    /**
+     * The mobile or email is not linked to any account. Written to the login history only: no
+     * entry point reachable before sign-in returns it, because a distinct answer for "nobody's
+     * number" lets anyone enumerate who is employed. Those entry points answer as for a real
+     * number instead — "code sent", a wrong password, a wrong code.
+     */
     public static final String ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND";
     /** Wrong password; from the seventh failure {@code remainingAttempts} comes with it. */
     public static final String PASSWORD_INCORRECT = "PASSWORD_INCORRECT";

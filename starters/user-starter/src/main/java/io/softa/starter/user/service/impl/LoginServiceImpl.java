@@ -9,7 +9,6 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import io.softa.framework.base.utils.RandomUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -117,13 +116,6 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     private static final int PREAUTH_TOKEN_BYTES = 32;
     /** How long the person has to pick a company before re-authenticating. */
     private static final int PREAUTH_TTL_SECONDS = 600;
-    /**
-     * Lookups of identifiers that turn out to be nobody's, per client address and hour. The send
-     * limits are per identifier, so a miss costs nothing against them; without this a script could
-     * walk a number range and learn which numbers are employees'.
-     */
-    static final int UNKNOWN_LOOKUPS_PER_HOUR = 30;
-    private static final int UNKNOWN_LOOKUP_WINDOW_SECONDS = 3600;
 
     @Autowired
     private CacheService cacheService;
@@ -332,61 +324,99 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
     @Override
     public void sendEmailCode(String email) {
-        this.requireLinked(email);
-        this.deliverEmailCode(email);
+        withoutSayingWhy(() -> {
+            if (identifierLinked(email)) {
+                this.deliverEmailCode(email);
+            }
+        });
     }
 
     @Override
     public void sendMobileCode(String mobile) {
-        this.requireLinked(mobile);
-        this.deliverMobileCode(mobile);
+        withoutSayingWhy(() -> {
+            if (identifierLinked(mobile)) {
+                this.deliverMobileCode(mobile);
+            }
+        });
     }
 
     /**
-     * The person behind a login identifier, refused with {@code ACCOUNT_NOT_FOUND} when there is
-     * none — no identity, or an identity no account was ever created for.
+     * The person behind a login identifier who can sign in somewhere — an identity with at least one
+     * account — or empty. Never a refusal: what the caller is told must not depend on the answer.
      *
-     * <p>Said out loud: the screen tells a mistyped number "contact HR" instead of pretending a code
-     * is on its way. That makes sending and signing in an answer to "is this number an employee's?".
-     * The send limits in {@link VerificationCodeGuard} count per identifier, so they never see a
-     * miss; what bounds walking a range of numbers is the per-address limit on misses here. The
-     * lookup gets the TYPED form, as every identifier lookup here does (see {@link LoginIdentifiers}).
+     * <p>The lookup gets the TYPED form, as every identifier lookup here does (see
+     * {@link LoginIdentifiers}).
      */
-    private UserIdentity requireLinked(String identifier) {
-        Optional<UserIdentity> found = identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier))
+    private Optional<UserIdentity> findLinked(String identifier) {
+        return identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier))
                 .filter(identity -> !accountService.listAccountIdsOf(identity.getProfileId()).isEmpty());
-        if (found.isPresent()) {
-            // A spent miss budget refuses misses only: an address shared by an office must not lock
-            // its real employees out because someone there mistyped, or probed, too often.
-            return found.get();
-        }
-        String misses = unknownLookupKey();
-        if (misses != null && NumberUtils.toLong(cacheService.get(misses)) >= UNKNOWN_LOOKUPS_PER_HOUR) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.TOO_MANY_REQUESTS,
-                    "Too many attempts. Please try again later.");
-        }
-        if (misses != null) {
-            cacheService.increment(misses, UNKNOWN_LOOKUP_WINDOW_SECONDS);
-        }
-        throw AccountErrorCodes.refusal(AccountErrorCodes.ACCOUNT_NOT_FOUND,
-                "This account does not exist. Please contact your HR.");
     }
 
-    /** The miss counter of the calling address, or null when the address is unknown (no request). */
-    private static String unknownLookupKey() {
-        String ip = ClientInfo.current().ip();
-        return ip == null ? null : "login:unknown-identifier:" + ip;
+    /**
+     * Whether a code should go out to this identifier — asked without ever saying so.
+     *
+     * <p>Every unauthenticated entry point answers the same whether or not the identifier is
+     * anybody's: a distinct "no such account" is an oracle, and asked once per number it returns a
+     * verified roster of an organisation's staff. The screen says the same thing either way, and
+     * whoever mistyped is served by its wording ("if this number is linked, a code is on its way").
+     *
+     * <p>Three things have to stay identical for that to hold, and each is easy to lose:
+     *
+     * <ul>
+     *   <li><b>The send budget.</b> {@link #generateNumericCode} runs on both paths. Skipping it
+     *       for an unknown identifier would make the limiter itself the oracle: the eleventh ask of
+     *       one number is refused when it exists and accepted when it does not.</li>
+     *   <li><b>The elapsed time.</b> Both paths do the same lookup, {@code beforeSend} and
+     *       {@code store}. Delivery is the only extra step on the linked path, and it hands off to
+     *       an async publish rather than waiting on a gateway.</li>
+     *   <li><b>The status.</b> Neither path throws — see {@link #withoutSayingWhy}.</li>
+     * </ul>
+     *
+     * <p>No budget may count misses only. A per-address allowance of misses, refused once spent,
+     * is the same oracle one step later: past it, an unknown number is refused while a real one
+     * still goes through.
+     */
+    private boolean identifierLinked(String identifier) {
+        boolean linked = this.findLinked(identifier).isPresent();
+        if (!linked) {
+            // The same Redis work the linked path is about to do, so the two cost the same.
+            this.generateNumericCode(LoginIdentifiers.normalize(identifier));
+        }
+        return linked;
     }
 
-    /** The same lookup on a sign-in path, where a refusal is also a failed sign-in in the history. */
-    private UserIdentity requireLinkedToSignIn(String identifier, LoginChannel channel, LoginMethod method) {
+    /**
+     * Swallow whatever went wrong, so that WHY it went wrong is not an answer either.
+     *
+     * <p>Wrapped at the public entry points rather than inside the delivery: {@code /join} calls the
+     * delivery directly and must stay loud — the invitation, not the caller, named the address.
+     *
+     * <p>The guard's own "too many requests" is the case that matters: it can only be reported on
+     * one of the two paths if it is reported at all, and reporting it there is the oracle one
+     * layer down. A person hammering the button no longer learns they are over the limit; the
+     * cooldown the screen already shows is what tells them to wait.
+     *
+     * <p>Logged, never returned: an outage stays diagnosable without becoming readable from outside.
+     */
+    private static void withoutSayingWhy(Runnable attempt) {
         try {
-            return this.requireLinked(identifier);
+            attempt.run();
         } catch (BusinessException e) {
-            history.record(LoginEvent.LOGIN_FAILED, null, null, null, channel, method,
-                    StringUtils.defaultString(e.getErrorCode(), e.getMessage()));
-            throw e;
+            log.debug("Verification code request refused; answered uniformly anyway: {}", e.getMessage());
+        } catch (RuntimeException e) {
+            // A fault stays loud in the log, not in the response: publishing happens only on the
+            // linked path, so a broker failure surfacing here would say "this number exists".
+            log.error("Verification code request failed; answered uniformly anyway.", e);
         }
+    }
+
+    /**
+     * The refusal for a code that does not sign anybody in — wrong, or right for nobody's number.
+     *
+     * <p>One answer for both, so that the code steps say nothing the send step did not.
+     */
+    private static BusinessException incorrectCode() {
+        return AccountErrorCodes.refusal(AccountErrorCodes.CODE_INCORRECT, "Incorrect code. Please try again.");
     }
 
     /**
@@ -427,12 +457,19 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // with the separators the person still types is found too (LoginIdentifiers.loginSpellings).
         LoginChannel channel = LoginChannel.of(identifier);
         LoginMethod method = channel == LoginChannel.EMAIL ? LoginMethod.EMAIL_CODE : LoginMethod.SMS_CODE;
-        UserIdentity identity = this.requireLinkedToSignIn(identifier, channel, method);
+        // Looked up first only to name the person in the history; nothing is said about it until the
+        // code has been checked, and then a number that is nobody's gets the wrong-code answer.
+        UserIdentity identity = this.findLinked(identifier).orElse(null);
+        Long profileId = identity == null ? null : identity.getProfileId();
         try {
             verifyCode(LoginIdentifiers.normalize(identifier), code);
+            if (identity == null) {
+                throw incorrectCode();
+            }
         } catch (BusinessException e) {
-            history.record(LoginEvent.LOGIN_FAILED, identity.getProfileId(), null, null, channel, method,
-                    StringUtils.defaultString(e.getErrorCode(), e.getMessage()));
+            history.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, method,
+                    identity == null ? AccountErrorCodes.ACCOUNT_NOT_FOUND
+                            : StringUtils.defaultString(e.getErrorCode(), e.getMessage()));
             throw e;
         }
         // A lock refuses the PASSWORD only; a code still signs the person in, and into every
@@ -446,7 +483,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         if (addressLimiter != null) {
             addressLimiter.count();
         }
-        UserIdentity identity = this.requireLinkedToSignIn(identifier, channel, LoginMethod.PASSWORD);
+        Optional<UserIdentity> resolved = this.findLinked(identifier);
+        if (resolved.isEmpty()) {
+            this.refuseUnknownLikeAWrongPassword(identifier, channel);
+        }
+        UserIdentity identity = resolved.get();
         Long profileId = identity.getProfileId();
 
         // Lock checked BEFORE the password, so "locked" versus "incorrect" cannot confirm a guess.
@@ -479,6 +520,29 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         }
         identityService.clearPasswordFailures(identity.getId());
         return this.signedIn(identity, channel, LoginMethod.PASSWORD);
+    }
+
+    /**
+     * A number that is nobody's, answered exactly as a wrong password for a real one: the same
+     * codes, the same countdown from the seventh try, the same lock on the tenth, and refused
+     * without counting while "locked".
+     *
+     * <p>One shared message is not enough: the real refusal names the remaining attempts, so an
+     * identifier that never counted down would confirm its non-existence as surely as "no such
+     * account". The submitted identifier is counted in the same window instead (see
+     * {@link UserIdentityService#recordUnknownIdentifierFailure}).
+     */
+    private void refuseUnknownLikeAWrongPassword(String identifier, LoginChannel channel) {
+        history.record(LoginEvent.LOGIN_FAILED, null, null, null, channel, LoginMethod.PASSWORD,
+                AccountErrorCodes.ACCOUNT_NOT_FOUND);
+        if (identityService.isUnknownIdentifierLocked(identifier)) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, lockedMessage());
+        }
+        long failures = identityService.recordUnknownIdentifierFailure(identifier);
+        if (failures >= UserIdentityService.FAILURES_BEFORE_LOCK) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, lockedMessage());
+        }
+        throw wrongPassword(failures);
     }
 
     /** Record the successful sign-in, then decide where it goes. */
@@ -870,13 +934,16 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     @Override
     @Transactional
     public void resetPasswordByCode(String identifier, String code, String newPassword) {
+        // The strength rules first: verifying spends the code, and a weak password refused after it
+        // would send the person back for a new one. They say nothing about the number.
+        PasswordPolicy.validate(newPassword);
+        // Code first, person second: looking the person up before verifying would let a caller
+        // probe which numbers exist by which ones fail differently. A code right for nobody's
+        // number gets the wrong-code answer.
+        this.verifyCode(LoginIdentifiers.normalize(identifier), code);
         // Mobile, or the enterprise email of a joined account: the same person either way, and it is
         // their one password that is reset.
-        UserIdentity identity = this.requireLinked(identifier);
-        // The strength rules first: verifying spends the code, and a weak password refused after it
-        // would send the person back for a new one.
-        PasswordPolicy.validate(newPassword);
-        this.verifyCode(LoginIdentifiers.normalize(identifier), code);
+        UserIdentity identity = this.findLinked(identifier).orElseThrow(LoginServiceImpl::incorrectCode);
         boolean wasLocked = identityService.isPasswordLocked(identity);
         // Strength rules and the lock reset both live inside setPassword — a reset must clear the
         // lock, or someone who forgot their password stays locked out of the password they just set.
