@@ -11,8 +11,6 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -303,7 +301,8 @@ class MyCredentialServiceTest {
     void aNumberWithoutItsCountryCode_orOfTheWrongLength_isRefused_andTheTicketKept() {
         String ticket = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
 
-        for (String typed : List.of("91234567", "+65 123", "+1234567890123456", "+65 9123 456a")) {
+        // No country code; 5 digits after +65; 16 after it; a letter; a code no country has.
+        for (String typed : List.of("91234567", "+65 12345", "+65 1234567890123456", "+65 9123 456a", "+999 12345678")) {
             assertThatThrownBy(() -> signedIn(() -> service.checkNewMobile(ticket, typed)))
                     .as(typed).isInstanceOf(BusinessException.class)
                     .hasMessageContaining("country code");
@@ -311,6 +310,15 @@ class MyCredentialServiceTest {
         verify(codeGuard, never()).beforeSend(anyString());
         assertThat(signedIn(() -> service.checkNewMobile(ticket, "+65 9876-5432"))).isNotBlank();
         verify(codeGuard).beforeSend(NEW_MOBILE);
+    }
+
+    @Test
+    void theDigitsAfterTheCountryCode_count_sixToFifteen() {
+        // The screen takes the country code from its own dropdown and 6 to 15 digits after it.
+        String six = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        assertThat(signedIn(() -> service.checkNewMobile(six, "+65 123456"))).isNotBlank();
+        String fifteen = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        assertThat(signedIn(() -> service.checkNewMobile(fifteen, "+86 123456789012345"))).isNotBlank();
     }
 
     @Test
@@ -356,37 +364,6 @@ class MyCredentialServiceTest {
         assertThat(ttls.get(key)).isBetween(1, MyCredentialServiceImpl.TICKET_TTL_SECONDS);
         signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
         verify(identityService).setPassword(11L, "N3w-Passw0rd!");
-    }
-
-    @Test
-    void otherDevicesAreSignedOut_onlyOnceTheChangeCommits() {
-        String ticket = signedIn(() -> service.verifyCodeForPassword("123456"));
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
-            verify(sessions, never()).revokePerson(any(), any(), any());
-
-            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
-            verify(sessions).revokePerson(ADA, SESSION, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
-        } finally {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
-    }
-
-    @Test
-    void aSignOutThatFailsAfterCommit_isLogged_notReportedAsAFailedChange() {
-        String ticket = signedIn(() -> service.verifyCodeForPassword("123456"));
-        doThrow(new IllegalStateException("redis down")).when(sessions).revokePerson(any(), any(), any());
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
-
-            org.assertj.core.api.Assertions.assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
-                    .forEach(TransactionSynchronization::afterCommit)).doesNotThrowAnyException();
-            verify(sessions).revokePerson(ADA, SESSION, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
-        } finally {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
     }
 
     @Test

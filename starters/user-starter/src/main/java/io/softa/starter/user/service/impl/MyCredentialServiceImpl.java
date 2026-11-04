@@ -13,8 +13,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -64,8 +62,11 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * else in, so this bounds the probing as well as the texts; trying the same number again is free.
      */
     static final int DAILY_NEW_MOBILE_LIMIT = 5;
-    /** A full international number: a plus, then 7 to 15 digits (E.164 allows at most 15). */
-    private static final Pattern INTERNATIONAL_MOBILE = Pattern.compile("\\+[0-9]{7,15}");
+    /** A plus and digits: the country code and the number, as the APP sends them together. */
+    private static final Pattern INTERNATIONAL_MOBILE = Pattern.compile("\\+[0-9]+");
+    /** The number after the country code, as the screen takes it: 6 to 15 digits. */
+    static final int NATIONAL_MIN_DIGITS = 6;
+    static final int NATIONAL_MAX_DIGITS = 15;
 
     /** The step a ticket opens. */
     enum Step {
@@ -245,8 +246,10 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         // ticket back, so the person stays on this step and can try another number.
         return this.spending(ticket, Step.NAME_NEW_MOBILE, account, held -> {
             String mobile = LoginIdentifiers.normalize(StringUtils.trimToNull(newMobile));
-            if (mobile == null || !INTERNATIONAL_MOBILE.matcher(mobile).matches()) {
-                throw new BusinessException("Enter a mobile number with its country code, such as +65 9123 4567.");
+            String national = mobile == null || !INTERNATIONAL_MOBILE.matcher(mobile).matches() ? null
+                    : mobileFormat.nationalNumber(mobile);
+            if (national == null || national.length() < NATIONAL_MIN_DIGITS || national.length() > NATIONAL_MAX_DIGITS) {
+                throw new BusinessException("Enter a mobile number of 6 to 15 digits after its country code.");
             }
             this.countNewMobile(account.getProfileId(), mobile);
             this.refuseUnusable(this.identityOf(account), mobile);
@@ -361,31 +364,12 @@ public class MyCredentialServiceImpl implements MyCredentialService {
     }
 
     /**
-     * Every other device of the person, in every company; the one making the change stays. Only
-     * once the change is committed: a change that rolls back must not have signed anyone out.
+     * Every other device of the person, in every company; the one making the change stays. The
+     * session service ends them once the change commits, so one that rolls back signs nobody out.
      */
     private void signOutOtherDevicesAfterCommit(Long profileId) {
-        String keep = sessionService.currentSessionId();
-        Runnable signOut = () -> {
-            try {
-                sessionService.revokePerson(profileId, keep, SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
-            } catch (RuntimeException e) {
-                // The change is committed and this device's caller must hear so: a failure to sign
-                // the others out is logged, not turned into an error for a change that took effect.
-                log.error("Other devices of profile {} not signed out after a credential change: {}",
-                        profileId, e.getMessage());
-            }
-        };
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            signOut.run();
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                signOut.run();
-            }
-        });
+        sessionService.revokePerson(profileId, sessionService.currentSessionId(),
+                SessionRevokeReason.KICKED_BY_OTHER_DEVICE);
     }
 
     private SecurityLogSource source() {
