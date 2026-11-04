@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.util.ReflectionUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -40,6 +41,14 @@ class MyOwnAccountPastRowScopeTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        // Collaborators a password change also reaches on branches that sign other devices out
+        // or record the attempt; mocked by type when present, so this test reads the same either way.
+        for (String collaborator : new String[] {"sessionService", "loginHistory"}) {
+            java.lang.reflect.Field field = ReflectionUtils.findField(UserAccountServiceImpl.class, collaborator);
+            if (field != null) {
+                ReflectionTestUtils.setField(accountService, collaborator, mock(field.getType()));
+            }
+        }
         UserAccount account = new UserAccount();
         account.setId(USER);
         account.setProfileId(PROFILE);
