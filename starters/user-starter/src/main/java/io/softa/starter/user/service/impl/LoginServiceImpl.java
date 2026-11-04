@@ -722,10 +722,20 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
         if (StringUtils.isBlank(mobile)) {
             // A record from before the personal mobile was required: the email is all there is.
-            Long person = account.getProfileId() != null ? account.getProfileId()
-                    : Objects.requireNonNullElseGet(proofGuard.joinPersonOf(rawToken),
-                            () -> this.createJoinPerson(rawToken, address));
-            return this.verified(rawToken, person, "email");
+            if (account.getProfileId() == null) {
+                return this.verified(rawToken, Objects.requireNonNullElseGet(proofGuard.joinPersonOf(rawToken),
+                        () -> this.createJoinPerson(rawToken, address)), "email");
+            }
+            // The email proves who holds the mailbox, which the company chose; it says nothing about
+            // the person the row names. That is enough for the placeholder minted with the account —
+            // nobody yet — and never for a real person: a row a tenant pointed at someone else's
+            // address and then readdressed to a mailbox of its own would hand that person's
+            // identity, in every company, to whoever reads it. Such a row needs a mobile to join.
+            if (!invitationService.isPlaceholderPerson(account.getProfileId(), account.getId())) {
+                throw AccountErrorCodes.refusal(AccountErrorCodes.JOIN_NEEDS_MOBILE,
+                        "This invitation needs a mobile number to confirm who you are. Please contact your HR.");
+            }
+            return this.verified(rawToken, account.getProfileId(), "email");
         }
         Long createdForThisLink = proofGuard.joinPersonOf(rawToken);
         UserIdentity holder = this.holderOf(mobile, account, createdForThisLink);

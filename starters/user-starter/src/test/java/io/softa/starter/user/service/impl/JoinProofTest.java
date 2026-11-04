@@ -102,6 +102,8 @@ class JoinProofTest {
         when(invitationService.resolveJoinAccount(TOKEN)).thenReturn(Optional.of(revived));
         when(identityService.findByProfile(ADA)).thenReturn(Optional.of(ada));
         when(identityService.isIdentifierClaimable(WORK_EMAIL, ADA)).thenReturn(true);
+        // A row with no mobile joins by email only for the placeholder minted with it.
+        when(invitationService.isPlaceholderPerson(ADA, 100L)).thenReturn(true);
 
         // confirmJoin's own reads. The invitation is re-read PENDING on every call so the second
         // confirm reaches the account's activationTime check rather than the token-status one.

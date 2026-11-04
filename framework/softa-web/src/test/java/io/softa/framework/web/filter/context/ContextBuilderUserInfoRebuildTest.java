@@ -71,6 +71,7 @@ class ContextBuilderUserInfoRebuildTest {
         when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
                 .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
         when(cacheService.getExpire(RedisConstant.SESSION + SESSION_ID)).thenReturn((long) SessionStore.TTL_SECONDS);
+        when(cacheService.clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID))).thenReturn(1L);
     }
 
     private MockHttpServletRequest request() {
@@ -131,7 +132,7 @@ class ContextBuilderUserInfoRebuildTest {
                 .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
         // And this one really is over: the session is destroyed, not merely unresolvable.
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
         verify(cacheService).removeFromSet(SessionStore.ACCOUNT_SESSIONS + USER_ID, SESSION_ID);
     }
 
@@ -159,7 +160,7 @@ class ContextBuilderUserInfoRebuildTest {
                 .extracting(e -> ((UserNotFoundException) e).getErrorCode())
                 .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
     }
 
     @Test
@@ -191,7 +192,7 @@ class ContextBuilderUserInfoRebuildTest {
                 .isInstanceOf(UserNotFoundException.class)
                 .extracting(e -> ((UserNotFoundException) e).getErrorCode())
                 .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
         // Read off the cached entry: no extra query per request.
         verify(userInfoService, never()).loadUserInfo(any());
     }
@@ -252,5 +253,38 @@ class ContextBuilderUserInfoRebuildTest {
                 .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
 
         verify(userInfoService, never()).loadUserInfo(any());
+    }
+
+    @Test
+    void aConcurrentRequestArrivingAfterTheOrgEndedTheSession_isToldTheOrgIsUnavailableToo() {
+        // The first of two simultaneous requests found the account frozen and ended the session.
+        // The second finds no session; it must not answer SESSION_EXPIRED, or a client acting on
+        // whichever answer lands first sends the person to the login page.
+        ReentryTokenIssuer issuer = profileId -> "reentry-for-" + profileId;
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ReentryTokenIssuer> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(issuer);
+        ReflectionTestUtils.setField(contextBuilder, "reentryTokenIssuer", provider);
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
+        when(cacheService.get(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + SESSION_ID), eq(SessionRecord.class)))
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .satisfies(e -> {
+                    UserNotFoundException u = (UserNotFoundException) e;
+                    assertThat(u.getErrorCode()).isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
+                    assertThat(u.getErrorDetails()).isEqualTo(java.util.Map.of("authToken", "reentry-for-7"));
+                });
+    }
+
+    @Test
+    void aSessionThatIsSimplyGone_isStillExpired() {
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
     }
 }

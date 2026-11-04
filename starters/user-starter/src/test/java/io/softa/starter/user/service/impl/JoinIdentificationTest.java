@@ -18,11 +18,15 @@ import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserProfileService;
 
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.starter.user.constant.AccountErrorCodes;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -106,6 +110,40 @@ class JoinIdentificationTest {
         assertThat(result.profileId()).isEqualTo(EXISTING);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.CONFIRM);
         verify(proofGuard).mint(TOKEN, EXISTING, "mobile");
+    }
+
+    @Test
+    void withNoMobile_aRowNamingARealPerson_isNotJoinedByEmailAlone() {
+        // The chain this closes: a tenant creates an account under someone's enterprise email (it
+        // binds to that person), readdresses it to a mailbox of its own, invites, and passes the
+        // emailed code. Joining would activate the row under the attacker's address, and that
+        // address would sign the person in — in every company they belong to.
+        account.setMobile(null);
+        account.setProfileId(EXISTING);
+        when(invitationService.isPlaceholderPerson(EXISTING, ACCOUNT)).thenReturn(false);
+
+        assertThatThrownBy(() -> loginService.verifyJoinCode(TOKEN, "email", "123456"))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(AccountErrorCodes.JOIN_NEEDS_MOBILE));
+        verify(proofGuard, never()).mint(any(), any(), any());
+    }
+
+    @Test
+    void withNoMobile_theAccountsOwnPlaceholder_stillJoinsByEmail() {
+        account.setMobile(null);
+        when(invitationService.isPlaceholderPerson(PLACEHOLDER, ACCOUNT)).thenReturn(true);
+
+        assertThat(loginService.verifyJoinCode(TOKEN, "email", "123456").profileId()).isEqualTo(PLACEHOLDER);
+    }
+
+    @Test
+    void withNoMobile_anUnboundRow_makesANewPerson() {
+        account.setMobile(null);
+        account.setProfileId(null);
+        when(profileService.createPersonForJoin(EMAIL)).thenReturn(NEW_PERSON);
+        when(proofGuard.joinPersonOf(TOKEN)).thenReturn(null);
+
+        assertThat(loginService.verifyJoinCode(TOKEN, "email", "123456").profileId()).isEqualTo(NEW_PERSON);
     }
 
     @Test

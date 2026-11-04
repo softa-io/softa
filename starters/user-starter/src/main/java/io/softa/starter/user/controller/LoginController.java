@@ -18,6 +18,7 @@ import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.enums.SystemUser;
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.orm.annotation.SwitchUser;
 import io.softa.framework.web.response.ApiResponse;
@@ -32,6 +33,7 @@ import io.softa.starter.user.service.impl.LoginHistoryRecorder;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.service.OAuth2Service;
+import io.softa.starter.user.util.ClientInfo;
 
 /**
  * Login Controller
@@ -233,10 +235,18 @@ public class LoginController {
         if (result.isResolved()) {
             String sessionId = loginService.generateSessionId(result.userInfo().getUserId());
             CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-            // In the body too: the APP keeps no cookies and sends it back as X-Session-Id.
-            result = result.withSessionToken(sessionId);
+            result = withTokenForApp(result, sessionId);
         }
         return ApiResponse.success(result);
+    }
+
+    /**
+     * The session id in the body for the APP, which keeps no cookies and sends it back as
+     * {@code X-Session-Id}. Never for Web or H5: their session lives in the cookie, which page
+     * scripts cannot read, and a copy in the body would hand it to any script that can.
+     */
+    private static AuthenticationResult withTokenForApp(AuthenticationResult result, String sessionId) {
+        return ClientInfo.current().isApp() ? result.withSessionToken(sessionId) : result;
     }
 
     /**
@@ -328,7 +338,7 @@ public class LoginController {
         loginHistory.recordSwitch(result.profileId(), previousAccountId, result.userInfo().getUserId(),
                 result.userInfo().getTenantId());
         CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-        return ApiResponse.success(result.withSessionToken(sessionId));
+        return ApiResponse.success(withTokenForApp(result, sessionId));
     }
 
     /**
@@ -375,10 +385,30 @@ public class LoginController {
         return sessionId;
     }
 
+    /**
+     * The account the session is in — while it still belongs to the person the session was opened
+     * for. These endpoints skip the per-request context, so they make its check themselves: an
+     * account closed, reopened and joined by someone else must not list, switch or leave on behalf of
+     * the new holder with the previous one's session.
+     */
     private Long sessionUser(String sessionId) {
-        return sessionStore.peek(sessionId)
-                .map(SessionRecord::accountId)
+        SessionRecord session = sessionStore.peek(sessionId)
                 .orElseThrow(() -> sessionExpired("Invalid session ID"));
+        boolean sameHolder;
+        try {
+            UserInfo info = profileService.getUserInfo(session.accountId());
+            Long holder = info == null ? null : info.getProfileId();
+            // An entry cached before the person was recorded on it compares as nothing.
+            sameHolder = holder == null || session.profileId() == null || holder.equals(session.profileId());
+        } catch (BusinessException e) {
+            // Nobody is behind the account any more: reopened, and not joined yet.
+            sameHolder = false;
+        }
+        if (!sameHolder) {
+            sessionStore.revoke(sessionId, SessionRevokeReason.UNBOUND);
+            throw sessionExpired("The account no longer belongs to this session's person.");
+        }
+        return session.accountId();
     }
 
     private static UserNotFoundException sessionExpired(String message) {
