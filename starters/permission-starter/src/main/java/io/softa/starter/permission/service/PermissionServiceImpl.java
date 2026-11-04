@@ -648,12 +648,12 @@ public class PermissionServiceImpl implements PermissionService {
      */
     record Grant(Set<String> permissions, Map<String, List<ScopeRule>> scopes,
                  Map<String, JsonNode> conditions, Map<String, Set<String>> sensitiveSets,
-                 Set<Long> companies, Set<Long> departments) {
+                 Set<Long> companies, Set<String> departments) {
 
         static Grant of(RoleGrant g) {
             return new Grant(orEmpty(g.getPermissions()), orEmpty(g.getModelScopeMap()),
                     orEmpty(g.getModelScopeConditions()), orEmpty(g.getModelSensitiveFieldSetsMap()),
-                    g.getGrantedCompanyIds(), g.getGrantedDepartmentIds());
+                    g.getGrantedCompanyIds(), g.getGrantedDepartmentPaths());
         }
 
         static Grant union(PermissionInfo pi) {
@@ -1447,7 +1447,7 @@ public class PermissionServiceImpl implements PermissionService {
      * {@link #holders} finds them — unless no role holds it.
      *
      * <p>A model written only through custom endpoints (a contract saved through
-     * {@code POST /EmpDocument/editUploaded}) has no holder of its standard write, and {@link #holders}
+     * {@code POST /Contract/upload}) has no holder of its standard write, and {@link #holders}
      * then answers every role the user has. For row scope that is the intended reading — whatever reached
      * the write was authorized elsewhere — but for the companies a write may name it hands the choice to
      * the self-service role, which carries no company grant and so reaches every company. Here it is
@@ -1984,36 +1984,72 @@ public class PermissionServiceImpl implements PermissionService {
      * The role's department grant on {@code model} as a filter, {@code null} when it does not narrow.
      * {@link #roleAxes} ANDs it onto that role's rows, beside the company grant.
      *
-     * <p>{@code granted} holds department ids already expanded to their subtrees by the snapshot, so
-     * this is a plain {@code IN} on the anchor: {@code departmentId} on a model belonging to a
-     * department, {@code id} on the department model itself. A {@code departmentId} declared as a
-     * dynamic cascaded field is filtered by name like any other — the query builder rewrites it onto
-     * its cascade path — so a model that reaches its department through another one is bounded too.
+     * <p>{@code rootPaths} are the {@code idPath}s of the granted roots, so this matches every row whose
+     * department sits at or under one of them, through the department's own path: {@code idPath} on the
+     * department model, {@code departmentId.idPath} on a model belonging to a department — or, where that
+     * {@code departmentId} is a dynamic cascaded field with no column of its own, its cascade path. The tree
+     * is read live, so a department created under or moved into a granted subtree is in it at once.
+     *
+     * <p>A department just inserted has no path yet: the application writes it once the row has an id, after
+     * the insert's own access check. Such a row is judged by its parent's path instead, so a role may create
+     * a department under one it is granted — and not at the top, where there is no parent to judge by.
      *
      * <p>Same three states as {@link #companyScope}: {@code null} unrestricted — every role nobody gave
      * a department grant, which is what keeps this inert until one is configured — empty matches
-     * nothing, otherwise those departments. Rows with no department at all fall outside a configured
+     * nothing, otherwise those subtrees. Rows with no department at all fall outside a configured
      * grant, as rows with no company fall outside a company grant.
      */
     // Package-private for test, like companyScope.
-    Filters departmentScope(String model, Set<Long> granted) {
-        if (granted == null) {
+    Filters departmentScope(String model, Set<String> rootPaths) {
+        if (rootPaths == null) {
             return null;   // no department grant configured → unrestricted
         }
         if (model == null || !ModelManager.existModel(model)) {
             return null;
         }
-        String anchor = departmentAnchorOf(model);
-        if (anchor == null) {
+        String pathField = departmentPathFieldOf(model);
+        if (pathField == null) {
             return null;
         }
-        if (granted.isEmpty()) {
+        if (rootPaths.isEmpty()) {
             return ScopeRuleCompiler.matchNone();
         }
         // Sorted for a stable statement text, as companyScope does.
-        List<Serializable> ids = new ArrayList<>(granted);
-        ids.sort(null);
-        return Filters.of(anchor, Operator.IN, ids);
+        List<String> roots = new ArrayList<>(rootPaths);
+        roots.sort(null);
+        Filters subtrees = IdPath.subtreesOf(pathField, roots);
+        if (!ModelConstant.DEPARTMENT_MODEL.equals(model) || !hasParentOnTheTree(model)) {
+            return subtrees;
+        }
+        return Filters.or(subtrees, Filters.and(new Filters().isNotSet(IdPath.FIELD),
+                IdPath.subtreesOf(IdPath.fieldOn(PARENT_FIELD), roots)));
+    }
+
+    private static final String PARENT_FIELD = "parentId";
+
+    /** Whether the department model relates each row to its parent, the tree a path-less row is judged on. */
+    private static boolean hasParentOnTheTree(String model) {
+        MetaField parent = ModelManager.getModelFieldOrNull(model, PARENT_FIELD);
+        return parent != null && FieldType.TO_ONE_TYPES.contains(parent.getFieldType())
+                && model.equals(parent.getRelatedModel());
+    }
+
+    /**
+     * The path field the department grant matches on {@code model}, or null when the grant does not reach
+     * it — see {@link #departmentAnchorOf}. The department model needs its own {@code idPath}; another model
+     * goes through its {@code departmentId}, or that field's cascade path when it is dynamic.
+     */
+    private static String departmentPathFieldOf(String model) {
+        String anchor = departmentAnchorOf(model);
+        if (anchor == null
+                || ModelManager.getModelFieldOrNull(ModelConstant.DEPARTMENT_MODEL, IdPath.FIELD) == null) {
+            return null;
+        }
+        if (ModelConstant.DEPARTMENT_MODEL.equals(model)) {
+            return IdPath.FIELD;
+        }
+        MetaField field = ModelManager.getModelFieldOrNull(model, anchor);
+        return IdPath.fieldOn(field.isDynamicCascadedField() ? field.getCascadedField() : anchor);
     }
 
     /**

@@ -27,6 +27,7 @@ import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.permission.index.EndpointIndex;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
+import io.softa.starter.permission.scope.IdPath;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
@@ -54,7 +55,7 @@ class DepartmentGrantTest {
 
     private static final String TICKET = "Ticket";
     private static final String VIEW = "permission.ticket.view";
-    private static final Set<Long> GRANTED = Set.of(10L, 11L, 12L);
+    private static final Set<String> GRANTED = Set.of("1/10", "1/11");
 
     private MockedStatic<ModelManager> modelManager;
 
@@ -68,13 +69,16 @@ class DepartmentGrantTest {
         modelManager.close();
     }
 
-    private static Filters scope(String model, Set<Long> granted) {
+    private static Filters scope(String model, Set<String> granted) {
         return new PermissionServiceImpl(null, null, null, null, null).departmentScope(model, granted);
     }
 
     /** A model carrying {@code departmentId} of the given type and target. */
     private void model(String name, FieldType type, String relatedModel) {
         modelManager.when(() -> ModelManager.existModel(name)).thenReturn(true);
+        // The department tree stores its materialized path.
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(ModelConstant.DEPARTMENT_MODEL, IdPath.FIELD))
+                .thenReturn(mock(MetaField.class));
         MetaModel meta = mock(MetaModel.class);
         modelManager.when(() -> ModelManager.getModel(name)).thenReturn(meta);
         if (type != null) {
@@ -110,28 +114,57 @@ class DepartmentGrantTest {
     }
 
     @Test
-    @DisplayName("a grant bounds departmentId to exactly the granted subtree ids, in a stable order")
-    void boundsTheAnchorToTheGrantedIds() {
+    @DisplayName("a grant bounds the department's path to the granted subtrees, read live, in a stable order")
+    void boundsTheAnchorToTheGrantedSubtrees() {
         anchored(TICKET);
 
-        Filters first = scope(TICKET, new HashSet<>(List.of(12L, 10L, 11L)));
-        Filters second = scope(TICKET, new HashSet<>(List.of(11L, 12L, 10L)));
+        Filters first = scope(TICKET, new HashSet<>(List.of("1/11", "1/10")));
+        Filters second = scope(TICKET, new HashSet<>(List.of("1/10", "1/11")));
 
-        assertThat(first).isEqualTo(Filters.of(ModelConstant.DEPARTMENT_FIELD, Operator.IN, List.of(10L, 11L, 12L)));
+        assertThat(first).isEqualTo(IdPath.subtreesOf("departmentId.idPath", List.of("1/10", "1/11")));
         assertThat(first.toString()).isEqualTo(second.toString());
+    }
+
+    @Test
+    @DisplayName("a departmentId with no column of its own is matched through its cascade path")
+    void aDynamicDepartmentIdGoesThroughItsCascadePath() {
+        anchored(TICKET);
+        MetaField field = ModelManager.getModelFieldOrNull(TICKET, ModelConstant.DEPARTMENT_FIELD);
+        when(field.isDynamicCascadedField()).thenReturn(true);
+        when(field.getCascadedField()).thenReturn("employeeId.departmentId");
+
+        assertThat(scope(TICKET, GRANTED).toString()).contains("employeeId.departmentId.idPath")
+                .doesNotContain("\"departmentId.idPath");
     }
 
     // ---- what it bounds and what it leaves -------------------------------
 
     @Test
-    @DisplayName("the department model is bounded by its own id")
+    @DisplayName("the department model is bounded by its own path")
     void boundsTheDepartmentListItself() {
         model(ModelConstant.DEPARTMENT_MODEL, null, null);
 
         Filters result = scope(ModelConstant.DEPARTMENT_MODEL, GRANTED);
 
-        assertThat(Filters.containsField(result, ModelConstant.ID)).isTrue();
+        assertThat(Filters.containsField(result, IdPath.FIELD)).isTrue();
+        assertThat(Filters.containsField(result, ModelConstant.ID)).isFalse();
         assertThat(Filters.containsField(result, ModelConstant.DEPARTMENT_FIELD)).isFalse();
+    }
+
+    @Test
+    @DisplayName("a department not yet given its path is judged by its parent's, so a child can be created under a granted one")
+    void aNewDepartmentIsJudgedByItsParent() {
+        model(ModelConstant.DEPARTMENT_MODEL, null, null);
+        MetaField parent = mock(MetaField.class);
+        when(parent.getFieldType()).thenReturn(FieldType.MANY_TO_ONE);
+        when(parent.getRelatedModel()).thenReturn(ModelConstant.DEPARTMENT_MODEL);
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(ModelConstant.DEPARTMENT_MODEL, "parentId"))
+                .thenReturn(parent);
+
+        String result = scope(ModelConstant.DEPARTMENT_MODEL, GRANTED).toString();
+
+        // Its own path when it has one; otherwise unset, under a granted parent — never at the top.
+        assertThat(result).contains("\"idPath\"", "parentId.idPath", "IS NOT SET");
     }
 
     @Test
@@ -169,14 +202,16 @@ class DepartmentGrantTest {
         PermissionInfo pi = new PermissionInfo();
         // Role 1 reads every ticket of department 10; role 2 reads only its own tickets, in department 20.
         pi.setRoleGrants(List.of(
-                role(1, ScopeType.ALL, Set.of(10L)),
-                role(2, ScopeType.CREATED_BY_SELF, Set.of(20L))));
+                role(1, ScopeType.ALL, Set.of("10")),
+                role(2, ScopeType.CREATED_BY_SELF, Set.of("20"))));
 
         Filters read = read(pi);
 
         // (department 10) OR (department 20 AND created by me) — never "every ticket of 10 and 20".
-        assertThat(read.toString()).contains("[10]", "[20]", "createdId");
-        assertThat(read.toString()).doesNotContain("[10,20]");
+        String text = read.toString();
+        assertThat(text).contains("\"10\"", "\"20\"", "createdId");
+        // Role 2's own-tickets rule sits with department 20, not with 10.
+        assertThat(text.indexOf("createdId")).isGreaterThan(text.indexOf("\"10\""));
     }
 
     @Test
@@ -184,7 +219,7 @@ class DepartmentGrantTest {
     void anUnrestrictedRoleStaysUnrestricted() {
         anchored(TICKET);
         PermissionInfo pi = new PermissionInfo();
-        pi.setRoleGrants(List.of(role(1, ScopeType.ALL, Set.of(10L)), role(2, ScopeType.ALL, null)));
+        pi.setRoleGrants(List.of(role(1, ScopeType.ALL, Set.of("10")), role(2, ScopeType.ALL, null)));
 
         assertThat(Filters.isEmpty(read(pi))).isTrue();
     }
@@ -195,16 +230,16 @@ class DepartmentGrantTest {
         anchored(TICKET);
         when(ModelManager.getModel(TICKET).isMultiCompany()).thenReturn(true);
         PermissionInfo pi = new PermissionInfo();
-        RoleGrant grant = role(1, ScopeType.ALL, Set.of(10L));
+        RoleGrant grant = role(1, ScopeType.ALL, Set.of("10"));
         grant.setGrantedCompanyIds(Set.of(500L));
         pi.setRoleGrants(List.of(grant));
 
         String read = read(pi).toString();
 
-        assertThat(read).contains(ModelConstant.COMPANY_FIELD, "500", ModelConstant.DEPARTMENT_FIELD, "[10]");
+        assertThat(read).contains(ModelConstant.COMPANY_FIELD, "500", "departmentId.idPath", "\"10\"");
     }
 
-    private static RoleGrant role(long id, ScopeType scope, Set<Long> departments) {
+    private static RoleGrant role(long id, ScopeType scope, Set<String> departments) {
         ScopeRule rule = new ScopeRule();
         rule.setScopeType(scope);
         RoleGrant g = new RoleGrant();
@@ -215,7 +250,7 @@ class DepartmentGrantTest {
         g.setModelScopeMap(scopes);
         g.setModelScopeConditions(Map.of());
         g.setModelSensitiveFieldSetsMap(Map.of());
-        g.setGrantedDepartmentIds(departments);
+        g.setGrantedDepartmentPaths(departments);
         return g;
     }
 

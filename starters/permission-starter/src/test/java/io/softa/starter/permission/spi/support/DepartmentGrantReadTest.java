@@ -23,6 +23,7 @@ import io.softa.starter.permission.spi.PermissionInfo;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -136,25 +137,35 @@ class DepartmentGrantReadTest {
     void aRoleWithoutAGrantIsUnrestrictedAndCostsNoRead() {
         PermissionInfo info = build(null, null, true);
 
-        assertThat(info.getRoleGrants()).allSatisfy(g -> assertThat(g.getGrantedDepartmentIds()).isNull());
+        assertThat(info.getRoleGrants()).allSatisfy(g -> assertThat(g.getGrantedDepartmentPaths()).isNull());
         verify(lastModelService, never()).searchList(eq(ModelConstant.DEPARTMENT_MODEL), any(FlexQuery.class));
     }
 
     @Test
-    void aGrantedDepartmentReachesItsWholeSubtreeAndNothingBesideIt() {
+    void aGrantKeepsItsRootsPathsForTheTreeToBeReadLive() {
         PermissionInfo info = build("[" + subtree("1") + "]", "[" + subtree("5") + "," + subtree("50") + "]", true);
 
-        // 15 shares the leading digit of 1 but is not under it.
-        assertThat(info.getRoleGrants().get(0).getGrantedDepartmentIds()).containsExactlyInAnyOrder(1L, 5L, 9L, 12L);
-        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentIds()).containsExactlyInAnyOrder(5L, 9L, 50L);
+        // The roots only: what sits under them is matched at query time, so a department created or moved under
+        // one later is in the grant without the snapshot being rebuilt.
+        assertThat(info.getRoleGrants().get(0).getGrantedDepartmentPaths()).containsExactly("/1");
+        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentPaths()).containsExactlyInAnyOrder("/1/5", "/50");
+    }
+
+    @Test
+    void disabledRootsAreReadToo() {
+        build("[" + subtree("1") + "]", null, true);
+
+        // A disabled root still bounds the enabled departments under it.
+        verify(lastModelService).searchList(eq(ModelConstant.DEPARTMENT_MODEL), argThat((FlexQuery q) ->
+                q.getFilterControl() != null && q.getFilterControl().isSkipActiveControl()));
     }
 
     @Test
     void allIsUnrestrictedAndEmptyIsNothing() {
         PermissionInfo info = build("[{\"scopeType\":\"ALL\"}]", "[]", true);
 
-        assertThat(info.getRoleGrants().get(0).getGrantedDepartmentIds()).isNull();
-        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentIds()).isEmpty();
+        assertThat(info.getRoleGrants().get(0).getGrantedDepartmentPaths()).isNull();
+        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentPaths()).isEmpty();
         verify(lastModelService, never()).searchList(eq(ModelConstant.DEPARTMENT_MODEL), any(FlexQuery.class));
     }
 
@@ -163,8 +174,8 @@ class DepartmentGrantReadTest {
         // A root that no longer exists, and a rule of a type the grant does not take.
         PermissionInfo info = build("[" + subtree("777") + "]", "[{\"scopeType\":\"MANAGED_DEPARTMENTS\"}]", true);
 
-        assertThat(info.getRoleGrants().get(0).getGrantedDepartmentIds()).isEmpty();
-        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentIds()).isEmpty();
+        assertThat(info.getRoleGrants().get(0).getGrantedDepartmentPaths()).isEmpty();
+        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentPaths()).isEmpty();
     }
 
     @Test
@@ -172,15 +183,15 @@ class DepartmentGrantReadTest {
         String grant = "[" + subtree("5") + "]";
         PermissionInfo info = build(grant, grant, true);
 
-        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentIds()).containsExactlyInAnyOrder(5L, 9L);
-        // One read of the roots, one of their subtrees — for both roles.
-        verify(lastModelService, times(2)).searchList(eq(ModelConstant.DEPARTMENT_MODEL), any(FlexQuery.class));
+        assertThat(info.getRoleGrants().get(1).getGrantedDepartmentPaths()).containsExactly("/1/5");
+        // One read of the roots — for both roles.
+        verify(lastModelService, times(1)).searchList(eq(ModelConstant.DEPARTMENT_MODEL), any(FlexQuery.class));
     }
 
     @Test
     void anApplicationWithoutTheColumnBuildsTheSnapshotItAlwaysDid() {
         PermissionInfo info = build("[" + subtree("1") + "]", "[]", false);
 
-        assertThat(info.getRoleGrants()).allSatisfy(g -> assertThat(g.getGrantedDepartmentIds()).isNull());
+        assertThat(info.getRoleGrants()).allSatisfy(g -> assertThat(g.getGrantedDepartmentPaths()).isNull());
     }
 }

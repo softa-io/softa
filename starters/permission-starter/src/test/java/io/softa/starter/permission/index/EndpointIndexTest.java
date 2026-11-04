@@ -116,12 +116,12 @@ class EndpointIndexTest {
     void customWritePermissions_listTheWritesNoStandardEndpointCovers() {
         // A contract saved through endpoints of its own: who writes it, asked before the save.
         EndpointIndex idx = build(List.of(
-                explicit("contract.edit", "POST /EmpDocument/editUploaded", "POST /EmpDocument/stageFile"),
-                explicit("contract.view", "POST /EmpDocument/searchList", "GET /EmpDocument/preview"),
-                explicit("contract.update", "POST /EmpDocument/updateOne"),
+                explicit("contract.edit", "POST /Contract/upload", "POST /Contract/stageFile"),
+                explicit("contract.view", "POST /Contract/searchList", "GET /Contract/preview"),
+                explicit("contract.update", "POST /Contract/updateOne"),
                 explicit("signing.resend", "POST /document-signing/resend")));
 
-        assertThat(idx.customWritePermissions("EmpDocument")).containsExactly("contract.edit");
+        assertThat(idx.customWritePermissions("Contract")).containsExactly("contract.edit");
         assertThat(idx.customWritePermissions("Employee")).isEmpty();
     }
 

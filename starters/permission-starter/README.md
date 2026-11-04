@@ -409,10 +409,15 @@ per-model rule for reading departments and stays one. The value is a JSON array 
 data-scope form, limited to `{"scopeType":"ALL"}` and
 `{"scopeType":"DEPT_SUBTREE","scopeExpr":{"deptId":"<id>"}}`; three states as for companies — column
 `null` unrestricted, `ALL` unrestricted, anything else exactly the subtrees it names (`[]` = none). The
-snapshot expands it per role into `RoleGrant.grantedDepartmentIds` by `idPath` (so a department created
-under a granted one joins when the snapshot is rebuilt), and `PermissionServiceImpl` ANDs it onto that
-role's rows of every model with `departmentId` as a to-one onto `Department`, and of `Department` itself
-by `id` — next to the company grant, per role, before the roles are OR-ed. There is no user-level union.
+snapshot keeps, per role, the `idPath` of each granted root (`RoleGrant.grantedDepartmentPaths`, roots read
+past the department model's active control, so a disabled root still bounds what is under it), and
+`PermissionServiceImpl` ANDs a subtree match on those paths onto that role's rows — `departmentId.idPath`
+on every model with `departmentId` as a to-one onto `Department` (its cascade path when that field is
+dynamic), `idPath` on `Department` itself — next to the company grant, per role, before the roles are
+OR-ed. The tree is read live: a department created under, or moved into, a granted subtree is in it at
+once, and one moved out leaves it at once. A department just inserted, whose path the application writes
+after the insert, is judged by its parent's path, so a role may create one under a department it is
+granted (not at the top). There is no user-level union.
 A model whose department reference is configuration rather than ownership names that field otherwise
 (not `departmentId`), and is not bounded. With no role carrying a grant, nothing changes; an application
 whose `Role` model does not declare the column is not asked for it.
@@ -453,7 +458,7 @@ outside the grant stays editable in its other fields; writes made without permis
 (`POST /Company/searchName` with a `sourceRecord`) and an import template's company column offer the
 same companies, none when the write is granted none.
 
-A model written only through custom endpoints — a contract saved through `POST /EmpDocument/editUploaded`
+A model written only through custom endpoints — a contract saved through `POST /Contract/upload`
 — has no holder of its standard write, and the fallback below would hand the choice to every role,
 the self-service role's "every company" included. For the company grant only, no holder is read as:
 the roles holding a permission that admitted the current request, when its path names the model

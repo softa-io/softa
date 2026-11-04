@@ -17,8 +17,8 @@ import org.springframework.web.context.request.RequestContextHolder;
  * <p>Kept on the request, never on the context: a flow or task that runs on after the request is not
  * admitted by it.
  *
- * @param pathModel   the first segment of the in-app path — {@code EmpDocument} for
- *                    {@code /EmpDocument/editUploaded}
+ * @param pathModel   the first segment of the in-app path — {@code Contract} for
+ *                    {@code /Contract/upload}
  * @param permissions the permission ids the endpoint is registered under
  */
 public record AdmittedRequest(String pathModel, Set<String> permissions) {

@@ -24,6 +24,7 @@ import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.meta.ModelManager;
@@ -92,7 +93,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     private static final String M_PERMISSION = "Permission";
     private static final String M_USER_ACCOUNT = "UserAccount";
     private static final String F_CONSULTANT = "consultant";
-    /** The role's department grant — see {@link #readGrantedDepartmentIds}. */
+    /** The role's department grant — see {@link #readGrantedDepartmentPaths}. */
     static final String F_DEPARTMENT_GRANT = "departmentGrant";
     /** The wire form of a rule granting every department, and of a rule granting one subtree. */
     private static final String RULE_ALL = ScopeType.ALL.name();
@@ -501,7 +502,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         // 3b-3. The department axis, one per role and never unioned: there is no "my departments"
         // value domain to feed, and the data plane reads it per role only. Roles carrying the same
         // grant share one resolution, as the company grants above do.
-        Map<JsonNode, Set<Long>> departmentsByGrant = new HashMap<>();
+        Map<JsonNode, Set<String>> departmentsByGrant = new HashMap<>();
         for (RoleView role : activeRoles) {
             RoleGrant grant = grantsByRole.get(role.getId());
             JsonNode departmentGrant = role.getDepartmentGrant();
@@ -509,10 +510,10 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 continue;
             }
             if (!departmentsByGrant.containsKey(departmentGrant)) {
-                departmentsByGrant.put(departmentGrant, readGrantedDepartmentIds(departmentGrant));
+                departmentsByGrant.put(departmentGrant, readGrantedDepartmentPaths(departmentGrant));
             }
-            Set<Long> departments = departmentsByGrant.get(departmentGrant);
-            grant.setGrantedDepartmentIds(departments == null ? null : new HashSet<>(departments));
+            Set<String> departments = departmentsByGrant.get(departmentGrant);
+            grant.setGrantedDepartmentPaths(departments == null ? null : new HashSet<>(departments));
         }
         // 3c. Sensitive-field-set grants, keyed by the SFS's canonical model.
         Map<String, Set<String>> modelSensitiveFieldSetsMap = new HashMap<>();
@@ -572,27 +573,31 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
      * <ul>
      *   <li><b>no grant</b> (column null) → never reaches here: unrestricted, which is what every role
      *       written before the grant existed resolves to;</li>
-     *   <li><b>an {@code ALL} rule</b> → {@code null} too, not the ids of every department, so a
-     *       department created after the snapshot was cached is not missing from it;</li>
-     *   <li><b>anything else</b> → the subtree ids, possibly <b>empty</b>: an empty array, roots that no
+     *   <li><b>an {@code ALL} rule</b> → {@code null} too;</li>
+     *   <li><b>anything else</b> → the roots' paths, possibly <b>empty</b>: an empty array, roots that no
      *       longer exist, or a value that is not an array. Fail-closed is right because it was configured.</li>
      * </ul>
      *
-     * <h3>Subtrees and staleness</h3>
-     * The roots are read by id for their {@code idPath}, then every department at or under one of
-     * those paths — whole segments, so {@code /1/12} is not under {@code /1/1}. Materialised as ids,
-     * like the company grant, so a read pays an {@code IN} rather than a join onto the department
-     * tree; the cost is that a department created under, or moved into, a granted subtree joins the
-     * grant when the snapshot is rebuilt (its TTL, or a role write evicting it).
+     * <h3>Paths, not ids</h3>
+     * Only the granted roots are resolved, to their {@code idPath}; the data plane matches every row whose
+     * department sits at or under one of them — whole segments, so {@code 1/12} is not under {@code 1/1}.
+     * Kept as paths rather than expanded to the subtree's ids so that a department created under, or moved
+     * into, a granted subtree is in the grant the moment it is, and one moved out leaves it the moment it
+     * does: the cached snapshot names the roots, and the tree is read live. A root's own path only changes
+     * when the root itself moves, which a role editor sees and re-grants.
+     *
+     * <p>Disabled departments count. Disabling one does not hand its people and records to nobody, and a
+     * disabled root still bounds the enabled departments under it — so the roots are read past the
+     * department model's active control.
      *
      * <p>An application without the department model, or whose department model stores no
      * {@code idPath}, has no department axis: {@code null}, costing neither a query nor an exception.
      * Runs under the {@code @SkipPermissionCheck} that {@code get()} set for the whole build.
      *
      * @param departmentGrant the role's stored grant, already known to be configured
-     * @return the department ids reached, or {@code null} for unrestricted
+     * @return the granted roots' paths, or {@code null} for unrestricted
      */
-    Set<Long> readGrantedDepartmentIds(JsonNode departmentGrant) {
+    Set<String> readGrantedDepartmentPaths(JsonNode departmentGrant) {
         if (!ModelManager.existModel(ModelConstant.DEPARTMENT_MODEL)
                 || ModelManager.getModelFieldOrNull(ModelConstant.DEPARTMENT_MODEL, IdPath.FIELD) == null) {
             return null;
@@ -617,28 +622,18 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 }
             }
         }
+        Set<String> rootPaths = new HashSet<>();
         if (roots.isEmpty()) {
-            return new HashSet<>();
+            return rootPaths;
         }
-        List<String> rootPaths = new ArrayList<>();
-        for (Map<String, Object> row : modelService.searchList(ModelConstant.DEPARTMENT_MODEL,
-                new FlexQuery(List.of(ModelConstant.ID, IdPath.FIELD), new Filters().in(ModelConstant.ID, roots)))) {
+        FlexQuery query = new FlexQuery(List.of(ModelConstant.ID, IdPath.FIELD), new Filters().in(ModelConstant.ID, roots));
+        query.setFilterControl(FilterControl.bypassActiveControl());
+        for (Map<String, Object> row : modelService.searchList(ModelConstant.DEPARTMENT_MODEL, query)) {
             if (row.get(IdPath.FIELD) instanceof CharSequence path && !path.isEmpty()) {
                 rootPaths.add(path.toString());
             }
         }
-        if (rootPaths.isEmpty()) {
-            return new HashSet<>();
-        }
-        rootPaths.sort(null);
-        Set<Long> departments = new HashSet<>();
-        for (Map<String, Object> row : modelService.searchList(ModelConstant.DEPARTMENT_MODEL,
-                new FlexQuery(List.of(ModelConstant.ID), IdPath.subtreesOf(IdPath.FIELD, rootPaths)))) {
-            if (row.get(ModelConstant.ID) instanceof Number n) {
-                departments.add(n.longValue());
-            }
-        }
-        return departments;
+        return rootPaths;
     }
 
     /** A subtree rule's fixed root, as a string (how clients send ids) or a number; null when absent. */

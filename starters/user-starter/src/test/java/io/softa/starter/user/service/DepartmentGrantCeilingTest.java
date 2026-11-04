@@ -52,6 +52,16 @@ class DepartmentGrantCeilingTest {
     }
 
     @Test
+    void aGrantedRootThatResolvesToNoDepartmentIsNotWithinTheCaller() {
+        // A root gone, disabled past reading, or of another tenant: kept as an unresolved path rather than
+        // dropped, which would read as granting nothing and pass every bound.
+        String unresolved = RoleGrantCeiling.UNRESOLVED_ROOT + "777";
+        assertThat(check(role(Set.of(unresolved)), caller(DIVISION)))
+                .contains(new Violation(Violation.Kind.DEPARTMENTS, TICKET));
+        assertThat(DepartmentGrants.within(unresolved, "/1")).isFalse();
+    }
+
+    @Test
     void anUnboundedRoleIsWiderThanABoundedCaller() {
         assertThat(check(role(null), caller(DIVISION)))
                 .contains(new Violation(Violation.Kind.DEPARTMENTS, TICKET));

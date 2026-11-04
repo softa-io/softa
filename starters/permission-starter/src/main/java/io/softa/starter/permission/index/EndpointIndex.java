@@ -327,7 +327,7 @@ public class EndpointIndex implements StartupSnapshot {
     /**
      * The permission ids listing a custom write endpoint on {@code model}: a {@code POST} / {@code PUT} /
      * {@code PATCH} / {@code DELETE} on {@code /Model/...} that is none of the standard endpoints — the
-     * {@code POST /EmpDocument/editUploaded} a form saves through when the model's own update is not exposed.
+     * {@code POST /Contract/upload} a form saves through when the model's own update is not exposed.
      *
      * <p>Who writes such a model, asked without the request that writes it — a picker on the form, before
      * the save. Wider than the permission of any one endpoint (a role that may only void records counts),

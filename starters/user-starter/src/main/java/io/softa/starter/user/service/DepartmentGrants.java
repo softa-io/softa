@@ -11,6 +11,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
@@ -156,8 +157,10 @@ public final class DepartmentGrants {
     }
 
     /**
-     * The stored {@code idPath} of each of these departments; a department that no longer exists, or
-     * an application without the tree, contributes nothing. The caller decides the context it reads in.
+     * The stored {@code idPath} of each of these departments, disabled ones included — a disabled department
+     * is still somewhere in the tree, and a grant naming it still reaches what is under it. A department that
+     * no longer exists, or an application without the tree, contributes nothing. The caller decides the
+     * context it reads in.
      */
     public static Map<Long, String> idPathsOf(ModelService<?> modelService, Collection<Long> departmentIds) {
         if (departmentIds.isEmpty() || !ModelManager.existModel(ModelConstant.DEPARTMENT_MODEL)
@@ -165,8 +168,9 @@ public final class DepartmentGrants {
             return Map.of();
         }
         Map<Long, String> paths = new java.util.HashMap<>();
-        for (Map<String, Object> row : modelService.searchList(ModelConstant.DEPARTMENT_MODEL,
-                new FlexQuery(List.of(ModelConstant.ID, ID_PATH), new Filters().in(ModelConstant.ID, departmentIds)))) {
+        FlexQuery query = new FlexQuery(List.of(ModelConstant.ID, ID_PATH), new Filters().in(ModelConstant.ID, departmentIds));
+        query.setFilterControl(FilterControl.bypassActiveControl());
+        for (Map<String, Object> row : modelService.searchList(ModelConstant.DEPARTMENT_MODEL, query)) {
             if (row.get(ModelConstant.ID) instanceof Number id && row.get(ID_PATH) instanceof CharSequence path
                     && !path.isEmpty()) {
                 paths.put(id.longValue(), path.toString());

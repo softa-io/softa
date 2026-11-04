@@ -493,6 +493,9 @@ public class RoleGrantCeiling {
      * the role model declares the grant; a role without one keeps {@code null}, which is every role of an
      * application that has not configured any.
      */
+    /** Marks a granted root that resolved to no department; no stored path starts with it. */
+    static final String UNRESOLVED_ROOT = "?";
+
     private void loadDepartmentPaths(Map<Long, Grants> grants) {
         if (!DepartmentGrants.declared()) {
             return;
@@ -512,12 +515,10 @@ public class RoleGrantCeiling {
         Map<Long, String> paths = DepartmentGrants.idPathsOf(modelService, allRoots);
         rootsByRole.forEach((roleId, roots) -> {
             Set<String> rolePaths = new LinkedHashSet<>();
-            roots.forEach(root -> {
-                String path = paths.get(root);
-                if (path != null) {
-                    rolePaths.add(path);
-                }
-            });
+            // A root with no path — gone, or of another tenant — is kept as a path that sits under no real
+            // department rather than dropped: dropped, a target granting only such a root would read as
+            // granting nothing and pass every caller's bound.
+            roots.forEach(root -> rolePaths.add(paths.getOrDefault(root, UNRESOLVED_ROOT + root)));
             grants.put(roleId, grants.get(roleId).withDepartmentPaths(rolePaths));
         });
     }
