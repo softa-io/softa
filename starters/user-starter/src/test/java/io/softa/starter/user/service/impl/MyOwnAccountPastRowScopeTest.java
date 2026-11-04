@@ -41,14 +41,16 @@ class MyOwnAccountPastRowScopeTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
-        // Collaborators a password change also reaches on branches that sign other devices out
-        // or record the attempt; mocked by type when present, so this test reads the same either way.
-        for (String collaborator : new String[] {"sessionService", "loginHistory"}) {
-            java.lang.reflect.Field field = ReflectionUtils.findField(UserAccountServiceImpl.class, collaborator);
-            if (field != null) {
-                ReflectionTestUtils.setField(accountService, collaborator, mock(field.getType()));
+        // A password change also reaches collaborators that vary by branch (signing other devices
+        // out, the security log, login history). Every service-typed field left unset gets a plain
+        // mock, so this test is about the row read alone and reads the same on every branch.
+        ReflectionUtils.doWithFields(UserAccountServiceImpl.class, field -> {
+            ReflectionUtils.makeAccessible(field);
+            if (field.getType().isInterface() && field.getType().getName().startsWith("io.softa")
+                    && ReflectionUtils.getField(field, accountService) == null) {
+                ReflectionUtils.setField(field, accountService, mock(field.getType()));
             }
-        }
+        });
         UserAccount account = new UserAccount();
         account.setId(USER);
         account.setProfileId(PROFILE);
