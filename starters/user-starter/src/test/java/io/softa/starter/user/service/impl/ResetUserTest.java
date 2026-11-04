@@ -82,8 +82,7 @@ class ResetUserTest {
     void theLoginMobileBecomesThePersonalMobile_andOnlyThat() {
         accountService.resetWorkContacts(ACCOUNT, "Verified by passport at front desk");
 
-        assertThat(person.getLoginMobile()).isEqualTo(NEW);
-        verify(identityService).updateOne(person);
+        verify(identityService).updateLoginMobile(11L, NEW);
         // Same person, same enterprise email, same status, same password.
         assertThat(account.getProfileId()).isEqualTo(PROFILE);
         assertThat(account.getEmail()).isEqualTo("ada@acme.com");
@@ -160,7 +159,7 @@ class ResetUserTest {
 
         assertThatThrownBy(() -> accountService.resetWorkContacts(ACCOUNT, "Verified"))
                 .isInstanceOf(BusinessException.class);
-        verify(identityService, never()).updateOne(any(UserIdentity.class));
+        verify(identityService, never()).updateLoginMobile(any(), any());
         assertThat(List.of()).isEmpty();
     }
 

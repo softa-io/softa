@@ -80,7 +80,7 @@ class MembershipsAcrossTenantsTest {
         inCompanyB(() -> assertThat(accountService.releaseDormantLoginMobile(NUMBER, "Account created")).isFalse());
 
         assertThat(ada.getLoginMobile()).isEqualTo(NUMBER);
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test

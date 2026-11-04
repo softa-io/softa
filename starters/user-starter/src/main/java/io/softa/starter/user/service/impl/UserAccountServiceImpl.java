@@ -655,13 +655,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // off the person's login. The enterprise email needs nothing: email login reads joined
         // accounts, so it stops working the moment this one closes.
         identityService.findByProfile(account.getProfileId()).ifPresent(identity -> {
-            boolean changed = false;
             String workMobile = this.archiveWorkContacts(account.getId()).mobile();
             String releasedMobile = null;
             if (isSameLoginIdentifier(workMobile, identity.getLoginMobile())) {
                 releasedMobile = identity.getLoginMobile();
                 identity.setLoginMobile(null);
-                changed = true;
+                identityService.updateLoginMobile(identity.getId(), null);
             }
             // The lock defends against someone guessing THIS PERSON's password, and off-boarding is
             // not the moment to keep defending it: the lock is a PERSON-level fact while this
@@ -671,12 +670,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             // (termination clears the lock first, then closes the membership).
             if (identity.getPasswordLockedUntil() != null) {
                 identity.setPasswordLockedUntil(null);
-                changed = true;
-            }
-            if (changed) {
-                // updateOne(entity, false): both writes here are nulls, which the default
-                // overload drops.
-                identityService.updateOne(identity, false);
+                identityService.clearPasswordLock(identity.getId());
             }
             identityService.clearPasswordFailures(identity.getId());
             if (releasedMobile != null) {
@@ -697,7 +691,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (StringUtils.isNotBlank(account.getEmail())) {
             UserSecurityLog cleared = securityLog.entry(SecurityAction.ENTERPRISE_EMAIL_CHANGED,
                     SecurityLogSource.SYSTEM, account, null);
-            cleared.setOldValue(account.getEmail());
+            cleared.setOldValue(ContactMasking.email(account.getEmail()));
             cleared.setReason("Deactivated");
             securityLog.record(cleared);
             // Kept for the account list only, which still shows what the closed account had.
@@ -726,7 +720,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
         String released = holder.getLoginMobile();
         holder.setLoginMobile(null);
-        identityService.updateOne(holder, false);
+        identityService.updateLoginMobile(holder.getId(), null);
         UserSecurityLog row = securityLog.entry(SecurityAction.DORMANT_MOBILE_RELEASED,
                 SecurityLogSource.SYSTEM, null, holder.getProfileId());
         row.setOldValue(mobileFormat.mask(released));
@@ -865,7 +859,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 });
 
         identity.setLoginMobile(newMobile);
-        identityService.updateOne(identity);
+        identityService.updateLoginMobile(identity.getId(), newMobile);
         this.followLoginMobile(account.getProfileId());
         // Every device of the person, in every company: whoever holds the old number may be signed
         // in somewhere. And no device keeps receiving their notifications.
@@ -998,7 +992,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 boolean taken = next != null && identityService.findByLoginIdentifier(next)
                         .filter(other -> !Objects.equals(other.getProfileId(), placeholder)).isPresent();
                 identity.setLoginMobile(taken ? null : next);
-                identityService.updateOne(identity, false);
+                identityService.updateLoginMobile(identity.getId(), identity.getLoginMobile());
             });
         }
     }
@@ -1301,8 +1295,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 .filter(identity -> isSameLoginIdentifier(account.getMobile(), identity.getLoginMobile()))
                 .ifPresent(identity -> {
                     identity.setLoginMobile(this.claimableBy(identity, (String) row.get(MOBILE_FIELD)));
-                    // updateOne(entity, false): clearing the mobile writes a null, which the default drops.
-                    identityService.updateOne(identity, false);
+                    identityService.updateLoginMobile(identity.getId(), identity.getLoginMobile());
                 });
     }
 
@@ -1555,9 +1548,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         identityService.findByProfile(user.getProfileId()).ifPresent(identity -> {
             if (identity.getPasswordLockedUntil() != null) {
                 identity.setPasswordLockedUntil(null);
-                // updateOne(entity, false): clearing the lock means writing a null, which the
-                // default overload drops.
-                identityService.updateOne(identity, false);
+                identityService.clearPasswordLock(identity.getId());
                 loginHistory.record(LoginEvent.UNLOCKED, user.getProfileId(), user.getId(), user.getTenantId(),
                         null, null, null);
             }

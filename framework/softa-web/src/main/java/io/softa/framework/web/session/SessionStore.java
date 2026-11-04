@@ -77,16 +77,47 @@ public class SessionStore {
         return ACCOUNT_SESSIONS + accountId;
     }
 
+    /** The APP names its platform (ios / android) and its version on every request. */
+    public static final String APP_PLATFORM_HEADER = "X-App-Platform";
+    public static final String APP_VERSION_HEADER = "X-App-Version";
+
     /**
-     * The session id a request carries: the cookie (Web) first, then the {@code X-Session-Id}
-     * header (APP). Null when it carries neither.
+     * Whether the request says it comes from the APP: it carries {@code X-App-Platform} or
+     * {@code X-App-Version}.
+     *
+     * <p>What a request says about itself, nothing more. It decides how a session travels and which
+     * session a request may use, and the rules built on it (consultants and platform accounts on
+     * the Web only, the APP's minimum version) are product rules: anyone can send these headers or
+     * leave them out, so none of it is a security boundary.
+     */
+    public static boolean isAppRequest(HttpServletRequest request) {
+        return StringUtils.isNotBlank(request.getHeader(APP_PLATFORM_HEADER))
+                || StringUtils.isNotBlank(request.getHeader(APP_VERSION_HEADER));
+    }
+
+    /**
+     * The session id a request carries, read from where its client keeps it: an APP request from
+     * {@code X-Session-Id} only, a Web or H5 request from the cookie only. Null when it carries none
+     * there.
+     *
+     * <p>One channel per client, so a session lifted from one place cannot be replayed through the
+     * other: a Web session copied out of a cookie is not accepted as a header, and an APP token is
+     * not accepted as a cookie. The APP keeps no cookies at all, and an APP request that happens to
+     * carry one still has it ignored.
      */
     public static String sessionIdOf(HttpServletRequest request) {
-        String sessionId = CookieUtils.getCookie(request, BaseConstant.SESSION_ID);
-        if (StringUtils.isBlank(sessionId)) {
-            sessionId = request.getHeader(BaseConstant.SESSION_ID_HEADER);
-        }
+        String sessionId = isAppRequest(request)
+                ? request.getHeader(BaseConstant.SESSION_ID_HEADER)
+                : CookieUtils.getCookie(request, BaseConstant.SESSION_ID);
         return StringUtils.isBlank(sessionId) ? null : sessionId;
+    }
+
+    /**
+     * Whether a session may be used by this request: an APP session by the APP, a Web session by
+     * Web or H5. A session is bound to the kind of client it was issued to.
+     */
+    public static boolean sameClient(SessionRecord session, HttpServletRequest request) {
+        return session.isApp() == isAppRequest(request);
     }
 
     /**

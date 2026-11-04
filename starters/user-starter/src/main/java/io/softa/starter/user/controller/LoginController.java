@@ -234,19 +234,24 @@ public class LoginController {
             HttpServletResponse response) {
         if (result.isResolved()) {
             String sessionId = loginService.generateSessionId(result.userInfo().getUserId());
-            CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-            result = withTokenForApp(result, sessionId);
+            result = handOver(result, sessionId, response);
         }
         return ApiResponse.success(result);
     }
 
     /**
-     * The session id in the body for the APP, which keeps no cookies and sends it back as
-     * {@code X-Session-Id}. Never for Web or H5: their session lives in the cookie, which page
-     * scripts cannot read, and a copy in the body would hand it to any script that can.
+     * Hand a new session to its client the one way that client carries it: the APP gets it in the
+     * body and sends it back as {@code X-Session-Id}; Web and H5 get the cookie, which page scripts
+     * cannot read, and never a copy in the body. The APP gets no cookie either: it keeps none, and a
+     * cookie it did keep would be ignored (see {@link SessionStore#sessionIdOf}).
      */
-    private static AuthenticationResult withTokenForApp(AuthenticationResult result, String sessionId) {
-        return ClientInfo.current().isApp() ? result.withSessionToken(sessionId) : result;
+    private static AuthenticationResult handOver(AuthenticationResult result, String sessionId,
+                                                 HttpServletResponse response) {
+        if (ClientInfo.current().isApp()) {
+            return result.withSessionToken(sessionId);
+        }
+        CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
+        return result;
     }
 
     /**
@@ -304,7 +309,7 @@ public class LoginController {
     @GetMapping("/myTenants")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<List<MembershipOption>> myTenants(HttpServletRequest request) {
-        return ApiResponse.success(loginService.myTenants(this.sessionUser(this.sessionIdOf(request))));
+        return ApiResponse.success(loginService.myTenants(this.sessionUser(request, this.sessionIdOf(request))));
     }
 
     /**
@@ -327,7 +332,7 @@ public class LoginController {
     public ApiResponse<AuthenticationResult> switchTenant(@RequestBody @Valid SwitchTenantDTO dto,
             HttpServletRequest request, HttpServletResponse response) {
         String previousSessionId = this.sessionIdOf(request);
-        Long previousAccountId = this.sessionUser(previousSessionId);
+        Long previousAccountId = this.sessionUser(request, previousSessionId);
         AuthenticationResult result = loginService.switchTenant(previousAccountId, dto.getAccountId());
         // Gates first: a refusal here mints nothing, and the caller is still in the company they
         // started in — which is why the old session is dropped only after this returns.
@@ -337,8 +342,7 @@ public class LoginController {
         sessionStore.revoke(previousSessionId, SessionRevokeReason.SWITCHED_TENANT);
         loginHistory.recordSwitch(result.profileId(), previousAccountId, result.userInfo().getUserId(),
                 result.userInfo().getTenantId());
-        CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-        return ApiResponse.success(withTokenForApp(result, sessionId));
+        return ApiResponse.success(handOver(result, sessionId, response));
     }
 
     /**
@@ -362,15 +366,16 @@ public class LoginController {
     public ApiResponse<AuthenticationResult> leaveTenant(HttpServletRequest request,
                                                          HttpServletResponse response) {
         String sessionId = this.sessionIdOf(request);
-        AuthenticationResult result = loginService.leaveTenant(this.sessionUser(sessionId));
+        AuthenticationResult result = loginService.leaveTenant(this.sessionUser(request, sessionId));
         sessionStore.revoke(sessionId, SessionRevokeReason.LEFT_TENANT);
         CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
         return ApiResponse.success(result);
     }
 
     /**
-     * The session id this request carries — cookie first, then the header {@code ContextBuilder}
-     * also accepts, so the two endpoints above authenticate the same way every other endpoint does.
+     * The session id this request carries, read the way {@code ContextBuilder} reads it — the
+     * {@code X-Session-Id} header for the APP, the cookie for Web — so these endpoints authenticate
+     * the same way every other endpoint does.
      *
      * <p>Read here rather than taken from the Context on purpose. {@code /login/**} is anonymous at
      * the context filter and public in the permission gate, so an UNAUTHENTICATED caller reaches
@@ -389,11 +394,15 @@ public class LoginController {
      * The account the session is in — while it still belongs to the person the session was opened
      * for. These endpoints skip the per-request context, so they make its check themselves: an
      * account closed, reopened and joined by someone else must not list, switch or leave on behalf of
-     * the new holder with the previous one's session.
+     * the new holder with the previous one's session. Nor may a session be used by a kind of client
+     * it was not issued to: an APP session without the APP's headers, a Web session with them.
      */
-    private Long sessionUser(String sessionId) {
+    private Long sessionUser(HttpServletRequest request, String sessionId) {
         SessionRecord session = sessionStore.peek(sessionId)
                 .orElseThrow(() -> sessionExpired("Invalid session ID"));
+        if (!SessionStore.sameClient(session, request)) {
+            throw sessionExpired("This session belongs to another kind of client.");
+        }
         boolean sameHolder;
         try {
             UserInfo info = profileService.getUserInfo(session.accountId());

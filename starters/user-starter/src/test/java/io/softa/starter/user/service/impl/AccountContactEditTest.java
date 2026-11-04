@@ -101,8 +101,7 @@ class AccountContactEditTest {
         assertThat(edit(patch("email", "New@Acme.com", "mobile", "+6590000002"))).isTrue();
 
         // The mobile is stored the way login looks it up; the old number no longer names this person.
-        assertThat(identity.getLoginMobile()).isEqualTo("+6590000002");
-        verify(identityService).updateOne(identity, false);
+        verify(identityService).updateLoginMobile(11L, "+6590000002");
         // The email has no copy on the person to move: it signs in through the account itself.
         assertThat(identity.getLoginEmail()).isEqualTo("old@acme.com");
     }
@@ -118,7 +117,7 @@ class AccountContactEditTest {
         assertThat(edit(patch("mobile", "+6590000002"))).isTrue();
 
         assertThat(identity.getLoginMobile()).isEqualTo("+6590000001");
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
@@ -128,7 +127,7 @@ class AccountContactEditTest {
 
         assertThat(edit(patch("email", "new@acme.com"))).isTrue();
 
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
         verify(identityService, never()).findByProfile(any());
     }
 
@@ -140,7 +139,7 @@ class AccountContactEditTest {
         assertThat(edit(patch("email", "new@acme.com"))).isTrue();
 
         assertThat(identity.getLoginEmail()).isEqualTo("me@gmail.com");
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
@@ -163,7 +162,7 @@ class AccountContactEditTest {
         assertThatThrownBy(() -> edit(patch("email", "new@acme.com")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage(UserAccountServiceImpl.RESET_INSTEAD);
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
@@ -173,7 +172,7 @@ class AccountContactEditTest {
         person("old@acme.com", "+6590000001");
 
         assertThat(edit(patch("email", " OLD@acme.com", "mobile", "+6590000001", "nickname", "Ann"))).isTrue();
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test

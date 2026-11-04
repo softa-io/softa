@@ -2,6 +2,7 @@ package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.entity.UserAccount;
@@ -27,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -134,7 +137,8 @@ class PasswordLockoutTest {
         loginService.authenticateByPassword(EMAIL, "right");
 
         assertThat(person.getPasswordLockedUntil()).isNull();
-        verify(identityService).updateOne(person, false);
+        verify(identityService).clearPasswordLock(IDENTITY);
+        verify(identityService, never()).updateOne(any(UserIdentity.class), org.mockito.ArgumentMatchers.anyBoolean());
         verify(history).record(eq(LoginEvent.UNLOCKED), eq(PROFILE), any(), any(), any(), any(), any());
 
         loginService.authenticateByPassword(EMAIL, "right");
@@ -248,7 +252,7 @@ class PasswordLockoutTest {
 
         assertThat(identityImpl.recordPasswordFailure(identity(null))).isEqualTo(3L);
 
-        verify(identityImpl, never()).updateOne(any(UserIdentity.class));
+        verify(identityImpl, never()).updateFields(any(), anyMap());
     }
 
     @Test
@@ -257,12 +261,13 @@ class PasswordLockoutTest {
         // one wrong password after expiry does not immediately re-lock.
         UserIdentity person = identity(null);
         when(cacheService.increment(anyString(), anyLong())).thenReturn(10L);
-        doReturn(true).when(identityImpl).updateOne(person);
+        org.mockito.Mockito.doNothing().when(identityImpl).updateFields(eq(IDENTITY), anyMap());
 
         assertThat(identityImpl.recordPasswordFailure(person)).isEqualTo(10L);
 
         assertThat(person.getPasswordLockedUntil()).isAfter(LocalDateTime.now().plusMinutes(29));
-        verify(identityImpl).updateOne(person);
+        verify(identityImpl).updateFields(eq(IDENTITY), org.mockito.ArgumentMatchers.argThat(fields ->
+                fields.keySet().equals(java.util.Set.of("passwordLockedUntil"))));
         verify(cacheService).clear("login:pwd-failures:" + IDENTITY);
     }
 
@@ -273,14 +278,75 @@ class PasswordLockoutTest {
         // minutes, on a lock the reset itself resolved.
         UserIdentity person = identity(LocalDateTime.now().plusMinutes(29));
         doReturn(Optional.of(person)).when(identityImpl).getById(IDENTITY);
-        doReturn(true).when(identityImpl).updateOne(person, false);
+        ArgumentCaptor<Map<String, Object>> written = fieldsCaptor();
+        org.mockito.Mockito.doNothing().when(identityImpl).updateFields(eq(IDENTITY), written.capture());
 
         identityImpl.setPassword(IDENTITY, "N3w-Passw0rd");
 
-        assertThat(person.getPasswordLockedUntil()).isNull();
-        // The overload that keeps nulls — the default one would drop exactly this write.
-        verify(identityImpl).updateOne(person, false);
+        // The lock is written as a null in the same statement as the new hash.
+        assertThat(written.getValue()).containsOnlyKeys("password", "passwordSalt", "passwordLockedUntil");
+        assertThat(written.getValue()).containsEntry("passwordLockedUntil", null);
         verify(cacheService).clear("login:pwd-failures:" + IDENTITY);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ArgumentCaptor<Map<String, Object>> fieldsCaptor() {
+        return (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+    }
+
+    // ── a row read before someone else changed the password ─────────────
+
+    /** The real write path down to the ORM, with what reaches the database captured. */
+    private ArgumentCaptor<Map<String, Object>> capturingTheDatabaseWrite() {
+        @SuppressWarnings("unchecked")
+        ModelService<Long> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(identityImpl, "modelService", modelService);
+        ArgumentCaptor<Map<String, Object>> row = fieldsCaptor();
+        when(modelService.updateOne(eq("UserIdentity"), row.capture())).thenReturn(true);
+        return row;
+    }
+
+    /** Read while the password was still the old one; it has been changed elsewhere since. */
+    private static UserIdentity readBeforeThePasswordChanged() {
+        UserIdentity stale = identity(LocalDateTime.now().minusMinutes(1));
+        stale.setPassword("old-hash");
+        stale.setPasswordSalt("old-salt");
+        stale.setLoginMobile("+6591234567");
+        return stale;
+    }
+
+    @Test
+    void theLockingFailure_writesTheLockAlone_notTheStalePassword() {
+        // A wrong guess on a session that loaded the row, while the owner changes their password on
+        // another device: the lock write that follows must not carry the old hash back over theirs.
+        ArgumentCaptor<Map<String, Object>> row = capturingTheDatabaseWrite();
+        when(cacheService.increment(anyString(), anyLong())).thenReturn(10L);
+
+        identityImpl.recordPasswordFailure(readBeforeThePasswordChanged());
+
+        assertThat(row.getValue()).containsOnlyKeys("id", "passwordLockedUntil");
+        assertThat(row.getValue()).containsEntry("id", IDENTITY);
+    }
+
+    @Test
+    void clearingAnExpiredLock_writesTheLockAlone_notTheStalePassword() {
+        // The sign-in that finds a run-out lock clears it from the row it read for that sign-in.
+        ArgumentCaptor<Map<String, Object>> row = capturingTheDatabaseWrite();
+
+        identityImpl.clearPasswordLock(readBeforeThePasswordChanged().getId());
+
+        assertThat(row.getValue()).containsOnlyKeys("id", "passwordLockedUntil");
+        assertThat(row.getValue()).containsEntry("passwordLockedUntil", null);
+    }
+
+    @Test
+    void movingTheLoginMobile_writesTheMobileAlone_notTheStalePassword() {
+        ArgumentCaptor<Map<String, Object>> row = capturingTheDatabaseWrite();
+
+        identityImpl.updateLoginMobile(readBeforeThePasswordChanged().getId(), null);
+
+        assertThat(row.getValue()).containsOnlyKeys("id", "loginMobile");
+        assertThat(row.getValue()).containsEntry("loginMobile", null);
     }
 
     @Test

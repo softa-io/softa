@@ -76,7 +76,7 @@ class ContextBuilderUserInfoRebuildTest {
 
     private MockHttpServletRequest request() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader(BaseConstant.SESSION_ID_HEADER, SESSION_ID);
+        request.setCookies(new jakarta.servlet.http.Cookie(BaseConstant.SESSION_ID, SESSION_ID));
         return request;
     }
 
@@ -206,6 +206,39 @@ class ContextBuilderUserInfoRebuildTest {
 
         cachedUserInfo(userInfo(true));
         assertThat(contextBuilder.buildUserContext(request()).getUserId()).isEqualTo(USER_ID);
+    }
+
+    @Test
+    void aWebSessionSentWithTheAppHeaders_isRefused_butNotEnded() {
+        cachedUserInfo(userInfo(true));
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-App-Platform", "ios");
+        request.addHeader(BaseConstant.SESSION_ID_HEADER, SESSION_ID);
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
+        // Whoever sent it this way may not be its holder; the holder's browser keeps working.
+        verify(cacheService, never()).clear(RedisConstant.SESSION + SESSION_ID);
+        assertThat(contextBuilder.buildUserContext(request()).getUserId()).isEqualTo(USER_ID);
+    }
+
+    @Test
+    void anAppSession_worksFromTheApp_andIsRefusedWithoutItsHeaders() {
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, "ios", "1.0.0", null, LocalDateTime.now()));
+        cachedUserInfo(userInfo(true));
+        MockHttpServletRequest app = new MockHttpServletRequest();
+        app.addHeader("X-App-Platform", "ios");
+        app.addHeader(BaseConstant.SESSION_ID_HEADER, SESSION_ID);
+        assertThat(contextBuilder.buildUserContext(app).getUserId()).isEqualTo(USER_ID);
+
+        // The same id as a cookie, with no APP headers: a Web request may not use an APP session.
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
     }
 
     @Test

@@ -5,6 +5,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import io.softa.framework.web.session.SessionStore;
+
 /**
  * Who is calling, as far as the request says: the client's address and, for the APP, its platform,
  * version and device model. Recorded on sessions, login history and the security log.
@@ -12,6 +14,13 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * <p>{@code X-App-Platform} ({@code ios} / {@code android}) and {@code X-App-Version} are the APP's
  * standard headers; {@code X-Device-Model} is optional. Web and H5 send none of them, so all three
  * are null there.
+ *
+ * <p><b>Self-reported, all of it.</b> Telling the APP from Web by these headers is a product rule —
+ * consultants and platform accounts on the Web only, the source and device recorded in the security
+ * log and the login history — and not a security boundary: any caller can send them or leave them
+ * out. What a session does bind is the kind of client it was issued to (see
+ * {@code SessionStore.sameClient}), so a session taken from one client cannot be used from the other;
+ * the recorded source and device model remain whatever the client said.
  *
  * @param ip          the client address — the {@code X-Forwarded-For} entry the trusted proxies
  *                    put there, else {@code X-Real-IP} when configured as trusted, else the socket
@@ -23,8 +32,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  */
 public record ClientInfo(String ip, String userAgent, String platform, String appVersion, String deviceModel) {
 
-    public static final String PLATFORM_HEADER = "X-App-Platform";
-    public static final String APP_VERSION_HEADER = "X-App-Version";
+    public static final String PLATFORM_HEADER = SessionStore.APP_PLATFORM_HEADER;
+    public static final String APP_VERSION_HEADER = SessionStore.APP_VERSION_HEADER;
     public static final String DEVICE_MODEL_HEADER = "X-Device-Model";
 
     private static final ClientInfo NONE = new ClientInfo(null, null, null, null, null);
@@ -69,7 +78,10 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
                 StringUtils.trimToNull(request.getHeader(DEVICE_MODEL_HEADER)));
     }
 
-    /** Whether the call came from the APP rather than Web / H5: it names its platform or its version. */
+    /**
+     * Whether the call says it came from the APP rather than Web / H5: it names its platform or its
+     * version — the same reading {@code SessionStore.isAppRequest} makes. A claim, not a proof.
+     */
     public boolean isApp() {
         return platform != null || appVersion != null;
     }

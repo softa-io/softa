@@ -80,9 +80,30 @@ finds it in a search (`searchName`).
   stored, looked up or hashed, or a row is written in a spelling the lookups cannot
   find. Distinct from the **work contacts** on `UserAccount` (`email` / `mobile`),
   which are HR's per-company data and keep their case.
-- **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`) and carried by the
-  `SOFTA_SESSION_ID` cookie set on login; `logout` clears it. A session names one
+- **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`). A session names one
   membership — switching company mints a new one.
+- **A session belongs to the kind of client it was issued to.** A request that sends
+  `X-App-Platform` or `X-App-Version` is the APP's; one that sends neither is Web's (H5
+  included). Each carries its session one way only:
+
+  | Client | Gets the session | Sends it back | Ignored |
+  | --- | --- | --- | --- |
+  | APP | `sessionToken` in the response body (no cookie) | `X-Session-Id` header | any cookie |
+  | Web / H5 | `SOFTA_SESSION_ID` cookie (never in the body) | the cookie | `X-Session-Id` |
+
+  A session is also checked against the client using it, on every authenticated request
+  and on `/login/myTenants`, `/login/switchTenant`, `/login/leaveTenant` and
+  `/UserAccount/logout`: a Web session sent with the APP headers, or an APP session sent
+  without them, is refused with `errorCode = SESSION_EXPIRED` (code 410) and is **not**
+  ended — whoever sent it that way may not be its holder, and the holder's own client
+  keeps working. The client goes back to its sign-in screen. A session stored before the
+  client was recorded on it reads as a Web session; the release that brings this rule
+  clears all sessions anyway.
+- **The client type is self-reported.** Telling the APP from Web by request headers is a
+  product rule (consultants and platform accounts on the Web only, the APP minimum
+  version), not a security boundary: any caller can send or omit those headers. The
+  source (`APP` / `WEB`) and device model recorded in the security log and the login
+  history are what the client said about itself.
 - **Password lockout** lives on the credential (`UserIdentity.passwordLockedUntil`),
   so it is linked across every company the person belongs to. `UserAccount.locked`
   is a **derived, read-only** projection of it for the account list — writes that
