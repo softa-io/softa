@@ -179,8 +179,14 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aStepWithNobodyToApproveRefusesTheSubmissionWhole() {
-        // No approver, and the empty-approver strategy is Error unless set.
-        publishService.publish("annual", approvalFlow("Annual leave", List.of()));
+        // No organization service here, so its supervisor source finds nobody; the empty-approver strategy is Error
+        // unless set. (A step that names nobody at all is not published.)
+        DesignFlowDefinition design = approvalFlow("Annual leave", List.of(MANAGER));
+        design.getGraph().getNodes().set(1, FlowGraphNode.builder()
+                .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
+                .config(Map.of("approverSource", Map.of("type", "Supervisor")))
+                .build());
+        publishService.publish("annual", design);
 
         FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
                 () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
@@ -197,13 +203,15 @@ class FlowRecordSubmissionTest {
     void theApprovalKeepsWhatTheRecordShowsInTheApprovalLists() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3),
-                LocalDate.of(2026, 11, 2), "LR-0007"));
+                LocalDate.of(2026, 11, 2), "LR-0007", "Annual Leave · 3 days · 2–4 Nov"));
 
         FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(5001L, state.getSubjectId());
         assertEquals(LocalDate.of(2026, 11, 2), state.getEffectiveDate());
         assertEquals("LR-0007", state.getRecordCode());
+        // What the record asks for, as its handler words it: the line the approval lists show (zingkey-hcm#2350).
+        assertEquals("Annual Leave · 3 days · 2–4 Nov", state.getSummary());
         // No organization service here, so no department to keep.
         assertNull(state.getDepartmentId());
     }

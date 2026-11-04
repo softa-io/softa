@@ -58,9 +58,11 @@ public interface OrganizationService {
     Long getUserIdOfEmployee(Long employeeId);
 
     /**
-     * The supervisor {@code level} levels above an employee, as an approver; null when the chain ends
-     * before it or that supervisor cannot approve — no account, or one that does not sign in (they left,
-     * or were never let in). The chain itself runs on through them: level 2 is still their supervisor.
+     * The supervisor {@code level} levels above an employee, as an approver. One who cannot approve — no account, or
+     * one that does not sign in (they left, or were never let in) — passes it on up: the first one above them who can
+     * takes it, as a department leader who cannot passes it to the department above. Null when the chain ends before
+     * {@code level}, or with nobody above who can. Levels count everyone on the chain: level 2 is the supervisor's
+     * supervisor whether or not the supervisor can approve.
      *
      * @param employeeId the employee
      * @param level      1 = direct supervisor, 2 = the supervisor's supervisor, and so on

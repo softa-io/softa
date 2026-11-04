@@ -326,7 +326,7 @@ public class ApprovalPathPreviewer {
                 case ERROR, ASSIGN_TO_ROLE -> {
                     // AssignToRole reaches here only when its roles leave nobody either.
                     steps.add(step(node, StepOutcome.NO_APPROVER_FAILS, List.of(), null, List.of()));
-                    failure = new Stop(node.getNodeId(), node.getLabel(), pendingApprovalFactory.emptyApproverMessage(node));
+                    failure = new Stop(node.getNodeId(), node.getLabel(), pendingApprovalFactory.emptyApproverMessage(node, state));
                 }
             }
         }

@@ -82,7 +82,7 @@ class MailApprovalNotificationServiceTest {
         SendMailDTO message = sent.getFirst();
         assertEquals(List.of("mia@example.com"), message.getTo());
         assertEquals(ApprovalNotices.TASK_ASSIGNED, message.getTemplateCode());
-        assertEquals("https://hr.example.com/approvals/i1", message.getTemplateVariables().get("link"));
+        assertEquals("https://hr.example.com/home/approvals/i1", message.getTemplateVariables().get("link"));
         assertEquals("Leave of Alice", message.getTemplateVariables().get("subject"));
         assertEquals("LR-000042", message.getTemplateVariables().get("recordCode"));
     }

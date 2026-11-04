@@ -1,6 +1,8 @@
 package io.softa.starter.message.inbox.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
@@ -45,6 +47,21 @@ public class InboxNotificationServiceImpl extends EntityServiceImpl<InboxNotific
                 .eq(InboxNotification::getRecipientId, recipientId)
                 .eq(InboxNotification::getSourceModel, sourceModel)
                 .eq(InboxNotification::getSourceId, sourceId)
+                .eq(InboxNotification::getIsRead, false);
+        InboxNotification patch = new InboxNotification();
+        patch.setIsRead(true);
+        patch.setReadAt(LocalDateTime.now());
+        return updateByFilter(unread, patch);
+    }
+
+    @Override
+    public int markReadByIds(Long recipientId, Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        Filters unread = new Filters()
+                .eq(InboxNotification::getRecipientId, recipientId)
+                .in(InboxNotification::getId, List.copyOf(ids))
                 .eq(InboxNotification::getIsRead, false);
         InboxNotification patch = new InboxNotification();
         patch.setIsRead(true);

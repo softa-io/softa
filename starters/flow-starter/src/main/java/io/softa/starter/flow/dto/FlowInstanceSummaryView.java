@@ -67,6 +67,10 @@ public class FlowInstanceSummaryView {
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
 
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it — the "
+            + "days of a leave, a claim's amount")
+    private String summary;
+
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;
 

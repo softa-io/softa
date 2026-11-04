@@ -132,6 +132,8 @@ public class FlowApprovalTaskProjector {
         task.setRejectedActors(List.copyOf(pendingApproval.getRejectedActors() == null ? List.of() : pendingApproval.getRejectedActors()));
         task.setBlocked(isBlocked(pendingApproval, actorId));
         task.setBlockedByActorId(isBlocked(pendingApproval, actorId) ? pendingApproval.getPrerequisiteActorId() : null);
+        // The step's deadline, when it has a timeout: what the inbox says is due or overdue.
+        task.setDueTime(pendingApproval.getDueTime());
         task.setStartTime(resolveEventTime(latestAudit));
         if (latestAudit != null) {
             task.setAction(latestAudit.getAction());

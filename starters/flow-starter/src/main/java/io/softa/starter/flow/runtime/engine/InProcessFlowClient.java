@@ -86,6 +86,11 @@ public class InProcessFlowClient implements FlowClient {
     }
 
     @Override
+    public FlowApprovalPreview previewValues(String modelName, Map<String, Object> values) {
+        return launch.previewValues(modelName, values, currentUserId());
+    }
+
+    @Override
     public FlowExecutionState withdrawRecord(String modelName, String rowId, String comment) {
         return launch.withdrawRecord(modelName, rowId, currentUserId(), comment);
     }

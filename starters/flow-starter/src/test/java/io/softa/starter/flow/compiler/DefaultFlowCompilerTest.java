@@ -204,7 +204,7 @@ class DefaultFlowCompilerTest {
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
                                         // A return always goes to the initiator: nothing else to configure.
-                                        .config(Map.of("returnEnabled", true))
+                                        .config(Map.of("returnEnabled", true, "approvers", List.of("1001")))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -280,7 +280,8 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> d.message().contains("Unanimous approval mode")));
+        // Naming nobody is what is wrong, whatever the mode: said once, as for any approval step (zingkey-hcm#2450).
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package io.softa.starter.flow.service;
 
+import java.util.Map;
+
 import io.softa.starter.flow.dto.FlowApprovalPreview;
 import io.softa.starter.flow.runtime.engine.FlowLaunchResponse;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
@@ -58,6 +60,13 @@ public interface FlowLaunchService {
      *         cannot read the record with their own permissions
      */
     FlowApprovalPreview previewRecord(String modelName, String rowId, String requesterId);
+
+    /**
+     * What submitting a record not saved yet would do now, as {@link #previewRecord} answers for a saved one: its
+     * field values, in the form they are stored (ids, codes), stand for the row — the subject among them. For the
+     * application's own pages, which decide who may ask: no endpoint serves it.
+     */
+    FlowApprovalPreview previewValues(String modelName, Map<String, Object> values, String requesterId);
 
     /**
      * Withdraws a record's approval while it waits for approvers, in the caller's transaction. The

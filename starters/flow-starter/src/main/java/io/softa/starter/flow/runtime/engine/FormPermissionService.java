@@ -1,6 +1,7 @@
 package io.softa.starter.flow.runtime.engine;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -91,7 +92,8 @@ public class FormPermissionService {
 
     /**
      * Validate the values a node's REQUIRED fields will hold against node permissions: pass the
-     * approver's edits over the values the row stores.
+     * approver's edits over the values the row stores. A field holds no value when it is null, a blank
+     * string or an empty collection — a table without a row, a multi-select with nothing picked.
      *
      * @return list of validation error messages (empty if valid)
      */
@@ -101,13 +103,18 @@ public class FormPermissionService {
         for (Map.Entry<String, FormFieldPermission> entry : permissions.entrySet()) {
             if (entry.getValue() == FormFieldPermission.REQUIRED) {
                 String fieldName = entry.getKey();
-                Object value = formData == null ? null : formData.get(fieldName);
-                if (value == null || (value instanceof String s && s.isBlank())) {
+                if (isEmpty(formData == null ? null : formData.get(fieldName))) {
                     errors.add("Field '" + fieldName + "' is required");
                 }
             }
         }
         return errors;
+    }
+
+    private static boolean isEmpty(Object value) {
+        return value == null
+                || value instanceof String s && s.isBlank()
+                || value instanceof Collection<?> collection && collection.isEmpty();
     }
 
     /**

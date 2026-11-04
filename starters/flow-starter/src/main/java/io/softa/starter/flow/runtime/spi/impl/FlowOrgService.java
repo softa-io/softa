@@ -151,12 +151,28 @@ public class FlowOrgService implements OrganizationService {
         if (employeeId == null || level < 1) {
             return null;
         }
+        // Each employee once: a chain that loops back ends where it would repeat.
+        Set<Long> walked = new HashSet<>(List.of(employeeId));
         Map<String, Object> employee = employeeById(employeeId);
         for (int i = 0; i < level && employee != null; i++) {
-            Long supervisorId = toLong(employee.get(props.getSupervisorIdField()));
-            employee = supervisorId == null ? null : employeeById(supervisorId);
+            employee = supervisorOf(employee, walked);
         }
-        return employee == null ? null : toApprover(employee);
+        // A supervisor who cannot approve — gone, or without an account that signs in — passes the step on up, as a
+        // department whose leader cannot passes it to the department above.
+        while (employee != null) {
+            ApproverInfo approver = toApprover(employee);
+            if (approver != null) {
+                return approver;
+            }
+            employee = supervisorOf(employee, walked);
+        }
+        return null;
+    }
+
+    /** The employee's supervisor, or null at the top of the chain or where it would loop back to one walked. */
+    private Map<String, Object> supervisorOf(Map<String, Object> employee, Set<Long> walked) {
+        Long supervisorId = toLong(employee.get(props.getSupervisorIdField()));
+        return supervisorId == null || !walked.add(supervisorId) ? null : employeeById(supervisorId);
     }
 
     @Override

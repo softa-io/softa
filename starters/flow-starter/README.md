@@ -200,8 +200,13 @@ rules — saving never validates — but it cannot publish.
 
 Diagnostics name what they are about as people see it on the canvas: a node by its label, an edge by its label or
 else by the nodes it joins (`Manager → Finance`) — never by the generated ids, which the diagnostic carries in
-`nodeId` / `edgeId` for the editor to anchor it. The engine's own failure messages name a node the same way; only
-a revision published before labels were required may still show a node's id.
+`nodeId` / `edgeId` for the editor to anchor it. One about a connection — a condition, a default edge — carries its
+`edgeId` and the `nodeId` it leaves. The trigger's diagnostics point at the Start node, where the designer edits the
+trigger (`nodeId` of the single Start, `field` `trigger`; flow-level while the graph has no single Start). An
+approval flow without an approval step is warned of at its Start (`NO_APPROVAL_STEP`, a `Warning`): a submission is
+approved as it is made, which is allowed — End and every step are optional — but rarely meant. The engine's own
+failure messages name a node the same way; only a revision published before labels were required may still show a
+node's id.
 
 ### Routing: edge conditions
 
@@ -426,7 +431,7 @@ the initiator and the task holders by their own permissions.
 
 ### The record an approval runs on
 
-The approval page (`/approvals/{instanceId}`, the link of every approval email) is opened by approvers who
+The approval page (`/home/approvals/{instanceId}`, the link of every approval email) is opened by approvers who
 may hold neither the menu of the record's model nor any permission on the flow models, so it reads everything
 through the instance: `GET /flow/instances/{instanceId}` and `.../summary` for the instance, `.../design` for its
 diagram, `.../record` for the record. The instance comes without the record's values — `inputPayload`,
@@ -521,8 +526,8 @@ first, paged by `pageNumber` (default 1) and `pageSize` (default 50). Filters co
 A row (`FlowInstanceSummaryView`) leaves out the heavy state columns and the trace — fetch the instance or its
 overlay for those. It carries the flow, title, initiator, status and the steps the instance waits on now
 (`currentSteps`, each with the approvers still to act), every user named, and for a record's approval what its
-submission recorded (*Approving Business Records*): `subject`, `subjectDept`, `effectiveDate`, `recordCode`, and
-`awaitingRevision`. On the caller's own approvals that wait on their approvers, `withdrawable` and `urge` say
+submission recorded (*Approving Business Records*): `subject`, `subjectDept`, `effectiveDate`, `recordCode`, `summary`,
+and `awaitingRevision`. On the caller's own approvals that wait on their approvers, `withdrawable` and `urge` say
 whether they may withdraw or urge them now, and on their own records' approvals that failed, `withdrawable` whether
 they may take the record back; on the monitor search, `urge` says whether the caller may urge as an
 administrator — the flow's `urgeIntervalMinutes` decides, whatever its `urgeEnabled` says. `recordDeleted` marks an
@@ -587,8 +592,12 @@ Base path: `/flow/approvalTasks`
 
 Each task (`FlowApprovalTaskView`) carries its holder's name (`actorName`), the names of every account it names (`actorNames`, by id: its candidates, who approved, rejected, closed or blocks it) and comes with its instance's context —
 `instanceTitle`, `modelName` / `rowId`, `instanceStatus`, the `initiator` and `submittedTime`, and what a record's
-approval recorded of its record (`subject`, `subjectDept`, `effectiveDate`, `recordCode`), every user, employee and
-department named — and with what its step's configuration says about acting on it, read from the revision the
+approval recorded of its record (`subject`, `subjectDept`, `effectiveDate`, `recordCode`, `summary`), every user,
+employee and department named — where a request still in approval stands now (`currentSteps`: the steps its instance
+waits on, with the approvers still to act, named; one query per page, `CurrentStepsReader`, shared with the instance
+lists), whether a later submission of the record replaced it (`superseded`), the step's deadline when it has a timeout
+(`dueTime`, written on the task and moved by an escalation) — and with what its step's configuration says about
+acting on it, read from the revision the
 instance runs on: `returnAllowed` (the step's `returnEnabled`), `fillIn` (the step makes a field required: the
 approver fills it in and submits, rather than just approving) and `batchable` (open to its approver now — pending,
 not blocked by an add-sign, the instance waiting — on a step that is not `fillIn`). See [Batch actions](#batch-actions).
@@ -783,8 +792,13 @@ Approval nodes support:
 
 - static approvers via `config.approvers`
 - dynamic approvers via `config.approverSource`
-- empty-approver strategies via `config.emptyApproverStrategy`: `Error` (default), `AutoApprove`, `Skip`,
-  `AssignToRole`
+- empty-approver strategies via `config.emptyApproverStrategy`: `Error` (default), `AutoApprove`, `AssignToRole`;
+  `Skip` still runs on a step saved with it — approved as `AutoApprove` is, with no trace in the history — but the
+  designer no longer offers it (the descriptor lists it under `deprecatedOptions`)
+
+A step names who approves it: approvers, or a source with a type. One that names neither would find nobody on every
+run — under the default strategy refuse every submission — and is refused by validation and publishing
+(`MISSING_APPROVERS`, on `config.approvers`, whatever the vote modes).
 
 `AssignToRole` hands a step that finds nobody to roles — `config.emptyApproverRoleIds` (a tenant's own roles) and/or
 `config.emptyApproverRoleCodes` (built-in roles, the same code in every tenant, so a seeded flow names them so); naming
@@ -799,7 +813,12 @@ reported against its field (`UNREADABLE_CONFIG`) instead of failing the validati
 
 Supported dynamic source types:
 
-- from start variables: `VariableList`, `Expression`, `InitiatorManager` (`initiatorManagerId`), `Role` (`roleApprovers`)
+- from start variables: `VariableList`, `Expression`; `InitiatorManager` (`initiatorManagerId`) and `Role`
+  (`roleApprovers`) still resolve on a step saved with them, but the designer no longer offers them (`"deprecated":
+  true` in the descriptor): they read a start variable the application must supply, and `Supervisor` relative to the
+  submitter / `RoleQuery` find the same people from the organization. An `Expression` that fails refuses as a step
+  that finds nobody does — "The approver expression of step '{label}' failed: …" (`400` at a submission, the
+  instance failed after an approval) — instead of a server error
 - from the organization: `Supervisor` (the N-th level supervisor), `DeptLeader` and `DeptHrbp` (of a
   department), `RoleQuery` (holders of the roles named by `roleIds`, by `roleCodes`, or both — optionally
   narrowed to a department), `Position`, `Department` (its members)
@@ -840,7 +859,10 @@ An approver needs an account that signs in: one whose `UserAccount.status` is in
 nobody, and so does one whose account does not sign in — not yet invited (`Pending`), invited but not accepted
 (`Invited`), `Frozen`, or ended because they left (`Deactivated`) — so a step resolving only to such employees is
 empty and follows its empty-approver strategy: a subordinate's request no longer waits on a supervisor who
-left. The supervisor chain runs on through them (level 2 is still their supervisor). A role holder is an account
+left. A supervisor who cannot approve passes the step on up — the first one above who can takes it, as a department
+whose leader cannot defers to its parent's — and levels count everyone on the chain (level 2 is still the
+supervisor's supervisor); a chain that loops back ends where it would repeat. Only a chain with nobody above who can
+leaves the step empty (zingkey-hcm#2447). A role holder is an account
 and approves even without an employee profile, provided it signs in. A department without a leader (or HRBP)
 who can approve defers to its parent's. Looking users up by id, to name them, still finds every account. The
 status is not checked when the application has no `UserAccount` model. Lookups skip row scope — who approves
@@ -897,7 +919,12 @@ as one — is refused by validation and publishing (`MISSING_FIELD_PERMISSION`, 
 since the config read takes an empty permission for none), never read as `READONLY`, which shows the step's
 approvers a sensitive field their own permissions withhold. A `REQUIRED` field must hold a value once the
 edits land — the one sent, or else the one the record stores — so an approve that sends nothing is still
-refused when the record lacks it. Right after the write, a record's approval hands the record as the edits left it,
+refused when the record lacks it. A blank string or an empty collection holds no value: a table sent or stored
+without a row, a multi-select with nothing picked. A table's edits come as a patch — the rows created, updated and
+deleted — which says nothing of the rows left, so a step does not count them: a table that must keep a row says so on
+its model (`@Field(required = true)`), which the ORM holds to on every write, an approver's included
+(zingkey-hcm#2449). Right after the write,
+a record's approval hands the record as the edits left it,
 and the fields they wrote, to its handler's `afterApproverEdit` — the model's own rules on such edits, as its page
 applies them on save (values the server works out, lines that must stay consistent); throwing refuses the approve,
 the edits with it, so an edit no page would have saved is refused there and then rather than when the approval's
@@ -1061,7 +1088,7 @@ knows:
 |---|---|
 | The approval fields — `approvalStatus` (`ApprovalStatus`), `submitterId`, `submittedTime` — and every write of them | `validate(record)`: the checks a submission must pass — who may submit the record, what it must hold |
 | The one state machine below: only a draft is submitted or cancelled; one approval of a record at a time | `validateCancel(record)`: who may cancel the draft beyond seeing it, such as only its claimant |
-| Freezing every record that is not a draft (`ApprovalLockValidator`) | `submission(record)`: an `ApprovalSubmission(title, variables, effectiveDate, code)` — the instance title and the routing variables it adds to the record's own fields (*Routing variables*), worked out from the record alone, and, when the model has them, the date the record takes effect and its own number, which the approval lists show and filter on |
+| Freezing every record that is not a draft (`ApprovalLockValidator`) | `submission(record)`: an `ApprovalSubmission(title, variables, effectiveDate, code, summary)` — the instance title and the routing variables it adds to the record's own fields (*Routing variables*), worked out from the record alone, and, when the model has them, the date the record takes effect and its own number, which the approval lists show and filter on, and a `summary` line saying what the record asks for (a leave's days, a claim's amount), worded with `ApprovalSummaries`' pieces from what everyone the approval reaches may see — never a sensitive field — kept on the instance (`FlowInstance.summary`, at most 256 characters, cut beyond) and worked out again after an approver's edits |
 | Writing each result back, once | `afterSubmitted(record)`: what a submission sets off, such as reserving a leave balance |
 | Writing an approver's edits — only the fields their step lets them change | `afterApproverEdit(record, editedFields)`: the model's own rules on what an approver changed, as its page applies them on save — values the server works out, lines that must stay consistent; throwing refuses the approve, the edits with it |
 | What a submission records on the instance: subject, department, effective date, number | `afterOutcome(record, outcome)`: the follow-up actions of a result, such as deducting the balance — or releasing it after a rejection or a cancellation |
@@ -1099,6 +1126,7 @@ on the record's page, the approval page or My Requests — is offered exactly wh
 | `cancelRecord(modelName, rowId)` | Cancels a draft for good: the applicant must reach the record within the range their roles may edit it in, as for `submitRecord`, it must be a draft, and `handler.validateCancel` must pass. The record becomes `Cancelled` and `handler.afterOutcome` gets a `Cancelled` result with no instance; the record's earlier approvals are marked `superseded`, so one returned no longer waits for the record to be edited. In the caller's transaction |
 | `recordApprovals(modelName, rowId)` | The approval history, as `GET /flow/instances/by-record` |
 | `previewRecord(modelName, rowId)` | The approval a submission would start, as `GET /flow/instances/preview` — see below. Call it outside a transaction |
+| `previewValues(modelName, values)` | The same for a record not saved yet: its field values, as they are stored (ids, codes) and the subject among them, stand for the row — a draft, so only the subject and the handler's `validate` / `submission` are worked out, from the values alone. For a record the application files as it submits it (a pay run's approval request, created by the run's own submit), whose route shows before it exists. No endpoint serves it: the caller's own endpoint decides who may ask. Outside a transaction, as `previewRecord` |
 
 Only the instance a submission starts is the record's **approval** (`FlowExecutionState.recordApproval`): a
 debug run of the same flow on the same record is not, and is never written back (an API start of an Approval
@@ -1134,9 +1162,14 @@ because a flow with no approval step completes while it starts.
 A record's approval starts within its submission, so a start that fails fails the submission, atomically: the
 exception reaches the caller, nothing is kept — no failed instance — nobody is told, and the record rolls back with
 the transaction, still a draft. A step whose approvers resolve to nobody under its empty-approver strategy `Error`
-(the default) refuses with `FlowNoApproverException`, a `FlowActionValidationException` (`400`), and one message
-whatever its approver source: "No approver was found for step '{label}'. Ask your HR administrator to set one up,
-then try again." Under `AssignToRole`, when its roles leave nobody either, the message names them. An approve that
+(the default) refuses with `FlowNoApproverException`, a `FlowActionValidationException` (`400`): "No approver was
+found for step '{label}': {why}. Ask your HR administrator to set one up, then try again." — the why by its source
+(`ApproverResolutionService.whyNobody`): "Alice Tan has no manager who can approve", "… 2 levels up …", "the submitter
+has no employee profile", "Finance and the departments above it have no leader who can approve", "nobody who can
+approve holds its roles", "none of its approvers can approve", and so on; without one, the sentence ends at the
+label. Under `AssignToRole`, when its roles leave nobody either, the message names them. The preview's `failure`
+carries the same message, and a form's Submit says it instead of submitting when the submission would meet that
+step — before any step that waits for someone. An approve that
 moves the approval into such a step keeps the approval and fails the instance with that message (see
 [When a step after an approval fails](#when-a-step-after-an-approval-fails)): the approver cannot set up an approver.
 So a record's approval fails only after its start: when the approval cannot go on after an approval, or when a timer
@@ -1273,7 +1306,7 @@ each on its own — one failing neither silences the other nor touches the actio
   through message-starter to each recipient's account email (`UserAccount.email`; a recipient without one is
   skipped), worded by the tenant's mail template of the notice's code. The template's variables are `subject`
   (the instance title, else the flow name), `content` (the comment or reason, when there is one), `flowName`,
-  `recordCode` and `link` — the approval's page, `system.site-url` + `/approvals/{instanceId}`, empty when the
+  `recordCode` and `link` — the approval's page, `system.site-url` + `/home/approvals/{instanceId}`, empty when the
   site URL is not configured. flow-starter ships no mail templates: a tenant without a template of the code gets
   no email, and the failure is logged.
 

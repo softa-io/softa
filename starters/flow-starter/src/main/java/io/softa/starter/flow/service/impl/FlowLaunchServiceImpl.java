@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -302,6 +303,47 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                     && Objects.equals(submitterId, latest.getInitiatorId()));
             return refused;
         }
+        return previewStart(modelName, rowId, submitterId, submission);
+    }
+
+    /**
+     * What submitting a record not saved yet, with {@code values}, would do now: {@link #previewSubmission} on the
+     * values instead of a stored row — a draft, as a new record is. The subject, the handler's checks and its
+     * submission are worked out from the values alone; nothing is read past the caller's permissions, started or
+     * written. No transaction of its own, as {@link #previewRecord}.
+     */
+    @Override
+    public FlowApprovalPreview previewValues(String modelName, Map<String, Object> values, String requesterId) {
+        if (!StringUtils.hasText(modelName)) {
+            throw new IllegalArgumentException("modelName is required to preview an approval");
+        }
+        Submission<?> submission;
+        try {
+            submission = checkValues(handlerRegistry.require(modelName), values);
+        } catch (BusinessException refusal) {
+            return notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage());
+        }
+        FlowApprovalPreview preview = previewStart(modelName, null, requesterId, submission);
+        userNames.name(actorsOf(preview));
+        return preview;
+    }
+
+    /** {@link #checkSubmission} on values not saved yet: a draft, so only the subject and the handler's own checks. */
+    private <T extends ApprovalModel> Submission<T> checkValues(ModelApprovalHandler<T> handler,
+                                                                Map<String, Object> values) {
+        Map<String, Object> row = new LinkedHashMap<>(values == null ? Map.of() : values);
+        String subjectField = ModelApprovalHandlerRegistry.subjectFieldOf(handler);
+        Long subjectId = longOf(row.get(subjectField));
+        if (subjectId == null) {
+            throw new BusinessException(NO_SUBJECT, subjectField);
+        }
+        T record = BeanTool.mapToObject(row, handler.modelClass());
+        handler.validate(record);
+        return new Submission<>(row, record, subjectId, handler.submission(record));
+    }
+
+    /** The flow a submission past its checks would start, and that start's path. */
+    private FlowApprovalPreview previewStart(String modelName, String rowId, String submitterId, Submission<?> submission) {
         List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName,
                 submitVariables(modelName, rowId, submission));
         if (flows.isEmpty()) {
@@ -508,6 +550,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         request.setSubjectId(submission.subjectId());
         request.setEffectiveDate(approval.effectiveDate());
         request.setRecordCode(approval.code());
+        request.setSummary(approval.summary());
         return request;
     }
 

@@ -141,7 +141,7 @@ all. The older spelling `endDate < "{{ @startDate }}"` still parses and produces
 it remains what the JSON form and the stored row carry, since only the authoring layer changed.
 
 Compare an option by its item code: a wrong code never fires and never reports.
-| `required` | boolean | `false` | `required` | NOT NULL constraint |
+| `required` | boolean | `false` | `required` | NOT NULL constraint. On a `ONE_TO_MANY` / `MANY_TO_MANY` (no column): at least one row / link — a create must name one, an update that sends the field must leave one (counted after the write, so a patch deleting every row is refused); an update that leaves the field out is not judged |
 | `readonly` | boolean | `false` | `readonly` | UI hint |
 | `hidden` | boolean | `false` | `hidden` | internal field: left out of the field lists a client builds from metadata on its own (offered list columns, template fields); still read, written and shown where a view names it. Stored as null when unmarked |
 | `translatable` | boolean | `false` | `translatable` | i18n-aware column |

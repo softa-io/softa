@@ -98,6 +98,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getDepartmentId),
             LambdaUtils.getAttributeName(FlowInstance::getEffectiveDate),
             LambdaUtils.getAttributeName(FlowInstance::getRecordCode),
+            LambdaUtils.getAttributeName(FlowInstance::getSummary),
             LambdaUtils.getAttributeName(FlowInstance::getSuperseded),
             LambdaUtils.getAttributeName(FlowInstance::getStatus),
             LambdaUtils.getAttributeName(FlowInstance::getFailedNodeId),

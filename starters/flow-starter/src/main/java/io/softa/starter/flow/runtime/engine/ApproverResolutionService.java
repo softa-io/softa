@@ -6,11 +6,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
@@ -85,6 +87,61 @@ public class ApproverResolutionService {
         return actorAccounts == null || approvers.isEmpty() ? approvers : actorAccounts.usable(approvers);
     }
 
+    /**
+     * Why a step reached with {@code variables} found nobody, as a clause of the refusal its submitter takes to whoever
+     * sets approvers up — the employee has no manager who can approve, nobody who can holds its roles; null when its
+     * source cannot say more than that nobody was found.
+     */
+    public String whyNobody(CompiledFlowNode node, Map<String, Object> variables) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
+            return null;
+        }
+        Map<String, Object> source = cfg.getApproverSource();
+        String type = source == null ? null : asString(source.get("type"));
+        if (!StringUtils.hasText(type)) {
+            boolean named = cfg.getApprovers() != null && cfg.getApprovers().stream().anyMatch(StringUtils::hasText);
+            return named ? I18n.get("none of its approvers can approve") : I18n.get("it names no approver");
+        }
+        Map<String, Object> resolutionVariables = variables == null ? Map.of() : variables;
+        return switch (type) {
+            case "Supervisor" -> organizationService == null ? null : whyNoSupervisor(resolutionVariables, source);
+            case "DeptLeader" -> organizationService == null ? null : whyNoDeptHead(resolutionVariables, source,
+                    "{0} and the departments above it have no leader who can approve");
+            case "DeptHrbp" -> organizationService == null ? null : whyNoDeptHead(resolutionVariables, source,
+                    "{0} and the departments above it have no HR business partner who can approve");
+            case "RoleQuery" -> I18n.get("nobody who can approve holds its roles");
+            case "Position" -> I18n.get("nobody who can approve holds its positions");
+            case "Department" -> I18n.get("its departments have nobody who can approve");
+            case "VariableList", "Expression" -> I18n.get("its rule names nobody who can approve");
+            default -> null;
+        };
+    }
+
+    private String whyNoSupervisor(Map<String, Object> variables, Map<String, Object> source) {
+        ApproverRelativeTo relativeTo = ApproverRelativeTo.of(source.get("relativeTo"), ApproverRelativeTo.SUBJECT);
+        Long employeeId = relativeTo == ApproverRelativeTo.SUBJECT ? subjectEmployee(variables) : initiatorEmployee(variables);
+        if (employeeId == null) {
+            return relativeTo == ApproverRelativeTo.SUBJECT
+                    ? I18n.get("the request names no employee")
+                    : I18n.get("the submitter has no employee profile");
+        }
+        String name = organizationService.getEmployeeNames(List.of(employeeId)).get(employeeId);
+        String who = StringUtils.hasText(name) ? name : I18n.get("the employee");
+        int level = parseIntOrDefault(source.get("level"), 1);
+        return level <= 1
+                ? I18n.get("{0} has no manager who can approve", who)
+                : I18n.get("{0} has no manager {1} levels up who can approve", who, level);
+    }
+
+    private String whyNoDeptHead(Map<String, Object> variables, Map<String, Object> source, String message) {
+        List<Long> deptIds = departments(variables, source, ApproverDeptScope.SUBJECT_DEPT);
+        if (deptIds.isEmpty()) {
+            return I18n.get("its department could not be told");
+        }
+        Collection<String> names = organizationService.getDeptNames(deptIds).values();
+        return I18n.get(message, names.isEmpty() ? I18n.get("the department") : String.join(", ", names));
+    }
+
     private List<String> resolveCandidates(CompiledFlowNode node, Map<String, Object> variables) {
         if (!hasDynamicApproverSource(node)) {
             return resolveApprovers(node);
@@ -101,7 +158,7 @@ public class ApproverResolutionService {
         Map<String, Object> resolutionVariables = new LinkedHashMap<>(variables == null ? Map.of() : variables);
         Object resolved = switch (type) {
             case "VariableList" -> lookupValue(resolutionVariables, asString(source.get("variable")));
-            case "Expression" -> resolveExpression(resolutionVariables, asString(source.get("expression")));
+            case "Expression" -> resolveExpression(node, resolutionVariables, asString(source.get("expression")));
             case "InitiatorManager" -> lookupValue(resolutionVariables, INITIATOR_MANAGER_ID_KEY);
             case "Role" -> resolveRoleApprovers(resolutionVariables, asString(source.get("roleCode")));
             case "Supervisor" -> resolveSupervisor(resolutionVariables, source);
@@ -448,11 +505,25 @@ public class ApproverResolutionService {
 
     // ── Existing resolution methods ───────────────────────────────────────
 
-    private Object resolveExpression(Map<String, Object> variables, String expression) {
+    /**
+     * The approvers an expression names. One that fails is the step's configuration at fault, not the server: refused
+     * with the step and what went wrong, as a step that finds nobody is — at a submission the submission is, after an
+     * approval the instance fails with it — instead of an error nobody can read.
+     */
+    private Object resolveExpression(CompiledFlowNode node, Map<String, Object> variables, String expression) {
         if (!StringUtils.hasText(expression)) {
             return null;
         }
-        return ComputeUtils.execute(expression, new LinkedHashMap<>(variables));
+        try {
+            return ComputeUtils.execute(expression, new LinkedHashMap<>(variables));
+        } catch (RuntimeException e) {
+            String label = StringUtils.hasText(node.getLabel()) ? node.getLabel() : node.getNodeId();
+            String detail = Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName()).lines()
+                    .findFirst().orElse("");
+            throw new FlowActionValidationException(I18n.get(
+                    "The approver expression of step ''{0}'' failed: {1}. Ask your HR administrator to correct it.",
+                    label, detail));
+        }
     }
 
     @SuppressWarnings("unchecked")

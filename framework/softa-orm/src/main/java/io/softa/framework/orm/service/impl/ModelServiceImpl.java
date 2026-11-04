@@ -1503,7 +1503,26 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     }
 
     /**
-     * The one read body, with the row range as the only thing either caller varies.
+     * The one list read body, with the row range as the only thing its callers vary — see
+     * {@link #guardAndScope} for what waiving it does and does not drop.
+     */
+    private List<Map<String, Object>> searchList(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
+        guardAndScope(modelName, flexQuery, applyRowScope);
+        List<Map<String, Object>> rows = jdbcService.selectByFilter(modelName, flexQuery);
+        if (rows.size() > BaseConstant.MAX_BATCH_SIZE) {
+            log.error("Model {} `searchList` exceeds the limit of {}, please switch to `searchPage`: {}",
+                    modelName, BaseConstant.MAX_BATCH_SIZE, flexQuery);
+        }
+        // Mask blocked-field values on the response.
+        permissionService.maskResponseValue(modelName, rows, AccessType.READ);
+        return rows;
+    }
+
+    /**
+     * What every FlexQuery read does to the query before it runs: the field guards, the timeline clamp,
+     * then the access scopes. {@link #searchList} and {@link #searchPage} both start here rather than
+     * each keeping a copy, so a step added here reaches both; the select and the response mask stay
+     * with each caller.
      *
      * <p>{@code applyRowScope == false} skips {@link #scopedAccess} and NOTHING else. The field guards
      * run either way, which is the difference that matters: crossing a caller's row range to resolve a
@@ -1515,7 +1534,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * it picks which slice of a versioned row is current, and an expansion wants the same slice as a
      * direct read.
      */
-    private List<Map<String, Object>> searchList(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
+    private void guardAndScope(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
         // A sort or grouping on a field masked on some rows would reveal what the mask hides.
         permissionService.guardQuery(modelName, flexQuery);
         // Silently drop blocked-for-read fields from the request, BEFORE checkModelFieldsAccess, so
@@ -1530,16 +1549,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // Apply the versioning read scope (timeline clamp)
         Filters filters = this.scopedRead(modelName, flexQuery);
         // Append the access scopes (permission data range + per-country narrowing)
-        filters = this.scopedAccess(modelName, filters, applyRowScope);
-        flexQuery.setFilters(filters);
-        List<Map<String, Object>> rows = jdbcService.selectByFilter(modelName, flexQuery);
-        if (rows.size() > BaseConstant.MAX_BATCH_SIZE) {
-            log.error("Model {} `searchList` exceeds the limit of {}, please switch to `searchPage`: {}",
-                    modelName, BaseConstant.MAX_BATCH_SIZE, flexQuery);
-        }
-        // Mask blocked-field values on the response.
-        permissionService.maskResponseValue(modelName, rows, AccessType.READ);
-        return rows;
+        flexQuery.setFilters(this.scopedAccess(modelName, filters, applyRowScope));
     }
 
     /**
@@ -1617,21 +1627,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public Page<Map<String, Object>> searchPage(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page) {
-        // A sort or grouping on a field masked on some rows would reveal what the mask hides.
-        permissionService.guardQuery(modelName, flexQuery);
-        // Silently drop blocked-for-read fields from the request (Layer C PRE)
-        Collection<String> filteredFields = permissionService.filterReadableFields(
-                modelName, flexQuery.getFields(), AccessType.READ);
-        if (filteredFields != flexQuery.getFields()) {
-            flexQuery.setFields(filteredFields);
-        }
-        // Check model and field level permissions
-        permissionService.checkModelFieldsAccess(modelName, flexQuery.getFields(), AccessType.READ);
-        // Apply the versioning read scope (timeline clamp)
-        Filters filters = this.scopedRead(modelName, flexQuery);
-        // Append the access scopes (permission data range + per-country narrowing)
-        filters = this.scopedAccess(modelName, filters);
-        flexQuery.setFilters(filters);
+        guardAndScope(modelName, flexQuery, true);
         Page<Map<String, Object>> result = jdbcService.selectByPage(modelName, flexQuery, page);
         // Mask blocked-field values on the response (Layer C POST)
         permissionService.maskResponseValue(modelName, result, AccessType.READ);

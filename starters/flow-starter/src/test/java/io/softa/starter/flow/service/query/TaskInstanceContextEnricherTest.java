@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
+import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
@@ -103,6 +104,37 @@ class TaskInstanceContextEnricherTest {
         verify(names).name(List.of(view.getInitiator()));
         verify(names).nameEmployees(List.of(view.getSubject()));
         verify(names).nameDepartments(List.of(view.getSubjectDept()));
+    }
+
+    /**
+     * What a list of tasks says of each request (zingkey-hcm#2350): the line its handler wrote, whether a later
+     * submission replaced it, and — while it still waits — the steps it waits on now, with whom, named in one lookup.
+     */
+    @Test
+    void eachRequestSaysWhatItAsksForAndWhereItStandsNow() {
+        CurrentStepsReader reader = mock(CurrentStepsReader.class);
+        TaskInstanceContextEnricher withSteps = new TaskInstanceContextEnricher(instanceService, names, bundleRegistry, reader);
+        FlowInstance waiting = instance("i1", "Leave · Alice", "LeaveRequest", "row-1");
+        waiting.setSummary("Annual Leave · 3 days");
+        FlowInstance returned = instance("i2", "Leave · Bob", "LeaveRequest", "row-2");
+        returned.setStatus(FlowExecutionStatus.RETURNED);
+        returned.setSuperseded(true);
+        when(instanceService.findByInstanceIds(argThat(ids -> ids.containsAll(List.of("i1", "i2")))))
+                .thenReturn(List.of(waiting, returned));
+        FlowRecordApprovalsView.PendingStep step = new FlowRecordApprovalsView.PendingStep("hr", "HR",
+                new java.util.ArrayList<>(List.of(new FlowRecordApprovalsView.Actor("u9", null))));
+        when(reader.of(List.of("i1"))).thenReturn(Map.of("i1", List.of(step)));
+
+        FlowApprovalTaskView first = view("i1");
+        FlowApprovalTaskView second = view("i2");
+        withSteps.enrich(List.of(first, second));
+
+        assertEquals("Annual Leave · 3 days", first.getSummary());
+        assertEquals(List.of(step), first.getCurrentSteps());
+        org.junit.jupiter.api.Assertions.assertNull(first.getSuperseded());
+        org.junit.jupiter.api.Assertions.assertNull(second.getCurrentSteps(), "only a waiting request stands at a step");
+        assertEquals(Boolean.TRUE, second.getSuperseded());
+        verify(names).name(List.of(step.getApprovers().getFirst()));
     }
 
     private static CompiledFlowNode approvalNode(String nodeId, ApprovalNodeConfig cfg) {
