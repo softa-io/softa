@@ -66,7 +66,15 @@ class FlowStatusTransitionsTest {
         assertFalse(FlowStatusTransitions.isAllowed(COMPLETED, RUNNING));
         assertFalse(FlowStatusTransitions.isAllowed(REJECTED, WAITING));
         assertFalse(FlowStatusTransitions.isAllowed(WITHDRAWN, RUNNING));
-        assertFalse(FlowStatusTransitions.isAllowed(FAILED, RUNNING));
+    }
+
+    @Test
+    void aFailedInstanceIsTerminatedOrRunAgain() {
+        // An administrator ends it, or — when the steps after an approval failed — runs them again.
+        assertTrue(FlowStatusTransitions.isAllowed(FAILED, CANCELLED));
+        assertTrue(FlowStatusTransitions.isAllowed(FAILED, RUNNING));
+        assertFalse(FlowStatusTransitions.isAllowed(FAILED, COMPLETED));
+        assertFalse(FlowStatusTransitions.isAllowed(FAILED, WAITING));
     }
 
     @Test

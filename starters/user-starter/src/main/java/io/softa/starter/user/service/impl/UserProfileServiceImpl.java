@@ -331,6 +331,10 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         // reading it as inactive here would end every session it is given, on its first request.
         userInfo.setActive(AccountStatus.ACTIVE == account.getStatus() || AccountStatus.LOCKED == account.getStatus());
         this.validateTenantInfo(profile, userInfo.getTenantId());
+        // Taken here, next to the tenant check, and cached with the rest: reading a cached UserInfo
+        // then touches no tenant at all.
+        userInfo.setTenantName(tenantInfoService == null ? null
+                : tenantInfoService.getTenantName(userInfo.getTenantId()));
         if (profile.getPhotoId() != null) {
             // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time
             Optional<FileInfo> fileInfoOpt = fileService.getByFileId(profile.getPhotoId(), RedisConstant.ONE_QUARTER);

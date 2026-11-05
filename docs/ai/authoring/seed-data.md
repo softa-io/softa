@@ -41,10 +41,14 @@ tenant:
 ```
 
 How a change to a file reaches data that is already loaded depends on its level
-and its `mode`:
+and its `mode`. Whatever the mode, a row that is already loaded gets only the
+fields the file names: a field the file leaves out keeps its stored value — the
+default the row was created with, or a later edit. To remove a value a released
+file wrote, keep the field and set it to `null`; deleting the key leaves the
+value in place.
 
 - **Platform files** are the data. When one changes, the next platform load
-  loads it again, whole: a field the file no longer names is cleared, and a
+  loads it again, every row: the fields the file names are written again, and a
   seeded child the file no longer lists is deleted.
 - **Tenant files run once per tenant** (`mode: once`, the default), and what a
   tenant changes afterwards is the tenant's. An edit to a released tenant file
@@ -55,9 +59,10 @@ and its `mode`:
   deletes nothing. To change or remove rows tenants already have, edit the file
   that declares them (for new tenants) and ship a data migration in the
   release (for existing ones). The platform admin can also **reapply** a file,
-  which loads it whole over the chosen tenants' copies, what they changed
-  included: an operator's override for a development or test environment, or a
-  tenant whose copy went wrong — not how a release ships a change.
+  which loads it again over the chosen tenants' copies: the fields it names take
+  the file's values, whatever the tenants changed in them. It is an operator's
+  override for a development or test environment, or a tenant whose copy went
+  wrong — not how a release ships a change.
 - `mode: append` (tenant files only) runs a tenant file again whenever it
   changes, creating only the rows a tenant lacks: new rows go straight into the
   file, with no patch, and reach existing tenants on the next **Run**. A row a
@@ -66,7 +71,7 @@ and its `mode`:
   rows that stand alone, such as mail templates, not for rows that act on their
   own once created, such as a default approval flow beside a tenant's own.
 - `mode: overwrite`, every platform file's default, makes a tenant file behave
-  like a platform file: it runs again, whole, whenever it changes. Use it only
+  like a platform file: it runs again, every row, whenever it changes. Use it only
   for rows nobody in a tenant edits, such as the built-in roles.
 - `mode: startup` (platform files only) marks the files the build owns: they load
   at startup, wherever new or changed, before the application takes traffic and

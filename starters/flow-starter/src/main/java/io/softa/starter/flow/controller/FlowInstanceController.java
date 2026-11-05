@@ -103,7 +103,9 @@ public class FlowInstanceController {
     @Operation(summary = "Get flow instance",
             description = "Gets the current runtime state of a flow instance. The trace is excluded "
                     + "by default (poll it incrementally via the trace endpoint); pass includeTrace=true "
-                    + "for the full event list. The initiator comes named.")
+                    + "for the full event list. The initiator comes named. The record's values — inputPayload, "
+                    + "variables, returnData — are left out, here and in every approval action's answer: the "
+                    + "record is read through /record, with the field permissions of the caller's step.")
     public ApiResponse<FlowExecutionState> getInstance(@PathVariable String instanceId,
                                                        @RequestParam(defaultValue = "false") boolean includeTrace) {
         // Trace-free load by default; the full history is only fetched when asked for.
@@ -113,7 +115,7 @@ public class FlowInstanceController {
                     if (state.getInitiatorId() != null) {
                         state.setInitiatorName(names.namesOf(List.of(state.getInitiatorId())).get(state.getInitiatorId()));
                     }
-                    return state;
+                    return withoutRecordValues(state);
                 })
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
@@ -160,13 +162,16 @@ public class FlowInstanceController {
     @Operation(summary = "Get a record's approval history",
             description = "The approval instances of a business record, newest first: status, initiator, "
                     + "the steps still waiting with the approvers yet to act, and the approval actions, "
-                    + "every user named. For the record page's approval panel and the inbox task detail. "
+                    + "every user named; each says whether the caller may open it (viewable) — its detail, "
+                    + "progress diagram and trace. For the record page's approval panel and the inbox task detail. "
                     + "Allowed to whoever took part in the record's approvals or can read the record.")
     public ApiResponse<FlowRecordApprovalsView> getRecordApprovals(@RequestParam String modelName,
                                                                   @RequestParam String rowId) {
         String requesterId = currentUserId();
-        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId,
-                history -> accessGuard.requireRecordViewer(modelName, rowId, history, requesterId)));
+        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId, history -> {
+            accessGuard.requireRecordViewer(modelName, rowId, history, requesterId);
+            accessGuard.markViewable(modelName, rowId, history, requesterId);
+        }));
     }
 
     @GetMapping("/preview")
@@ -316,14 +321,14 @@ public class FlowInstanceController {
     @Operation(summary = "Approve pending node", description = "Approves a pending approval node and resumes execution.")
     public ApiResponse<FlowExecutionState> approve(@Valid @RequestBody FlowApproveRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.approve(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.approve(request)));
     }
 
     @PostMapping("/reject")
     @Operation(summary = "Reject pending node", description = "Rejects a pending approval node and marks the flow as rejected.")
     public ApiResponse<FlowExecutionState> reject(@Valid @RequestBody FlowRejectRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.reject(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.reject(request)));
     }
 
     @PostMapping("/batch/approve")
@@ -357,28 +362,28 @@ public class FlowInstanceController {
     @Operation(summary = "Transfer pending approval task", description = "Transfers a pending approval task from the current actor to another actor on the same node and cycle.")
     public ApiResponse<FlowExecutionState> transfer(@Valid @RequestBody FlowTransferRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.transfer(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.transfer(request)));
     }
 
     @PostMapping("/delegate")
     @Operation(summary = "Delegate pending approval task", description = "Delegates a pending approval task from the current actor to another actor on the same node and cycle.")
     public ApiResponse<FlowExecutionState> delegate(@Valid @RequestBody FlowDelegateRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.delegate(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.delegate(request)));
     }
 
     @PostMapping("/add-sign-before")
     @Operation(summary = "Add prerequisite signer before current approver", description = "Adds a prerequisite signer before the current approver on the same approval node and cycle.")
     public ApiResponse<FlowExecutionState> addSignBefore(@Valid @RequestBody FlowAddSignBeforeRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.addSignBefore(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.addSignBefore(request)));
     }
 
     @PostMapping("/add-sign-after")
     @Operation(summary = "Add follow-up signer after current approver", description = "Adds a follow-up signer after the current approver on the same approval node and cycle.")
     public ApiResponse<FlowExecutionState> addSignAfter(@Valid @RequestBody FlowAddSignAfterRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.addSignAfter(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.addSignAfter(request)));
     }
 
     @PostMapping("/cc")
@@ -388,30 +393,41 @@ public class FlowInstanceController {
             + "this cycle are skipped; refused when nobody is left.")
     public ApiResponse<FlowExecutionState> cc(@Valid @RequestBody FlowCcRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.cc(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.cc(request)));
     }
 
     @PostMapping("/cc/read")
     @Operation(summary = "Acknowledge a CC as read", description = "Allows the CC recipient to confirm the CC task as read without affecting approval ownership or flow progression.")
     public ApiResponse<FlowExecutionState> readCc(@Valid @RequestBody FlowCcReadRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.readCc(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.readCc(request)));
     }
 
     @PostMapping("/return")
     @Operation(summary = "Return pending approval", description = "Returns a pending approval to the initiator, which ends the instance as Returned. The initiator edits and submits again, which starts a new instance.")
     public ApiResponse<FlowExecutionState> returnApproval(@Valid @RequestBody FlowReturnRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.returnApproval(request));
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.returnApproval(request)));
     }
 
     @PostMapping("/withdraw")
     @Operation(summary = "Withdraw approval flow", description = "The initiator takes back an approval waiting on "
             + "its approvers, within the flow's withdraw policy: Never, BeforeFirstAction (until an approver first "
-            + "acts) or UntilCompleted.")
+            + "acts) or UntilCompleted. A record's approval that failed is taken back whatever the policy, by its "
+            + "submitter, while the record still waits on it: the record becomes a draft again, the failed instance "
+            + "stays as it is.")
     public ApiResponse<FlowExecutionState> withdraw(@Valid @RequestBody FlowWithdrawRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.withdraw(request));
+        // A record's approval that failed waits on nobody: its submitter takes the record back, as from the record.
+        Optional<FlowExecutionState> failed = ContextUtils.withoutPermissionChecks(
+                () -> runtimeEngine.getInstance(request.getInstanceId()))
+                .filter(state -> withdrawPolicyGuard.takesBack(state, request.getActorId()));
+        if (failed.isPresent()) {
+            FlowExecutionState state = failed.get();
+            return ApiResponse.success(withoutRecordValues(launchService.withdrawRecord(state.getModelName(),
+                    state.getRowId(), request.getActorId(), request.getComment())));
+        }
+        return ApiResponse.success(withoutRecordValues(runtimeEngine.withdraw(request)));
     }
 
     @PostMapping("/urge")
@@ -445,7 +461,8 @@ public class FlowInstanceController {
     @GetMapping("/{instanceId}/withdraw")
     @Operation(summary = "Get whether the caller may withdraw",
             description = "True when the caller is the initiator of an approval waiting on its approvers and the "
-                    + "flow's withdraw policy still permits it — exactly when a withdrawal would be accepted. "
+                    + "flow's withdraw policy still permits it, or the submitter of a record whose approval failed "
+                    + "while the record still waits on it — exactly when a withdrawal would be accepted. "
                     + "Allowed to whoever may view the instance.")
     public ApiResponse<Boolean> getWithdrawable(@PathVariable String instanceId) {
         return runtimeEngine.getInstance(instanceId)
@@ -480,5 +497,17 @@ public class FlowInstanceController {
                 })
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow instance not found: " + instanceId));
+    }
+
+    /**
+     * The state as an approval's participants read it — the instance, and every action's answer: without the record's
+     * values. The start payload and the variables hold the record's fields as submitted and what later steps worked
+     * out, past the field permissions the record's own read applies ({@code /record}, which leaves out what the
+     * caller's step hides), so a field a step hid could be read here (zingkey-hcm#2402); an automation's result goes
+     * with them. Nothing that shows an approval reads them from the state. A copy: the engine's state is left as it
+     * is.
+     */
+    private static FlowExecutionState withoutRecordValues(FlowExecutionState state) {
+        return state.toBuilder().inputPayload(null).variables(null).returnData(null).build();
     }
 }

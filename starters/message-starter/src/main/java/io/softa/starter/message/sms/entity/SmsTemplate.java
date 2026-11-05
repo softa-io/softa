@@ -32,7 +32,8 @@ import io.softa.framework.orm.entity.AuditableModel;
  */
 @Data
 @Model(label = "SMS Template", idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true,
-        activeControl = true)
+        activeControl = true,
+        defaultOrder = {"name"})
 @Index(indexName = "uk_sms_template_tenant_code", fields = {"tenantId", "code"}, unique = true)
 @EqualsAndHashCode(callSuper = true)
 public class SmsTemplate extends AuditableModel {

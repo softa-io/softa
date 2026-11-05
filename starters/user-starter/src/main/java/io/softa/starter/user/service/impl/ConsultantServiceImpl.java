@@ -467,7 +467,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         // could surface anywhere in it — and the row an operator is looking for right after
         // creating it is the one they just made.
         List<ConsultantProfile> profiles = this.searchList(
-                new FlexQuery(new Filters(), Orders.ofDesc(ModelConstant.CREATED_TIME)));
+                new FlexQuery(new Filters(), Orders.ofDesc(ModelConstant.ID)));
         if (profiles.isEmpty()) {
             return List.of();
         }

@@ -1,5 +1,7 @@
 package io.softa.starter.flow.service;
 
+import java.util.Map;
+
 import io.softa.starter.flow.dto.FlowApprovalPreview;
 import io.softa.starter.flow.runtime.engine.FlowLaunchResponse;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
@@ -24,8 +26,9 @@ public interface FlowLaunchService {
     FlowLaunchResponse debugRunDraft(String flowId, FlowStartRequest request);
 
     /**
-     * Submits a business record for approval, in the caller's transaction: the submitter must read the
-     * record with their own permissions and it must be a draft; its model's
+     * Submits a business record for approval, in the caller's transaction: the submitter must reach the
+     * record within the range their roles may edit it in — submitting writes it, so being able to view it is
+     * not enough — and it must be a draft; its model's
      * {@code ModelApprovalHandler} checks it and supplies the title and routing variables, the flow
      * is chosen by the flows' submit triggers (exactly one active flow of the tenant must match the
      * model and the record), the record becomes {@code Pending} and the record's approval starts.
@@ -59,6 +62,13 @@ public interface FlowLaunchService {
     FlowApprovalPreview previewRecord(String modelName, String rowId, String requesterId);
 
     /**
+     * What submitting a record not saved yet would do now, as {@link #previewRecord} answers for a saved one: its
+     * field values, in the form they are stored (ids, codes), stand for the row — the subject among them. For the
+     * application's own pages, which decide who may ask: no endpoint serves it.
+     */
+    FlowApprovalPreview previewValues(String modelName, Map<String, Object> values, String requesterId);
+
+    /**
      * Withdraws a record's approval while it waits for approvers, in the caller's transaction. The
      * engine checks that the actor is the submitter and that the flow allows withdrawal; the record
      * is then written back as a draft like any other withdrawal and handed to its handler. When the
@@ -76,8 +86,8 @@ public interface FlowLaunchService {
     FlowExecutionState withdrawRecord(String modelName, String rowId, String actorId, String comment);
 
     /**
-     * Cancels a draft for good, in the caller's transaction: the actor must read the record with their
-     * own permissions, it must be a draft, and its handler's {@code validateCancel} must pass. The record
+     * Cancels a draft for good, in the caller's transaction: the actor must reach the record within the
+     * range their roles may edit it in, it must be a draft, and its handler's {@code validateCancel} must pass. The record
      * becomes {@code Cancelled} and its handler is handed a {@code CANCELLED} result with no instance.
      *
      * @param modelName the record's model

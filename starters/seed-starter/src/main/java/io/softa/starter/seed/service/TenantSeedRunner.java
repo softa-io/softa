@@ -35,7 +35,7 @@ import io.softa.starter.seed.manifest.SeedFile;
  * succeeded runs.
  *
  * <p>The platform admin can also reapply files: the named files run again in the named tenants whatever their
- * state, each loading whole over the tenant's copy, as an overwrite file does.
+ * state, each loading over the tenant's copy, as an overwrite file does.
  *
  * <p>Runs over many tenants go to the background, one tenant after another, and so do reapplies; a new tenant's
  * setup, and the recording that initializes an environment, run in the caller.
@@ -103,9 +103,10 @@ public class TenantSeedRunner {
 
     /**
      * Run the named tenant files again in the given tenants, whatever their state, in the background — each file
-     * loading whole over the tenant's copy, as an overwrite file does: the rows the tenant has are rewritten from
-     * the file, the seeded rows it deleted come back, and the seeded children the file no longer lists are
-     * deleted. What the tenant changed in those rows is lost; frozen rows are still left alone.
+     * loading over the tenant's copy, as an overwrite file does: the fields the file names take the file's values
+     * again, the seeded rows the tenant deleted come back, and the seeded children the file no longer lists are
+     * deleted. What the tenant changed in those fields is lost, while a field the file leaves out keeps the
+     * tenant's value; frozen rows are still left alone.
      *
      * <p>A tenant file runs once per tenant, and what the tenant changes afterwards is the tenant's. This is the
      * platform admin's way past that, for a file whose current content tenants that ran it should have — while a

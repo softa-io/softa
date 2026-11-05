@@ -67,7 +67,7 @@ public class TaskNodeExecutionHandler implements NodeExecutionHandler {
     @Override
     public NodeOutcome execute(CompiledFlowNode node, FlowVariableContext ctx) {
         if (!(node.getParsedConfig() instanceof TaskNodeConfig taskConfig)) {
-            throw new FlowRuntimeException("Task node '" + node.getNodeId() + "' must configure config.task");
+            throw new FlowRuntimeException("Task node '" + node.displayName() + "' must configure config.task");
         }
 
         TaskExecutor executor = taskExecutorRegistry.getExecutor(node.getType());

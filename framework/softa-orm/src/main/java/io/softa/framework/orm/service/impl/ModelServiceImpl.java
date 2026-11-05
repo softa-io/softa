@@ -1503,7 +1503,26 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     }
 
     /**
-     * The one read body, with the row range as the only thing either caller varies.
+     * The one list read body, with the row range as the only thing its callers vary — see
+     * {@link #guardAndScope} for what waiving it does and does not drop.
+     */
+    private List<Map<String, Object>> searchList(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
+        guardAndScope(modelName, flexQuery, applyRowScope);
+        List<Map<String, Object>> rows = jdbcService.selectByFilter(modelName, flexQuery);
+        if (rows.size() > BaseConstant.MAX_BATCH_SIZE) {
+            log.error("Model {} `searchList` exceeds the limit of {}, please switch to `searchPage`: {}",
+                    modelName, BaseConstant.MAX_BATCH_SIZE, flexQuery);
+        }
+        // Mask blocked-field values on the response.
+        permissionService.maskResponseValue(modelName, rows, AccessType.READ);
+        return rows;
+    }
+
+    /**
+     * What every FlexQuery read does to the query before it runs: the field guards, the timeline clamp,
+     * then the access scopes. {@link #searchList} and {@link #searchPage} both start here rather than
+     * each keeping a copy, so a step added here reaches both; the select and the response mask stay
+     * with each caller.
      *
      * <p>{@code applyRowScope == false} skips {@link #scopedAccess} and NOTHING else. The field guards
      * run either way, which is the difference that matters: crossing a caller's row range to resolve a
@@ -1515,7 +1534,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * it picks which slice of a versioned row is current, and an expansion wants the same slice as a
      * direct read.
      */
-    private List<Map<String, Object>> searchList(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
+    private void guardAndScope(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
         // A sort or grouping on a field masked on some rows would reveal what the mask hides.
         permissionService.guardQuery(modelName, flexQuery);
         // Silently drop blocked-for-read fields from the request, BEFORE checkModelFieldsAccess, so
@@ -1530,59 +1549,52 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // Apply the versioning read scope (timeline clamp)
         Filters filters = this.scopedRead(modelName, flexQuery);
         // Append the access scopes (permission data range + per-country narrowing)
-        filters = this.scopedAccess(modelName, filters, applyRowScope);
-        flexQuery.setFilters(filters);
-        List<Map<String, Object>> rows = jdbcService.selectByFilter(modelName, flexQuery);
-        if (rows.size() > BaseConstant.MAX_BATCH_SIZE) {
-            log.error("Model {} `searchList` exceeds the limit of {}, please switch to `searchPage`: {}",
-                    modelName, BaseConstant.MAX_BATCH_SIZE, flexQuery);
-        }
-        // Mask blocked-field values on the response.
-        permissionService.maskResponseValue(modelName, rows, AccessType.READ);
-        return rows;
+        flexQuery.setFilters(this.scopedAccess(modelName, filters, applyRowScope));
     }
 
     /**
-     * Name search within the caller's row range: the display fields plus {@code displayName}.
-     * <p>This is the read behind {@code /{model}/searchName} and its typed shadows, so it must stay
-     * row-scoped. The read pipeline names related rows through {@link #searchNameIgnoringRowScope}.</p>
+     * Name search within the caller's row range: one page of candidates with the display fields and
+     * {@code displayName}.
+     * <p>This is the read behind {@code /{model}/searchName} and its typed shadows, so it reads through
+     * {@link #searchPage}, which keeps the caller's row range: the rows it returns are the candidates a
+     * picker offers, and a candidate outside the range is one they can choose but not use. It ran without
+     * the range for a while, which is how a picker came to list employees whose detail read then refused
+     * them. The read pipeline names related rows through {@link #searchNameIgnoringRowScope}.</p>
      *
      * @param modelName the name of the model
-     * @param flexQuery a {@link FlexQuery} object defining fields, filters, sorting, etc.
-     * @return a list of maps representing the matching rows with displayName and ID
+     * @param flexQuery what to search: the match, filters, orders and fields to read
+     * @param page which page to read
+     * @return the page's rows: the matching records with displayName and ID
      */
     @Override
-    public List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery) {
-        return searchName(modelName, flexQuery, true);
+    public List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page) {
+        List<String> displayFields = ModelManager.getModelDisplayName(modelName);
+        flexQuery.select(displayFields);
+        List<Map<String, Object>> rows = searchPage(modelName, flexQuery, page).getRows();
+        putDisplayNames(rows, displayFields);
+        return rows;
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>Everything {@link #searchName} does except appending the caller's row range.
+     * <p>The same display fields and names as {@link #searchName}, read as a list and without the
+     * caller's row range.
      */
     @Override
     public List<Map<String, Object>> searchNameIgnoringRowScope(String modelName, FlexQuery flexQuery) {
-        return searchName(modelName, flexQuery, false);
-    }
-
-    /**
-     * The one name-search body, with the row range as the only thing either caller varies.
-     *
-     * <p>The plain entry point keeps the range on because it is what {@code /{model}/searchName} and every
-     * typed shadow of it call: the rows it returns are the candidates a picker offers, and a candidate
-     * outside the caller's range is one they can choose but not use. It ran without the range for a
-     * while, which is how a picker came to list employees whose detail read then refused them.
-     */
-    private List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
         List<String> displayFields = ModelManager.getModelDisplayName(modelName);
         flexQuery.select(displayFields);
-        List<Map<String, Object>> rows = searchList(modelName, flexQuery, applyRowScope);
+        List<Map<String, Object>> rows = searchList(modelName, flexQuery, false);
+        putDisplayNames(rows, displayFields);
+        return rows;
+    }
+
+    /** A relation or option among the display fields reads as a reference: the name takes its name, not the object. */
+    private static void putDisplayNames(List<Map<String, Object>> rows, List<String> displayFields) {
         for (Map<String, Object> row : rows) {
-            // A relation or option among the display fields reads as a reference: its name, not the object.
             row.put(ModelConstant.DISPLAY_NAME, DisplayNames.of(row, displayFields));
         }
-        return rows;
     }
 
     /**
@@ -1615,21 +1627,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public Page<Map<String, Object>> searchPage(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page) {
-        // A sort or grouping on a field masked on some rows would reveal what the mask hides.
-        permissionService.guardQuery(modelName, flexQuery);
-        // Silently drop blocked-for-read fields from the request (Layer C PRE)
-        Collection<String> filteredFields = permissionService.filterReadableFields(
-                modelName, flexQuery.getFields(), AccessType.READ);
-        if (filteredFields != flexQuery.getFields()) {
-            flexQuery.setFields(filteredFields);
-        }
-        // Check model and field level permissions
-        permissionService.checkModelFieldsAccess(modelName, flexQuery.getFields(), AccessType.READ);
-        // Apply the versioning read scope (timeline clamp)
-        Filters filters = this.scopedRead(modelName, flexQuery);
-        // Append the access scopes (permission data range + per-country narrowing)
-        filters = this.scopedAccess(modelName, filters);
-        flexQuery.setFilters(filters);
+        guardAndScope(modelName, flexQuery, true);
         Page<Map<String, Object>> result = jdbcService.selectByPage(modelName, flexQuery, page);
         // Mask blocked-field values on the response (Layer C POST)
         permissionService.maskResponseValue(modelName, result, AccessType.READ);
@@ -1651,12 +1649,11 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     public <R> Page<R> searchPage(String modelName, FlexQuery flexQuery, Page<R> page, Class<R> returnClass) {
         Page<Map<String, Object>> mapPage = new Page<>(page.getPageNumber(), page.getPageSize(), page.isCursorPage(), page.isCount());
         this.searchPage(modelName, flexQuery, mapPage);
-        if (!CollectionUtils.isEmpty(mapPage.getRows())) {
-            List<R> objects = BeanTool.mapListToObjects(mapPage.getRows(), returnClass, modelName);
-            page.setRows(objects);
-            if (page.isCount()) {
-                page.setTotalCount(mapPage.getTotalCount());
-            }
+        // Set even when empty: a page reused for the next read must not keep the rows of the one before.
+        page.setRows(CollectionUtils.isEmpty(mapPage.getRows()) ? Collections.emptyList()
+                : BeanTool.mapListToObjects(mapPage.getRows(), returnClass, modelName));
+        if (page.isCount()) {
+            page.setTotalCount(mapPage.getTotalCount());
         }
         return page;
     }

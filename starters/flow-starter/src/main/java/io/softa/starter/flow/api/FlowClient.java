@@ -56,6 +56,15 @@ public interface FlowClient {
     FlowApprovalPreview previewRecord(String modelName, String rowId);
 
     /**
+     * What submitting a record not saved yet as the current user would do now — {@link #previewRecord} on its field
+     * values, in the form they are stored (ids, codes), the subject among them, instead of a saved row: a record its
+     * application creates as it is submitted (a pay run's approval request) previews its route before it exists.
+     * Nothing is started or written; the caller decides who may ask. Call it outside a transaction, as
+     * {@link #previewRecord}.
+     */
+    FlowApprovalPreview previewValues(String modelName, Map<String, Object> values);
+
+    /**
      * Withdraws the record from approval as the current user, its submitter — or, when its approval
      * failed, takes the record back. The record is a draft again. Refused when the record has no
      * approval in progress, or its flow does not let its submitter withdraw. Joins the caller's
@@ -65,15 +74,16 @@ public interface FlowClient {
 
     /**
      * Cancels the draft for good as the current user, its applicant: refused unless the record is a
-     * draft the user can read and its handler's {@code validateCancel} passes. Joins the caller's
-     * transaction.
+     * draft within the range the user may edit it in and its handler's {@code validateCancel} passes. Joins
+     * the caller's transaction.
      */
     void cancelRecord(String modelName, String rowId);
 
     /**
      * The record's approval history — its approval instances newest first, with steps, approvers
-     * and actions, every user named — the same answer as {@code GET /flow/instances/by-record},
-     * under the same check: the current user can read the record or took part in its approvals.
+     * and actions, every user named, each saying whether the current user may open it — the same
+     * answer as {@code GET /flow/instances/by-record}, under the same check: the current user can
+     * read the record or took part in its approvals.
      */
     FlowRecordApprovalsView recordApprovals(String modelName, String rowId);
 

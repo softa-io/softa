@@ -3,11 +3,9 @@ package io.softa.starter.seed.service.impl;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -388,7 +386,7 @@ class SysPreDataOneToManyTest {
     }
 
     @Test
-    void aBindingWhoseRowIsGoneIsRecreatedWithoutInheritingTheClearedFields() {
+    void aBindingWhoseRowIsGoneIsRecreatedFromTheFile() {
         bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
         // The row the binding names is gone — someone deleted the seeded row through the ordinary UI.
         when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(false);
@@ -398,20 +396,44 @@ class SysPreDataOneToManyTest {
         Serializable rowId = withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow())));
 
         assertEquals(999L, rowId);
-
-        ArgumentCaptor<Map<String, Object>> updated = captor();
-        verify(modelService).updateOne(eq(PARENT), updated.capture());
-        // The update still clears what the seed no longer says.
-        assertEquals(null, updated.getValue().get("description"));
-
         ArgumentCaptor<Map<String, Object>> created = captor();
         verify(modelService).createOne(eq(PARENT), created.capture());
-        // …but the recreate must not inherit those nulls: a default value is only filled when the key
-        // is absent, so carrying them over would write null over the model's defaults and produce a
-        // row that a first load never would.
+        assertEquals("Organization Type", created.getValue().get("label"));
+        // Created as a first load creates it: a field the file leaves out is absent, so the model's default
+        // fills it.
         assertFalse(created.getValue().containsKey("description"), created.getValue().toString());
         // A generated-id strategy must not be handed the old id: the row is recreated, not resurrected.
         assertFalse(created.getValue().containsKey("id"), created.getValue().toString());
+    }
+
+    @Test
+    void anOverwritingLoadWritesOnlyWhatTheFileNames() {
+        // A reapply, or a platform file loading again. A field the file leaves out keeps what the row holds:
+        // written as null, it lost the default the first load had filled — an option set's `active`, and with
+        // it the row, gone from every read and every dropdown.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+
+        withMetadata(() -> inTenant(() -> overwriting(() -> service.handlePredefinedData(PARENT, parentRow()))));
+
+        ArgumentCaptor<Map<String, Object>> updated = captor();
+        verify(modelService).updateOne(eq(PARENT), updated.capture());
+        assertEquals(Map.of("id", TYPED_ROW_ID, "label", "Organization Type"), updated.getValue());
+    }
+
+    @Test
+    void aFieldTheFileNamesAsNullIsCleared() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+        Map<String, Object> row = parentRow();
+        row.put("description", null);
+
+        withMetadata(() -> inTenant(() -> overwriting(() -> service.handlePredefinedData(PARENT, row))));
+
+        ArgumentCaptor<Map<String, Object>> updated = captor();
+        verify(modelService).updateOne(eq(PARENT), updated.capture());
+        assertTrue(updated.getValue().containsKey("description"), updated.getValue().toString());
+        assertNull(updated.getValue().get("description"));
     }
 
     // ---- fixtures --------------------------------------------------------
@@ -489,6 +511,10 @@ class SysPreDataOneToManyTest {
         return SysPreDataServiceImpl.inMode(LoadMode.APPEND, action);
     }
 
+    private static Serializable overwriting(Supplier<Serializable> action) {
+        return SysPreDataServiceImpl.inMode(LoadMode.OVERWRITE, action);
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> ArgumentCaptor<Map<String, T>> captor() {
         return ArgumentCaptor.forClass(Map.class);
@@ -496,14 +522,14 @@ class SysPreDataOneToManyTest {
 
     /**
      * The model metadata the load reads: each model's tenancy, its fields' types (which is how the
-     * OneToMany child list is told apart from the main row), the key type, and the updatable set the
-     * update branch nulls the absent members of.
+     * OneToMany child list is told apart from the main row), and the key type.
      */
     private static Serializable withMetadata(Supplier<Serializable> action) {
         // Built before the static mock is entered: stubbing a mock inside an unfinished
         // `mm.when(...)` is nested stubbing, which Mockito rejects.
         MetaField parentId = field(FieldType.LONG);
         MetaField parentLabel = field(FieldType.STRING);
+        MetaField parentDescription = field(FieldType.STRING);
         MetaField optionItems = relation(FieldType.ONE_TO_MANY, CHILD, CHILD_FK);
         MetaField childId = field(FieldType.LONG);
         MetaField childItemCode = field(FieldType.STRING);
@@ -518,17 +544,13 @@ class SysPreDataOneToManyTest {
             mm.when(() -> ModelManager.isMultiTenantModel(CHILD)).thenReturn(true);
             mm.when(() -> ModelManager.getModelField(PARENT, "id")).thenReturn(parentId);
             mm.when(() -> ModelManager.getModelField(PARENT, "label")).thenReturn(parentLabel);
+            mm.when(() -> ModelManager.getModelField(PARENT, "description")).thenReturn(parentDescription);
             mm.when(() -> ModelManager.getModelField(PARENT, "optionItems")).thenReturn(optionItems);
             mm.when(() -> ModelManager.getModelField(CHILD, "id")).thenReturn(childId);
             mm.when(() -> ModelManager.getModelField(CHILD, "itemCode")).thenReturn(childItemCode);
             mm.when(() -> ModelManager.getModelField(CHILD, CHILD_FK)).thenReturn(childFk);
             mm.when(() -> ModelManager.getIdStrategy(PARENT)).thenReturn(IdStrategy.DISTRIBUTED_LONG);
             mm.when(() -> ModelManager.getIdStrategy(CHILD)).thenReturn(IdStrategy.DISTRIBUTED_LONG);
-            // Mutable: the update branch removes the seeded keys from it in place.
-            mm.when(() -> ModelManager.getModelUpdatableFieldsWithoutXToMany(PARENT))
-                    .thenReturn(new HashSet<>(Set.of("label", "description")));
-            mm.when(() -> ModelManager.getModelUpdatableFieldsWithoutXToMany(CHILD))
-                    .thenReturn(new HashSet<>(Set.of("itemCode", "label")));
             return action.get();
         }
     }

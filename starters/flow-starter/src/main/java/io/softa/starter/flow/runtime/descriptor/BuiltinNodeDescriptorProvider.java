@@ -56,7 +56,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 // version control when the runtime lands.
                 structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Takes every edge whose condition holds, else the edge without a condition", "git-merge", 21, null),
                 structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null),
-                structural(FlowNodeType.PARALLEL_JOIN,     "Parallel Join",    "Waits for all forked branches",       "git-pull-request", 23, null),
+                structural(FlowNodeType.PARALLEL_JOIN,     "Join",             "Waits for the branches of a parallel fork, or those an inclusive gateway took, then goes on once", "git-pull-request", 23, null),
                 structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, scriptConfigSchema()),
                 // FOR_EACH is intentionally omitted: its runtime child-node iteration is not yet
                 // implemented and it is rejected at compile time. Restore this entry
@@ -108,10 +108,13 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                 "fields", ordered("variable", ordered("type", "variableRef", "label", "Variable", "required", true))),
                         ordered("type", "Expression", "label", "Expression",
                                 "fields", ordered("expression", ordered("type", "expression", "label", "Expression", "required", true))),
-                        ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)"),
+                        // No longer offered: both read a start variable the application must supply (most supply
+                        // none), and Supervisor relative to the submitter / Role query find the same people from the
+                        // organization. Listed so a step saved with one still shows it; the designer offers neither.
+                        ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)", "deprecated", true),
                         // Keys into the caller's role-approver map, which a built-in role's code names; another
                         // key may be typed.
-                        ordered("type", "Role", "label", "Role (variable)",
+                        ordered("type", "Role", "label", "Role (variable)", "deprecated", true,
                                 "fields", ordered("roleCode", ordered("type", "rolePicker", "label", "Role", "required", true,
                                         "valueField", "code", "allowCustom", true))),
                         // Org-relative sources start from the record's subject — the employee it is about — unless
@@ -145,10 +148,48 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 )));
         // These three are read into enums through Jackson, which takes each one's JSON value and nothing else: offer
         // that value, not the constant name (a chosen constant name made the whole config unreadable).
-        schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "Empty-approver strategy",
-                "options", List.of(EmptyApproverStrategy.ERROR.getType(), EmptyApproverStrategy.AUTO_APPROVE.getType(),
-                        EmptyApproverStrategy.SKIP.getType()),
-                "default", EmptyApproverStrategy.ERROR.getType()));
+        // What a step that finds nobody does, said for the source it finds people with (hintBy: the caption under the
+        // field, by the step's approverSource.type). Skip is no longer offered — it approves as AutoApprove does and
+        // leaves no trace in the history — and stays listed so a step saved with it still shows it.
+        String error = EmptyApproverStrategy.ERROR.getType();
+        String autoApprove = EmptyApproverStrategy.AUTO_APPROVE.getType();
+        String toRole = EmptyApproverStrategy.ASSIGN_TO_ROLE.getType();
+        String skip = EmptyApproverStrategy.SKIP.getType();
+        schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "If nobody is found",
+                "options", List.of(error, autoApprove, toRole, skip),
+                "deprecatedOptions", List.of(skip),
+                "optionLabels", ordered(error, "Stop and say why", autoApprove, "Approve automatically",
+                        toRole, "Assign to roles", skip, "Skip (not in the history)"),
+                "optionDescriptions", ordered(
+                        error, "A submission is refused with the reason. After an approval the instance fails, and its "
+                                + "submitter and the administrators are told.",
+                        autoApprove, "The step counts as approved; the history shows it was approved automatically.",
+                        toRole, "Anyone holding the roles below decides instead, not the submitter or the employee "
+                                + "the request is about.",
+                        skip, "The step is passed over with no trace in the history. No longer offered: use Approve "
+                                + "automatically."),
+                "hintBy", ordered("field", "approverSource.type",
+                        "hints", ordered(
+                                "Supervisor", "Applies when the employee has no manager at this level, or none above "
+                                        + "who can approve.",
+                                "DeptLeader", "Applies when the department and those above it have no leader who can "
+                                        + "approve.",
+                                "DeptHrbp", "Applies when the department and those above it have no HR business "
+                                        + "partner who can approve.",
+                                "RoleQuery", "Applies when nobody who can approve holds these roles.",
+                                "Position", "Applies when nobody who can approve holds these positions.",
+                                "Department", "Applies when these departments have nobody who can approve.",
+                                "VariableList", "Applies when the variable names nobody who can approve.",
+                                "Expression", "Applies when the expression names nobody who can approve."),
+                        "otherwise", "Applies when none of the approvers above can approve."),
+                "default", error));
+        // Who a step that finds nobody goes to under AssignToRole, as a role query names roles: ids reach the tenant's
+        // own roles, codes the built-in ones, the same in every tenant.
+        String assignToRole = EmptyApproverStrategy.ASSIGN_TO_ROLE.getType();
+        schema.put("emptyApproverRoleIds", ordered("type", "rolePicker", "label", "Assign to roles", "multiple", true,
+                "depends", Map.of("emptyApproverStrategy", assignToRole)));
+        schema.put("emptyApproverRoleCodes", ordered("type", "rolePicker", "label", "Assign to built-in roles",
+                "multiple", true, "valueField", "code", "depends", Map.of("emptyApproverStrategy", assignToRole)));
         // ── Vote thresholds ──────────────────────────────────────────────────
         String minCount = VoteThresholdMode.MIN_COUNT.getType();
         String percentage = VoteThresholdMode.PERCENTAGE.getType();

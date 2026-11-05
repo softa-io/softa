@@ -23,8 +23,11 @@ import io.softa.starter.message.inbox.enums.NotificationType;
  * tenant_id = -1 — platform-tier notification; tenant_id > 0 — tenant-scoped.
  */
 @Data
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, copyable = false, multiTenant = true)
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, copyable = false, multiTenant = true,
+        searchName = {"title", "content"})
 @Index(indexName = "idx_recipient_read", fields = {"recipientId", "isRead"})
+// A recipient's own list, newest first (POST /InboxNotification/mySearch).
+@Index(indexName = "idx_inbox_notif_recipient_time", fields = {"recipientId", "createdTime"})
 @Index(indexName = "idx_inbox_notif_tenant", fields = {"tenantId"})
 @EqualsAndHashCode(callSuper = true)
 public class InboxNotification extends AuditableModel {

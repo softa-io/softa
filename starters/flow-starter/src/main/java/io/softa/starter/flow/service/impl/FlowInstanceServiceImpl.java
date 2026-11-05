@@ -98,9 +98,11 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getDepartmentId),
             LambdaUtils.getAttributeName(FlowInstance::getEffectiveDate),
             LambdaUtils.getAttributeName(FlowInstance::getRecordCode),
+            LambdaUtils.getAttributeName(FlowInstance::getSummary),
             LambdaUtils.getAttributeName(FlowInstance::getSuperseded),
             LambdaUtils.getAttributeName(FlowInstance::getStatus),
             LambdaUtils.getAttributeName(FlowInstance::getFailedNodeId),
+            LambdaUtils.getAttributeName(FlowInstance::getRetryAfterNodeId),
             LambdaUtils.getAttributeName(FlowInstance::getNextFireAt),
             LambdaUtils.getAttributeName(FlowInstance::getCreatedTime),
             LambdaUtils.getAttributeName(FlowInstance::getUpdatedTime));
@@ -299,7 +301,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         }
         // The caller's own conditions narrow what the rest selects — the initiator pin included — never widen it.
         FlexQuery query = new FlexQuery(CallerConditions.and(filters, request.filters()),
-                CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowInstance::getCreatedTime)));
+                CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowInstance::getId)));
         query.select(INSTANCE_SUMMARY_FIELDS);
         Page<FlowInstance> page = Page.of(
                 request.pageNumber() == null ? 1 : request.pageNumber(),
@@ -377,7 +379,8 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         String nodeId = instance.getFailedNodeId();
         CompiledFlowNode node = nodeId == null || definition == null || definition.getNodeIndex() == null
                 ? null : definition.getNodeIndex().get(nodeId);
-        return new FlowRecordApprovalsView.Failure(nodeId, node == null ? null : node.getLabel(), instance.getErrorMessage());
+        return new FlowRecordApprovalsView.Failure(nodeId, node == null ? null : node.getLabel(), instance.getErrorMessage(),
+                StringUtils.hasText(instance.getRetryAfterNodeId()));
     }
 
     /** Names every user the history mentions — done once the caller is known to be allowed to see it. */

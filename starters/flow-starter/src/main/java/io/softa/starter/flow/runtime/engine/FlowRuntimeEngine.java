@@ -80,6 +80,14 @@ public interface FlowRuntimeEngine {
     FlowExecutionState terminate(FlowTerminateRequest request);
 
     /**
+     * Runs the steps after an approval again, as an administrator, for an instance that failed in them — authorized
+     * by the caller beforehand, as terminating is. The approval goes on from the step it failed after; should the
+     * steps fail again, the instance fails again. Refused for an instance that failed otherwise, and for a record
+     * no longer in that approval: taken back by its submitter, or submitted again.
+     */
+    FlowExecutionState retry(FlowRetryRequest request);
+
+    /**
      * Moves an approver's pending task to another approver, as an administrator — authorized by the caller
      * beforehand. Recorded as the approver's transfer with the administrator as its operator.
      */

@@ -23,6 +23,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
@@ -168,10 +169,25 @@ class FlowRecordApprovalsTest {
 
         FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
 
+        // Not after an approval: nothing to run again — its submitter takes the record back.
         assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager",
-                        "Approval node 'approval' resolved an empty approver list (strategy=ERROR)"),
+                        "Approval node 'approval' resolved an empty approver list (strategy=ERROR)", false),
                 history.getInstances().getFirst().getFailure());
         assertNull(history.getInstances().get(1).getFailure());
+    }
+
+    @Test
+    void anApprovalThatFailedInTheStepsAfterAnApprovalCanRunAgain() {
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
+        instance("failed", approval, true, FlowExecutionStatus.FAILED, LocalDateTime.of(2026, 10, 20, 9, 0), null);
+        instances.getLast().setFailedNodeId("approval");
+        instances.getLast().setRetryAfterNodeId("approval");
+        instances.getLast().setErrorMessage("Webhook answered 502");
+
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
+
+        assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager", "Webhook answered 502", true),
+                history.getInstances().getFirst().getFailure());
     }
 
     @Test
@@ -563,6 +579,35 @@ class FlowRecordApprovalsTest {
             assertThrows(FlowAuthorizationException.class,
                     () -> as(refused, () -> page.getRecordThroughApprovals(MODEL, ROW)));
         }
+    }
+
+    @Test
+    void eachApprovalInTheHistorySaysWhetherTheCallerMayOpenIt() {
+        resubmittedClaim();
+        FlowInstanceController page = recordPage();
+
+        // An approver of the earlier submission sees the history, but the approval in progress is not theirs to
+        // open: its detail would be refused them.
+        assertEquals(Map.of("second", false, "first", true), viewable(historyAs(EARLIER_APPROVER, page)));
+        assertEquals(Map.of("second", true, "first", false), viewable(historyAs(CURRENT_APPROVER, page)));
+        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(INITIATOR, page)));
+        // Roles that read the approvals' rows open them, as the monitoring console does.
+        when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("instanceId", "second")));
+        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(EARLIER_APPROVER, page)));
+        // Whoever reads the record opens them all.
+        when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.of(Map.of("id", 7L)));
+        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(READER, page)));
+    }
+
+    private static FlowRecordApprovalsView historyAs(String userId, FlowInstanceController page) {
+        return as(userId, () -> page.getRecordApprovals(MODEL, ROW)).getData();
+    }
+
+    private static Map<String, Boolean> viewable(FlowRecordApprovalsView history) {
+        Map<String, Boolean> viewable = new LinkedHashMap<>();
+        history.getInstances().forEach(instance -> viewable.put(instance.getInstanceId(), instance.isViewable()));
+        return viewable;
     }
 
     /**

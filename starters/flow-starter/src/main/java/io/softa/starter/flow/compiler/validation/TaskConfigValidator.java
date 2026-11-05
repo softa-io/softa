@@ -74,7 +74,7 @@ public class TaskConfigValidator implements FlowValidator {
         }
         if (node.getConfig() == null || node.getConfig().isEmpty()) {
             d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), MISSING_TASK_CONFIG,
-                    "Task node '" + node.getId() + "' of type '" + node.getType().getType()
+                    "Task node '" + node.displayName() + "' of type '" + node.getType().getType()
                             + "' must define config"));
         }
     }
@@ -90,63 +90,80 @@ public class TaskConfigValidator implements FlowValidator {
             // Absent config is reported by validateConfigPresence (for the required-config types).
             return;
         }
+        String at = inputPath(node);
         Object dto;
         try {
             dto = BeanTool.objectToObject(input, configType);
         } catch (RuntimeException e) {
             d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), INVALID_TASK_CONFIG,
-                    "Task node '" + node.getId() + "' has malformed config.input: " + e.getMessage()));
+                    "Task node '" + node.displayName() + "' has malformed "
+                            + at.substring(0, at.length() - 1) + ": " + e.getMessage()));
             return;
         }
         switch (dto) {
             case CreateDataConfig c -> {
-                requireText(node, "config.input.modelName", c.getModelName(), d);
-                requireMap(node, "config.input.rowTemplate", c.getRowTemplate(), d);
+                requireText(node, at + "modelName", c.getModelName(), d);
+                requireMap(node, at + "rowTemplate", c.getRowTemplate(), d);
             }
             case UpdateDataConfig u -> {
-                requireText(node, "config.input.modelName", u.getModelName(), d);
-                requireMap(node, "config.input.rowTemplate", u.getRowTemplate(), d);
+                requireText(node, at + "modelName", u.getModelName(), d);
+                requireMap(node, at + "rowTemplate", u.getRowTemplate(), d);
             }
             case GetDataConfig g -> {
-                requireText(node, "config.input.modelName", g.getModelName(), d);
-                requireText(node, "config.input.getDataType", g.getGetDataType(), d);
+                requireText(node, at + "modelName", g.getModelName(), d);
+                requireText(node, at + "getDataType", g.getGetDataType(), d);
             }
-            case DeleteDataConfig del -> requireText(node, "config.input.modelName", del.getModelName(), d);
-            case QueryRecordsConfig q -> requireText(node, "config.input.modelName", q.getModelName(), d);
+            case DeleteDataConfig del -> requireText(node, at + "modelName", del.getModelName(), d);
+            case QueryRecordsConfig q -> requireText(node, at + "modelName", q.getModelName(), d);
             case CallServiceConfig cs -> {
-                requireText(node, "config.input.beanName", cs.getBeanName(), d);
-                requireText(node, "config.input.methodName", cs.getMethodName(), d);
-                validateArgTypesArity(node, cs, d);
+                requireText(node, at + "beanName", cs.getBeanName(), d);
+                requireText(node, at + "methodName", cs.getMethodName(), d);
+                validateArgTypesArity(node, at, cs, d);
             }
             case SendSmsConfig sms -> {
-                requirePresent(node, "config.input.phoneNumbers", sms.getPhoneNumbers(), d);
+                requirePresent(node, at + "phoneNumbers", sms.getPhoneNumbers(), d);
                 if (!StringUtils.hasText(sms.getContent()) && !StringUtils.hasText(sms.getTemplateCode())) {
                     d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(),
-                            "config.input.content", MISSING_REQUIRED_INPUT, "Task node '" + node.getId()
-                                    + "' requires config.input.content or config.input.templateCode"));
+                            at + "content", MISSING_REQUIRED_INPUT, "Task node '" + node.displayName()
+                                    + "' requires " + at + "content or " + at + "templateCode"));
                 }
             }
-            case SendEmailConfig mail -> requirePresent(node, "config.input.to", mail.getTo(), d);
+            case SendEmailConfig mail -> requirePresent(node, at + "to", mail.getTo(), d);
             case SendInboxNotificationConfig inbox -> {
-                requirePresent(node, "config.input.recipientIds", inbox.getRecipientIds(), d);
-                requireText(node, "config.input.title", inbox.getTitle(), d);
-                requireText(node, "config.input.content", inbox.getContent(), d);
+                requirePresent(node, at + "recipientIds", inbox.getRecipientIds(), d);
+                requireText(node, at + "title", inbox.getTitle(), d);
+                requireText(node, at + "content", inbox.getContent(), d);
             }
-            case GenerateFileConfig file -> requirePresent(node, "config.input.templateId", file.getTemplateId(), d);
+            case GenerateFileConfig file -> requirePresent(node, at + "templateId", file.getTemplateId(), d);
             case ValidateDataConfig v -> {
-                requireText(node, "config.input.expression", v.getExpression(), d);
-                requireText(node, "config.input.exceptionMsg", v.getExceptionMsg(), d);
+                requireText(node, at + "expression", v.getExpression(), d);
+                requireText(node, at + "exceptionMsg", v.getExceptionMsg(), d);
             }
             case ExtractTransformConfig t -> {
-                requireText(node, "config.input.collectionVariable", t.getCollectionVariable(), d);
-                requireText(node, "config.input.itemKey", t.getItemKey(), d);
+                requireText(node, at + "collectionVariable", t.getCollectionVariable(), d);
+                requireText(node, at + "itemKey", t.getItemKey(), d);
             }
-            case QueryAiConfig ai -> requireText(node, "config.input.queryContent", ai.getQueryContent(), d);
-            case WebHookConfig hook -> requireText(node, "config.input.url", hook.getUrl(), d);
+            case QueryAiConfig ai -> requireText(node, at + "queryContent", ai.getQueryContent(), d);
+            case WebHookConfig hook -> requireText(node, at + "url", hook.getUrl(), d);
             case AsyncTaskConfig async ->
-                    requireText(node, "config.input.asyncTaskHandlerCode", async.getAsyncTaskHandlerCode(), d);
+                    requireText(node, at + "asyncTaskHandlerCode", async.getAsyncTaskHandlerCode(), d);
             default -> { /* no DTO-specific rules */ }
         }
+    }
+
+    /**
+     * Where a task node's input fields sit, for the diagnostics: under {@code input} when the design nests them, else
+     * at the top level beside the node's own keys, as the designer writes them — in either case inside {@code task}
+     * when the config wraps itself in one.
+     */
+    private static String inputPath(FlowGraphNode node) {
+        Map<?, ?> config = node.getConfig();
+        String base = "config.";
+        if (config != null && config.get("task") instanceof Map<?, ?> task) {
+            config = task;
+            base = "config.task.";
+        }
+        return config != null && config.get("input") instanceof Map<?, ?> ? base + "input." : base;
     }
 
     private Map<String, Object> extractInput(FlowGraphNode node) {
@@ -154,14 +171,14 @@ public class TaskConfigValidator implements FlowValidator {
         return parsed instanceof TaskNodeConfig tnc ? tnc.getInput() : null;
     }
 
-    private void validateArgTypesArity(FlowGraphNode node, CallServiceConfig cs, List<CompileDiagnostic> d) {
+    private void validateArgTypesArity(FlowGraphNode node, String at, CallServiceConfig cs, List<CompileDiagnostic> d) {
         if (cs.getArgTypes() == null) {
             return;
         }
         int argCount = cs.getArgs() == null ? 0 : cs.getArgs().size();
         if (cs.getArgTypes().size() != argCount) {
-            d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), "config.input.argTypes",
-                    ARG_TYPES_ARITY, "Task node '" + node.getId() + "' argTypes length ("
+            d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), at + "argTypes",
+                    ARG_TYPES_ARITY, "Task node '" + node.displayName() + "' argTypes length ("
                             + cs.getArgTypes().size() + ") must match args length (" + argCount + ")"));
         }
     }
@@ -169,14 +186,14 @@ public class TaskConfigValidator implements FlowValidator {
     private void requireText(FlowGraphNode node, String field, String value, List<CompileDiagnostic> d) {
         if (!StringUtils.hasText(value)) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field,
-                    MISSING_REQUIRED_INPUT, "Task node '" + node.getId() + "' requires " + field));
+                    MISSING_REQUIRED_INPUT, "Task node '" + node.displayName() + "' requires " + field));
         }
     }
 
     private void requireMap(FlowGraphNode node, String field, Map<?, ?> value, List<CompileDiagnostic> d) {
         if (value == null || value.isEmpty()) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field,
-                    MISSING_REQUIRED_INPUT, "Task node '" + node.getId() + "' requires " + field));
+                    MISSING_REQUIRED_INPUT, "Task node '" + node.displayName() + "' requires " + field));
         }
     }
 
@@ -193,7 +210,7 @@ public class TaskConfigValidator implements FlowValidator {
         };
         if (!present) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field,
-                    MISSING_REQUIRED_INPUT, "Task node '" + node.getId() + "' requires " + field));
+                    MISSING_REQUIRED_INPUT, "Task node '" + node.displayName() + "' requires " + field));
         }
     }
 }
