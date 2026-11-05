@@ -303,6 +303,19 @@ class OffBoardAndReviveTest {
     }
 
     @Test
+    void offBoarding_dropsTheAccountsPushDevices() {
+        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+        UserAccount membership = account(AccountStatus.ACTIVE, null, null);
+        workContacts(null, null);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
+
+        accountService.offBoardWith(membership);
+
+        verify(devices).unregisterAccount(ACCOUNT);
+    }
+
+    @Test
     void offBoard_writesTheClearedEmail() {
         // A null the default update overload would drop.
         UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", null);

@@ -163,7 +163,8 @@ public class SessionStore {
     }
 
     /**
-     * Read a session and slide its expiry when it is due. Empty when it does not exist or expired.
+     * Read a session and slide its expiry when it is due, announcing the slide with a
+     * {@link SessionRenewedEvent}. Empty when it does not exist or expired.
      */
     public Optional<SessionRecord> touch(String sessionId) {
         Optional<SessionRecord> session = this.peek(sessionId);
@@ -172,6 +173,7 @@ public class SessionStore {
             if (left >= 0 && left < SLIDE_BELOW_SECONDS) {
                 cacheService.expire(sessionKey(sessionId), TTL_SECONDS);
                 cacheService.expire(accountKey(s.accountId()), TTL_SECONDS);
+                eventPublisher.publishEvent(new SessionRenewedEvent(sessionId, s));
             }
         });
         return session;

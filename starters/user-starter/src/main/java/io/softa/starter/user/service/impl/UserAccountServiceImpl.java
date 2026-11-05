@@ -698,9 +698,11 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             account.setClosedEmail(account.getEmail());
             account.setEmail(null);
         }
-        // ⑤ Close the membership, and every session signed into it: a closed account may be reopened
-        // for someone else, and a session left alive would be theirs the moment they join.
+        // ⑤ Close the membership, stop its devices receiving the company's notifications, and end
+        // every session signed into it: a closed account may be reopened for someone else, and a
+        // session left alive would be theirs the moment they join.
         account.setStatus(AccountStatus.DEACTIVATED);
+        this.unregisterDevices(account.getId());
         this.logStatusChange(account, previous, AccountStatus.DEACTIVATED, SecurityLogSource.SYSTEM, null);
         sessionService.revokeAccount(account.getId(), SessionRevokeReason.ORG_UNAVAILABLE);
         return true;
@@ -994,6 +996,19 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 identity.setLoginMobile(taken ? null : next);
                 identityService.updateLoginMobile(identity.getId(), identity.getLoginMobile());
             });
+        }
+    }
+
+    /**
+     * Drop the push registrations of an account that can no longer be entered: a device that never
+     * asks again would otherwise go on receiving the company's notifications. Once the freeze or
+     * closure commits, and never at its expense — a registry that fails leaves a device notified a
+     * while longer, not an account left open.
+     */
+    private void unregisterDevices(Long accountId) {
+        if (pushDeviceRegistry != null && accountId != null) {
+            AfterCommit.run("Dropping the push devices of account " + accountId,
+                    () -> pushDeviceRegistry.unregisterAccount(accountId));
         }
     }
 
@@ -1558,6 +1573,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         AccountStatus previous = user.getStatus();
         user.setStatus(AccountStatus.FROZEN);
         this.updateOne(user);
+        this.unregisterDevices(user.getId());
         this.logStatusChange(user, previous, AccountStatus.FROZEN, SecurityLogSource.USER_ACCOUNTS, reason);
         log.info("Account {} frozen. Reason: {}", userId, reason);
     }

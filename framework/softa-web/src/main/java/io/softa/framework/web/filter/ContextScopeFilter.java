@@ -123,10 +123,7 @@ public class ContextScopeFilter implements Filter {
                     ApiResponseErrorDetails.exception(ResponseCode.USER_NOT_FOUND, e.getMessage())
                             .withErrorCode(e.getErrorCode(), e.getErrorDetails());
             redirectResponse.setMessage(e.getMessage());
-            String jsonResponse = JsonUtils.objectToString(redirectResponse);
-            response.setStatus(HttpServletResponse.SC_OK);
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            response.getWriter().write(jsonResponse);
+            writeError(response, redirectResponse);
         } catch (IOException io) {
             log.error("User not found", io);
         }
@@ -136,9 +133,17 @@ public class ContextScopeFilter implements Filter {
      * Send error response as JSON.
      */
     private void responseError(HttpServletResponse response, ResponseCode code, String message) throws IOException {
+        writeError(response, ApiResponseErrorDetails.exception(code, message));
+    }
+
+    /**
+     * Write an error the way a filter answers before any controller runs: HTTP 200 with the error in
+     * the JSON body, as the exception handler does for a controller. For other filters that refuse a
+     * request, so every refusal reaches the client in one shape.
+     */
+    public static void writeError(HttpServletResponse response, ApiResponseErrorDetails<?> body) throws IOException {
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        ApiResponseErrorDetails<Void> apiResponse = ApiResponseErrorDetails.exception(code, message);
-        response.getWriter().write(JsonUtils.objectToString(apiResponse));
+        response.getWriter().write(JsonUtils.objectToString(body));
     }
 }
