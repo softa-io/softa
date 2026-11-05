@@ -94,6 +94,17 @@ class DormantLoginMobileTest {
         assertThat(accountService.releaseDormantLoginMobile(NUMBER, "Join")).isFalse();
     }
 
+    @Test
+    void askingWhetherANumberIsDormant_releasesNothing() {
+        UserIdentity identity = holder();
+        doReturn(List.of()).when(accountService).listMembershipsOf(LEAVER);
+
+        assertThat(accountService.isDormantLoginMobile(NUMBER)).isTrue();
+
+        assertThat(identity.getLoginMobile()).isEqualTo(NUMBER);
+        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+    }
+
     /** The security-log row of this action that was written. */
     private UserSecurityLog logged(SecurityAction action) {
         org.mockito.ArgumentCaptor<UserSecurityLog> rows = org.mockito.ArgumentCaptor.forClass(UserSecurityLog.class);

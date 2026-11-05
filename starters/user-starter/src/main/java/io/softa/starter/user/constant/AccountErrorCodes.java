@@ -49,6 +49,10 @@ public final class AccountErrorCodes {
     public static final String PASSWORD_ALREADY_SET = "PASSWORD_ALREADY_SET";
     /** The APP asked to enter a company before setting the first password it owes. */
     public static final String PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
+    /** A step ticket of a self-service change (password, login mobile) expired, was used, or is not this step's. */
+    public static final String TICKET_EXPIRED = "TICKET_EXPIRED";
+    /** The person has no login mobile, so no code can be sent to it. */
+    public static final String MOBILE_NOT_SET = "MOBILE_NOT_SET";
     /** A consultant tried to sign in on the APP; consultant accounts sign in on the web only. */
     public static final String CONSULTANT_APP_UNSUPPORTED = "CONSULTANT_APP_UNSUPPORTED";
     /** A platform account tried to sign in on the APP; platform accounts sign in on the web only. */

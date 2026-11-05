@@ -49,6 +49,33 @@ public class JoinMobileFormat {
                 "+" + country.getDialCode() + " " + maskNational(national));
     }
 
+    /**
+     * The whole number, readable: "+86 13312345678" — the dial code, a space, the national number.
+     * For where the person is told their own numbers in full, never for logs or lists (those take
+     * {@link #mask}). A number with no recognised dial code comes back as stored.
+     */
+    public String spaced(String mobile) {
+        if (StringUtils.isBlank(mobile)) {
+            return null;
+        }
+        String digits = mobile.replaceAll("[^0-9]", "");
+        CountryRegion country = this.countryOf(digits);
+        return country == null ? mobile : "+" + country.getDialCode() + " " + digits.substring(country.getDialCode().length());
+    }
+
+    /**
+     * The number after its country's dial code — "91234567" for "+6591234567" — or null when no
+     * country's dial code prefixes it.
+     */
+    public String nationalNumber(String mobile) {
+        if (StringUtils.isBlank(mobile)) {
+            return null;
+        }
+        String digits = mobile.replaceAll("[^0-9]", "");
+        CountryRegion country = this.countryOf(digits);
+        return country == null ? null : digits.substring(country.getDialCode().length());
+    }
+
     /** The country whose dial code is the longest prefix of the digits. */
     private CountryRegion countryOf(String digits) {
         List<CountryRegion> countries;

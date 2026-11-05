@@ -166,6 +166,15 @@ public interface CacheService {
     void addToSet(String key, String member, int expireSeconds);
 
     /**
+     * Add a member to a set that may hold at most {@code maxSize} members, in one atomic step: of two
+     * callers racing for the last place, exactly one gets it. A member already present is accepted
+     * without counting again. The set expires {@code expireSeconds} after its first member.
+     *
+     * @return whether the member is in the set now; false when it was full
+     */
+    boolean addToBoundedSet(String key, String member, int maxSize, int expireSeconds);
+
+    /**
      * Remove a member from a set. Removing the last member removes the set.
      *
      * @param key    set key
