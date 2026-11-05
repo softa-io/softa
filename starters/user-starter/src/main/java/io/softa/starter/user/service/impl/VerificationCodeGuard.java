@@ -1,5 +1,6 @@
 package io.softa.starter.user.service.impl;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.starter.user.constant.AccountErrorCodes;
 
 /**
  * The abuse limits around one-time verification codes, in one place.
@@ -37,7 +39,7 @@ import io.softa.framework.orm.service.CacheService;
 @RequiredArgsConstructor
 public class VerificationCodeGuard {
 
-    /** Codes are 6 digits and live 5 minutes (PRD D2). */
+    /** Codes are 6 digits and live 5 minutes. */
     public static final int CODE_LENGTH = 6;
     public static final int CODE_TTL_SECONDS = 300;
 
@@ -54,6 +56,16 @@ public class VerificationCodeGuard {
 
     private final CacheService cacheService;
 
+    /** The per-address budget shared with password attempts; absent in a bare unit test. */
+    @Autowired(required = false)
+    private AddressAttemptLimiter addressLimiter;
+
+    private void countAddress() {
+        if (addressLimiter != null) {
+            addressLimiter.count();
+        }
+    }
+
     private static String key(String suffix, String identifier) {
         return RedisConstant.VERIFICATION_CODE + suffix + ":" + identifier;
     }
@@ -69,17 +81,18 @@ public class VerificationCodeGuard {
      * @throws BusinessException when banned, too soon, or over the daily cap
      */
     public void beforeSend(String identifier) {
+        countAddress();
         requireNotBanned(identifier);
 
         String cooldownKey = key("cooldown", identifier);
         if (cacheService.get(cooldownKey) != null) {
-            throw new BusinessException("Too many requests. Try again later.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.TOO_MANY_REQUESTS, "Too many requests. Try again later.");
         }
         // Increment BEFORE sending: an over-cap request must not consume the provider quota it
         // is about to be refused for.
         Long today = cacheService.increment(key("daily", identifier), DAY_SECONDS);
         if (today != null && today > DAILY_SEND_LIMIT) {
-            throw new BusinessException("Too many requests. Try again later.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.TOO_MANY_REQUESTS, "Too many requests. Try again later.");
         }
         cacheService.save(cooldownKey, "1", SEND_INTERVAL_SECONDS);
     }
@@ -101,11 +114,13 @@ public class VerificationCodeGuard {
      *         "wrong" from "this code is now dead, request a new one", because the remedies differ)
      */
     public void verify(String identifier, String submitted) {
+        countAddress();
         requireNotBanned(identifier);
 
         String expected = cacheService.get(key("code", identifier));
         if (expected == null) {
-            throw new BusinessException("This code has expired. Please request a new one.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_EXPIRED,
+                    "This code has expired. Please request a new one.");
         }
         if (expected.equals(submitted)) {
             // Success clears both counters: the consecutive one exists to catch a run of
@@ -122,22 +137,22 @@ public class VerificationCodeGuard {
             cacheService.clear(key("code", identifier));
             log.warn("Verification temporarily banned for an identifier after {} consecutive failures.",
                     consecutive);
-            throw new BusinessException(
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_BLOCKED,
                     "Too many attempts. Verification is temporarily unavailable — try again in 30 minutes.");
         }
 
         Long attempts = cacheService.increment(key("attempts", identifier), CODE_TTL_SECONDS);
         if (attempts != null && attempts >= ATTEMPTS_PER_CODE) {
             cacheService.clear(key("code", identifier));
-            throw new BusinessException(
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_INVALIDATED,
                     "Too many incorrect attempts. This code is no longer valid — please request a new one.");
         }
-        throw new BusinessException("Incorrect code. Please try again.");
+        throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_INCORRECT, "Incorrect code. Please try again.");
     }
 
     private void requireNotBanned(String identifier) {
         if (cacheService.get(key("ban", identifier)) != null) {
-            throw new BusinessException(
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_BLOCKED,
                     "Too many attempts. Verification is temporarily unavailable — try again in 30 minutes.");
         }
     }

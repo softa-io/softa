@@ -58,10 +58,14 @@ class JoinContactSpellingTest {
     private final UserInvitationServiceImpl realInvitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
             mock(VerificationCodeGuard.class), siteAt("http://localhost")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(realInvitationService);
 
     JoinContactSpellingTest() {
         ReflectionTestUtils.setField(profileService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
+        ReflectionTestUtils.setField(loginService, "history", mock(LoginHistoryRecorder.class));
+        ReflectionTestUtils.setField(loginService, "mobileFormat", InvitationServiceTestSupport.mobileFormat());
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);

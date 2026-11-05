@@ -38,6 +38,8 @@ class MustSetMyPasswordTest {
     private final ConsultantService consultantService =
             mock(ConsultantService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
     /** The memberships the exemption is decided from — see {@code holdsOnlyConsultantMemberships}. */
     private final UserAccountService memberships = mock(UserAccountService.class);
 

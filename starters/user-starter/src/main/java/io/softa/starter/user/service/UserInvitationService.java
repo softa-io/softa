@@ -29,12 +29,24 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     void revokeInvitation(Long userId);
 
     /**
+     * Invalidate every invitation link of this account that has not been used yet, leaving the
+     * account's status alone. For an account being closed: its links must stop working with it.
+     */
+    void revokeOutstandingLinks(Long userId);
+
+    /**
      * The /join entry check — whether this token may proceed to identity verification, and if not,
-     * why (PRD §3.0's five ordered conditions).
+     * why (five conditions, asked in order).
      *
      * <p>Public: called before any session exists, by whoever opened the link.
      */
     JoinEntry inspectJoinToken(String rawToken);
+
+    /**
+     * Whether this token is an Unbind &amp; Re-invite link. The membership exists already, so the
+     * flow ends when the password is set: no confirm-join step.
+     */
+    boolean isRebindLink(String rawToken);
 
     /**
      * Resolves the PLAINTEXT address the invitation names, for the caller to send a code to.
@@ -87,6 +99,12 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     void confirmJoin(String rawToken, Long profileId, String proof);
 
     /**
+     * Whether {@code profileId} is only the placeholder person created together with this account —
+     * no password, nothing else joined — whom /join may replace with the person it verified.
+     */
+    boolean isPlaceholderPerson(Long profileId, Long accountId);
+
+    /**
      * Issue (or re-issue) an INVITE token for a user and email the set-password link. Any prior
      * PENDING token for the user is revoked so only the newest link works.
      *
@@ -96,7 +114,7 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     void invite(Long userId, Long invitedBy);
 
     /**
-     * Unbind a membership from the person it was wrongly bound to, and re-invite it (W5 / B8).
+     * Unbind a membership from the person it was wrongly bound to, and re-invite it.
      *
      * <p>The remedy for a mis-binding: an invitation went to the wrong address, someone else
      * accepted it, and the membership now belongs to a person who should never have had it.

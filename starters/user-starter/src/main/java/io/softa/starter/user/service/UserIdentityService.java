@@ -1,6 +1,7 @@
 package io.softa.starter.user.service;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -77,7 +78,7 @@ public interface UserIdentityService extends EntityService<UserIdentity, Long> {
     boolean matchesPassword(UserIdentity identity, String rawPassword);
 
     /**
-     * Whether PASSWORD login is currently locked for this person (PRD D5 / A8).
+     * Whether PASSWORD login is currently locked for this person.
      *
      * <p>The lock is a property of the PERSON, so it covers every company they belong to at once —
      * that is the "linked lockout across tenants" requirement, and it falls out of the credential
@@ -101,7 +102,7 @@ public interface UserIdentityService extends EntityService<UserIdentity, Long> {
      */
     Set<Long> findPasswordLockedProfiles(Collection<Long> profileIds);
 
-    /** Consecutive wrong passwords that lock the password route (PRD D5). */
+    /** Consecutive wrong passwords that lock the password route. */
     int FAILURES_BEFORE_LOCK = 10;
 
     /**
@@ -147,6 +148,29 @@ public interface UserIdentityService extends EntityService<UserIdentity, Long> {
 
     /** Forget the failure count — a successful login, or a new password, ends the window. */
     void clearPasswordFailures(Long identityId);
+
+    /**
+     * Writes ONLY the named columns of one credential row; every other column is left as the
+     * database has it.
+     *
+     * <p>The way to change a credential row. Reading the row, changing a field and writing the
+     * object back ({@code updateOne(identity, false)}) also writes every column the caller did not
+     * mean to touch, with the values it read: a password changed elsewhere between that read and
+     * that write is silently put back to the old hash. Writes on this row come from login, from
+     * self-service, from HR and from off-boarding at once, so that interleaving is ordinary.
+     *
+     * <p>A {@code null} value is written as {@code null} — clearing a lock or a login mobile is
+     * one of the writes this exists for.
+     *
+     * @param fields field name to value; field names as {@code LambdaUtils.getAttributeName} gives them
+     */
+    void updateFields(Long identityId, Map<String, Object> fields);
+
+    /** Clears the password lock, and nothing else, on one credential row. */
+    void clearPasswordLock(Long identityId);
+
+    /** Sets (or, with {@code null}, clears) the login mobile, and nothing else, on one credential row. */
+    void updateLoginMobile(Long identityId, String loginMobile);
 
     /** Hashes and stores a new password on the person's credentials, with a fresh salt. */
     void setPassword(Long identityId, String rawPassword);

@@ -5,20 +5,25 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.security.PasswordUtils;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
@@ -26,6 +31,9 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.service.ConsultantService;
+import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.util.LoginIdentifiers;
 
@@ -48,11 +56,28 @@ import io.softa.starter.user.util.LoginIdentifiers;
 public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Long>
         implements UserIdentityService {
 
-    /** Consecutive wrong passwords that lock the password path (PRD D5). */
+    /** Consecutive wrong passwords that lock the password path. */
     /** How long it stays locked. */
     private static final int LOCK_MINUTES = 30;
 
+    private static final String ID = LambdaUtils.getAttributeName(UserIdentity::getId);
+    private static final String PASSWORD = LambdaUtils.getAttributeName(UserIdentity::getPassword);
+    private static final String PASSWORD_SALT = LambdaUtils.getAttributeName(UserIdentity::getPasswordSalt);
+    private static final String PASSWORD_LOCKED_UNTIL =
+            LambdaUtils.getAttributeName(UserIdentity::getPasswordLockedUntil);
+    private static final String LOGIN_MOBILE = LambdaUtils.getAttributeName(UserIdentity::getLoginMobile);
+
     private final CacheService cacheService;
+
+    /** @Lazy: the account service reads credentials through this one. */
+    @Autowired
+    @Lazy
+    private UserAccountService accountService;
+
+    /** @Lazy for the same reason; only asked whether a person is a consultant. */
+    @Autowired
+    @Lazy
+    private ConsultantService consultantService;
 
     private static String failureKey(Long identityId) {
         return "login:pwd-failures:" + identityId;
@@ -89,47 +114,49 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
     @CrossTenant
     @Override
     public Optional<UserIdentity> findByLoginIdentifier(String identifier) {
-        // Same spelling the seeding wrote and the unknown counter hashes — see LoginIdentifiers.
-        // The mobile column is also asked for the typed spelling, because rows seeded before the
-        // separator fold hold it and nothing rewrites them (loginSpellings).
         List<String> mobileSpellings = LoginIdentifiers.loginSpellings(identifier);
         identifier = LoginIdentifiers.normalize(identifier);
         if (identifier == null) {
             return Optional.empty();
         }
-        // Both are tried rather than guessing by shape ("@" or "+"): a caller that guessed wrong
-        // would report "no such account" for an account that exists.
-        //
-        // Both are ALWAYS run, even once the email query has hit. Returning early on a hit makes a
-        // known email cost one query and an unknown one two — a difference an observer with a
-        // stopwatch and two identifiers can read at the anonymous login form, however identical the
-        // refusals are worded. Paying the second query on a hit is what keeps the timing flat, and
-        // it is done here so every caller gets it rather than each remembering to.
-        Optional<UserIdentity> byEmail = this.searchOneIdentifier(
-                new Filters().eq(UserIdentity::getLoginEmail, identifier), identifier);
-        Optional<UserIdentity> byMobile = this.searchOneIdentifier(
+        if (identifier.contains("@")) {
+            return this.findByEnterpriseEmail(identifier);
+        }
+        return this.searchOneIdentifier(
                 new Filters().in(UserIdentity::getLoginMobile, mobileSpellings), identifier);
-        return byEmail.isPresent() ? byEmail : byMobile;
     }
 
     /**
-     * One identity for this identifier, refusing loudly when several rows claim it.
+     * The person an email signs in: the one whose JOINED account carries it as the enterprise email,
+     * in any tenant. {@code login_email} on the identity is no longer read — it was a copy of a work
+     * email that went stale the moment the account's email changed, and off-boarding had to release
+     * it by hand. Reading the account instead makes a closed account's email stop signing anyone in
+     * by itself.
      *
-     * <p>The unique indexes on the identifier columns (see {@link UserIdentity}) make more than one
-     * row impossible at the database level, so this is defence-in-depth rather than the primary
-     * guard. If it ever did happen — a partially-applied migration, a manual write — the raw
-     * {@code searchOne} throws an {@code IllegalArgumentException} carrying the filter, which at an
-     * anonymous login endpoint would surface as a server error quoting somebody's address.
-     * Translated here to a refusal instead: ambiguous is not "pick one", because picking would mean
-     * signing someone in as a person who merely shares their phone number.
+     * <p>Consultants keep the old route: a consultant's address is their own, not a company's, and
+     * until a grant mints an account there is no account to carry it.
      */
+    private Optional<UserIdentity> findByEnterpriseEmail(String email) {
+        Set<Long> people = accountService.findJoinedProfilesByEmail(email);
+        if (people.size() > 1) {
+            log.error("Enterprise email is held by several people's joined accounts. Refusing to guess.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CONTACT_SHARED, "This contact is shared by "
+                    + "more than one account. Please contact your administrator.");
+        }
+        if (people.size() == 1) {
+            return this.findByProfile(people.iterator().next());
+        }
+        return this.searchOneIdentifier(new Filters().eq(UserIdentity::getLoginEmail, email), email)
+                .filter(identity -> consultantService.isConsultant(identity.getProfileId()));
+    }
+
     private Optional<UserIdentity> searchOneIdentifier(Filters filters, String identifier) {
         try {
             return this.searchOne(filters);
         } catch (IllegalArgumentException e) {
             log.error("Login identifier is not unique — several people claim it. Refusing to guess.");
-            throw new BusinessException("This contact is shared by more than one account. "
-                    + "Please contact your administrator.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CONTACT_SHARED, "This contact is shared by "
+                    + "more than one account. Please contact your administrator.");
         }
     }
 
@@ -184,18 +211,15 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         // Enforced HERE rather than at each call site: invitation-accept, forced set-password,
         // self-service change and admin reset all land in this method, and a rule that every
         // caller must remember to apply is a rule that one of them eventually will not.
-        // Checked against the person's OWN identifiers — that is what makes "not derived from
-        // your contact details" mean anything (PRD D4).
-        PasswordPolicy.validate(rawPassword, identity.getLoginMobile(), identity.getLoginEmail());
+        PasswordPolicy.validate(rawPassword);
         String salt = PasswordUtils.generateSalt();
-        identity.setPasswordSalt(salt);
-        identity.setPassword(PasswordUtils.hashPassword(rawPassword, salt));
         // A new password ends the window AND the lock: the guesses were against the old password,
         // and leaving the lock standing would mean someone who reset theirs still cannot use it.
-        // updateOne(entity, false) because clearing the lock means writing a null, which the
-        // default overload drops.
-        identity.setPasswordLockedUntil(null);
-        this.updateOne(identity, false);
+        Map<String, Object> fields = new HashMap<>();
+        fields.put(PASSWORD_SALT, salt);
+        fields.put(PASSWORD, PasswordUtils.hashPassword(rawPassword, salt));
+        fields.put(PASSWORD_LOCKED_UNTIL, null);
+        this.updateFields(identity.getId(), fields);
         this.clearPasswordFailures(identityId);
     }
 
@@ -241,14 +265,43 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         if (failures < FAILURES_BEFORE_LOCK) {
             return failures;
         }
-        identity.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(LOCK_MINUTES));
-        this.updateOne(identity);
+        LocalDateTime lockedUntil = LocalDateTime.now().plusMinutes(LOCK_MINUTES);
+        identity.setPasswordLockedUntil(lockedUntil);
+        this.updateFields(identity.getId(), Map.of(PASSWORD_LOCKED_UNTIL, lockedUntil));
         // Counter cleared with the lock, so the next window starts fresh when it expires —
         // otherwise one wrong password after unlocking would immediately re-lock.
         this.clearPasswordFailures(identity.getId());
         log.warn("Password login locked for {} minutes after {} consecutive failures (identity {}).",
                 LOCK_MINUTES, failures, identity.getId());
         return failures;
+    }
+
+    @Override
+    public void updateFields(Long identityId, Map<String, Object> fields) {
+        if (identityId == null) {
+            throw new IllegalArgumentException("Credential row id is required.");
+        }
+        if (fields.isEmpty()) {
+            return;
+        }
+        // HashMap rather than Map.of: the values carry nulls on purpose.
+        Map<String, Object> row = new HashMap<>(fields);
+        row.put(ID, identityId);
+        modelService.updateOne(modelName, row);
+    }
+
+    @Override
+    public void clearPasswordLock(Long identityId) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put(PASSWORD_LOCKED_UNTIL, null);
+        this.updateFields(identityId, fields);
+    }
+
+    @Override
+    public void updateLoginMobile(Long identityId, String loginMobile) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put(LOGIN_MOBILE, loginMobile);
+        this.updateFields(identityId, fields);
     }
 
     /*

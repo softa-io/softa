@@ -63,6 +63,8 @@ class ForgotPasswordScopeTest {
     private final UserInvitationServiceImpl service = spy(new UserInvitationServiceImpl(
             accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
             codeGuard, siteAt("https://app.example.test")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(service);
 
     ForgotPasswordScopeTest() {
         // The inherited ORM surface: this test is about whether a token is issued, not how it is stored.
@@ -163,6 +165,21 @@ class ForgotPasswordScopeTest {
 
         assertThat(sentMail().to()).containsExactly(PERSONAL_EMAIL);
         assertThat(issuedInvitation().getMobile()).isNull();
+    }
+
+    @Test
+    void aNewEmployee_signingInByTheirEnterpriseEmail_getsTheLinkThere() {
+        // Nothing writes a login email any more: the address that signs a new employee in is the
+        // enterprise email of the account they joined, and that is where the reset goes.
+        UserIdentity identity = ada(null, "hash");
+        when(identityService.findByLoginIdentifier(WORK_EMAIL)).thenReturn(Optional.of(identity));
+        UserAccount acme = row(300L, 3L, AccountStatus.ACTIVE, WORK_EMAIL);
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(acme));
+
+        service.forgotPassword(WORK_EMAIL);
+
+        assertThat(issuedInvitation().getUserId()).isEqualTo(300L);
+        assertThat(sentMail().to()).containsExactly(WORK_EMAIL);
     }
 
     @Test

@@ -53,9 +53,9 @@ import io.softa.framework.orm.enums.OnDelete;
 // anyone's identifier — see UserIdentityService.isIdentifierClaimable, which is what keeps the
 // seeding paths from manufacturing a collision out of an ordinary shared contact.
 //
-// Reusing a leaver's address is still possible: off-boarding RELEASES the identifiers this company
-// issued (UserAccountService.releaseLoginIdentifiers), so the value is free before the new hire
-// needs it. That release is what makes these indexes safe to hold.
+// Reusing a leaver's number is still possible: a login mobile whose person has no account left
+// outside Deactivated is dormant, and is released before anyone else uses it
+// (UserAccountService.releaseDormantLoginMobile); a company work mobile is released at off-boarding.
 public class UserIdentity extends AuditableModel {
 
     @Serial
@@ -92,4 +92,9 @@ public class UserIdentity extends AuditableModel {
                     + "another schema change. On the person, so switching company will buy no extra "
                     + "attempts")
     private LocalDateTime passwordLockedUntil;
+
+    @Field(label = "Last Account ID", copyable = false,
+            description = "The account (company) this person entered last; the login entry rule "
+                    + "enters it directly while it is still enterable")
+    private Long lastAccountId;
 }

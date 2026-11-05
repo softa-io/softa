@@ -38,6 +38,47 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     Optional<UserAccount> getUserByEmail(String email);
 
     /**
+     * Every account of this person, in every tenant and every status — Deactivated included. For
+     * reaching everything that hangs off the person's accounts (sessions, push devices), not for
+     * deciding where they may go.
+     */
+    List<Long> listAccountIdsOf(Long profileId);
+
+    /**
+     * The people whose JOINED accounts (Active / Frozen; Locked is derived and stored as Active) carry
+     * this enterprise email, in any tenant. Email login identifies the person this way: an email on a
+     * Pending, Invited or Deactivated account signs nobody in. Compared case-insensitively.
+     */
+    java.util.Set<Long> findJoinedProfilesByEmail(String email);
+
+    /**
+     * Take a login mobile back from a DORMANT person — one with no account left that is not
+     * Deactivated — so the number can be used by someone else (a carrier recycles numbers; the
+     * leaver must not be "found" by them). Written to the security log.
+     *
+     * @param mobile   the number about to be used
+     * @param scenario what is using it (join, Reset User, change login mobile), for the log
+     * @return whether a dormant holder was released; false when nobody holds it, or the holder is
+     *         still active somewhere and keeps it
+     */
+    boolean releaseDormantLoginMobile(String mobile, String scenario);
+
+    /**
+     * Whether this enterprise email sits on an account (any tenant, any status but Deactivated)
+     * that belongs to a person other than {@code profileId}. One person may use one address in
+     * several companies; two people may not. The account {@code exceptAccountId} never counts —
+     * it is the one being joined or edited.
+     */
+    boolean isEmailHeldByAnotherPerson(String email, Long profileId, Long exceptAccountId);
+
+    /**
+     * Put the person's login mobile on every account they have joined, so the account list shows and
+     * finds the number they sign in with. Accounts not joined yet keep their invitation mobile, and
+     * closed ones the number they closed with.
+     */
+    void followLoginMobile(Long profileId);
+
+    /**
      * Get user by mobile
      *
      * @param mobile mobile
@@ -80,7 +121,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     String newAccountRefusal(String email, String mobile);
 
     /**
-     * Off-board a membership: close it and strip what must not outlive it (A7 / S3, PRD W6).
+     * Off-board a membership: close it and strip what must not outlive it.
      *
      * <p>Three things happen together because leaving any one of them out is a real defect:
      *
@@ -114,21 +155,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      */
     void rehire(Long accountId);
 
-    /**
-     * Release from the person's login identifiers whatever THIS company issued them.
-     *
-     * <p>Shared by the two operations that end a binding — off-boarding and unbind-and-re-invite —
-     * because both create the same hazard: once the address is recycled, whoever receives it next
-     * could verify by code straight into the previous holder's personal account.
-     *
-     * <p>Only the value this company issued is reclaimed. A personal login email is not ours to
-     * take, which is why it compares before clearing rather than blindly nulling.
-     *
-     * @return whether anything was released
-     */
-    boolean releaseLoginIdentifiers(UserAccount account);
-
-    /**
+        /**
      * Whether this contact is used as the work email/mobile of more than one account.
      *
      * <p>A shared work number is ordinary as a CONTACT — a shop's phone, a shared floor handset, a
@@ -169,7 +196,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     Optional<UserAccount> findContactHolderInTenant(String contact, Long exceptAccountId);
 
     /**
-     * The work contacts this membership's EMPLOYEE RECORD currently holds (S-B / D23).
+     * The work contacts this membership's EMPLOYEE RECORD currently holds.
      *
      * <p>The record is the single source of contact details, so the two operations that move them —
      * Reset User and Unbind &amp; Re-invite — read them from here rather than from their caller, and
@@ -190,6 +217,40 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     WorkContacts archiveWorkContacts(Long userId);
 
     /**
+     * {@link #archiveWorkContacts} with the personal mobile on the record and the current login
+     * mobile of the account's person: what the Reset User and Unbind &amp; Re-invite dialogs show.
+     */
+    WorkContacts archiveContactsForAccount(Long userId);
+
+    /**
+     * The personal mobile on the employee record behind this account — what the invitation is sent
+     * to and what Reset User makes the person's login mobile. Null when there is no record or none.
+     */
+    String archivePersonalMobile(Long userId);
+
+    /**
+     * Why this enterprise email cannot go on this account, or null when it can: another account of
+     * the same company holds it, or a different person holds it anywhere (Deactivated aside). Asked
+     * before the employee record is saved, so the record and the account cannot disagree.
+     */
+    String enterpriseEmailRefusal(Long accountId, String email);
+
+    /**
+     * The employee record's Work Email changed: carry it onto the account, whatever its status.
+     * Refused with {@code EMAIL_TAKEN} on the same grounds as {@link #enterpriseEmailRefusal}. A
+     * joined account (Active / Locked / Frozen) also mails the OLD address and texts the login
+     * mobile, and the change is written to the security log.
+     */
+    void syncEnterpriseEmail(Long accountId, String email);
+
+    /**
+     * The employee record's personal mobile changed: before the person has joined (Pending /
+     * Invited) the invitation mobile follows it; after that the login mobile is the person's own and
+     * this does nothing.
+     */
+    void syncInviteMobile(Long accountId, String mobile);
+
+    /**
      * Prepare a membership for someone re-joining this company, reusing the closed row.
      *
      * <p>Re-hire revives rather than inserts, because {@code (tenantId, profileId)} is unique —
@@ -202,6 +263,15 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      * @return the revived membership, or empty when this person has no closed membership here
      */
     java.util.Optional<UserAccount> reviveMembership(Long profileId, String workEmail, String workMobile);
+
+    /**
+     * Reopen one closed membership, named by its own id, for a re-hire: the same reset as
+     * {@link #reviveMembership}. Found by id because a row reopened once and closed again before
+     * anyone joined has no person to be found by.
+     *
+     * @return the revived membership, or empty when the account is not closed
+     */
+    java.util.Optional<UserAccount> reviveAccount(Long accountId, String workEmail, String workMobile);
 
     /**
      * Change the current user's password
@@ -264,9 +334,9 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
 
     /**
      * Suspend a membership: the person keeps their credentials, this company keeps their record,
-     * and they cannot get in until it is lifted (D21 / U7).
+     * and they cannot get in until it is lifted.
      *
-     * <p>Replaces Lock: a MANUAL lock and the automatic password lockout (A8) were two mechanisms
+     * <p>Replaces Lock: a MANUAL lock and the automatic password lockout were two mechanisms
      * for two different things wearing one name. The lockout is a reaction to guessing, lives on
      * the credential, and expires by itself; freezing is an administrator's decision about this
      * membership, and only an administrator lifts it.
@@ -290,7 +360,7 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     void unfreezeAccounts(List<Long> userIds, String reason);
 
     /**
-     * Reset a membership's work contacts, keeping the person (W9 / U6).
+     * Reset a membership's work contacts, keeping the person.
      *
      * <p>The everyday case Unbind & Re-invite is too big a hammer for: the RIGHT person holds this
      * membership, their email or phone simply changed. So the person stays attached, their password

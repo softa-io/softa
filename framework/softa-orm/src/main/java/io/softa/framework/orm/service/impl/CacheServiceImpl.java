@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -42,6 +43,15 @@ public class CacheServiceImpl implements CacheService {
             end
             return count
             """, Long.class);
+
+    // GET then DEL in one script rather than GETDEL, which needs Redis 6.2.
+    private static final RedisScript<String> GET_AND_CLEAR_SCRIPT = RedisScript.of("""
+            local value = redis.call('GET', KEYS[1])
+            if value then
+                redis.call('DEL', KEYS[1])
+            end
+            return value
+            """, String.class);
 
     /** Keys requested per SCAN step, and removed per UNLINK. */
     private static final int SCAN_BATCH = 1000;
@@ -226,6 +236,11 @@ public class CacheServiceImpl implements CacheService {
         stringRedisTemplate.delete(cacheKey);
     }
 
+    @Override
+    public String getAndClear(String key) {
+        return stringRedisTemplate.execute(GET_AND_CLEAR_SCRIPT, List.of(this.getKeyPath(key)));
+    }
+
     /**
      * Clear key list.
      *
@@ -288,6 +303,35 @@ public class CacheServiceImpl implements CacheService {
             out.append(c);
         }
         return out.toString();
+    }
+
+    @Override
+    public long getExpire(String key) {
+        Long seconds = stringRedisTemplate.getExpire(this.getKeyPath(key));
+        return seconds == null ? -2 : seconds;
+    }
+
+    @Override
+    public void expire(String key, int expireSeconds) {
+        stringRedisTemplate.expire(this.getKeyPath(key), Duration.ofSeconds(expireSeconds));
+    }
+
+    @Override
+    public void addToSet(String key, String member, int expireSeconds) {
+        String cacheKey = this.getKeyPath(key);
+        stringRedisTemplate.opsForSet().add(cacheKey, member);
+        stringRedisTemplate.expire(cacheKey, Duration.ofSeconds(expireSeconds));
+    }
+
+    @Override
+    public void removeFromSet(String key, String member) {
+        stringRedisTemplate.opsForSet().remove(this.getKeyPath(key), member);
+    }
+
+    @Override
+    public Set<String> getSetMembers(String key) {
+        Set<String> members = stringRedisTemplate.opsForSet().members(this.getKeyPath(key));
+        return members == null ? Set.of() : members;
     }
 
 }

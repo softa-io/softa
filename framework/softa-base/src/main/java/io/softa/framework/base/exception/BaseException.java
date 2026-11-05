@@ -1,5 +1,8 @@
 package io.softa.framework.base.exception;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
@@ -16,6 +19,17 @@ public class BaseException extends RuntimeException {
     private String message;
     private Level logLevel = Level.ERROR;
     private ResponseCode responseCode = ResponseCode.ERROR;
+
+    /**
+     * Stable, machine-readable reason, such as {@code SESSION_EXPIRED} or {@code PASSWORD_LOCKED}.
+     * The numeric response code says which family a failure belongs to; this says which failure it
+     * is, so a client can show its own copy rather than parse the server's message. Null when the
+     * failure has no code of its own.
+     */
+    private String errorCode;
+
+    /** Values a client needs alongside {@link #errorCode}, such as {@code remainingAttempts}. */
+    private Map<String, Object> errorDetails;
 
     /**
      * Accept variable parameter exception message.
@@ -42,5 +56,24 @@ public class BaseException extends RuntimeException {
             message = I18n.get(message, args);
         }
         this.message = message;
+    }
+
+    /**
+     * Attach a stable error code; returns this exception so it can be thrown in one expression.
+     */
+    public BaseException withErrorCode(String errorCode) {
+        this.errorCode = errorCode;
+        return this;
+    }
+
+    /**
+     * Attach one value a client needs alongside the error code.
+     */
+    public BaseException withErrorDetail(String key, Object value) {
+        if (this.errorDetails == null) {
+            this.errorDetails = new LinkedHashMap<>();
+        }
+        this.errorDetails.put(key, value);
+        return this;
     }
 }
