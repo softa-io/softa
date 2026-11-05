@@ -14,6 +14,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserProfile;
@@ -24,12 +25,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -123,6 +128,34 @@ class MultiMembershipUserInfoTest {
 
         assertThat(profileService.getUserInfo(SECOND_ACCOUNT).getActive()).isFalse();
         assertThat(profileService.getUserInfo(FIRST_ACCOUNT).getActive()).isTrue();
+    }
+
+    @Test
+    void theTenantNameIsTheChosenMembershipsTenantAndIsCached() {
+        TenantInfoService tenants = mock(TenantInfoService.class);
+        when(tenants.getTenantName(1L)).thenReturn("Acme");
+        when(tenants.getTenantName(2L)).thenReturn("Globex");
+        ReflectionTestUtils.setField(profileService, "tenantInfoService", tenants);
+
+        assertThat(profileService.getUserInfo(SECOND_ACCOUNT).getTenantName()).isEqualTo("Globex");
+        assertThat(profileService.getUserInfo(FIRST_ACCOUNT).getTenantName()).isEqualTo("Acme");
+        verify(cacheService).save(eq(RedisConstant.USER_INFO + SECOND_ACCOUNT),
+                argThat(saved -> "Globex".equals(((UserInfo) saved).getTenantName())), anyInt());
+    }
+
+    @Test
+    void aCachedUserInfoReadsNoTenant() {
+        // The name is cached with the rest, so the common path — a cache hit — costs no tenant read.
+        UserInfo cached = new UserInfo();
+        cached.setUserId(SECOND_ACCOUNT);
+        cached.setTenantId(2L);
+        cached.setTenantName("Globex");
+        when(cacheService.get(RedisConstant.USER_INFO + SECOND_ACCOUNT, UserInfo.class)).thenReturn(cached);
+        TenantInfoService tenants = mock(TenantInfoService.class);
+        ReflectionTestUtils.setField(profileService, "tenantInfoService", tenants);
+
+        assertThat(profileService.getUserInfo(SECOND_ACCOUNT).getTenantName()).isEqualTo("Globex");
+        verifyNoInteractions(tenants);
     }
 
     @Test

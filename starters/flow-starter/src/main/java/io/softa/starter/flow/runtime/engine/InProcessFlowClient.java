@@ -86,6 +86,11 @@ public class InProcessFlowClient implements FlowClient {
     }
 
     @Override
+    public FlowApprovalPreview previewValues(String modelName, Map<String, Object> values) {
+        return launch.previewValues(modelName, values, currentUserId());
+    }
+
+    @Override
     public FlowExecutionState withdrawRecord(String modelName, String rowId, String comment) {
         return launch.withdrawRecord(modelName, rowId, currentUserId(), comment);
     }
@@ -98,8 +103,10 @@ public class InProcessFlowClient implements FlowClient {
     @Override
     public FlowRecordApprovalsView recordApprovals(String modelName, String rowId) {
         String requesterId = currentUserId();
-        return instances.recordApprovals(modelName, rowId,
-                history -> accessGuard.requireRecordViewer(modelName, rowId, history, requesterId));
+        return instances.recordApprovals(modelName, rowId, history -> {
+            accessGuard.requireRecordViewer(modelName, rowId, history, requesterId);
+            accessGuard.markViewable(modelName, rowId, history, requesterId);
+        });
     }
 
     @Override

@@ -14,7 +14,7 @@ import lombok.Getter;
  * is {@link #ONCE}, {@link #APPEND} or {@link #OVERWRITE}.
  */
 @Schema(name = "SeedFileMode", description = "What a seed file does after a scope has loaded it, as the manifest's "
-        + "mode says. overwrite: loads again, whole, whenever it changes (a platform file's default). startup: a "
+        + "mode says. overwrite: loads again, every row, whenever it changes (a platform file's default). startup: a "
         + "platform file the build owns, loaded whole at startup wherever it is pending, never from the Seed Data "
         + "page. once: runs once in each tenant (a tenant file's default). append: a tenant file that runs again "
         + "whenever it changes, creating only the rows a tenant lacks.")
@@ -23,9 +23,10 @@ import lombok.Getter;
 public enum SeedFileMode {
 
     /**
-     * The file is the data: it loads again, whole, whenever it changes — a field it no longer names is cleared, a
-     * seeded child it no longer lists is deleted. A platform file's default; on a tenant file, only for rows nobody
-     * in a tenant edits, such as the built-in roles.
+     * The file's rows win: it loads again, every row, whenever it changes — the fields it names are written again,
+     * a seeded row deleted since is created again, and a seeded child it no longer lists is deleted. A field it no
+     * longer names keeps its stored value, so a value to remove is written as null. A platform file's default; on a
+     * tenant file, only for rows nobody in a tenant edits, such as the built-in roles.
      */
     OVERWRITE("overwrite"),
 

@@ -31,9 +31,11 @@ public class GraphStructureValidator implements FlowValidator {
     private static final String NO_START_NODE             = "NO_START_NODE";
     private static final String MULTIPLE_START_NODES      = "MULTIPLE_START_NODES";
     private static final String UNREACHABLE_NODE          = "UNREACHABLE_NODE";
+    private static final String MISSING_NODE_LABEL        = "MISSING_NODE_LABEL";
     private static final String INVALID_SCENARIO_NODE     = "INVALID_SCENARIO_NODE";
     private static final String SYNC_OUTSIDE_AUTOMATION   = "SYNC_OUTSIDE_AUTOMATION";
     private static final String SYNC_FLOW_WAITS           = "SYNC_FLOW_WAITS";
+    private static final String NO_APPROVAL_STEP          = "NO_APPROVAL_STEP";
     private static final String APPROVAL_SETTING_OUTSIDE_APPROVAL = "APPROVAL_SETTING_OUTSIDE_APPROVAL";
     private static final String INVALID_CC_RULE = "INVALID_CC_RULE";
     private static final String INVALID_URGE_INTERVAL = "INVALID_URGE_INTERVAL";
@@ -51,6 +53,7 @@ public class GraphStructureValidator implements FlowValidator {
         validateDefinition(definition, diagnostics);
         validateEdgeEndpoints(context.edgeMap().values(), context.nodeMap(), diagnostics);
         validateEntryRules(context.entryNodeIds(), diagnostics);
+        validateLabels(context.nodeMap().values(), diagnostics);
         validateReachability(context, diagnostics);
         validateScenarioRules(definition, context.nodeMap().values(), diagnostics);
         validateScenarioSettings(definition, context.nodeMap().values(), diagnostics);
@@ -100,6 +103,20 @@ public class GraphStructureValidator implements FlowValidator {
     }
 
     /**
+     * Every node needs a label: people see it as the step's name — in the approval center, the audit trail and
+     * failure messages — and every diagnostic names the node by it.
+     */
+    private void validateLabels(Collection<FlowGraphNode> nodes, List<CompileDiagnostic> d) {
+        for (FlowGraphNode node : nodes) {
+            if (!StringUtils.hasText(node.getLabel())) {
+                d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), "label", MISSING_NODE_LABEL,
+                        "This " + node.getType().getType() + " node has no label — name it: people see the label as "
+                                + "the step's name"));
+            }
+        }
+    }
+
+    /**
      * Every node must be reachable from the Start along the edges: an unreachable node never runs, and
      * a parallel join it feeds waits for its arrival forever. Checked under a single Start only — without
      * one the entry rules already report the graph, and every node would be "unreachable".
@@ -126,7 +143,8 @@ public class GraphStructureValidator implements FlowValidator {
         for (FlowGraphNode node : context.nodeMap().values()) {
             if (!reached.contains(node.getId())) {
                 d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), UNREACHABLE_NODE,
-                        "Node '" + node.getId() + "' cannot be reached from the Start node — connect it or delete it"));
+                        "Node '" + node.displayName()
+                                + "' cannot be reached from the Start node — connect it or delete it"));
             }
         }
     }
@@ -143,7 +161,7 @@ public class GraphStructureValidator implements FlowValidator {
             FlowNodeType type = node.getType();
             if (type != null && !type.getScenarios().contains(scenario)) {
                 d.add(CompileDiagnostic.nodeLevel(node.getId(), type.getType(), INVALID_SCENARIO_NODE,
-                        "Node '" + node.getId() + "' of type '" + type.getType() + "' is not allowed in a '"
+                        "Node '" + node.displayName() + "' of type '" + type.getType() + "' is not allowed in a '"
                                 + scenario.getType() + "' flow"));
             }
         }
@@ -198,6 +216,18 @@ public class GraphStructureValidator implements FlowValidator {
                     "urgeIntervalMinutes must be at least 1, but is " + definition.getUrgeIntervalMinutes()));
         }
         validateCcRules(definition.getCc(), d);
+        // An approval flow without an approval step approves a record as it is submitted: allowed — End and every step
+        // are optional — but rarely meant, so the designer says so where the flow starts (zingkey-hcm#2450).
+        if (FlowScenario.APPROVAL.equals(scenario)
+                && nodes.stream().noneMatch(node -> FlowNodeType.APPROVAL.equals(node.getType()))) {
+            String message = "This approval flow has no approval step: a submission is approved as soon as it is made.";
+            FlowGraphNode start = nodes.stream().filter(node -> FlowNodeType.START.equals(node.getType()))
+                    .findFirst().orElse(null);
+            d.add((start == null
+                    ? CompileDiagnostic.flowLevel(NO_APPROVAL_STEP, message)
+                    : CompileDiagnostic.nodeLevel(start.getId(), FlowNodeType.START.getType(), NO_APPROVAL_STEP, message))
+                    .asWarning());
+        }
         boolean sync = Boolean.TRUE.equals(definition.getSync());
         if (!FlowScenario.AUTOMATION.equals(scenario) && (sync || Boolean.TRUE.equals(definition.getRollbackOnFail()))) {
             d.add(CompileDiagnostic.flowLevel(SYNC_OUTSIDE_AUTOMATION,
@@ -208,7 +238,7 @@ public class GraphStructureValidator implements FlowValidator {
                 if (WAITING_NODE_TYPES.contains(node.getType())) {
                     d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), SYNC_FLOW_WAITS,
                             "A sync flow runs inside the writer's transaction and cannot wait, but node '"
-                                    + node.getId() + "' of type '" + node.getType().getType() + "' waits"));
+                                    + node.displayName() + "' of type '" + node.getType().getType() + "' waits"));
                 }
             }
         }

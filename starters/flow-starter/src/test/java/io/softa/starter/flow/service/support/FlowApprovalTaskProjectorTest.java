@@ -41,6 +41,7 @@ class FlowApprovalTaskProjectorTest {
                         .requiredRejectCount(1)
                         .approvedActors(List.of("manager"))
                         .rejectedActors(List.of())
+                        .dueTime(LocalDateTime.of(2026, 11, 6, 18, 0))
                         .build()))
                 .approvalAuditDelta(List.of(ApprovalActionAuditEntry.builder()
                         .action(ApprovalActionType.APPROVE)
@@ -57,6 +58,8 @@ class FlowApprovalTaskProjectorTest {
         assertEquals(2, tasks.size());
 
         var managerTask = tasks.stream().filter(task -> "manager".equals(task.getActorId())).findFirst().orElseThrow();
+        // The step's deadline goes on its tasks: what the inbox says is due (zingkey-hcm#2350).
+        assertEquals(LocalDateTime.of(2026, 11, 6, 18, 0), managerTask.getDueTime());
         assertEquals(FlowApprovalTaskStatus.APPROVED, managerTask.getStatus());
         assertEquals(2, managerTask.getCycleNumber());
         assertEquals(ApprovalActionType.APPROVE, managerTask.getAction());

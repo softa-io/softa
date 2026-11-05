@@ -34,7 +34,7 @@ import io.softa.framework.orm.enums.IdStrategy;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, displayName = {"name"}, searchName = {"name"})
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, displayName = {"name"}, searchName = {"name"}, defaultOrder = {"name"})
 @Index(indexName = "uk_role_tenant_name", fields = {"tenantId", "name"}, unique = true,
         message = "A role with this name already exists.")
 // code is nullable (admin-created roles); the unique index treats NULLs as distinct, so it only

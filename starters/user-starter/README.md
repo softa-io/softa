@@ -152,6 +152,19 @@ to lists, plus:
 | `resetWorkContacts` / `unbindAndReinvite` | Correct a mis-addressed or mis-bound invitation |
 | `logout`, `getMyAccount`, `saveMyAccount`, `changeMyPassword`, `setMyFirstPassword`, `mustSetMyPassword` | The caller's own membership |
 
+`UserProfileController` (`/UserProfile/*`) — `getMyUserInfo` returns the session's `UserInfo`,
+which login also returns. Besides the person's name, language, timezone and photo it carries
+`tenantId` and `tenantName`, the tenant's display name, for the client to show which company the
+session is in. `UserInfo` is cached for a month under `user-info:{accountId}` and `tenantName` is
+cached with it, so serving a cached one reads no tenant. Two consequences:
+
+- Entries cached before `tenantName` existed carry none. Delete the `user-info:*` keys once after
+  upgrading; the next request rebuilds each one.
+- A renamed tenant keeps its old name until its cache entries expire: `user-info:*` and
+  `tenant-info:{tenantId}`, which a rename does not evict either. Delete them to show it at once.
+
+Keys sit under `spring.data.redis.root-key` when one is set.
+
 `ConsultantController` (`/consultant/*`) — platform-side, not reachable from a
 tenant. `list`, `save` (person + consultant record + the whole grant table in one
 transaction), `authorizations`, `setActive`, and `actors` (which of these acting

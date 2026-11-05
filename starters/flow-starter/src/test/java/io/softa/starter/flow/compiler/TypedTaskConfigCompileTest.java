@@ -13,6 +13,7 @@ import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -64,7 +65,28 @@ class TypedTaskConfigCompileTest {
         }
     }
 
+    /**
+     * The designer writes a task node's fields where its descriptor lists them: at the top of the config, with no
+     * {@code input} map. Such a node is checked as one that nests them, and its diagnostics name the field where it
+     * sits (zingkey-hcm#2384) — before, it published unchecked and ran with no input.
+     */
+    @Test
+    void aDesignedTaskNodeIsCheckedWithItsFieldsWhereTheDesignerWritesThem() {
+        FlowCompileException exception = assertThrows(FlowCompileException.class,
+                () -> compiler.compile(flowWithTaskConfig(FlowNodeType.CALL_WEBHOOK, Map.of("method", "POST"))));
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d ->
+                        "MISSING_REQUIRED_INPUT".equals(d.code()) && "config.url".equals(d.field())),
+                () -> "expected MISSING_REQUIRED_INPUT on config.url but got: " + exception.getDiagnostics());
+
+        assertDoesNotThrow(() -> compiler.compile(flowWithTaskConfig(FlowNodeType.CALL_WEBHOOK,
+                Map.of("url", "https://example.com/hook", "method", "POST"))));
+    }
+
     private static DesignFlowDefinition flowWithTaskNode(FlowNodeType nodeType, Map<String, Object> input) {
+        return flowWithTaskConfig(nodeType, Map.of("input", input));
+    }
+
+    private static DesignFlowDefinition flowWithTaskConfig(FlowNodeType nodeType, Map<String, Object> config) {
         return DesignFlowDefinition.builder()
                 .name("Typed Config " + nodeType.getType())
                 .scenario(FlowScenario.AUTOMATION)
@@ -76,7 +98,7 @@ class TypedTaskConfigCompileTest {
                                         .id("task")
                                         .type(nodeType)
                                         .label("task")
-                                        .config(Map.of("input", input))
+                                        .config(config)
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))

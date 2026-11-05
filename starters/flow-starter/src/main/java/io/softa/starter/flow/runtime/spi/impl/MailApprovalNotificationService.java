@@ -34,7 +34,8 @@ import io.softa.starter.message.service.MessageService;
  * {@code emailNotification} setting, on unless turned off). The tenant's template of that code words the email;
  * its variables are {@code subject} (what the approval is about), {@code content} (the comment or reason, when
  * there is one), {@code flowName}, {@code recordCode} and {@code link} — the approval's page,
- * {@code system.site-url} + {@code /approvals/{instanceId}}, where the recipient acts on it.
+ * {@code system.site-url} + {@code /home/approvals/{instanceId}} (the frontend's Home module), where the recipient acts
+ * on it.
  *
  * <p>Like the inbox: written after the action commits, in a transaction of its own, a failure at once; a
  * recipient without an email is skipped, and an email that cannot be sent is logged without touching the action.
@@ -45,7 +46,7 @@ public class MailApprovalNotificationService implements ApprovalNotificationServ
     private static final String USER_MODEL = "UserAccount";
     private static final String ID_FIELD = "id";
     private static final String EMAIL_FIELD = "email";
-    private static final String APPROVAL_ROUTE = "/approvals/";
+    private static final String APPROVAL_ROUTE = "/home/approvals/";
 
     private final ObjectProvider<MessageService> messageService;
     private final ModelService<Long> modelService;

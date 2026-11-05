@@ -23,7 +23,8 @@ import io.softa.starter.message.sms.enums.SmsProvider;
  */
 @Data
 @Model(label = "SMS Provider Config", idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true,
-        activeControl = true)
+        activeControl = true,
+        defaultOrder = {"priority", "name"})
 @Index(indexName = "idx_sms_provider_cfg_default", fields = {"tenantId", "isDefault"})
 @EqualsAndHashCode(callSuper = true)
 public class SmsProviderConfig extends AuditableModel {

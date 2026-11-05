@@ -151,6 +151,18 @@ public class FlowApprovalTaskView {
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
 
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it — the "
+            + "days of a leave, a claim's amount")
+    private String summary;
+
+    @Schema(description = "While the owning instance waits: the steps it waits on now, each with the approvers still "
+            + "to act, named — where a request a task's holder handled stands now")
+    private List<FlowRecordApprovalsView.PendingStep> currentSteps;
+
+    @Schema(description = "A record's approval returned, withdrawn or cancelled that a later submission of the record "
+            + "replaced: its outcome is no longer the record's")
+    private Boolean superseded;
+
     @Schema(description = "Whether the task can be acted on in a batch: open to its approver now, and no field the step "
             + "makes required")
     private Boolean batchable;

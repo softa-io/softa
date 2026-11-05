@@ -93,8 +93,34 @@ class TriggerConditionCompileTest {
                 .contains("CONFLICTING_TRIGGER_CONDITIONS"));
     }
 
+    /** The trigger is edited on the Start node: its diagnostics point there, so the designer marks it (zingkey-hcm#2450). */
+    @Test
+    void aTriggersDiagnosticsPointAtTheStartNode() {
+        CompileDiagnostic invalid = compiler.validate(submit(null, "days > 3 &&")).stream()
+                .filter(diagnostic -> "INVALID_TRIGGER_CONDITION".equals(diagnostic.code()))
+                .findFirst().orElseThrow();
+        assertEquals("start", invalid.nodeId());
+        assertEquals("trigger", invalid.field());
+    }
+
+    /** Allowed — a submission is approved as it is made — but rarely meant: a warning at the flow's start. */
+    @Test
+    void anApprovalFlowWithoutAnApprovalStepIsWarnedOfAtItsStart() {
+        CompileDiagnostic warning = compiler.validate(submit(null, null)).stream()
+                .filter(diagnostic -> "NO_APPROVAL_STEP".equals(diagnostic.code()))
+                .findFirst().orElseThrow();
+        assertEquals(CompileDiagnostic.Severity.WARNING, warning.severity());
+        assertEquals("start", warning.nodeId());
+        assertTrue(compiler.validate(change(MODEL, null, null)).stream()
+                .noneMatch(diagnostic -> "NO_APPROVAL_STEP".equals(diagnostic.code())), "only approval flows");
+    }
+
+    /** The errors validation reports: a warning — an approval flow without an approval step — is no trigger error. */
     private List<String> codes(DesignFlowDefinition definition) {
-        return compiler.validate(definition).stream().map(CompileDiagnostic::code).toList();
+        return compiler.validate(definition).stream()
+                .filter(diagnostic -> diagnostic.severity() == CompileDiagnostic.Severity.ERROR)
+                .map(CompileDiagnostic::code)
+                .toList();
     }
 
     private String message(DesignFlowDefinition definition, String code) {

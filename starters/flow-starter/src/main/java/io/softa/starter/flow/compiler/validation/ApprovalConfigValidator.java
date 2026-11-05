@@ -24,15 +24,14 @@ public class ApprovalConfigValidator implements FlowValidator {
 
     private static final String BLANK_APPROVER           = "BLANK_APPROVER";
     private static final String DUPLICATE_APPROVER       = "DUPLICATE_APPROVER";
-    private static final String UNANIMOUS_NEEDS_APPROVERS = "UNANIMOUS_NEEDS_APPROVERS";
-    private static final String MIN_COUNT_NEEDS_APPROVERS = "MIN_COUNT_NEEDS_APPROVERS";
+    private static final String MISSING_APPROVERS         = "MISSING_APPROVERS";
     private static final String INVALID_MIN_COUNT         = "INVALID_MIN_COUNT";
-    private static final String PERCENTAGE_NEEDS_APPROVERS = "PERCENTAGE_NEEDS_APPROVERS";
     private static final String INVALID_PERCENTAGE         = "INVALID_PERCENTAGE";
     private static final String DEADLOCK_THRESHOLD         = "DEADLOCK_THRESHOLD";
     private static final String UNKNOWN_APPROVER_SOURCE_TYPE = "UNKNOWN_APPROVER_SOURCE_TYPE";
     private static final String INVALID_SUPERVISOR_LEVEL     = "INVALID_SUPERVISOR_LEVEL";
     private static final String MISSING_ROLE_IDS             = "MISSING_ROLE_IDS";
+    private static final String MISSING_EMPTY_APPROVER_ROLES = "MISSING_EMPTY_APPROVER_ROLES";
     private static final String MISSING_POSITION_IDS         = "MISSING_POSITION_IDS";
     private static final String MISSING_DEPT_IDS             = "MISSING_DEPT_IDS";
     private static final String INVALID_RELATIVE_TO          = "INVALID_RELATIVE_TO";
@@ -44,6 +43,8 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String REMINDERS_OUTSIDE_REMIND     = "REMINDERS_OUTSIDE_REMIND";
     private static final String MISSING_ESCALATE_TARGET      = "MISSING_ESCALATE_TARGET";
     private static final String UNREADABLE_CONFIG            = "UNREADABLE_CONFIG";
+    private static final String MISSING_FIELD_PERMISSION     = "MISSING_FIELD_PERMISSION";
+    private static final String FORM_PERMISSIONS             = "formPermissions";
 
     /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["timeout"]}. */
     private static final Pattern READ_REFERENCE = Pattern.compile("\\[\"([^\"]+)\"]");
@@ -60,14 +61,46 @@ public class ApprovalConfigValidator implements FlowValidator {
             if (!FlowNodeType.APPROVAL.equals(node.getType()) || node.getConfig() == null) {
                 continue;
             }
-            ApprovalNodeConfig cfg = readConfig(node, d);
+            ApprovalNodeConfig cfg = readConfig(node, withPermissionsNamed(node, d), d);
             if (cfg == null) {
                 continue;
             }
-            validateApproverSource(node.getId(), cfg, d);
-            validateVoteThresholds(node.getId(), cfg, d);
-            validateTimeout(node.getId(), cfg, d);
+            validateApproverSource(node.getId(), node.displayName(), cfg, d);
+            validateEmptyApproverRoles(node.getId(), node.displayName(), cfg, d);
+            validateVoteThresholds(node.getId(), node.displayName(), cfg, d);
+            validateTimeout(node.getId(), node.displayName(), cfg, d);
         }
+    }
+
+    /**
+     * Every field a step lists names its permission. A field listed with none — a row saved before its permission
+     * was picked — was read as no rule at all, and published as one: the designer believed the field set, the step
+     * did not (zingkey-hcm#2406). Refused, so validating says so and publishing waits for it; not read as
+     * {@code Readonly}, which shows a step's approvers a sensitive field their own permissions withhold, where a
+     * field left unlisted does not. Checked on the config as stored, before it is read — the read takes an empty
+     * permission for none — and the fields refused are left out of what the rest of the validation reads.
+     */
+    private static Map<String, Object> withPermissionsNamed(FlowGraphNode node, List<CompileDiagnostic> d) {
+        Map<String, Object> config = node.getConfig();
+        if (!(config.get(FORM_PERMISSIONS) instanceof Map<?, ?> permissions)) {
+            return config;
+        }
+        Map<Object, Object> named = new LinkedHashMap<>();
+        permissions.forEach((field, permission) -> {
+            if (permission == null || permission instanceof String text && !StringUtils.hasText(text)) {
+                d.add(CompileDiagnostic.fieldLevel(node.getId(), APPROVAL_TYPE, "config." + FORM_PERMISSIONS,
+                        MISSING_FIELD_PERMISSION, "Approval node '" + node.displayName() + "' lists field '" + field
+                                + "' without a permission: pick Hidden, Readonly, Editable or Required."));
+            } else {
+                named.put(field, permission);
+            }
+        });
+        if (named.size() == permissions.size()) {
+            return config;
+        }
+        Map<String, Object> read = new LinkedHashMap<>(config);
+        read.put(FORM_PERMISSIONS, named);
+        return read;
     }
 
     /**
@@ -75,9 +108,10 @@ public class ApprovalConfigValidator implements FlowValidator {
      * as one saved by a designer that offered constant names — reported against the field it is in, so the
      * validation answers instead of failing whole.
      */
-    private static ApprovalNodeConfig readConfig(FlowGraphNode node, List<CompileDiagnostic> d) {
+    private static ApprovalNodeConfig readConfig(FlowGraphNode node, Map<String, Object> config,
+                                                 List<CompileDiagnostic> d) {
         try {
-            return BeanTool.objectToObject(node.getConfig(), ApprovalNodeConfig.class);
+            return BeanTool.objectToObject(config, ApprovalNodeConfig.class);
         } catch (RuntimeException e) {
             String detail = Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName());
             StringJoiner field = new StringJoiner(".", "config.", "").setEmptyValue("");
@@ -86,13 +120,23 @@ public class ApprovalConfigValidator implements FlowValidator {
                 field.add(reference.group(1));
             }
             String where = field.length() == 0 ? "its config" : field.toString();
-            String message = "Approval node '" + node.getId() + "' cannot read " + where + ": " + detail.lines()
+            String message = "Approval node '" + node.displayName() + "' cannot read " + where + ": " + detail.lines()
                     .findFirst().orElse(detail);
             d.add(field.length() == 0
                     ? CompileDiagnostic.nodeLevel(node.getId(), APPROVAL_TYPE, UNREADABLE_CONFIG, message)
                     : CompileDiagnostic.fieldLevel(node.getId(), APPROVAL_TYPE, field.toString(), UNREADABLE_CONFIG,
                             message));
             return null;
+        }
+    }
+
+    /** {@code AssignToRole} hands a step that finds nobody to roles: it names at least one, by id or by code. */
+    private void validateEmptyApproverRoles(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
+        if (EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(cfg.getEmptyApproverStrategy())
+                && isEmptyCollection(cfg.getEmptyApproverRoleIds()) && isEmptyCollection(cfg.getEmptyApproverRoleCodes())) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.emptyApproverRoleIds",
+                    MISSING_EMPTY_APPROVER_ROLES, "Approval node '" + name + "' hands a step that finds nobody to "
+                            + "roles (AssignToRole), but names none: pick at least one role."));
         }
     }
 
@@ -103,7 +147,7 @@ public class ApprovalConfigValidator implements FlowValidator {
      * is ignored — the designer hides it then, and keeps what was entered. Reminders belong to the Remind strategy:
      * the designer clears them when another is chosen, so here they are a mistake.
      */
-    private void validateTimeout(String nodeId, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
+    private void validateTimeout(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
         ApprovalTimeoutConfig timeout = cfg.getTimeout();
         if (timeout == null || timeout.getTimeoutHours() == null) {
             return;
@@ -111,7 +155,7 @@ public class ApprovalConfigValidator implements FlowValidator {
         if (timeout.getTimeoutHours() <= 0) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.timeoutHours",
                     INVALID_TIMEOUT_HOURS,
-                    "Approval node '" + nodeId + "' config.timeout.timeoutHours must be > 0"));
+                    "Approval node '" + name + "' config.timeout.timeoutHours must be > 0"));
         }
         ApprovalTimeoutStrategy strategy = timeout.getTimeoutStrategy() == null
                 ? ApprovalTimeoutStrategy.REMIND : timeout.getTimeoutStrategy();
@@ -121,31 +165,31 @@ public class ApprovalConfigValidator implements FlowValidator {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, remindInterval != null
                             ? "config.timeout.remindIntervalHours" : "config.timeout.maxRemindTimes",
                     REMINDERS_OUTSIDE_REMIND,
-                    "Approval node '" + nodeId + "' sets reminders, but only the Remind timeout strategy sends "
+                    "Approval node '" + name + "' sets reminders, but only the Remind timeout strategy sends "
                             + "them and it uses " + strategy.getType()));
         }
         if (remindInterval != null && remindInterval < 1) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.remindIntervalHours",
                     INVALID_REMIND_INTERVAL,
-                    "Approval node '" + nodeId + "' config.timeout.remindIntervalHours must be at least 1"));
+                    "Approval node '" + name + "' config.timeout.remindIntervalHours must be at least 1"));
         }
         if (maxReminders != null && maxReminders < 1) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.maxRemindTimes",
                     INVALID_MAX_REMINDERS,
-                    "Approval node '" + nodeId + "' config.timeout.maxRemindTimes must be at least 1"));
+                    "Approval node '" + name + "' config.timeout.maxRemindTimes must be at least 1"));
         }
         if (ApprovalTimeoutStrategy.ESCALATE.equals(timeout.getTimeoutStrategy())
                 && !StringUtils.hasText(timeout.getEscalateToUserId())) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.escalateToUserId",
                     MISSING_ESCALATE_TARGET,
-                    "Approval node '" + nodeId
+                    "Approval node '" + name
                             + "' uses ESCALATE timeout strategy but config.timeout.escalateToUserId is not set"));
         }
     }
 
     // ── Approver source ─────────────────────────────────────────────────────
 
-    private void validateApproverSource(String nodeId, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
+    private void validateApproverSource(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
         Map<String, Object> source = cfg.getApproverSource();
         if (source == null) {
             return;
@@ -162,7 +206,7 @@ public class ApprovalConfigValidator implements FlowValidator {
         } catch (IllegalArgumentException e) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.type",
                     UNKNOWN_APPROVER_SOURCE_TYPE,
-                    "Approval node '" + nodeId + "' has unknown approverSource type: " + type));
+                    "Approval node '" + name + "' has unknown approverSource type: " + type));
             return;
         }
 
@@ -174,34 +218,34 @@ public class ApprovalConfigValidator implements FlowValidator {
                     if (l < 1) {
                         d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.level",
                                 INVALID_SUPERVISOR_LEVEL,
-                                "Approval node '" + nodeId + "' supervisor level must be >= 1"));
+                                "Approval node '" + name + "' supervisor level must be >= 1"));
                     }
                 }
                 try {
                     ApproverRelativeTo.of(source.get("relativeTo"), ApproverRelativeTo.SUBJECT);
                 } catch (IllegalArgumentException e) {
                     d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.relativeTo",
-                            INVALID_RELATIVE_TO, "Approval node '" + nodeId + "' supervisor relativeTo must be one of "
+                            INVALID_RELATIVE_TO, "Approval node '" + name + "' supervisor relativeTo must be one of "
                                     + Arrays.toString(ApproverRelativeTo.values())));
                 }
             }
-            case "DeptLeader", "DeptHrbp" -> validateDeptScope(nodeId, type, source, ApproverDeptScope.SUBJECT_DEPT, d);
+            case "DeptLeader", "DeptHrbp" -> validateDeptScope(nodeId, name, type, source, ApproverDeptScope.SUBJECT_DEPT, d);
             case "RoleQuery" -> {
                 if (isEmptyCollection(source.get("roleCodes")) && isEmptyCollection(source.get("roleIds"))) {
                     d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.roleCodes",
                             MISSING_ROLE_IDS,
-                            "Approval node '" + nodeId + "' RoleQuery requires non-empty roleCodes or roleIds"));
+                            "Approval node '" + name + "' RoleQuery requires non-empty roleCodes or roleIds"));
                 }
-                validateDeptScope(nodeId, type, source, ApproverDeptScope.ALL, d);
+                validateDeptScope(nodeId, name, type, source, ApproverDeptScope.ALL, d);
             }
             case "Position" -> {
                 if (isEmptyCollection(source.get("positionIds"))) {
                     d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.positionIds",
                             MISSING_POSITION_IDS,
-                            "Approval node '" + nodeId + "' Position requires non-empty positionIds"));
+                            "Approval node '" + name + "' Position requires non-empty positionIds"));
                 }
             }
-            case "Department" -> validateDeptScope(nodeId, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
+            case "Department" -> validateDeptScope(nodeId, name, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
             default -> { /* VariableList, Expression, InitiatorManager, Role: no extra validation */ }
         }
     }
@@ -212,7 +256,7 @@ public class ApprovalConfigValidator implements FlowValidator {
      * {@code SPECIFIC_DEPT} ({@code deptIds} for department members, {@code deptId} otherwise), the
      * variable for {@code VARIABLE_DEPT}.
      */
-    private static void validateDeptScope(String nodeId, String type, Map<String, Object> source,
+    private static void validateDeptScope(String nodeId, String name, String type, Map<String, Object> source,
                                           ApproverDeptScope fallback, List<CompileDiagnostic> d) {
         ApproverDeptScope scope;
         try {
@@ -222,7 +266,7 @@ public class ApprovalConfigValidator implements FlowValidator {
         }
         if (scope == null || (scope == ApproverDeptScope.ALL && fallback != ApproverDeptScope.ALL)) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.deptScope",
-                    INVALID_DEPT_SCOPE, "Approval node '" + nodeId + "' " + type + " has an unsupported deptScope: "
+                    INVALID_DEPT_SCOPE, "Approval node '" + name + "' " + type + " has an unsupported deptScope: "
                             + source.get("deptScope")));
             return;
         }
@@ -231,12 +275,12 @@ public class ApprovalConfigValidator implements FlowValidator {
                 && (multiple ? isEmptyCollection(source.get("deptIds")) : !StringUtils.hasText(asText(source.get("deptId"))))) {
             String field = multiple ? "deptIds" : "deptId";
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource." + field,
-                    MISSING_DEPT_IDS, "Approval node '" + nodeId + "' " + type + " requires " + field
+                    MISSING_DEPT_IDS, "Approval node '" + name + "' " + type + " requires " + field
                             + " for deptScope SPECIFIC_DEPT"));
         }
         if (scope == ApproverDeptScope.VARIABLE_DEPT && !StringUtils.hasText(asText(source.get("deptVariable")))) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.deptVariable",
-                    MISSING_DEPT_VARIABLE, "Approval node '" + nodeId + "' " + type
+                    MISSING_DEPT_VARIABLE, "Approval node '" + name + "' " + type
                             + " requires deptVariable for deptScope VARIABLE_DEPT"));
         }
     }
@@ -266,9 +310,15 @@ public class ApprovalConfigValidator implements FlowValidator {
         return false;
     }
 
+    /** Whether the step names a dynamic source: one without a type finds nobody, as the runtime reads it. */
+    private static boolean namesSource(ApprovalNodeConfig cfg) {
+        Object type = cfg.getApproverSource() == null ? null : cfg.getApproverSource().get("type");
+        return type != null && StringUtils.hasText(type.toString());
+    }
+
     // ── Vote thresholds ────────────────────────────────────────────────────
 
-    private void validateVoteThresholds(String nodeId, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
+    private void validateVoteThresholds(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
         VoteThresholdMode approvalMode = cfg.getApprovalMode() != null ? cfg.getApprovalMode() : VoteThresholdMode.ANY_ONE;
         boolean hasDynamicApproverSource = cfg.getApproverSource() != null;
         List<String> approvers = cfg.getApprovers() != null ? cfg.getApprovers() : List.of();
@@ -276,18 +326,27 @@ public class ApprovalConfigValidator implements FlowValidator {
 
         if (approvers.size() != nonBlankApprovers.size()) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", BLANK_APPROVER,
-                    "Approval node '" + nodeId + "' contains blank approvers in config.approvers"));
+                    "Approval node '" + name + "' contains blank approvers in config.approvers"));
         }
         if (nonBlankApprovers.size() != new LinkedHashSet<>(nonBlankApprovers).size()) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", DUPLICATE_APPROVER,
-                    "Approval node '" + nodeId + "' contains duplicate approvers in config.approvers"));
+                    "Approval node '" + name + "' contains duplicate approvers in config.approvers"));
         }
 
-        validateApprovalMode(nodeId, approvalMode, nonBlankApprovers, hasDynamicApproverSource,
+        // A step names who approves it: users, or a source that finds them. One that names neither finds nobody on every
+        // run — under the default strategy every submission is refused (zingkey-hcm#2450) — so it is not published; the
+        // vote thresholds have nothing to count then, and are not judged.
+        if (nonBlankApprovers.isEmpty() && !namesSource(cfg)) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", MISSING_APPROVERS,
+                    "Approval node '" + name + "' names no approver: pick approvers, or a source that finds them "
+                            + "(a supervisor, a role, ...)."));
+            return;
+        }
+        validateApprovalMode(nodeId, name, approvalMode, nonBlankApprovers, hasDynamicApproverSource,
                 cfg.getMinCount(), cfg.getPercentage(), d);
 
         VoteThresholdMode rejectMode = cfg.getRejectMode() != null ? cfg.getRejectMode() : VoteThresholdMode.ANY_ONE;
-        validateRejectMode(nodeId, rejectMode, nonBlankApprovers, hasDynamicApproverSource,
+        validateRejectMode(nodeId, name, rejectMode, nonBlankApprovers, hasDynamicApproverSource,
                 cfg.getRejectMinCount(), cfg.getRejectPercentage(), d);
 
         int requiredApprovalCount = resolveRequiredCount(approvalMode, nonBlankApprovers.size(),
@@ -296,76 +355,46 @@ public class ApprovalConfigValidator implements FlowValidator {
                 cfg.getRejectMinCount(), cfg.getRejectPercentage());
         if (!nonBlankApprovers.isEmpty() && requiredApprovalCount + requiredRejectCount > nonBlankApprovers.size() + 1) {
             d.add(CompileDiagnostic.nodeLevel(nodeId, APPROVAL_TYPE, DEADLOCK_THRESHOLD,
-                    "Approval node '" + nodeId + "' defines approval/reject thresholds that can deadlock"));
+                    "Approval node '" + name + "' defines approval/reject thresholds that can deadlock"));
         }
     }
 
-    private void validateApprovalMode(String nodeId, VoteThresholdMode mode,
+    private void validateApprovalMode(String nodeId, String name, VoteThresholdMode mode,
                                       List<String> approvers, boolean hasDynamic,
                                       Integer minCount, Integer percentage,
                                       List<CompileDiagnostic> d) {
-        if (VoteThresholdMode.UNANIMOUS.equals(mode) && approvers.isEmpty() && !hasDynamic) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                    UNANIMOUS_NEEDS_APPROVERS,
-                    "Approval node '" + nodeId + "' must define config.approvers for Unanimous approval mode"));
-        }
         if (VoteThresholdMode.MIN_COUNT.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        MIN_COUNT_NEEDS_APPROVERS,
-                        "Approval node '" + nodeId + "' must define config.approvers for MinCount approval mode"));
-            }
             if (minCount == null || minCount < 1 || (!hasDynamic && minCount > approvers.size())) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.minCount",
                         INVALID_MIN_COUNT,
-                        "Approval node '" + nodeId + "' must define config.minCount between 1 and approver count"));
+                        "Approval node '" + name + "' must define config.minCount between 1 and approver count"));
             }
         }
         if (VoteThresholdMode.PERCENTAGE.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        PERCENTAGE_NEEDS_APPROVERS,
-                        "Approval node '" + nodeId + "' must define config.approvers for Percentage approval mode"));
-            }
             if (percentage == null || percentage < 1 || percentage > 100) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.percentage",
                         INVALID_PERCENTAGE,
-                        "Approval node '" + nodeId + "' must define config.percentage between 1 and 100"));
+                        "Approval node '" + name + "' must define config.percentage between 1 and 100"));
             }
         }
     }
 
-    private void validateRejectMode(String nodeId, VoteThresholdMode mode,
+    private void validateRejectMode(String nodeId, String name, VoteThresholdMode mode,
                                     List<String> approvers, boolean hasDynamic,
                                     Integer rejectMinCount, Integer rejectPercentage,
                                     List<CompileDiagnostic> d) {
-        if (VoteThresholdMode.UNANIMOUS.equals(mode) && approvers.isEmpty() && !hasDynamic) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                    UNANIMOUS_NEEDS_APPROVERS,
-                    "Approval node '" + nodeId + "' must define config.approvers for Unanimous reject mode"));
-        }
         if (VoteThresholdMode.MIN_COUNT.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        MIN_COUNT_NEEDS_APPROVERS,
-                        "Approval node '" + nodeId + "' must define config.approvers for MinCount reject mode"));
-            }
             if (rejectMinCount == null || rejectMinCount < 1 || (!hasDynamic && rejectMinCount > approvers.size())) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.rejectMinCount",
                         INVALID_MIN_COUNT,
-                        "Approval node '" + nodeId + "' must define config.rejectMinCount between 1 and approver count"));
+                        "Approval node '" + name + "' must define config.rejectMinCount between 1 and approver count"));
             }
         }
         if (VoteThresholdMode.PERCENTAGE.equals(mode)) {
-            if (approvers.isEmpty() && !hasDynamic) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers",
-                        PERCENTAGE_NEEDS_APPROVERS,
-                        "Approval node '" + nodeId + "' must define config.approvers for Percentage reject mode"));
-            }
             if (rejectPercentage == null || rejectPercentage < 1 || rejectPercentage > 100) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.rejectPercentage",
                         INVALID_PERCENTAGE,
-                        "Approval node '" + nodeId + "' must define config.rejectPercentage between 1 and 100"));
+                        "Approval node '" + name + "' must define config.rejectPercentage between 1 and 100"));
             }
         }
     }

@@ -2,6 +2,7 @@ package io.softa.starter.flow.runtime.spi;
 
 import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 
 import io.softa.framework.base.utils.SFunction;
 import io.softa.starter.flow.entity.ApprovalModel;
@@ -87,6 +88,19 @@ public interface ModelApprovalHandler<T extends ApprovalModel> {
      * @param record the record, already {@code Pending}
      */
     default void afterSubmitted(T record) {}
+
+    /**
+     * An approver's edits — the fields their approval step lets them change — were written to the record: apply the
+     * model's own rules on such edits, as the record's own page applies them when it saves, such as values the server
+     * works out for lines an approver added, or lines that must stay consistent with each other. Runs inside the
+     * approve, in its transaction with permission checks skipped, right after the write and before the approval goes
+     * on; throwing refuses the approve, the edits with it, and tells the approver why — where an edit no page would
+     * have saved was otherwise found only when the approval's result was applied.
+     *
+     * @param record       the record as the edits left it
+     * @param editedFields the fields the edits wrote
+     */
+    default void afterApproverEdit(T record, Set<String> editedFields) {}
 
     /**
      * The approval reached a result, already written to the record's {@code approvalStatus}: run the

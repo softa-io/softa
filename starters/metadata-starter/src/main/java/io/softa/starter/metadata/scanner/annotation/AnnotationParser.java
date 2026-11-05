@@ -339,7 +339,7 @@ public final class AnnotationParser {
         m.setDescription(checkedDescription(anno.description(), "model " + modelName));
         m.setDisplayName(toList(anno.displayName()));
         m.setSearchName(toList(anno.searchName()));
-        // @Model.defaultOrder() is String[] e.g. {"createdTime:desc"}.
+        // @Model.defaultOrder() is String[] e.g. {"sequence", "name:desc"}.
         // SysModel.defaultOrder is Orders, parsed from the same string format.
         String[] orderEntries = anno.defaultOrder();
         if (orderEntries.length > 0) {

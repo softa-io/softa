@@ -159,9 +159,32 @@ class ApprovalConfigValidatorOrgTest {
         assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "UNKNOWN_APPROVER_SOURCE_TYPE".equals(d.code())));
     }
 
+    /**
+     * A step that names neither approvers nor a source finds nobody on every run — under the default strategy every
+     * submission is refused — so it is not published (zingkey-hcm#2450). A source without a type names nobody either.
+     */
+    @Test
+    void aStepThatNamesNoApproverIsNotPublished() {
+        for (Map<String, Object> config : List.<Map<String, Object>>of(
+                Map.of(),
+                Map.of("approvers", List.of(" ")),
+                Map.of("approverSource", Map.of("level", 1)),
+                Map.of("emptyApproverStrategy", "AutoApprove"))) {
+            FlowCompileException ex = assertThrows(FlowCompileException.class,
+                    () -> compiler.compile(flowWithConfig(config)), config.toString());
+            assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())
+                    && "approval".equals(d.nodeId()) && "config.approvers".equals(d.field())), config.toString());
+        }
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approvers", List.of("1001")))));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private DesignFlowDefinition flowWithApproverSource(Map<String, Object> approverSource) {
+        return flowWithConfig(Map.of("approverSource", approverSource));
+    }
+
+    private DesignFlowDefinition flowWithConfig(Map<String, Object> config) {
         return DesignFlowDefinition.builder()
                 .name("Org Approval Test")
                 .scenario(FlowScenario.APPROVAL)
@@ -173,7 +196,7 @@ class ApprovalConfigValidatorOrgTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of("approverSource", approverSource))
+                                        .config(config)
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()
                         ))

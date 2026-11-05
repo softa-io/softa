@@ -67,6 +67,10 @@ public class FlowInstanceSummaryView {
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
 
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it — the "
+            + "days of a leave, a claim's amount")
+    private String summary;
+
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;
 
@@ -78,7 +82,8 @@ public class FlowInstanceSummaryView {
     private Boolean awaitingRevision;
 
     @Schema(description = "The caller's own approval waiting on its approvers: whether they may withdraw it now, by "
-            + "the flow's withdraw policy; null on any other row")
+            + "the flow's withdraw policy; their own record's approval that failed: whether they may take the record "
+            + "back (while it still waits on it); null on any other row")
     private Boolean withdrawable;
 
     @Schema(description = "The caller's own approval waiting on its approvers: whether they may urge it now, by the "
@@ -100,6 +105,9 @@ public class FlowInstanceSummaryView {
 
     @Schema(description = "Node where execution failed (status = Failed)")
     private String failedNodeId;
+
+    @Schema(description = "Whether it failed in the steps after an approval, which an administrator can run again")
+    private Boolean retryable;
 
     @Schema(description = "Earliest timer due time")
     private LocalDateTime nextFireAt;

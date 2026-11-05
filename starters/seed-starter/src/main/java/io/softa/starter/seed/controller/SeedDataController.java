@@ -80,8 +80,8 @@ public class SeedDataController {
     }
 
     @Operation(summary = "Run the named tenant files again in the given tenants, whatever their state, in the "
-            + "background: each file loads whole over the tenant's copy, as an overwrite file does, so what the "
-            + "tenant changed in those rows is lost")
+            + "background: each file loads over the tenant's copy, as an overwrite file does, so what the tenant "
+            + "changed in the fields the file names is lost; a field the file leaves out keeps the tenant's value")
     @PostMapping("/tenants/reapply")
     @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
     public ApiResponse<BatchStarted> reapplyTenantFiles(@RequestBody TenantReapplyRequest request) {

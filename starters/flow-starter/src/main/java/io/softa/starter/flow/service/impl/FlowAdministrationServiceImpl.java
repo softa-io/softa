@@ -26,10 +26,13 @@ import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.runtime.api.FlowReassignRequest;
+import io.softa.starter.flow.runtime.api.FlowRetryRequest;
 import io.softa.starter.flow.runtime.api.FlowTerminateRequest;
 import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.state.FlowExecutionState;
+import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.service.FlowAdministrationService;
 import io.softa.starter.flow.service.FlowDelegationService;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
@@ -89,6 +92,36 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
                 items.add(new Item(instanceId, null, Outcome.SUCCEEDED, null));
             } catch (RuntimeException e) {
                 log.info("Terminate refused on instance {}: {}", instanceId, e.getMessage());
+                items.add(new Item(instanceId, null, Outcome.FAILED, e.getMessage()));
+            }
+        }
+        return FlowBatchActionResult.of(items);
+    }
+
+    @Override
+    public FlowBatchActionResult retry(List<String> instanceIds, String comment, String operatorId) {
+        List<String> requested = List.copyOf(new LinkedHashSet<>(instanceIds));
+        Set<String> administrable = accessGuard.administrableInstanceIds(requested);
+        List<Item> items = new ArrayList<>(requested.size());
+        for (String instanceId : requested) {
+            if (!administrable.contains(instanceId)) {
+                items.add(new Item(instanceId, null, Outcome.FAILED, "You may not administer this instance"));
+                continue;
+            }
+            try {
+                FlowRetryRequest request = new FlowRetryRequest();
+                request.setInstanceId(instanceId);
+                request.setActorId(operatorId);
+                request.setComment(comment);
+                FlowExecutionState state = runtimeEngine.retry(request);
+                // Run again and failed again: told so, as its initiator and the administrators are.
+                if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
+                    items.add(new Item(instanceId, state.getFailedNodeId(), Outcome.FAILED, state.getErrorMessage()));
+                } else {
+                    items.add(new Item(instanceId, null, Outcome.SUCCEEDED, null));
+                }
+            } catch (RuntimeException e) {
+                log.info("Retry refused on instance {}: {}", instanceId, e.getMessage());
                 items.add(new Item(instanceId, null, Outcome.FAILED, e.getMessage()));
             }
         }
