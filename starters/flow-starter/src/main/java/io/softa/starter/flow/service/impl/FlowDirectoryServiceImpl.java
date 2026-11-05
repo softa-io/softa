@@ -19,8 +19,13 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
     /** Rows a search returns when the caller names no limit. */
     static final int DEFAULT_LIMIT = 20;
 
-    /** The most rows a search returns. */
-    static final int MAX_LIMIT = 50;
+    /**
+     * The most rows a search returns. A picker shows a long list by asking again for more as it is scrolled — 20, then
+     * 40, and so on — rather than for a second page: the search over employees and accounts orders the two together by
+     * name in memory, which a database's collation need not agree with, so a page read on its own could repeat or skip
+     * someone; the first so many never do. Past this a picker narrows by typing.
+     */
+    static final int MAX_LIMIT = 200;
 
     /** The most ids one lookup names: the values picked in one picker. */
     static final int MAX_IDS = 200;
@@ -35,13 +40,28 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
     }
 
     @Override
-    public List<DirectoryPerson> searchPeople(String keyword, boolean includeInactive, Integer limit) {
+    public List<DirectoryPerson> searchPeople(String keyword, Integer limit) {
         int size = limitOf(limit);
-        return ask(organization -> organization.searchPeople(keyword, includeInactive, size), List.of());
+        // As the caller: their roles' scope on the directory model decides whom they find.
+        OrganizationService organization = organizationService.getIfAvailable();
+        return organization == null ? List.of() : organization.searchPeople(keyword, size).stream()
+                .map(DirectoryPerson::withoutActive)
+                .toList();
     }
 
     @Override
     public List<DirectoryPerson> getPeople(List<Long> userIds) {
+        return getAllPeople(userIds).stream().map(DirectoryPerson::withoutActive).toList();
+    }
+
+    @Override
+    public List<DirectoryPerson> searchAllPeople(String keyword, boolean includeInactive, Integer limit) {
+        int size = limitOf(limit);
+        return ask(organization -> organization.searchAllPeople(keyword, includeInactive, size), List.of());
+    }
+
+    @Override
+    public List<DirectoryPerson> getAllPeople(List<Long> userIds) {
         List<Long> ids = idsOf(userIds);
         if (ids.isEmpty()) {
             return List.of();

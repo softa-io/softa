@@ -183,6 +183,7 @@ public class ApprovalPathPreviewer {
             int required = Math.max(0, pending.getRequiredApprovalCount() - pending.getApprovedActors().size());
             Step step = step(node, StepOutcome.WAITING, remaining, required, List.of());
             step.setCurrent(true);
+            step.setAssignedRoles(pending.assignedToRoles() ? pending.getAssignedRoles() : null);
             steps.add(step);
             assumeApproved(node, remaining, required);
         }
@@ -211,7 +212,11 @@ public class ApprovalPathPreviewer {
                         passOver(node);
                     }
                     if (failure == null) {
-                        queue.addAll(gatewayRouter.resolveNextNodeIds(definition, node, this::decide));
+                        List<String> next = gatewayRouter.resolveNextNodeIds(definition, node, this::decide);
+                        if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
+                            FlowExecutionOrchestrator.creditUntakenBranches(definition, state, node, next.size());
+                        }
+                        queue.addAll(next);
                     }
                 } catch (UndecidedRoute e) {
                     undecided.add(new Stop(node.getNodeId(), node.getLabel(), null));
@@ -292,7 +297,9 @@ public class ApprovalPathPreviewer {
                     .toList();
             int required = pending.getRequiredApprovalCount() - pending.getApprovedActors().size();
             StepOutcome outcome = mayHaveApprovedEarlier(node, remaining) ? StepOutcome.UNDETERMINED : StepOutcome.WAITING;
-            steps.add(step(node, outcome, remaining, required, autoApprovals));
+            Step step = step(node, outcome, remaining, required, autoApprovals);
+            step.setAssignedRoles(pending.assignedToRoles() ? pending.getAssignedRoles() : null);
+            steps.add(step);
             assumeApproved(node, remaining, required);
         }
 
@@ -316,9 +323,10 @@ public class ApprovalPathPreviewer {
                     steps.add(step(node, StepOutcome.NO_APPROVER_APPROVED, List.of(), null, List.of()));
                 }
                 case SKIP -> steps.add(step(node, StepOutcome.NO_APPROVER_SKIPPED, List.of(), null, List.of()));
-                case ERROR -> {
+                case ERROR, ASSIGN_TO_ROLE -> {
+                    // AssignToRole reaches here only when its roles leave nobody either.
                     steps.add(step(node, StepOutcome.NO_APPROVER_FAILS, List.of(), null, List.of()));
-                    failure = new Stop(node.getNodeId(), node.getLabel(), PendingApprovalFactory.emptyApproverMessage(node));
+                    failure = new Stop(node.getNodeId(), node.getLabel(), pendingApprovalFactory.emptyApproverMessage(node, state));
                 }
             }
         }

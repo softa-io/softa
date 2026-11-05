@@ -114,15 +114,26 @@ class FlowInstanceServiceImplSearchTest {
     void summaryProjectionExcludesJsonStateColumns() {
         runSearch(request(null, null, null, null, null), null);
         List<String> fields = queryCaptor.getValue().getFields();
-        assertEquals(22, fields.size());
+        assertEquals(24, fields.size());
         assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName", "scenario",
                 "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "status",
-                "failedNodeId", "nextFireAt", "createdTime", "updatedTime",
-                "subjectId", "departmentId", "effectiveDate", "recordCode", "superseded")));
+                "failedNodeId", "retryAfterNodeId", "nextFireAt", "createdTime", "updatedTime",
+                "subjectId", "departmentId", "effectiveDate", "recordCode", "summary", "superseded")));
         assertFalse(fields.contains("variables"));
         assertFalse(fields.contains("inputPayload"));
         assertFalse(fields.contains("pendingApprovals"));
         assertFalse(fields.contains("waitTokens"));
+    }
+
+    /** The task lists name each task's request from its instance, the summary line among it (zingkey-hcm#2350). */
+    @Test
+    void theInstancesTheTaskListsReadCarryTheirSummary() {
+        doReturn(List.of()).when(service).searchList(any(FlexQuery.class));
+
+        service.findByInstanceIds(List.of("i1"));
+
+        verify(service).searchList(queryCaptor.capture());
+        assertTrue(queryCaptor.getValue().getFields().contains("summary"));
     }
 
     @Test
@@ -135,7 +146,7 @@ class FlowInstanceServiceImplSearchTest {
         }
         assertEquals(List.of("my taxi claim"), matched(),
                 "the boss's approvals and the caller's automation runs stay out, however the filters are put");
-        assertEquals("createdTime DESC", queryCaptor.getValue().getOrders().toString(), "newest first, unchanged");
+        assertEquals("id DESC", queryCaptor.getValue().getOrders().toString(), "newest first, unchanged");
     }
 
     @Test

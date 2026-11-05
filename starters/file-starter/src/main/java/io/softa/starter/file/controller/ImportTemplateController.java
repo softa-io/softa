@@ -103,9 +103,10 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
     @PostMapping("/searchName")
     @DataMask
     public ApiResponse<List<Map<String, Object>>> searchName(@RequestBody(required = false) SearchNameParams searchNameParams) {
-        FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(searchNameParams);
+        SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
+        FlexQuery flexQuery = params.toFlexQuery();
         flexQuery.setFilters(withCountryScope(flexQuery.getFilters()));
-        return ApiResponse.success(modelService.searchName(MODEL, flexQuery));
+        return ApiResponse.success(modelService.searchName(MODEL, flexQuery, params.toPage()));
     }
 
     /** Typed shadow of the generic {@code /ImportTemplate/count} — the total a narrowed page reports. */

@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
  * Serializable execution state for the in-memory runtime engine.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @Schema(name = "FlowExecutionState")
@@ -71,6 +71,9 @@ public class FlowExecutionState {
 
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
+
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it")
+    private String summary;
 
     @Schema(description = "Identity of the trigger event that started the instance (a change log's uuid); with "
             + "the flow, an event starts a run at most once")
@@ -160,6 +163,14 @@ public class FlowExecutionState {
 
     @Schema(description = "Node where execution failed (set when status = Failed)")
     private String failedNodeId;
+
+    /**
+     * The approval step after which a failed approval runs again: set when the steps after that step failed — the
+     * approval kept, their work rolled back — and cleared when they run through. Only an instance that has one can
+     * be retried.
+     */
+    @Schema(description = "Approval step after which a failed approval runs again on retry")
+    private String retryAfterNodeId;
 
     // ── Wait-token helpers (null-safe) ─────────────────────────────────────────
 

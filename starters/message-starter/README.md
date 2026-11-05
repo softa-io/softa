@@ -943,6 +943,11 @@ Self-service endpoints for the signed-in user (always scoped to
 | GET | `/InboxNotification/myRecent?limit=` | Recent list (max 50) |
 | POST | `/InboxNotification/myMarkAsRead?id=` | Mark one owned row read |
 | POST | `/InboxNotification/myMarkAllAsRead` | Mark all owned rows read |
+| POST | `/InboxNotification/myMarkAsReadBySource?sourceModel=&sourceId=` | Mark the owned unread rows about one object read — an approval its recipient opened |
+| POST | `/InboxNotification/mySearch` | One page of the owned rows for a table: body `{ filters, orders, pageNumber, pageSize }`, newest first by default |
+| POST | `/InboxNotification/myMarkAsReadByIds` | Mark the owned unread rows among the ids in the body (a JSON array) read; another user's ids are passed over. Returns how many were marked |
+
+`mySearch` serves a metadata-driven table over `InboxNotification` — a notification center with search, column filters, sort and paging. The request's `filters` are ANDed onto the caller's own rows, so a filter naming another recipient finds nothing; `searchName` matches `title` and `content` (the model's `searchName`). Row scope is waived on every `my*` endpoint, so `filters` and `orders` may name only fields the model stores: a dotted path (`createdId.…`) or an unknown name is refused with 400 rather than answered from rows the caller could not read. A sort of the caller's ends on `id` in the direction of its first, so pages never overlap. The index `(recipientId, createdTime)` serves the default order.
 
 Grant the FE `my-inbox` custom permission (or whitelist these paths under
 `permission.authenticated-bypass-patterns`) so every employee can use the

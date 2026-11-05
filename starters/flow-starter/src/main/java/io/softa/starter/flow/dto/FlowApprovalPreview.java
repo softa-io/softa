@@ -148,6 +148,10 @@ public class FlowApprovalPreview {
 
         @Schema(description = "Whether the approval waits on this step now (InProgress); its approvers are those still asked")
         private Boolean current;
+
+        @Schema(description = "The roles the step goes to because it finds nobody (empty-approver strategy AssignToRole), by "
+                + "name: its approvers are their holders, any one of whom decides. Null otherwise")
+        private List<String> assignedRoles;
     }
 
     @Data

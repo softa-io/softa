@@ -18,6 +18,7 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
+import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
@@ -85,6 +86,12 @@ public class DefaultFlowCompiler {
         FlowGraphContext context = analysis.context;
         Map<String, CompiledFlowNode> compiledNodeIndex = NodeTransformer.compileNodes(
                 context.nodeMap().values(), context.incomingEdgeIds(), context.outgoingEdgeIds());
+        // An inclusive gateway whose branches meet names its join: the engine counts the branches not taken there.
+        for (FlowGraphNode node : context.nodeMap().values()) {
+            if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
+                compiledNodeIndex.get(node.getId()).setPairedJoinId(BranchRegions.pairOf(node, context).joinId());
+            }
+        }
         Map<String, CompiledFlowTransition> compiledTransitionIndex =
                 NodeTransformer.compileTransitions(context.edgeMap().values());
         List<String> entryNodeIds = context.entryNodeIds();

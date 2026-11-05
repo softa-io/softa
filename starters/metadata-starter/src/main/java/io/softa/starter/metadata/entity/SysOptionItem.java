@@ -24,7 +24,8 @@ import io.softa.framework.orm.enums.FieldType;
         activeControl = true,
         displayName = {"label"},
         businessKey = {"optionSetCode", "itemCode"},
-        description = "Metadata catalog of option items"
+        description = "Metadata catalog of option items",
+        defaultOrder = {"optionSetCode", "sequence"}
 )
 // The business key had no index behind it. An option set whose item codes repeat cannot do its job —
 // a stored code stops naming one item — and the reconciler, which matches rows by that key, has no

@@ -43,6 +43,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     private final CommentActionHandler commentHandler;
     private final TerminateActionHandler terminateHandler;
     private final ReassignActionHandler reassignHandler;
+    private final RetryActionHandler retryHandler;
 
     public FlowRuntimeFacade(FlowActionContextService contextService,
                              FlowExecutionOrchestrator orchestrator,
@@ -61,7 +62,8 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                              UrgeActionHandler urgeHandler,
                              CommentActionHandler commentHandler,
                              TerminateActionHandler terminateHandler,
-                             ReassignActionHandler reassignHandler) {
+                             ReassignActionHandler reassignHandler,
+                             RetryActionHandler retryHandler) {
         this.contextService = contextService;
         this.orchestrator = orchestrator;
         this.instanceStore = instanceStore;
@@ -80,6 +82,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         this.commentHandler = commentHandler;
         this.terminateHandler = terminateHandler;
         this.reassignHandler = reassignHandler;
+        this.retryHandler = retryHandler;
     }
 
     @Override
@@ -202,6 +205,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 .departmentId(request.getDepartmentId())
                 .effectiveDate(request.getEffectiveDate())
                 .recordCode(request.getRecordCode())
+                .summary(request.getSummary())
                 .triggerEventId(request.getTriggerEventId())
                 .status(FlowExecutionStatus.RUNNING)
                 .inputPayload(Map.of())
@@ -287,6 +291,18 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     @Override
     public FlowExecutionState reassign(FlowReassignRequest request) {
         return reassignHandler.handle(request);
+    }
+
+    @Override
+    public FlowExecutionState retry(FlowRetryRequest request) {
+        String approvedNodeId = request == null || request.getInstanceId() == null ? null
+                : instanceStore.get(request.getInstanceId()).map(FlowExecutionState::getRetryAfterNodeId).orElse(null);
+        FlowExecutionState state = retryHandler.handle(request);
+        // The approval's CC, as had the steps after its last approval run through the first time.
+        if (FlowExecutionStatus.COMPLETED.equals(state.getStatus()) && approvedNodeId != null) {
+            autoCcService.processCc(state, actedStep(state, approvedNodeId), CcTiming.ON_APPROVED);
+        }
+        return state;
     }
 
     @Override

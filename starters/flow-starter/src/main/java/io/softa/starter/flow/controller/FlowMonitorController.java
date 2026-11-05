@@ -20,6 +20,7 @@ import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowReassignApproverRequest;
 import io.softa.starter.flow.dto.FlowReassignPreview;
+import io.softa.starter.flow.dto.FlowRetryBatchRequest;
 import io.softa.starter.flow.dto.FlowTerminateBatchRequest;
 import io.softa.starter.flow.dto.FlowUrgeStatus;
 import io.softa.starter.flow.entity.FlowDelegation;
@@ -116,6 +117,18 @@ public class FlowMonitorController {
                     + "own permissions read; each acted on separately. Returns each one's outcome.")
     public ApiResponse<FlowBatchActionResult> terminate(@Valid @RequestBody FlowTerminateBatchRequest request) {
         return ApiResponse.success(administrationService.terminate(request.getInstanceIds(), request.getReason(),
+                currentUserId()));
+    }
+
+    @PostMapping("/instances/retry")
+    @Operation(summary = "Run approvals again",
+            description = "Runs again the steps after an approval of each instance named that failed in them — the "
+                    + "approval goes on from the step it failed after; should they fail again, the instance fails "
+                    + "again and its initiator and the administrators are told. A record taken back by its submitter, "
+                    + "or submitted again since, is refused. Granted with terminating: only instances the caller's own "
+                    + "permissions read; each acted on separately. Returns each one's outcome.")
+    public ApiResponse<FlowBatchActionResult> retry(@Valid @RequestBody FlowRetryBatchRequest request) {
+        return ApiResponse.success(administrationService.retry(request.getInstanceIds(), request.getComment(),
                 currentUserId()));
     }
 

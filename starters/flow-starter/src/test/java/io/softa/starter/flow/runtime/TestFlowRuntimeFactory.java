@@ -16,6 +16,7 @@ import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
+import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.spi.impl.DefaultApprovalNotificationService;
 import io.softa.starter.flow.runtime.store.FlowInstanceStore;
 import io.softa.starter.flow.service.FlowInstanceService;
@@ -111,7 +112,7 @@ public final class TestFlowRuntimeFactory {
                                                      ApprovalNodeExecutionHandler approvalHandler,
                                                      ApprovalNotificationService notificationService) {
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
-                Mockito.mock(ModelService.class), notificationService, null);
+                Mockito.mock(ModelService.class), notificationService, null, null);
     }
 
     /**
@@ -125,7 +126,17 @@ public final class TestFlowRuntimeFactory {
                                                 ApprovalNotificationService notificationService,
                                                 ActorAccounts accounts) {
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
-                Mockito.mock(ModelService.class), notificationService, accounts);
+                Mockito.mock(ModelService.class), notificationService, accounts, null);
+    }
+
+    /** As {@link #create(FlowBundleRegistry, FlowInstanceStore, DefaultNodeHandlerRegistry, ApprovalNodeExecutionHandler)}, approvers found through {@code organization}. */
+    public static FlowRuntimeFacade createWithOrganization(FlowBundleRegistry bundleRegistry,
+                                                           FlowInstanceStore instanceStore,
+                                                           DefaultNodeHandlerRegistry nodeHandlerRegistry,
+                                                           ApprovalNodeExecutionHandler approvalHandler,
+                                                           OrganizationService organization) {
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
+                Mockito.mock(ModelService.class), event -> {}, null, organization);
     }
 
     private static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
@@ -137,7 +148,7 @@ public final class TestFlowRuntimeFactory {
                                     ModelService<?> recordModelService,
                                     ApprovalNotificationService notificationService) {
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
-                recordSyncListener, recordModelService, notificationService, null);
+                recordSyncListener, recordModelService, notificationService, null, null);
     }
 
     private static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
@@ -148,7 +159,8 @@ public final class TestFlowRuntimeFactory {
                                     FlowStateChangeListener recordSyncListener,
                                     ModelService<?> recordModelService,
                                     ApprovalNotificationService notificationService,
-                                    ActorAccounts accounts) {
+                                    ActorAccounts accounts,
+                                    OrganizationService organization) {
         FlowProjectionPublisher projectionPublisher =
                 new FlowProjectionPublisher(List.of(taskSyncListener, recordSyncListener));
 
@@ -157,6 +169,9 @@ public final class TestFlowRuntimeFactory {
         ApproverResolutionService approverResolutionService = new ApproverResolutionService();
         if (accounts != null) {
             ReflectionTestUtils.setField(approverResolutionService, "actorAccounts", accounts);
+        }
+        if (organization != null) {
+            ReflectionTestUtils.setField(approverResolutionService, "organizationService", organization);
         }
         PendingApprovalFactory pendingApprovalFactory = new PendingApprovalFactory(approverResolutionService, auditReader);
         ApprovalLifecycleService lifecycleService = new ApprovalLifecycleService(pendingApprovalFactory);
@@ -175,8 +190,8 @@ public final class TestFlowRuntimeFactory {
 
         AutoCcService autoCcService = new AutoCcService(contextService, auditService, auditReader, notificationService,
                 approverResolutionService);
-        FlowInstanceAccessGuard accessGuard = new FlowInstanceAccessGuard(Mockito.mock(FlowInstanceService.class),
-                auditReader, recordModelService);
+        FlowInstanceService instanceService = Mockito.mock(FlowInstanceService.class);
+        FlowInstanceAccessGuard accessGuard = new FlowInstanceAccessGuard(instanceService, auditReader, recordModelService);
 
         return new FlowRuntimeFacade(contextService, orchestrator, instanceStore, autoCcService,
                 new ApproveActionHandler(contextService, actorValidator, lifecycleService, auditService, orchestrator, notificationService,
@@ -189,11 +204,14 @@ public final class TestFlowRuntimeFactory {
                 new CcActionHandler(contextService, actorValidator, auditService, notificationService),
                 new ReadCcActionHandler(contextService, auditService),
                 new ReturnApprovalActionHandler(contextService, actorValidator, auditService, notificationService),
-                new WithdrawActionHandler(contextService, auditService, new WithdrawPolicyGuard(bundleRegistry, auditReader)),
+                new WithdrawActionHandler(contextService, auditService, new WithdrawPolicyGuard(bundleRegistry, auditReader,
+                        new FailedApprovalRecords(instanceService, recordModelService))),
                 new UrgeActionHandler(contextService, auditService, notificationService,
                         new UrgeThrottle(bundleRegistry, auditReader)),
                 new CommentActionHandler(contextService, auditService, accessGuard),
                 new TerminateActionHandler(contextService, auditService, notificationService),
-                new ReassignActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService));
+                new ReassignActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
+                new RetryActionHandler(contextService, auditService, orchestrator,
+                        new FailedApprovalRecords(instanceService, recordModelService)));
     }
 }

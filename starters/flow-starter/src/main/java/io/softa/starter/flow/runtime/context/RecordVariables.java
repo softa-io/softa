@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.context;
 
+import java.math.BigDecimal;
 import java.time.temporal.Temporal;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,5 +71,53 @@ public final class RecordVariables {
             }
         }
         return variables;
+    }
+
+    /**
+     * The routed fields' numbers back as numbers, in {@code variables} as an instance stored them. Kept as JSON, an
+     * instance's variables come back with every {@code Long} and {@code BigDecimal} as text — the app writes those
+     * as strings, so a browser does not round them. Read so, a step after an approval compared an amount with a
+     * number and failed, and compared an id with one and never matched (zingkey-hcm#2382). An id stays text where
+     * the related model's id is a code. Returns {@code variables}, changed in place.
+     */
+    public static Map<String, Object> restoreNumbers(String modelName, Map<String, Object> variables) {
+        if (modelName == null || variables == null || variables.isEmpty()) {
+            return variables;
+        }
+        for (MetaField field : routedFields(modelName)) {
+            if (variables.get(field.getFieldName()) instanceof String text && !text.isBlank()) {
+                Object number = numberOf(field, text.trim());
+                if (number != null) {
+                    variables.put(field.getFieldName(), number);
+                }
+            }
+        }
+        return variables;
+    }
+
+    /** The number {@code text} stands for in {@code field}, or null where the field holds no number or text none. */
+    private static Object numberOf(MetaField field, String text) {
+        try {
+            return switch (field.getFieldType()) {
+                case LONG -> Long.valueOf(text);
+                case INTEGER -> Integer.valueOf(text);
+                case BIG_DECIMAL -> new BigDecimal(text);
+                case DOUBLE -> Double.valueOf(text);
+                case MANY_TO_ONE, ONE_TO_ONE -> referencesLongId(field) ? Long.valueOf(text) : null;
+                default -> null;
+            };
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Whether the relation stores a numeric id — not a code, as a currency or a country is known by. */
+    private static boolean referencesLongId(MetaField relation) {
+        if (relation.getRelatedFieldType() != null) {
+            return FieldType.LONG.equals(relation.getRelatedFieldType());
+        }
+        String related = relation.getRelatedModel();
+        return related != null && ModelManager.existField(related, ModelConstant.ID)
+                && FieldType.LONG.equals(ModelManager.getModelField(related, ModelConstant.ID).getFieldType());
     }
 }

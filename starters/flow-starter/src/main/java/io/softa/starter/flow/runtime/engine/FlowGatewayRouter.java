@@ -20,18 +20,24 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.context.FlowVariableContext;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 
 /**
  * Resolves outgoing transitions for a node, including condition evaluation. Every node routes over its outgoing
  * edges, and the edge without a condition is its default — at most one per node, taken only when no condition holds:
  * <ul>
- *   <li>an ordinary node routes exclusively: at most one conditional edge may hold, else the instance fails;</li>
+ *   <li>an ordinary node routes exclusively: it tries its conditional edges in order — by their priority, as the
+ *       compiler lists them — and takes the first that holds; the conditions after it are not read. A revision
+ *       compiled before priorities lists them in drawing order;</li>
  *   <li>an inclusive gateway takes every conditional edge whose condition holds, as BPMN's does — its default only
  *       when none holds;</li>
  *   <li>a parallel fork takes every edge, its conditions unread.</li>
  * </ul>
- * A node with several outgoing edges where nothing is taken fails the instance.
+ * A node with several outgoing edges where nothing is taken has no route ({@link #noRoute}). Publishing gives every
+ * ordinary node that picks its route by conditions a default ({@code NO_DEFAULT_EDGE}), so of those only a revision
+ * published before can stop there; an inclusive gateway none of whose conditions holds still can. A node whose one
+ * edge has a condition that does not hold ends its branch.
  */
 @Component
 public class FlowGatewayRouter {
@@ -102,35 +108,33 @@ public class FlowGatewayRouter {
         return nextNodeIds;
     }
 
+    /**
+     * The first conditional edge, in order, whose condition holds — the ones after it are not decided — or, when none
+     * holds, the default edge.
+     */
     private List<String> resolveExclusiveEdgeNextNodeIds(CompiledFlowDefinition definition,
                                                          CompiledFlowNode node,
                                                          Predicate<CompiledFlowTransition> condition) {
-        List<CompiledFlowTransition> matches = new ArrayList<>();
         CompiledFlowTransition defaultTransition = null;
         for (String edgeId : node.getOutgoingEdgeIds()) {
             CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
-            if (transition == null) {
-                continue;
-            }
-            if (!transition.hasCondition()) {
-                if (defaultTransition != null) {
-                    throw new FlowRuntimeException("Node '" + node.getNodeId()
-                            + "' has multiple default outgoing edges");
-                }
-                defaultTransition = transition;
+            if (transition == null || !transition.hasCondition()) {
                 continue;
             }
             if (condition.test(transition)) {
-                matches.add(transition);
+                return List.of(transition.getTarget());
             }
         }
-        if (matches.size() > 1) {
-            throw new FlowRuntimeException("Node '" + node.getNodeId()
-                    + "' matched multiple conditional outgoing edges: "
-                    + matches.stream().map(CompiledFlowTransition::getEdgeId).toList());
-        }
-        if (matches.size() == 1) {
-            return List.of(matches.getFirst().getTarget());
+        for (String edgeId : node.getOutgoingEdgeIds()) {
+            CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
+            if (transition == null || transition.hasCondition()) {
+                continue;
+            }
+            if (defaultTransition != null) {
+                throw new FlowRuntimeException("Node '" + node.displayName()
+                        + "' has multiple default outgoing edges");
+            }
+            defaultTransition = transition;
         }
         if (defaultTransition != null) {
             return List.of(defaultTransition.getTarget());
@@ -138,8 +142,7 @@ public class FlowGatewayRouter {
         if (node.getOutgoingEdgeIds().size() <= 1) {
             return List.of();
         }
-        throw new FlowRuntimeException("Node '" + node.getNodeId()
-                + "' did not match any outgoing edge");
+        throw noRoute(node);
     }
 
     /**
@@ -158,7 +161,7 @@ public class FlowGatewayRouter {
             }
             if (!transition.hasCondition()) {
                 if (defaultTransition != null) {
-                    throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
+                    throw new FlowRuntimeException("Inclusive gateway '" + node.displayName()
                             + "' has multiple default outgoing edges");
                 }
                 defaultTransition = transition;
@@ -174,7 +177,17 @@ public class FlowGatewayRouter {
         if (defaultTransition != null) {
             return List.of(defaultTransition.getTarget());
         }
-        throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
-                + "' did not match any outgoing edge");
+        throw noRoute(node);
+    }
+
+    /**
+     * No route out of {@code node} fits the request, and none is the default: a gap in the flow, told in words its
+     * reader can act on rather than as an unexpected error (zingkey-hcm#2382). At submission the submitter is refused;
+     * after an approval the instance fails with it, the approval kept, and its initiator and administrators are told
+     * ({@link FlowExecutionOrchestrator#runAfterApproval}).
+     */
+    private static FlowActionValidationException noRoute(CompiledFlowNode node) {
+        return new FlowActionValidationException("No route after '" + node.displayName() + "' fits this request, and "
+                + "the step has no default route. An administrator needs to add one to the approval flow.");
     }
 }

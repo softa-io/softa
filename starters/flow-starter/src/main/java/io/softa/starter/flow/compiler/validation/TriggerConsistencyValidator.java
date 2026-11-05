@@ -20,6 +20,7 @@ import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.TriggerSource;
+import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.engine.FlowCron;
 
@@ -89,7 +90,22 @@ public class TriggerConsistencyValidator implements FlowValidator {
             case null, default -> {
             }
         }
-        return d;
+        return atTheStart(d, context);
+    }
+
+    /**
+     * The trigger is edited on the Start node: its diagnostics point there (field {@code trigger}), so the designer marks
+     * the node and selecting the diagnostic opens the trigger. Left on the flow while the graph has no single Start.
+     */
+    private static List<CompileDiagnostic> atTheStart(List<CompileDiagnostic> d, FlowGraphContext context) {
+        if (d.isEmpty() || context == null || context.entryNodeIds() == null || context.entryNodeIds().size() != 1) {
+            return d;
+        }
+        String startId = context.entryNodeIds().getFirst();
+        return d.stream()
+                .map(diagnostic -> new CompileDiagnostic(diagnostic.severity(), null, startId,
+                        FlowNodeType.START.getType(), "trigger", diagnostic.code(), diagnostic.message()))
+                .toList();
     }
 
     /**

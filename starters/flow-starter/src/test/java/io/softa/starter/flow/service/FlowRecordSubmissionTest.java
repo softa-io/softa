@@ -14,6 +14,8 @@ import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
@@ -93,7 +95,8 @@ class FlowRecordSubmissionTest {
     private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
             publishService, engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
             new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null,
-            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger())));
+            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger()),
+                    new FailedApprovalRecords(instanceService, modelService)));
 
     /** The record as its table holds it: reads return a copy, updates land on it. */
     private final Map<String, Object> record = new LinkedHashMap<>(
@@ -176,8 +179,14 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aStepWithNobodyToApproveRefusesTheSubmissionWhole() {
-        // No approver, and the empty-approver strategy is Error unless set.
-        publishService.publish("annual", approvalFlow("Annual leave", List.of()));
+        // No organization service here, so its supervisor source finds nobody; the empty-approver strategy is Error
+        // unless set. (A step that names nobody at all is not published.)
+        DesignFlowDefinition design = approvalFlow("Annual leave", List.of(MANAGER));
+        design.getGraph().getNodes().set(1, FlowGraphNode.builder()
+                .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
+                .config(Map.of("approverSource", Map.of("type", "Supervisor")))
+                .build());
+        publishService.publish("annual", design);
 
         FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
                 () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
@@ -194,13 +203,15 @@ class FlowRecordSubmissionTest {
     void theApprovalKeepsWhatTheRecordShowsInTheApprovalLists() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3),
-                LocalDate.of(2026, 11, 2), "LR-0007"));
+                LocalDate.of(2026, 11, 2), "LR-0007", "Annual Leave · 3 days · 2–4 Nov"));
 
         FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(5001L, state.getSubjectId());
         assertEquals(LocalDate.of(2026, 11, 2), state.getEffectiveDate());
         assertEquals("LR-0007", state.getRecordCode());
+        // What the record asks for, as its handler words it: the line the approval lists show (zingkey-hcm#2350).
+        assertEquals("Annual Leave · 3 days · 2–4 Nov", state.getSummary());
         // No organization service here, so no department to keep.
         assertNull(state.getDepartmentId());
     }
@@ -214,6 +225,40 @@ class FlowRecordSubmissionTest {
 
         verify(handler, never()).validate(any());
         assertEquals("Draft", record.get("approvalStatus"));
+    }
+
+    /**
+     * Submitting writes the record, so the submitter's reach is the range they may edit it in: a role that only views
+     * a department's requests submits none of them.
+     */
+    @Test
+    void theSubmittersReachIsTheRangeTheyMayEditTheRecordIn() {
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
+        List<AccessType> readAs = recordReachReadAs();
+
+        launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(List.of(AccessType.UPDATE), readAs);
+    }
+
+    /** Cancelling writes the record too: the applicant's reach is the range they may edit it in. */
+    @Test
+    void theApplicantsReachForACancellationIsTheRangeTheyMayEditTheRecordIn() {
+        List<AccessType> readAs = recordReachReadAs();
+
+        launchService.cancelRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(List.of(AccessType.UPDATE), readAs);
+    }
+
+    /** The action each check of the caller's reach on the record is read for, as the read sees it. */
+    private List<AccessType> recordReachReadAs() {
+        List<AccessType> readAs = new ArrayList<>();
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenAnswer(invocation -> {
+            readAs.add(AccessScope.currentFor(MODEL));
+            return Optional.of(Map.of("id", 42L));
+        });
+        return readAs;
     }
 
     @Test

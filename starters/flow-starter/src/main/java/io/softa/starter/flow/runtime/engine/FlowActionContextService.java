@@ -47,11 +47,18 @@ public class FlowActionContextService {
         }
     }
 
+    /**
+     * The step an action is taken on, while it waits. A step that no longer waits — handled by someone else, or by
+     * this person on another page, since theirs was loaded — is refused as a stale request, not failed as an error:
+     * the caller is told to look again.
+     */
     public PendingApproval requirePendingApproval(FlowExecutionState state, String nodeId) {
         return state.getPendingApprovals().stream()
                 .filter(item -> nodeId.equals(item.getNodeId()))
                 .findFirst()
-                .orElseThrow(() -> new FlowRuntimeException("Pending approval not found for node: " + nodeId));
+                .orElseThrow(() -> new FlowActionValidationException(
+                        "This step no longer waits for approval: it may have been handled already. "
+                                + "Refresh to see where the approval stands."));
     }
 
     /**

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 
+import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
@@ -33,13 +34,25 @@ public class MultiStringProcessor extends BaseProcessor {
         checkReadonly(isContain);
         Object value = row.get(fieldName);
         if (value instanceof List<?> listValue) {
-            row.put(fieldName, StringUtils.join(listValue, ","));
+            List<Object> items = listValue.stream().map(MultiStringProcessor::toStoredItem).toList();
+            row.put(fieldName, StringUtils.join(items, ","));
         } else if (value instanceof String) {
             row.put(fieldName, value);
         } else if (AccessType.CREATE.equals(accessType)) {
             checkNotBlank(value);
             row.computeIfAbsent(fieldName, k -> metaField.getDefaultValueObject());
         }
+    }
+
+    /**
+     * An enum element is stored as its item code ({@code @JsonValue}), as {@link StringProcessor} stores
+     * a single option, so the read side resolves it back. Any other element keeps its string form.
+     *
+     * @param item One element of the multiple value
+     * @return The item code of an enum, otherwise the element itself
+     */
+    private static Object toStoredItem(Object item) {
+        return item instanceof Enum ? JsonUtils.getMapper().convertValue(item, String.class) : item;
     }
 
     /**

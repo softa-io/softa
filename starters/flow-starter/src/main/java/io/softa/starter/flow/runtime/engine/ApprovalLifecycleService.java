@@ -66,8 +66,10 @@ public class ApprovalLifecycleService {
 
     /**
      * Gives {@code sourceActorId}'s place on the step to {@code targetActorId}; when the target is already one of
-     * its approvers, the two places merge into theirs — the step asks fewer people, and no more approvals than
-     * it now has approvers.
+     * its approvers, the two places merge into theirs — the step asks fewer people, and its thresholds are capped the
+     * way a step's are when it starts ({@link ApproverResolutionService#capRequiredApprovals},
+     * {@link ApproverResolutionService#capRequiredRejections}): no more approvals than it now has approvers, and no
+     * more rejections than a split vote can reach.
      */
     public void mergeApprover(PendingApproval pendingApproval, String sourceActorId, String targetActorId) {
         if (!pendingApproval.getApprovers().contains(targetActorId)) {
@@ -80,9 +82,13 @@ public class ApprovalLifecycleService {
         }
         pendingApproval.setApprovers(approvers);
         pendingApproval.setTotalApproverCount(approvers.size());
-        if (pendingApproval.getRequiredApprovalCount() != null
-                && pendingApproval.getRequiredApprovalCount() > approvers.size()) {
-            pendingApproval.setRequiredApprovalCount(approvers.size());
+        if (pendingApproval.getRequiredApprovalCount() != null) {
+            pendingApproval.setRequiredApprovalCount(ApproverResolutionService.capRequiredApprovals(
+                    pendingApproval.getRequiredApprovalCount(), approvers.size()));
+        }
+        if (pendingApproval.getRequiredRejectCount() != null && pendingApproval.getRequiredApprovalCount() != null) {
+            pendingApproval.setRequiredRejectCount(ApproverResolutionService.capRequiredRejections(
+                    pendingApproval.getRequiredRejectCount(), approvers.size(), pendingApproval.getRequiredApprovalCount()));
         }
         if (sourceActorId.equals(pendingApproval.getBlockedActorId())) {
             pendingApproval.setBlockedActorId(targetActorId);

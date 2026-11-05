@@ -54,7 +54,8 @@ import io.softa.starter.referencedata.entity.CountryRegion;
         label = "SMS Provider Region",
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         multiTenant = true,
-        activeControl = true
+        activeControl = true,
+        defaultOrder = {"regionCode", "priority"}
 )
 @Index(indexName = "idx_region_active", fields = {"regionCode", "active"})
 @Index(indexName = "uk_tenant_provider_region", fields = {"tenantId", "providerConfigId", "regionCode"}, unique = true)

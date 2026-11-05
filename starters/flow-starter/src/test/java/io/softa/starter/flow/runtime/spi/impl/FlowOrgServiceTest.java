@@ -93,20 +93,34 @@ class FlowOrgServiceTest {
     }
 
     @Test
-    void aSupervisorWhoLeftIsNobodyAndTheChainRunsOnThroughThem() {
-        // Gina reports to Hank, who left (his account ended); Hank reported to Dora.
+    void aSupervisorWhoLeftPassesTheStepToTheOneAboveAndStillCountsAsALevel() {
+        // Gina reports to Hank, who left (his account ended); Hank reported to Dora. Hank's step goes to Dora, as a
+        // department whose leader left goes to the department above; level 2 is Dora either way.
         employee(7L, 1007L, "Gina", 10L, 8L);
         employee(8L, 1008L, "Hank", 10L, 4L);
         accounts(Map.of(1007L, "Active", 1008L, "Deactivated", 1004L, "Active"));
 
         withAccounts(() -> {
-            assertNull(org.getSupervisorOfEmployee(7L, 1));
+            assertEquals(1004L, org.getSupervisorOfEmployee(7L, 1).getUserId());
             assertEquals(1004L, org.getSupervisorOfEmployee(7L, 2).getUserId());
         });
     }
 
     @Test
-    void aSupervisorNotYetInvitedOrNotYetAcceptedIsNobody() {
+    void aChainThatLoopsBackEndsWithNobodyInsteadOfRunningForever() {
+        // Jack and Kim report to each other, and neither signs in.
+        employee(11L, 1011L, "Jack", 10L, 12L);
+        employee(12L, 1012L, "Kim", 10L, 11L);
+        accounts(Map.of(1011L, "Deactivated", 1012L, "Deactivated"));
+
+        withAccounts(() -> {
+            assertNull(org.getSupervisorOfEmployee(11L, 1));
+            assertNull(org.getSupervisorOfEmployee(11L, 3));
+        });
+    }
+
+    @Test
+    void aChainOfSupervisorsNotYetInvitedOrNotYetAcceptedFindsNobody() {
         employee(7L, 1007L, "Gina", 10L, 8L);
         employee(8L, 1008L, "Hank", 10L, 9L);
         employee(9L, 1009L, "Ivy", 10L, null);

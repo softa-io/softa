@@ -35,7 +35,8 @@ import io.softa.starter.studio.release.enums.DesignAppEnvType;
 @EqualsAndHashCode(callSuper = true)
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        versionLock = true
+        versionLock = true,
+        defaultOrder = {"sequence", "name"}
 )
 public class DesignAppEnv extends AuditableModel {
 

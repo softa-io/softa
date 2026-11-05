@@ -37,7 +37,8 @@ import io.softa.starter.message.mail.enums.MailPriority;
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         businessKey = {"code"},
         multiTenant = true,
-        activeControl = true
+        activeControl = true,
+        defaultOrder = {"name"}
 )
 @Index(indexName = "uk_mail_template_tenant_code", fields = {"tenantId", "code"}, unique = true)
 @EqualsAndHashCode(callSuper = true)

@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,6 +21,8 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
@@ -189,8 +192,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     public FlowExecutionState submitRecord(String modelName, String rowId, String initiatorId) {
         requireRecordKey(modelName, rowId, "submit");
         ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
-        // Nothing moves for a record the submitter cannot reach with their own permissions.
-        if (modelService.getById(modelName, IdUtils.formatId(modelName, rowId), List.of(ModelConstant.ID)).isEmpty()) {
+        // Nothing moves for a record the submitter could not change with their own permissions.
+        if (!withinCallersEditRange(modelName, rowId)) {
             throw new BusinessException(NO_SUCH_RECORD, modelName, rowId);
         }
         return submit(handler, modelName, rowId, initiatorId);
@@ -300,6 +303,47 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                     && Objects.equals(submitterId, latest.getInitiatorId()));
             return refused;
         }
+        return previewStart(modelName, rowId, submitterId, submission);
+    }
+
+    /**
+     * What submitting a record not saved yet, with {@code values}, would do now: {@link #previewSubmission} on the
+     * values instead of a stored row — a draft, as a new record is. The subject, the handler's checks and its
+     * submission are worked out from the values alone; nothing is read past the caller's permissions, started or
+     * written. No transaction of its own, as {@link #previewRecord}.
+     */
+    @Override
+    public FlowApprovalPreview previewValues(String modelName, Map<String, Object> values, String requesterId) {
+        if (!StringUtils.hasText(modelName)) {
+            throw new IllegalArgumentException("modelName is required to preview an approval");
+        }
+        Submission<?> submission;
+        try {
+            submission = checkValues(handlerRegistry.require(modelName), values);
+        } catch (BusinessException refusal) {
+            return notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage());
+        }
+        FlowApprovalPreview preview = previewStart(modelName, null, requesterId, submission);
+        userNames.name(actorsOf(preview));
+        return preview;
+    }
+
+    /** {@link #checkSubmission} on values not saved yet: a draft, so only the subject and the handler's own checks. */
+    private <T extends ApprovalModel> Submission<T> checkValues(ModelApprovalHandler<T> handler,
+                                                                Map<String, Object> values) {
+        Map<String, Object> row = new LinkedHashMap<>(values == null ? Map.of() : values);
+        String subjectField = ModelApprovalHandlerRegistry.subjectFieldOf(handler);
+        Long subjectId = longOf(row.get(subjectField));
+        if (subjectId == null) {
+            throw new BusinessException(NO_SUBJECT, subjectField);
+        }
+        T record = BeanTool.mapToObject(row, handler.modelClass());
+        handler.validate(record);
+        return new Submission<>(row, record, subjectId, handler.submission(record));
+    }
+
+    /** The flow a submission past its checks would start, and that start's path. */
+    private FlowApprovalPreview previewStart(String modelName, String rowId, String submitterId, Submission<?> submission) {
         List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName,
                 submitVariables(modelName, rowId, submission));
         if (flows.isEmpty()) {
@@ -376,8 +420,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     public void cancelRecord(String modelName, String rowId, String actorId) {
         requireRecordKey(modelName, rowId, "cancel");
         ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
-        // Nothing moves for a record the applicant cannot reach with their own permissions.
-        if (modelService.getById(modelName, IdUtils.formatId(modelName, rowId), List.of(ModelConstant.ID)).isEmpty()) {
+        // Nothing moves for a record the applicant could not change with their own permissions.
+        if (!withinCallersEditRange(modelName, rowId)) {
             throw new BusinessException(NO_SUCH_RECORD, modelName, rowId);
         }
         cancel(handler, modelName, rowId, actorId);
@@ -442,6 +486,19 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     }
 
     /** The whole record, read past the submitter's field and row checks: submit conditions see every field. */
+    /**
+     * Whether the caller reaches the record within the range they may edit it in. Submitting and cancelling write the
+     * record, so the range that counts is that of the caller's roles holding its update action, not the wider one of
+     * every role that may view it: a role that only views a department's requests submits or cancels none of them.
+     * A caller none of whose roles holds the update action keeps the range they read in, as for every write
+     * authorized elsewhere.
+     */
+    private boolean withinCallersEditRange(String modelName, String rowId) {
+        Serializable id = IdUtils.formatId(modelName, rowId);
+        return AccessScope.callAs(AccessType.UPDATE, modelName,
+                () -> modelService.getById(modelName, id, List.of(ModelConstant.ID))).isPresent();
+    }
+
     private Map<String, Object> readRecord(String modelName, String rowId) {
         Serializable id = IdUtils.formatId(modelName, rowId);
         return ContextUtils.withoutPermissionChecks(() -> modelService.getById(modelName, id))
@@ -493,6 +550,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         request.setSubjectId(submission.subjectId());
         request.setEffectiveDate(approval.effectiveDate());
         request.setRecordCode(approval.code());
+        request.setSummary(approval.summary());
         return request;
     }
 

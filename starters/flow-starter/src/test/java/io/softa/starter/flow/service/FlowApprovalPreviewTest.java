@@ -146,7 +146,7 @@ class FlowApprovalPreviewTest {
                 instanceService, modelService, previewer,
                 new FlowInstanceAccessGuard(instanceService, auditReader, modelService),
                 new FlowUserNames(organizationProvider, modelService),
-                new WithdrawPolicyGuard(bundleRegistry, auditReader));
+                new WithdrawPolicyGuard(bundleRegistry, auditReader, new FailedApprovalRecords(instanceService, modelService)));
     }
 
     @AfterEach
@@ -307,6 +307,22 @@ class FlowApprovalPreviewTest {
     }
 
     @Test
+    void aStepThatFindsNobodyShowsTheRolesItGoesTo() {
+        ReflectionTestUtils.setField(approverResolution, "organizationService", organization);
+        when(organization.getUsersByRoleCodes(List.of("HR_ADMIN"))).thenReturn(List.of(new ApproverInfo(2002L, "Carol")));
+        when(organization.getRoleNames(any(), any())).thenReturn(List.of("HR Admin"));
+        publishService.publish("annual", chain("Annual leave", approval("hr", "HR", Map.of(
+                "approverSource", Map.of("type", "Supervisor", "level", 1),
+                "emptyApproverStrategy", "AssignToRole", "emptyApproverRoleCodes", List.of("HR_ADMIN")))));
+
+        Step step = launchService.previewRecord(MODEL, ROW, SUBMITTER).getSteps().getFirst();
+
+        assertEquals(StepOutcome.WAITING, step.getOutcome());
+        assertEquals(List.of("Carol"), step.getApprovers().stream().map(Actor::getName).toList());
+        assertEquals(List.of("HR Admin"), step.getAssignedRoles());
+    }
+
+    @Test
     void theRouteIsDecidedByWhatTheSubmissionSays() {
         publishService.publish("annual", routedFlow("days > 5", null));
 
@@ -314,6 +330,58 @@ class FlowApprovalPreviewTest {
 
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 7)));
         assertEquals(List.of("hr"), nodeIds(launchService.previewRecord(MODEL, ROW, SUBMITTER)));
+    }
+
+    /**
+     * A record not saved yet previews from its values (zingkey-hcm#2354): a pay run's approval request, created as the
+     * run is submitted, shows its route on the run before it exists. Nothing is read, started or written.
+     */
+    @Test
+    void aRecordNotSavedYetPreviewsFromItsValues() {
+        publishService.publish("annual", routedFlow("days > 5", null));
+        when(handler.submission(any())).thenAnswer(invocation -> new ApprovalSubmission("Leave of Alice",
+                Map.of("days", ((LeaveRequest) invocation.getArgument(0)).getDays())));
+
+        FlowApprovalPreview preview = launchService.previewValues(MODEL, Map.of("employeeId", 5001L, "days", 7), SUBMITTER);
+
+        assertEquals(Status.READY, preview.getStatus());
+        assertEquals(List.of("hr"), nodeIds(preview));
+        assertEquals(List.of("manager"),
+                nodeIds(launchService.previewValues(MODEL, Map.of("employeeId", 5001L, "days", 2), SUBMITTER)));
+        verify(modelService, never()).getById(eq(MODEL), any());
+        verifyNoInteractions(engine);
+    }
+
+    @Test
+    void valuesWithoutTheEmployeeTheRequestIsAboutAreRefused() {
+        publishService.publish("annual", chain("Annual leave",
+                approval("manager", "Manager", Map.of("approvers", List.of(MANAGER)))));
+
+        FlowApprovalPreview preview = launchService.previewValues(MODEL, Map.of("days", 2), SUBMITTER);
+
+        assertEquals(Status.REFUSED, preview.getStatus());
+        assertTrue(preview.getMessage().contains("employeeId"), preview.getMessage());
+    }
+
+    @Test
+    void anInclusiveGatewaysJoinWaitsOnlyForTheBranchesItTook() {
+        // days > 5 asks HR, days > 1 the manager, both when both hold; the deputy approves after them.
+        List<FlowGraphNode> nodes = List.of(node("start", FlowNodeType.START), node("gateway", FlowNodeType.INCLUSIVE_GATEWAY),
+                approval("hr", "HR", Map.of("approvers", List.of(HR))),
+                approval("manager", "Manager", Map.of("approvers", List.of(MANAGER))),
+                node("join", FlowNodeType.PARALLEL_JOIN),
+                approval("deputy", "Deputy", Map.of("approvers", List.of(DEPUTY))),
+                node("end", FlowNodeType.END));
+        List<FlowGraphEdge> edges = List.of(edge("e0", "start", "gateway", null),
+                edge("e1", "gateway", "hr", "days > 5"), edge("e2", "gateway", "manager", "days > 1"),
+                edge("e3", "gateway", "join", null), edge("e4", "hr", "join", null), edge("e5", "manager", "join", null),
+                edge("e6", "join", "deputy", null), edge("e7", "deputy", "end", null));
+        publishService.publish("annual", flow("Annual leave", nodes, edges));
+
+        assertEquals(List.of("manager", "deputy"), nodeIds(launchService.previewRecord(MODEL, ROW, SUBMITTER)));
+
+        when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 7)));
+        assertEquals(List.of("hr", "manager", "deputy"), nodeIds(launchService.previewRecord(MODEL, ROW, SUBMITTER)));
     }
 
     @Test

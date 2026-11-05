@@ -81,15 +81,16 @@ public class ApproverAccountValidator implements FlowValidator {
             String approvers = reasons(approvers(config), unusable);
             if (approvers != null) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", UNUSABLE_APPROVER,
-                        "Approval node '" + nodeId + "' names approvers who cannot act now and are passed over when "
-                                + "the step is reached: " + approvers).asWarning());
+                        "Approval node '" + context.nodeName(nodeId) + "' names approvers who cannot act now and are "
+                                + "passed over when the step is reached: " + approvers).asWarning());
             }
             String escalateTo = escalateTarget(config);
             String target = escalateTo == null ? null : reasons(List.of(escalateTo), unusable);
             if (target != null) {
                 d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.escalateToUserId",
-                        UNUSABLE_ESCALATE_TARGET, "Approval node '" + nodeId + "' escalates to someone who cannot act "
-                                + "now, so an overdue step is reminded instead: " + target).asWarning());
+                        UNUSABLE_ESCALATE_TARGET, "Approval node '" + context.nodeName(nodeId) + "' escalates to "
+                                + "someone who cannot act now, so an overdue step is reminded instead: " + target)
+                                .asWarning());
             }
         });
         for (int i = 0; i < rules.size(); i++) {

@@ -24,7 +24,7 @@ import io.softa.starter.user.enums.NavigationType;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(idStrategy = IdStrategy.EXTERNAL_ID, displayName = {"name"}, searchName = {"name"})
+@Model(idStrategy = IdStrategy.EXTERNAL_ID, displayName = {"name"}, searchName = {"name"}, defaultOrder = {"parentId", "sortOrder"})
 @Index(indexName = "idx_navigation_parent", fields = {"parentId"})
 public class Navigation extends AuditableModel {
 

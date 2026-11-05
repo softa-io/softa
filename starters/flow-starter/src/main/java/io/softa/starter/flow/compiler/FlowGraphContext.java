@@ -16,4 +16,26 @@ public record FlowGraphContext(
         Map<String, List<String>> outgoingEdgeIds,
         List<String> entryNodeIds,
         List<String> terminalNodeIds
-) {}
+) {
+
+    /** What a message calls a node: its label, or its id when it has none or is not in the graph. */
+    public String nodeName(String nodeId) {
+        FlowGraphNode node = nodeId == null ? null : nodeMap.get(nodeId);
+        return node == null ? nodeId : node.displayName();
+    }
+
+    /**
+     * What a message calls an edge: its label, or else the nodes it joins by name — {@code Manager → Finance}. Edge
+     * ids are generated and shown nowhere on the canvas; an edge not in the graph keeps its id.
+     */
+    public String edgeName(String edgeId) {
+        FlowGraphEdge edge = edgeId == null ? null : edgeMap.get(edgeId);
+        if (edge == null) {
+            return edgeId;
+        }
+        if (edge.getLabel() != null && !edge.getLabel().isBlank()) {
+            return edge.getLabel();
+        }
+        return nodeName(edge.getSource()) + " → " + nodeName(edge.getTarget());
+    }
+}

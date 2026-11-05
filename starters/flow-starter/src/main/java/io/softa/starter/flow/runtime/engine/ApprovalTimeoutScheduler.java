@@ -1,6 +1,7 @@
 package io.softa.starter.flow.runtime.engine;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -191,11 +192,13 @@ public class ApprovalTimeoutScheduler {
         log.info("Escalating timed-out task: instance={}, node={}, escalateTo={}",
                 state.getInstanceId(), pending.getNodeId(), escalateTo);
 
-        // Replace all current approvers with the escalation target
-        pending.getApprovers().clear();
-        pending.getApprovers().add(escalateTo);
+        // Replace all current approvers with the escalation target — a new list: the step's own may be one that
+        // cannot be changed in place.
+        pending.setApprovers(new ArrayList<>(List.of(escalateTo)));
         pending.setTotalApproverCount(1);
         pending.setRequiredApprovalCount(1);
+        // One approver left: one rejection decides it too, or a step asking two would wait for ever on them.
+        pending.setRequiredRejectCount(1);
         pending.setApprovedActors(List.of());
         pending.setRejectedActors(List.of());
         // Reset due time to give the escalation user time
