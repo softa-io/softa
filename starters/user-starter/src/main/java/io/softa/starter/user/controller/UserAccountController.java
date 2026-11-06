@@ -1083,27 +1083,33 @@ public class UserAccountController extends EntityController<UserAccountService, 
         return ApiResponse.success();
     }
 
+    /**
+     * Writes the caller's own account row past row scope — the write half of
+     * {@link UserAccountService#getMyOwnAccount}, which says why. The row is the one that read
+     * returned for the session's user id, never one named by the request.
+     */
+    private <T> T onMyOwnAccount(Supplier<T> op) {
+        Context context = ContextHolder.cloneContext();
+        context.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(context, op::get);
+    }
+
     @Operation(summary = "getMyAccount")
     @GetMapping("/getMyAccount")
     public ApiResponse<UserAccount> getMyAccount() {
         Long userId = ContextHolder.getContext().getUserId();
-        try {
-            Optional<UserAccount> accountOpt = service.getById(userId);
-
-            if (accountOpt.isEmpty()) {
-                log.warn("Current user account not found for ID: {}", userId);
-                return new ApiResponse<>(ResponseCode.USER_NOT_FOUND.getCode(), "Current user account not found.",
-                        null);
-            }
-            UserAccount account = accountOpt.get();
-            // No masking needed any more: the credential is not on this model. Keeping the old
-            // setPassword(null) calls would not compile, and re-adding them elsewhere would only
-            // re-create the leak this move removed.
-            return ApiResponse.success(account);
-        } catch (Exception e) {
-            log.error("Error fetching current user account for ID: {}", userId, e);
-            return new ApiResponse<>(ResponseCode.ERROR.getCode(), "Failed to retrieve user account.", null);
+        // No catch-all: a failure reaches the global handler with its own code and message, instead
+        // of every cause — a refused scope included — reading as one opaque "Failed to retrieve".
+        Optional<UserAccount> accountOpt = service.getMyOwnAccount(userId);
+        if (accountOpt.isEmpty()) {
+            log.warn("Current user account not found for ID: {}", userId);
+            return new ApiResponse<>(ResponseCode.USER_NOT_FOUND.getCode(), "Current user account not found.",
+                    null);
         }
+        // No masking needed any more: the credential is not on this model. Keeping the old
+        // setPassword(null) calls would not compile, and re-adding them elsewhere would only
+        // re-create the leak this move removed.
+        return ApiResponse.success(accountOpt.get());
     }
 
     @Operation(summary = "saveMyAccount")
@@ -1122,7 +1128,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         }
 
         try {
-            UserAccount existingAccount = service.getById(currentUserId)
+            UserAccount existingAccount = service.getMyOwnAccount(currentUserId)
                     .orElseThrow(() -> new BusinessException(ResponseCode.USER_NOT_FOUND,
                             "Current user account not found for update."));
 
@@ -1134,7 +1140,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
             // delivered — and collide with uk_user_account_tenant_email on the way.
             existingAccount.setNickname(myAccountDTO.getNickname());
 
-            boolean success = service.updateOne(existingAccount);
+            boolean success = this.onMyOwnAccount(() -> service.updateOne(existingAccount));
 
             if (success) {
                 log.info("User account updated successfully for user ID: {}", currentUserId);

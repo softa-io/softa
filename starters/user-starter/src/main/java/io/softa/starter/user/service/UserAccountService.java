@@ -330,6 +330,17 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     boolean canSetMyFirstPassword();
 
     /**
+     * The caller's own account, read past row scope. UserAccount carries no employee or department
+     * anchor, so a role without a grant on it reads no row at all — not even its own — and every
+     * self-service call (personal settings, change or set password) failed for such a role. The row
+     * is the session's, never one named in a request, so the skipped scope cannot reach anyone else.
+     *
+     * @param userId the session's user id
+     * @return the account, empty when there is none
+     */
+    Optional<UserAccount> getMyOwnAccount(Long userId);
+
+    /**
      * Force reset user password (admin operation)
      *
      * @param userId User ID
