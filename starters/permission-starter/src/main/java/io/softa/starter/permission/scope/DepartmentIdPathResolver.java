@@ -3,9 +3,11 @@ package io.softa.starter.permission.scope;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -42,8 +44,9 @@ import java.util.Set;
  * HR app's {@code DepartmentChangedEvent} adapter) drops
  * {@code dept-idpath:{tenantId}} immediately on any structural change
  * (create / move / delete / head-change), so a moved department is reflected on
- * the next lookup. {@link #CACHE_TTL_SECONDS} is a backstop for the edge case
- * where a change commits with no tenant bound to evict against.
+ * the next lookup, and the tenant's permission snapshots with it, as they hold the
+ * paths of the departments a role names. {@link #CACHE_TTL_SECONDS} is a backstop
+ * for the edge case where a change commits with no tenant bound to evict against.
  *
  * <h3>Query semantics</h3>
  * The tree is loaded under {@code skipPermissionCheck=true} — the caller's
@@ -52,7 +55,8 @@ import java.util.Set;
  * would be a UX trap. The tenant filter is NOT skipped, so a tenant only ever
  * caches / reads its own departments — cross-tenant idPaths never leak. When no
  * tenant is bound the resolver returns nothing (fail-closed) rather than load
- * across tenants.
+ * across tenants. Disabled departments are in the tree, as they are for a grant
+ * naming one: disabling a department does not hand its people and records to nobody.
  *
  * <h3>Behaviour on unknown id</h3>
  * Missing / soft-deleted / cross-tenant deptId → {@link Optional#empty()} for
@@ -130,16 +134,22 @@ public class DepartmentIdPathResolver {
         return ids;
     }
 
-    /** Drop the cached department tree for a tenant; the next lookup reloads it.
-     *  Public so the domain's event adapter (the HR app's {@code DepartmentChangedEvent}
-     *  listener) can evict on any structural change. {@link #CACHE_TTL_SECONDS} is
-     *  the backstop when no tenant is bound to evict against. */
+    /** Drop the cached department tree for a tenant, and the permission snapshots holding
+     *  paths read from it; the next lookup reloads them. Public so the domain's event adapter
+     *  (the HR app's {@code DepartmentChangedEvent} listener) can evict on any structural
+     *  change. {@link #CACHE_TTL_SECONDS} is the backstop when no tenant is bound to evict
+     *  against. */
     public void evict(Long tenantId) {
         if (tenantId == null) return;
         try {
             cacheService.clear(CACHE_KEY_PREFIX + tenantId);
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — evicting dept-idpath:{} failed; TTL will expire it", tenantId, t);
+        }
+        try {
+            cacheService.clearByPrefix(PermissionSnapshotProvider.CACHE_KEY_PREFIX + tenantId + ":");
+        } catch (Throwable t) {
+            log.warn("DepartmentIdPathResolver — evicting perm:{}: failed; TTL will expire it", tenantId, t);
         }
     }
 
@@ -180,8 +190,9 @@ public class DepartmentIdPathResolver {
         boolean previous = ctx != null && ctx.isSkipPermissionCheck();
         if (ctx != null) ctx.setSkipPermissionCheck(true);
         try {
-            List<Map<String, Object>> rows = modelService.searchList(
-                    DEPARTMENT_MODEL, new FlexQuery(List.of(FIELD_ID, IdPath.FIELD)));
+            FlexQuery query = new FlexQuery(List.of(FIELD_ID, IdPath.FIELD));
+            query.setFilterControl(FilterControl.bypassActiveControl());
+            List<Map<String, Object>> rows = modelService.searchList(DEPARTMENT_MODEL, query);
             Map<Long, String> tree = new HashMap<>(rows.size());
             for (Map<String, Object> row : rows) {
                 Long id = coerceLong(row.get(FIELD_ID));

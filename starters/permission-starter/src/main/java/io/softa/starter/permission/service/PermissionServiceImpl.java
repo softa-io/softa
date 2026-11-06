@@ -21,6 +21,7 @@ import io.softa.framework.orm.enums.*;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.scope.DepartmentGrantRules;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.service.ModelService;
@@ -1242,7 +1243,12 @@ public class PermissionServiceImpl implements PermissionService {
 
     /** Which of {@code ids} the grants reach on {@code model}, as normalized ids. */
     private Set<Object> rowsReached(String model, List<Grant> grants, List<Serializable> ids) {
-        Filters scope = anyOf(grants.stream().map(g -> grantScope(g, model, false)).toList());
+        return rowsReached(model, grants, ids, false);
+    }
+
+    /** {@link #rowsReached} for viewing or, with {@code changing}, for changing: they differ on a model exempt from the department grant. */
+    private Set<Object> rowsReached(String model, List<Grant> grants, List<Serializable> ids, boolean changing) {
+        Filters scope = anyOf(grants.stream().map(g -> grantScope(g, model, changing)).toList());
         if (scope == null) {
             return ids.stream().map(PermissionServiceImpl::normalizeId).collect(Collectors.toSet());
         }
@@ -1422,16 +1428,22 @@ public class PermissionServiceImpl implements PermissionService {
         List<Grant> readers = holders(pi, model, AccessType.READ);
         List<Grant> editors = holders(pi, model, AccessType.UPDATE);
         List<Grant> deleters = holders(pi, model, AccessType.DELETE);
-        Map<Grant, Set<Object>> reach = new java.util.HashMap<>();
-        for (List<Grant> group : List.of(readers, editors, deleters)) {
+        // Separately for viewing and changing: an exempt role sees more than it may change, and the
+        // actions offered here have to match what the write check answers.
+        Map<Grant, Set<Object>> viewable = new java.util.HashMap<>();
+        for (Grant g : readers) {
+            viewable.computeIfAbsent(g, k -> rowsReached(model, List.of(k), idList));
+        }
+        Map<Grant, Set<Object>> changeable = new java.util.HashMap<>();
+        for (List<Grant> group : List.of(editors, deleters)) {
             for (Grant g : group) {
-                reach.computeIfAbsent(g, k -> rowsReached(model, List.of(k), idList));
+                changeable.computeIfAbsent(g, k -> rowsReached(model, List.of(k), idList, true));
             }
         }
         List<RecordAccess> out = new ArrayList<>(idList.size());
         for (Serializable id : idList) {
             Object key = normalizeId(id);
-            List<Grant> reading = readers.stream().filter(g -> reach.get(g).contains(key)).toList();
+            List<Grant> reading = readers.stream().filter(g -> viewable.get(g).contains(key)).toList();
             if (reading.isEmpty()) {
                 // Not a record the caller can see at all: nothing of it shows and nothing can be done.
                 out.add(new RecordAccess(id, owned, Set.of(), Set.of(),
@@ -1439,7 +1451,7 @@ public class PermissionServiceImpl implements PermissionService {
                 continue;
             }
             List<Grant> editing = held.contains(AccessType.UPDATE)
-                    ? editors.stream().filter(g -> reach.get(g).contains(key)).toList()
+                    ? editors.stream().filter(g -> changeable.get(g).contains(key)).toList()
                     : List.of();
             Set<String> hidden = new java.util.TreeSet<>();
             Set<String> readonly = new java.util.TreeSet<>();
@@ -1452,7 +1464,7 @@ public class PermissionServiceImpl implements PermissionService {
             }
             Set<AccessType> actions = EnumSet.noneOf(AccessType.class);
             if (!editing.isEmpty()) actions.add(AccessType.UPDATE);
-            if (held.contains(AccessType.DELETE) && deleters.stream().anyMatch(g -> reach.get(g).contains(key))) {
+            if (held.contains(AccessType.DELETE) && deleters.stream().anyMatch(g -> changeable.get(g).contains(key))) {
                 actions.add(AccessType.DELETE);
             }
             Map<String, Set<String>> hiddenFields = fieldsMissing(owned, reading, null);
@@ -2137,26 +2149,9 @@ public class PermissionServiceImpl implements PermissionService {
         return IdPath.fieldOn(field.isDynamicCascadedField() ? field.getCascadedField() : anchor);
     }
 
-    /**
-     * The field a model is bounded by the department grant through, or null when the grant does not
-     * reach it: the department model by its own {@code id}; any other model by {@code departmentId},
-     * when that field is a to-one onto the department model. A {@code departmentId} that is a plain
-     * number column, or that points elsewhere, is not an anchor: the grant would compare ids across
-     * models. A model that references departments as configuration rather than ownership names the
-     * field otherwise, and so is not bounded.
-     */
+    /** The field a model is bounded by the department grant through; see {@link DepartmentGrantRules#anchorOf}. */
     private static String departmentAnchorOf(String model) {
-        if (!ModelManager.existModel(model)) {
-            return null;
-        }
-        if (ModelConstant.DEPARTMENT_MODEL.equals(model)) {
-            return ModelConstant.ID;
-        }
-        MetaField field = ModelManager.getModelFieldOrNull(model, ModelConstant.DEPARTMENT_FIELD);
-        boolean anchored = field != null
-                && FieldType.TO_ONE_TYPES.contains(field.getFieldType())
-                && ModelConstant.DEPARTMENT_MODEL.equals(field.getRelatedModel());
-        return anchored ? ModelConstant.DEPARTMENT_FIELD : null;
+        return DepartmentGrantRules.anchorOf(model);
     }
 
     private static boolean hasExplicitRules(Grant g, String model) {

@@ -19,6 +19,7 @@ import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.RecordAccess;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
@@ -31,14 +32,18 @@ import io.softa.starter.permission.scope.IdPath;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionInfo;
+import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import io.softa.starter.permission.spi.RoleGrant;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -142,6 +147,40 @@ class DepartmentGrantConditionsTest {
         RoleGrant old = role(Set.of("1/10"), null, null);
 
         assertThat(scope(old, AccessType.READ).toString()).contains("\"1/10\"");
+    }
+
+    @Test
+    @DisplayName("record access offers an exempt role what it may change, not everything it may see")
+    @SuppressWarnings("unchecked")
+    void recordAccessJudgesChangesInsideTheGrant() {
+        String view = "permission.ticket.view";
+        String update = "permission.ticket.update";
+        RoleGrant grant = role(Set.of("1/10"), Set.of(), Set.of(TICKET));
+        grant.setPermissions(new HashSet<>(Set.of(view, update)));
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleGrants(List.of(grant));
+        pi.setPermissions(Set.of(view, update));
+        PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
+        when(provider.get(anyLong(), anyLong())).thenReturn(pi);
+        EndpointIndex index = mock(EndpointIndex.class);
+        when(index.modelActionPermissions(TICKET, "view")).thenReturn(Set.of(view));
+        when(index.modelActionPermissions(TICKET, "update")).thenReturn(Set.of(update));
+        ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
+        when(applicability.applicableFor(TICKET)).thenReturn(Set.of(ScopeType.ALL));
+        ScopeRuleCompiler compiler = mock(ScopeRuleCompiler.class);
+        ModelService<Long> modelService = (ModelService<Long>) mock(ModelService.class);
+        // The ticket sits outside the granted department: any filter naming the department misses it.
+        when(modelService.getIds(eq(TICKET), any(Filters.class))).thenAnswer(inv ->
+                inv.getArgument(1).toString().contains("\"1/10\"") ? List.of() : List.of(1L));
+        PermissionServiceImpl service = new PermissionServiceImpl(provider, compiler, null, modelService,
+                applicability, () -> index);
+        Context ctx = new Context();
+        ctx.setTenantId(1L);
+        ctx.setUserId(2L);
+
+        List<RecordAccess> access = ContextHolder.callWith(ctx, () -> service.getRecordAccess(TICKET, List.of(1L)));
+
+        assertThat(access.getFirst().actions()).doesNotContain(AccessType.UPDATE);
     }
 
     private static RoleGrant role(Set<String> paths, Set<String> conditions, Set<String> exempt) {

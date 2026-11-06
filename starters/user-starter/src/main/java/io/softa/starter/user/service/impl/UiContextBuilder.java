@@ -264,6 +264,12 @@ public class UiContextBuilder {
         if (BuiltinRole.anyHeldBy(roleCodes, BuiltinRole.SUPER_ADMIN, BuiltinRole.TENANT_ADMIN)) {
             return List.of();
         }
+        Set<Long> grantedRoots = new HashSet<>();
+        for (Role role : activeRoles) {
+            Set<Long> roots = DepartmentGrants.roots(role.getDepartmentGrant());
+            if (roots != null) grantedRoots.addAll(roots);
+        }
+        Map<Long, String> departmentPaths = DepartmentGrants.idPathsOf(modelService, grantedRoots);
         Map<Long, RoleGrantView> byRole = new LinkedHashMap<>();
         for (Role role : activeRoles) {
             if (role.getId() == null) continue;
@@ -278,8 +284,12 @@ public class UiContextBuilder {
             view.setDepartmentExemptModels(new HashSet<>());
             Set<Long> departments = DepartmentGrants.roots(role.getDepartmentGrant());
             if (departments != null) {
-                view.setGrantedDepartmentPaths(new HashSet<>(
-                        DepartmentGrants.idPathsOf(modelService, departments).values()));
+                Set<String> paths = new HashSet<>();
+                for (Long department : departments) {
+                    String path = departmentPaths.get(department);
+                    if (path != null) paths.add(path);
+                }
+                view.setGrantedDepartmentPaths(paths);
                 view.setDepartmentConditions(DepartmentGrants.holderConditions(role.getDepartmentGrant()));
             }
             byRole.put(role.getId(), view);
@@ -295,9 +305,13 @@ public class UiContextBuilder {
                 view.getPermissions().addAll(JsonArrayUtils.toStringList(rn.getPermissionIds(), true));
             }
         }
+        List<String> scopeFields = new ArrayList<>(List.of("roleId", "model", "dataScopes", "scopeCondition"));
+        // Asked for only where declared, as the department grant below is.
+        if (DepartmentGrants.exemptDeclared()) {
+            scopeFields.add("departmentGrantExempt");
+        }
         for (RoleDataScope rds : roleDataScopeService.searchList(new FlexQuery(
-                List.of("roleId", "model", "dataScopes", "scopeCondition", "departmentGrantExempt"),
-                new Filters().in(RoleDataScope::getRoleId, roleIds)))) {
+                scopeFields, new Filters().in(RoleDataScope::getRoleId, roleIds)))) {
             RoleGrantView view = byRole.get(rds.getRoleId());
             if (view != null && rds.getModel() != null && Boolean.TRUE.equals(rds.getDepartmentGrantExempt())) {
                 view.getDepartmentExemptModels().add(rds.getModel());
@@ -543,9 +557,13 @@ public class UiContextBuilder {
         Set<Long> roleIds = rels.stream()
                 .map(UserRoleRel::getRoleId).filter(Objects::nonNull).collect(Collectors.toSet());
         if (roleIds.isEmpty()) return List.of();
+        List<String> fields = new ArrayList<>(List.of("id", "code", "name", "active"));
+        // Asked for only where declared, so an application that has not added it reads its roles as before.
+        if (DepartmentGrants.declared()) {
+            fields.add(DepartmentGrants.FIELD);
+        }
         return roleService.searchList(new FlexQuery(
-                List.of("id", "code", "name", "active", DepartmentGrants.FIELD),
-                new Filters().in(Role::getId, roleIds).eq(Role::getActive, true)));
+                fields, new Filters().in(Role::getId, roleIds).eq(Role::getActive, true)));
     }
 
     /** Granted sensitive-field-set ids grouped by their canonical model. SFS id→model

@@ -432,8 +432,9 @@ past the department model's active control, so a disabled root still bounds what
 `PermissionServiceImpl` ANDs a subtree match on those paths onto that role's rows — `departmentId.idPath`
 on every model with `departmentId` as a to-one onto `Department` (its cascade path when that field is
 dynamic), `idPath` on `Department` itself — next to the company grant, per role, before the roles are
-OR-ed. The tree is read live: a department created under, or moved into, a granted subtree is in it at
-once, and one moved out leaves it at once. A department just inserted, whose path the application writes
+OR-ed. A department changing place in the tree drops the tenant's snapshots
+(`DepartmentIdPathResolver.evict`), so a department created under, or moved into, a granted subtree is in it
+at once, one moved out leaves it at once, and a granted root that moves keeps its subtree. A department just inserted, whose path the application writes
 after the insert, is judged by its parent's path, so a role may create one under a department it is
 granted (not at the top). There is no user-level union.
 A model whose department reference is configuration rather than ownership names that field otherwise

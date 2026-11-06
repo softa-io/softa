@@ -114,6 +114,35 @@ class DepartmentIdPathResolverTest {
     }
 
     @Test
+    void evict_clearsTheTenantsPermissionSnapshots() {
+        resolver.evict(TENANT);
+
+        verify(cacheService).clearByPrefix("perm:" + TENANT + ":");
+    }
+
+    @Test
+    void evict_snapshotClearFailing_doesNotFailTheCaller() {
+        org.mockito.Mockito.doThrow(new IllegalStateException("redis down")).when(cacheService).clearByPrefix(anyString());
+
+        resolver.evict(TENANT);
+
+        verify(cacheService).clear(KEY);
+    }
+
+    @Test
+    void loadTree_readsDisabledDepartmentsToo() {
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class))).thenReturn(List.of());
+
+        ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(1L));
+
+        org.mockito.ArgumentCaptor<FlexQuery> query = org.mockito.ArgumentCaptor.forClass(FlexQuery.class);
+        verify(modelService).searchList(eq("Department"), query.capture());
+        org.assertj.core.api.Assertions.assertThat(query.getValue().getFilterControl())
+                .usingRecursiveComparison()
+                .isEqualTo(io.softa.framework.orm.domain.FilterControl.bypassActiveControl());
+    }
+
+    @Test
     void evict_nullTenant_noClear() {
         resolver.evict(null);
 
