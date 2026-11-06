@@ -30,8 +30,6 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/instances/batch/reject",
                         "POST /flow/instances/transfer",
                         "POST /flow/instances/delegate",
-                        "POST /flow/instances/add-sign-before",
-                        "POST /flow/instances/add-sign-after",
                         "POST /flow/instances/cc",
                         "POST /flow/instances/cc/read",
                         "POST /flow/instances/return",

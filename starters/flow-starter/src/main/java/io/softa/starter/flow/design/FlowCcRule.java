@@ -1,6 +1,5 @@
 package io.softa.starter.flow.design;
 
-import java.util.List;
 import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -12,9 +11,9 @@ import io.softa.starter.flow.enums.CcTiming;
 
 /**
  * An approval flow's CC rule: at its timing — the approval submitted, approved or rejected — its recipients get a
- * read-only copy of the approval, in their CC list and inbox. Recipients are found the way an approval step's
- * approvers are: named users ({@code recipients}), or a source ({@code recipientSource}, an
- * {@code approverSource}'s shape — the subject's supervisor, a role, a department's members…), never both.
+ * read-only copy of the approval, in their CC list and inbox. Recipients are named the way an approval step's
+ * approvers are, in an {@code approverSource}'s shape: specific people ({@code Users}), or a source that finds them —
+ * the subject's supervisor, a role, a department's members…
  */
 @Data
 @Builder
@@ -26,10 +25,7 @@ public class FlowCcRule {
     @Schema(description = "When: OnSubmit, OnApproved or OnRejected")
     private CcTiming timing;
 
-    @Schema(description = "Named recipients: user ids. Exclusive with recipientSource")
-    private List<String> recipients;
-
-    @Schema(description = "Recipients found at the time, in an approval step's approverSource shape "
-            + "({\"type\": \"Supervisor|RoleQuery|Position|Department|…\", …}). Exclusive with recipients")
+    @Schema(description = "Who is CC'd, in an approval step's approverSource shape: {\"type\": \"Users\", \"userIds\": […]} "
+            + "for specific people, else a source found at the time ({\"type\": \"Supervisor|RoleQuery|Position|…\", …})")
     private Map<String, Object> recipientSource;
 }

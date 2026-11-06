@@ -150,12 +150,13 @@ class TaskInstanceContextEnricherTest {
     void theStepsConfigurationSaysHowItsTaskMayBeActedOn() {
         FlowInstance instance = instance("i1", "Confirmation · Bob", "EmpConfirmationRequest", "row-1");
         instance.setBundleId(9L);
-        CompiledFlowNode plain = approvalNode("plain", ApprovalNodeConfig.builder().returnEnabled(true).build());
+        CompiledFlowNode plain = approvalNode("plain", ApprovalNodeConfig.builder().build());
         CompiledFlowNode required = approvalNode("required", ApprovalNodeConfig.builder()
                 .formPermissions(Map.of("decision", FormFieldPermission.REQUIRED)).build());
         CompiledFlowNode editable = approvalNode("editable", ApprovalNodeConfig.builder()
                 .formPermissions(Map.of("comment", FormFieldPermission.EDITABLE)).build());
         CompiledFlowDefinition definition = CompiledFlowDefinition.builder()
+                .returnEnabled(true)
                 .nodeIndex(Map.of("plain", plain, "required", required, "editable", editable))
                 .build();
         when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("i1")))).thenReturn(List.of(instance));
@@ -164,21 +165,18 @@ class TaskInstanceContextEnricherTest {
         FlowApprovalTaskView plainTask = pendingTask("i1", "plain");
         FlowApprovalTaskView requiredTask = pendingTask("i1", "required");
         FlowApprovalTaskView editableTask = pendingTask("i1", "editable");
-        FlowApprovalTaskView blockedTask = pendingTask("i1", "plain");
-        blockedTask.setBlocked(true);
         FlowApprovalTaskView doneTask = pendingTask("i1", "plain");
         doneTask.setStatus(FlowApprovalTaskStatus.APPROVED);
-        enricher.enrich(List.of(plainTask, requiredTask, editableTask, blockedTask, doneTask));
+        enricher.enrich(List.of(plainTask, requiredTask, editableTask, doneTask));
 
         assertTrue(plainTask.getBatchable());
         assertTrue(plainTask.getReturnAllowed());
-        assertFalse(requiredTask.getReturnAllowed());
+        assertTrue(requiredTask.getReturnAllowed(), "the flow's switch holds at every step");
         assertFalse(requiredTask.getBatchable(), "a batch cannot fill in a required field");
         assertTrue(requiredTask.getFillIn(), "a step with a required field is filled in and submitted");
         assertFalse(plainTask.getFillIn());
         assertTrue(editableTask.getBatchable(), "an editable field is left as it is");
         assertFalse(editableTask.getFillIn(), "an editable field may be left as it is: still approved");
-        assertFalse(blockedTask.getBatchable(), "an add-sign prerequisite comes first");
         assertFalse(doneTask.getBatchable());
         // One lookup per revision on the page, however many tasks it carries.
         verify(bundleRegistry, times(1)).getByBundleId(9L);
@@ -200,28 +198,27 @@ class TaskInstanceContextEnricherTest {
         assertFalse(task.getBatchable());
     }
 
-    // #2316: the task drawer listed the step's candidates, who approved and who blocked by account id.
+    // #2316: the task drawer listed the step's candidates and who approved by account id.
     @Test
     void everyAccountATaskNamesIsNamedInOneLookup() {
         when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("i1")))).thenReturn(List.of());
         when(names.namesOf(argThat(ids -> ids != null && ids.contains("u1")))).thenReturn(Map.of(
-                "u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei", "u4", "Dee Ong"));
+                "u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei"));
         FlowApprovalTaskView task = FlowApprovalTaskView.builder()
                 .instanceId("i1")
                 .actorId("u1")
                 .candidateActors(List.of("u1", "u2", "u-unknown"))
                 .approvedActors(List.of("u3"))
-                .blockedByActorId("u4")
                 .closedByActorId("u2")
                 .build();
 
         enricher.enrich(List.of(task));
 
         verify(names, times(1)).namesOf(argThat(ids ->
-                ids.containsAll(List.of("u1", "u2", "u3", "u4", "u-unknown")) && ids.size() == 5));
+                ids.containsAll(List.of("u1", "u2", "u3", "u-unknown")) && ids.size() == 4));
         assertEquals("Ann Lee", task.getActorName());
         // An account the lookup cannot name is left out, for the client to show as it is.
-        assertEquals(Map.of("u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei", "u4", "Dee Ong"), task.getActorNames());
+        assertEquals(Map.of("u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei"), task.getActorNames());
     }
 
     @Test

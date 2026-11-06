@@ -13,7 +13,6 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
-import io.softa.starter.flow.runtime.state.AddSignPosition;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
@@ -82,9 +81,6 @@ public class FlowApprovalRecord extends AuditableModel {
             + "the actor's task; empty when the actor acted themselves")
     private String operatorId;
 
-    @Field(label = "Add-Sign Position", description = "Add-sign position when the record represents an add-sign action")
-    private AddSignPosition addSignPosition;
-
     @Field(length = 2000, description = "Comment")
     private String comment;
 
@@ -96,9 +92,6 @@ public class FlowApprovalRecord extends AuditableModel {
 
     @Field(length = 4000, description = "Actors who had already approved")
     private List<String> approvedActors;
-
-    @Field(length = 4000, description = "Actors who had already rejected")
-    private List<String> rejectedActors;
 
     @Field(description = "Recorded time")
     private LocalDateTime eventTime;

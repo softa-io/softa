@@ -110,8 +110,14 @@ public class DefaultFlowTriggerRegistry {
         return matches;
     }
 
-    private static boolean submitConditionHolds(CompiledFlowDefinition definition, SubmitTrigger trigger,
-                                                Map<String, Object> variables) {
+    /**
+     * Whether {@code trigger}, {@code definition}'s, takes a submission whose variables are {@code variables}: no
+     * condition takes every one.
+     *
+     * @throws FlowRuntimeException when the condition cannot be evaluated
+     */
+    public static boolean submitConditionHolds(CompiledFlowDefinition definition, SubmitTrigger trigger,
+                                               Map<String, Object> variables) {
         try {
             return FlowGatewayRouter.conditionHolds(definition.getModelName(), trigger.condition(),
                     trigger.conditionExpression(), variables == null ? Map.of() : variables);

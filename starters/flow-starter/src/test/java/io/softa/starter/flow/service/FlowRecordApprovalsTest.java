@@ -130,12 +130,11 @@ class FlowRecordApprovalsTest {
         CompiledFlowDefinition automation = publishService.publish("audit", automationFlow("Audit"));
         instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
         PendingApproval waiting = PendingApproval.builder().nodeId("approval").nodeLabel("Manager")
-                .approvers(List.of("2001", "2002")).approvedActors(new ArrayList<>(List.of("2001")))
-                .rejectedActors(new ArrayList<>()).build();
+                .approvers(List.of("2001", "2002")).approvedActors(new ArrayList<>(List.of("2001"))).build();
         instance("new", approval, true, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 20, 9, 0), waiting);
         instance("other", automation, false, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 21, 9, 0), null);
-        // A debug run of the approval flow on the record: not its approval either.
-        instance("debug", approval, false, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 22, 9, 0), null);
+        // The approval flow run on the record without a submission: not its approval either.
+        instance("unsubmitted", approval, false, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 22, 9, 0), null);
         when(ledger.findByInstanceId("new")).thenReturn(List.of(
                 entry(ApprovalActionType.APPROVE, "2001", null, "ok"),
                 entry(ApprovalActionType.READ, "3001", null, null),
@@ -710,7 +709,7 @@ class FlowRecordApprovalsTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                                        .config(Map.of("approvers", List.of("2001"), "formPermissions", formPermissions))
+                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001")), "formPermissions", formPermissions))
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(

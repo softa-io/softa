@@ -71,23 +71,11 @@ public class ApprovalActionAuditEntry {
     @Schema(description = "Whether approvers were resolved from a dynamic source")
     private Boolean dynamicApprovers;
 
-    @Schema(description = "Reject mode of the node when applicable")
-    private VoteThresholdMode rejectMode;
-
-    @Schema(description = "Required reject count for threshold-based reject modes")
-    private Integer requiredRejectCount;
-
-    @Schema(description = "Approvers who had already rejected when the action was recorded")
-    private List<String> rejectedActors;
-
     @Schema(description = "Target actor id when returning to initiator")
     private String targetActorId;
 
     @Schema(description = "Who did it on the actor's behalf: an administrator who reassigned the actor's task; "
             + "null when the actor acted themselves")
     private String operatorId;
-
-    @Schema(description = "Add-sign position when the action is AddSign")
-    private AddSignPosition addSignPosition;
 }
 

@@ -16,6 +16,7 @@ import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
@@ -354,20 +355,12 @@ class ApproverResolutionServiceOrgTest {
     }
 
     @Test
-    void staticApproversStillWork() {
-        ApprovalNodeConfig cfg = ApprovalNodeConfig.builder()
-                .approvers(List.of("alice", "bob"))
-                .approvalMode(VoteThresholdMode.ANY_ONE)
-                .build();
-        CompiledFlowNode node = CompiledFlowNode.builder()
-                .nodeId("a1")
-                .type(FlowNodeType.APPROVAL)
-                .parsedConfig(cfg)
-                .build();
+    void specificPeopleAreTheUsersTheSourceNames() {
+        CompiledFlowNode node = approvalNode(Map.of("type", "Users", "userIds", List.of("alice", " ", "bob", "alice")));
 
-        List<String> result = service.resolveApprovers(node);
-
-        assertEquals(List.of("alice", "bob"), result);
+        assertEquals(List.of("alice", "bob"), service.resolveApprovers(node, varsWithInitiator("100")));
+        assertFalse(service.hasDynamicApproverSource(node), "named, not found when the step is reached");
+        assertTrue(service.hasDynamicApproverSource(approvalNode(Map.of("type", "Supervisor"))));
     }
 
     @Test
@@ -375,17 +368,16 @@ class ApproverResolutionServiceOrgTest {
         var field = ApproverResolutionService.class.getDeclaredField("actorAccounts");
         field.setAccessible(true);
         field.set(service, TestActorAccounts.of(Map.of(2002L, "Frozen"), Map.of()));
-        CompiledFlowNode named = CompiledFlowNode.builder().nodeId("a1").type(FlowNodeType.APPROVAL)
-                .parsedConfig(ApprovalNodeConfig.builder().approvers(List.of("2001", "2002")).build())
-                .build();
+        CompiledFlowNode named = approvalNode(Map.of("type", "Users", "userIds", List.of("2001", "2002")));
         Map<String, Object> vars = varsWithInitiator("100");
         vars.put("myApprovers", List.of("2002", "2003"));
 
-        assertEquals(List.of("2001"), service.resolveApprovers(named, vars), "static approvers");
+        assertEquals(List.of("2001"), service.resolveApprovers(named, vars), "specific people");
         assertEquals(List.of("2003"), service.resolveApprovers(approvalNode(Map.of("type", "VariableList",
                 "variable", "myApprovers")), vars), "a variable list");
         FlowExecutionState state = FlowExecutionState.builder().initiatorId("100").variables(new LinkedHashMap<>()).build();
-        assertEquals(List.of(), service.resolvePeople(List.of("2002"), null, state), "a CC rule's recipients");
+        assertEquals(List.of(), service.resolvePeople(Map.of("type", "Users", "userIds", List.of("2002")), state),
+                "a CC rule's recipients");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

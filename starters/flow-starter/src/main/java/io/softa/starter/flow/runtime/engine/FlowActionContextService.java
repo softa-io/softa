@@ -114,9 +114,9 @@ public class FlowActionContextService {
     }
 
     /**
-     * Loads the shared approval context from an already-resolved state, for callers (e.g. the
-     * add-sign handlers) that apply a bespoke waiting-approval gate with a custom message before
-     * the pending-approval lookup. Equivalent to the tail of the {@code instanceId} overloads.
+     * Loads the shared approval context from an already-resolved state, for callers (e.g. approve and
+     * reject) that check the state themselves before the pending-approval lookup. Equivalent to the tail
+     * of the {@code instanceId} overloads.
      */
     public ApprovalContext loadApprovalContext(FlowExecutionState state, String nodeId) {
         PendingApproval pendingApproval = requirePendingApproval(state, nodeId);

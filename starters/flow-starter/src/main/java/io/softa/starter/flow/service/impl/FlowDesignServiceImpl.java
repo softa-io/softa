@@ -22,6 +22,7 @@ import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
+import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.dto.ApprovalModelView;
 import io.softa.starter.flow.dto.FlowDesignCreateRequest;
@@ -239,6 +240,18 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
                 .filter(definition -> !flowId.equals(definition.getFlowId()) && callsSubflow(definition, flowId))
                 .map(CompiledFlowDefinition::getFlowName)
                 .distinct()
+                .toList();
+    }
+
+    @Override
+    public List<String> subflowTargetIds() {
+        if (bundleRegistry == null) {
+            return List.of();
+        }
+        return bundleRegistry.list().stream()
+                .filter(definition -> FlowScenario.AUTOMATION.equals(definition.getScenario())
+                        && definition.getTrigger() instanceof SubflowTrigger)
+                .map(CompiledFlowDefinition::getFlowId)
                 .toList();
     }
 

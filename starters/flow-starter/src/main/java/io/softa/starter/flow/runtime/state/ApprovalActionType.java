@@ -17,6 +17,10 @@ public enum ApprovalActionType {
     REJECT("Reject"),
     TRANSFER("Transfer"),
     DELEGATE("Delegate"),
+    /**
+     * A signer added before or after an approver. The action is gone: nothing records it any more. Kept because
+     * history recorded before still holds it, and a stored code the enum no longer has cannot be read.
+     */
     ADD_SIGN("AddSign"),
     CC("Cc"),
     READ("Read"),

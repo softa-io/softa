@@ -37,10 +37,7 @@ class FlowApprovalTaskProjectorTest {
                         .approvalMode(VoteThresholdMode.UNANIMOUS)
                         .requiredApprovalCount(2)
                         .totalApproverCount(2)
-                        .rejectMode(VoteThresholdMode.ANY_ONE)
-                        .requiredRejectCount(1)
                         .approvedActors(List.of("manager"))
-                        .rejectedActors(List.of())
                         .dueTime(LocalDateTime.of(2026, 11, 6, 18, 0))
                         .build()))
                 .approvalAuditDelta(List.of(ApprovalActionAuditEntry.builder()
@@ -76,76 +73,6 @@ class FlowApprovalTaskProjectorTest {
     }
 
     @Test
-    void shouldMarkBlockedTaskWhenAddSignBeforePrerequisiteIsStillPending() {
-        FlowExecutionState state = FlowExecutionState.builder()
-                .instanceId("instance-add-sign")
-                .pendingApprovals(List.of(PendingApproval.builder()
-                        .flowId("leave-flow")
-                        .flowRevision(3)
-                        .nodeId("managerApproval")
-                        .nodeLabel("Manager Approval")
-                        .cycleNumber(1)
-                        .approvers(List.of("lead", "manager"))
-                        .approvalMode(VoteThresholdMode.ANY_ONE)
-                        .requiredApprovalCount(1)
-                        .totalApproverCount(2)
-                        .rejectMode(VoteThresholdMode.ANY_ONE)
-                        .requiredRejectCount(1)
-                        .approvedActors(List.of())
-                        .rejectedActors(List.of())
-                        .blockedActorId("manager")
-                        .prerequisiteActorId("lead")
-                        .build()))
-                .build();
-
-        var tasks = projector.project(state);
-
-        var blockedTask = tasks.stream().filter(task -> "manager".equals(task.getActorId())).findFirst().orElseThrow();
-        assertTrue(Boolean.TRUE.equals(blockedTask.getBlocked()));
-        assertEquals("lead", blockedTask.getBlockedByActorId());
-        assertEquals(FlowApprovalTaskStatus.PENDING, blockedTask.getStatus());
-
-        var prerequisiteTask = tasks.stream().filter(task -> "lead".equals(task.getActorId())).findFirst().orElseThrow();
-        assertFalse(Boolean.TRUE.equals(prerequisiteTask.getBlocked()));
-        assertNull(prerequisiteTask.getBlockedByActorId());
-    }
-
-    @Test
-    void shouldMarkAddedFollowUpSignerBlockedWhenAddSignAfterSourceHasNotApprovedYet() {
-        FlowExecutionState state = FlowExecutionState.builder()
-                .instanceId("instance-add-sign-after")
-                .pendingApprovals(List.of(PendingApproval.builder()
-                        .flowId("leave-flow")
-                        .flowRevision(3)
-                        .nodeId("managerApproval")
-                        .nodeLabel("Manager Approval")
-                        .cycleNumber(1)
-                        .approvers(List.of("manager", "reviewer"))
-                        .approvalMode(VoteThresholdMode.ANY_ONE)
-                        .requiredApprovalCount(1)
-                        .totalApproverCount(2)
-                        .rejectMode(VoteThresholdMode.ANY_ONE)
-                        .requiredRejectCount(1)
-                        .approvedActors(List.of())
-                        .rejectedActors(List.of())
-                        .blockedActorId("reviewer")
-                        .prerequisiteActorId("manager")
-                        .build()))
-                .build();
-
-        var tasks = projector.project(state);
-
-        var managerTask = tasks.stream().filter(task -> "manager".equals(task.getActorId())).findFirst().orElseThrow();
-        assertFalse(Boolean.TRUE.equals(managerTask.getBlocked()));
-        assertNull(managerTask.getBlockedByActorId());
-
-        var reviewerTask = tasks.stream().filter(task -> "reviewer".equals(task.getActorId())).findFirst().orElseThrow();
-        assertTrue(Boolean.TRUE.equals(reviewerTask.getBlocked()));
-        assertEquals("manager", reviewerTask.getBlockedByActorId());
-        assertEquals(FlowApprovalTaskStatus.PENDING, reviewerTask.getStatus());
-    }
-
-    @Test
     void shouldProjectCcAuditEntriesIntoClosedCcTasks() {
         LocalDateTime ccAt = LocalDateTime.now();
         FlowExecutionState state = FlowExecutionState.builder()
@@ -162,10 +89,7 @@ class FlowApprovalTaskProjectorTest {
                         .approvalMode(VoteThresholdMode.ANY_ONE)
                         .requiredApprovalCount(1)
                         .totalApproverCount(1)
-                        .rejectMode(VoteThresholdMode.ANY_ONE)
-                        .requiredRejectCount(1)
                         .approvedActors(List.of())
-                        .rejectedActors(List.of())
                         .build()))
                 .approvalAuditDelta(List.of(ApprovalActionAuditEntry.builder()
                         .action(ApprovalActionType.CC)

@@ -50,12 +50,13 @@ public class DesignFlowDefinition implements DTOFieldObject {
     @Schema(description = "Graph document (nodes + edges + viewport)")
     private FlowGraphDocument graph;
 
-    @Schema(description = "Form bindings for human-interaction nodes")
-    private List<FlowFormBinding> forms;
-
     @Schema(description = "Approval flows only: until when the initiator may withdraw an approval in progress; "
             + "unset = Never")
     private WithdrawPolicy withdrawPolicy;
+
+    @Schema(description = "Approval flows only: whether its approvers may return the approval to the initiator, who "
+            + "edits the record and submits it again — at any step. Unset = off")
+    private Boolean returnEnabled;
 
     @Schema(description = "Approval flows only: whether the initiator may urge the approvers an approval waits on; "
             + "an administrator may either way. Unset = on")
@@ -64,6 +65,11 @@ public class DesignFlowDefinition implements DTOFieldObject {
     @Schema(description = "Approval flows only: how often, in minutes, each step an approval waits on may be urged, "
             + "by its initiator or an administrator. Unset = 240")
     private Integer urgeIntervalMinutes;
+
+    @Schema(description = "Approval flows only: hours after a step opens that its approvers still to act are reminded, "
+            + "then again every as many hours, at most 3 times; the step is due then. Unset = no reminders. A reminder "
+            + "is all that happens: nothing is decided for anyone")
+    private Integer remindAfterHours;
 
     @Schema(description = "Approval flows only: whether its notices are also emailed; unset = on")
     private Boolean emailNotification;

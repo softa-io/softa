@@ -92,7 +92,7 @@ class ApprovalWritesAsApproverTest {
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
                                         .config(Map.of(
-                                                "approvers", List.of(APPROVER),
+                                                "approverSource", Map.of("type", "Users", "userIds", List.of(APPROVER)),
                                                 "formPermissions", Map.of("note", "Editable")))
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))

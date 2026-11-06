@@ -169,9 +169,6 @@ public class FlowAuditService {
                 .requiredApprovalCount(pendingApproval.getRequiredApprovalCount())
                 .totalApproverCount(pendingApproval.getTotalApproverCount())
                 .dynamicApprovers(pendingApproval.getDynamicApprovers())
-                .rejectMode(pendingApproval.getRejectMode())
-                .requiredRejectCount(pendingApproval.getRequiredRejectCount())
-                .rejectedActors(List.copyOf(pendingApproval.getRejectedActors()))
                 .build();
     }
 
@@ -180,11 +177,6 @@ public class FlowAuditService {
     public String buildPartialApprovalMessage(CompiledFlowNode node, PendingApproval pendingApproval, String actorId) {
         return "Approval recorded for node " + node.getNodeId() + " by " + actorId + " ("
                 + pendingApproval.getApprovedActors().size() + "/" + pendingApproval.getRequiredApprovalCount() + ")";
-    }
-
-    public String buildPartialRejectMessage(CompiledFlowNode node, PendingApproval pendingApproval, String actorId) {
-        return "Reject recorded for node " + node.getNodeId() + " by " + actorId + " ("
-                + pendingApproval.getRejectedActors().size() + "/" + pendingApproval.getRequiredRejectCount() + ")";
     }
 
     public String buildTransferMessage(CompiledFlowNode node, FlowTransferRequest request) {
@@ -199,30 +191,6 @@ public class FlowAuditService {
         StringBuilder builder = new StringBuilder("Approval delegated at node ")
                 .append(node.getNodeId()).append(" from ").append(request.getActorId())
                 .append(" to ").append(request.getTargetActorId());
-        appendComment(builder, request.getComment());
-        return builder.toString();
-    }
-
-    /**
-     * Position-aware dispatcher: produces the add-sign-before message for BEFORE
-     * and the add-sign-after message for AFTER.
-     */
-    public String buildAddSignMessage(CompiledFlowNode node,
-                                      AbstractFlowNodeTargetActorRequest request,
-                                      AddSignPosition position) {
-        return switch (position) {
-            case BEFORE -> buildAddSignMessage(node, request, "Approval add-sign-before applied at node ", " to prerequisite ");
-            case AFTER -> buildAddSignMessage(node, request, "Approval add-sign-after applied at node ", " to follow-up ");
-        };
-    }
-
-    private String buildAddSignMessage(CompiledFlowNode node,
-                                       AbstractFlowNodeTargetActorRequest request,
-                                       String prefix,
-                                       String targetConnector) {
-        StringBuilder builder = new StringBuilder(prefix)
-                .append(node.getNodeId()).append(" from ").append(request.getActorId())
-                .append(targetConnector).append(request.getTargetActorId());
         appendComment(builder, request.getComment());
         return builder.toString();
     }

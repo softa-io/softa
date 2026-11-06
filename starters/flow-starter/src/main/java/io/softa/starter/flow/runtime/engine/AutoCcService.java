@@ -77,7 +77,7 @@ public class AutoCcService {
         for (FlowCcRule rule : rules) {
             try {
                 for (String recipient : ContextUtils.withoutPermissionChecks(() -> approverResolution.resolvePeople(
-                        rule.getRecipients(), rule.getRecipientSource(), state))) {
+                        rule.getRecipientSource(), state))) {
                     if (!recipients.contains(recipient)) {
                         recipients.add(recipient);
                     }

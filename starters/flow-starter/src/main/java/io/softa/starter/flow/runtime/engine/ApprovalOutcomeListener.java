@@ -24,7 +24,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
  * already authorized them.
  *
  * <p>Only a record's approval — the instance its submission started — is written back: other
- * instances running on the same record (automation, debug runs of the same flow) are not its
+ * instances running on the same record (automation runs) are not its
  * approval. A failed instance writes nothing; its submitter takes the record back by withdrawing it.
  *
  * <p>An instance that already has its result is saved again when someone comments on it or reads

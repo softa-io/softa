@@ -3,7 +3,6 @@ package io.softa.starter.flow.compiler.validation;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.starter.flow.api.CompileDiagnostic;
@@ -11,17 +10,16 @@ import io.softa.starter.flow.compiler.FlowGraphContext;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowCcRule;
 import io.softa.starter.flow.design.FlowGraphNode;
-import io.softa.starter.flow.enums.ApprovalTimeoutStrategy;
+import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
-import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
 
 /**
- * Warns of the users a flow names who cannot act now ({@link ActorAccounts}) — an approval step's static approvers,
- * the user its timeout escalates to, a CC rule's named recipients. A warning, never an error: an account changes
- * after the flow is published, and the engine already passes over whoever cannot act when the step is reached (the
- * step then follows its empty-approver strategy, an escalation reminds instead, the CC skips them). A
+ * Warns of the users a flow names who cannot act now ({@link ActorAccounts}) — the specific people of an approval
+ * step's or a CC rule's source ({@code Users}). A warning, never an error: an account changes after the flow is published, and the
+ * engine already passes over whoever cannot act when the step is reached (the step then follows its empty-approver
+ * strategy, the CC skips them). A
  * {@link FlowValidator} bean, so the editor's validation and every publish run it; a compiler built without Spring
  * does not.
  */
@@ -32,7 +30,6 @@ public class ApproverAccountValidator implements FlowValidator {
     private static final String APPROVAL_TYPE = FlowNodeType.APPROVAL.getType();
 
     private static final String UNUSABLE_APPROVER = "UNUSABLE_APPROVER";
-    private static final String UNUSABLE_ESCALATE_TARGET = "UNUSABLE_ESCALATE_TARGET";
     private static final String UNUSABLE_CC_RECIPIENT = "UNUSABLE_CC_RECIPIENT";
 
     private final ActorAccounts actorAccounts;
@@ -52,10 +49,6 @@ public class ApproverAccountValidator implements FlowValidator {
             }
             steps.put(node.getId(), config);
             named.addAll(approvers(config));
-            String escalateTo = escalateTarget(config);
-            if (escalateTo != null) {
-                named.add(escalateTo);
-            }
         }
         List<FlowCcRule> rules = definition == null || definition.getCc() == null ? List.of() : definition.getCc();
         rules.forEach(rule -> named.addAll(recipients(rule)));
@@ -80,17 +73,9 @@ public class ApproverAccountValidator implements FlowValidator {
         steps.forEach((nodeId, config) -> {
             String approvers = reasons(approvers(config), unusable);
             if (approvers != null) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", UNUSABLE_APPROVER,
+                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.userIds", UNUSABLE_APPROVER,
                         "Approval node '" + context.nodeName(nodeId) + "' names approvers who cannot act now and are "
                                 + "passed over when the step is reached: " + approvers).asWarning());
-            }
-            String escalateTo = escalateTarget(config);
-            String target = escalateTo == null ? null : reasons(List.of(escalateTo), unusable);
-            if (target != null) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.escalateToUserId",
-                        UNUSABLE_ESCALATE_TARGET, "Approval node '" + context.nodeName(nodeId) + "' escalates to "
-                                + "someone who cannot act now, so an overdue step is reminded instead: " + target)
-                                .asWarning());
             }
         });
         for (int i = 0; i < rules.size(); i++) {
@@ -116,20 +101,11 @@ public class ApproverAccountValidator implements FlowValidator {
     }
 
     private static List<String> approvers(ApprovalNodeConfig config) {
-        return config.getApprovers() == null ? List.of()
-                : config.getApprovers().stream().filter(StringUtils::hasText).map(String::trim).toList();
-    }
-
-    /** The user an Escalate timeout hands the step to; null when the step does not escalate. */
-    private static String escalateTarget(ApprovalNodeConfig config) {
-        ApprovalTimeoutConfig timeout = config.getTimeout();
-        return timeout != null && ApprovalTimeoutStrategy.ESCALATE.equals(timeout.getTimeoutStrategy())
-                && StringUtils.hasText(timeout.getEscalateToUserId()) ? timeout.getEscalateToUserId().trim() : null;
+        return ApproverSourceType.namedUsers(config.getApproverSource());
     }
 
     private static List<String> recipients(FlowCcRule rule) {
-        return rule == null || rule.getRecipients() == null ? List.of()
-                : rule.getRecipients().stream().filter(StringUtils::hasText).map(String::trim).toList();
+        return rule == null ? List.of() : ApproverSourceType.namedUsers(rule.getRecipientSource());
     }
 
     /** Why those of {@code userIds} who cannot act cannot, joined; null when they all can. */

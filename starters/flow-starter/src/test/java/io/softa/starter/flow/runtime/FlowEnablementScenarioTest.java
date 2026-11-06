@@ -152,7 +152,7 @@ class FlowEnablementScenarioTest {
     private static DesignFlowDefinition approvalFlow() {
         return flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                        .config(Map.of("approvers", List.of("manager"))).build());
+                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("manager")))).build());
     }
 
     /** start → {@code middle} (when given) → end. */

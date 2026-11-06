@@ -325,7 +325,7 @@ class FlowEndToEndExecutionTest {
                 .id(id)
                 .type(FlowNodeType.APPROVAL)
                 .label(id)
-                .config(Map.of("approvers", List.of(approverId)))
+                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(approverId))))
                 .build();
     }
 

@@ -6,9 +6,9 @@
       "cronExpression": "0 */10 * * * ?",
       "cronSemantic": "Every 10 minutes",
       "limitExecution": false,
-      "tenantJobMode": "CrossTenant",
+      "tenantJobMode": "PerTenant",
       "active": false,
-      "description": "Handle approval steps past their deadline (remind/auto-approve/auto-reject/escalate)"
+      "description": "Remind the approvers of approval steps that are due (the flow's remindAfterHours)"
     },
     {
       "id": "flow_delegation_expiry",
@@ -26,7 +26,7 @@
       "cronExpression": "0 */5 * * * ?",
       "cronSemantic": "Every 5 minutes",
       "limitExecution": false,
-      "tenantJobMode": "CrossTenant",
+      "tenantJobMode": "PerTenant",
       "active": false,
       "description": "Resume WAITING instances with a due timer missed by Pulsar deliverAfter"
     },
@@ -39,16 +39,6 @@
       "tenantJobMode": "CrossTenant",
       "active": false,
       "description": "Log non-terminal instances with no recent updates for operator review"
-    },
-    {
-      "id": "flow_debug_bundle_purge",
-      "name": "flow_debug_bundle_purge",
-      "cronExpression": "0 0 2 * * ?",
-      "cronSemantic": "Every day at 02:00",
-      "limitExecution": false,
-      "tenantJobMode": "CrossTenant",
-      "active": false,
-      "description": "Purge expired debug-run bundles with their instances, traces and approval projections"
     },
     {
       "id": "flow_automation_purge",

@@ -49,6 +49,10 @@ public class FlowApprovalPreview {
     @Schema(description = "Where the approval would stop with an error, and why: the path shown ends there (Ready, InProgress)")
     private Stop failure;
 
+    @Schema(description = "The nodes the route passes, in the order it reaches them, up to where it stops — from the step "
+            + "it waits on now for an approval in progress (Ready, InProgress)")
+    private List<String> nodeIds;
+
     @Schema(description = "Whether the requester may withdraw the record now: its submitter, while its approval waits on a "
             + "flow that lets them withdraw (InProgress), or after its approval failed (Refused)")
     private Boolean withdrawable;

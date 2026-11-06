@@ -345,7 +345,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     /**
-     * A record's approvals, newest first. Other instances may run on the record — automation, debug runs: not its
+     * A record's approvals, newest first. Other instances may run on the record — automation runs: not its
      * approval.
      */
     private List<FlowInstance> approvalsOf(String modelName, String rowId) {
@@ -392,6 +392,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             instance.getActions().forEach(action -> {
                 actors.add(action.getActor());
                 actors.add(action.getTarget());
+                actors.add(action.getOperator());
             });
         }
         userNames.name(actors);
@@ -620,7 +621,6 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         List<String> approvers = step.getApprovers() == null ? List.of() : step.getApprovers();
         return approvers.stream()
                 .filter(approver -> step.getApprovedActors() == null || !step.getApprovedActors().contains(approver))
-                .filter(approver -> step.getRejectedActors() == null || !step.getRejectedActors().contains(approver))
                 .toList();
     }
 
@@ -648,6 +648,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                             .nodeLabel(entry.getNodeLabel())
                             .actor(actor(entry.getActorId()))
                             .target(actor(entry.getTargetActorId()))
+                            .operator(actor(entry.getOperatorId()))
                             .comment(entry.getComment())
                             .eventTime(entry.getEventTime())
                             .build()).toList())

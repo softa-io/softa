@@ -372,20 +372,6 @@ public class FlowInstanceController {
         return ApiResponse.success(withoutRecordValues(runtimeEngine.delegate(request)));
     }
 
-    @PostMapping("/add-sign-before")
-    @Operation(summary = "Add prerequisite signer before current approver", description = "Adds a prerequisite signer before the current approver on the same approval node and cycle.")
-    public ApiResponse<FlowExecutionState> addSignBefore(@Valid @RequestBody FlowAddSignBeforeRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(withoutRecordValues(runtimeEngine.addSignBefore(request)));
-    }
-
-    @PostMapping("/add-sign-after")
-    @Operation(summary = "Add follow-up signer after current approver", description = "Adds a follow-up signer after the current approver on the same approval node and cycle.")
-    public ApiResponse<FlowExecutionState> addSignAfter(@Valid @RequestBody FlowAddSignAfterRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(withoutRecordValues(runtimeEngine.addSignAfter(request)));
-    }
-
     @PostMapping("/cc")
     @Operation(summary = "CC people on a pending approval", description = "The caller, an approver of the pending "
             + "step still to vote, CCs one or more people (`targetActorIds`): each gets a read-only copy of the approval "

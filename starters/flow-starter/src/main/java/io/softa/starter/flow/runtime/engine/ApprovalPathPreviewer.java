@@ -29,7 +29,8 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 
 /**
  * Works out the approval path of a record's submission without running its flow, for the approval
- * path preview ({@code FlowLaunchService.previewRecord}). It walks the flow from its start node the
+ * path preview ({@code FlowLaunchService.previewRecord}) and the editor's test run of a draft
+ * ({@code FlowLaunchService.previewDraft}). It walks the flow from its start node the
  * way {@link FlowExecutionOrchestrator} does, every approval step assumed approved: routes are decided
  * by {@link FlowGatewayRouter}, each step's approvers by {@link PendingApprovalFactory} and its
  * automatic approvals by {@link ApproverDedupService}, on the state the submission would start from —
@@ -79,6 +80,7 @@ public class ApprovalPathPreviewer {
                 .steps(walk.steps)
                 .undecided(walk.undecided)
                 .failure(walk.failure)
+                .nodeIds(List.copyOf(walk.passed))
                 .build();
     }
 
@@ -105,6 +107,7 @@ public class ApprovalPathPreviewer {
                 .steps(walk.steps)
                 .undecided(walk.undecided)
                 .failure(walk.failure)
+                .nodeIds(List.copyOf(walk.passed))
                 .build();
     }
 
@@ -165,6 +168,8 @@ public class ApprovalPathPreviewer {
         private final List<Step> steps = new ArrayList<>();
         private final List<Stop> undecided = new ArrayList<>();
         private Stop failure;
+        /** The nodes the walk reached, in order: a join once its branches are in. */
+        private final Set<String> passed = new LinkedHashSet<>();
 
         Walk(CompiledFlowDefinition definition, FlowExecutionState state, Set<String> unknownAtStart) {
             this.definition = definition;
@@ -185,6 +190,7 @@ public class ApprovalPathPreviewer {
             step.setCurrent(true);
             step.setAssignedRoles(pending.assignedToRoles() ? pending.getAssignedRoles() : null);
             steps.add(step);
+            passed.add(node.getNodeId());
             assumeApproved(node, remaining, required);
         }
 
@@ -201,6 +207,7 @@ public class ApprovalPathPreviewer {
                         && FlowExecutionOrchestrator.joinStillWaits(definition, state, node)) {
                     continue;
                 }
+                passed.add(nodeId);
                 if (FlowNodeType.RETURN_VALUE.equals(node.getType())) {
                     // Ends the flow, branches still queued included.
                     return;

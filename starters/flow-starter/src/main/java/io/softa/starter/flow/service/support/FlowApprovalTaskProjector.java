@@ -77,13 +77,8 @@ public class FlowApprovalTaskProjector {
             task.setApprovalMode(entry.getApprovalMode());
             task.setRequiredApprovalCount(entry.getRequiredApprovalCount());
             task.setTotalApproverCount(entry.getTotalApproverCount());
-            task.setRejectMode(entry.getRejectMode());
-            task.setRequiredRejectCount(entry.getRequiredRejectCount());
             task.setCandidateActors(List.of(entry.getTargetActorId()));
             task.setApprovedActors(entry.getApprovedActors() == null ? List.of() : List.copyOf(entry.getApprovedActors()));
-            task.setRejectedActors(entry.getRejectedActors() == null ? List.of() : List.copyOf(entry.getRejectedActors()));
-            task.setBlocked(Boolean.FALSE);
-            task.setBlockedByActorId(null);
             task.setStartTime(resolveEventTime(entry));
             task.setEndTime(resolveEventTime(read == null ? entry : read));
             task.setClosedByActorId(entry.getActorId());
@@ -125,13 +120,8 @@ public class FlowApprovalTaskProjector {
         task.setApprovalMode(pendingApproval.getApprovalMode());
         task.setRequiredApprovalCount(pendingApproval.getRequiredApprovalCount());
         task.setTotalApproverCount(pendingApproval.getTotalApproverCount());
-        task.setRejectMode(pendingApproval.getRejectMode());
-        task.setRequiredRejectCount(pendingApproval.getRequiredRejectCount());
         task.setCandidateActors(List.copyOf(new LinkedHashSet<>(pendingApproval.getApprovers() == null ? List.of() : pendingApproval.getApprovers())));
         task.setApprovedActors(List.copyOf(pendingApproval.getApprovedActors() == null ? List.of() : pendingApproval.getApprovedActors()));
-        task.setRejectedActors(List.copyOf(pendingApproval.getRejectedActors() == null ? List.of() : pendingApproval.getRejectedActors()));
-        task.setBlocked(isBlocked(pendingApproval, actorId));
-        task.setBlockedByActorId(isBlocked(pendingApproval, actorId) ? pendingApproval.getPrerequisiteActorId() : null);
         // The step's deadline, when it has a timeout: what the inbox says is due or overdue.
         task.setDueTime(pendingApproval.getDueTime());
         task.setStartTime(resolveEventTime(latestAudit));
@@ -150,20 +140,7 @@ public class FlowApprovalTaskProjector {
         if (pendingApproval.getApprovedActors() != null && pendingApproval.getApprovedActors().contains(actorId)) {
             return FlowApprovalTaskStatus.APPROVED;
         }
-        if (pendingApproval.getRejectedActors() != null && pendingApproval.getRejectedActors().contains(actorId)) {
-            return FlowApprovalTaskStatus.REJECTED;
-        }
         return FlowApprovalTaskStatus.PENDING;
-    }
-
-    private boolean isBlocked(PendingApproval pendingApproval, String actorId) {
-        return Objects.equals(actorId, pendingApproval.getBlockedActorId())
-                && !isPrerequisiteResolved(pendingApproval);
-    }
-
-    private boolean isPrerequisiteResolved(PendingApproval pendingApproval) {
-        return pendingApproval.getApprovedActors() != null
-                && pendingApproval.getApprovedActors().contains(pendingApproval.getPrerequisiteActorId());
     }
 
     private static ApprovalActionAuditEntry findLatestAudit(List<ApprovalActionAuditEntry> history,

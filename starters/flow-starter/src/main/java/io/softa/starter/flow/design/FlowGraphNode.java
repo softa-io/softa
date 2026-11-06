@@ -17,9 +17,8 @@ import io.softa.starter.flow.enums.FlowNodeType;
  * executor string. The xyflow/react {@code Node.type} field maps directly to
  * {@code FlowNodeType.getType()} string.
  * <p>
- * Approval return policy (formerly a separate {@code returnPolicy} field) is now
- * expressed within the {@code config} map as {@code returnEnabled} — a return always
- * goes to the initiator — matching the compiled {@code ApprovalNodeConfig} structure directly.
+ * An approval node's {@code config} matches the compiled {@code ApprovalNodeConfig} structure directly. Whether its
+ * approvers may return the approval is the flow's {@code returnEnabled}, not the node's.
  */
 @Data
 @Builder

@@ -11,9 +11,9 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 
 /**
  * Who takes part in a flow instance, as far as its state and approval history tell: its initiator and the people
- * it gives or gave a task to — its approvers, pending or done, the people blocked behind them or added before them,
- * and the actors and targets of its approval actions (transfers, delegations, added signatures, CCs). Participants
- * see the instance without any configured permission, and only they comment on it.
+ * it gives or gave a task to — its approvers, pending or done, and the actors and targets of its approval actions
+ * (transfers, delegations, CCs). Participants see the instance without any configured permission, and only they
+ * comment on it.
  *
  * <p>An administrator's actions make nobody a participant. The actor of an {@code URGE} or a {@code TERMINATE}
  * entry is not counted for it — an initiator who urges their own approval counts as its initiator — though anyone
@@ -65,10 +65,7 @@ public final class FlowParticipants {
         }
         return approvals.stream().anyMatch(approval -> approval != null
                 && (contains(approval.getApprovers(), userId)
-                || contains(approval.getApprovedActors(), userId)
-                || contains(approval.getRejectedActors(), userId)
-                || userId.equals(approval.getBlockedActorId())
-                || userId.equals(approval.getPrerequisiteActorId())));
+                || contains(approval.getApprovedActors(), userId)));
     }
 
     private static boolean auditHistoryParticipant(List<ApprovalActionAuditEntry> history, String userId) {
@@ -78,8 +75,7 @@ public final class FlowParticipants {
         return history.stream().anyMatch(entry -> entry != null
                 && ((actorTakesPart(entry.getAction()) && userId.equals(entry.getActorId()))
                 || userId.equals(entry.getTargetActorId())
-                || contains(entry.getApprovedActors(), userId)
-                || contains(entry.getRejectedActors(), userId)));
+                || contains(entry.getApprovedActors(), userId)));
     }
 
     private static boolean contains(List<String> actors, String userId) {

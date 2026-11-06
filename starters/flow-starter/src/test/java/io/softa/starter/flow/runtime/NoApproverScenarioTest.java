@@ -127,7 +127,7 @@ class NoApproverScenarioTest {
                 FlowGraphEdge.builder().id("e2").source("hr").target("end").build()));
         if (managerFirst) {
             nodes.add(FlowGraphNode.builder().id("manager").type(FlowNodeType.APPROVAL).label("Manager approval")
-                    .config(Map.of("approvers", List.of(MANAGER))).build());
+                    .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))).build());
             edges.add(FlowGraphEdge.builder().id("e0").source("start").target("manager").build());
             edges.add(FlowGraphEdge.builder().id("e1").source("manager").target("hr").build());
         } else {

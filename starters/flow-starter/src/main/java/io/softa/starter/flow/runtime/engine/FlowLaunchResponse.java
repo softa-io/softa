@@ -10,7 +10,7 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
- * Combined launch/debug response that includes the resolved bundle and runtime state.
+ * Publish-and-start response: the published bundle and the started instance's runtime state.
  */
 @Data
 @Builder

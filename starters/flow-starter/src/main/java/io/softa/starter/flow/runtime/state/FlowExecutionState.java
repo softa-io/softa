@@ -57,7 +57,7 @@ public class FlowExecutionState {
     private String initiatorName;
 
     @Schema(description = "Whether the instance is the approval of its record: started by submitting the record, "
-            + "so its result is written back to it. Other instances running on a record are automation or debug runs")
+            + "so its result is written back to it. Other instances running on a record are automation runs")
     private Boolean recordApproval;
 
     @Schema(description = "A record's approval: the employee the record is about, as at submission")

@@ -8,7 +8,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import io.softa.starter.flow.enums.*;
-import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
 
 /**
  * Strongly-typed config for {@code FlowNodeType.APPROVAL} nodes.
@@ -18,11 +17,11 @@ import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
  *   <li>{@code formPermissions} is the canonical field-level permission source,
  *       compiled into the bundle at design time; runtime clients may still read
  *       them via {@code GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions}.</li>
- *   <li>{@code config.timeout.timeoutStrategy} ({@link ApprovalTimeoutStrategy}:
- *       REMIND, AUTO_APPROVE, AUTO_REJECT, ESCALATE) replaces the former loose
- *       timeout fields on {@code FlowGraphNode}.</li>
- *   <li>A return always goes to the initiator and ends the instance; there is no
- *       return target to configure.</li>
+ *   <li>A step has no timeout of its own: its flow's {@code remindAfterHours} reminds its approvers, and nothing
+ *       is decided for them. A {@code timeout} saved on a step before is ignored.</li>
+ *   <li>Whether approvers may return the approval is the flow's {@code returnEnabled}, the same at every step: a
+ *       return always goes to the initiator and ends the instance. A {@code returnEnabled} saved on a step before
+ *       is ignored.</li>
  * </ul>
  */
 @Data
@@ -33,13 +32,12 @@ public class ApprovalNodeConfig {
 
     // ── Approver resolution ────────────────────────────────────────────────
 
-    /** Static list of approver actor ids. */
-    private List<String> approvers;
-
     /**
-     * Dynamic approver source descriptor (mutually exclusive with {@code approvers}).
-     * Interpreted by {@code ApproverResolutionService}.
-     * Structure: {@code { "type": "Role|VariableList|Expression|InitiatorManager", ...fields }}
+     * Who approves the step: specific people ({@code {"type": "Users", "userIds": [...]}}), or a source that finds them
+     * when the step is reached ({@code {"type": "Supervisor", "level": 1, ...}}, a role query, a position, …) — see
+     * {@link ApproverSourceType}. Each type's fields sit beside its {@code type}; interpreted by
+     * {@code ApproverResolutionService}. A step's named approvers were a list of their own ({@code approvers}) before;
+     * a step saved with one is moved into a {@code Users} source by the release's migration.
      */
     private Map<String, Object> approverSource;
 
@@ -61,35 +59,18 @@ public class ApprovalNodeConfig {
 
     // ── Vote thresholds ────────────────────────────────────────────────────
 
+    /**
+     * How many approvals pass the step. A rejection has no threshold: one approver's rejection rejects the approval,
+     * as in an all-approve step (会签) and an any-one step (或签) alike. A {@code rejectMode} saved on a step before is
+     * ignored.
+     */
     @Builder.Default
     private VoteThresholdMode approvalMode = VoteThresholdMode.ANY_ONE;
-    @Builder.Default
-    private VoteThresholdMode rejectMode   = VoteThresholdMode.ANY_ONE;
 
     /** Used when mode is {@code MIN_COUNT}. */
     private Integer minCount;
     /** Used when approval mode is {@code PERCENTAGE} (0–100). */
     private Integer percentage;
-    /** Used when reject mode is {@code MIN_COUNT}. */
-    private Integer rejectMinCount;
-    /** Used when reject mode is {@code PERCENTAGE} (0–100). */
-    private Integer rejectPercentage;
-
-    // ── Timeout ────────────────────────────────────────────────────────────
-
-    /**
-     * Timeout configuration ({@link ApprovalTimeoutConfig#getTimeoutStrategy()}).
-     * {@link ApprovalTimeoutStrategy#ESCALATE} requires {@code escalateToUserId}.
-     */
-    private ApprovalTimeoutConfig timeout;
-
-    // ── Return policy ──────────────────────────────────────────────────────
-
-    /**
-     * Whether the approver may return the approval to the initiator, which ends the instance as
-     * {@code RETURNED}; the initiator then edits and submits again, starting a new instance.
-     */
-    private Boolean returnEnabled;
 
     // ── Form field permissions ─────────────────────────────────────────────
 

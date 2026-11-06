@@ -23,7 +23,6 @@ import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowPublishService;
-import io.softa.starter.flow.service.impl.FlowBundleServiceImpl;
 import io.softa.starter.flow.service.impl.FlowDesignServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -75,7 +74,7 @@ class FlowBundleHistoryTest {
     }
 
     @Test
-    void restoringOrActivatingTheWrongRevisionIsRefused() {
+    void restoringTheWrongRevisionIsRefused() {
         FlowDesignServiceImpl designs = new FlowDesignServiceImpl();
         ReflectionTestUtils.setField(designs, "bundleService", bundleService);
         FlowBundle otherFlows = revision(21L, 1, FIRST_PUBLISHED, true, null);
@@ -89,12 +88,6 @@ class FlowBundleHistoryTest {
         assertThrows(FlowActionValidationException.class, () -> designs.restoreFromBundle("leave", 20L));
         assertThrows(FlowActionValidationException.class, () -> designs.restoreFromBundle("leave", 21L));
         assertThrows(FlowActionValidationException.class, () -> designs.restoreFromBundle("leave", 22L));
-
-        FlowBundleServiceImpl bundles = spy(new FlowBundleServiceImpl());
-        FlowBundle debug = revision(23L, 3, FIRST_PUBLISHED, false, null);
-        debug.setDebug(true);
-        doReturn(Optional.of(debug)).when(bundles).findById(23L);
-        assertThrows(FlowActionValidationException.class, () -> bundles.activateBundle(23L));
     }
 
     private FlowBundle revision(Long id, int revision, LocalDateTime publishedAt, boolean active, String change) {
@@ -115,7 +108,7 @@ class FlowBundleHistoryTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),
                                 FlowGraphNode.builder().id("manager").type(FlowNodeType.APPROVAL).label("Manager")
-                                        .config(Map.of("approvers", List.of("2001"))).build(),
+                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001")))).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build()))
                         .edges(List.of(
                                 FlowGraphEdge.builder().id("e1").source("start").target("manager").build(),

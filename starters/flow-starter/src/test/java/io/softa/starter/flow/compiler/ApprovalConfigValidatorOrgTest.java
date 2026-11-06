@@ -2,6 +2,7 @@ package io.softa.starter.flow.compiler;
 
 import io.softa.starter.flow.api.FlowCompileException;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -160,22 +161,25 @@ class ApprovalConfigValidatorOrgTest {
     }
 
     /**
-     * A step that names neither approvers nor a source finds nobody on every run — under the default strategy every
-     * submission is refused — so it is not published (zingkey-hcm#2450). A source without a type names nobody either.
+     * A step that names no source finds nobody on every run — under the default strategy every submission is refused
+     * — so it is not published (zingkey-hcm#2450). Specific people naming nobody, or a source without a type, name
+     * nobody either; the diagnostic stands on the people when the step chose them, else on the source.
      */
     @Test
     void aStepThatNamesNoApproverIsNotPublished() {
-        for (Map<String, Object> config : List.<Map<String, Object>>of(
-                Map.of(),
-                Map.of("approvers", List.of(" ")),
-                Map.of("approverSource", Map.of("level", 1)),
-                Map.of("emptyApproverStrategy", "AutoApprove"))) {
+        Map<Map<String, Object>, String> fieldOf = new LinkedHashMap<>();
+        fieldOf.put(Map.of(), "config.approverSource");
+        fieldOf.put(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(" "))), "config.approverSource.userIds");
+        fieldOf.put(Map.of("approverSource", Map.of("type", "Users")), "config.approverSource.userIds");
+        fieldOf.put(Map.of("approverSource", Map.of("level", 1)), "config.approverSource");
+        fieldOf.put(Map.of("emptyApproverStrategy", "AutoApprove"), "config.approverSource");
+        fieldOf.forEach((config, field) -> {
             FlowCompileException ex = assertThrows(FlowCompileException.class,
                     () -> compiler.compile(flowWithConfig(config)), config.toString());
             assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())
-                    && "approval".equals(d.nodeId()) && "config.approvers".equals(d.field())), config.toString());
-        }
-        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approvers", List.of("1001")))));
+                    && "approval".equals(d.nodeId()) && field.equals(d.field())), config.toString());
+        });
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("1001"))))));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

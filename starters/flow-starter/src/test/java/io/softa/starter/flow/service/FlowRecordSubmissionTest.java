@@ -428,13 +428,13 @@ class FlowRecordSubmissionTest {
     @Test
     void theSubmitFlowStartedAnotherWayIsNotTheRecordsApproval() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        // A debug run of the same flow, on the same record.
-        FlowStartRequest debugRun = new FlowStartRequest();
-        debugRun.setFlowId("annual");
-        debugRun.setInitiatorId(SUBMITTER);
-        debugRun.setModelName(MODEL);
-        debugRun.setRowId(ROW);
-        FlowExecutionState other = engine.start(debugRun);
+        // The same flow started on the same record without a submission.
+        FlowStartRequest unsubmitted = new FlowStartRequest();
+        unsubmitted.setFlowId("annual");
+        unsubmitted.setInitiatorId(SUBMITTER);
+        unsubmitted.setModelName(MODEL);
+        unsubmitted.setRowId(ROW);
+        FlowExecutionState other = engine.start(unsubmitted);
         assertFalse(other.isApprovalOfRecord());
 
         engine.approve(nodeRequest(new FlowApproveRequest(), other.getInstanceId(), MANAGER, "fine"));
@@ -588,7 +588,7 @@ class FlowRecordSubmissionTest {
         DesignFlowDefinition design = approvalFlow("Annual leave", List.of(SUBMITTER, MANAGER));
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                .config(Map.of("approvers", List.of(SUBMITTER, MANAGER), "approvalMode", "Unanimous"))
+                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER)), "approvalMode", "Unanimous"))
                 .build());
         publishService.publish("annual", design);
 
@@ -670,7 +670,7 @@ class FlowRecordSubmissionTest {
         } else {
             nodes.add(FlowGraphNode.builder()
                     .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                    .config(Map.of("approvers", approvers, "returnEnabled", true))
+                    .config(Map.of("approverSource", Map.of("type", "Users", "userIds", approvers)))
                     .build());
             edges.add(edge("e1", "start", "approval"));
             edges.add(edge("e2", "approval", "end"));
@@ -681,6 +681,7 @@ class FlowRecordSubmissionTest {
                 .name(name)
                 .scenario(approval ? FlowScenario.APPROVAL : FlowScenario.AUTOMATION)
                 .withdrawPolicy(approval ? WithdrawPolicy.UNTIL_COMPLETED : null)
+                .returnEnabled(approval ? Boolean.TRUE : null)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build())
                 .build();

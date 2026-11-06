@@ -13,7 +13,7 @@ public interface FlowRuntimeEngine {
 
     /**
      * Start an instance of the requested bundle without asking how its flow is meant to start: for the
-     * trigger dispatch, which matched the flow's trigger to the event, and for debug runs of a draft.
+     * trigger dispatch, which matched the flow's trigger to the event.
      * Callers starting a flow on someone's request use {@link #startAutomation}.
      */
     FlowExecutionState start(FlowStartRequest request);
@@ -28,8 +28,8 @@ public interface FlowRuntimeEngine {
     /**
      * {@link #start}, as the approval of the request's record: the instance's result is written
      * back to the record, and the record can have only one such instance in progress. Only record
-     * submission ({@code FlowLaunchService.submitRecord}) starts one; a debug run of the same flow
-     * runs on the record without being its approval. A start that fails throws without keeping a
+     * submission ({@code FlowLaunchService.submitRecord}) starts one; an automation run on the record
+     * is not its approval. A start that fails throws without keeping a
      * failed instance or telling anyone: the submission fails with it, and its transaction rolls back.
      */
     FlowExecutionState startRecordApproval(FlowStartRequest request);
@@ -49,10 +49,6 @@ public interface FlowRuntimeEngine {
     FlowExecutionState transfer(FlowTransferRequest request);
 
     FlowExecutionState delegate(FlowDelegateRequest request);
-
-    FlowExecutionState addSignBefore(FlowAddSignBeforeRequest request);
-
-    FlowExecutionState addSignAfter(FlowAddSignAfterRequest request);
 
     FlowExecutionState cc(FlowCcRequest request);
 

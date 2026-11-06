@@ -1,23 +1,23 @@
 package io.softa.starter.flow.compiler;
 
-import io.softa.starter.flow.api.CompileDiagnostic;
-import io.softa.starter.flow.api.FlowCompileException;
-
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+import io.softa.starter.flow.api.CompileDiagnostic;
+import io.softa.starter.flow.api.FlowCompileException;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
-import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
-import io.softa.starter.flow.enums.*;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.VoteThresholdMode;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
-import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -191,10 +191,11 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldCompileApprovalNodeReturnPolicy() {
+    void shouldCompileTheFlowsReturnPolicy() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Returnable Approval")
                 .scenario(FlowScenario.APPROVAL)
+                .returnEnabled(true)
                 .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -203,8 +204,8 @@ class DefaultFlowCompilerTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        // A return always goes to the initiator: nothing else to configure.
-                                        .config(Map.of("returnEnabled", true, "approvers", List.of("1001")))
+                                        // A step saved with its own switch before: ignored, the flow's decides.
+                                        .config(Map.of("returnEnabled", false, "approverSource", Map.of("type", "Users", "userIds", List.of("1001"))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -217,10 +218,9 @@ class DefaultFlowCompilerTest {
 
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
-        CompiledFlowNode approvalNode = compiled.getNodeIndex().get("approval");
-        ApprovalNodeConfig cfg = (ApprovalNodeConfig) approvalNode.getParsedConfig();
-        assertNotNull(cfg);
-        assertTrue(cfg.getReturnEnabled());
+        // A return always goes to the initiator: nothing else to configure.
+        assertTrue(compiled.getReturnEnabled());
+        assertNotNull(compiled.getNodeIndex().get("approval").getParsedConfig());
     }
 
     @Test
@@ -238,7 +238,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.UNANIMOUS,
-                                                "approvers", List.of("manager", "hr")))
+                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr"))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -299,7 +299,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
-                                                "approvers", List.of("manager", "hr"),
+                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr")),
                                                 "minCount", 3))
                                         .build(),
                                 node("end", FlowNodeType.END)
@@ -367,7 +367,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.PERCENTAGE,
-                                                "approvers", List.of("manager", "hr"),
+                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr")),
                                                 "percentage", 0))
                                         .build(),
                                 node("end", FlowNodeType.END)
@@ -384,40 +384,12 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldRejectMinCountRejectModeWhenThresholdExceedsApprovers() {
+    void aRejectModeAStepWasSavedWithBeforeIsIgnored() {
+        // Two approvals of two beside two rejections of two used to deadlock, and three rejections of two to be
+        // refused. A rejection has no threshold any more — one rejects the approval — so the old settings compile and
+        // decide nothing.
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Invalid Min Count Reject")
-                .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest"))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("approval")
-                                        .type(FlowNodeType.APPROVAL)
-                                        .label("approval")
-                                        .config(Map.of(
-                                                "approvers", List.of("manager", "hr"),
-                                                "rejectMode", VoteThresholdMode.MIN_COUNT,
-                                                "rejectMinCount", 3))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "approval"),
-                                edge("e2", "approval", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "config.rejectMinCount".equals(d.field())));
-    }
-
-    @Test
-    void shouldRejectDeadlockingApprovalAndRejectThresholds() {
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Deadlocking Thresholds")
+                .name("Old Reject Thresholds")
                 .scenario(FlowScenario.APPROVAL)
                 .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
@@ -431,8 +403,8 @@ class DefaultFlowCompilerTest {
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
                                                 "rejectMode", VoteThresholdMode.MIN_COUNT,
-                                                "rejectMinCount", 2,
-                                                "approvers", List.of("manager", "hr")))
+                                                "rejectMinCount", 3,
+                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr"))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -443,8 +415,7 @@ class DefaultFlowCompilerTest {
                         .build())
                 .build();
 
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "DEADLOCK_THRESHOLD".equals(d.code())));
+        assertDoesNotThrow(() -> compiler.compile(definition));
     }
 
     @Test

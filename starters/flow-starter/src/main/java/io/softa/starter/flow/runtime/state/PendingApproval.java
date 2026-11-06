@@ -53,23 +53,8 @@ public class PendingApproval {
     @Schema(description = "Total configured approver count")
     private Integer totalApproverCount;
 
-    @Schema(description = "Reject mode for this node")
-    private VoteThresholdMode rejectMode;
-
-    @Schema(description = "Required reject count before the node is rejected")
-    private Integer requiredRejectCount;
-
     @Schema(description = "Approvers who have already approved in unanimous mode")
     private List<String> approvedActors;
-
-    @Schema(description = "Approvers who have already rejected in threshold-based reject mode")
-    private List<String> rejectedActors;
-
-    @Schema(description = "Actor who is currently blocked by an unresolved add-sign dependency")
-    private String blockedActorId;
-
-    @Schema(description = "Actor who must approve before the blocked actor can proceed")
-    private String prerequisiteActorId;
 
     @Schema(description = "Due time computed from timeout config when the approval was created")
     private LocalDateTime dueTime;
