@@ -119,11 +119,15 @@ public class FlowRecordApprovalsView {
         @Schema(description = "Label of the node the action was taken on")
         private String nodeLabel;
 
-        @Schema(description = "Who acted")
+        @Schema(description = "Who acted, or whose place the action was taken in when an administrator took it; unset "
+                + "for a step approved automatically")
         private Actor actor;
 
-        @Schema(description = "Whom the action targeted: the new approver of a transfer or delegation, the added signer")
+        @Schema(description = "Whom the action targeted, such as the new approver of a transfer or delegation")
         private Actor target;
+
+        @Schema(description = "The administrator who took the action in the actor's place, such as a reassignment")
+        private Actor operator;
 
         @Schema(description = "Comment")
         private String comment;

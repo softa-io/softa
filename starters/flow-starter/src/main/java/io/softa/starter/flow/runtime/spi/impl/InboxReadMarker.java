@@ -38,7 +38,7 @@ public class InboxReadMarker implements FlowStateChangeListener {
     /** What settles a person's part in an approval. An urge, a comment or a CC sent does not. */
     private static final Set<ApprovalActionType> SETTLING = EnumSet.of(ApprovalActionType.APPROVE,
             ApprovalActionType.REJECT, ApprovalActionType.RETURN, ApprovalActionType.TRANSFER,
-            ApprovalActionType.DELEGATE, ApprovalActionType.ADD_SIGN, ApprovalActionType.READ);
+            ApprovalActionType.DELEGATE, ApprovalActionType.READ);
 
     private final ObjectProvider<InboxNotificationService> inbox;
 

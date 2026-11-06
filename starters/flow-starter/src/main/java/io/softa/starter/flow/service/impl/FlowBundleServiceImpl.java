@@ -13,7 +13,6 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.entity.FlowDesign;
-import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.service.FlowBundleService;
 
 @Service
@@ -93,8 +92,6 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     public List<FlowBundle> listRevisionsByFlowId(String flowId) {
         Filters filters = new Filters().eq(FlowBundle::getFlowId, flowId);
         return this.searchList(filters).stream()
-                // debug-run bundles are resolvable by id but are not revisions
-                .filter(bundle -> !Boolean.TRUE.equals(bundle.getDebug()))
                 .sorted(Comparator.comparingInt(FlowBundle::getRevision).reversed())
                 .toList();
     }
@@ -168,9 +165,6 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
             return Optional.empty();
         }
         FlowBundle bundle = target.get();
-        if (Boolean.TRUE.equals(bundle.getDebug())) {
-            throw new FlowActionValidationException("Debug bundle " + bundleId + " cannot be activated");
-        }
         markAsActive(bundle.getFlowId(), bundle.getRevision());
         return target;
     }

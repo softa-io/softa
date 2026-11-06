@@ -16,7 +16,6 @@ import io.softa.starter.flow.runtime.engine.ApprovalTimeoutScheduler;
 import io.softa.starter.flow.runtime.engine.DelegationExpiryScheduler;
 import io.softa.starter.flow.runtime.monitor.FlowMonitorService;
 import io.softa.starter.flow.service.impl.FlowAutomationPurgeService;
-import io.softa.starter.flow.service.impl.FlowDebugPurgeService;
 
 /**
  * Consumes Cron task messages from Pulsar and dispatches flow maintenance jobs.
@@ -35,12 +34,10 @@ public class FlowMaintenanceCronConsumer {
     static final String DELEGATION_EXPIRY = "flow_delegation_expiry";
     static final String TIMER_SWEEP = "flow_timer_sweep";
     static final String INSTANCE_STUCK_SCAN = "flow_instance_stuck_scan";
-    static final String DEBUG_BUNDLE_PURGE = "flow_debug_bundle_purge";
     static final String AUTOMATION_PURGE = "flow_automation_purge";
 
     private static final int TIMER_SWEEP_BATCH = 200;
     private static final int STUCK_SCAN_BATCH = 200;
-    private static final int DEBUG_PURGE_BATCH = 100;
     private static final int AUTOMATION_PURGE_BATCH = 500;
     private static final int AUTOMATION_PURGE_MAX_BATCHES = 20;
     private static final Duration STUCK_THRESHOLD = Duration.ofHours(24);
@@ -53,9 +50,6 @@ public class FlowMaintenanceCronConsumer {
 
     @Autowired(required = false)
     private FlowMonitorService flowMonitorService;
-
-    @Autowired(required = false)
-    private FlowDebugPurgeService debugPurgeService;
 
     @Autowired(required = false)
     private FlowAutomationPurgeService automationPurgeService;
@@ -93,11 +87,6 @@ public class FlowMaintenanceCronConsumer {
                     if (flowMonitorService != null) {
                         flowMonitorService.sweepStuckInstances(
                                 Instant.now().minus(STUCK_THRESHOLD), STUCK_SCAN_BATCH);
-                    }
-                }
-                case DEBUG_BUNDLE_PURGE -> {
-                    if (debugPurgeService != null) {
-                        debugPurgeService.purgeExpiredDebugBundles(DEBUG_PURGE_BATCH);
                     }
                 }
                 case AUTOMATION_PURGE -> {

@@ -254,9 +254,6 @@ public class FlowExecutionOrchestrator {
             NodeExecutionHandler handler = nodeHandlerRegistry.getHandler(node.getType());
 
             NodeOutcome outcome = retryExecutor.execute(handler, node, ctx, state, definition);
-            if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
-                return;
-            }
 
             // Merge outputs into context vars and sync back to state — regardless of outcome kind
             if (!outcome.outputs().isEmpty()) {
@@ -324,12 +321,8 @@ public class FlowExecutionOrchestrator {
                     FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
                     continue;
                 }
-                case NodeOutcome.RunSubflow subflowCall -> {
-                    executeSubflow(state, node, subflowCall, flowStack, ctx, notifyOnComplete);
-                    if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
-                        return;
-                    }
-                }
+                case NodeOutcome.RunSubflow subflowCall ->
+                        executeSubflow(state, node, subflowCall, flowStack, ctx, notifyOnComplete);
                 case NodeOutcome.Completed _ -> {
                     // nothing outcome-specific; completion tail below
                 }
@@ -381,8 +374,7 @@ public class FlowExecutionOrchestrator {
      * catches revisions published before. A flow a Return Value ended skips the check: it ends with its branches.
      */
     private static void requireJoinsComplete(CompiledFlowDefinition definition, FlowExecutionState state) {
-        if (FlowExecutionStatus.FAILED.equals(state.getStatus()) || state.hasWaitTokens()
-                || !state.getPendingApprovals().isEmpty()) {
+        if (state.hasWaitTokens() || !state.getPendingApprovals().isEmpty()) {
             return;
         }
         Map<String, CompiledFlowNode> nodes = definition.getNodeIndex();
@@ -433,27 +425,22 @@ public class FlowExecutionOrchestrator {
                                 Set<String> flowStack,
                                 FlowVariableContext parentCtx,
                                 boolean notifyOnComplete) {
+        // A subflow is a step like any other: what stops it throws, and whoever runs the steps handles it as it handles
+        // any failing step — a submission refused, an approval kept with its instance failed, an automation run failed.
         String subflowId = subflowCall.flowId();
-        if (flowStack.contains(subflowId)) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Recursive subflow invocation is not supported: " + flowStack + " -> " + subflowId);
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    parentState.getErrorMessage());
-            return;
-        }
         CompiledFlowDefinition subflow = bundleRegistry.getActiveByFlowId(subflowId)
                 .orElseThrow(() -> new FlowRuntimeException("Subflow " + subflowId
                         + " cannot run: it was never published, or it is disabled"));
         String subflowName = subflow.getFlowName();
+        if (flowStack.contains(subflowId)) {
+            throw new FlowRuntimeException("Subflow node '" + parentNode.displayName() + "' calls flow '" + subflowName
+                    + "', which is already running above it: a flow cannot call itself, directly or through another");
+        }
         // A flow's trigger is its start contract: only a flow that declares a Subflow trigger (an
         // Automation flow) runs from a parent.
         if (!FlowScenario.AUTOMATION.equals(subflow.getScenario()) || !(subflow.getTrigger() instanceof SubflowTrigger)) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Flow '" + subflowName + "' cannot run as a subflow: only an Automation flow "
-                    + "with a Subflow trigger can");
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    parentState.getErrorMessage());
-            return;
+            throw new FlowRuntimeException("Flow '" + subflowName + "' cannot run as a subflow: only an Automation flow "
+                    + "with a Subflow trigger can. Pick one on Subflow node '" + parentNode.displayName() + "'");
         }
         auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.SUBFLOW_START,
                 "Starting subflow " + subflowName + " (flowId=" + subflowId + ") from node " + parentNode.getNodeId());
@@ -483,21 +470,11 @@ public class FlowExecutionOrchestrator {
         executeDefinition(subflow, childState, subflow.getEntryNodeIds(), true, childFlowStack, childCtx, notifyOnComplete);
         finalizeRootState(childState, announcesCompletion(subflow, notifyOnComplete));
 
-        FlowExecutionStatus childStatus = childState.getStatus();
-        if (FlowExecutionStatus.WAITING.equals(childStatus)) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Subflow '" + subflowName
-                    + "' paused (" + childStatus + "), which is not supported in synchronous subflow mode");
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    parentState.getErrorMessage());
-            return;
-        }
-        if (FlowExecutionStatus.FAILED.equals(childState.getStatus())) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage(childState.getErrorMessage());
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    childState.getErrorMessage());
-            return;
+        // Publishing refuses a waiting step in a flow with a Subflow trigger (SUBFLOW_WAITS); this catches revisions
+        // published before.
+        if (FlowExecutionStatus.WAITING.equals(childState.getStatus())) {
+            throw new FlowRuntimeException("Subflow '" + subflowName + "' stopped to wait — on a timer or an async "
+                    + "task — but a subflow runs in one go: remove the waiting step from it and publish it again");
         }
 
         // Merge child results back into parent context using output mapping
@@ -592,10 +569,11 @@ public class FlowExecutionOrchestrator {
 
     // ── State finalization ────────────────────────────────────────────────────
 
+    /**
+     * A run that got here did not fail: nothing in a run fails an instance but a step that throws, and the caller of the
+     * run handles that ({@link #runAfterApproval}, or the facade around a start or a resume).
+     */
     private void finalizeRootState(FlowExecutionState state, boolean notifyOnComplete) {
-        if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
-            return;
-        }
         // Still parked on any wait — a timer/async token or a pending approval.
         if (state.hasWaitTokens() || !state.getPendingApprovals().isEmpty()) {
             FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);

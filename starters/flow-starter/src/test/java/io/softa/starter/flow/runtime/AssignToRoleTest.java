@@ -77,7 +77,6 @@ class AssignToRoleTest {
         PendingApproval step = state.getPendingApprovals().getFirst();
         assertEquals(List.of("3001", "3002"), step.getApprovers(), "the submitter and the subject are left out");
         assertEquals(1, step.getRequiredApprovalCount(), "any one, though the node asks all");
-        assertEquals(1, step.getRequiredRejectCount());
         assertEquals(List.of("HR Admin"), step.getAssignedRoles());
 
         approve(state, "3002");

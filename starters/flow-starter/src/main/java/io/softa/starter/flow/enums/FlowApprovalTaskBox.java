@@ -21,7 +21,7 @@ public enum FlowApprovalTaskBox {
      */
     HANDLED("Handled"),
 
-    /** CC tasks, read and unread. Oldest first unless the request sorts otherwise. */
+    /** CC tasks, read and unread. Newest first unless the request sorts otherwise. */
     CC("Cc");
 
     @JsonValue

@@ -12,6 +12,7 @@ import io.softa.starter.flow.design.FlowNodeDescriptor.Ports;
 import io.softa.starter.flow.design.FlowNodeDescriptorProvider;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
+import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
@@ -49,7 +50,9 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry()),
                 structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal()),
                 structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, timerConfigSchema()),
-                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, approvalConfigSchema()),
+                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, approvalConfigSchema(),
+                        // A new step starts on the first option, specific people, waiting for them to be picked.
+                        Map.of("approverSource", Map.of("type", ApproverSourceType.USERS.getType()))),
                 // HUMAN_TASK is intentionally omitted: the runtime has no human-task wait
                 // (dedicated wait token, assignee resolution, completion API) and the node is
                 // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from
@@ -77,8 +80,14 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
                                                  String icon, int sortOrder, Ports ports,
                                                  Map<String, Object> configSchema) {
+        return structural(type, label, description, icon, sortOrder, ports, configSchema, Map.of());
+    }
+
+    private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
+                                                 String icon, int sortOrder, Ports ports,
+                                                 Map<String, Object> configSchema, Map<String, Object> defaultConfig) {
         return FlowNodeDescriptor.of(type, label, description, icon, sortOrder, ports,
-                configSchema, Map.of(), type.getScenarios(), true);
+                configSchema, defaultConfig, type.getScenarios(), true);
     }
 
     /** Insertion-ordered map builder — property panels render fields in this order. */
@@ -101,9 +110,12 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     private static Map<String, Object> approvalConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         // ── Approver resolution ─────────────────────────────────────────────
-        schema.put("approvers",     ordered("type", "userPicker",     "label", "Approvers (static)", "multiple", true));
-        schema.put("approverSource", ordered("type", "approverSource", "label", "Approvers (dynamic)",
+        // One select: specific people first, then the sources that find them when the step is reached.
+        schema.put("approverSource", ordered("type", "approverSource", "label", "Approvers",
                 "options", List.of(
+                        ordered("type", ApproverSourceType.USERS.getType(), "label", "Specific people",
+                                "fields", ordered(ApproverSourceType.USER_IDS, ordered("type", "userPicker", "label", "People",
+                                        "multiple", true, "required", true))),
                         ordered("type", "VariableList", "label", "Variable list",
                                 "fields", ordered("variable", ordered("type", "variableRef", "label", "Variable", "required", true))),
                         ordered("type", "Expression", "label", "Expression",
@@ -170,6 +182,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                 + "automatically."),
                 "hintBy", ordered("field", "approverSource.type",
                         "hints", ordered(
+                                ApproverSourceType.USERS.getType(), "Applies when none of these people can approve.",
                                 "Supervisor", "Applies when the employee has no manager at this level, or none above "
                                         + "who can approve.",
                                 "DeptLeader", "Applies when the department and those above it have no leader who can "
@@ -181,7 +194,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                 "Department", "Applies when these departments have nobody who can approve.",
                                 "VariableList", "Applies when the variable names nobody who can approve.",
                                 "Expression", "Applies when the expression names nobody who can approve."),
-                        "otherwise", "Applies when none of the approvers above can approve."),
+                        "otherwise", "Applies when the step finds nobody who can approve."),
                 "default", error));
         // Who a step that finds nobody goes to under AssignToRole, as a role query names roles: ids reach the tenant's
         // own roles, codes the built-in ones, the same in every tenant.
@@ -197,14 +210,6 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 "options", voteThresholdModes(), "default", VoteThresholdMode.ANY_ONE.getType()));
         schema.put("minCount",     ordered("type", "number", "label", "Minimum approvals", "depends", Map.of("approvalMode", minCount)));
         schema.put("percentage",   ordered("type", "number", "label", "Approval percentage (0-100)", "depends", Map.of("approvalMode", percentage)));
-        schema.put("rejectMode",   ordered("type", "enum", "label", "Reject mode",
-                "options", voteThresholdModes(), "default", VoteThresholdMode.ANY_ONE.getType()));
-        schema.put("rejectMinCount",   ordered("type", "number", "label", "Minimum rejections", "depends", Map.of("rejectMode", minCount)));
-        schema.put("rejectPercentage", ordered("type", "number", "label", "Rejection percentage (0-100)", "depends", Map.of("rejectMode", percentage)));
-        // ── Timeout ──────────────────────────────────────────────────────────
-        schema.put("timeout", ordered("type", "approvalTimeout", "label", "Timeout configuration"));
-        // ── Return policy: a return goes to the initiator and ends the instance ──
-        schema.put("returnEnabled",      ordered("type", "boolean", "label", "Allow return to initiator"));
         // ── Form field permissions ────────────────────────────────────────────
         schema.put("formPermissions", ordered("type", "fieldPermissionMap", "label", "Field permissions"));
         return schema;

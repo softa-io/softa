@@ -33,8 +33,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     private final RejectActionHandler rejectHandler;
     private final TransferActionHandler transferHandler;
     private final DelegateActionHandler delegateHandler;
-    private final AddSignBeforeActionHandler addSignBeforeHandler;
-    private final AddSignAfterActionHandler addSignAfterHandler;
     private final CcActionHandler ccHandler;
     private final ReadCcActionHandler readCcHandler;
     private final ReturnApprovalActionHandler returnApprovalHandler;
@@ -53,8 +51,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                              RejectActionHandler rejectHandler,
                              TransferActionHandler transferHandler,
                              DelegateActionHandler delegateHandler,
-                             AddSignBeforeActionHandler addSignBeforeHandler,
-                             AddSignAfterActionHandler addSignAfterHandler,
                              CcActionHandler ccHandler,
                              ReadCcActionHandler readCcHandler,
                              ReturnApprovalActionHandler returnApprovalHandler,
@@ -72,8 +68,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         this.rejectHandler = rejectHandler;
         this.transferHandler = transferHandler;
         this.delegateHandler = delegateHandler;
-        this.addSignBeforeHandler = addSignBeforeHandler;
-        this.addSignAfterHandler = addSignAfterHandler;
         this.ccHandler = ccHandler;
         this.readCcHandler = readCcHandler;
         this.returnApprovalHandler = returnApprovalHandler;
@@ -251,16 +245,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     @Override
     public FlowExecutionState delegate(FlowDelegateRequest request) {
         return delegateHandler.handle(request);
-    }
-
-    @Override
-    public FlowExecutionState addSignBefore(FlowAddSignBeforeRequest request) {
-        return addSignBeforeHandler.handle(request);
-    }
-
-    @Override
-    public FlowExecutionState addSignAfter(FlowAddSignAfterRequest request) {
-        return addSignAfterHandler.handle(request);
     }
 
     @Override

@@ -1,8 +1,6 @@
 package io.softa.starter.flow.service.impl;
 
 import java.io.Serializable;
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -10,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +16,6 @@ import org.springframework.util.StringUtils;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.i18n.I18n;
-import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.service.AccessScope;
@@ -29,10 +25,11 @@ import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.api.FlowCompileException;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.dto.FlowApprovalPreview;
+import io.softa.starter.flow.dto.FlowDesignPreview;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.ApprovalModel;
-import io.softa.starter.flow.entity.FlowDebugHistory;
 import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.ApprovalOutcomeType;
@@ -61,7 +58,6 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
-import io.softa.starter.flow.service.FlowDebugHistoryService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
@@ -72,7 +68,6 @@ import io.softa.starter.flow.service.support.FlowUserNames;
 /**
  * Default launch facade built on top of publish and runtime services.
  */
-@Slf4j
 @Service
 public class FlowLaunchServiceImpl implements FlowLaunchService {
 
@@ -103,9 +98,6 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private final FlowInstanceAccessGuard accessGuard;
     private final FlowUserNames userNames;
     private final WithdrawPolicyGuard withdrawPolicyGuard;
-
-    @Autowired(required = false)
-    private FlowDebugHistoryService debugHistoryService;
 
     @Autowired(required = false)
     private FlowDesignService designService;
@@ -160,31 +152,59 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                 .build();
     }
 
+    /**
+     * {@link #previewValues} on the saved draft, compiled here and never registered, rather than on the published
+     * flow a submission would choose. No transaction of its own, as {@link #previewRecord}.
+     */
     @Override
-    public FlowLaunchResponse debugRunDraft(String flowId, FlowStartRequest request) {
+    public FlowDesignPreview previewDraft(String flowId, String submitterId, Map<String, Object> values) {
         if (designService == null) {
-            throw new FlowCompileException("FlowDesignService is not available; cannot load draft for a debug run");
+            throw new FlowCompileException("FlowDesignService is not available; cannot load the draft to test-run");
         }
-        DesignFlowDefinition definition = designService.getById(flowId)
+        DesignFlowDefinition design = designService.getById(flowId)
                 .map(FlowDesign::getDesignJson)
                 .orElseThrow(() -> new FlowCompileException("FlowDesign not found: " + flowId));
-
         // compile errors carry anchored diagnostics — same surface as /validate
-        CompiledFlowDefinition debugBundle = flowBundleRegistry.registerDebug(
-                flowCompiler.compile(definition), definition, flowId);
+        CompiledFlowDefinition definition = flowCompiler.compile(design).toBuilder().flowId(flowId).build();
+        if (!(definition.getTrigger() instanceof SubmitTrigger trigger)) {
+            throw new FlowActionValidationException(
+                    "Only an approval flow has a test run: it shows what submitting a request would do.");
+        }
+        String modelName = trigger.modelName();
+        FlowRecordApprovalsView.Actor submitter = new FlowRecordApprovalsView.Actor(submitterId, null);
+        Submission<?> submission;
+        try {
+            ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
+            submission = checkValues(handler, withSubject(handler, values, submitterId), false);
+        } catch (BusinessException refusal) {
+            userNames.name(List.of(submitter));
+            return new FlowDesignPreview(false, submitter,
+                    notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage()));
+        }
+        boolean chosen = DefaultFlowTriggerRegistry.submitConditionHolds(definition, trigger,
+                submitVariables(modelName, null, submission));
+        FlowApprovalPreview route = pathPreviewer.preview(definition,
+                submitStartRequest(definition, modelName, null, submitterId, submission));
+        List<FlowRecordApprovalsView.Actor> actors = actorsOf(route);
+        actors.add(submitter);
+        userNames.name(actors);
+        return new FlowDesignPreview(chosen, submitter, route);
+    }
 
-        LocalDateTime startTime = LocalDateTime.now();
-        FlowStartRequest startRequest = request != null ? request : new FlowStartRequest();
-        startRequest.setFlowId(flowId);
-        startRequest.setBundleId(debugBundle.getBundleId());
-        FlowExecutionState state = flowRuntimeEngine.start(startRequest);
-
-        recordDebugHistory(state, startRequest, startTime);
-
-        return FlowLaunchResponse.builder()
-                .bundle(debugBundle)
-                .state(state)
-                .build();
+    /**
+     * {@code values} with the employee the request is about: the submitter's own when they name none, as for a
+     * request its employee files.
+     */
+    private Map<String, Object> withSubject(ModelApprovalHandler<?> handler, Map<String, Object> values,
+                                            String submitterId) {
+        Map<String, Object> row = new LinkedHashMap<>(values == null ? Map.of() : values);
+        String subjectField = ModelApprovalHandlerRegistry.subjectFieldOf(handler);
+        Long submitter = longOf(submitterId);
+        if (longOf(row.get(subjectField)) == null && submitter != null && organizationService != null) {
+            row.put(subjectField, ContextUtils.withoutPermissionChecks(
+                    () -> organizationService.getEmployeeIdOfUser(submitter)));
+        }
+        return row;
     }
 
     @Override
@@ -319,7 +339,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         }
         Submission<?> submission;
         try {
-            submission = checkValues(handlerRegistry.require(modelName), values);
+            submission = checkValues(handlerRegistry.require(modelName), values, true);
         } catch (BusinessException refusal) {
             return notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage());
         }
@@ -328,9 +348,12 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         return preview;
     }
 
-    /** {@link #checkSubmission} on values not saved yet: a draft, so only the subject and the handler's own checks. */
+    /**
+     * {@link #checkSubmission} on values not saved yet: a draft, so only the subject and — with
+     * {@code handlerChecks} — the handler's own checks, which a test run leaves out.
+     */
     private <T extends ApprovalModel> Submission<T> checkValues(ModelApprovalHandler<T> handler,
-                                                                Map<String, Object> values) {
+                                                                Map<String, Object> values, boolean handlerChecks) {
         Map<String, Object> row = new LinkedHashMap<>(values == null ? Map.of() : values);
         String subjectField = ModelApprovalHandlerRegistry.subjectFieldOf(handler);
         Long subjectId = longOf(row.get(subjectField));
@@ -338,7 +361,9 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
             throw new BusinessException(NO_SUBJECT, subjectField);
         }
         T record = BeanTool.mapToObject(row, handler.modelClass());
-        handler.validate(record);
+        if (handlerChecks) {
+            handler.validate(record);
+        }
         return new Submission<>(row, record, subjectId, handler.submission(record));
     }
 
@@ -452,7 +477,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
 
     /**
      * The record's latest approval — the instance its newest submission started — or null when it was
-     * never submitted. Other instances may run on the same record (automation, debug runs) and do not
+     * never submitted. Other instances may run on the same record (automation runs) and do not
      * count.
      */
     private FlowInstance latestApproval(String modelName, String rowId) {
@@ -552,30 +577,5 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         request.setRecordCode(approval.code());
         request.setSummary(approval.summary());
         return request;
-    }
-
-    private void recordDebugHistory(FlowExecutionState state, FlowStartRequest request, LocalDateTime startTime) {
-        if (debugHistoryService == null) {
-            return;
-        }
-        try {
-            LocalDateTime endTime = LocalDateTime.now();
-            FlowDebugHistory history = new FlowDebugHistory();
-            history.setFlowId(state.getFlowId());
-            history.setFlowRevision(state.getFlowRevision());
-            history.setInstanceId(state.getInstanceId());
-            history.setStatus(state.getStatus());
-            history.setInitiatorId(state.getInitiatorId());
-            history.setStartTime(startTime);
-            history.setEndTime(endTime);
-            history.setDurationMs(Duration.between(startTime, endTime).toMillis());
-            history.setEventMessage(JsonUtils.objectToString(request.getVariables()));
-            history.setNodeTrace(JsonUtils.objectToString(state.getTrace()));
-            history.setFinalVariables(JsonUtils.objectToString(state.getVariables()));
-            history.setErrorMessage(state.getErrorMessage());
-            debugHistoryService.recordHistory(history);
-        } catch (Exception e) {
-            log.error("Failed to record debug history: {}", e.getMessage(), e);
-        }
     }
 }

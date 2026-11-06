@@ -10,6 +10,7 @@ import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
+import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
@@ -41,16 +42,6 @@ public class ApproverResolutionService {
     @Autowired(required = false)
     private ActorAccounts actorAccounts;
 
-    public List<String> resolveApprovers(CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApprovers() == null) {
-            return List.of();
-        }
-        return cfg.getApprovers().stream()
-                .filter(Objects::nonNull)
-                .filter(StringUtils::hasText)
-                .toList();
-    }
-
     /**
      * The variables approvers are resolved against: the instance's own, with the approver context — the
      * initiator, their manager, the role approvers — the dynamic sources read.
@@ -66,21 +57,20 @@ public class ApproverResolutionService {
     }
 
     /**
-     * People found the way an approval step's approvers are — named users, or a dynamic source in
-     * {@code approverSource}'s shape — for a list that is not a step's: a flow's CC rule. Those who cannot
-     * act are left out, as a step's approvers are.
+     * People named or found the way an approval step's approvers are — a source in {@code approverSource}'s shape —
+     * for a list that is not a step's: a flow's CC rule. Those who cannot act are left out, as a step's approvers are.
      */
-    public List<String> resolvePeople(List<String> users, Map<String, Object> source, FlowExecutionState state) {
+    public List<String> resolvePeople(Map<String, Object> source, FlowExecutionState state) {
         CompiledFlowNode asStep = CompiledFlowNode.builder()
-                .parsedConfig(ApprovalNodeConfig.builder().approvers(users).approverSource(source).build())
+                .parsedConfig(ApprovalNodeConfig.builder().approverSource(source).build())
                 .build();
         return resolveApprovers(asStep, resolutionVariables(state.getVariables(), state.getInitiatorId()));
     }
 
     /**
-     * The approvers of a step reached with {@code variables}: its named users, or those its dynamic source finds —
-     * less the users who cannot act ({@link ActorAccounts}), dropped the way the organization lookups drop a
-     * supervisor who left. A step left with nobody follows its empty-approver strategy.
+     * The approvers of a step reached with {@code variables}: the users its source names, or those it finds — less
+     * the users who cannot act ({@link ActorAccounts}), dropped the way the organization lookups drop a supervisor
+     * who left. A step left with nobody follows its empty-approver strategy.
      */
     public List<String> resolveApprovers(CompiledFlowNode node, Map<String, Object> variables) {
         List<String> approvers = resolveCandidates(node, variables);
@@ -99,11 +89,12 @@ public class ApproverResolutionService {
         Map<String, Object> source = cfg.getApproverSource();
         String type = source == null ? null : asString(source.get("type"));
         if (!StringUtils.hasText(type)) {
-            boolean named = cfg.getApprovers() != null && cfg.getApprovers().stream().anyMatch(StringUtils::hasText);
-            return named ? I18n.get("none of its approvers can approve") : I18n.get("it names no approver");
+            return I18n.get("it names no approver");
         }
         Map<String, Object> resolutionVariables = variables == null ? Map.of() : variables;
         return switch (type) {
+            case "Users" -> ApproverSourceType.namedUsers(source).isEmpty()
+                    ? I18n.get("it names no approver") : I18n.get("none of its approvers can approve");
             case "Supervisor" -> organizationService == null ? null : whyNoSupervisor(resolutionVariables, source);
             case "DeptLeader" -> organizationService == null ? null : whyNoDeptHead(resolutionVariables, source,
                     "{0} and the departments above it have no leader who can approve");
@@ -143,20 +134,18 @@ public class ApproverResolutionService {
     }
 
     private List<String> resolveCandidates(CompiledFlowNode node, Map<String, Object> variables) {
-        if (!hasDynamicApproverSource(node)) {
-            return resolveApprovers(node);
-        }
         if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApproverSource() == null) {
-            return resolveApprovers(node);
+            return List.of();
         }
         Map<String, Object> source = cfg.getApproverSource();
         String type = asString(source.get("type"));
         if (!StringUtils.hasText(type)) {
-            return resolveApprovers(node);
+            return List.of();
         }
 
         Map<String, Object> resolutionVariables = new LinkedHashMap<>(variables == null ? Map.of() : variables);
         Object resolved = switch (type) {
+            case "Users" -> ApproverSourceType.namedUsers(source);
             case "VariableList" -> lookupValue(resolutionVariables, asString(source.get("variable")));
             case "Expression" -> resolveExpression(node, resolutionVariables, asString(source.get("expression")));
             case "InitiatorManager" -> lookupValue(resolutionVariables, INITIATOR_MANAGER_ID_KEY);
@@ -236,10 +225,13 @@ public class ApproverResolutionService {
                 || (cfg.getEmptyApproverRoleCodes() != null && !cfg.getEmptyApproverRoleCodes().isEmpty());
     }
 
+    /** Whether the step finds its approvers when it is reached: a source other than the specific people it names. */
     public boolean hasDynamicApproverSource(CompiledFlowNode node) {
-        return node != null
-                && node.getParsedConfig() instanceof ApprovalNodeConfig cfg
-                && cfg.getApproverSource() != null;
+        if (node == null || !(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApproverSource() == null) {
+            return false;
+        }
+        String type = asString(cfg.getApproverSource().get("type"));
+        return StringUtils.hasText(type) && !ApproverSourceType.USERS.getType().equals(type);
     }
 
     public VoteThresholdMode resolveApprovalMode(CompiledFlowNode node) {
@@ -270,49 +262,11 @@ public class ApproverResolutionService {
 
     /**
      * The approvals a step of {@code approvers} people can need: no more than there are. The one rule every
-     * change of a step's approvers applies too — a reassignment that merges two of them, an add-sign, an
-     * escalation.
+     * change of a step's approvers applies too — a reassignment that merges two of them. A rejection needs no such
+     * rule: one rejects the approval.
      */
     public static int capRequiredApprovals(int required, int approvers) {
         return approvers > 0 ? Math.min(required, approvers) : required;
-    }
-
-    /**
-     * The rejections a step of {@code approvers} people can need beside {@code requiredApprovals}: no more than
-     * {@code approvers - requiredApprovals + 1}, and at least one. With more, a vote that splits — one approves, one
-     * rejects — reaches neither threshold, every approver has voted, and the step waits for ever.
-     */
-    public static int capRequiredRejections(int required, int approvers, int requiredApprovals) {
-        if (approvers <= 0) {
-            return required;
-        }
-        return Math.min(required, Math.max(1, approvers - requiredApprovals + 1));
-    }
-
-    public VoteThresholdMode resolveRejectMode(CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getRejectMode() == null) {
-            return VoteThresholdMode.ANY_ONE;
-        }
-        return cfg.getRejectMode();
-    }
-
-    /**
-     * The rejections that reject the step: its reject mode's count over {@code approvers}, capped against the
-     * approvals it needs ({@link #capRequiredRejections}) so that a split vote always decides it.
-     */
-    public int resolveRequiredRejectCount(CompiledFlowNode node, List<String> approvers) {
-        VoteThresholdMode rejectMode = resolveRejectMode(node);
-        ApprovalNodeConfig cfg = node.getParsedConfig() instanceof ApprovalNodeConfig c ? c : null;
-        int required = switch (rejectMode) {
-            case ANY_ONE -> 1;
-            case UNANIMOUS -> approvers.isEmpty() ? 1 : approvers.size();
-            case MIN_COUNT -> cfg != null && cfg.getRejectMinCount() != null ? cfg.getRejectMinCount() : 0;
-            case PERCENTAGE -> {
-                int pct = cfg != null && cfg.getRejectPercentage() != null ? cfg.getRejectPercentage() : 0;
-                yield (int) Math.ceil((approvers.size() * pct) / 100.0d);
-            }
-        };
-        return capRequiredRejections(required, approvers.size(), resolveRequiredApprovalCount(node, approvers));
     }
 
     // ── Org-aware resolution methods ────────────────────────────────────
@@ -429,8 +383,8 @@ public class ApproverResolutionService {
     }
 
     /**
-     * The record's subject, the employee it is about ({@value #SUBJECT_ID_KEY}). An instance without a
-     * record — a debug run — has none, and starts from its initiator instead.
+     * The record's subject, the employee it is about ({@value #SUBJECT_ID_KEY}). An instance without one
+     * starts from its initiator instead.
      */
     private Long subjectEmployee(Map<String, Object> variables) {
         Long subjectId = parseLong(lookupValue(variables, SUBJECT_ID_KEY));

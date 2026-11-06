@@ -281,9 +281,6 @@ class FlowApprovalTaskSyncTest {
         if (row.getApprovedActors() != null && row.getApprovedActors().isEmpty()) {
             row.setApprovedActors(null);
         }
-        if (row.getRejectedActors() != null && row.getRejectedActors().isEmpty()) {
-            row.setRejectedActors(null);
-        }
         return row;
     }
 }

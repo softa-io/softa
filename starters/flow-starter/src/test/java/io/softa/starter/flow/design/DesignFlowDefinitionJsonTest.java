@@ -1,5 +1,6 @@
 package io.softa.starter.flow.design;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.util.List;
@@ -7,7 +8,6 @@ import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
-import io.softa.starter.flow.enums.FlowFormUsage;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 
@@ -15,8 +15,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DesignFlowDefinitionJsonTest {
 
+    // As the application reads stored designs (JacksonConfig): a key the model no longer has reads as absent.
     private final ObjectMapper objectMapper = JsonMapper.builder()
             .findAndAddModules()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .build();
 
     @Test
@@ -52,8 +54,8 @@ class DesignFlowDefinitionJsonTest {
 
         assertEquals(FlowScenario.AUTOMATION, definition.getScenario());
         assertInstanceOf(ApiTrigger.class, definition.getTrigger());
+        // A design saved with form bindings, which flows no longer have, still reads.
         assertEquals(FlowNodeType.START, definition.getGraph().getNodes().getFirst().getType());
-        assertEquals(FlowFormUsage.START_FORM, definition.getForms().getFirst().getUsage());
     }
 
     @Test
@@ -69,7 +71,6 @@ class DesignFlowDefinitionJsonTest {
         assertEquals(FlowNodeType.START, objectMapper.readValue("\"Start\"", FlowNodeType.class));
         assertEquals(FlowNodeType.APPROVAL, objectMapper.readValue("\"Approval\"", FlowNodeType.class));
         assertEquals(FlowNodeType.CALL_SERVICE, objectMapper.readValue("\"CallService\"", FlowNodeType.class));
-        assertEquals(FlowFormUsage.READONLY_VIEW, objectMapper.readValue("\"ReadonlyView\"", FlowFormUsage.class));
     }
 
     @Test
@@ -86,10 +87,6 @@ class DesignFlowDefinitionJsonTest {
                                 .build()))
                         .edges(List.of())
                         .build())
-                .forms(List.of(FlowFormBinding.builder()
-                        .formCode("leave-request")
-                        .usage(FlowFormUsage.START_FORM)
-                        .build()))
                 .build();
 
         String json = objectMapper.writeValueAsString(definition);
@@ -97,7 +94,6 @@ class DesignFlowDefinitionJsonTest {
         assertTrue(json.contains("\"scenario\":\"Approval\""));
         assertTrue(json.contains("\"type\":\"Submit\""));
         assertTrue(json.contains("\"type\":\"Approval\""));
-        assertTrue(json.contains("\"usage\":\"StartForm\""));
     }
 
     @Test

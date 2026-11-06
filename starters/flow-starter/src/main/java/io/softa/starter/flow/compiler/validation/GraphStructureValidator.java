@@ -10,6 +10,8 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowCcRule;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
+import io.softa.starter.flow.design.trigger.SubflowTrigger;
+import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.WithdrawPolicy;
@@ -35,12 +37,17 @@ public class GraphStructureValidator implements FlowValidator {
     private static final String INVALID_SCENARIO_NODE     = "INVALID_SCENARIO_NODE";
     private static final String SYNC_OUTSIDE_AUTOMATION   = "SYNC_OUTSIDE_AUTOMATION";
     private static final String SYNC_FLOW_WAITS           = "SYNC_FLOW_WAITS";
+    private static final String SUBFLOW_WAITS             = "SUBFLOW_WAITS";
     private static final String NO_APPROVAL_STEP          = "NO_APPROVAL_STEP";
     private static final String APPROVAL_SETTING_OUTSIDE_APPROVAL = "APPROVAL_SETTING_OUTSIDE_APPROVAL";
     private static final String INVALID_CC_RULE = "INVALID_CC_RULE";
     private static final String INVALID_URGE_INTERVAL = "INVALID_URGE_INTERVAL";
+    private static final String INVALID_REMIND_AFTER_HOURS = "INVALID_REMIND_AFTER_HOURS";
 
-    /** Nodes that park the instance: a sync flow runs inside the writer's transaction and cannot wait. */
+    /**
+     * Nodes that park the instance: a sync flow runs inside the writer's transaction, and a flow with a Subflow
+     * trigger inside its caller's run — neither can wait.
+     */
     private static final Set<FlowNodeType> WAITING_NODE_TYPES = EnumSet.of(
             FlowNodeType.TIMER,
             FlowNodeType.ASYNC_TASK,
@@ -168,7 +175,8 @@ public class GraphStructureValidator implements FlowValidator {
     }
 
     /**
-     * Each CC rule says when, and names its recipients one way: users, or a source to find them by.
+     * Each CC rule says when, and who: a recipient source with a type — specific people ({@code Users}) naming at
+     * least one, or a source that finds them.
      */
     private static void validateCcRules(List<FlowCcRule> rules, List<CompileDiagnostic> d) {
         if (rules == null) {
@@ -181,12 +189,12 @@ public class GraphStructureValidator implements FlowValidator {
                 d.add(CompileDiagnostic.flowLevel(INVALID_CC_RULE, which + " says not when: OnSubmit, OnApproved or OnRejected"));
                 continue;
             }
-            boolean named = rule.getRecipients() != null && rule.getRecipients().stream().anyMatch(StringUtils::hasText);
-            boolean sourced = rule.getRecipientSource() != null && !rule.getRecipientSource().isEmpty();
-            if (named == sourced) {
-                d.add(CompileDiagnostic.flowLevel(INVALID_CC_RULE, which + (named
-                        ? " names both recipients and a recipient source: choose one"
-                        : " names no recipients")));
+            Map<String, Object> source = rule.getRecipientSource();
+            Object type = source == null ? null : source.get("type");
+            boolean names = type != null && StringUtils.hasText(type.toString())
+                    && (!ApproverSourceType.USERS.getType().equals(type) || !ApproverSourceType.namedUsers(source).isEmpty());
+            if (!names) {
+                d.add(CompileDiagnostic.flowLevel(INVALID_CC_RULE, which + " names no recipients"));
             }
         }
     }
@@ -203,17 +211,23 @@ public class GraphStructureValidator implements FlowValidator {
         }
         if (!FlowScenario.APPROVAL.equals(scenario)
                 && ((definition.getWithdrawPolicy() != null && definition.getWithdrawPolicy() != WithdrawPolicy.NEVER)
+                    || definition.getReturnEnabled() != null
                     || definition.getUrgeEnabled() != null || definition.getUrgeIntervalMinutes() != null
+                    || definition.getRemindAfterHours() != null
                     || definition.getApproverDedup() != null || definition.getSelfApproval() != null
                     || definition.getEmailNotification() != null
                     || (definition.getCc() != null && !definition.getCc().isEmpty()))) {
             d.add(CompileDiagnostic.flowLevel(APPROVAL_SETTING_OUTSIDE_APPROVAL,
-                    "withdrawPolicy, urgeEnabled, urgeIntervalMinutes, approverDedup, selfApproval, emailNotification "
-                            + "and cc apply only to Approval flows"));
+                    "withdrawPolicy, returnEnabled, urgeEnabled, urgeIntervalMinutes, remindAfterHours, approverDedup, "
+                            + "selfApproval, emailNotification and cc apply only to Approval flows"));
         }
         if (definition.getUrgeIntervalMinutes() != null && definition.getUrgeIntervalMinutes() < 1) {
             d.add(CompileDiagnostic.flowLevel(INVALID_URGE_INTERVAL,
                     "urgeIntervalMinutes must be at least 1, but is " + definition.getUrgeIntervalMinutes()));
+        }
+        if (definition.getRemindAfterHours() != null && definition.getRemindAfterHours() < 1) {
+            d.add(CompileDiagnostic.flowLevel(INVALID_REMIND_AFTER_HOURS,
+                    "remindAfterHours must be at least 1, but is " + definition.getRemindAfterHours()));
         }
         validateCcRules(definition.getCc(), d);
         // An approval flow without an approval step approves a record as it is submitted: allowed — End and every step
@@ -233,12 +247,18 @@ public class GraphStructureValidator implements FlowValidator {
             d.add(CompileDiagnostic.flowLevel(SYNC_OUTSIDE_AUTOMATION,
                     "sync and rollbackOnFail apply only to Automation flows"));
         }
-        if (sync && FlowScenario.AUTOMATION.equals(scenario)) {
+        // A flow a parent's Subflow node calls runs inside the parent's run, in one go: caught here, not when a parent
+        // reaches it — a submission refused, or an approval failed, for a flow no submitter can put right.
+        boolean subflow = definition.getTrigger() instanceof SubflowTrigger;
+        if ((sync || subflow) && FlowScenario.AUTOMATION.equals(scenario)) {
             for (FlowGraphNode node : nodes) {
                 if (WAITING_NODE_TYPES.contains(node.getType())) {
-                    d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), SYNC_FLOW_WAITS,
-                            "A sync flow runs inside the writer's transaction and cannot wait, but node '"
-                                    + node.displayName() + "' of type '" + node.getType().getType() + "' waits"));
+                    d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(),
+                            sync ? SYNC_FLOW_WAITS : SUBFLOW_WAITS,
+                            (sync ? "A sync flow runs inside the writer's transaction"
+                                    : "A flow with a Subflow trigger runs inside the flow that calls it, in one go,")
+                                    + " and cannot wait, but node '" + node.displayName() + "' of type '"
+                                    + node.getType().getType() + "' waits"));
                 }
             }
         }

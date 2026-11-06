@@ -10,7 +10,6 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.engine.ApprovalActorValidator;
 import io.softa.starter.flow.runtime.engine.ApprovalContext;
-import io.softa.starter.flow.runtime.engine.ApprovalLifecycleService;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowActionReplayGuard;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
@@ -20,27 +19,25 @@ import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
 
 /**
- * Handles reject actions for pending approvals. A rejection carries a comment saying why.
+ * Handles reject actions for pending approvals: one approver's rejection rejects the approval — a step has no reject
+ * threshold — and carries a comment saying why.
  */
 @Component
 public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest> {
 
     private final FlowActionContextService contextService;
     private final ApprovalActorValidator actorValidator;
-    private final ApprovalLifecycleService lifecycleService;
     private final FlowAuditService auditService;
     private final ApprovalNotificationService notificationService;
     private final FlowActionReplayGuard replayGuard;
 
     public RejectActionHandler(FlowActionContextService contextService,
                                ApprovalActorValidator actorValidator,
-                               ApprovalLifecycleService lifecycleService,
                                FlowAuditService auditService,
                                ApprovalNotificationService notificationService,
                                FlowActionReplayGuard replayGuard) {
         this.contextService = contextService;
         this.actorValidator = actorValidator;
-        this.lifecycleService = lifecycleService;
         this.auditService = auditService;
         this.notificationService = notificationService;
         this.replayGuard = replayGuard;
@@ -65,28 +62,14 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
         FlowExecutionStatus statusBefore = ctx.statusBefore();
 
         actorValidator.validateRejectActor(pendingApproval, request.getActorId(), node);
-        actorValidator.requireNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
         // A rejection says why: the submitter is told, and the record's approval history keeps it.
         if (!StringUtils.hasText(request.getComment())) {
             throw new FlowActionValidationException("A comment is required to reject approval node: " + request.getNodeId());
         }
-        if (lifecycleService.requiresTrackedReject(pendingApproval)) {
-            if (!StringUtils.hasText(request.getActorId())) {
-                throw new FlowActionValidationException("actorId is required to reject this approval node: " + request.getNodeId());
-            }
+        // One approver's rejection rejects the approval — a rejection has no threshold to count towards — unless they
+        // already approved the step: they have had their say on it.
+        if (StringUtils.hasText(request.getActorId())) {
             actorValidator.requireNotVoted(pendingApproval, request.getActorId(), node);
-            pendingApproval.getRejectedActors().add(request.getActorId());
-            if (pendingApproval.getRejectedActors().size() < pendingApproval.getRequiredRejectCount()) {
-                auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.WAIT_APPROVAL,
-                        auditService.buildPartialRejectMessage(node, pendingApproval, request.getActorId()));
-                auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
-                        .action(ApprovalActionType.REJECT)
-                        .actorId(request.getActorId())
-                        .comment(request.getComment())
-                        .build());
-                contextService.persistState(state);
-                return state;
-            }
         }
 
         state.getPendingApprovals().clear();

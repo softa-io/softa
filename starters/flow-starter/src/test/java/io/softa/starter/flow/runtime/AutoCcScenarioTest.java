@@ -167,7 +167,7 @@ class AutoCcScenarioTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of("approvers", List.of(FIRST, SECOND), "approvalMode", approvalMode))
+                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(FIRST, SECOND)), "approvalMode", approvalMode))
                                         .build(),
                                 node("end", FlowNodeType.END)))
                         .edges(List.of(
@@ -185,7 +185,7 @@ class AutoCcScenarioTest {
     }
 
     private static FlowCcRule rule(CcTiming timing, String recipient) {
-        return FlowCcRule.builder().timing(timing).recipients(List.of(recipient)).build();
+        return FlowCcRule.builder().timing(timing).recipientSource(Map.of("type", "Users", "userIds", List.of(recipient))).build();
     }
 
     private static FlowApproveRequest approve(FlowExecutionState state, String actorId) {

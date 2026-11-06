@@ -12,11 +12,11 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.enums.*;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
-import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
 
 /**
- * Validates approval node configs: mode parsing, approver constraints, deadlock detection and
- * timeouts. A return always goes to the initiator, so {@code returnEnabled} needs no validation.
+ * Validates approval node configs: mode parsing, approver constraints and deadlock detection. A step has no timeout
+ * of its own (its flow's {@code remindAfterHours} reminds its approvers), nor a return switch (its flow's
+ * {@code returnEnabled} says whether its approvers may return the approval).
  */
 public class ApprovalConfigValidator implements FlowValidator {
 
@@ -27,7 +27,6 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String MISSING_APPROVERS         = "MISSING_APPROVERS";
     private static final String INVALID_MIN_COUNT         = "INVALID_MIN_COUNT";
     private static final String INVALID_PERCENTAGE         = "INVALID_PERCENTAGE";
-    private static final String DEADLOCK_THRESHOLD         = "DEADLOCK_THRESHOLD";
     private static final String UNKNOWN_APPROVER_SOURCE_TYPE = "UNKNOWN_APPROVER_SOURCE_TYPE";
     private static final String INVALID_SUPERVISOR_LEVEL     = "INVALID_SUPERVISOR_LEVEL";
     private static final String MISSING_ROLE_IDS             = "MISSING_ROLE_IDS";
@@ -37,16 +36,13 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String INVALID_RELATIVE_TO          = "INVALID_RELATIVE_TO";
     private static final String INVALID_DEPT_SCOPE           = "INVALID_DEPT_SCOPE";
     private static final String MISSING_DEPT_VARIABLE        = "MISSING_DEPT_VARIABLE";
-    private static final String INVALID_TIMEOUT_HOURS        = "INVALID_TIMEOUT_HOURS";
-    private static final String INVALID_REMIND_INTERVAL      = "INVALID_REMIND_INTERVAL";
-    private static final String INVALID_MAX_REMINDERS        = "INVALID_MAX_REMINDERS";
-    private static final String REMINDERS_OUTSIDE_REMIND     = "REMINDERS_OUTSIDE_REMIND";
-    private static final String MISSING_ESCALATE_TARGET      = "MISSING_ESCALATE_TARGET";
     private static final String UNREADABLE_CONFIG            = "UNREADABLE_CONFIG";
     private static final String MISSING_FIELD_PERMISSION     = "MISSING_FIELD_PERMISSION";
     private static final String FORM_PERMISSIONS             = "formPermissions";
+    /** Where a step's specific people are: its {@code Users} source's user ids. */
+    private static final String USER_IDS_FIELD               = "config.approverSource." + ApproverSourceType.USER_IDS;
 
-    /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["timeout"]}. */
+    /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["approvalMode"]}. */
     private static final Pattern READ_REFERENCE = Pattern.compile("\\[\"([^\"]+)\"]");
 
     @Override
@@ -68,7 +64,6 @@ public class ApprovalConfigValidator implements FlowValidator {
             validateApproverSource(node.getId(), node.displayName(), cfg, d);
             validateEmptyApproverRoles(node.getId(), node.displayName(), cfg, d);
             validateVoteThresholds(node.getId(), node.displayName(), cfg, d);
-            validateTimeout(node.getId(), node.displayName(), cfg, d);
         }
     }
 
@@ -140,53 +135,6 @@ public class ApprovalConfigValidator implements FlowValidator {
         }
     }
 
-    // ── Timeout ────────────────────────────────────────────────────────────
-
-    /**
-     * A deadline ({@code timeoutHours}) and what happens at it. Without a deadline nothing times out and the rest
-     * is ignored — the designer hides it then, and keeps what was entered. Reminders belong to the Remind strategy:
-     * the designer clears them when another is chosen, so here they are a mistake.
-     */
-    private void validateTimeout(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
-        ApprovalTimeoutConfig timeout = cfg.getTimeout();
-        if (timeout == null || timeout.getTimeoutHours() == null) {
-            return;
-        }
-        if (timeout.getTimeoutHours() <= 0) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.timeoutHours",
-                    INVALID_TIMEOUT_HOURS,
-                    "Approval node '" + name + "' config.timeout.timeoutHours must be > 0"));
-        }
-        ApprovalTimeoutStrategy strategy = timeout.getTimeoutStrategy() == null
-                ? ApprovalTimeoutStrategy.REMIND : timeout.getTimeoutStrategy();
-        Integer remindInterval = timeout.getRemindIntervalHours();
-        Integer maxReminders = timeout.getMaxRemindTimes();
-        if (!ApprovalTimeoutStrategy.REMIND.equals(strategy) && (remindInterval != null || maxReminders != null)) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, remindInterval != null
-                            ? "config.timeout.remindIntervalHours" : "config.timeout.maxRemindTimes",
-                    REMINDERS_OUTSIDE_REMIND,
-                    "Approval node '" + name + "' sets reminders, but only the Remind timeout strategy sends "
-                            + "them and it uses " + strategy.getType()));
-        }
-        if (remindInterval != null && remindInterval < 1) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.remindIntervalHours",
-                    INVALID_REMIND_INTERVAL,
-                    "Approval node '" + name + "' config.timeout.remindIntervalHours must be at least 1"));
-        }
-        if (maxReminders != null && maxReminders < 1) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.maxRemindTimes",
-                    INVALID_MAX_REMINDERS,
-                    "Approval node '" + name + "' config.timeout.maxRemindTimes must be at least 1"));
-        }
-        if (ApprovalTimeoutStrategy.ESCALATE.equals(timeout.getTimeoutStrategy())
-                && !StringUtils.hasText(timeout.getEscalateToUserId())) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.timeout.escalateToUserId",
-                    MISSING_ESCALATE_TARGET,
-                    "Approval node '" + name
-                            + "' uses ESCALATE timeout strategy but config.timeout.escalateToUserId is not set"));
-        }
-    }
-
     // ── Approver source ─────────────────────────────────────────────────────
 
     private void validateApproverSource(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
@@ -246,7 +194,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                 }
             }
             case "Department" -> validateDeptScope(nodeId, name, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
-            default -> { /* VariableList, Expression, InitiatorManager, Role: no extra validation */ }
+            default -> { /* Users (judged with the vote thresholds), VariableList, Expression, InitiatorManager, Role */ }
         }
     }
 
@@ -310,53 +258,45 @@ public class ApprovalConfigValidator implements FlowValidator {
         return false;
     }
 
-    /** Whether the step names a dynamic source: one without a type finds nobody, as the runtime reads it. */
-    private static boolean namesSource(ApprovalNodeConfig cfg) {
-        Object type = cfg.getApproverSource() == null ? null : cfg.getApproverSource().get("type");
-        return type != null && StringUtils.hasText(type.toString());
+    /** A {@code Users} source's user ids as written, blanks included — {@link ApproverSourceType#namedUsers} drops them. */
+    private static List<String> userIdsAsWritten(Map<String, Object> source) {
+        return source.get(ApproverSourceType.USER_IDS) instanceof Collection<?> ids
+                ? ids.stream().map(id -> id == null ? "" : id.toString()).toList()
+                : List.of();
     }
 
     // ── Vote thresholds ────────────────────────────────────────────────────
 
     private void validateVoteThresholds(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
         VoteThresholdMode approvalMode = cfg.getApprovalMode() != null ? cfg.getApprovalMode() : VoteThresholdMode.ANY_ONE;
-        boolean hasDynamicApproverSource = cfg.getApproverSource() != null;
-        List<String> approvers = cfg.getApprovers() != null ? cfg.getApprovers() : List.of();
+        Map<String, Object> source = cfg.getApproverSource();
+        Object type = source == null ? null : source.get("type");
+        boolean users = ApproverSourceType.USERS.getType().equals(type);
+        List<String> approvers = users ? userIdsAsWritten(source) : List.of();
         List<String> nonBlankApprovers = approvers.stream().filter(StringUtils::hasText).toList();
 
         if (approvers.size() != nonBlankApprovers.size()) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", BLANK_APPROVER,
-                    "Approval node '" + name + "' contains blank approvers in config.approvers"));
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, USER_IDS_FIELD, BLANK_APPROVER,
+                    "Approval node '" + name + "' names a blank approver"));
         }
         if (nonBlankApprovers.size() != new LinkedHashSet<>(nonBlankApprovers).size()) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", DUPLICATE_APPROVER,
-                    "Approval node '" + name + "' contains duplicate approvers in config.approvers"));
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, USER_IDS_FIELD, DUPLICATE_APPROVER,
+                    "Approval node '" + name + "' names the same approver twice"));
         }
 
-        // A step names who approves it: users, or a source that finds them. One that names neither finds nobody on every
-        // run — under the default strategy every submission is refused (zingkey-hcm#2450) — so it is not published; the
-        // vote thresholds have nothing to count then, and are not judged.
-        if (nonBlankApprovers.isEmpty() && !namesSource(cfg)) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approvers", MISSING_APPROVERS,
-                    "Approval node '" + name + "' names no approver: pick approvers, or a source that finds them "
-                            + "(a supervisor, a role, ...)."));
+        // A step names who approves it: specific people, or a source that finds them. One that names neither finds
+        // nobody on every run — under the default strategy every submission is refused (zingkey-hcm#2450) — so it is
+        // not published; the vote thresholds have nothing to count then, and are not judged.
+        if (type == null || !StringUtils.hasText(type.toString()) || (users && nonBlankApprovers.isEmpty())) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, users ? USER_IDS_FIELD : "config.approverSource",
+                    MISSING_APPROVERS, "Approval node '" + name + "' names no approver: pick people, or a source that "
+                            + "finds them (a supervisor, a role, ...)."));
             return;
         }
-        validateApprovalMode(nodeId, name, approvalMode, nonBlankApprovers, hasDynamicApproverSource,
+        // A rejection has no threshold: one approver's rejection rejects the approval, so only the approvals are counted.
+        // Only specific people can be counted before the step is reached.
+        validateApprovalMode(nodeId, name, approvalMode, nonBlankApprovers, !users,
                 cfg.getMinCount(), cfg.getPercentage(), d);
-
-        VoteThresholdMode rejectMode = cfg.getRejectMode() != null ? cfg.getRejectMode() : VoteThresholdMode.ANY_ONE;
-        validateRejectMode(nodeId, name, rejectMode, nonBlankApprovers, hasDynamicApproverSource,
-                cfg.getRejectMinCount(), cfg.getRejectPercentage(), d);
-
-        int requiredApprovalCount = resolveRequiredCount(approvalMode, nonBlankApprovers.size(),
-                cfg.getMinCount(), cfg.getPercentage());
-        int requiredRejectCount = resolveRequiredCount(rejectMode, nonBlankApprovers.size(),
-                cfg.getRejectMinCount(), cfg.getRejectPercentage());
-        if (!nonBlankApprovers.isEmpty() && requiredApprovalCount + requiredRejectCount > nonBlankApprovers.size() + 1) {
-            d.add(CompileDiagnostic.nodeLevel(nodeId, APPROVAL_TYPE, DEADLOCK_THRESHOLD,
-                    "Approval node '" + name + "' defines approval/reject thresholds that can deadlock"));
-        }
     }
 
     private void validateApprovalMode(String nodeId, String name, VoteThresholdMode mode,
@@ -377,35 +317,5 @@ public class ApprovalConfigValidator implements FlowValidator {
                         "Approval node '" + name + "' must define config.percentage between 1 and 100"));
             }
         }
-    }
-
-    private void validateRejectMode(String nodeId, String name, VoteThresholdMode mode,
-                                    List<String> approvers, boolean hasDynamic,
-                                    Integer rejectMinCount, Integer rejectPercentage,
-                                    List<CompileDiagnostic> d) {
-        if (VoteThresholdMode.MIN_COUNT.equals(mode)) {
-            if (rejectMinCount == null || rejectMinCount < 1 || (!hasDynamic && rejectMinCount > approvers.size())) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.rejectMinCount",
-                        INVALID_MIN_COUNT,
-                        "Approval node '" + name + "' must define config.rejectMinCount between 1 and approver count"));
-            }
-        }
-        if (VoteThresholdMode.PERCENTAGE.equals(mode)) {
-            if (rejectPercentage == null || rejectPercentage < 1 || rejectPercentage > 100) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.rejectPercentage",
-                        INVALID_PERCENTAGE,
-                        "Approval node '" + name + "' must define config.rejectPercentage between 1 and 100"));
-            }
-        }
-    }
-
-    private int resolveRequiredCount(VoteThresholdMode mode, int approverCount,
-                                     Integer minCount, Integer percentage) {
-        return switch (mode) {
-            case ANY_ONE    -> 1;
-            case UNANIMOUS  -> Math.max(1, approverCount);
-            case MIN_COUNT  -> minCount == null ? 0 : minCount;
-            case PERCENTAGE -> percentage == null ? 0 : (int) Math.ceil((approverCount * percentage) / 100.0d);
-        };
     }
 }

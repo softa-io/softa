@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.starter.flow.runtime.state.AddSignPosition;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
@@ -71,9 +70,6 @@ public class FlowApprovalRecordView {
             + "null when the actor acted themselves")
     private String operatorId;
 
-    @Schema(description = "Add-sign position when the record represents an add-sign action")
-    private AddSignPosition addSignPosition;
-
     @Schema(description = "Comment")
     private String comment;
 
@@ -85,9 +81,6 @@ public class FlowApprovalRecordView {
 
     @Schema(description = "Actors who had already approved")
     private List<String> approvedActors;
-
-    @Schema(description = "Actors who had already rejected")
-    private List<String> rejectedActors;
 
     @Schema(description = "Recorded time")
     private LocalDateTime eventTime;

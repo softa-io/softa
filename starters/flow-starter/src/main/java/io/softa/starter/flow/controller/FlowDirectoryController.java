@@ -13,8 +13,8 @@ import io.softa.starter.flow.runtime.spi.DirectoryPerson;
 import io.softa.starter.flow.service.FlowDirectoryService;
 
 /**
- * The directory behind the people and department pickers: who to transfer to, add as a signer, CC or delegate to,
- * whose requests to filter by, and the people and departments a flow names.
+ * The directory behind the people and department pickers: who to transfer to, CC or delegate to, whose requests to
+ * filter by, and the people and departments a flow names.
  *
  * <p>Granted with the pages whose pickers read it: the application lists these endpoints in those pages' permissions,
  * not in {@code permission.authenticated-bypass-patterns}, which would skip the endpoint gate and a consultant's

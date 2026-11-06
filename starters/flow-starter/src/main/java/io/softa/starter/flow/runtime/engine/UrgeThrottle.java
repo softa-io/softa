@@ -97,15 +97,14 @@ public class UrgeThrottle {
         return status(state, now);
     }
 
-    /** The approvers of a step still to act: asked, and neither approved nor rejected yet. */
+    /** The approvers of a step still to act: asked, and not approved yet (a rejection ends the approval). */
     public static List<String> stillToAct(PendingApproval step) {
         if (step.getApprovers() == null) {
             return List.of();
         }
         List<String> actors = new ArrayList<>();
         for (String approver : step.getApprovers()) {
-            if (!contains(step.getApprovedActors(), approver) && !contains(step.getRejectedActors(), approver)
-                    && !actors.contains(approver)) {
+            if (!contains(step.getApprovedActors(), approver) && !actors.contains(approver)) {
                 actors.add(approver);
             }
         }

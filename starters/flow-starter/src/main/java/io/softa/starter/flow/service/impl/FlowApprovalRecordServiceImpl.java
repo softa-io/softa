@@ -89,12 +89,10 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
         record.setActorId(entry.getActorId());
         record.setTargetActorId(entry.getTargetActorId());
         record.setOperatorId(entry.getOperatorId());
-        record.setAddSignPosition(entry.getAddSignPosition());
         record.setComment(entry.getComment());
         record.setStatusBefore(entry.getStatusBefore());
         record.setStatusAfter(entry.getStatusAfter());
         record.setApprovedActors(entry.getApprovedActors());
-        record.setRejectedActors(entry.getRejectedActors());
         record.setEventTime(entry.getEventTime());
         return record;
     }
@@ -113,12 +111,10 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
                 .actorId(record.getActorId())
                 .targetActorId(record.getTargetActorId())
                 .operatorId(record.getOperatorId())
-                .addSignPosition(record.getAddSignPosition())
                 .comment(record.getComment())
                 .statusBefore(record.getStatusBefore())
                 .statusAfter(record.getStatusAfter())
                 .approvedActors(record.getApprovedActors())
-                .rejectedActors(record.getRejectedActors())
                 .build();
     }
 }

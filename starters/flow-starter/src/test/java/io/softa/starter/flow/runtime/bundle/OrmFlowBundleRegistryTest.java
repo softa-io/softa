@@ -305,23 +305,6 @@ public class OrmFlowBundleRegistryTest {
         assertEquals(2, nextRevisionCalls.get());
     }
 
-    @Test
-    void registerDebug_isResolvableButNeverActiveNorListed() {
-        CompiledFlowDefinition published = registry.register(sampleDefinition("dbg-flow", null), null, FLOW_A);
-        CompiledFlowDefinition debug = registry.registerDebug(sampleDefinition("dbg-flow", null), null, FLOW_A);
-
-        // resolvable by id (instances pin it), with its own revision number
-        assertTrue(registry.getByBundleId(debug.getBundleId()).isPresent());
-        assertEquals(2, debug.getRevision());
-        // never the design's effective revision
-        assertEquals(published.getBundleId(), registry.getActiveByFlowId(FLOW_A).orElseThrow().getBundleId());
-        // hidden from the revision list
-        assertEquals(List.of(1), stubService.listRevisionsByFlowId(FLOW_A).stream()
-                .map(FlowBundle::getRevision).toList());
-        // and cannot be activated
-        assertThrows(Exception.class, () -> stubService.activateBundle(debug.getBundleId()));
-    }
-
     // ==================== Revision Management Tests ====================
 
     @Test
@@ -451,7 +434,6 @@ public class OrmFlowBundleRegistryTest {
         public List<FlowBundle> listRevisionsByFlowId(String flowId) {
             return visibleBundles()
                     .filter(b -> flowId.equals(b.getFlowId()))
-                    .filter(b -> !Boolean.TRUE.equals(b.getDebug()))
                     .sorted(Comparator.comparingInt(FlowBundle::getRevision).reversed())
                     .toList();
         }
@@ -492,9 +474,6 @@ public class OrmFlowBundleRegistryTest {
             Optional<FlowBundle> target = findById(bundleId);
             if (target.isEmpty()) return Optional.empty();
             FlowBundle bundle = target.get();
-            if (Boolean.TRUE.equals(bundle.getDebug())) {
-                throw new IllegalStateException("Debug bundle cannot be activated");
-            }
             markAsActive(bundle.getFlowId(), bundle.getRevision());
             return target;
         }

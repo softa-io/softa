@@ -133,8 +133,12 @@ public class TaskInstanceContextEnricher {
             }
             if (instance.getBundleId() != null) {
                 definitions.computeIfAbsent(instance.getBundleId(), bundleRegistry::getByBundleId)
-                        .map(definition -> definition.getNodeIndex().get(view.getNodeId()))
-                        .ifPresent(node -> applyStepConfig(view, node));
+                        .ifPresent(definition -> {
+                            CompiledFlowNode node = definition.getNodeIndex().get(view.getNodeId());
+                            if (node != null) {
+                                applyStepConfig(view, definition, node);
+                            }
+                        });
             }
         }
         names.name(initiators);
@@ -171,33 +175,32 @@ public class TaskInstanceContextEnricher {
         });
     }
 
-    /** The accounts a task names: its holder, the step's candidates, who approved, rejected, closed or blocks it. */
+    /** The accounts a task names: its holder, the step's candidates, who approved or closed it. */
     private static List<String> actorIdsOf(FlowApprovalTaskView view) {
         List<String> ids = new ArrayList<>();
         ids.add(view.getActorId());
-        Stream.of(view.getCandidateActors(), view.getApprovedActors(), view.getRejectedActors())
+        Stream.of(view.getCandidateActors(), view.getApprovedActors())
                 .filter(Objects::nonNull)
                 .forEach(ids::addAll);
         ids.add(view.getClosedByActorId());
-        ids.add(view.getBlockedByActorId());
         return ids.stream().filter(Objects::nonNull).distinct().toList();
     }
 
     /**
-     * A return-enabled step, as the node declares it; a step to fill in when it makes fields required (a handling
-     * step); batchable only while the task is open to its approver (pending, its add-sign prerequisite met, the
-     * instance waiting) and it is no step to fill in — a batch fills in nothing.
+     * A step its approvers may return, as its flow says ({@code returnEnabled}); a step to fill in when it makes fields
+     * required (a handling step); batchable only while the task is open to its approver (pending, the instance
+     * waiting) and it is no step to fill in — a batch fills in nothing.
      */
-    private static void applyStepConfig(FlowApprovalTaskView view, CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
+    private static void applyStepConfig(FlowApprovalTaskView view, CompiledFlowDefinition definition,
+                                        CompiledFlowNode node) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig)) {
             return;
         }
-        view.setReturnAllowed(Boolean.TRUE.equals(cfg.getReturnEnabled()));
+        view.setReturnAllowed(Boolean.TRUE.equals(definition.getReturnEnabled()));
         boolean fillIn = !FormPermissionService.requiredFields(node).isEmpty();
         view.setFillIn(fillIn);
         boolean open = view.getStatus() == FlowApprovalTaskStatus.PENDING
                 && view.getTaskType() == FlowApprovalTaskType.APPROVAL
-                && !Boolean.TRUE.equals(view.getBlocked())
                 && view.getInstanceStatus() == FlowExecutionStatus.WAITING;
         view.setBatchable(open && !fillIn);
     }

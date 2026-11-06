@@ -180,7 +180,7 @@ public interface FlowInstanceService {
                                             Consumer<FlowRecordApprovalsView> authorize);
 
     /**
-     * A business record's approvals — the instances its submissions started; automation and debug runs on it
+     * A business record's approvals — the instances its submissions started; automation runs on it
      * are not — newest first, each as the engine loads an instance (trace not hydrated): the instances
      * {@link #recordApprovals} lists, for deciding who takes part in which.
      *

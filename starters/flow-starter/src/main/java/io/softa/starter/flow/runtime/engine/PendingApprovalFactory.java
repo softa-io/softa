@@ -14,7 +14,6 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.exception.FlowNoApproverException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
-import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
@@ -125,10 +124,7 @@ public class PendingApprovalFactory {
                 .requiredApprovalCount(toRoles ? 1 : approverResolutionService.resolveRequiredApprovalCount(node, approvers))
                 .totalApproverCount(approvers.size())
                 .approvedActors(new ArrayList<>())
-                .rejectMode(toRoles ? VoteThresholdMode.ANY_ONE : approverResolutionService.resolveRejectMode(node))
-                .requiredRejectCount(toRoles ? 1 : approverResolutionService.resolveRequiredRejectCount(node, approvers))
-                .rejectedActors(new ArrayList<>())
-                .dueTime(computeDueTime(node))
+                .dueTime(computeDueTime(definition))
                 .remindCount(0)
                 .assignedRoles(assignedRoles)
                 .build();
@@ -139,20 +135,6 @@ public class PendingApprovalFactory {
         }
 
         return pendingApproval;
-    }
-
-    public void recomputePendingApprovalThresholds(PendingApproval pendingApproval, CompiledFlowNode node) {
-        pendingApproval.setTotalApproverCount(pendingApproval.getApprovers().size());
-        if (pendingApproval.assignedToRoles()) {
-            // Went to roles because it found nobody: any one of the holders decides, whatever the node's modes say.
-            pendingApproval.setRequiredApprovalCount(1);
-            pendingApproval.setRequiredRejectCount(1);
-            return;
-        }
-        pendingApproval.setRequiredApprovalCount(
-                approverResolutionService.resolveRequiredApprovalCount(node, pendingApproval.getApprovers()));
-        pendingApproval.setRequiredRejectCount(
-                approverResolutionService.resolveRequiredRejectCount(node, pendingApproval.getApprovers()));
     }
 
     private Integer nextCycleNumberForNode(FlowExecutionState state, String nodeId) {
@@ -187,24 +169,11 @@ public class PendingApprovalFactory {
     }
 
     /**
-     * Compute due time from the node's timeout configuration.
-     * Returns {@code null} if no timeout is configured.
+     * When the step is due: its flow's {@code remindAfterHours} after it opens — its approvers still to act are
+     * reminded then — or {@code null} when the flow sends no reminders.
      */
-    private LocalDateTime computeDueTime(CompiledFlowNode node) {
-        ApprovalTimeoutConfig config = resolveTimeoutConfig(node);
-        if (config == null || config.getTimeoutHours() == null || config.getTimeoutHours() <= 0) {
-            return null;
-        }
-        return LocalDateTime.now().plusHours(config.getTimeoutHours());
-    }
-
-    /**
-     * Extract {@link ApprovalTimeoutConfig} from node config.
-     */
-    ApprovalTimeoutConfig resolveTimeoutConfig(CompiledFlowNode node) {
-        if (node.getParsedConfig() instanceof ApprovalNodeConfig cfg) {
-            return cfg.getTimeout();
-        }
-        return null;
+    private static LocalDateTime computeDueTime(CompiledFlowDefinition definition) {
+        Integer hours = definition.getRemindAfterHours();
+        return hours == null || hours < 1 ? null : LocalDateTime.now().plusHours(hours);
     }
 }

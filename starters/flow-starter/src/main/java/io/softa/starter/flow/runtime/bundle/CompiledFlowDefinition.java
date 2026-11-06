@@ -14,7 +14,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import io.softa.starter.flow.design.FlowCcRule;
-import io.softa.starter.flow.design.FlowFormBinding;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.SelfApprovalStrategy;
@@ -51,17 +50,21 @@ public class CompiledFlowDefinition {
     @Schema(description = "Compiled trigger contract (sealed TriggerSource sub-type)")
     private TriggerSource trigger;
 
-    @Schema(description = "Compiled form bindings")
-    private List<FlowFormBinding> forms;
-
     @Schema(description = "Until when the initiator may withdraw an approval in progress; Never for any other flow")
     private WithdrawPolicy withdrawPolicy;
+
+    @Schema(description = "Whether the approvers may return the approval to the initiator, at any step; null = off")
+    private Boolean returnEnabled;
 
     @Schema(description = "Whether the initiator may urge the approvers; null = on")
     private Boolean urgeEnabled;
 
     @Schema(description = "How often, in minutes, each step an approval waits on may be urged; null = 240")
     private Integer urgeIntervalMinutes;
+
+    @Schema(description = "Hours after a step opens that its approvers still to act are reminded, then every as many "
+            + "hours, at most 3 times; null = no reminders")
+    private Integer remindAfterHours;
 
     @Schema(description = "Whether the approval's notices are also emailed; null = on")
     private Boolean emailNotification;

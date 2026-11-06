@@ -109,10 +109,6 @@ public interface FlowClient {
 
     FlowExecutionState delegate(FlowDelegateRequest request);
 
-    FlowExecutionState addSignBefore(FlowAddSignBeforeRequest request);
-
-    FlowExecutionState addSignAfter(FlowAddSignAfterRequest request);
-
     FlowExecutionState cc(FlowCcRequest request);
 
     FlowExecutionState readCc(FlowCcReadRequest request);

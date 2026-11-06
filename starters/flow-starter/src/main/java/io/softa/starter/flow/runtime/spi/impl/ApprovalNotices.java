@@ -108,7 +108,6 @@ final class ApprovalNotices {
         List<String> approvers = step.getApprovers() == null ? List.of() : step.getApprovers();
         return approvers.stream()
                 .filter(approver -> step.getApprovedActors() == null || !step.getApprovedActors().contains(approver))
-                .filter(approver -> step.getRejectedActors() == null || !step.getRejectedActors().contains(approver))
                 .toList();
     }
 

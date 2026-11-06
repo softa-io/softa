@@ -25,7 +25,8 @@ public class WithdrawPolicyGuard {
 
     /**
      * An approver acting: what ends a {@link WithdrawPolicy#BEFORE_FIRST_ACTION} window. An automatic
-     * approval ({@code AUTO_APPROVE}) is not one, nor is a CC, a read, an urge or a comment.
+     * approval ({@code AUTO_APPROVE}) is not one, nor is a CC, a read, an urge or a comment. {@code ADD_SIGN}
+     * is no longer recorded, but an approval still running may have it in its history from before.
      */
     private static final Set<ApprovalActionType> APPROVER_ACTIONS = EnumSet.of(ApprovalActionType.APPROVE,
             ApprovalActionType.REJECT, ApprovalActionType.RETURN, ApprovalActionType.TRANSFER,

@@ -2,7 +2,6 @@ package io.softa.starter.flow.compiler;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.api.CompileDiagnostic;
@@ -10,75 +9,86 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
+import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * An approval step's deadline and what happens at it: reminders belong to the Remind strategy, every count is
- * at least 1, and without a deadline the rest is ignored.
+ * Overdue reminders are an approval flow's setting, not a step's: {@code remindAfterHours} is at least 1 and belongs
+ * to Approval flows. A {@code timeout} a step was saved with before is ignored — it compiles, and decides nothing.
  */
 class ApprovalTimeoutCompileTest {
-
-    private static final Set<String> TIMEOUT_CODES = Set.of("INVALID_TIMEOUT_HOURS", "INVALID_REMIND_INTERVAL",
-            "INVALID_MAX_REMINDERS", "REMINDERS_OUTSIDE_REMIND", "MISSING_ESCALATE_TARGET");
 
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
 
     @Test
-    void remindersBelongToTheRemindStrategy() {
-        // Remind is the strategy when none is chosen.
-        assertFalse(has(Map.of("timeoutHours", 24, "remindIntervalHours", 4, "maxRemindTimes", 2), "REMINDERS_OUTSIDE_REMIND"));
-        assertFalse(has(Map.of("timeoutHours", 24, "timeoutStrategy", "Remind", "remindIntervalHours", 4),
-                "REMINDERS_OUTSIDE_REMIND"));
-        assertTrue(has(Map.of("timeoutHours", 24, "timeoutStrategy", "AutoApprove", "remindIntervalHours", 4),
-                "REMINDERS_OUTSIDE_REMIND"));
-        assertTrue(has(Map.of("timeoutHours", 24, "timeoutStrategy", "AutoReject", "maxRemindTimes", 2),
-                "REMINDERS_OUTSIDE_REMIND"));
+    void remindAfterHoursIsAtLeastOne() {
+        assertTrue(has(approval(0, Map.of()), "INVALID_REMIND_AFTER_HOURS"));
+        assertFalse(has(approval(24, Map.of()), "INVALID_REMIND_AFTER_HOURS"));
+        assertEquals(24, compiler.compile(approval(24, Map.of())).getRemindAfterHours());
     }
 
     @Test
-    void anIntervalAndAMostAreAtLeastOne() {
-        assertTrue(has(Map.of("timeoutHours", 24, "remindIntervalHours", 0), "INVALID_REMIND_INTERVAL"));
-        assertTrue(has(Map.of("timeoutHours", 24, "remindIntervalHours", 4, "maxRemindTimes", 0), "INVALID_MAX_REMINDERS"));
-        // Reminders come after the deadline, so an interval longer than the deadline is fine.
-        assertFalse(has(Map.of("timeoutHours", 4, "remindIntervalHours", 24), "INVALID_REMIND_INTERVAL"));
+    void remindAfterHoursBelongsToApprovalFlows() {
+        DesignFlowDefinition automation = DesignFlowDefinition.builder()
+                .name("Nightly")
+                .scenario(FlowScenario.AUTOMATION)
+                .trigger(new ApiTrigger(null))
+                .remindAfterHours(24)
+                .graph(graph(List.of()))
+                .build();
+
+        assertTrue(has(automation, "APPROVAL_SETTING_OUTSIDE_APPROVAL"));
     }
 
     @Test
-    void escalatingNeedsSomeoneToEscalateTo() {
-        assertTrue(has(Map.of("timeoutHours", 24, "timeoutStrategy", "Escalate"), "MISSING_ESCALATE_TARGET"));
+    void aTimeoutAStepWasSavedWithBeforeIsIgnored() {
+        DesignFlowDefinition saved = approval(null, Map.of("timeout",
+                Map.of("timeoutHours", 24, "timeoutStrategy", "AutoApprove", "escalateToUserId", "2009")));
+
+        List<CompileDiagnostic> diagnostics = compiler.validate(saved);
+        CompiledFlowDefinition compiled = compiler.compile(saved);
+
+        assertTrue(diagnostics.isEmpty(), diagnostics.toString());
+        assertEquals(null, compiled.getRemindAfterHours(), "a step's old deadline sets no reminder");
     }
 
-    @Test
-    void withoutADeadlineTheRestIsIgnored() {
-        List<CompileDiagnostic> diagnostics = compiler.validate(flow(Map.of("timeoutStrategy", "Escalate",
-                "remindIntervalHours", 0, "maxRemindTimes", 0)));
-        assertTrue(diagnostics.stream().noneMatch(d -> TIMEOUT_CODES.contains(d.code())), diagnostics.toString());
+    private boolean has(DesignFlowDefinition definition, String code) {
+        return compiler.validate(definition).stream().anyMatch(d -> code.equals(d.code()));
     }
 
-    private boolean has(Map<String, Object> timeout, String code) {
-        return compiler.validate(flow(timeout)).stream().anyMatch(d -> code.equals(d.code()));
-    }
-
-    private static DesignFlowDefinition flow(Map<String, Object> timeout) {
+    private static DesignFlowDefinition approval(Integer remindAfterHours, Map<String, Object> stepExtras) {
+        Map<String, Object> config = new java.util.LinkedHashMap<>(stepExtras);
+        config.put("approverSource", Map.of("type", "Users", "userIds", List.of("manager")));
         return DesignFlowDefinition.builder()
                 .name("Timeouts")
                 .scenario(FlowScenario.APPROVAL)
                 .trigger(new SubmitTrigger("LeaveRequest"))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),
-                                FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                                        .config(Map.of("approvers", List.of("manager"), "timeout", timeout)).build(),
-                                FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build()))
-                        .edges(List.of(
-                                FlowGraphEdge.builder().id("e1").source("start").target("approval").build(),
-                                FlowGraphEdge.builder().id("e2").source("approval").target("end").build()))
-                        .build())
+                .remindAfterHours(remindAfterHours)
+                .graph(graph(List.of(FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL)
+                        .label("Manager").config(config).build())))
                 .build();
+    }
+
+    /** start → {@code middle} → end. */
+    private static FlowGraphDocument graph(List<FlowGraphNode> middle) {
+        List<FlowGraphNode> nodes = new java.util.ArrayList<>();
+        List<FlowGraphEdge> edges = new java.util.ArrayList<>();
+        nodes.add(FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build());
+        String previous = "start";
+        for (FlowGraphNode node : middle) {
+            nodes.add(node);
+            edges.add(FlowGraphEdge.builder().id("to-" + node.getId()).source(previous).target(node.getId()).build());
+            previous = node.getId();
+        }
+        nodes.add(FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build());
+        edges.add(FlowGraphEdge.builder().id("to-end").source(previous).target("end").build());
+        return FlowGraphDocument.builder().nodes(nodes).edges(edges).build();
     }
 }

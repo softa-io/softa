@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
@@ -15,17 +14,14 @@ import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
-import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
 import io.softa.starter.flow.runtime.StubFlowInstanceStore;
-import io.softa.starter.flow.runtime.TestActorAccounts;
 import io.softa.starter.flow.runtime.TestFlowRuntimeFactory;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
-import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
@@ -34,11 +30,13 @@ import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A step under the Remind strategy is reminded only once past its deadline: at the deadline, then once per
- * interval up to the most — never once per sweep — and with no interval, once.
+ * An approval flow's {@code remindAfterHours} makes each step due that many hours after it opens: its approvers still
+ * to act are reminded then, and again every as many hours, three times at most. A reminder is all that happens —
+ * the step goes on waiting for its approvers.
  */
 class ApprovalTimeoutSchedulerTest {
 
@@ -61,31 +59,60 @@ class ApprovalTimeoutSchedulerTest {
             instanceStore, new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
             approvalHandler, notifications);
 
-    private final ApprovalTimeoutScheduler scheduler = new ApprovalTimeoutScheduler(instanceStore, bundleRegistry, engine,
-            notifications, new PendingApprovalFactory(new ApproverResolutionService(),
-                    new ApprovalAuditReader(new NoopApprovalActionLedger())));
+    private final ApprovalTimeoutScheduler scheduler =
+            new ApprovalTimeoutScheduler(instanceStore, bundleRegistry, notifications);
 
     @Test
-    void aStepPastItsDeadlineIsRemindedThenOncePerIntervalUpToTheMost() {
-        PendingApproval step = startPastDeadline(Map.of("timeoutHours", 24, "remindIntervalHours", 4, "maxRemindTimes", 2));
+    void aStepIsDueItsFlowsHoursAfterItOpens() {
+        LocalDateTime before = LocalDateTime.now();
 
-        scheduler.handleTimedOutTasks();
-        scheduler.handleTimedOutTasks();
-        assertEquals(1, reminders.size(), "a sweep within the interval reminds nobody again");
-        assertEquals(List.of(APPROVER), reminders.getFirst().pendingApproval().getApprovers());
+        PendingApproval step = stepOf(start(24));
 
-        step.setLastRemindTime(step.getLastRemindTime().minusHours(4));
-        scheduler.handleTimedOutTasks();
-        assertEquals(2, reminders.size());
-
-        step.setLastRemindTime(step.getLastRemindTime().minusHours(4));
-        scheduler.handleTimedOutTasks();
-        assertEquals(2, reminders.size(), "two reminders at most");
+        assertFalse(step.getDueTime().isBefore(before.plusHours(24)));
+        assertTrue(step.getDueTime().isBefore(LocalDateTime.now().plusHours(24).plusMinutes(1)));
     }
 
     @Test
-    void withNoIntervalAStepPastItsDeadlineIsRemindedOnce() {
-        PendingApproval step = startPastDeadline(Map.of("timeoutHours", 24));
+    void withoutTheSettingAStepIsNeverDue() {
+        assertNull(stepOf(start(null)).getDueTime());
+    }
+
+    @Test
+    void aDueStepIsRemindedThenOncePerIntervalThreeTimesAtMost() {
+        FlowExecutionState state = start(4);
+        PendingApproval step = stepOf(state);
+        step.setDueTime(LocalDateTime.now().minusMinutes(1));
+
+        scheduler.handleTimedOutTasks();
+        scheduler.handleTimedOutTasks();
+        assertEquals(1, reminders.size(), "a run within the interval reminds nobody again");
+        assertEquals(List.of(APPROVER), reminders.getFirst().pendingApproval().getApprovers());
+
+        for (int sent = 2; sent <= 4; sent++) {
+            step.setLastRemindTime(step.getLastRemindTime().minusHours(4));
+            scheduler.handleTimedOutTasks();
+        }
+
+        assertEquals(3, reminders.size(), "three reminders at most");
+        assertEquals(FlowExecutionStatus.WAITING, state.getStatus(), "a reminder decides nothing");
+        assertEquals(List.of(APPROVER), stepOf(state).getApprovers());
+    }
+
+    @Test
+    void aStepNotYetDueIsNotReminded() {
+        start(24);
+
+        scheduler.handleTimedOutTasks();
+
+        assertTrue(reminders.isEmpty());
+    }
+
+    @Test
+    void aStepDueByASettingItsRevisionNoLongerHasIsRemindedOnce() {
+        // A step opened under a step-level timeout the engine no longer reads: due, with no interval to repeat by.
+        FlowExecutionState state = start(null);
+        PendingApproval step = stepOf(state);
+        step.setDueTime(LocalDateTime.now().minusMinutes(1));
 
         scheduler.handleTimedOutTasks();
         step.setLastRemindTime(step.getLastRemindTime().minusDays(2));
@@ -95,74 +122,33 @@ class ApprovalTimeoutSchedulerTest {
     }
 
     @Test
-    void aStepBeforeItsDeadlineIsNotReminded() {
-        start(Map.of("timeoutHours", 24, "remindIntervalHours", 4));
-
-        scheduler.handleTimedOutTasks();
-
-        assertTrue(reminders.isEmpty());
-    }
-
-    @Test
-    void anEscalationToSomeoneWhoCannotActRemindsInstead() {
-        // The user the step escalates to has a frozen account.
-        ReflectionTestUtils.setField(scheduler, "actorAccounts", TestActorAccounts.of(Map.of(2009L, "Frozen"), Map.of()));
-        PendingApproval step = startPastDeadline(Map.of("timeoutHours", 24, "timeoutStrategy", "Escalate",
-                "escalateToUserId", "2009"));
-
-        scheduler.handleTimedOutTasks();
-
-        assertEquals(List.of(APPROVER), step.getApprovers(), "the step stays with its approver");
-        assertEquals(1, reminders.size(), "who is reminded instead");
-    }
-
-    @Test
-    void anEscalationLeavesOneApproverWhoseVoteDecidesTheStep() {
-        ReflectionTestUtils.setField(scheduler, "actorAccounts", TestActorAccounts.of(Map.of(), Map.of()));
-        FlowExecutionState state = start(Map.of("timeoutHours", 24, "timeoutStrategy", "Escalate",
-                "escalateToUserId", "2009"));
-        PendingApproval step = instanceStore.get(state.getInstanceId()).orElseThrow().getPendingApprovals().getFirst();
-        step.setDueTime(LocalDateTime.now().minusMinutes(1));
-        // A step that needed two rejections, from the approvers it had before.
-        step.setRequiredRejectCount(2);
-
-        scheduler.handleTimedOutTasks();
-
-        PendingApproval escalated = instanceStore.get(state.getInstanceId()).orElseThrow().getPendingApprovals().getFirst();
-        assertEquals(List.of("2009"), escalated.getApprovers());
-        assertEquals(1, escalated.getRequiredApprovalCount());
-        assertEquals(1, escalated.getRequiredRejectCount(), "the one approver left rejects it alone");
-    }
-
-    @Test
-    void anIntervalWithoutAMostRemindsThreeTimes() {
-        ApprovalTimeoutConfig config = ApprovalTimeoutConfig.builder().timeoutHours(24).remindIntervalHours(1).build();
+    void remindsNowFollowsTheIntervalAndTheMost() {
         LocalDateTime now = LocalDateTime.now();
 
-        assertTrue(ApprovalTimeoutScheduler.remindsNow(
-                PendingApproval.builder().remindCount(2).lastRemindTime(now.minusHours(1)).build(), config, now));
+        assertTrue(ApprovalTimeoutScheduler.remindsNow(PendingApproval.builder().remindCount(0).build(), 4, now));
         assertFalse(ApprovalTimeoutScheduler.remindsNow(
-                PendingApproval.builder().remindCount(3).lastRemindTime(now.minusHours(1)).build(), config, now));
+                PendingApproval.builder().remindCount(1).lastRemindTime(now.minusHours(3)).build(), 4, now));
+        assertTrue(ApprovalTimeoutScheduler.remindsNow(
+                PendingApproval.builder().remindCount(2).lastRemindTime(now.minusHours(4)).build(), 4, now));
+        assertFalse(ApprovalTimeoutScheduler.remindsNow(
+                PendingApproval.builder().remindCount(3).lastRemindTime(now.minusHours(4)).build(), 4, now));
     }
 
-    /** The approval's only step, as the instance store holds it, past its deadline. */
-    private PendingApproval startPastDeadline(Map<String, Object> timeout) {
-        FlowExecutionState state = start(timeout);
-        PendingApproval step = instanceStore.get(state.getInstanceId()).orElseThrow().getPendingApprovals().getFirst();
-        step.setDueTime(LocalDateTime.now().minusMinutes(1));
-        return step;
+    /** The approval's only step, as the instance store holds it. */
+    private PendingApproval stepOf(FlowExecutionState started) {
+        return instanceStore.get(started.getInstanceId()).orElseThrow().getPendingApprovals().getFirst();
     }
 
-    private FlowExecutionState start(Map<String, Object> timeout) {
+    private FlowExecutionState start(Integer remindAfterHours) {
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Timeout Scenarios")
                 .scenario(FlowScenario.APPROVAL)
                 .trigger(new SubmitTrigger("LeaveRequest"))
+                .remindAfterHours(remindAfterHours)
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START, null),
-                                node("approval", FlowNodeType.APPROVAL,
-                                        Map.of("approvers", List.of(APPROVER), "timeout", timeout)),
+                                node("approval", FlowNodeType.APPROVAL, Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(APPROVER)))),
                                 node("end", FlowNodeType.END, null)))
                         .edges(List.of(edge("e1", "start", "approval"), edge("e2", "approval", "end")))
                         .build())
@@ -172,7 +158,7 @@ class ApprovalTimeoutSchedulerTest {
         start.setInitiatorId("initiator-1");
         FlowExecutionState state = engine.start(start);
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
-        return state;
+        return instanceStore.get(state.getInstanceId()).orElseThrow();
     }
 
     private static FlowGraphNode node(String id, FlowNodeType type, Map<String, Object> config) {

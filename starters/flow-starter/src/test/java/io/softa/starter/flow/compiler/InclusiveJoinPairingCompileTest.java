@@ -167,7 +167,7 @@ class InclusiveJoinPairingCompileTest {
 
     private static FlowGraphNode approval(String id) {
         return FlowGraphNode.builder().id(id).type(FlowNodeType.APPROVAL).label(id)
-                .config(Map.of("approvers", List.of("2001"))).build();
+                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001")))).build();
     }
 
     private static FlowGraphEdge edge(String id, String source, String target) {

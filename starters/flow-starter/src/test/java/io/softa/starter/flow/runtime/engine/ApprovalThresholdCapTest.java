@@ -13,9 +13,9 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * A step's thresholds always let its vote decide it: no more approvals than it has approvers, and no more rejections
- * than a split vote can reach. Before, a "two of them" step whose second approver had left asked for two from one
- * person, and a step needing two approvals or two rejections out of two people waited for ever on one of each.
+ * A step's approval threshold always lets its vote decide it: no more approvals than it has approvers. Before, a "two
+ * of them" step whose second approver had left asked for two from one person. A rejection needs no threshold: one
+ * approver's rejection rejects the approval.
  */
 class ApprovalThresholdCapTest {
 
@@ -36,53 +36,25 @@ class ApprovalThresholdCapTest {
     }
 
     @Test
-    void aSplitVoteAlwaysDecidesTheStep() {
-        // Two approvals or two rejections, out of A, B and C.
-        CompiledFlowNode node = step(ApprovalNodeConfig.builder()
-                .approvalMode(VoteThresholdMode.MIN_COUNT).minCount(2)
-                .rejectMode(VoteThresholdMode.MIN_COUNT).rejectMinCount(2).build());
-
-        // All three there: one side or the other reaches two.
-        assertEquals(2, resolution.resolveRequiredRejectCount(node, List.of("A", "B", "C")));
-        // C dropped: A approves, B rejects — one rejection has to decide it.
-        assertEquals(2, resolution.resolveRequiredApprovalCount(node, List.of("A", "B")));
-        assertEquals(1, resolution.resolveRequiredRejectCount(node, List.of("A", "B")));
-    }
-
-    @Test
-    void aStepEveryoneMustApproveIsRejectedByAnyOne() {
-        CompiledFlowNode node = step(ApprovalNodeConfig.builder()
-                .approvalMode(VoteThresholdMode.UNANIMOUS).rejectMode(VoteThresholdMode.UNANIMOUS).build());
+    void aStepEveryoneMustApproveCountsEveryone() {
+        CompiledFlowNode node = step(ApprovalNodeConfig.builder().approvalMode(VoteThresholdMode.UNANIMOUS).build());
 
         assertEquals(3, resolution.resolveRequiredApprovalCount(node, List.of("A", "B", "C")));
-        assertEquals(1, resolution.resolveRequiredRejectCount(node, List.of("A", "B", "C")));
     }
 
     @Test
-    void anyOneApprovingAndEveryoneRejectingStaysAsConfigured() {
-        CompiledFlowNode node = step(ApprovalNodeConfig.builder()
-                .approvalMode(VoteThresholdMode.ANY_ONE).rejectMode(VoteThresholdMode.UNANIMOUS).build());
-
-        assertEquals(1, resolution.resolveRequiredApprovalCount(node, List.of("A", "B", "C")));
-        assertEquals(3, resolution.resolveRequiredRejectCount(node, List.of("A", "B", "C")));
-    }
-
-    @Test
-    void mergingTwoApproversCapsBothThresholds() {
+    void mergingTwoApproversCapsTheApprovalsTheStepNeeds() {
         PendingApproval pending = PendingApproval.builder()
                 .approvers(new ArrayList<>(List.of("A", "B", "C")))
                 .totalApproverCount(3)
-                .requiredApprovalCount(2)
-                .requiredRejectCount(2)
+                .requiredApprovalCount(3)
                 .approvedActors(new ArrayList<>())
-                .rejectedActors(new ArrayList<>())
                 .build();
 
         // C's place goes to B, already an approver of the step: two people left.
-        new ApprovalLifecycleService(null).mergeApprover(pending, "C", "B");
+        new ApprovalLifecycleService().mergeApprover(pending, "C", "B");
 
         assertEquals(List.of("A", "B"), pending.getApprovers());
         assertEquals(2, pending.getRequiredApprovalCount());
-        assertEquals(1, pending.getRequiredRejectCount());
     }
 }

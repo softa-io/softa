@@ -157,18 +157,6 @@ public class InProcessFlowClient implements FlowClient {
     }
 
     @Override
-    public FlowExecutionState addSignBefore(FlowAddSignBeforeRequest r) {
-        r.setActorId(currentUserId());
-        return engine.addSignBefore(r);
-    }
-
-    @Override
-    public FlowExecutionState addSignAfter(FlowAddSignAfterRequest r) {
-        r.setActorId(currentUserId());
-        return engine.addSignAfter(r);
-    }
-
-    @Override
     public FlowExecutionState cc(FlowCcRequest r) {
         r.setActorId(currentUserId());
         return engine.cc(r);

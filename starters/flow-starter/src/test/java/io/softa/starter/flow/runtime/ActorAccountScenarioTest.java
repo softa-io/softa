@@ -86,8 +86,6 @@ class ActorAccountScenarioTest {
         List<Function<String, FlowExecutionState>> actions = List.of(
                 target -> engine.transfer(targeted(new FlowTransferRequest(), instanceId, target)),
                 target -> engine.delegate(targeted(new FlowDelegateRequest(), instanceId, target)),
-                target -> engine.addSignBefore(targeted(new FlowAddSignBeforeRequest(), instanceId, target)),
-                target -> engine.addSignAfter(targeted(new FlowAddSignAfterRequest(), instanceId, target)),
                 target -> {
                     FlowReassignRequest reassign = targeted(new FlowReassignRequest(), instanceId, target);
                     reassign.setOperatorId("admin-1");
@@ -137,14 +135,14 @@ class ActorAccountScenarioTest {
     /** Starts an approval: Manager approval names {@code approvers}, the flow CCs {@code ccRecipients} on submit. */
     private FlowExecutionState start(List<String> approvers, String emptyApproverStrategy, List<String> ccRecipients) {
         Map<String, Object> config = new HashMap<>();
-        config.put("approvers", approvers);
+        config.put("approverSource", Map.of("type", "Users", "userIds", approvers));
         config.put("emptyApproverStrategy", emptyApproverStrategy);
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Leave")
                 .scenario(FlowScenario.APPROVAL)
                 .trigger(new SubmitTrigger("LeaveRequest"))
                 .cc(ccRecipients.isEmpty() ? null : List.of(FlowCcRule.builder()
-                        .timing(CcTiming.ON_SUBMIT).recipients(ccRecipients).build()))
+                        .timing(CcTiming.ON_SUBMIT).recipientSource(Map.of("type", "Users", "userIds", ccRecipients)).build()))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),

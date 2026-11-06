@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ApprovalNodeDescriptorValuesTest {
 
-    private static final List<String> ENUM_FIELDS = List.of("emptyApproverStrategy", "approvalMode", "rejectMode");
+    private static final List<String> ENUM_FIELDS = List.of("emptyApproverStrategy", "approvalMode");
 
     @Test
     void everyOfferedOptionAndDefaultIsReadable() {
@@ -35,12 +35,34 @@ class ApprovalNodeDescriptorValuesTest {
     @Test
     void everyDependencyNamesAnOfferedOption() {
         Map<String, Object> schema = approvalSchema();
-        for (String field : List.of("minCount", "percentage", "rejectMinCount", "rejectPercentage")) {
+        for (String field : List.of("minCount", "percentage")) {
             Map<?, ?> depends = (Map<?, ?>) property(schema, field).get("depends");
             depends.forEach((on, value) -> assertTrue(
                     ((List<?>) property(schema, (String) on).get("options")).contains(value),
                     field + " depends on " + on + " = " + value + ", which " + on + " does not offer"));
         }
+    }
+
+    /**
+     * Who approves is one choice — specific people first, then the sources that find them — and a new step starts on
+     * specific people; there is no separate list of named approvers.
+     */
+    @Test
+    void approversAreOneSelectStartingOnSpecificPeople() {
+        Map<String, Object> schema = approvalSchema();
+        assertFalse(schema.containsKey("approvers"));
+        Map<?, ?> first = (Map<?, ?>) ((List<?>) property(schema, "approverSource").get("options")).getFirst();
+        assertEquals("Users", first.get("type"));
+        assertEquals("Specific people", first.get("label"));
+        assertEquals(Map.of("type", "userPicker", "label", "People", "multiple", true, "required", true),
+                ((Map<?, ?>) first.get("fields")).get("userIds"));
+
+        Map<String, Object> defaults = new BuiltinNodeDescriptorProvider().getDescriptors().stream()
+                .filter(descriptor -> descriptor.type() == FlowNodeType.APPROVAL)
+                .findFirst().orElseThrow()
+                .defaultConfig();
+        assertEquals(Map.of("approverSource", Map.of("type", "Users")), defaults);
+        assertReadable("approverSource", defaults.get("approverSource"));
     }
 
     private static void assertReadable(String field, Object value) {

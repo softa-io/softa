@@ -3,13 +3,13 @@ package io.softa.starter.flow.service;
 import java.util.Map;
 
 import io.softa.starter.flow.dto.FlowApprovalPreview;
+import io.softa.starter.flow.dto.FlowDesignPreview;
 import io.softa.starter.flow.runtime.engine.FlowLaunchResponse;
-import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.PublishAndStartRequest;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
- * Launch facade: the editor's publish-and-start and debug runs, and the submission (and
+ * Launch facade: the editor's publish-and-start and the test run of a draft, and the submission (and
  * withdrawal) of business records for approval, with its preview.
  */
 public interface FlowLaunchService {
@@ -17,13 +17,23 @@ public interface FlowLaunchService {
     FlowLaunchResponse publishAndStart(PublishAndStartRequest request);
 
     /**
-     * Editor test-run of the CURRENT draft canvas: compiles the saved draft
-     * (compile errors surface as diagnostics), registers a debug bundle
-     * (never active, hidden from revision lists, purged after retention),
-     * and executes it through the normal engine. NOT a sandbox — node side
-     * effects (record writes, notifications) are real.
+     * The editor's test run of an approval flow: what submitting a request with {@code values} as
+     * {@code submitterId} would do under the flow's saved draft — whether the draft's submit condition holds for
+     * it, and the route it would take with each step's approvers, worked out as {@link #previewValues} works out a
+     * published flow's. The request is the values alone, never saved; the employee it is about is the submitter's
+     * own when they name none. Its handler works out the submission, but its checks are not run: a test run tries
+     * the flow, not whether this request may be submitted now. Nothing is started, written or sent. A request that
+     * names no employee, or a model with no approval handler, is reported, not thrown.
+     *
+     * @param flowId      the flow whose saved draft is tried
+     * @param submitterId the user who would submit the request
+     * @param values      the request's field values, in the form they are stored (ids, codes)
+     * @return the preview, users named
+     * @throws io.softa.starter.flow.api.FlowCompileException when the draft does not compile, with its diagnostics
+     * @throws io.softa.starter.flow.runtime.exception.FlowActionValidationException when the flow is not an
+     *         approval flow
      */
-    FlowLaunchResponse debugRunDraft(String flowId, FlowStartRequest request);
+    FlowDesignPreview previewDraft(String flowId, String submitterId, Map<String, Object> values);
 
     /**
      * Submits a business record for approval, in the caller's transaction: the submitter must reach the

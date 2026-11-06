@@ -18,8 +18,8 @@ public enum WithdrawPolicy {
     NEVER("Never"),
 
     /**
-     * Until an approver first acts on it: approves, rejects, returns, transfers, delegates or adds a signer
-     * at any of its steps. An automatic approval — the submitter's own, a repeated approver's, a step
+     * Until an approver first acts on it: approves, rejects, returns, transfers or delegates at any of
+     * its steps. An automatic approval — the submitter's own, a repeated approver's, a step
      * nobody resolved to — is not an approver acting.
      */
     BEFORE_FIRST_ACTION("BeforeFirstAction"),

@@ -35,7 +35,7 @@ class ScenarioRulesCompileTest {
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
 
     private static final FlowGraphNode APPROVAL = FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL)
-            .label("Manager").config(Map.of("approvers", List.of("manager"))).build();
+            .label("Manager").config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("manager")))).build();
     private static final FlowGraphNode TIMER = FlowGraphNode.builder().id("timer").type(FlowNodeType.TIMER)
             .label("Wait").config(Map.of("durationSeconds", 3600L)).build();
 
@@ -86,9 +86,11 @@ class ScenarioRulesCompileTest {
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
         assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).urgeIntervalMinutes(60).build(),
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
-        assertFalse(has(builder(FlowScenario.APPROVAL, submit()).withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
-                .urgeEnabled(false).urgeIntervalMinutes(60).approverDedup(ApproverDedupStrategy.GLOBAL).build(),
+        assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).returnEnabled(true).build(),
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
+        assertFalse(has(builder(FlowScenario.APPROVAL, submit()).withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
+                .returnEnabled(true).urgeEnabled(false).urgeIntervalMinutes(60).approverDedup(ApproverDedupStrategy.GLOBAL)
+                .build(), "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
     }
 
     @Test
@@ -99,17 +101,21 @@ class ScenarioRulesCompileTest {
     }
 
     @Test
-    void ccRulesBelongToApprovalFlowsAndNameTheirRecipientsOneWay() {
-        FlowCcRule named = FlowCcRule.builder().timing(CcTiming.ON_APPROVED).recipients(List.of("u-1")).build();
+    void ccRulesBelongToApprovalFlowsAndNameTheirRecipients() {
+        FlowCcRule named = FlowCcRule.builder().timing(CcTiming.ON_APPROVED)
+                .recipientSource(Map.of("type", "Users", "userIds", List.of("u-1"))).build();
         assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).cc(List.of(named)).build(),
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
         assertFalse(has(builder(FlowScenario.APPROVAL, submit()).cc(List.of(named)).build(), "INVALID_CC_RULE", null));
+        FlowCcRule found = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT).recipientSource(Map.of("type", "Supervisor")).build();
+        assertFalse(has(builder(FlowScenario.APPROVAL, submit()).cc(List.of(found)).build(), "INVALID_CC_RULE", null));
 
-        FlowCcRule whenless = FlowCcRule.builder().recipients(List.of("u-1")).build();
+        FlowCcRule whenless = FlowCcRule.builder().recipientSource(Map.of("type", "Users", "userIds", List.of("u-1"))).build();
         FlowCcRule nobody = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT).build();
-        FlowCcRule both = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT).recipients(List.of("u-1"))
-                .recipientSource(Map.of("type", "Supervisor")).build();
-        for (FlowCcRule invalid : List.of(whenless, nobody, both)) {
+        FlowCcRule nobodyNamed = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT)
+                .recipientSource(Map.of("type", "Users", "userIds", List.of(" "))).build();
+        FlowCcRule typeless = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT).recipientSource(Map.of("level", 1)).build();
+        for (FlowCcRule invalid : List.of(whenless, nobody, nobodyNamed, typeless)) {
             assertTrue(has(builder(FlowScenario.APPROVAL, submit()).cc(List.of(invalid)).build(), "INVALID_CC_RULE", null));
         }
     }
@@ -119,6 +125,14 @@ class ScenarioRulesCompileTest {
         assertTrue(has(builder(FlowScenario.APPROVAL, submit()).sync(true).build(), "SYNC_OUTSIDE_AUTOMATION", null));
         assertFalse(has(builder(FlowScenario.AUTOMATION, change()).sync(true).build(), "SYNC_OUTSIDE_AUTOMATION", null));
         assertTrue(has(builder(FlowScenario.AUTOMATION, change(), TIMER).sync(true).build(), "SYNC_FLOW_WAITS", "timer"));
+    }
+
+    @Test
+    void aFlowWithASubflowTriggerRunsInOneGoAndCannotWait() {
+        assertTrue(has(builder(FlowScenario.AUTOMATION, new SubflowTrigger(), TIMER).build(), "SUBFLOW_WAITS", "timer"));
+        assertFalse(has(builder(FlowScenario.AUTOMATION, new SubflowTrigger()).build(), "SUBFLOW_WAITS", null));
+        // Started another way, an Automation flow may wait.
+        assertFalse(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null), TIMER).build(), "SUBFLOW_WAITS", null));
     }
 
     private boolean has(DesignFlowDefinition definition, String code, String nodeId) {
