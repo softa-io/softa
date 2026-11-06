@@ -139,7 +139,7 @@ class InProcessFlowClientContractTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(ACTOR))))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(ACTOR)))))
                                         .build(),
                                 node("end", FlowNodeType.END)))
                         .edges(List.of(

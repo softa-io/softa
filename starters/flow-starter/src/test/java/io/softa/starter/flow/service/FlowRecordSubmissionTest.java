@@ -184,7 +184,7 @@ class FlowRecordSubmissionTest {
         DesignFlowDefinition design = approvalFlow("Annual leave", List.of(MANAGER));
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                .config(Map.of("approverSource", Map.of("type", "Supervisor")))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor"))))
                 .build());
         publishService.publish("annual", design);
 
@@ -588,7 +588,7 @@ class FlowRecordSubmissionTest {
         DesignFlowDefinition design = approvalFlow("Annual leave", List.of(SUBMITTER, MANAGER));
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER)), "approvalMode", "Unanimous"))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER))), "approvalMode", "Unanimous"))
                 .build());
         publishService.publish("annual", design);
 
@@ -604,7 +604,7 @@ class FlowRecordSubmissionTest {
         // No organization service here, so the supervisor source resolves to nobody (strategy Error).
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Supervisor")
-                .config(Map.of("approverSource", Map.of("type", "Supervisor", "level", 1)))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor", "level", 1))))
                 .build());
         publishService.publish("supervisor", design);
 
@@ -670,7 +670,7 @@ class FlowRecordSubmissionTest {
         } else {
             nodes.add(FlowGraphNode.builder()
                     .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                    .config(Map.of("approverSource", Map.of("type", "Users", "userIds", approvers)))
+                    .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", approvers))))
                     .build());
             edges.add(edge("e1", "start", "approval"));
             edges.add(edge("e2", "approval", "end"));

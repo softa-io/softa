@@ -78,7 +78,7 @@ class RejectionScenarioTest {
 
     private FlowExecutionState start(Map<String, Object> votes) {
         Map<String, Object> config = new java.util.LinkedHashMap<>(votes);
-        config.put("approverSource", Map.of("type", "Users", "userIds", APPROVERS));
+        config.put("approverSources", List.of(Map.of("type", "Users", "userIds", APPROVERS)));
         publishService.publish("rejections", DesignFlowDefinition.builder()
                 .name("Rejections")
                 .scenario(FlowScenario.APPROVAL)

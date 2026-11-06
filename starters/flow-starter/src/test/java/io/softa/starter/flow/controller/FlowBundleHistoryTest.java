@@ -108,7 +108,7 @@ class FlowBundleHistoryTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),
                                 FlowGraphNode.builder().id("manager").type(FlowNodeType.APPROVAL).label("Manager")
-                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001")))).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001"))))).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build()))
                         .edges(List.of(
                                 FlowGraphEdge.builder().id("e1").source("start").target("manager").build(),

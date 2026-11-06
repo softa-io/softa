@@ -177,7 +177,7 @@ class BranchesMeetingRuntimeGuardTest {
     /** An approval step whose one approver is {@code <id>-approver}. */
     private static FlowGraphNode approval(String id) {
         return FlowGraphNode.builder().id(id).type(FlowNodeType.APPROVAL).label(id)
-                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(id + "-approver")))).build();
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(id + "-approver"))))).build();
     }
 
     private static FlowGraphEdge edge(String id, String source, String target) {

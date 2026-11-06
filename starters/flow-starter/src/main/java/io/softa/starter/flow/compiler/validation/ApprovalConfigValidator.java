@@ -14,9 +14,10 @@ import io.softa.starter.flow.enums.*;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 
 /**
- * Validates approval node configs: mode parsing, approver constraints and deadlock detection. A step has no timeout
- * of its own (its flow's {@code remindAfterHours} reminds its approvers), nor a return switch (its flow's
- * {@code returnEnabled} says whether its approvers may return the approval).
+ * Validates approval node configs: their groups of approvers, the approval mode counting over them, the roles a step
+ * that finds nobody goes to, and the field permissions. A step has no timeout of its own (its flow's
+ * {@code remindAfterHours} reminds its approvers), nor a return switch (its flow's {@code returnEnabled} says whether
+ * its approvers may return the approval).
  */
 public class ApprovalConfigValidator implements FlowValidator {
 
@@ -39,8 +40,8 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String UNREADABLE_CONFIG            = "UNREADABLE_CONFIG";
     private static final String MISSING_FIELD_PERMISSION     = "MISSING_FIELD_PERMISSION";
     private static final String FORM_PERMISSIONS             = "formPermissions";
-    /** Where a step's specific people are: its {@code Users} source's user ids. */
-    private static final String USER_IDS_FIELD               = "config.approverSource." + ApproverSourceType.USER_IDS;
+    /** Where a step's groups of approvers are; a group's own fields are under its index ({@link #groupField}). */
+    private static final String SOURCES_FIELD                = "config.approverSources";
 
     /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["approvalMode"]}. */
     private static final Pattern READ_REFERENCE = Pattern.compile("\\[\"([^\"]+)\"]");
@@ -61,9 +62,8 @@ public class ApprovalConfigValidator implements FlowValidator {
             if (cfg == null) {
                 continue;
             }
-            validateApproverSource(node.getId(), node.displayName(), cfg, d);
+            validateApprovers(node.getId(), node.displayName(), cfg, d);
             validateEmptyApproverRoles(node.getId(), node.displayName(), cfg, d);
-            validateVoteThresholds(node.getId(), node.displayName(), cfg, d);
         }
     }
 
@@ -125,9 +125,13 @@ public class ApprovalConfigValidator implements FlowValidator {
         }
     }
 
-    /** {@code AssignToRole} hands a step that finds nobody to roles: it names at least one, by id or by code. */
+    /**
+     * {@code AssignToRole} hands a step that finds nobody to roles: it names at least one, by id or by code. Judged only
+     * where the strategy applies — a step that only names its people stops whatever it holds.
+     */
     private void validateEmptyApproverRoles(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
-        if (EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(cfg.getEmptyApproverStrategy())
+        if (cfg.findsApproversByRule()
+                && EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(cfg.getEmptyApproverStrategy())
                 && isEmptyCollection(cfg.getEmptyApproverRoleIds()) && isEmptyCollection(cfg.getEmptyApproverRoleCodes())) {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.emptyApproverRoleIds",
                     MISSING_EMPTY_APPROVER_ROLES, "Approval node '" + name + "' hands a step that finds nobody to "
@@ -135,26 +139,87 @@ public class ApprovalConfigValidator implements FlowValidator {
         }
     }
 
-    // ── Approver source ─────────────────────────────────────────────────────
+    // ── Approvers ───────────────────────────────────────────────────────────
 
-    private void validateApproverSource(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
-        Map<String, Object> source = cfg.getApproverSource();
-        if (source == null) {
+    /**
+     * A step's groups of approvers, and the approval mode counting over the pool they make. A step names who approves
+     * it — at least one group, each specific people or a source that finds them. A step or a group that names nobody
+     * finds nobody on every run — under the default strategy every submission is refused (zingkey-hcm#2450) — so it
+     * is not published; the vote thresholds have nothing to count then, and are not judged.
+     */
+    private void validateApprovers(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
+        List<Map<String, Object>> groups = cfg.getApproverSources() == null ? List.of() : cfg.getApproverSources();
+        if (groups.isEmpty()) {
+            d.add(missingApprovers(nodeId, "Approval node '" + name + "'", SOURCES_FIELD));
             return;
         }
-        Object typeObj = source.get("type");
-        if (typeObj == null) {
-            return;
+        Set<String> named = new LinkedHashSet<>();
+        boolean dynamic = false;
+        boolean complete = true;
+        for (int i = 0; i < groups.size(); i++) {
+            Map<String, Object> group = groups.get(i) == null ? Map.of() : groups.get(i);
+            // A message names the group only when the step has several.
+            String who = "Approval node '" + name + "'" + (groups.size() > 1 ? " group " + (i + 1) : "");
+            Object type = group.get("type");
+            if (type == null || !StringUtils.hasText(type.toString())) {
+                d.add(missingApprovers(nodeId, who, groupField(i, null)));
+                complete = false;
+            } else if (ApproverSourceType.USERS.getType().equals(type)) {
+                List<String> people = validateNamedUsers(nodeId, who, i, group, d);
+                complete &= !people.isEmpty();
+                named.addAll(people);
+            } else {
+                dynamic = true;
+                validateSource(nodeId, who, i, type.toString(), group, d);
+            }
         }
-        String type = typeObj.toString();
+        // The mode is judged only where it applies: a step with one approver at most passes on that one's approval.
+        if (complete && cfg.mayHaveSeveralApprovers()) {
+            // A rejection has no threshold: one approver's rejection rejects the approval, so only the approvals are
+            // counted. Only specific people can be counted before the step is reached.
+            VoteThresholdMode approvalMode = cfg.getApprovalMode() != null ? cfg.getApprovalMode() : VoteThresholdMode.ANY_ONE;
+            validateApprovalMode(nodeId, name, approvalMode, List.copyOf(named), dynamic,
+                    cfg.getMinCount(), cfg.getPercentage(), d);
+        }
+    }
 
-        // Validate the type is a known ApproverSourceType
+    /** Where group {@code index}'s {@code field} is — the group itself when {@code field} is null. */
+    private static String groupField(int index, String field) {
+        return SOURCES_FIELD + "." + index + (field == null ? "" : "." + field);
+    }
+
+    private static CompileDiagnostic missingApprovers(String nodeId, String who, String field) {
+        return CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, field, MISSING_APPROVERS,
+                who + " names no approver: pick people, or a source that finds them (a supervisor, a role, ...).");
+    }
+
+    /** A {@code Users} group's people, blanks left out; each named once, and at least one. */
+    private static List<String> validateNamedUsers(String nodeId, String who, int index, Map<String, Object> group,
+                                                   List<CompileDiagnostic> d) {
+        String field = groupField(index, ApproverSourceType.USER_IDS);
+        List<String> written = userIdsAsWritten(group);
+        List<String> people = written.stream().filter(StringUtils::hasText).toList();
+        if (written.size() != people.size()) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, field, BLANK_APPROVER, who + " names a blank approver"));
+        }
+        if (people.size() != new LinkedHashSet<>(people).size()) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, field, DUPLICATE_APPROVER,
+                    who + " names the same approver twice"));
+        }
+        if (people.isEmpty()) {
+            d.add(missingApprovers(nodeId, who, field));
+        }
+        return people;
+    }
+
+    /** A group that finds its people when the step is reached: a known source, with what it needs. */
+    private void validateSource(String nodeId, String who, int index, String type, Map<String, Object> source,
+                                List<CompileDiagnostic> d) {
         try {
             ApproverSourceType.of(type);
         } catch (IllegalArgumentException e) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.type",
-                    UNKNOWN_APPROVER_SOURCE_TYPE,
-                    "Approval node '" + name + "' has unknown approverSource type: " + type));
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, null),
+                    UNKNOWN_APPROVER_SOURCE_TYPE, who + " has unknown approver source type: " + type));
             return;
         }
 
@@ -164,37 +229,35 @@ public class ApprovalConfigValidator implements FlowValidator {
                 if (level != null) {
                     int l = parseIntSafe(level);
                     if (l < 1) {
-                        d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.level",
-                                INVALID_SUPERVISOR_LEVEL,
-                                "Approval node '" + name + "' supervisor level must be >= 1"));
+                        d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "level"),
+                                INVALID_SUPERVISOR_LEVEL, who + " supervisor level must be >= 1"));
                     }
                 }
                 try {
                     ApproverRelativeTo.of(source.get("relativeTo"), ApproverRelativeTo.SUBJECT);
                 } catch (IllegalArgumentException e) {
-                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.relativeTo",
-                            INVALID_RELATIVE_TO, "Approval node '" + name + "' supervisor relativeTo must be one of "
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "relativeTo"),
+                            INVALID_RELATIVE_TO, who + " supervisor relativeTo must be one of "
                                     + Arrays.toString(ApproverRelativeTo.values())));
                 }
             }
-            case "DeptLeader", "DeptHrbp" -> validateDeptScope(nodeId, name, type, source, ApproverDeptScope.SUBJECT_DEPT, d);
+            case "DeptLeader", "DeptHrbp" ->
+                    validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SUBJECT_DEPT, d);
             case "RoleQuery" -> {
                 if (isEmptyCollection(source.get("roleCodes")) && isEmptyCollection(source.get("roleIds"))) {
-                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.roleCodes",
-                            MISSING_ROLE_IDS,
-                            "Approval node '" + name + "' RoleQuery requires non-empty roleCodes or roleIds"));
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "roleCodes"),
+                            MISSING_ROLE_IDS, who + " RoleQuery requires non-empty roleCodes or roleIds"));
                 }
-                validateDeptScope(nodeId, name, type, source, ApproverDeptScope.ALL, d);
+                validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.ALL, d);
             }
             case "Position" -> {
                 if (isEmptyCollection(source.get("positionIds"))) {
-                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.positionIds",
-                            MISSING_POSITION_IDS,
-                            "Approval node '" + name + "' Position requires non-empty positionIds"));
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "positionIds"),
+                            MISSING_POSITION_IDS, who + " Position requires non-empty positionIds"));
                 }
             }
-            case "Department" -> validateDeptScope(nodeId, name, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
-            default -> { /* Users (judged with the vote thresholds), VariableList, Expression, InitiatorManager, Role */ }
+            case "Department" -> validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
+            default -> { /* VariableList, Expression, InitiatorManager, Role */ }
         }
     }
 
@@ -204,7 +267,7 @@ public class ApprovalConfigValidator implements FlowValidator {
      * {@code SPECIFIC_DEPT} ({@code deptIds} for department members, {@code deptId} otherwise), the
      * variable for {@code VARIABLE_DEPT}.
      */
-    private static void validateDeptScope(String nodeId, String name, String type, Map<String, Object> source,
+    private static void validateDeptScope(String nodeId, String who, int index, String type, Map<String, Object> source,
                                           ApproverDeptScope fallback, List<CompileDiagnostic> d) {
         ApproverDeptScope scope;
         try {
@@ -213,23 +276,20 @@ public class ApprovalConfigValidator implements FlowValidator {
             scope = null;
         }
         if (scope == null || (scope == ApproverDeptScope.ALL && fallback != ApproverDeptScope.ALL)) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.deptScope",
-                    INVALID_DEPT_SCOPE, "Approval node '" + name + "' " + type + " has an unsupported deptScope: "
-                            + source.get("deptScope")));
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "deptScope"),
+                    INVALID_DEPT_SCOPE, who + " " + type + " has an unsupported deptScope: " + source.get("deptScope")));
             return;
         }
         boolean multiple = "Department".equals(type);
         if (scope == ApproverDeptScope.SPECIFIC_DEPT
                 && (multiple ? isEmptyCollection(source.get("deptIds")) : !StringUtils.hasText(asText(source.get("deptId"))))) {
             String field = multiple ? "deptIds" : "deptId";
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource." + field,
-                    MISSING_DEPT_IDS, "Approval node '" + name + "' " + type + " requires " + field
-                            + " for deptScope SPECIFIC_DEPT"));
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, field),
+                    MISSING_DEPT_IDS, who + " " + type + " requires " + field + " for deptScope SPECIFIC_DEPT"));
         }
         if (scope == ApproverDeptScope.VARIABLE_DEPT && !StringUtils.hasText(asText(source.get("deptVariable")))) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.deptVariable",
-                    MISSING_DEPT_VARIABLE, "Approval node '" + name + "' " + type
-                            + " requires deptVariable for deptScope VARIABLE_DEPT"));
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "deptVariable"),
+                    MISSING_DEPT_VARIABLE, who + " " + type + " requires deptVariable for deptScope VARIABLE_DEPT"));
         }
     }
 
@@ -267,38 +327,10 @@ public class ApprovalConfigValidator implements FlowValidator {
 
     // ── Vote thresholds ────────────────────────────────────────────────────
 
-    private void validateVoteThresholds(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
-        VoteThresholdMode approvalMode = cfg.getApprovalMode() != null ? cfg.getApprovalMode() : VoteThresholdMode.ANY_ONE;
-        Map<String, Object> source = cfg.getApproverSource();
-        Object type = source == null ? null : source.get("type");
-        boolean users = ApproverSourceType.USERS.getType().equals(type);
-        List<String> approvers = users ? userIdsAsWritten(source) : List.of();
-        List<String> nonBlankApprovers = approvers.stream().filter(StringUtils::hasText).toList();
-
-        if (approvers.size() != nonBlankApprovers.size()) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, USER_IDS_FIELD, BLANK_APPROVER,
-                    "Approval node '" + name + "' names a blank approver"));
-        }
-        if (nonBlankApprovers.size() != new LinkedHashSet<>(nonBlankApprovers).size()) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, USER_IDS_FIELD, DUPLICATE_APPROVER,
-                    "Approval node '" + name + "' names the same approver twice"));
-        }
-
-        // A step names who approves it: specific people, or a source that finds them. One that names neither finds
-        // nobody on every run — under the default strategy every submission is refused (zingkey-hcm#2450) — so it is
-        // not published; the vote thresholds have nothing to count then, and are not judged.
-        if (type == null || !StringUtils.hasText(type.toString()) || (users && nonBlankApprovers.isEmpty())) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, users ? USER_IDS_FIELD : "config.approverSource",
-                    MISSING_APPROVERS, "Approval node '" + name + "' names no approver: pick people, or a source that "
-                            + "finds them (a supervisor, a role, ...)."));
-            return;
-        }
-        // A rejection has no threshold: one approver's rejection rejects the approval, so only the approvals are counted.
-        // Only specific people can be counted before the step is reached.
-        validateApprovalMode(nodeId, name, approvalMode, nonBlankApprovers, !users,
-                cfg.getMinCount(), cfg.getPercentage(), d);
-    }
-
+    /**
+     * The approval mode over the step's pool: {@code approvers}, the specific people its groups name, each once — a
+     * count it cannot outgrow unless another group finds more when the step is reached ({@code hasDynamic}).
+     */
     private void validateApprovalMode(String nodeId, String name, VoteThresholdMode mode,
                                       List<String> approvers, boolean hasDynamic,
                                       Integer minCount, Integer percentage,

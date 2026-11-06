@@ -185,7 +185,7 @@ class StepsAfterApprovalScenarioTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(ALICE)), "approvalMode", "AnyOne")).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(ALICE))), "approvalMode", "AnyOne")).build(),
                                 FlowGraphNode.builder().id("hook").type(FlowNodeType.CALL_WEBHOOK).label("Notify payroll")
                                         .config(Map.of("url", "https://example.com/hook")).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
@@ -207,7 +207,7 @@ class StepsAfterApprovalScenarioTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(ALICE)), "approvalMode", "AnyOne")).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(ALICE))), "approvalMode", "AnyOne")).build(),
                                 FlowGraphNode.builder().id("hook").type(FlowNodeType.CALL_WEBHOOK).label("Notify payroll")
                                         .config(Map.of("url", "https://example.com/hook")).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))

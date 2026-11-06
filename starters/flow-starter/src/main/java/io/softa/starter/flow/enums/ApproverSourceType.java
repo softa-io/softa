@@ -12,24 +12,28 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /**
- * Where an approval step's approvers come from — its {@code approverSource}, and a CC rule's {@code recipientSource}:
- * the people named on it ({@link #USERS}), or people found when the step is reached (a supervisor, a role query, …).
+ * Where a group of people comes from — each of an approval step's {@code approverSources}, and a CC rule's
+ * {@code recipientSource}: the people named on it ({@link #USERS}), or people found when the step is reached (a
+ * supervisor, a role query, …).
  */
 @Getter
 @AllArgsConstructor
 public enum ApproverSourceType {
     /** Specific people: the users the source names in {@link #USER_IDS}, not found. */
-    USERS("Users"),
-    VARIABLE_LIST("VariableList"),
-    EXPRESSION("Expression"),
-    INITIATOR_MANAGER("InitiatorManager"),
-    ROLE("Role"),
-    SUPERVISOR("Supervisor"),
-    DEPT_LEADER("DeptLeader"),
-    DEPT_HRBP("DeptHrbp"),
-    ROLE_QUERY("RoleQuery"),
-    POSITION("Position"),
-    DEPARTMENT("Department"),
+    USERS("Users", false),
+    VARIABLE_LIST("VariableList", false),
+    EXPRESSION("Expression", false),
+    INITIATOR_MANAGER("InitiatorManager", true),
+    ROLE("Role", false),
+    /** One manager: the Nth up the chain. */
+    SUPERVISOR("Supervisor", true),
+    /** One leader per department — one department, unless a variable names several. */
+    DEPT_LEADER("DeptLeader", true),
+    /** One HR business partner per department, as {@link #DEPT_LEADER}. */
+    DEPT_HRBP("DeptHrbp", true),
+    ROLE_QUERY("RoleQuery", false),
+    POSITION("Position", false),
+    DEPARTMENT("Department", false),
     ;
 
     /** The field a {@link #USERS} source names its people in: user ids. */
@@ -37,6 +41,17 @@ public enum ApproverSourceType {
 
     @JsonValue
     private final String type;
+
+    /**
+     * Whether a group of this source finds one person at most: a step with only such a group has one approver at most,
+     * and its approval mode does not apply.
+     */
+    private final boolean findsOne;
+
+    /** The source a group's {@code type} names; null for none, or one this version does not know. */
+    public static ApproverSourceType lookup(Object type) {
+        return type == null ? null : NAMES_MAP.get(type.toString());
+    }
 
     /**
      * The users a source names — a {@link #USERS} source's {@link #USER_IDS}, blank ones left out — or none: no source,
@@ -57,7 +72,7 @@ public enum ApproverSourceType {
     private static final Map<String, ApproverSourceType> NAMES_MAP = Stream.of(values()).collect(Collectors.toMap(ApproverSourceType::getType, Function.identity()));
 
     /**
-     * Lenient parser used by the compiler to validate an untyped {@code approverSource.type}.
+     * Lenient parser used by the compiler to validate an untyped group's {@code type}.
      * Not a Jackson hook — typed JSON binding goes through {@link JsonValue}.
      *
      * <p>Throws the JDK {@code IllegalArgumentException} deliberately:

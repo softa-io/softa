@@ -47,10 +47,13 @@ class StoredDesignJsonTest {
      * {@code expense-claim-2026-10-27} is 9663e026's with {@code scenario} rewritten Process → Approval, as the
      * hand-written SQL did — its {@code allowInitiatorWithdraw} is no longer a property and reads as absent
      * (Release-20261030's {@code 01-before-jar-withdraw-policy.sql} moves it to {@code withdrawPolicy}); the two of
-     * 2026-10-31 are 58127bc7's.
+     * 2026-10-31 are 58127bc7's. The approval steps of those three name one {@code approverSource}, no longer a
+     * property either and read as absent: Release-20261113's {@code 01-before-jar-approvers-to-source.sql} moves it
+     * into {@code approverSources}, the shape of {@code confirmation-2026-11-06}, the seed as that release loads it.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"expense-claim-2026-10-27.json", "confirmation-2026-10-31.json", "pay-run-2026-10-31.json"})
+    @ValueSource(strings = {"expense-claim-2026-10-27.json", "confirmation-2026-10-31.json", "pay-run-2026-10-31.json",
+            "confirmation-2026-11-06.json"})
     void aStoredDesignStillReads(String fixture) throws IOException {
         String json = read(fixture);
         assertDoesNotThrow(() -> readAsTheRuntimeDoes(json), fixture + " no longer reads: an enum code it stores was "
@@ -71,8 +74,9 @@ class StoredDesignJsonTest {
         try (MockedStatic<JsonUtils> jsonUtils = mockStatic(JsonUtils.class, CALLS_REAL_METHODS)) {
             jsonUtils.when(JsonUtils::getMapper).thenReturn(RUNTIME);
             for (FlowGraphNode node : design.getGraph().getNodes()) {
-                if (NodeConfigParser.parse(node.getType(), node.getConfig()) instanceof ApprovalNodeConfig approval) {
-                    readSource(approval.getApproverSource());
+                if (NodeConfigParser.parse(node.getType(), node.getConfig()) instanceof ApprovalNodeConfig approval
+                        && approval.getApproverSources() != null) {
+                    approval.getApproverSources().forEach(StoredDesignJsonTest::readSource);
                 }
             }
         }
@@ -81,7 +85,7 @@ class StoredDesignJsonTest {
         }
     }
 
-    /** An approver source stays an untyped map; its codes are read where approvers are validated and resolved. */
+    /** A group of approvers stays an untyped map; its codes are read where approvers are validated and resolved. */
     private static void readSource(Map<String, Object> source) {
         if (source == null) {
             return;

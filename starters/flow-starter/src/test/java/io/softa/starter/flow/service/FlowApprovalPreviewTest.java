@@ -164,7 +164,7 @@ class FlowApprovalPreviewTest {
     @Test
     void showsTheFlowTheRecordWouldGetAndWhoWouldBeAsked() {
         publishService.publish("annual", chain("Annual leave",
-                approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
@@ -184,8 +184,8 @@ class FlowApprovalPreviewTest {
 
     @Test
     void anApprovalInProgressShowsTheStepItWaitsOnThenTheRest() {
-        DesignFlowDefinition design = chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))),
-                approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR)))));
+        DesignFlowDefinition design = chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
+                approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))));
         design.setWithdrawPolicy(WithdrawPolicy.UNTIL_COMPLETED);
         CompiledFlowDefinition flow = publishService.publish("annual", design);
         record.put("approvalStatus", "Pending");
@@ -229,7 +229,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void aDelegationToSomeoneWhoCannotActDoesNotApply() {
-        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
         FlowDelegation delegation = new FlowDelegation();
         delegation.setId(9L);
         delegation.setDelegatorId(MANAGER);
@@ -247,8 +247,8 @@ class FlowApprovalPreviewTest {
 
     @Test
     void nothingIsSubmittedStartedOrWritten() {
-        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))),
-                approval("self", "Self review", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(SUBMITTER))))));
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
+                approval("self", "Self review", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER)))))));
         FlowDelegation delegation = new FlowDelegation();
         delegation.setId(9L);
         delegation.setDelegatorId(MANAGER);
@@ -272,9 +272,9 @@ class FlowApprovalPreviewTest {
 
     @Test
     void theSubmittersOwnStepsPassAsTheirApprovalModesDecide() {
-        publishService.publish("annual", chain("Annual leave", approval("own", "Own", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(SUBMITTER)))),
-                approval("anyOne", "Any one", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER)))),
-                approval("all", "All", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(SUBMITTER, HR)), "approvalMode", "Unanimous"))));
+        publishService.publish("annual", chain("Annual leave", approval("own", "Own", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER))))),
+                approval("anyOne", "Any one", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER))))),
+                approval("all", "All", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER, HR))), "approvalMode", "Unanimous"))));
 
         List<Step> steps = launchService.previewRecord(MODEL, ROW, SUBMITTER).getSteps();
 
@@ -296,10 +296,10 @@ class FlowApprovalPreviewTest {
     void stepsWithNobodyToApproveFollowTheirEmptyApproverStrategy() {
         // No organization service resolves approvers here, so a supervisor source resolves to nobody.
         Map<String, Object> supervisor = Map.of("type", "Supervisor", "level", 1);
-        publishService.publish("annual", chain("Annual leave", approval("auto", "Auto", Map.of("approverSource", supervisor, "emptyApproverStrategy", "AutoApprove")),
-                approval("skip", "Skip", Map.of("approverSource", supervisor, "emptyApproverStrategy", "Skip")),
-                approval("stop", "Stop", Map.of("approverSource", supervisor, "emptyApproverStrategy", "Error")),
-                approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        publishService.publish("annual", chain("Annual leave", approval("auto", "Auto", Map.of("approverSources", List.of(supervisor), "emptyApproverStrategy", "AutoApprove")),
+                approval("skip", "Skip", Map.of("approverSources", List.of(supervisor), "emptyApproverStrategy", "Skip")),
+                approval("stop", "Stop", Map.of("approverSources", List.of(supervisor), "emptyApproverStrategy", "Error")),
+                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
@@ -318,7 +318,7 @@ class FlowApprovalPreviewTest {
         when(organization.getUsersByRoleCodes(List.of("HR_ADMIN"))).thenReturn(List.of(new ApproverInfo(2002L, "Carol")));
         when(organization.getRoleNames(any(), any())).thenReturn(List.of("HR Admin"));
         publishService.publish("annual", chain("Annual leave", approval("hr", "HR", Map.of(
-                "approverSource", Map.of("type", "Supervisor", "level", 1),
+                "approverSources", List.of(Map.of("type", "Supervisor", "level", 1)),
                 "emptyApproverStrategy", "AssignToRole", "emptyApproverRoleCodes", List.of("HR_ADMIN")))));
 
         Step step = launchService.previewRecord(MODEL, ROW, SUBMITTER).getSteps().getFirst();
@@ -361,7 +361,7 @@ class FlowApprovalPreviewTest {
     @Test
     void valuesWithoutTheEmployeeTheRequestIsAboutAreRefused() {
         publishService.publish("annual", chain("Annual leave",
-                approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
 
         FlowApprovalPreview preview = launchService.previewValues(MODEL, Map.of("days", 2), SUBMITTER);
 
@@ -373,10 +373,10 @@ class FlowApprovalPreviewTest {
     void anInclusiveGatewaysJoinWaitsOnlyForTheBranchesItTook() {
         // days > 5 asks HR, days > 1 the manager, both when both hold; the deputy approves after them.
         List<FlowGraphNode> nodes = List.of(node("start", FlowNodeType.START), node("gateway", FlowNodeType.INCLUSIVE_GATEWAY),
-                approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR)))),
-                approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))),
+                approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))),
+                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
                 node("join", FlowNodeType.PARALLEL_JOIN),
-                approval("deputy", "Deputy", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(DEPUTY)))),
+                approval("deputy", "Deputy", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(DEPUTY))))),
                 node("end", FlowNodeType.END));
         List<FlowGraphEdge> edges = List.of(edge("e0", "start", "gateway", null),
                 edge("e1", "gateway", "hr", "days > 5"), edge("e2", "gateway", "manager", "days > 1"),
@@ -432,8 +432,8 @@ class FlowApprovalPreviewTest {
     @Test
     void aStepWhoseApproversComeFromWhatANodeComputesIsUndetermined() {
         DesignFlowDefinition design = chain("Annual leave", script("pick", "seq.list('" + HR + "')", "reviewers"),
-                approval("review", "Review", Map.of("approverSource", Map.of("type", "VariableList", "variable", "reviewers"))),
-                approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))));
+                approval("review", "Review", Map.of("approverSources", List.of(Map.of("type", "VariableList", "variable", "reviewers")))),
+                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))));
         // Without dedup, whoever reviews has no bearing on the manager's step.
         design.setApproverDedup(ApproverDedupStrategy.NONE);
         publishService.publish("annual", design);
@@ -448,8 +448,8 @@ class FlowApprovalPreviewTest {
 
     @Test
     void anApproverWhoApprovedAnEarlierStepPassesALaterOne() {
-        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))),
-                approval("review", "Review", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER, HR))))));
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
+                approval("review", "Review", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER, HR)))))));
 
         List<Step> steps = launchService.previewRecord(MODEL, ROW, SUBMITTER).getSteps();
 
@@ -461,8 +461,8 @@ class FlowApprovalPreviewTest {
 
     @Test
     void whetherAnEarlierApprovalPassesAStepIsUndeterminedWhenAnyOfSeveralCouldHaveGivenIt() {
-        publishService.publish("annual", chain("Annual leave", approval("panel", "Panel", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER, HR)))),
-                approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR))))));
+        publishService.publish("annual", chain("Annual leave", approval("panel", "Panel", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER, HR))))),
+                approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR)))))));
 
         List<Step> steps = launchService.previewRecord(MODEL, ROW, SUBMITTER).getSteps();
 
@@ -476,8 +476,8 @@ class FlowApprovalPreviewTest {
 
     @Test
     void withoutApproverDedupALaterStepWaitsWhoeverApprovedEarlier() {
-        DesignFlowDefinition design = chain("Annual leave", approval("panel", "Panel", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER, HR)))),
-                approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR)))));
+        DesignFlowDefinition design = chain("Annual leave", approval("panel", "Panel", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER, HR))))),
+                approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))));
         design.setApproverDedup(ApproverDedupStrategy.NONE);
         publishService.publish("annual", design);
 
@@ -489,10 +489,10 @@ class FlowApprovalPreviewTest {
     @Test
     void parallelBranchesJoinBeforeTheStepAfterThem() {
         List<FlowGraphNode> nodes = List.of(node("start", FlowNodeType.START), node("fork", FlowNodeType.PARALLEL_FORK),
-                approval("finance", "Finance", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))),
-                approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR)))),
+                approval("finance", "Finance", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
+                approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))),
                 node("join", FlowNodeType.PARALLEL_JOIN),
-                approval("final", "Final", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(DEPUTY)))),
+                approval("final", "Final", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(DEPUTY))))),
                 node("end", FlowNodeType.END));
         List<FlowGraphEdge> edges = List.of(edge("e1", "start", "fork", null), edge("e2", "fork", "finance", null),
                 edge("e3", "fork", "hr", null), edge("e4", "finance", "join", null), edge("e5", "hr", "join", null),
@@ -504,7 +504,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void theRecordsOwnRefusalIsReportedNotThrown() {
-        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
         doThrow(new BusinessException("Only the requester can submit this leave.")).when(handler).validate(any());
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
@@ -516,7 +516,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void aRecordAlreadyInApprovalIsReportedAsRefused() {
-        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
         FlowInstance inProgress = new FlowInstance();
         inProgress.setRecordApproval(true);
         inProgress.setStatus(FlowExecutionStatus.WAITING);
@@ -530,7 +530,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void aRecordPendingOrApprovedIsReportedAsRefusedBeforeItsHandlerIsAsked() {
-        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
 
         record.put("approvalStatus", "Pending");
         FlowApprovalPreview pending = launchService.previewRecord(MODEL, ROW, SUBMITTER);
@@ -547,7 +547,7 @@ class FlowApprovalPreviewTest {
     @Test
     void noEnabledFlowIsReportedNotThrown() {
         publishService.publish("sick", chain("Sick leave",
-                approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR))))));
+                approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR)))))));
         bundleRegistry.disable("sick");
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
@@ -559,9 +559,9 @@ class FlowApprovalPreviewTest {
     @Test
     void severalFlowsTakingTheRecordAreReportedNotThrown() {
         // Two conditions of their own — publishing refuses the same one twice — that both hold for the record
-        DesignFlowDefinition first = chain("Flow A", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))));
+        DesignFlowDefinition first = chain("Flow A", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))));
         first.setTrigger(new SubmitTrigger(MODEL, "true"));
-        DesignFlowDefinition second = chain("Flow B", approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR)))));
+        DesignFlowDefinition second = chain("Flow B", approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))));
         second.setTrigger(new SubmitTrigger(MODEL, "1 == 1"));
         publishService.publish("a", first);
         publishService.publish("b", second);
@@ -577,7 +577,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void onlyThoseWhoCanReadTheRecordMayPreviewIt() {
-        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
 
         assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, SUBMITTER));
@@ -593,8 +593,8 @@ class FlowApprovalPreviewTest {
      */
     @Test
     void aTestRunTriesTheSavedDraftAsTheSubmitterSubmitsIt() {
-        publishService.publish("annual", chain("Annual leave", approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR))))));
-        saveDraft("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        publishService.publish("annual", chain("Annual leave", approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR)))))));
+        saveDraft("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
         when(organization.getEmployeeIdOfUser(1001L)).thenReturn(5001L);
 
         FlowDesignPreview preview = launchService.previewDraft("annual", SUBMITTER, Map.of("days", 2));
@@ -617,7 +617,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void aTestRunForSomeoneElseKeepsTheEmployeeTheValuesName() {
-        saveDraft("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        saveDraft("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
 
         launchService.previewDraft("annual", SUBMITTER, Map.of("employeeId", 5002L));
 
@@ -629,7 +629,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void aTestRunSaysWhenTheDraftsSubmitConditionWouldNotTakeTheRequest() {
-        DesignFlowDefinition draft = chain("Long leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))));
+        DesignFlowDefinition draft = chain("Long leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))));
         draft.setTrigger(new SubmitTrigger(MODEL, "days > 5"));
         saveDraft("long", draft);
 
@@ -642,7 +642,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void aTestRunWithNoEmployeeIsReportedNotThrown() {
-        saveDraft("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER))))));
+        saveDraft("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
 
         // The submitter has no employee record, and the values name none.
         when(organization.getEmployeeIdOfUser(9999L)).thenReturn(null);
@@ -693,8 +693,8 @@ class FlowApprovalPreviewTest {
      */
     private static DesignFlowDefinition routedFlow(String condition, FlowGraphNode before) {
         List<FlowGraphNode> nodes = new ArrayList<>(List.of(node("start", FlowNodeType.START),
-                approval("hr", "HR", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(HR)))),
-                approval("manager", "Manager", Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))),
+                approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))),
+                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
                 node("end", FlowNodeType.END)));
         List<FlowGraphEdge> edges = new ArrayList<>(List.of(edge("e3", "hr", "end", null),
                 edge("e4", "manager", "end", null)));

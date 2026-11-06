@@ -35,7 +35,7 @@ class ScenarioRulesCompileTest {
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
 
     private static final FlowGraphNode APPROVAL = FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL)
-            .label("Manager").config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("manager")))).build();
+            .label("Manager").config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build();
     private static final FlowGraphNode TIMER = FlowGraphNode.builder().id("timer").type(FlowNodeType.TIMER)
             .label("Wait").config(Map.of("durationSeconds", 3600L)).build();
 

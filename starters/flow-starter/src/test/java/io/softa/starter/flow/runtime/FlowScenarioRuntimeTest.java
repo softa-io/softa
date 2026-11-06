@@ -72,7 +72,7 @@ class FlowScenarioRuntimeTest {
     void anApprovalAnnouncesItsCompletion() {
         publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("manager")))).build()));
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build()));
         FlowExecutionState started = engine.start(start("leave", "submitter"));
 
         FlowApproveRequest approve = new FlowApproveRequest();
@@ -139,7 +139,7 @@ class FlowScenarioRuntimeTest {
         publishService.publish("child", flow(FlowScenario.AUTOMATION, new ApiTrigger(null)));
         publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("manager")))).build(),
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build(),
                 subflowNode("child")));
         FlowExecutionState started = engine.start(start("leave", "submitter"));
 

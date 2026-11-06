@@ -120,14 +120,14 @@ class NoApproverScenarioTest {
         List<FlowGraphNode> nodes = new ArrayList<>(List.of(
                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),
                 FlowGraphNode.builder().id("hr").type(FlowNodeType.APPROVAL).label("HR approval")
-                        .config(Map.of("approverSource", Map.of("type", "Supervisor"), "emptyApproverStrategy", "Error"))
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor")), "emptyApproverStrategy", "Error"))
                         .build(),
                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build()));
         List<FlowGraphEdge> edges = new ArrayList<>(List.of(
                 FlowGraphEdge.builder().id("e2").source("hr").target("end").build()));
         if (managerFirst) {
             nodes.add(FlowGraphNode.builder().id("manager").type(FlowNodeType.APPROVAL).label("Manager approval")
-                    .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(MANAGER)))).build());
+                    .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))).build());
             edges.add(FlowGraphEdge.builder().id("e0").source("start").target("manager").build());
             edges.add(FlowGraphEdge.builder().id("e1").source("manager").target("hr").build());
         } else {

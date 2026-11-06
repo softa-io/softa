@@ -20,6 +20,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.exception.FlowNoApproverException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
@@ -72,11 +73,18 @@ class ActorAccountScenarioTest {
         assertEquals(List.of(DEE), ccTargets(state), "the CC rule copies in only who can act");
     }
 
+    /**
+     * A step that only names its people, none of whom can act any more, stops and says why — its flow needs changing —
+     * whatever empty-approver strategy it holds: the strategy is for a step that finds its approvers by rule.
+     */
     @Test
-    void aStepLeftWithNobodyFollowsItsEmptyApproverStrategy() {
-        FlowExecutionState state = start(List.of(BOB), "Skip", List.of());
-
-        assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus(), "the only approver is frozen: the step is skipped");
+    void aStepNamingOnlyPeopleWhoCannotActStopsWhateverItsStrategy() {
+        for (String strategy : List.of("Skip", "AutoApprove", "AssignToRole")) {
+            FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
+                    () -> start(List.of(BOB), strategy, List.of()), strategy);
+            assertEquals("No approver was found for step 'Manager approval': none of its approvers can approve. "
+                    + "Ask your HR administrator to set one up, then try again.", refused.getMessage(), strategy);
+        }
     }
 
     @Test
@@ -135,7 +143,7 @@ class ActorAccountScenarioTest {
     /** Starts an approval: Manager approval names {@code approvers}, the flow CCs {@code ccRecipients} on submit. */
     private FlowExecutionState start(List<String> approvers, String emptyApproverStrategy, List<String> ccRecipients) {
         Map<String, Object> config = new HashMap<>();
-        config.put("approverSource", Map.of("type", "Users", "userIds", approvers));
+        config.put("approverSources", List.of(Map.of("type", "Users", "userIds", approvers)));
         config.put("emptyApproverStrategy", emptyApproverStrategy);
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Leave")

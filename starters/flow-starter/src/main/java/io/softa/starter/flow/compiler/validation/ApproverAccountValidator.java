@@ -16,8 +16,8 @@ import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 
 /**
- * Warns of the users a flow names who cannot act now ({@link ActorAccounts}) — the specific people of an approval
- * step's or a CC rule's source ({@code Users}). A warning, never an error: an account changes after the flow is published, and the
+ * Warns of the users a flow names who cannot act now ({@link ActorAccounts}) — the specific people ({@code Users}) of
+ * an approval step's groups or a CC rule's source. A warning, never an error: an account changes after the flow is published, and the
  * engine already passes over whoever cannot act when the step is reached (the step then follows its empty-approver
  * strategy, the CC skips them). A
  * {@link FlowValidator} bean, so the editor's validation and every publish run it; a compiler built without Spring
@@ -71,11 +71,16 @@ public class ApproverAccountValidator implements FlowValidator {
 
         List<CompileDiagnostic> d = new ArrayList<>();
         steps.forEach((nodeId, config) -> {
-            String approvers = reasons(approvers(config), unusable);
-            if (approvers != null) {
-                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.userIds", UNUSABLE_APPROVER,
-                        "Approval node '" + context.nodeName(nodeId) + "' names approvers who cannot act now and are "
-                                + "passed over when the step is reached: " + approvers).asWarning());
+            // Said on the group that names them.
+            List<Map<String, Object>> groups = groups(config);
+            for (int i = 0; i < groups.size(); i++) {
+                String approvers = reasons(ApproverSourceType.namedUsers(groups.get(i)), unusable);
+                if (approvers != null) {
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE,
+                            "config.approverSources." + i + "." + ApproverSourceType.USER_IDS, UNUSABLE_APPROVER,
+                            "Approval node '" + context.nodeName(nodeId) + "' names approvers who cannot act now and "
+                                    + "are passed over when the step is reached: " + approvers).asWarning());
+                }
             }
         });
         for (int i = 0; i < rules.size(); i++) {
@@ -100,8 +105,13 @@ public class ApproverAccountValidator implements FlowValidator {
         }
     }
 
+    /** The specific people a step's groups name. */
     private static List<String> approvers(ApprovalNodeConfig config) {
-        return ApproverSourceType.namedUsers(config.getApproverSource());
+        return groups(config).stream().flatMap(group -> ApproverSourceType.namedUsers(group).stream()).toList();
+    }
+
+    private static List<Map<String, Object>> groups(ApprovalNodeConfig config) {
+        return config.getApproverSources() == null ? List.of() : config.getApproverSources();
     }
 
     private static List<String> recipients(FlowCcRule rule) {
