@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.starter.user.service.RoleGrantCeiling.Grants;
 import io.softa.starter.user.service.RoleGrantCeiling.Rule;
 import io.softa.starter.user.service.RoleGrantCeiling.Scope;
@@ -167,6 +168,31 @@ class DepartmentGrantCeilingTest {
     }
 
     @Test
+    void aSelfServiceRoleDoesNotCountAsReachingEveryDepartment() {
+        // Everyone holds one and nobody bounds it, so counting it would let any bounded caller pass these on.
+        Grants holderWise = role(Set.of()).withDepartmentConditions(Set.of("MANAGED_DEPARTMENTS"));
+        Grants exempt = role(Set.of("/1/5"));
+        exempt.departmentExempt().add("EmployeeDirectory");
+        List<Grants> callers = List.of(selfService(), caller(DIVISION));
+
+        assertThat(RoleGrantCeiling.firstViolation(holderWise, callers, MODEL_BY_PERMISSION, Map.of(), NO_COMPANY,
+                DEPARTMENT_BOUND)).contains(new Violation(Violation.Kind.DEPARTMENT_CONDITIONS, "MANAGED_DEPARTMENTS"));
+        assertThat(RoleGrantCeiling.firstViolation(exempt, callers, MODEL_BY_PERMISSION, Map.of(), NO_COMPANY,
+                DEPARTMENT_BOUND)).contains(new Violation(Violation.Kind.DEPARTMENTS, "EmployeeDirectory"));
+    }
+
+    @Test
+    void aCallerNotBoundedButReadingOnlySomeDepartmentsDoesNotReachThemAll() {
+        Grants holderWise = role(Set.of()).withDepartmentConditions(Set.of("MANAGED_DEPARTMENTS"));
+        Grants someDepartments = role(null);
+        someDepartments.scopes().put(ModelConstant.DEPARTMENT_MODEL,
+                scope(new Rule("DEPT_SUBTREE", null)));
+
+        assertThat(check(holderWise, someDepartments))
+                .contains(new Violation(Violation.Kind.DEPARTMENT_CONDITIONS, "MANAGED_DEPARTMENTS"));
+    }
+
+    @Test
     void readsTheConditionsOfAGrant() {
         assertThat(DepartmentGrants.holderConditions(json(
                 "[{\"scopeType\":\"DEPT_SUBTREE\",\"scopeExpr\":{\"deptId\":\"5\"}},{\"scopeType\":\"DIRECT_REPORTS\"}]")))
@@ -186,8 +212,16 @@ class DepartmentGrantCeilingTest {
                 departmentPaths == null ? null : new LinkedHashSet<>(departmentPaths));
     }
 
+    /** A caller role reading every ticket and every department, bounded to these department paths (null = unbounded). */
     private static Grants caller(Set<String> departmentPaths) {
-        return role(departmentPaths);
+        Grants caller = role(departmentPaths);
+        caller.scopes().put(ModelConstant.DEPARTMENT_MODEL, scope(Rule.ALL));
+        return caller;
+    }
+
+    /** A self-service role: nobody bounded it by department, and it reads no department. */
+    private static Grants selfService() {
+        return new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(), new LinkedHashSet<>(), new LinkedHashMap<>());
     }
 
     private static Scope scope(Rule... rules) {

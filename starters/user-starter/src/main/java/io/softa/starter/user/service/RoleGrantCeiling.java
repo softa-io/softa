@@ -66,8 +66,8 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  * subtrees, judged on the stored {@code idPath}. Comparing as written would let a caller granted a
  * division pass on exactly that division and none of the teams under it, which is the delegation the
  * grant exists for. The conditions worked out for the holder, and viewing a model past the grant, are
- * granted only by a caller role not bounded by department: they resolve per holder, so nothing at save
- * time says they stay inside the caller's. A caller role bounded by such conditions itself is compared
+ * granted only by a caller role reaching every department, meaning not bounded by department and reading
+ * every department: they resolve per holder, so nothing at save time says they stay inside the caller's. A caller role bounded by such conditions itself is compared
  * by what they resolve to for the caller when saving.
  */
 @Component
@@ -271,11 +271,11 @@ public class RoleGrantCeiling {
         Axes axes = new Axes(multiCompany, departmentBound);
         // Worked out per holder, or lifted outright: nothing short of a caller role reaching every department
         // covers these. Asked of every model, since one with no action on it — a people picker — counts too.
-        boolean anyUnbounded = caller.stream().anyMatch(c -> c.departmentPaths() == null);
-        if (!anyUnbounded && !target.departmentConditions().isEmpty()) {
+        boolean reachesEveryDepartment = caller.stream().anyMatch(RoleGrantCeiling::reachesEveryDepartment);
+        if (!reachesEveryDepartment && !target.departmentConditions().isEmpty()) {
             return Optional.of(new Violation(Violation.Kind.DEPARTMENT_CONDITIONS, target.departmentConditions().iterator().next()));
         }
-        if (!anyUnbounded && !target.departmentExempt().isEmpty()) {
+        if (!reachesEveryDepartment && !target.departmentExempt().isEmpty()) {
             return Optional.of(new Violation(Violation.Kind.DEPARTMENTS, target.departmentExempt().iterator().next()));
         }
         Set<String> navigations = union(caller, Grants::navigations);
@@ -328,6 +328,17 @@ public class RoleGrantCeiling {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Whether a caller role reaches every department: it is not bounded by department and it reads every row of the
+     * department model. Having no bound is not enough on its own: a self-service role nobody bounded, because its
+     * rules only ever reach the holder's own record, would otherwise let every holder pass these on.
+     */
+    private static boolean reachesEveryDepartment(Grants c) {
+        Scope departments = c.scopes().get(ModelConstant.DEPARTMENT_MODEL);
+        return c.departmentPaths() == null && departments != null && departments.condition() == null
+                && departments.rules().contains(Rule.ALL);
     }
 
     /** Which role-level grants bound a model's rows besides its rules. */
