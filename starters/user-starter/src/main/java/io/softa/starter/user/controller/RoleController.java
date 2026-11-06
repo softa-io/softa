@@ -7,6 +7,8 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.constant.RoleConstant;
+import io.softa.starter.user.dto.DynamicMembersPreview;
+import io.softa.starter.user.dto.DynamicMembersPreviewDTO;
 import io.softa.starter.user.dto.EffectiveAccess;
 import io.softa.starter.user.dto.RoleActiveDTO;
 import io.softa.starter.user.dto.WizardSaveDTO;
@@ -109,6 +111,20 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
                 .orElseThrow(() -> new BusinessException("Role not found."));
         // Admin role → computed navs/permissions; non-admin → {computed:false} (FE uses static grants).
         return ApiResponse.success(uiContextBuilder.effectiveAccessForRole(role.getCode(), role.getTenantId()));
+    }
+
+    /**
+     * Who a membership rule would grant, before it is saved: the members a sync of the rule would write
+     * — employees it matches whose account is Active, tenant-wide — counted in full, with a page of
+     * those the caller may see. Worked out by the sync's own code, so the wizard's preview is the grant
+     * it is about to make.
+     */
+    @PostMapping("/previewDynamicMembers")
+    @Operation(summary = "Preview a dynamic membership rule — the employees a sync would grant (matching the rule, "
+            + "with an Active account), paged; writes nothing")
+    public ApiResponse<DynamicMembersPreview> previewDynamicMembers(@RequestBody DynamicMembersPreviewDTO body) {
+        return ApiResponse.success(dynamicRoleSyncJob.previewMembers(
+                body.dynamicFilter(), body.fields(), body.pageNumber(), body.pageSize()));
     }
 
     @PostMapping("/wizard")
