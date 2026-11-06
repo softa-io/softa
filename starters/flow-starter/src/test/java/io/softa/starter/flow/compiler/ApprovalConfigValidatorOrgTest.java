@@ -161,31 +161,94 @@ class ApprovalConfigValidatorOrgTest {
     }
 
     /**
-     * A step that names no source finds nobody on every run — under the default strategy every submission is refused
-     * — so it is not published (zingkey-hcm#2450). Specific people naming nobody, or a source without a type, name
-     * nobody either; the diagnostic stands on the people when the step chose them, else on the source.
+     * A step that names no group finds nobody on every run — under the default strategy every submission is refused
+     * — so it is not published (zingkey-hcm#2450). A group of specific people naming nobody, or a group without a
+     * type, names nobody either; the diagnostic stands on the group's people when it chose them, else on the group, and
+     * on the step's groups when it has none.
      */
     @Test
     void aStepThatNamesNoApproverIsNotPublished() {
         Map<Map<String, Object>, String> fieldOf = new LinkedHashMap<>();
-        fieldOf.put(Map.of(), "config.approverSource");
-        fieldOf.put(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(" "))), "config.approverSource.userIds");
-        fieldOf.put(Map.of("approverSource", Map.of("type", "Users")), "config.approverSource.userIds");
-        fieldOf.put(Map.of("approverSource", Map.of("level", 1)), "config.approverSource");
-        fieldOf.put(Map.of("emptyApproverStrategy", "AutoApprove"), "config.approverSource");
+        fieldOf.put(Map.of(), "config.approverSources");
+        fieldOf.put(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(" ")))), "config.approverSources.0.userIds");
+        fieldOf.put(Map.of("approverSources", List.of(Map.of("type", "Users"))), "config.approverSources.0.userIds");
+        fieldOf.put(Map.of("approverSources", List.of(Map.of("level", 1))), "config.approverSources.0");
+        fieldOf.put(Map.of("emptyApproverStrategy", "AutoApprove"), "config.approverSources");
         fieldOf.forEach((config, field) -> {
             FlowCompileException ex = assertThrows(FlowCompileException.class,
                     () -> compiler.compile(flowWithConfig(config)), config.toString());
             assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())
                     && "approval".equals(d.nodeId()) && field.equals(d.field())), config.toString());
         });
-        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("1001"))))));
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("1001")))))));
+    }
+
+    /**
+     * Each group is judged on its own, and a diagnostic stands on the group it is about, named by its place when the
+     * step has several.
+     */
+    @Test
+    void eachGroupIsJudgedWhereItIs() {
+        FlowCompileException ex = assertThrows(FlowCompileException.class, () -> compiler.compile(flowWithConfig(Map.of(
+                "approverSources", List.of(
+                        Map.of("type", "Users", "userIds", List.of("1001")),
+                        Map.of("type", "Users"),
+                        Map.of("type", "Supervisor", "level", 0),
+                        Map.of("type", "Nobody"))))));
+
+        assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())
+                && "config.approverSources.1.userIds".equals(d.field())
+                && d.message().startsWith("Approval node 'approval' group 2 names no approver")));
+        assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "INVALID_SUPERVISOR_LEVEL".equals(d.code())
+                && "config.approverSources.2.level".equals(d.field())));
+        assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "UNKNOWN_APPROVER_SOURCE_TYPE".equals(d.code())
+                && "config.approverSources.3".equals(d.field())));
+        assertTrue(ex.getDiagnostics().stream().noneMatch(d -> d.field() != null
+                && d.field().startsWith("config.approverSources.0")), "the first group is fine");
+    }
+
+    /**
+     * A minimum count is counted over the pool: the people the groups name, each once — which a group that finds its
+     * people when the step is reached may outgrow.
+     */
+    @Test
+    void aMinimumCountIsCountedOverThePool() {
+        Map<String, Object> manager = Map.of("type", "Users", "userIds", List.of("1001"));
+        Map<String, Object> managerAndHr = Map.of("type", "Users", "userIds", List.of("1002", "1001"));
+
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(manager, managerAndHr),
+                "approvalMode", "MinCount", "minCount", 2))));
+        FlowCompileException ex = assertThrows(FlowCompileException.class, () -> compiler.compile(flowWithConfig(Map.of(
+                "approverSources", List.of(manager, managerAndHr), "approvalMode", "MinCount", "minCount", 3))));
+        assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "INVALID_MIN_COUNT".equals(d.code())));
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(manager,
+                Map.of("type", "Supervisor")), "approvalMode", "MinCount", "minCount", 3))));
+    }
+
+    /**
+     * Settings that do not apply are not judged — the designer does not show them: the approval mode of a step with one
+     * approver at most, the empty-approver roles of a step that only names its people.
+     */
+    @Test
+    void settingsThatDoNotApplyAreNotJudged() {
+        Map<String, Object> ann = Map.of("type", "Users", "userIds", List.of("1001"));
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(ann),
+                "approvalMode", "MinCount", "minCount", 3))));
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of(
+                "approverSources", List.of(Map.of("type", "Supervisor")), "approvalMode", "Percentage"))));
+        assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(ann),
+                "emptyApproverStrategy", "AssignToRole"))));
+
+        FlowCompileException ex = assertThrows(FlowCompileException.class, () -> compiler.compile(flowWithConfig(Map.of(
+                "approverSources", List.of(ann, Map.of("type", "Supervisor")), "emptyApproverStrategy", "AssignToRole"))));
+        assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "MISSING_EMPTY_APPROVER_ROLES".equals(d.code())),
+                "a group finds its people by rule: the strategy applies");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private DesignFlowDefinition flowWithApproverSource(Map<String, Object> approverSource) {
-        return flowWithConfig(Map.of("approverSource", approverSource));
+        return flowWithConfig(Map.of("approverSources", List.of(approverSource)));
     }
 
     private DesignFlowDefinition flowWithConfig(Map<String, Object> config) {

@@ -205,7 +205,7 @@ class AdministrationScenarioTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", approvers), "approvalMode", approvalMode)).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", approvers)), "approvalMode", approvalMode)).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(
                                 FlowGraphEdge.builder().id("e1").source("start").target("approval").build(),

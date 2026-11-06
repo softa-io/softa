@@ -662,11 +662,11 @@ and published with each revision — an instance follows the rules of the revisi
 - `OnApproved`: as it ends approved.
 - `OnRejected`: as it ends rejected — at the first rejection.
 
-and who: `recipientSource`, in an approval step's `approverSource` shape — specific people
+and who: `recipientSource`, one group in the shape of each of an approval step's `approverSources` — specific people
 (`{"type": "Users", "userIds": [...]}`), or a source that finds them: the subject's supervisor, a role, a department's
 members…; found the way a step's approvers are (`ApproverResolutionService.resolvePeople`), so a recipient whose account cannot act is left
-out (see [Approver Resolution](#approver-resolution)). CC is the approval's, not a step's: a step that should
-involve someone else has them as its approvers.
+out (see [Approver Resolution](#approver-resolution)). Several groups at one timing are several rules. CC is the
+approval's, not a step's: a step that should involve someone else has them as its approvers.
 
 An automatic CC is recorded like a manual one: one `CC` entry per recipient in the approval history. The entry
 has no actor, since no person sent it. It sits on the start node (`OnSubmit`, and `OnApproved` when every step
@@ -793,6 +793,14 @@ Base path: `/flow/events`
 - A config holds these by their JSON values, as above; the enum constant names (`ANY_ONE`) are not read.
 - One actor can only cast one effective vote per cycle.
 - Compile-time validators reject an impossible approval threshold (`INVALID_MIN_COUNT`, `INVALID_PERCENTAGE`).
+- The approval mode counts over the step's pool — everyone its groups find, each once (see
+  [Approver Resolution](#approver-resolution)): any one of them, all of them, so many, such a share. It applies only
+  to a step that may have several approvers (`ApprovalNodeConfig.mayHaveSeveralApprovers`): several groups, or one
+  naming several people or finding a source that may find several. A step whose one group names one person, or is a
+  supervisor, a department's leader or HR business partner (`ApproverSourceType.isFindsOne`: one person each — one
+  department, unless a variable names several), passes on that one's approval whatever mode it holds — the outcome
+  any mode would give it — so the designer does not offer the mode then, and validation does not judge it
+  (`ApproverResolutionService.resolveApprovalMode` answers `AnyOne`).
 - At run time the approval threshold is capped by the approvers the step has
   (`ApproverResolutionService.capRequiredApprovals`): no more approvals than approvers — a dynamic source that
   resolved fewer, or approvers dropped for being unable to act, leave a "2 of them" step asking the one left. A
@@ -802,21 +810,37 @@ Base path: `/flow/events`
 
 Approval nodes support:
 
-- approvers via `config.approverSource`, one field with a `type` (`ApproverSourceType`): specific people
-  (`{"type": "Users", "userIds": [...]}`, the designer's first option and a new step's default), or a source that
-  finds them when the step is reached — `Supervisor`, `DeptLeader`, `DeptHrbp`, `RoleQuery`, `Position`,
-  `Department`, `VariableList`, `Expression` (and, on steps saved with them, `InitiatorManager` and `Role`). Each
-  type's fields sit beside its `type`. A step's named approvers were a list of their own (`config.approvers`) before;
-  the deploying application's release moves a step saved with one into a `Users` source — the engine no longer reads it
+- approvers via `config.approverSources`: one or more groups, each with a `type` (`ApproverSourceType`) — specific
+  people (`{"type": "Users", "userIds": [...]}`, the designer's first option; a new step starts with one such group),
+  or a source that finds them when the step is reached — `Supervisor`, `DeptLeader`, `DeptHrbp`, `RoleQuery`,
+  `Position`, `Department`, `VariableList`, `Expression` (and, on steps saved with them, `InitiatorManager` and
+  `Role`). Each type's fields sit beside its `type`. A step had one source (`config.approverSource`), and its named
+  approvers in a list of their own (`config.approvers`), before; the deploying application's release moves the one a
+  step used into `approverSources` — the engine reads neither any more
 - empty-approver strategies via `config.emptyApproverStrategy`: `Error` (default), `AutoApprove`, `AssignToRole`;
   `Skip` still runs on a step saved with it — approved as `AutoApprove` is, with no trace in the history — but the
-  designer no longer offers it (the descriptor lists it under `deprecatedOptions`)
+  designer no longer offers it (the descriptor lists it under `deprecatedOptions`). The strategy applies only to a
+  step a group of which finds its people by rule (`ApprovalNodeConfig.findsApproversByRule`): a step that only names
+  its people has nobody only when none of them can act any more — its flow needs changing — and stops and says why
+  whatever it holds (`PendingApprovalFactory.resolveEmptyApproverStrategy` answers `Error`); the designer does not offer
+  the strategy then, and validation does not judge its roles. Steps that need a fallback when the person in a post
+  leaves name the post — a role or a position — not the person
 
-A step names who approves it: a source with a type, and for specific people at least one. One that names nobody would
-find nobody on every run — under the default strategy refuse every submission — and is refused by validation and
-publishing (`MISSING_APPROVERS`, on `config.approverSource`, or on `config.approverSource.userIds` for specific people
-naming nobody, whatever the vote modes). Only specific people can be counted before the step is reached, so a
-`MinCount` above their number is refused for them alone.
+**A step's groups make one pool.** Its approvers are everyone its groups name or find, each once, in the groups'
+order, and its approval mode counts over that pool: "the manager or HR" is one step of two groups under `AnyOne`,
+"the manager and HR" the same under `Unanimous` — no fork drawn. A group that finds nobody leaves the others to
+decide; the empty-approver strategy applies when the pool is empty, and the reason a refusal gives says why for each
+group ("Ann Lee has no manager who can approve; nobody who can approve holds its roles"). Parties that must each
+decide — in an order, on fields of their own (form permissions are a step's), or stopping the approval when one of
+them is missing — are steps of their own, in sequence or on a `ParallelFork`'s branches.
+
+A step names who approves it: at least one group, each a source with a type, and for specific people at least one.
+One that names nobody would find nobody on every run — under the default strategy refuse every submission — and is
+refused by validation and publishing (`MISSING_APPROVERS`: on `config.approverSources` for a step with no group, on
+`config.approverSources.<i>` for a group with no type, on `config.approverSources.<i>.userIds` for specific people
+naming nobody, whatever the vote modes; `<i>` counts from 0). Every diagnostic about a group stands on it so, and
+says "group 2" when the step has several. Only specific people can be counted before the step is reached, so a
+`MinCount` above the number the groups name, each once, is refused when every group names its people.
 
 `AssignToRole` hands a step that finds nobody to roles — `config.emptyApproverRoleIds` (a tenant's own roles) and/or
 `config.emptyApproverRoleCodes` (built-in roles, the same code in every tenant, so a seeded flow names them so); naming
@@ -901,8 +925,8 @@ answers from the account statuses above, an account the tenant does not have cou
   account is frozen": transfer, delegate, CC (refused as a whole when it includes anyone who cannot act), an
   administrator's reassignment, creating a delegation rule (one's own or on someone's behalf), a bulk reassignment
   and its preview.
-- **The designer warns** (`Warning`, never `Error`) of a step's specific people (`UNUSABLE_APPROVER`, on
-  `config.approverSource.userIds`) and a CC rule's (`UNUSABLE_CC_RECIPIENT`) who cannot act now, on validate and on
+- **The designer warns** (`Warning`, never `Error`) of a step's specific people (`UNUSABLE_APPROVER`, on the
+  `config.approverSources.<i>.userIds` of the group naming them) and a CC rule's (`UNUSABLE_CC_RECIPIENT`) who cannot act now, on validate and on
   publish (`ApproverAccountValidator`, a `FlowValidator` bean); an account may change after publishing, so the
   engine checks again when the step is reached. An id that is not an account id is not checked.
 
@@ -1501,6 +1525,14 @@ The editor palette is built from `FlowNodeDescriptor` records exposed through `/
   `rolePicker` / `userPicker` / … , or `recordPicker` naming its `model` (a mail template) — storing `valueField`
   (`code`) instead of the id when given, and taking a typed value no record holds with `allowCustom`; a
   `keyValueMap`'s `valueType` says what its values are (`expression`, `template`)
+- an approval step's `approverSources` offers its sources in the order an HR administrator reaches for them —
+  specific people, the organization's (supervisor, department leader, HRBP), the groups' (role, position, department
+  members), then the developers' (variable list, expression), then those no longer offered (`deprecated`) — each
+  option saying what the editor needs to tell which settings apply: `names` (the field a group of specific people
+  names them in, `userIds`) and `findsOne` (the source finds one person at most). A setting that applies only to some
+  steps says so in `appliesWhen`: `severalApprovers` (the approval mode, `minCount`, `percentage`) or
+  `approversFoundByRule` (the empty-approver strategy and its roles); the engine ignores it elsewhere, by the same
+  rules, so the editor shows it only where it applies
 
 `TaskExecutorDescriptorProvider` only exposes task nodes for executors that are actually registered as Spring beans, so conditional executors such as `QUERY_AI` and `ASYNC_TASK` only appear when their dependencies are present.
 

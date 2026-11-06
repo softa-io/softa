@@ -70,7 +70,7 @@ class ApprovalFieldPermissionValidationTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001")), "formPermissions", formPermissions))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001"))), "formPermissions", formPermissions))
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(

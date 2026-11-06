@@ -2,6 +2,7 @@ package io.softa.starter.flow.runtime.nodeconfig;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,15 +34,26 @@ public class ApprovalNodeConfig {
     // ── Approver resolution ────────────────────────────────────────────────
 
     /**
-     * Who approves the step: specific people ({@code {"type": "Users", "userIds": [...]}}), or a source that finds them
-     * when the step is reached ({@code {"type": "Supervisor", "level": 1, ...}}, a role query, a position, …) — see
-     * {@link ApproverSourceType}. Each type's fields sit beside its {@code type}; interpreted by
-     * {@code ApproverResolutionService}. A step's named approvers were a list of their own ({@code approvers}) before;
-     * a step saved with one is moved into a {@code Users} source by the release's migration.
+     * Who approves the step, in one or more groups: each group specific people ({@code {"type": "Users", "userIds":
+     * [...]}}), or a source that finds them when the step is reached ({@code {"type": "Supervisor", "level": 1, ...}},
+     * a role query, a position, …) — see {@link ApproverSourceType}. Each type's fields sit beside its {@code type};
+     * interpreted by {@code ApproverResolutionService}.
+     * <p>
+     * The groups make one pool: the step's approvers are everyone its groups find, each once, and the approval mode
+     * counts over that pool — any one of them, all of them, so many. A group that finds nobody leaves the others to
+     * decide; the empty-approver strategy applies when the pool is empty. Parties that must each decide — in an
+     * order, on fields of their own, or stopping the approval when one of them is missing — are steps of their own.
+     * <p>
+     * A step had one source ({@code approverSource}) and its named approvers in a list of their own ({@code approvers})
+     * before; the release's migration moves the one it used into this list.
      */
-    private Map<String, Object> approverSource;
+    private List<Map<String, Object>> approverSources;
 
-    /** Behaviour when the resolved approver list is empty. */
+    /**
+     * Behaviour when the resolved approver list is empty — applied only to a step that finds its approvers by rule
+     * ({@link #findsApproversByRule}): one that only names them stops and says why when none of them can act, whatever
+     * this holds.
+     */
     @Builder.Default
     private EmptyApproverStrategy emptyApproverStrategy = EmptyApproverStrategy.ERROR;
 
@@ -60,9 +72,10 @@ public class ApprovalNodeConfig {
     // ── Vote thresholds ────────────────────────────────────────────────────
 
     /**
-     * How many approvals pass the step. A rejection has no threshold: one approver's rejection rejects the approval,
-     * as in an all-approve step (会签) and an any-one step (或签) alike. A {@code rejectMode} saved on a step before is
-     * ignored.
+     * How many approvals pass the step — applied only to a step that may have several approvers
+     * ({@link #mayHaveSeveralApprovers}): one with one approver at most passes on that one's approval, whatever this
+     * holds. A rejection has no threshold: one approver's rejection rejects the approval, as in an all-approve step
+     * (会签) and an any-one step (或签) alike. A {@code rejectMode} saved on a step before is ignored.
      */
     @Builder.Default
     private VoteThresholdMode approvalMode = VoteThresholdMode.ANY_ONE;
@@ -84,4 +97,41 @@ public class ApprovalNodeConfig {
      * expose the same map at runtime for read-only clients.
      */
     private Map<String, FormFieldPermission> formPermissions;
+
+    // ── What applies ───────────────────────────────────────────────────────
+    // Not bean properties (no get / is prefix), so they are never read or written as config keys.
+
+    /**
+     * Whether the step may have several approvers, so its approval mode applies: several groups, or one that names
+     * several people or may find several. A step whose one group names one person, or finds one at most (a supervisor,
+     * a department's leader or HR business partner — {@link ApproverSourceType#isFindsOne}), has one approver at most;
+     * the designer does not offer the mode then.
+     */
+    public boolean mayHaveSeveralApprovers() {
+        List<Map<String, Object>> groups = groups();
+        if (groups.size() != 1) {
+            return groups.size() > 1;
+        }
+        Map<String, Object> group = groups.getFirst();
+        if (ApproverSourceType.USERS.getType().equals(group.get("type"))) {
+            return ApproverSourceType.namedUsers(group).stream().distinct().count() > 1;
+        }
+        ApproverSourceType source = ApproverSourceType.lookup(group.get("type"));
+        return source == null || !source.isFindsOne();
+    }
+
+    /**
+     * Whether a group of the step finds its people when the step is reached, so its empty-approver strategy applies. A
+     * step that only names its people has nobody only when none of them can act any more — its flow needs changing —
+     * and stops and says why; the designer does not offer the strategy then.
+     */
+    public boolean findsApproversByRule() {
+        return groups().stream().map(group -> group.get("type"))
+                .anyMatch(type -> type != null && !type.toString().isBlank()
+                        && !ApproverSourceType.USERS.getType().equals(type));
+    }
+
+    private List<Map<String, Object>> groups() {
+        return approverSources == null ? List.of() : approverSources.stream().filter(Objects::nonNull).toList();
+    }
 }

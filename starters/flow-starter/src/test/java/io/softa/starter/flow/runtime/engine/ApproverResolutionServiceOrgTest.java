@@ -363,6 +363,43 @@ class ApproverResolutionServiceOrgTest {
         assertTrue(service.hasDynamicApproverSource(approvalNode(Map.of("type", "Supervisor"))));
     }
 
+    // ── Groups ──────────────────────────────────────────────────────────
+
+    /** A step's groups make one pool: everyone they name or find, each once, in the groups' order. */
+    @Test
+    void aStepsGroupsMakeOnePool() {
+        when(orgService.getSupervisorOfEmployee(5000L, 1)).thenReturn(new ApproverInfo(200L, "Manager"));
+        CompiledFlowNode node = approvalNode(List.of(
+                Map.of("type", "Supervisor"),
+                Map.of("type", "Users", "userIds", List.of("300", "200"))));
+
+        assertEquals(List.of("200", "300"), service.resolveApprovers(node, varsWithSubject("100", 5000L)));
+        assertTrue(service.hasDynamicApproverSource(node), "one group finds its people when the step is reached");
+        assertFalse(service.hasDynamicApproverSource(approvalNode(List.of(
+                Map.of("type", "Users", "userIds", List.of("300")),
+                Map.of("type", "Users", "userIds", List.of("400"))))), "every group names its people");
+    }
+
+    /** A group that finds nobody leaves the others to decide; the pool is empty only when none finds anyone. */
+    @Test
+    void aGroupThatFindsNobodyLeavesTheOthers() {
+        when(orgService.getSupervisorOfEmployee(5000L, 1)).thenReturn(null);
+        when(orgService.getEmployeeNames(List.of(5000L))).thenReturn(Map.of(5000L, "Alice Tan"));
+        CompiledFlowNode withHr = approvalNode(List.of(
+                Map.of("type", "Supervisor"),
+                Map.of("type", "Users", "userIds", List.of("300"))));
+
+        assertEquals(List.of("300"), service.resolveApprovers(withHr, varsWithSubject("100", 5000L)));
+
+        CompiledFlowNode nobody = approvalNode(List.of(
+                Map.of("type", "Supervisor"),
+                Map.of("type", "RoleQuery", "roleIds", List.of(1))));
+        assertEquals(List.of(), service.resolveApprovers(nobody, varsWithSubject("100", 5000L)));
+        assertEquals("Alice Tan has no manager who can approve; nobody who can approve holds its roles",
+                service.whyNobody(nobody, varsWithSubject("100", 5000L)), "each group says why");
+        assertEquals("it names no approver", service.whyNobody(approvalNode(List.of()), Map.of()));
+    }
+
     @Test
     void approversWhoCannotActAreDroppedFromEverySource() throws Exception {
         var field = ApproverResolutionService.class.getDeclaredField("actorAccounts");
@@ -383,8 +420,13 @@ class ApproverResolutionServiceOrgTest {
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private CompiledFlowNode approvalNode(Map<String, Object> approverSource) {
+        return approvalNode(List.of(approverSource));
+    }
+
+    /** A step whose groups of approvers are {@code groups}. */
+    private CompiledFlowNode approvalNode(List<Map<String, Object>> groups) {
         ApprovalNodeConfig cfg = ApprovalNodeConfig.builder()
-                .approverSource(approverSource)
+                .approverSources(groups)
                 .approvalMode(VoteThresholdMode.ANY_ONE)
                 .build();
         return CompiledFlowNode.builder()

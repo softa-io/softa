@@ -26,7 +26,7 @@ class ApprovalConfigUnreadableTest {
     @Test
     void aConstantNameIsReportedOnItsField() {
         List<CompileDiagnostic> diagnostics = assertDoesNotThrow(() -> compiler.validate(flowWithConfig(Map.of(
-                "approverSource", Map.of("type", "Supervisor", "relativeTo", "SUBJECT", "level", 1),
+                "approverSources", List.of(Map.of("type", "Supervisor", "relativeTo", "SUBJECT", "level", 1)),
                 "emptyApproverStrategy", "ERROR",
                 "approvalMode", "ANY_ONE"))));
 
@@ -43,7 +43,7 @@ class ApprovalConfigUnreadableTest {
     @Test
     void theJsonValuesAreRead() {
         List<CompileDiagnostic> diagnostics = compiler.validate(flowWithConfig(Map.of(
-                "approverSource", Map.of("type", "Supervisor", "relativeTo", "SUBJECT", "level", 1),
+                "approverSources", List.of(Map.of("type", "Supervisor", "relativeTo", "SUBJECT", "level", 1)),
                 "emptyApproverStrategy", "Error",
                 "approvalMode", "AnyOne",
                 "rejectMode", "AnyOne")));

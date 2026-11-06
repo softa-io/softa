@@ -148,7 +148,7 @@ class ApprovalTimeoutSchedulerTest {
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START, null),
-                                node("approval", FlowNodeType.APPROVAL, Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(APPROVER)))),
+                                node("approval", FlowNodeType.APPROVAL, Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))))),
                                 node("end", FlowNodeType.END, null)))
                         .edges(List.of(edge("e1", "start", "approval"), edge("e2", "approval", "end")))
                         .build())

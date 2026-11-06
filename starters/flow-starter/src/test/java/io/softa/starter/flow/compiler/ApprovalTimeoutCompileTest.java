@@ -65,7 +65,7 @@ class ApprovalTimeoutCompileTest {
 
     private static DesignFlowDefinition approval(Integer remindAfterHours, Map<String, Object> stepExtras) {
         Map<String, Object> config = new java.util.LinkedHashMap<>(stepExtras);
-        config.put("approverSource", Map.of("type", "Users", "userIds", List.of("manager")));
+        config.put("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))));
         return DesignFlowDefinition.builder()
                 .name("Timeouts")
                 .scenario(FlowScenario.APPROVAL)

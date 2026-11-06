@@ -161,8 +161,14 @@ public class PendingApprovalFactory {
     /**
      * Read empty-approver strategy from node config, defaulting to {@link EmptyApproverStrategy#ERROR}.
      */
+    /**
+     * What a step that resolves to nobody does: its empty-approver strategy, applied only when it finds its approvers
+     * by rule ({@link ApprovalNodeConfig#findsApproversByRule}) — one that only names them, none of whom can act any
+     * more, stops and says why.
+     */
     EmptyApproverStrategy resolveEmptyApproverStrategy(CompiledFlowNode node) {
-        if (node.getParsedConfig() instanceof ApprovalNodeConfig cfg && cfg.getEmptyApproverStrategy() != null) {
+        if (node.getParsedConfig() instanceof ApprovalNodeConfig cfg && cfg.getEmptyApproverStrategy() != null
+                && cfg.findsApproversByRule()) {
             return cfg.getEmptyApproverStrategy();
         }
         return EmptyApproverStrategy.ERROR;

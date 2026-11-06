@@ -205,7 +205,7 @@ class DefaultFlowCompilerTest {
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
                                         // A step saved with its own switch before: ignored, the flow's decides.
-                                        .config(Map.of("returnEnabled", false, "approverSource", Map.of("type", "Users", "userIds", List.of("1001"))))
+                                        .config(Map.of("returnEnabled", false, "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("1001")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -238,7 +238,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.UNANIMOUS,
-                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr"))))
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -299,7 +299,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
-                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr")),
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr"))),
                                                 "minCount", 3))
                                         .build(),
                                 node("end", FlowNodeType.END)
@@ -331,9 +331,9 @@ class DefaultFlowCompilerTest {
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
-                                                "approverSource", Map.of(
+                                                "approverSources", List.of(Map.of(
                                                         "type", "VariableList",
-                                                        "variable", "managerIds")))
+                                                        "variable", "managerIds"))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -349,7 +349,8 @@ class DefaultFlowCompilerTest {
         assertEquals(VoteThresholdMode.MIN_COUNT, compiled.getNodeIndex().get("approval").getConfig().get("approvalMode"));
         assertEquals(2, compiled.getNodeIndex().get("approval").getConfig().get("minCount"));
         assertEquals("VariableList",
-                ((Map<?, ?>) compiled.getNodeIndex().get("approval").getConfig().get("approverSource")).get("type"));
+                ((Map<?, ?>) ((List<?>) compiled.getNodeIndex().get("approval").getConfig().get("approverSources")).getFirst())
+                        .get("type"));
     }
 
     @Test
@@ -367,7 +368,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.PERCENTAGE,
-                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr")),
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr"))),
                                                 "percentage", 0))
                                         .build(),
                                 node("end", FlowNodeType.END)
@@ -404,7 +405,7 @@ class DefaultFlowCompilerTest {
                                                 "minCount", 2,
                                                 "rejectMode", VoteThresholdMode.MIN_COUNT,
                                                 "rejectMinCount", 3,
-                                                "approverSource", Map.of("type", "Users", "userIds", List.of("manager", "hr"))))
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))

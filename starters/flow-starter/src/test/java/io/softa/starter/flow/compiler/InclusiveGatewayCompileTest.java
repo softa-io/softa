@@ -120,7 +120,7 @@ class InclusiveGatewayCompileTest {
 
     private static FlowGraphNode approval(String id, String label) {
         return FlowGraphNode.builder().id(id).type(FlowNodeType.APPROVAL).label(label)
-                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001")))).build();
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001"))))).build();
     }
 
     private static FlowGraphEdge edge(String id, String source, String target, String condition) {

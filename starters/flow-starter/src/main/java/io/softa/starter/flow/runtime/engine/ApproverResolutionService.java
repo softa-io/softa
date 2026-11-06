@@ -57,20 +57,27 @@ public class ApproverResolutionService {
     }
 
     /**
-     * People named or found the way an approval step's approvers are — a source in {@code approverSource}'s shape —
-     * for a list that is not a step's: a flow's CC rule. Those who cannot act are left out, as a step's approvers are.
+     * People named or found the way a group of an approval step's approvers is — a source in the shape of an
+     * {@code approverSources} entry — for a list that is not a step's: a flow's CC rule. Those who cannot act are left
+     * out, as a step's approvers are.
      */
     public List<String> resolvePeople(Map<String, Object> source, FlowExecutionState state) {
-        CompiledFlowNode asStep = CompiledFlowNode.builder()
-                .parsedConfig(ApprovalNodeConfig.builder().approverSource(source).build())
+        return resolveApprovers(asStep(source), resolutionVariables(state.getVariables(), state.getInitiatorId()));
+    }
+
+    /** A step whose one group is {@code source}: for a list resolved the way a step's approvers are. */
+    private static CompiledFlowNode asStep(Map<String, Object> source) {
+        return CompiledFlowNode.builder()
+                .parsedConfig(ApprovalNodeConfig.builder()
+                        .approverSources(source == null ? List.of() : List.of(source))
+                        .build())
                 .build();
-        return resolveApprovers(asStep, resolutionVariables(state.getVariables(), state.getInitiatorId()));
     }
 
     /**
-     * The approvers of a step reached with {@code variables}: the users its source names, or those it finds — less
-     * the users who cannot act ({@link ActorAccounts}), dropped the way the organization lookups drop a supervisor
-     * who left. A step left with nobody follows its empty-approver strategy.
+     * The approvers of a step reached with {@code variables}: everyone its groups name or find, each once — less the
+     * users who cannot act ({@link ActorAccounts}), dropped the way the organization lookups drop a supervisor who
+     * left. A step left with nobody follows its empty-approver strategy.
      */
     public List<String> resolveApprovers(CompiledFlowNode node, Map<String, Object> variables) {
         List<String> approvers = resolveCandidates(node, variables);
@@ -79,19 +86,35 @@ public class ApproverResolutionService {
 
     /**
      * Why a step reached with {@code variables} found nobody, as a clause of the refusal its submitter takes to whoever
-     * sets approvers up — the employee has no manager who can approve, nobody who can holds its roles; null when its
-     * source cannot say more than that nobody was found.
+     * sets approvers up — the employee has no manager who can approve, nobody who can holds its roles; each of its
+     * groups says why, joined. Null when none can say more than that nobody was found.
      */
     public String whyNobody(CompiledFlowNode node, Map<String, Object> variables) {
         if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
             return null;
         }
-        Map<String, Object> source = cfg.getApproverSource();
-        String type = source == null ? null : asString(source.get("type"));
-        if (!StringUtils.hasText(type)) {
+        List<Map<String, Object>> groups = groups(cfg);
+        if (groups.stream().noneMatch(group -> StringUtils.hasText(asString(group.get("type"))))) {
             return I18n.get("it names no approver");
         }
         Map<String, Object> resolutionVariables = variables == null ? Map.of() : variables;
+        // The pool is empty only when every group found nobody: each group that can say why does, once.
+        Set<String> reasons = new LinkedHashSet<>();
+        for (Map<String, Object> group : groups) {
+            String reason = whyGroupFoundNobody(group, resolutionVariables);
+            if (reason != null) {
+                reasons.add(reason);
+            }
+        }
+        return reasons.isEmpty() ? null : String.join("; ", reasons);
+    }
+
+    /** Why one group found nobody; null when it cannot say more, or picks no source (another group says why). */
+    private String whyGroupFoundNobody(Map<String, Object> source, Map<String, Object> resolutionVariables) {
+        String type = asString(source.get("type"));
+        if (!StringUtils.hasText(type)) {
+            return null;
+        }
         return switch (type) {
             case "Users" -> ApproverSourceType.namedUsers(source).isEmpty()
                     ? I18n.get("it names no approver") : I18n.get("none of its approvers can approve");
@@ -134,16 +157,25 @@ public class ApproverResolutionService {
     }
 
     private List<String> resolveCandidates(CompiledFlowNode node, Map<String, Object> variables) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApproverSource() == null) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
             return List.of();
         }
-        Map<String, Object> source = cfg.getApproverSource();
+        Map<String, Object> resolutionVariables = new LinkedHashMap<>(variables == null ? Map.of() : variables);
+        // One pool: everyone the groups name or find, each once, in the groups' order.
+        Set<String> pool = new LinkedHashSet<>();
+        for (Map<String, Object> group : groups(cfg)) {
+            pool.addAll(resolveGroup(node, group, resolutionVariables));
+        }
+        return List.copyOf(pool);
+    }
+
+    /** The users one group names or finds. */
+    private List<String> resolveGroup(CompiledFlowNode node, Map<String, Object> source,
+                                      Map<String, Object> resolutionVariables) {
         String type = asString(source.get("type"));
         if (!StringUtils.hasText(type)) {
             return List.of();
         }
-
-        Map<String, Object> resolutionVariables = new LinkedHashMap<>(variables == null ? Map.of() : variables);
         Object resolved = switch (type) {
             case "Users" -> ApproverSourceType.namedUsers(source);
             case "VariableList" -> lookupValue(resolutionVariables, asString(source.get("variable")));
@@ -180,9 +212,6 @@ public class ApproverResolutionService {
         source.put("type", "RoleQuery");
         source.put("roleIds", cfg.getEmptyApproverRoleIds());
         source.put("roleCodes", cfg.getEmptyApproverRoleCodes());
-        CompiledFlowNode asStep = CompiledFlowNode.builder()
-                .parsedConfig(ApprovalNodeConfig.builder().approverSource(source).build())
-                .build();
         Map<String, Object> resolution = resolutionVariables(variables, initiatorId);
         Set<String> leftOut = new HashSet<>();
         if (StringUtils.hasText(initiatorId)) {
@@ -194,7 +223,7 @@ public class ApproverResolutionService {
         if (subjectUser != null) {
             leftOut.add(subjectUser.toString());
         }
-        return resolveApprovers(asStep, resolution).stream().filter(holder -> !leftOut.contains(holder)).toList();
+        return resolveApprovers(asStep(source), resolution).stream().filter(holder -> !leftOut.contains(holder)).toList();
     }
 
     /**
@@ -225,17 +254,27 @@ public class ApproverResolutionService {
                 || (cfg.getEmptyApproverRoleCodes() != null && !cfg.getEmptyApproverRoleCodes().isEmpty());
     }
 
-    /** Whether the step finds its approvers when it is reached: a source other than the specific people it names. */
+    /**
+     * Whether the step finds approvers when it is reached: a group of it is a source other than the specific people it
+     * names ({@link ApprovalNodeConfig#findsApproversByRule}).
+     */
     public boolean hasDynamicApproverSource(CompiledFlowNode node) {
-        if (node == null || !(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApproverSource() == null) {
-            return false;
-        }
-        String type = asString(cfg.getApproverSource().get("type"));
-        return StringUtils.hasText(type) && !ApproverSourceType.USERS.getType().equals(type);
+        return node != null && node.getParsedConfig() instanceof ApprovalNodeConfig cfg && cfg.findsApproversByRule();
     }
 
+    /** A step's groups of approvers, in order; none when it names none. */
+    private static List<Map<String, Object>> groups(ApprovalNodeConfig cfg) {
+        return cfg.getApproverSources() == null ? List.of()
+                : cfg.getApproverSources().stream().filter(Objects::nonNull).toList();
+    }
+
+    /**
+     * The step's approval mode — {@code AnyOne} when it holds none, or when it has one approver at most
+     * ({@link ApprovalNodeConfig#mayHaveSeveralApprovers}): that one's approval passes it, whatever mode it holds.
+     */
     public VoteThresholdMode resolveApprovalMode(CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApprovalMode() == null) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApprovalMode() == null
+                || !cfg.mayHaveSeveralApprovers()) {
             return VoteThresholdMode.ANY_ONE;
         }
         return cfg.getApprovalMode();

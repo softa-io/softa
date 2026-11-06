@@ -171,9 +171,9 @@ class FlowApprovalLifecycleScenarioTest {
                 .nodes(List.of(
                         node("start", FlowNodeType.START),
                         FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(APPROVER)))).build(),
+                                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))))).build(),
                         FlowGraphNode.builder().id("second").type(FlowNodeType.APPROVAL).label("second")
-                                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(OTHER)))).build(),
+                                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(OTHER))))).build(),
                         node("end", FlowNodeType.END)))
                 .edges(List.of(
                         edge("e1", "start", "approval"),
@@ -190,7 +190,7 @@ class FlowApprovalLifecycleScenarioTest {
                                 .id("approval")
                                 .type(FlowNodeType.APPROVAL)
                                 .label("approval")
-                                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(APPROVER))))
+                                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER)))))
                                 .build(),
                         node("end", FlowNodeType.END)))
                 .edges(List.of(

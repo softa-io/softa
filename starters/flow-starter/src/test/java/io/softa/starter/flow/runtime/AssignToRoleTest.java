@@ -111,7 +111,7 @@ class AssignToRoleTest {
     void handingToRolesNamesAtLeastOne() {
         DesignFlowDefinition design = flow();
         design.getGraph().getNodes().stream().filter(node -> "hr".equals(node.getId())).findFirst().orElseThrow()
-                .setConfig(Map.of("approverSource", Map.of("type", "Supervisor"), "emptyApproverStrategy", "AssignToRole"));
+                .setConfig(Map.of("approverSources", List.of(Map.of("type", "Supervisor")), "emptyApproverStrategy", "AssignToRole"));
 
         List<CompileDiagnostic> diagnostics = new DefaultFlowCompiler().validate(design);
 
@@ -148,7 +148,7 @@ class AssignToRoleTest {
         List<FlowGraphNode> nodes = new ArrayList<>(List.of(
                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),
                 FlowGraphNode.builder().id("hr").type(FlowNodeType.APPROVAL).label("HR approval")
-                        .config(Map.of("approverSource", Map.of("type", "Supervisor"), "approvalMode", "Unanimous",
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor")), "approvalMode", "Unanimous",
                                 "emptyApproverStrategy", "AssignToRole", "emptyApproverRoleCodes", List.of("HR_ADMIN")))
                         .build(),
                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build()));

@@ -41,10 +41,10 @@ class ApproverAccountValidatorTest {
 
     @Test
     void peopleWhoCannotActAreWarnedOf() {
-        List<CompileDiagnostic> diagnostics = compiler.validate(flow(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001", "2002")))));
+        List<CompileDiagnostic> diagnostics = compiler.validate(flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001", "2002"))))));
 
         assertEquals(List.of(
-                new CompileDiagnostic(Severity.WARNING, null, "manager", "Approval", "config.approverSource.userIds",
+                new CompileDiagnostic(Severity.WARNING, null, "manager", "Approval", "config.approverSources.0.userIds",
                         "UNUSABLE_APPROVER", "Approval node 'Manager approval' names approvers who cannot act now and are "
                                 + "passed over when the step is reached: Bob Wu's account is frozen"),
                 new CompileDiagnostic(Severity.WARNING, null, null, null, null, "UNUSABLE_CC_RECIPIENT",
@@ -54,18 +54,29 @@ class ApproverAccountValidatorTest {
 
     @Test
     void aWarningDoesNotStopTheCompileAndAnErrorStillDoes() {
-        assertDoesNotThrow(() -> compiler.compile(flow(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2002"))))));
+        assertDoesNotThrow(() -> compiler.compile(flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2002")))))));
 
         FlowCompileException refused = assertThrows(FlowCompileException.class,
-                () -> compiler.compile(flow(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2002")), "approvalMode", "MinCount"))));
+                () -> compiler.compile(flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001", "2002"))), "approvalMode", "MinCount"))));
         assertTrue(refused.getDiagnostics().stream().anyMatch(d -> d.severity() == Severity.WARNING));
         assertEquals(refused.getDiagnostics().stream().filter(d -> d.severity() == Severity.ERROR).count()
                 + " compilation error(s)", refused.getMessage(), "the warnings are not counted as errors");
     }
 
+    /** Said on the group that names them. */
+    @Test
+    void aStepsGroupsAreEachWarnedOf() {
+        List<CompileDiagnostic> diagnostics = compiler.validate(flow(Map.of("approverSources", List.of(
+                Map.of("type", "Users", "userIds", List.of("2001")),
+                Map.of("type", "Users", "userIds", List.of("2002"))))));
+
+        assertEquals(List.of("config.approverSources.1.userIds"), diagnostics.stream()
+                .filter(d -> "UNUSABLE_APPROVER".equals(d.code())).map(CompileDiagnostic::field).toList());
+    }
+
     @Test
     void approversWhoCanActRaiseNothing() {
-        assertTrue(compiler.validate(flow(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of("2001"))))).stream()
+        assertTrue(compiler.validate(flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001")))))).stream()
                 .noneMatch(d -> d.code().startsWith("UNUSABLE_APPROVER")));
     }
 

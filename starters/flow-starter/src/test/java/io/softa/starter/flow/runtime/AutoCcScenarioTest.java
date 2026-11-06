@@ -167,7 +167,7 @@ class AutoCcScenarioTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(FIRST, SECOND)), "approvalMode", approvalMode))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(FIRST, SECOND))), "approvalMode", approvalMode))
                                         .build(),
                                 node("end", FlowNodeType.END)))
                         .edges(List.of(

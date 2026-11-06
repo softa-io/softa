@@ -124,7 +124,7 @@ class ApproverDedupScenarioTest {
                 .id(id)
                 .type(FlowNodeType.APPROVAL)
                 .label(id)
-                .config(Map.of("approverSource", Map.of("type", "Users", "userIds", List.of(approverId))))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(approverId)))))
                 .build();
     }
 
