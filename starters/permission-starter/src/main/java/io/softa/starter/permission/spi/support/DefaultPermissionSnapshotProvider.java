@@ -95,6 +95,9 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     private static final String F_CONSULTANT = "consultant";
     /** The role's department grant — see {@link #readGrantedDepartmentPaths}. */
     static final String F_DEPARTMENT_GRANT = "departmentGrant";
+
+    /** The department grant's conditions worked out for the holder, as written in the column. */
+    static final Set<String> DEPARTMENT_CONDITIONS = Set.of("OWN_DEPARTMENT", "MANAGED_DEPARTMENTS", "DIRECT_REPORTS");
     /** The wire form of a rule granting every department, and of a rule granting one subtree. */
     private static final String RULE_ALL = ScopeType.ALL.name();
     private static final String RULE_SUBTREE = ScopeType.DEPT_SUBTREE.name();
@@ -458,7 +461,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         // 3b. Row-scope grants, keyed by model.
         Map<String, List<ScopeRule>> modelScopeMap = new HashMap<>();
         List<RoleDataScopeView> scopeGrants = modelService.searchList(M_ROLE_SCOPE,
-                new FlexQuery(List.of("roleId", "model", "dataScopes", "scopeCondition"),
+                new FlexQuery(List.of("roleId", "model", "dataScopes", "scopeCondition", "departmentGrantExempt"),
                         new Filters().in("roleId", roleIds)),
                 RoleDataScopeView.class);
         for (RoleDataScopeView rds : scopeGrants) {
@@ -468,6 +471,9 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             }
             List<ScopeRule> scopes = parseScopeRules(rds.getDataScopes());
             RoleGrant grant = grantsByRole.get(rds.getRoleId());
+            if (grant != null && Boolean.TRUE.equals(rds.getDepartmentGrantExempt())) {
+                grant.getDepartmentExemptModels().add(model);
+            }
             if (!scopes.isEmpty()) {
                 modelScopeMap.computeIfAbsent(model, k -> new ArrayList<>()).addAll(scopes);
                 if (grant != null) {
@@ -514,6 +520,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             }
             Set<String> departments = departmentsByGrant.get(departmentGrant);
             grant.setGrantedDepartmentPaths(departments == null ? null : new HashSet<>(departments));
+            grant.setDepartmentConditions(readDepartmentConditions(departmentGrant));
         }
         // 3c. Sensitive-field-set grants, keyed by the SFS's canonical model.
         Map<String, Set<String>> modelSensitiveFieldSetsMap = new HashMap<>();
@@ -562,12 +569,11 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
      * column of the role itself, {@code departmentGrant}, read with the role.
      *
      * <h3>Shape</h3>
-     * A JSON array of rules in the same {@code {scopeType, scopeExpr}} form as a data scope, limited to
-     * two types: {@code ALL}, and {@code DEPT_SUBTREE} with a fixed {@code scopeExpr.deptId} — that
-     * department and everything under it. The type that already means "a department and its
-     * descendants" is reused rather than a new one invented, so a client that edits data scopes can edit
-     * this too. A subtree rule without a fixed root (the caller's own department) and any other type
-     * contribute nothing — the write path refuses them, and a row written past it fails closed.
+     * A JSON array of rules in the same {@code {scopeType, scopeExpr}} form as a data scope: {@code ALL},
+     * or any of {@code DEPT_SUBTREE} with a fixed {@code scopeExpr.deptId} — that department and everything
+     * under it — and the conditions worked out for the holder ({@link #readDepartmentConditions}). A subtree
+     * rule without a fixed root and any other type contribute nothing — the write path refuses them, and a
+     * row written past it fails closed.
      *
      * <h3>The three states, as for the company grant</h3>
      * <ul>
@@ -636,6 +642,21 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         return rootPaths;
     }
 
+    /** The department grant's conditions worked out for the holder, which the data plane resolves per request. */
+    static Set<String> readDepartmentConditions(JsonNode departmentGrant) {
+        Set<String> conditions = new HashSet<>();
+        if (!departmentGrant.isArray()) {
+            return conditions;
+        }
+        for (JsonNode rule : departmentGrant) {
+            JsonNode type = rule == null ? null : rule.get("scopeType");
+            if (type != null && type.isString() && DEPARTMENT_CONDITIONS.contains(type.asString())) {
+                conditions.add(type.asString());
+            }
+        }
+        return conditions;
+    }
+
     /** A subtree rule's fixed root, as a string (how clients send ids) or a number; null when absent. */
     private static Long subtreeRoot(JsonNode scopeExpr) {
         JsonNode root = scopeExpr == null || !scopeExpr.isObject() ? null : scopeExpr.get(SUBTREE_ROOT);
@@ -668,6 +689,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         grant.setPermissions(new HashSet<>());
         grant.setModelScopeMap(new HashMap<>());
         grant.setModelScopeConditions(new HashMap<>());
+        grant.setDepartmentExemptModels(new HashSet<>());
         grant.setModelSensitiveFieldSetsMap(new HashMap<>());
         return grant;
     }
@@ -998,6 +1020,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         private String model;
         private JsonNode dataScopes;
         private JsonNode scopeCondition;
+        private Boolean departmentGrantExempt;
     }
 
     @Data public static class RoleSfsView {

@@ -2,9 +2,9 @@
   "DataScopeType": [
     { "id": "ALL", "name": "All", "description": "No row restriction", "sortOrder": 0, "appliesToAll": true },
     { "id": "SELF", "name": "Self", "description": "Only the caller's own employee record", "sortOrder": 10, "filter": ["employeeId", "=", "USER_EMP_ID"], "identityModel": "Employee", "identityFilter": ["id", "=", "USER_EMP_ID"] },
-    { "id": "DIRECT_REPORTS", "name": "Direct Reports", "description": "Rows whose manager FK equals the caller's employee", "sortOrder": 20, "filter": ["managerId", "=", "USER_EMP_ID"], "identityModel": "Employee", "identityFilter": ["piEmployeeId", "=", "USER_EMP_ID"] },
-    { "id": "DEPT_SUBTREE", "name": "Department Subtree", "description": "Rows under the caller's own department subtree (or a fixed dept)", "sortOrder": 30, "applicableFields": ["departmentId", "idPath"] },
-    { "id": "MANAGED_DEPARTMENTS", "name": "Managed Departments", "description": "Rows under any department the caller manages", "sortOrder": 40, "applicableFields": ["departmentId", "idPath"] },
+    { "id": "DIRECT_REPORTS", "name": "Direct Reports", "description": "Rows whose manager is the caller's employee, on the row itself or through the employee it belongs to", "sortOrder": 20, "filter": ["managerId", "=", "USER_EMP_ID"], "identityModel": "Employee", "identityFilter": ["piEmployeeId", "=", "USER_EMP_ID"] },
+    { "id": "DEPT_SUBTREE", "name": "Department Subtree", "description": "Rows under the caller's own department subtree (or a fixed dept)", "sortOrder": 30, "applicableFields": ["departmentId", "idPath"], "roleLevelOnly": true },
+    { "id": "MANAGED_DEPARTMENTS", "name": "Managed Departments", "description": "Rows under any department the caller manages", "sortOrder": 40, "applicableFields": ["departmentId", "idPath"], "roleLevelOnly": true },
     { "id": "CREATED_BY_SELF", "name": "Created By Self", "description": "Rows created by the caller (createdId = caller id); works for pure users", "sortOrder": 60, "filter": ["createdId", "=", "USER_ID"] },
     { "id": "CUSTOM", "name": "Custom", "description": "Admin-authored custom filter expression (env-placeholder values)", "sortOrder": 70, "appliesToAll": true }
   ]

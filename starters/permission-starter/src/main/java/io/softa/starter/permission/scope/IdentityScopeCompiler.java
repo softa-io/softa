@@ -1,6 +1,7 @@
 package io.softa.starter.permission.scope;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -10,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.base.constant.EnvConstant;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
@@ -106,13 +109,14 @@ public class IdentityScopeCompiler implements StartupSnapshot {
             return null;
         }
 
-        // On the identity model use the swap template (identityFilter); the business
-        // filter's anchor doesn't exist there, so there is NO fallback — a missing
-        // identityFilter fails closed via toFilters(null). This mirrors
-        // ScopeApplicabilityResolver so applicability ⇔ compilability stays exact.
-        Object rawTemplate = (s.identityModel() != null && s.identityModel().equals(modelName))
-                ? s.identityFilter() : s.filter();
-        Filters f = ScopeFilterTemplates.toFilters(rawTemplate);
+        // The template this model takes, as ScopeApplicabilityResolver reads it, so
+        // applicability ⇔ compilability stays exact. A model the catalog does not know keeps
+        // the type's own template: nothing can be said about its fields.
+        Filters f = ModelManager.existModel(modelName)
+                ? ScopeFilterTemplates.forModel(modelName, fieldNames(modelName), s.identityModel(),
+                        s.filter(), s.identityFilter())
+                : ScopeFilterTemplates.forModel(modelName, ScopeFilterTemplates.fieldRefs(s.filter()),
+                        s.identityModel(), s.filter(), s.identityFilter());
         if (f == null) {
             return new Filters();   // fail-closed
         }
@@ -127,6 +131,14 @@ public class IdentityScopeCompiler implements StartupSnapshot {
             return new Filters();
         }
         return f;
+    }
+
+    private static Set<String> fieldNames(String modelName) {
+        Set<String> names = new HashSet<>();
+        for (MetaField field : ModelManager.getModelFields(modelName)) {
+            names.add(field.getFieldName());
+        }
+        return names;
     }
 
     private Map<String, Spec> specs() {

@@ -70,11 +70,13 @@ public class Role extends AuditableModel {
     /**
      * The departments this role reaches on every model that belongs to a department — an outer bound,
      * AND-ed per role onto its rules like the company grant. A JSON array of rules in the data-scope
-     * form, limited to {@code {"scopeType":"ALL"}} and
+     * form: {@code {"scopeType":"ALL"}}, or any of
      * {@code {"scopeType":"DEPT_SUBTREE","scopeExpr":{"deptId":"<id>"}}} (that department and everything
-     * under it). {@code null} = not configured, unrestricted; {@code []} = no department.
+     * under it) and the conditions worked out for the holder: {@code OWN_DEPARTMENT},
+     * {@code MANAGED_DEPARTMENTS} and {@code DIRECT_REPORTS}. A record has to meet any one of them.
+     * {@code null} = not configured, unrestricted; {@code []} = no department.
      */
-    @Field(description = "Department grant (JSON rules: ALL, or DEPT_SUBTREE with a fixed deptId). NULL = unrestricted, [] = none")
+    @Field(description = "Department grant (JSON rules: ALL, or DEPT_SUBTREE with a fixed deptId, OWN_DEPARTMENT, MANAGED_DEPARTMENTS, DIRECT_REPORTS). NULL = unrestricted, [] = none")
     private JsonNode departmentGrant;
 
     // Reverse relations (mirror live sys_field). Dynamic (not stored) — loaded only when requested.

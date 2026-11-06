@@ -34,6 +34,7 @@ import io.softa.starter.user.dto.UiContext;
 import io.softa.starter.user.entity.Navigation;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.RoleDataScope;
+import io.softa.starter.user.service.DepartmentGrants;
 import io.softa.starter.user.entity.RoleNavigation;
 import io.softa.starter.user.entity.RoleSensitiveFieldSet;
 import io.softa.starter.user.entity.UserRoleRel;
@@ -274,6 +275,13 @@ public class UiContextBuilder {
             view.setModelScopeMap(new HashMap<>());
             view.setModelScopeConditions(new HashMap<>());
             view.setModelSensitiveFieldSetsMap(new HashMap<>());
+            view.setDepartmentExemptModels(new HashSet<>());
+            Set<Long> departments = DepartmentGrants.roots(role.getDepartmentGrant());
+            if (departments != null) {
+                view.setGrantedDepartmentPaths(new HashSet<>(
+                        DepartmentGrants.idPathsOf(modelService, departments).values()));
+                view.setDepartmentConditions(DepartmentGrants.holderConditions(role.getDepartmentGrant()));
+            }
             byRole.put(role.getId(), view);
         }
         if (byRole.isEmpty()) {
@@ -288,9 +296,12 @@ public class UiContextBuilder {
             }
         }
         for (RoleDataScope rds : roleDataScopeService.searchList(new FlexQuery(
-                List.of("roleId", "model", "dataScopes", "scopeCondition"),
+                List.of("roleId", "model", "dataScopes", "scopeCondition", "departmentGrantExempt"),
                 new Filters().in(RoleDataScope::getRoleId, roleIds)))) {
             RoleGrantView view = byRole.get(rds.getRoleId());
+            if (view != null && rds.getModel() != null && Boolean.TRUE.equals(rds.getDepartmentGrantExempt())) {
+                view.getDepartmentExemptModels().add(rds.getModel());
+            }
             JsonNode rules = rds.getDataScopes();
             if (view == null || rds.getModel() == null || rds.getModel().isBlank()
                     || rules == null || !rules.isArray() || rules.isEmpty()) {
@@ -533,7 +544,7 @@ public class UiContextBuilder {
                 .map(UserRoleRel::getRoleId).filter(Objects::nonNull).collect(Collectors.toSet());
         if (roleIds.isEmpty()) return List.of();
         return roleService.searchList(new FlexQuery(
-                List.of("id", "code", "name", "active"),
+                List.of("id", "code", "name", "active", DepartmentGrants.FIELD),
                 new Filters().in(Role::getId, roleIds).eq(Role::getActive, true)));
     }
 

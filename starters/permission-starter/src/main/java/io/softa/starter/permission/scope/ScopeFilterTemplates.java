@@ -9,8 +9,12 @@ import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.base.constant.EnvConstant;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.permission.entity.DataScopeType;
 
 /**
@@ -55,6 +59,63 @@ final class ScopeFilterTemplates {
             log.warn("ScopeFilterTemplates — bad filter template {}; ignoring", raw, e);
         }
         return null;
+    }
+
+    /** The field through which a record belongs to an employee, on a model with no manager field of its own. */
+    private static final String OWNER_FIELD = "employeeId";
+
+    /**
+     * The template a type compiles to on a model with these fields, or {@code null} when it does not apply.
+     * The one reading applicability and compilation share:
+     * <ol>
+     *   <li>the identity model itself → its own template;</li>
+     *   <li>a model carrying the fields the type names → those;</li>
+     *   <li>a model carrying the identity model's own anchor, such as its manager field, → that;</li>
+     *   <li>a model whose records belong to an employee → that employee's anchor, through {@code employeeId}.</li>
+     * </ol>
+     * The last two do not apply to a type whose identity template anchors on {@code id}: every model has one,
+     * and it would say nothing about this model's rows.
+     */
+    static Filters forModel(String model, Set<String> fields, String identityModel, Object filter, Object identityFilter) {
+        if (identityModel != null && identityModel.equals(model)) {
+            return toFilters(identityFilter);
+        }
+        Set<String> own = fieldRefs(filter);
+        if (!own.isEmpty() && fields.containsAll(own)) {
+            return toFilters(filter);
+        }
+        Set<String> anchors = identityModel == null ? Set.of() : fieldRefs(identityFilter);
+        if (anchors.isEmpty() || anchors.contains(ModelConstant.ID)) {
+            return null;
+        }
+        if (fields.containsAll(anchors)) {
+            return toFilters(identityFilter);
+        }
+        if (!belongsTo(model, identityModel)) {
+            return null;
+        }
+        Filters through = toFilters(identityFilter);
+        prefixFields(through);
+        return through;
+    }
+
+    private static boolean belongsTo(String model, String identityModel) {
+        MetaField owner = ModelManager.getModelFieldOrNull(model, OWNER_FIELD);
+        return owner != null && FieldType.TO_ONE_TYPES.contains(owner.getFieldType())
+                && identityModel.equals(owner.getRelatedModel());
+    }
+
+    private static void prefixFields(Filters f) {
+        if (f == null) {
+            return;
+        }
+        FilterUnit u = f.getFilterUnit();
+        if (u != null && u.getField() != null && !u.getField().isBlank()) {
+            u.setField(OWNER_FIELD + "." + u.getField());
+        }
+        for (Filters child : f.getChildren()) {
+            prefixFields(child);
+        }
     }
 
     /** LHS field names the template references (never the RHS env values) — used to

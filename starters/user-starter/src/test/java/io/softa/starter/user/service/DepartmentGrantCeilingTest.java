@@ -110,12 +110,17 @@ class DepartmentGrantCeilingTest {
         assertThatCode(() -> DepartmentGrants.validate(json("[{\"scopeType\":\"ALL\"}]"))).doesNotThrowAnyException();
         assertThatCode(() -> DepartmentGrants.validate(json(
                 "[{\"scopeType\":\"DEPT_SUBTREE\",\"scopeExpr\":{\"deptId\":\"5\"}}]"))).doesNotThrowAnyException();
+        assertThatCode(() -> DepartmentGrants.validate(json(
+                "[{\"scopeType\":\"DEPT_SUBTREE\",\"scopeExpr\":{\"deptId\":\"5\"}},{\"scopeType\":\"OWN_DEPARTMENT\"},"
+                        + "{\"scopeType\":\"MANAGED_DEPARTMENTS\"},{\"scopeType\":\"DIRECT_REPORTS\"}]")))
+                .doesNotThrowAnyException();
 
         for (String refused : List.of(
                 "{\"scopeType\":\"ALL\"}",
                 "[{\"scopeType\":\"DEPT_SUBTREE\"}]",
                 "[{\"scopeType\":\"DEPT_SUBTREE\",\"scopeExpr\":{\"deptId\":\"abc\"}}]",
-                "[{\"scopeType\":\"MANAGED_DEPARTMENTS\"}]",
+                "[{\"scopeType\":\"SELF\"}]",
+                "[{\"scopeType\":\"ALL\"},{\"scopeType\":\"MANAGED_DEPARTMENTS\"}]",
                 "[{\"scopeType\":\"ALL\"},{\"scopeType\":\"DEPT_SUBTREE\",\"scopeExpr\":{\"deptId\":\"5\"}}]")) {
             assertThatThrownBy(() -> DepartmentGrants.validate(json(refused)))
                     .as(refused).isInstanceOf(BusinessException.class);
@@ -128,6 +133,45 @@ class DepartmentGrantCeilingTest {
         assertThat(DepartmentGrants.within("/1", "/1")).isTrue();
         assertThat(DepartmentGrants.within("/15", "/1")).isFalse();
         assertThat(DepartmentGrants.within("/1", "/1/5")).isFalse();
+    }
+
+    @Test
+    void aConditionWorkedOutForTheHolderTakesACallerReachingEveryDepartment() {
+        Grants holderWise = role(Set.of()).withDepartmentConditions(Set.of("MANAGED_DEPARTMENTS"));
+
+        assertThat(check(holderWise, caller(null))).isEmpty();
+        assertThat(check(holderWise, caller(DIVISION)))
+                .contains(new Violation(Violation.Kind.DEPARTMENT_CONDITIONS, "MANAGED_DEPARTMENTS"));
+    }
+
+    @Test
+    void anExemptionTakesACallerReachingEveryDepartment() {
+        Grants exempt = role(Set.of("/1/5"));
+        exempt.departmentExempt().add("EmployeeDirectory");
+
+        assertThat(check(exempt, caller(null))).isEmpty();
+        assertThat(check(exempt, caller(DIVISION)))
+                .contains(new Violation(Violation.Kind.DEPARTMENTS, "EmployeeDirectory"));
+    }
+
+    @Test
+    void anExemptionOnTheRowsOfAnActionTakesThatCallerRole() {
+        // One caller role reaches every department but holds no action; the role holding it is bounded.
+        Grants exempt = role(Set.of("/1/5"));
+        exempt.departmentExempt().add(TICKET);
+        Grants noAction = new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(), new LinkedHashSet<>(), new LinkedHashMap<>());
+
+        assertThat(RoleGrantCeiling.firstViolation(exempt, List.of(noAction, caller(DIVISION)), MODEL_BY_PERMISSION,
+                Map.of(), NO_COMPANY, DEPARTMENT_BOUND))
+                .contains(new Violation(Violation.Kind.DEPARTMENTS, TICKET));
+    }
+
+    @Test
+    void readsTheConditionsOfAGrant() {
+        assertThat(DepartmentGrants.holderConditions(json(
+                "[{\"scopeType\":\"DEPT_SUBTREE\",\"scopeExpr\":{\"deptId\":\"5\"}},{\"scopeType\":\"DIRECT_REPORTS\"}]")))
+                .containsExactly("DIRECT_REPORTS");
+        assertThat(DepartmentGrants.holderConditions(null)).isEmpty();
     }
 
     private static Optional<Violation> check(Grants target, Grants caller) {

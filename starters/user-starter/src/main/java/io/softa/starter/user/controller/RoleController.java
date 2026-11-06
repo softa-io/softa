@@ -327,10 +327,12 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleNavigationService.createList(rows);
     }
 
-    /** Writes one role_data_scope row per {@code {model, dataScopes, scopeCondition?}} entry
+    /** Writes one role_data_scope row per {@code {model, dataScopes, scopeCondition?, departmentGrantExempt?}} entry
      *  (one per queryable model). Entries without a model are skipped; a condition without any
      *  rule is refused.
      *  Incoming id/roleId ignored — id auto-assigned, roleId bound by caller. */
+    private static final String DEPARTMENT_EXEMPT = "departmentGrantExempt";
+
     private void writeRoleDataScopes(Long roleId, JsonNode rowsJson) {
         if (rowsJson == null || !rowsJson.isArray() || rowsJson.isEmpty()) return;
         rejectUnboundedCompanyScope(rowsJson);
@@ -351,6 +353,14 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
                     throw new BusinessException("An additional condition needs at least one scope rule.");
                 }
                 rds.setScopeCondition(condition);
+            }
+            JsonNode exempt = row.get(DEPARTMENT_EXEMPT);
+            if (exempt != null && exempt.asBoolean(false)) {
+                if (!DepartmentGrants.bounds(rds.getModel())) {
+                    throw new BusinessException("Only a model whose records belong to a department can be exempt "
+                            + "from Department access.");
+                }
+                rds.setDepartmentGrantExempt(true);
             }
             rows.add(rds);
         }

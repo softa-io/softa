@@ -35,6 +35,9 @@ import io.softa.framework.orm.service.ModelService;
  *   <li>{@code [{"scopeType":"ALL"}]} — every department, also unbounded;</li>
  *   <li>{@code [{"scopeType":"DEPT_SUBTREE","scopeExpr":{"deptId":"5"}}, …]} — those departments, each
  *       with everything under it;</li>
+ *   <li>{@code [{"scopeType":"OWN_DEPARTMENT"}]}, {@code MANAGED_DEPARTMENTS}, {@code DIRECT_REPORTS} —
+ *       worked out for whoever holds the role, and combinable with the above: a record has to meet any
+ *       one of them;</li>
  *   <li>{@code []} — configured to reach no department.</li>
  * </ul>
  */
@@ -46,6 +49,13 @@ public final class DepartmentGrants {
     static final String TYPE_ALL = "ALL";
     static final String TYPE_SUBTREE = "DEPT_SUBTREE";
     static final String ROOT_KEY = "deptId";
+    static final String TYPE_OWN_DEPARTMENT = "OWN_DEPARTMENT";
+    static final String TYPE_MANAGED_DEPARTMENTS = "MANAGED_DEPARTMENTS";
+    static final String TYPE_DIRECT_REPORTS = "DIRECT_REPORTS";
+
+    /** The conditions worked out for the holder, as opposed to departments named once for everyone. */
+    private static final Set<String> HOLDER_CONDITIONS =
+            Set.of(TYPE_OWN_DEPARTMENT, TYPE_MANAGED_DEPARTMENTS, TYPE_DIRECT_REPORTS);
 
     /** The materialized-path field of the department model, and what separates its segments. */
     private static final String ID_PATH = "idPath";
@@ -65,11 +75,11 @@ public final class DepartmentGrants {
     }
 
     /**
-     * Refuse a value a save may not write. Accepted: an array of {@code ALL} or of subtree rules with
-     * a fixed numeric root, possibly empty. {@code ALL} stands alone — beside a subtree it would make
-     * the subtree meaningless, and reads as a mistake rather than an intention. A subtree rule without
-     * a root would mean "the holder's own department", which cannot be compared against the editor's
-     * grant and is refused here rather than resolved differently for every holder.
+     * Refuse a value a save may not write. Accepted: an array of {@code ALL}, or of subtree rules with
+     * a fixed numeric root and the conditions worked out for the holder, possibly empty. {@code ALL}
+     * stands alone — beside anything else it would make that meaningless, and reads as a mistake rather
+     * than an intention. A subtree rule without a root would read as the holder's own department, which
+     * has a rule of its own; it is refused rather than left to mean two things.
      */
     public static void validate(JsonNode grant) {
         if (!grant.isArray()) {
@@ -81,9 +91,10 @@ public final class DepartmentGrants {
             String name = type != null && type.isString() ? type.asString() : null;
             if (TYPE_ALL.equals(name)) {
                 all = true;
-            } else if (!TYPE_SUBTREE.equals(name) || rootOf(rule) == null) {
-                throw new BusinessException("A department grant rule is either all departments, or one "
-                        + "department and everything under it.");
+            } else if (!HOLDER_CONDITIONS.contains(name) && (!TYPE_SUBTREE.equals(name) || rootOf(rule) == null)) {
+                throw new BusinessException("A department grant rule is all departments, one department and "
+                        + "everything under it, the holder's own department, the departments they manage, or "
+                        + "their direct reports.");
             }
         }
         if (all && grant.size() > 1) {
@@ -118,6 +129,21 @@ public final class DepartmentGrants {
             }
         }
         return roots;
+    }
+
+    /** The grant's conditions worked out for the holder; none when it names no such rule. */
+    public static Set<String> holderConditions(@Nullable JsonNode grant) {
+        Set<String> conditions = new LinkedHashSet<>();
+        if (grant == null || !grant.isArray()) {
+            return conditions;
+        }
+        for (JsonNode rule : grant) {
+            JsonNode type = rule == null ? null : rule.get("scopeType");
+            if (type != null && type.isString() && HOLDER_CONDITIONS.contains(type.asString())) {
+                conditions.add(type.asString());
+            }
+        }
+        return conditions;
     }
 
     private static @Nullable Long rootOf(JsonNode rule) {

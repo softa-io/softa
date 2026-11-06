@@ -402,6 +402,24 @@ plane lets the user reach.
 The shape changed, so **clear `perm:*` after deploying**; a snapshot cached before that reads by the old
 union until it expires.
 
+**Department grant conditions and exemptions.** Besides departments named once for everyone, the grant may
+hold conditions worked out for the holder: `OWN_DEPARTMENT` and `MANAGED_DEPARTMENTS`, read from the request's
+employee and each taken with everything under it, and `DIRECT_REPORTS`, a row whose manager is the holder. A
+record has to meet any one of the rules in the grant. They are kept by name on the snapshot
+(`RoleGrant.departmentConditions`) and resolved per request; without an employee they contribute nothing.
+`DIRECT_REPORTS` applies where the type does (below); a model it does not apply to is judged by the rest.
+A role's scope row can set `departmentGrantExempt`: the role views that model's records in every department
+(`RoleGrant.departmentExemptModels`). Reading only — creating, updating and deleting stay within the grant,
+which is why the data plane computes a role's rows separately for changing them. It can be set only on a model
+the grant bounds.
+
+`DataScopeType.roleLevelOnly` marks a type the wizard offers at role level and on no model card
+(`DEPT_SUBTREE`, `MANAGED_DEPARTMENTS`); a rule of the type already stored on a card still compiles.
+An identity type applies to a model carrying the fields of its `filter`; failing that, for a type whose
+`identityFilter` anchors on something other than `id`, to one carrying that anchor, or whose records belong to
+an employee through `employeeId` — so `DIRECT_REPORTS` reaches `employeeId.piEmployeeId` on a leave request. Models
+with neither do not take it (`ScopeFilterTemplates.forModel`, mirrored by the wizard).
+
 **Department grant.** Beside its company grant a role may carry a department grant: the departments it
 reaches, each with every department under it. It is stored on the role itself (`Role.departmentGrant`,
 written by the role wizard's `roleUpdate`), not as a data scope on `Department` — that row is the role's
