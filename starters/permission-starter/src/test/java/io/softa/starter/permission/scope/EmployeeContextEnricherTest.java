@@ -63,6 +63,8 @@ class EmployeeContextEnricherTest {
         enrichWithModels(ctx);
 
         assertThat(query.getValue().getFilterControl().isSkipActiveControl()).isTrue();
+        EmployeeContextEnricher.MANAGING_FIELDS.forEach(
+                field -> assertThat(query.getValue().getFilters().toString()).contains(field));
         assertThat(ctx.getEmpInfo().getManagedDeptIds()).containsExactly(9L);
     }
 

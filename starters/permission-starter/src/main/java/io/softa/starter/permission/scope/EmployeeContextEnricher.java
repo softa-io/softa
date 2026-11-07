@@ -56,6 +56,12 @@ public class EmployeeContextEnricher implements ContextEnricher {
     private static final String EMPLOYEE_MODEL = "Employee";
     private static final String DEPARTMENT_MODEL = "Department";
 
+    /**
+     * The department fields naming the employees who manage it: the head and the HR business partner. What
+     * {@link EmpInfo#getManagedDeptIds} is read from, and so what has to change for it to go stale.
+     */
+    public static final List<String> MANAGING_FIELDS = List.of("picEmpId", "hrbpEmpId");
+
     private final ModelService<Long> modelService;
     private final CacheService cacheService;
 
@@ -155,8 +161,10 @@ public class EmployeeContextEnricher implements ContextEnricher {
      *  caller {@link #buildFromDb} has already set the flag for this read. */
     private Set<Long> collectManagedDeptIds(Long empId) {
         if (empId == null || !ModelManager.existModel(DEPARTMENT_MODEL)) return new HashSet<>();
-        Filters f = Filters.of("picEmpId", Operator.EQUAL, empId)
-                .or("hrbpEmpId", Operator.EQUAL, empId);
+        Filters f = Filters.of(MANAGING_FIELDS.getFirst(), Operator.EQUAL, empId);
+        for (String field : MANAGING_FIELDS.subList(1, MANAGING_FIELDS.size())) {
+            f = f.or(field, Operator.EQUAL, empId);
+        }
         FlexQuery query = new FlexQuery(f);
         query.setFilterControl(FilterControl.bypassActiveControl());
         List<Map<String, Object>> depts = modelService.searchList(DEPARTMENT_MODEL, query);

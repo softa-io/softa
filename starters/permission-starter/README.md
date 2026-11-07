@@ -149,7 +149,8 @@ interceptor/  PermissionInterceptor · PermissionInterceptorProperties · Permis
               AdmittedRequest   (the permissions the gate admitted this request on)
 service/      PermissionServiceImpl
 validation/   CompanyReferenceGrantValidator   (a company named by a field, judged by the write's grant)
-              EmployeeIdentityCacheEvictor     (an employee's cached identity, dropped when a write moves them)
+              EmployeeIdentityCacheEvictor     (an employee's cached identity, dropped when a write moves them
+                                                or changes who manages a department)
 ```
 
 ## Snapshot re-sourcing
@@ -448,8 +449,9 @@ after the insert, is judged by its parent's path, so a role may create one under
 granted (not at the top). There is no user-level union.
 A model whose department reference is configuration rather than ownership names that field otherwise
 (not `departmentId`), and is not bounded. A person's own department and managed departments are read from the
-request's employee (`emp-info:` cache), which `EmployeeIdentityCacheEvictor` drops after any write moving them
-and which reads managed departments enabled or not, as the tree does. With no role carrying a grant, nothing changes; an application
+request's employee (`emp-info:` cache), which `EmployeeIdentityCacheEvictor` drops after any write moving them or
+creating, deleting or changing the managers of a department (`EmployeeContextEnricher.MANAGING_FIELDS`), for the
+managers before and after, and which reads managed departments enabled or not, as the tree does. With no role carrying a grant, nothing changes; an application
 whose `Role` model does not declare the column is not asked for it.
 
 **Rows, per action.** The row scope of an action on a model is the OR of the scopes of the roles that
