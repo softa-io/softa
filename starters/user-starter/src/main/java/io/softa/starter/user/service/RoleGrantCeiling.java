@@ -76,6 +76,13 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  * everything on it is new. Assigning a role changes nothing about what the role holds, so neither is judged
  * there at all: the role pickers of the built-in roles view past the grant, and a manager bounded by department
  * could otherwise assign none of them. Pages, actions, companies and named departments are judged as ever.
+ *
+ * <p>A role with no department grant is wider than a caller bounded by one, with one exception, model by model:
+ * rules that are all {@code SELF} reach only the holder's own record, wherever the holder sits, so the department
+ * axis has nothing to compare there. It holds for any role of that shape, on a save and an assignment alike, since
+ * what is judged is the rows the role reaches. Every other axis still applies, the caller's rules on the model
+ * included. No rule on the model, {@code ALL}, {@code CUSTOM} or anything mixed with {@code SELF} stays wider, and
+ * so does a model the role is exempt on.
  */
 @Component
 public class RoleGrantCeiling {
@@ -83,6 +90,8 @@ public class RoleGrantCeiling {
     private static final String M_PERMISSION = "Permission";
     private static final String M_NAVIGATION = "Navigation";
     private static final String M_SENSITIVE_FIELD_SET = "SensitiveFieldSet";
+    /** The stored name of the scope type reaching the holder's own record; the type itself is in another starter. */
+    private static final String SELF = "SELF";
 
     private final RoleService roleService;
     private final RoleNavigationService roleNavigationService;
@@ -442,7 +451,7 @@ public class RoleGrantCeiling {
      * Department axis: a caller role without a department grant reaches every department, so anything
      * is within it; otherwise each of the target's granted departments must sit inside one of the
      * caller role's, and an unbounded target — or one worked out per holder, or lifted on this model — is
-     * wider than any bounded caller.
+     * wider than any bounded caller, unless all it reaches on this model is the holder's own record.
      */
     private static boolean coversDepartments(Grants c, Grants target, String model) {
         Set<String> mine = c.departmentPaths();
@@ -450,10 +459,20 @@ public class RoleGrantCeiling {
             return true;
         }
         Set<String> theirs = target.departmentPaths();
-        if (theirs == null || !target.departmentConditions().isEmpty() || target.departmentExempt().contains(model)) {
+        if (!target.departmentConditions().isEmpty() || target.departmentExempt().contains(model)) {
             return false;
         }
+        if (theirs == null) {
+            return reachesOnlyTheHolder(target, model);
+        }
         return theirs.stream().allMatch(path -> mine.stream().anyMatch(root -> DepartmentGrants.within(path, root)));
+    }
+
+    /** Whether every rule the role holds on the model is {@code SELF}; no rule falls back to the model's default. */
+    private static boolean reachesOnlyTheHolder(Grants target, String model) {
+        Scope scope = target.scopes().get(model);
+        return scope != null && !scope.rules().isEmpty()
+                && scope.rules().stream().allMatch(rule -> SELF.equals(rule.scopeType()));
     }
 
     private static Set<String> union(List<Grants> grants, java.util.function.Function<Grants, Set<String>> part) {

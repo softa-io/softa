@@ -447,6 +447,10 @@ instead, so an exemption on `Employee` also shows that person's own sections; a 
 bounded on its own and needs its own exemption. A department just inserted, whose path the application writes
 after the insert, is judged by its parent's path, so a role may create one under a department it is
 granted (not at the top). There is no user-level union.
+Who may hand a grant on is judged by user-starter's `RoleGrantCeiling`, on a save and an assignment alike: a role
+with no department grant is wider than a caller bounded by one, except on a model where all its rules are `SELF`,
+which reach only the holder's own record. There the department axis steps aside and every other axis still applies,
+the caller's own rules on the model included; no rule, `ALL`, `CUSTOM`, a mix, or an exemption stays wider.
 A model whose department reference is configuration rather than ownership names that field otherwise
 (not `departmentId`), and is not bounded. A person's own department and managed departments are read from the
 request's employee (`emp-info:` cache), which `EmployeeIdentityCacheEvictor` drops after any write moving them or
