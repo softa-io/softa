@@ -567,7 +567,8 @@ public class ModelController<K extends Serializable> {
      * a company for a record (an employee's signing entity, a cost centre's company) offered companies
      * the write would then refuse. Its search says which record it is for ({@link SourceRecord}): the
      * company grants of the roles holding that write answer instead — create when the record has no id
-     * yet, update when it has ({@link PermissionService#getGrantedCompanyIds}).
+     * yet, update when it has, then by the roles reaching that record
+     * ({@link PermissionService#getGrantedCompanyIds(String, AccessType, java.io.Serializable)}).
      *
      * <p>A write granted no company offers none: every company the picker could list would be refused.
      */
@@ -580,8 +581,9 @@ public class ModelController<K extends Serializable> {
             return null;
         }
         boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
-        AccessType write = creating ? AccessType.CREATE : AccessType.UPDATE;
-        return permissionService.getGrantedCompanyIds(source.getModel(), write);
+        return creating
+                ? permissionService.getGrantedCompanyIds(source.getModel(), AccessType.CREATE)
+                : permissionService.getGrantedCompanyIds(source.getModel(), AccessType.UPDATE, source.getRecordId());
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.softa.starter.permission.service;
 
+import java.io.Serializable;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -8,6 +9,9 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import tools.jackson.databind.node.JsonNodeFactory;
 
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -15,7 +19,11 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.Operator;
+import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.meta.MetaModel;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.permission.index.EndpointIndex;
 import io.softa.starter.permission.interceptor.AdmittedRequest;
@@ -24,10 +32,17 @@ import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.spi.PermissionInfo;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import io.softa.starter.permission.spi.RoleGrant;
+import io.softa.starter.permission.spi.ScopeRule;
+import io.softa.starter.permission.spi.ScopeType;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,9 +60,12 @@ class GrantedCompaniesForActionTest {
     private static final String VIEW = "permission.employee.view";
     private static final String EDIT_CONTRACT = "permission.contract.edit";
     private static final String VOID_CONTRACT = "permission.contract.void";
+    private static final String EDIT_EMPLOYEE = "permission.employee.edit";
 
     private PermissionInfo pi;
     private PermissionServiceImpl service;
+    private ScopeRuleCompiler compiler;
+    private ModelService<Long> modelService;
 
     @BeforeEach
     void setUp() {
@@ -58,9 +76,12 @@ class GrantedCompaniesForActionTest {
         when(index.modelActionPermissions("Employee", "create")).thenReturn(Set.of(CREATE));
         when(index.modelActionPermissions("Employee", "view")).thenReturn(Set.of(VIEW));
         when(index.customWritePermissions("Contract")).thenReturn(Set.of(EDIT_CONTRACT, VOID_CONTRACT));
+        when(index.modelActionPermissions("Employee", "update")).thenReturn(Set.of(EDIT_EMPLOYEE));
         @SuppressWarnings("unchecked")
-        ModelService<Long> modelService = mock(ModelService.class);
-        service = new PermissionServiceImpl(provider, mock(ScopeRuleCompiler.class), null, modelService,
+        ModelService<Long> models = mock(ModelService.class);
+        modelService = models;
+        compiler = mock(ScopeRuleCompiler.class);
+        service = new PermissionServiceImpl(provider, compiler, null, modelService,
                 mock(ScopeApplicabilityResolver.class), () -> index);
     }
 
@@ -210,5 +231,76 @@ class GrantedCompaniesForActionTest {
         pi = null;
 
         assertThat(granted(AccessType.CREATE)).isEmpty();
+    }
+
+    // ---------------------------------------------------------------- one stored row
+
+    /** Runs the question with the model known, and the row counted as reached only by {@code reachedBy}. */
+    private Set<Long> grantedOnRow(Serializable id, String reachedBy) {
+        when(compiler.compile(anyList(), eq("Employee"))).thenAnswer(inv -> {
+            List<ScopeRule> rules = inv.getArgument(0);
+            return Filters.of(rules.getFirst().getScopeExpr().asString(), Operator.EQUAL, 1L);
+        });
+        when(modelService.count(eq("Employee"), any(Filters.class))).thenAnswer(inv ->
+                inv.<Filters>getArgument(1).toString().contains(reachedBy) ? 1L : 0L);
+        Context ctx = new Context();
+        ctx.setTenantId(TENANT);
+        ctx.setUserId(USER);
+        try (MockedStatic<ModelManager> models = Mockito.mockStatic(ModelManager.class)) {
+            models.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            models.when(() -> ModelManager.getModel("Employee")).thenReturn(mock(MetaModel.class));
+            return ContextHolder.callWith(ctx, () -> service.getGrantedCompanyIds("Employee", AccessType.UPDATE, id));
+        }
+    }
+
+    /** A role editing employees, reaching the rows the field of this name marks. */
+    private static RoleGrant editor(long id, Set<Long> companies, String rowsField) {
+        RoleGrant g = role(id, Set.of(EDIT_EMPLOYEE), companies);
+        g.setModelScopeMap(Map.of("Employee", List.of(
+                new ScopeRule(ScopeType.CUSTOM, JsonNodeFactory.instance.stringNode(rowsField)))));
+        return g;
+    }
+
+    @Test
+    @DisplayName("a stored row counts only the companies of the holding roles reaching it")
+    void aStoredRowCountsOnlyTheRolesReachingIt() {
+        pi.setRoleGrants(List.of(editor(1, Set.of(10L), "teamA"), editor(2, Set.of(20L), "teamB")));
+
+        assertThat(grantedOnRow(7L, "teamA")).containsExactly(10L);
+        assertThat(grantedOnRow(7L, "teamB")).containsExactly(20L);
+    }
+
+    @Test
+    @DisplayName("an unrestricted role reaching other rows lends the row nothing")
+    void anUnrestrictedRoleElsewhereLendsNothing() {
+        pi.setRoleGrants(List.of(editor(1, Set.of(10L), "teamA"), editor(2, null, "teamB")));
+
+        assertThat(grantedOnRow(7L, "teamA")).containsExactly(10L);
+        assertThat(grantedOnRow(7L, "teamB")).isNull();
+    }
+
+    @Test
+    @DisplayName("a row no holding role reaches names no company")
+    void aRowNoRoleReachesNamesNoCompany() {
+        pi.setRoleGrants(List.of(editor(1, Set.of(10L), "teamA"), editor(2, Set.of(20L), "teamB")));
+
+        assertThat(grantedOnRow(7L, "nobody")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("roles agreeing on their companies need no read of the row")
+    void agreeingRolesReadNothing() {
+        pi.setRoleGrants(List.of(editor(1, Set.of(10L), "teamA"), editor(2, Set.of(10L), "teamB")));
+
+        assertThat(grantedOnRow(7L, "nobody")).containsExactly(10L);
+        verify(modelService, never()).count(any(), any(Filters.class));
+    }
+
+    @Test
+    @DisplayName("a record with no id yet gets the answer for the model")
+    void noIdIsTheModelsAnswer() {
+        pi.setRoleGrants(List.of(editor(1, Set.of(10L), "teamA"), editor(2, Set.of(20L), "teamB")));
+
+        assertThat(grantedOnRow(null, "teamA")).containsExactly(10L, 20L);
     }
 }

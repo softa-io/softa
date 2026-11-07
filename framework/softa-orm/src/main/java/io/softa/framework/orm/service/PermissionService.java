@@ -410,4 +410,18 @@ public interface PermissionService {
         return null;
     }
 
+    /**
+     * {@link #getGrantedCompanyIds(String, AccessType)} for a write to one stored row: the company grants of
+     * the holding roles that reach that row. A role answers for its own rows and its own companies together,
+     * so a role that may edit one department's records in company A and another that may edit every record in
+     * company B do not add up to moving the first department's records to company B.
+     *
+     * <p>Default: the answer for the model. A null {@code id} — a record with none yet — is that answer too.
+     *
+     * @return as {@link #getGrantedCompanyIds(String, AccessType)}; empty when no holding role reaches the row
+     */
+    default Set<Long> getGrantedCompanyIds(String model, AccessType accessType, Serializable id) {
+        return getGrantedCompanyIds(model, accessType);
+    }
+
 }

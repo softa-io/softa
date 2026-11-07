@@ -168,6 +168,20 @@ class CompanyReferenceGrantValidatorTest {
     }
 
     @Test
+    void anUpdateIsJudgedByTheRolesReachingThatRow() {
+        // The row's id goes along, so a role holding the write on other rows lends it no companies here.
+        when(permissionService.getGrantedCompanyIds("Contract", AccessType.UPDATE, 7L)).thenReturn(Set.of(ALBEDO));
+        Map<String, Object> stored = new HashMap<>(row(ALBEDO));
+        stored.put("id", 7L);
+        WriteContext ctx = WriteContext.of("Contract", AccessType.UPDATE, row(ZINGKEY), row(ZINGKEY), stored);
+
+        validator.validateUpdate(ctx);
+
+        assertThat(ctx.errors()).singleElement().satisfies(e -> assertThat(e.field()).isEqualTo("legalEntityId"));
+        verify(permissionService, never()).getGrantedCompanyIds("Contract", AccessType.UPDATE);
+    }
+
+    @Test
     void theGrantIsAskedOncePerWrite() {
         when(permissionService.getGrantedCompanyIds("Contract", AccessType.CREATE)).thenReturn(Set.of(ALBEDO));
         Map<String, Object> scratch = new HashMap<>();

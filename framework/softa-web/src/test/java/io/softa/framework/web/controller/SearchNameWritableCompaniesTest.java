@@ -51,7 +51,7 @@ class SearchNameWritableCompaniesTest {
 
     @Test
     void aStoredRecordOffersTheCompaniesItsEditorsAreGranted() {
-        when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE)).thenReturn(Set.of(20L));
+        when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE, "7")).thenReturn(Set.of(20L));
 
         assertThat(writable("Company", from("Employee", 7L))).containsExactly(20L);
     }
@@ -66,7 +66,7 @@ class SearchNameWritableCompaniesTest {
 
     @Test
     void anUnrestrictedWriteLeavesThePickerAsItReads() {
-        when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE)).thenReturn(null);
+        when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE, "7")).thenReturn(null);
 
         assertThat(writable("Company", from("Employee", 7L))).isNull();
     }

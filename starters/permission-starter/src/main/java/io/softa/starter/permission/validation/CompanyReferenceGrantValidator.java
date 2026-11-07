@@ -1,6 +1,7 @@
 package io.softa.starter.permission.validation;
 
-import java.util.EnumMap;
+import java.io.Serializable;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,7 +35,8 @@ import io.softa.framework.orm.service.validation.WriteContext;
  *
  * <p>Every stored to-one field onto the company model is judged, except the {@code companyId} axis that
  * row scope already bounds: on create when it is set, on update only when the write changes it, against
- * the company grants of the roles holding that write ({@link PermissionService#getGrantedCompanyIds}).
+ * the company grants of the roles holding that write ({@link PermissionService#getGrantedCompanyIds}) — on
+ * update only those reaching the row, as a role answers for its own rows and its own companies together.
  * A record already naming a company outside the grant — set by an administrator, or by the system — stays
  * editable in its other fields. Writes made without permission checks (the system, seed data, a service
  * acting for the caller) are not the caller's choice and pass, as do callers whose write is unrestricted.
@@ -65,7 +67,7 @@ public class CompanyReferenceGrantValidator implements ModelWriteValidator {
     @Override
     public void validateCreate(WriteContext ctx) {
         for (String field : referencesOf(ctx.modelName())) {
-            check(ctx, field, AccessType.CREATE, idOf(ctx.row().get(field)));
+            check(ctx, field, AccessType.CREATE, idOf(ctx.row().get(field)), null);
         }
     }
 
@@ -80,7 +82,7 @@ public class CompanyReferenceGrantValidator implements ModelWriteValidator {
             if (original != null && Objects.equals(next, idOf(original.get(field)))) {
                 continue;
             }
-            check(ctx, field, AccessType.UPDATE, next);
+            check(ctx, field, AccessType.UPDATE, next, ctx.id());
         }
     }
 
@@ -105,11 +107,11 @@ public class CompanyReferenceGrantValidator implements ModelWriteValidator {
         });
     }
 
-    private void check(WriteContext ctx, String field, AccessType access, Long company) {
+    private void check(WriteContext ctx, String field, AccessType access, Long company, Serializable rowId) {
         if (company == null) {
             return;
         }
-        Set<Long> granted = grantedFor(ctx, access);
+        Set<Long> granted = grantedFor(ctx, access, rowId);
         if (granted == null || granted.contains(company)) {
             return;
         }
@@ -118,15 +120,18 @@ public class CompanyReferenceGrantValidator implements ModelWriteValidator {
                 + " Choose one of those, or ask an administrator to grant your role this company.");
     }
 
-    /** The grant for this write, worked out once per write and action. */
+    /** The grant for this write, worked out once per write, action and row. */
     @SuppressWarnings("unchecked")
-    private Set<Long> grantedFor(WriteContext ctx, AccessType access) {
-        Map<AccessType, Set<Long>> byAccess = (Map<AccessType, Set<Long>>) ctx.scratch()
-                .computeIfAbsent("grantedCompanies", key -> new EnumMap<>(AccessType.class));
-        if (!byAccess.containsKey(access)) {
-            byAccess.put(access, permissionService.getGrantedCompanyIds(ctx.modelName(), access));
+    private Set<Long> grantedFor(WriteContext ctx, AccessType access, Serializable rowId) {
+        Map<String, Set<Long>> byRow = (Map<String, Set<Long>>) ctx.scratch()
+                .computeIfAbsent("grantedCompanies", key -> new HashMap<>());
+        String key = access + "|" + rowId;
+        if (!byRow.containsKey(key)) {
+            byRow.put(key, rowId == null
+                    ? permissionService.getGrantedCompanyIds(ctx.modelName(), access)
+                    : permissionService.getGrantedCompanyIds(ctx.modelName(), access, rowId));
         }
-        return byAccess.get(access);
+        return byRow.get(key);
     }
 
     /** The company's name for the message, read past row scope: it is the one the writer just named. */

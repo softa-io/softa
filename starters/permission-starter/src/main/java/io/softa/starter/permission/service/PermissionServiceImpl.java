@@ -1530,12 +1530,50 @@ public class PermissionServiceImpl implements PermissionService {
         PermissionInfo pi = currentPi();
         if (pi == null) return Set.of();
         if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        return companiesOf(companyHolders(pi, model, accessType));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Roles holding the write that agree on their companies need no read: whichever of them reach the row,
+     * the answer is the same, and a row none of them reaches is refused by the row check on its own.
+     */
+    @Override
+    public Set<Long> getGrantedCompanyIds(String model, AccessType accessType, Serializable id) {
+        if (id == null || AccessType.CREATE.equals(accessType)) {
+            return getGrantedCompanyIds(model, accessType);
+        }
+        if (shouldBypass()) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return Set.of();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        List<Grant> holders = companyHolders(pi, model, accessType);
+        if (holders.stream().map(Grant::companies).distinct().count() <= 1) {
+            return companiesOf(holders);
+        }
+        return companiesOf(holders.stream().filter(g -> reachesRow(g, model, id, accessType)).toList());
+    }
+
+    /** The grants' companies together; {@code null} as soon as one of them is unrestricted. */
+    private static Set<Long> companiesOf(List<Grant> grants) {
         Set<Long> granted = new java.util.TreeSet<>();
-        for (Grant g : companyHolders(pi, model, accessType)) {
+        for (Grant g : grants) {
             if (g.companies() == null) return null;
             granted.addAll(g.companies());
         }
         return granted;
+    }
+
+    /** Whether one grant names this row for {@code accessType}, judged as {@link #checkIdsAccess} judges it. */
+    private boolean reachesRow(Grant g, String model, Serializable id, AccessType accessType) {
+        Filters scope = idCheckScope(g, model, accessType);
+        if (scope == null) return true;
+        List<Serializable> ids = List.of(id);
+        Filters target = Filters.and(byIds(model, ids), scope);
+        return unscoped(() -> modelService.count(model, target)) > 0
+                || (ModelManager.existModel(model) && ModelManager.isTimelineModel(model)
+                        && reachedOnAnySlice(model, ids, scope));
     }
 
     /**
