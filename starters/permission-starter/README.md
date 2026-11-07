@@ -451,6 +451,9 @@ Who may hand a grant on is judged by user-starter's `RoleGrantCeiling`, on a sav
 with no department grant is wider than a caller bounded by one, except on a model where all its rules are `SELF`,
 which reach only the holder's own record. There the department axis steps aside and every other axis still applies,
 the caller's own rules on the model included; no rule, `ALL`, `CUSTOM`, a mix, or an exemption stays wider.
+The company grant is judged there by the companies named: a role may be given any of the ids a caller role's rules
+list together, in any order and as one rule or several, the way the snapshot adds them up. A `CUSTOM` rule naming
+no fixed ids (a predicate, a placeholder) is compared as written, since what it reaches can change.
 A model whose department reference is configuration rather than ownership names that field otherwise
 (not `departmentId`), and is not bounded. A person's own department and managed departments are read from the
 request's employee (`emp-info:` cache), which `EmployeeIdentityCacheEvictor` drops after any write moving them or

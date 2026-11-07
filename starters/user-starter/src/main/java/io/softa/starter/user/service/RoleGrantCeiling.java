@@ -17,15 +17,20 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.constant.EnvConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.enums.BuiltinRole;
+import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.enums.FilterType;
+import io.softa.framework.orm.enums.LogicOperator;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.entity.Role;
@@ -59,7 +64,8 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  * </ul>
  * Rules are compared as written, not by what they resolve to. That is deliberately narrow — a rule the
  * caller holds is a rule they may pass on, anything else is refused — and it keeps the check free of
- * any judgement about which rule is wider than another.
+ * any judgement about which rule is wider than another. Companies named outright are the exception below the
+ * department grant's: fixed ids need no judgement, so a role may be given any of the caller role's companies.
  *
  * <p>The department grant is the one exception, compared by where the departments sit rather than by
  * how the rule is written: a role may be given any department inside one of the caller role's granted
@@ -92,6 +98,8 @@ public class RoleGrantCeiling {
     private static final String M_SENSITIVE_FIELD_SET = "SensitiveFieldSet";
     /** The stored name of the scope type reaching the holder's own record; the type itself is in another starter. */
     private static final String SELF = "SELF";
+    /** The stored name of the scope type holding an administrator's own filter. */
+    private static final String CUSTOM = "CUSTOM";
 
     private final RoleService roleService;
     private final RoleNavigationService roleNavigationService;
@@ -437,14 +445,104 @@ public class RoleGrantCeiling {
         return theirs != null && mine.rules().containsAll(theirs.rules());
     }
 
-    /** Company axis: no company rule means every company, so the target must be no wider. */
+    /**
+     * Company axis: no company rule means every company, so the target must be no wider. Rules are read the way
+     * the permission snapshot resolves them, each one adding to the role's companies. A target's rule is within
+     * the caller role when it names fixed companies among those the caller role's rules name, or when the caller
+     * role holds that very rule; a rule naming no fixed companies is only ever compared as written, as what it
+     * reaches can change, or differ for each holder. Nothing is read from the database here: a caller's rule
+     * matching some companies today does not cover those companies by id.
+     */
     private static boolean coversCompanies(Grants c, Grants target) {
         Scope mine = c.scopes().get(ModelConstant.COMPANY_MODEL);
         if (mine == null || mine.rules().contains(Rule.ALL)) {
             return true;
         }
         Scope theirs = target.scopes().get(ModelConstant.COMPANY_MODEL);
-        return theirs != null && mine.rules().containsAll(theirs.rules());
+        if (theirs == null) {
+            return false;
+        }
+        Set<String> named = new HashSet<>();
+        for (Rule rule : mine.rules()) {
+            Set<String> companies = fixedCompaniesOf(rule);
+            if (companies != null) {
+                named.addAll(companies);
+            }
+        }
+        return theirs.rules().stream().allMatch(rule -> {
+            if (mine.rules().contains(rule)) {
+                return true;
+            }
+            Set<String> companies = fixedCompaniesOf(rule);
+            return companies != null && named.containsAll(companies);
+        });
+    }
+
+    /**
+     * The companies a rule names outright, as text since clients send ids either way, or null when it names none
+     * that way. An empty expression and an empty list both name no company, which is how the snapshot resolves them.
+     */
+    private static @Nullable Set<String> fixedCompaniesOf(Rule rule) {
+        JsonNode expr = rule.scopeExpr();
+        if (!CUSTOM.equals(rule.scopeType()) || expr == null || !expr.isArray()) {
+            return null;
+        }
+        if (expr.isEmpty()) {
+            return new HashSet<>();
+        }
+        try {
+            return fixedIdsOf(Filters.of(expr.toString()));
+        } catch (RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /** Conditions on the id, alone or OR-ed together; anything else narrows or widens by what the rows hold. */
+    private static @Nullable Set<String> fixedIdsOf(@Nullable Filters filters) {
+        if (filters == null) {
+            return null;
+        }
+        if (FilterType.LEAF.equals(filters.getType())) {
+            return fixedIdsOf(filters.getFilterUnit());
+        }
+        List<Filters> children = filters.getChildren();
+        if (!FilterType.TREE.equals(filters.getType()) || children.isEmpty()
+                || (children.size() > 1 && !LogicOperator.OR.equals(filters.getLogicOperator()))) {
+            return null;
+        }
+        Set<String> ids = new HashSet<>();
+        for (Filters child : children) {
+            Set<String> own = fixedIdsOf(child);
+            if (own == null) {
+                return null;
+            }
+            ids.addAll(own);
+        }
+        return ids;
+    }
+
+    private static @Nullable Set<String> fixedIdsOf(@Nullable FilterUnit unit) {
+        if (unit == null || !ModelConstant.ID.equals(unit.getField())) {
+            return null;
+        }
+        Collection<?> values;
+        if (Operator.IN.equals(unit.getOperator()) && unit.getValue() instanceof Collection<?> listed) {
+            values = listed;
+        } else if (Operator.EQUAL.equals(unit.getOperator()) && unit.getValue() != null) {
+            values = List.of(unit.getValue());
+        } else {
+            return null;
+        }
+        Set<String> ids = new HashSet<>();
+        for (Object value : values) {
+            // A placeholder is worked out for each holder, however much it looks like an id here.
+            String id = String.valueOf(value);
+            if (value == null || EnvConstant.ENV_PARAMS.contains(id.toUpperCase()) || id.contains("{{")) {
+                return null;
+            }
+            ids.add(id);
+        }
+        return ids;
     }
 
     /**

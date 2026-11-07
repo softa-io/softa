@@ -366,6 +366,117 @@ class DepartmentGrantCeilingTest {
                 .contains(new Violation(Violation.Kind.DEPARTMENTS, EMPLOYEE));
     }
 
+    // ---- the company axis, compared by the companies named ----------------------------------------------
+
+    private static final Predicate<String> ALL_MULTI_COMPANY = model -> true;
+
+    private static Rule companies(String expr) {
+        return new Rule("CUSTOM", json(expr));
+    }
+
+    /** A role reading every ticket, with these rules on the company model; none is no company rule at all. */
+    private static Grants companyRole(Rule... rules) {
+        Grants role = new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(Set.of("ticket.view")), new LinkedHashSet<>(),
+                new LinkedHashMap<>(Map.of(TICKET, scope(Rule.ALL))));
+        if (rules.length > 0) {
+            role.scopes().put(ModelConstant.COMPANY_MODEL, scope(rules));
+        }
+        return role;
+    }
+
+    private static Optional<Violation> checkCompanies(Grants target, Grants caller) {
+        return RoleGrantCeiling.firstViolation(target, List.of(caller), MODEL_BY_PERMISSION, Map.of(), ALL_MULTI_COMPANY);
+    }
+
+    private static final Violation COMPANY_FAULT = new Violation(Violation.Kind.RECORDS, TICKET);
+
+    @Test
+    void aSubsetOfTheCallersCompaniesIsWithinThem() {
+        Grants caller = companyRole(companies("[[\"id\",\"IN\",[\"1\",\"2\"]]]"));
+
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"1\"]]]")), caller)).isEmpty();
+        // However the same companies are written: another order, a number, a single equality.
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"2\",\"1\"]]]")), caller)).isEmpty();
+        assertThat(checkCompanies(companyRole(companies("[\"id\",\"IN\",[1]]")), caller)).isEmpty();
+        assertThat(checkCompanies(companyRole(companies("[\"id\",\"=\",2]")), caller)).isEmpty();
+    }
+
+    @Test
+    void aCompanyBeyondTheCallersIsRefused() {
+        Grants caller = companyRole(companies("[[\"id\",\"IN\",[\"1\",\"2\"]]]"));
+
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"1\",\"3\"]]]")), caller)).contains(COMPANY_FAULT);
+    }
+
+    @Test
+    void noCompanyIsASubsetOfAny() {
+        // Reaches no company, as the snapshot resolves it: nothing more than the caller has.
+        Grants caller = companyRole(companies("[[\"id\",\"IN\",[\"1\"]]]"));
+
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[]]]")), caller)).isEmpty();
+        assertThat(checkCompanies(companyRole(companies("[]")), caller)).isEmpty();
+    }
+
+    @Test
+    void aCallerWithNoCompanyRuleOrAllReachesAny() {
+        Grants target = companyRole(companies("[[\"id\",\"IN\",[\"9\"]]]"));
+
+        assertThat(checkCompanies(target, companyRole())).isEmpty();
+        assertThat(checkCompanies(target, companyRole(Rule.ALL))).isEmpty();
+        assertThat(checkCompanies(companyRole(), companyRole(Rule.ALL))).isEmpty();
+    }
+
+    @Test
+    void aTargetWithNoCompanyRuleOrAllIsWiderThanALimitedCaller() {
+        Grants caller = companyRole(companies("[[\"id\",\"IN\",[\"1\"]]]"));
+
+        assertThat(checkCompanies(companyRole(), caller)).contains(COMPANY_FAULT);
+        assertThat(checkCompanies(companyRole(Rule.ALL), caller)).contains(COMPANY_FAULT);
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"1\"]]]"), Rule.ALL), caller)).contains(COMPANY_FAULT);
+    }
+
+    @Test
+    void severalRulesAreTheirUnionAsTheSnapshotReadsThem() {
+        Grants caller = companyRole(companies("[[\"id\",\"IN\",[\"1\"]]]"), companies("[[\"id\",\"IN\",[\"2\"]]]"));
+
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"1\",\"2\"]]]")), caller)).isEmpty();
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"2\"]]]"), companies("[[\"id\",\"IN\",[\"1\"]]]")), caller)).isEmpty();
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"2\"]]]"), companies("[[\"id\",\"IN\",[\"3\"]]]")), caller)).contains(COMPANY_FAULT);
+        // ORed conditions on the id are the same union, written in one rule.
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"=\",\"1\"],\"OR\",[\"id\",\"=\",\"2\"]]")), caller)).isEmpty();
+    }
+
+    @Test
+    void anExpressionThatNamesNoFixedCompaniesIsComparedAsWritten() {
+        // Not an id set: it may reach more tomorrow, or reach something else for each holder.
+        String byCountry = "[[\"country\",\"=\",\"SG\"]]";
+        String ownCompany = "[[\"id\",\"=\",\"USER_COMP_ID\"]]";
+        String narrowed = "[[\"id\",\"IN\",[\"1\"]],\"AND\",[\"country\",\"=\",\"SG\"]]";
+        Grants idsOnly = companyRole(companies("[[\"id\",\"IN\",[\"1\",\"2\"]]]"));
+
+        for (String expr : List.of(byCountry, ownCompany, narrowed)) {
+            assertThat(checkCompanies(companyRole(companies(expr)), idsOnly)).as(expr).contains(COMPANY_FAULT);
+            assertThat(checkCompanies(companyRole(companies(expr)), companyRole(companies(expr)))).as(expr).isEmpty();
+        }
+        assertThat(checkCompanies(companyRole(companies("[\"not a filter\"]")), idsOnly)).contains(COMPANY_FAULT);
+    }
+
+    @Test
+    void aCallersPredicateDoesNotCoverTheIdsItHappensToReach() {
+        // Nothing here reads which companies a predicate matches.
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"1\"]]]")),
+                companyRole(companies("[[\"country\",\"=\",\"SG\"]]")))).contains(COMPANY_FAULT);
+    }
+
+    @Test
+    void aMixOfIdsAndAPredicateIsJudgedRuleByRule() {
+        String byCountry = "[[\"country\",\"=\",\"SG\"]]";
+        Grants caller = companyRole(companies("[[\"id\",\"IN\",[\"1\",\"2\"]]]"), companies(byCountry));
+
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"2\"]]]"), companies(byCountry)), caller)).isEmpty();
+        assertThat(checkCompanies(companyRole(companies("[[\"id\",\"IN\",[\"3\"]]]"), companies(byCountry)), caller)).contains(COMPANY_FAULT);
+    }
+
     private static Optional<Violation> check(Grants target, Grants caller) {
         return RoleGrantCeiling.firstViolation(target, List.of(caller), MODEL_BY_PERMISSION, Map.of(),
                 NO_COMPANY, DEPARTMENT_BOUND);
