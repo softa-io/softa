@@ -160,6 +160,10 @@ public class EndpointIndex implements StartupSnapshot {
         return Collections.unmodifiableMap(frozen);
     }
 
+    /** Every {@code "VERB suffix"} of a standard endpoint, whichever action it belongs to. */
+    private static final Set<String> STANDARD_ENTRIES = STANDARD_ACTION_MAP.values().stream()
+            .flatMap(List::stream).collect(java.util.stream.Collectors.toUnmodifiableSet());
+
     private final PermissionEndpointSource endpointSource;
 
     /**
@@ -198,9 +202,12 @@ public class EndpointIndex implements StartupSnapshot {
      * @param modelActions {@code "<Model> <action>"} → the permission ids reaching any standard endpoint of a
      *                     per-model action on that model, whether derived or hand-listed. See
      *                     {@link #modelActionPermissions}.
+     * @param customWrites {@code <Model>} → the permission ids listing a custom write endpoint on that model.
+     *                     See {@link #customWritePermissions}.
      */
     private record Index(Map<String, Set<String>> exact, List<PatternEntry> patterns,
-                         Map<String, Set<String>> actions, Map<String, Set<String>> modelActions) {
+                         Map<String, Set<String>> actions, Map<String, Set<String>> modelActions,
+                         Map<String, Set<String>> customWrites) {
     }
 
     private volatile Index index;
@@ -216,6 +223,7 @@ public class EndpointIndex implements StartupSnapshot {
         List<PatternEntry> patterns = new ArrayList<>();
         Map<String, Set<String>> actions = new HashMap<>();
         Map<String, Set<String>> modelActions = new HashMap<>();
+        Map<String, Set<String>> customWrites = new HashMap<>();
 
         for (PermissionEndpointDef def : endpointSource.getPermissionEndpoints()) {
             if (def.model() != null && !def.model().isEmpty() && def.permissionId() != null) {
@@ -225,6 +233,7 @@ public class EndpointIndex implements StartupSnapshot {
             List<String> endpoints = explicitOrDerive(def);
             for (String ep : endpoints) {
                 indexModelAction(ep, def.permissionId(), modelActions);
+                indexCustomWrite(ep, def.permissionId(), customWrites);
                 if (ep.contains("{")) {
                     patterns.add(PatternEntry.compile(ep, def.permissionId()));
                 } else {
@@ -236,7 +245,8 @@ public class EndpointIndex implements StartupSnapshot {
         }
         // Freeze each inner Set, then publish the whole index at once: a reader sees the previous index or this
         // one, never half of each.
-        this.index = new Index(freeze(exact), List.copyOf(patterns), freeze(actions), freeze(modelActions));
+        this.index = new Index(freeze(exact), List.copyOf(patterns), freeze(actions), freeze(modelActions),
+                freeze(customWrites));
         log.info("EndpointIndex built: {} exact + {} pattern entries",
                 exact.size(), patterns.size());
     }
@@ -312,6 +322,61 @@ public class EndpointIndex implements StartupSnapshot {
      */
     public Set<String> modelActionPermissions(String model, String action) {
         return built().modelActions().getOrDefault(model + " " + action, Set.of());
+    }
+
+    /**
+     * The permission ids listing a custom write endpoint on {@code model}: a {@code POST} / {@code PUT} /
+     * {@code PATCH} / {@code DELETE} on {@code /Model/...} that is none of the standard endpoints — the
+     * {@code POST /Contract/upload} a form saves through when the model's own update is not exposed.
+     *
+     * <p>Who writes such a model, asked without the request that writes it — a picker on the form, before
+     * the save. Wider than the permission of any one endpoint (a role that may only void records counts),
+     * narrower than every role the user holds. An endpoint named as a read does not count
+     * ({@link #namedAsRead}): a role that may only preview a bank file does not choose companies by it.
+     *
+     * @return the permission ids, empty when none lists one
+     */
+    public Set<String> customWritePermissions(String model) {
+        return built().customWrites().getOrDefault(model, Set.of());
+    }
+
+    /**
+     * The verbs a custom {@code POST} that only reads is named by; see {@link #namedAsRead}. Short on purpose:
+     * {@code check} is left out for {@code checkIn}, and {@code fetch} for the fetch that stores what it fetched.
+     */
+    private static final List<String> READ_VERBS = List.of("search", "preview", "list", "count", "export", "get",
+            "query", "find");
+
+    /**
+     * Whether an endpoint's last path segment says it only reads: a read verb, alone or as the first word of
+     * the name ({@code preview}, {@code searchByEmployee}), not merely as its first letters ({@code listen}).
+     *
+     * <p>A convention, because nothing better is on hand here: an endpoint reaches this index as a
+     * {@code VERB /path} string from a permission row, and a {@code POST} says nothing by itself — reads travel
+     * as {@code POST} when their parameters do not fit a query string. {@code @RequirePermission#accessType} says
+     * what a handler does, but only the handlers carrying it, and with {@code READ} as its default it cannot
+     * tell a read from a handler that never said. An endpoint this does not recognise stays a write, the
+     * reading that was already in place, so the worst a misleading name costs is what it cost before.
+     */
+    static boolean namedAsRead(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1);
+        return READ_VERBS.stream().anyMatch(verb -> name.startsWith(verb)
+                && (name.length() == verb.length() || Character.isUpperCase(name.charAt(verb.length()))));
+    }
+
+    /** Record {@code endpoint} under its model when it is a write endpoint none of the standard ones are. */
+    private static void indexCustomWrite(String endpoint, String permissionId, Map<String, Set<String>> out) {
+        if (permissionId == null) return;
+        int space = endpoint.indexOf(' ');
+        if (space <= 0 || endpoint.length() < space + 2 || endpoint.charAt(space + 1) != '/') return;
+        String verb = endpoint.substring(0, space);
+        if ("GET".equals(verb) || "HEAD".equals(verb) || "OPTIONS".equals(verb)) return;
+        int slash = endpoint.indexOf('/', space + 2);
+        if (slash < 0) return;
+        String model = endpoint.substring(space + 2, slash);
+        if (model.isEmpty() || STANDARD_ENTRIES.contains(verb + " " + endpoint.substring(slash + 1))) return;
+        if (namedAsRead(endpoint)) return;
+        out.computeIfAbsent(model, k -> new HashSet<>()).add(permissionId);
     }
 
     /** Record {@code endpoint} under each per-model standard action its {@code VERB /Model/suffix} is in. */

@@ -37,4 +37,13 @@ public class RoleGrantView {
 
     /** Model → sensitive field set ids this role grants, keyed by the set's own model. */
     private Map<String, Set<String>> modelSensitiveFieldSetsMap;
+
+    /** {@code idPath} of each department the role's department grant names; {@code null} when not bounded by department. */
+    private Set<String> grantedDepartmentPaths;
+
+    /** What the department grant adds for whoever holds the role. */
+    private Set<String> departmentConditions;
+
+    /** Models this role views in every department, whatever its department grant says. */
+    private Set<String> departmentExemptModels;
 }

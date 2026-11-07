@@ -31,6 +31,22 @@ A detail form hides Edit / Delete and the sections of hidden sets from the answe
 sections of read-only sets read-only. The record's answer stands on its own: it overrides what the user
 holds through some other role.
 
+**A company picker offers the companies the write may name.** `POST /Company/searchName` with a
+`sourceRecord` — the record the picker fills a field of — is narrowed to the company grants of the roles
+holding that write: create when `sourceRecord.recordId` is empty, update otherwise
+(`PermissionService.getGrantedCompanyIds`). The company list as the user reads it reaches the companies of
+every role they hold, and a role with no company grant (the self-service role) reaches them all, so a form
+picking a signing entity or a cost centre's company would offer companies the save then refuses. A search
+with no `sourceRecord` — a list filter, a report — is left as it reads. A write granted no company offers
+none: every company the picker could list would be refused. On an update, only the holding roles reaching
+that record count.
+
+**A department picker offers what the write may choose.** `POST /Department/searchName` and
+`POST /Department/searchList` — the read a tree picker makes — take the same `sourceRecord`, and are narrowed to the
+department grants of the roles holding that write (`PermissionService.getWritableDepartmentScope`). The list as
+the user reads it answers for what they may view, which an exemption from the grant opens in full. Only where the
+picked department places the record: a model with a `departmentId` of its own, or the department model itself.
+
 ## Enum Request Parameters
 
 Query, path and header parameters bind an enum by the value JSON uses for it — the `@JsonValue` field when the enum declares one, the constant name otherwise — so a parameter takes the same value that request bodies, responses and option items show: for `Status.ACTIVE("Active")`, send `?status=Active`. Matching is exact, a blank value binds as `null`, and a value naming no constant fails to bind. `BaseWebConfig.addFormatters` registers this in place of Spring's default binding, which matches the constant name only.

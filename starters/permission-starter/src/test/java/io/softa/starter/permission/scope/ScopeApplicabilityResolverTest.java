@@ -77,6 +77,79 @@ class ScopeApplicabilityResolverTest {
                 "Employee", List.of("id", "=", "USER_EMP_ID"));
     }
 
+    private static Map<String, Object> directReports() {
+        return filterRow("DIRECT_REPORTS", List.of("managerId", "=", "USER_EMP_ID"),
+                "Employee", List.of("piEmployeeId", "=", "USER_EMP_ID"));
+    }
+
+    private static MetaField owner(String relatedModel) {
+        MetaField mf = mock(MetaField.class);
+        when(mf.getFieldType()).thenReturn(io.softa.framework.orm.enums.FieldType.MANY_TO_ONE);
+        when(mf.getRelatedModel()).thenReturn(relatedModel);
+        return mf;
+    }
+
+    @Test
+    void directReports_reachesARecordThroughTheEmployeeItBelongsTo() {
+        ScopeApplicabilityResolver resolver = resolverWith(directReports(), self());
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("LeaveRequest")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("LeaveRequest"))
+                    .thenReturn(List.of(field("id"), field("employeeId")));
+            MetaField employee = owner("Employee");
+            mm.when(() -> ModelManager.getModelFieldOrNull("LeaveRequest", "employeeId")).thenReturn(employee);
+
+            assertThat(resolver.applicableFor("LeaveRequest")).contains(ScopeType.DIRECT_REPORTS, ScopeType.SELF);
+        }
+    }
+
+    @Test
+    void directReports_usesAManagerFieldOnTheRowItself() {
+        ScopeApplicabilityResolver resolver = resolverWith(directReports());
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("PreOnboarding")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("PreOnboarding"))
+                    .thenReturn(List.of(field("id"), field("piEmployeeId")));
+
+            assertThat(resolver.applicableFor("PreOnboarding")).contains(ScopeType.DIRECT_REPORTS);
+        }
+    }
+
+    @Test
+    void directReports_doesNotApplyWhereNothingLeadsToAManager() {
+        ScopeApplicabilityResolver resolver = resolverWith(directReports());
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Department")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("Department")).thenReturn(List.of(field("id"), field("idPath")));
+
+            assertThat(resolver.applicableFor("Department")).doesNotContain(ScopeType.DIRECT_REPORTS);
+        }
+    }
+
+    @Test
+    void directReports_doesNotFollowAnEmployeeIdPointingElsewhere() {
+        ScopeApplicabilityResolver resolver = resolverWith(directReports());
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Odd")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("Odd")).thenReturn(List.of(field("id"), field("employeeId")));
+            MetaField other = owner("Other");
+            mm.when(() -> ModelManager.getModelFieldOrNull("Odd", "employeeId")).thenReturn(other);
+
+            assertThat(resolver.applicableFor("Odd")).doesNotContain(ScopeType.DIRECT_REPORTS);
+        }
+    }
+
+    @Test
+    void self_doesNotFallBackToAnIdentityAnchorOnId() {
+        ScopeApplicabilityResolver resolver = resolverWith(self());
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Currency")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("Currency")).thenReturn(List.of(field("id")));
+
+            assertThat(resolver.applicableFor("Currency")).doesNotContain(ScopeType.SELF);
+        }
+    }
+
     @Test
     void applicableFor_emptyRegistry_onlyAll() {
         ScopeApplicabilityResolver resolver = resolverWith();

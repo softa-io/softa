@@ -3,9 +3,11 @@ package io.softa.starter.permission.scope;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Resolve {@code deptId → idPath} for {@code DepartmentSubtreeScopeContributor}
@@ -42,8 +45,11 @@ import java.util.Set;
  * HR app's {@code DepartmentChangedEvent} adapter) drops
  * {@code dept-idpath:{tenantId}} immediately on any structural change
  * (create / move / delete / head-change), so a moved department is reflected on
- * the next lookup. {@link #CACHE_TTL_SECONDS} is a backstop for the edge case
- * where a change commits with no tenant bound to evict against.
+ * the next lookup. The tenant's permission snapshots go with it only when a stored
+ * path changed ({@link #evict(Long, boolean)}), as they hold the paths of the
+ * departments a role names and nothing else about the tree. {@link #CACHE_TTL_SECONDS}
+ * is a backstop for the edge case where a change commits with no tenant bound to evict
+ * against, and for a tree read before a change and written back after its eviction.
  *
  * <h3>Query semantics</h3>
  * The tree is loaded under {@code skipPermissionCheck=true} — the caller's
@@ -52,7 +58,8 @@ import java.util.Set;
  * would be a UX trap. The tenant filter is NOT skipped, so a tenant only ever
  * caches / reads its own departments — cross-tenant idPaths never leak. When no
  * tenant is bound the resolver returns nothing (fail-closed) rather than load
- * across tenants.
+ * across tenants. Disabled departments are in the tree, as they are for a grant
+ * naming one: disabling a department does not hand its people and records to nobody.
  *
  * <h3>Behaviour on unknown id</h3>
  * Missing / soft-deleted / cross-tenant deptId → {@link Optional#empty()} for
@@ -130,23 +137,53 @@ public class DepartmentIdPathResolver {
         return ids;
     }
 
-    /** Drop the cached department tree for a tenant; the next lookup reloads it.
-     *  Public so the domain's event adapter (the HR app's {@code DepartmentChangedEvent}
-     *  listener) can evict on any structural change. {@link #CACHE_TTL_SECONDS} is
-     *  the backstop when no tenant is bound to evict against. */
+    /** {@link #evict(Long, boolean)} for a change that may have moved a department: the safe default. */
     public void evict(Long tenantId) {
+        evict(tenantId, true);
+    }
+
+    /**
+     * Drop the cached department tree for a tenant; the next lookup reloads it. Public so the domain's event
+     * adapter (the HR app's {@code DepartmentChangedEvent} listener) can evict on any structural change.
+     * {@link #CACHE_TTL_SECONDS} is the backstop when no tenant is bound to evict against.
+     *
+     * <p>Permission snapshots hold the stored path of each department a role names, so they are dropped too when
+     * an existing department's path changed — a move, which rewrites the moved subtree's paths. Nothing else
+     * touches a stored path: a new department is found under its parent by the tree read at request time, and
+     * deleting or disabling one leaves the paths of the others as they were. Rebuilding every snapshot of the
+     * tenant for those would make each such edit cost every user's next request.
+     *
+     * @param pathsChanged whether an existing department's stored {@code idPath} changed
+     */
+    public void evict(Long tenantId, boolean pathsChanged) {
         if (tenantId == null) return;
         try {
             cacheService.clear(CACHE_KEY_PREFIX + tenantId);
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — evicting dept-idpath:{} failed; TTL will expire it", tenantId, t);
         }
+        if (!pathsChanged) return;
+        try {
+            // Before the clear: a snapshot built from the old paths and written back after the clear finds the
+            // mark changed and removes itself (DefaultPermissionSnapshotProvider).
+            cacheService.save(PermissionSnapshotProvider.departmentPathsMarkKey(tenantId),
+                    UUID.randomUUID().toString(), RedisConstant.ONE_HOUR);
+        } catch (Throwable t) {
+            log.warn("DepartmentIdPathResolver — marking dept paths of {} changed failed", tenantId, t);
+        }
+        try {
+            cacheService.clearByPrefix(PermissionSnapshotProvider.CACHE_KEY_PREFIX + tenantId + ":");
+        } catch (Throwable t) {
+            log.warn("DepartmentIdPathResolver — evicting perm:{}: failed; TTL will expire it", tenantId, t);
+        }
     }
 
     /**
      * The current tenant's {@code {deptId → idPath}} map, read-through cached in
      * Redis. Returns an empty map when no tenant is bound (fail-closed) or on any
-     * cache/DB error — the enclosing scope rule then degrades to empty.
+     * cache/DB error — the enclosing scope rule then degrades to empty. A tree that could
+     * not be read is not cached: that would empty every department scope of the tenant
+     * for as long as the entry lives, on account of one failed query.
      */
     private Map<Long, String> tenantTree() {
         Long tenantId = ContextHolder.existContext() ? ContextHolder.getContext().getTenantId() : null;
@@ -162,6 +199,7 @@ public class DepartmentIdPathResolver {
             log.warn("DepartmentIdPathResolver — Redis read for {} failed; falling back to DB", key, t);
         }
         Map<Long, String> tree = loadTreeFromDb();
+        if (tree == null) return Map.of();
         try {
             cacheService.save(key, tree, CACHE_TTL_SECONDS);
         } catch (Throwable t) {
@@ -173,15 +211,17 @@ public class DepartmentIdPathResolver {
     /**
      * Load the current tenant's whole department tree ({@code id}, {@code idPath})
      * in one query. Runs with {@code skipPermissionCheck=true} (scope bypass) but
-     * keeps the tenant filter, so only this tenant's departments load.
+     * keeps the tenant filter, so only this tenant's departments load. {@code null} when
+     * the read failed, as opposed to a tenant that has no departments.
      */
     private Map<Long, String> loadTreeFromDb() {
         Context ctx = ContextHolder.getContext();
         boolean previous = ctx != null && ctx.isSkipPermissionCheck();
         if (ctx != null) ctx.setSkipPermissionCheck(true);
         try {
-            List<Map<String, Object>> rows = modelService.searchList(
-                    DEPARTMENT_MODEL, new FlexQuery(List.of(FIELD_ID, IdPath.FIELD)));
+            FlexQuery query = new FlexQuery(List.of(FIELD_ID, IdPath.FIELD));
+            query.setFilterControl(FilterControl.bypassActiveControl());
+            List<Map<String, Object>> rows = modelService.searchList(DEPARTMENT_MODEL, query);
             Map<Long, String> tree = new HashMap<>(rows.size());
             for (Map<String, Object> row : rows) {
                 Long id = coerceLong(row.get(FIELD_ID));
@@ -193,7 +233,7 @@ public class DepartmentIdPathResolver {
             return tree;
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — dept-tree DB load failed; treating tree as empty", t);
-            return Map.of();
+            return null;
         } finally {
             if (ctx != null) ctx.setSkipPermissionCheck(previous);
         }

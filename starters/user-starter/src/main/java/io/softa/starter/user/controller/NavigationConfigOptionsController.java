@@ -25,6 +25,7 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.NavConfigOptions;
 import io.softa.starter.user.dto.NavConfigOptions.SfsRef;
 import io.softa.starter.user.dto.RoleModelConfigOption;
+import io.softa.starter.user.service.DepartmentGrants;
 import io.softa.starter.user.service.NavigationModelResolver;
 import io.softa.starter.user.service.RoleGrantCeiling;
 import io.softa.starter.user.util.JsonArrayUtils;
@@ -241,7 +242,7 @@ public class NavigationConfigOptionsController implements StartupSnapshot {
         for (String setId : sfsAttachedTo(model)) {
             if (seen.add(setId)) sfs.add(new SfsRef(setId, sfsName(setId)));
         }
-        return new RoleModelConfigOption(model, label, scopes, sfs, related);
+        return new RoleModelConfigOption(model, label, scopes, sfs, related, DepartmentGrants.bounds(model));
     }
 
     private String sfsName(String setId) {
@@ -336,7 +337,7 @@ public class NavigationConfigOptionsController implements StartupSnapshot {
      * {@code DataScopeType} registry × the model's field shape — the same rule
      * {@code ScopeApplicabilityResolver} applies on the enforce side, computed
      * here from data so this wizard needs no dependency on the permission engine.
-     * {@code "ALL"} is always included.
+     * {@code "ALL"} is always included; a type set at role level is offered on no model.
      */
     private List<String> applicableScopeCodes(String model) {
         Set<String> out = new LinkedHashSet<>();
@@ -348,7 +349,7 @@ public class NavigationConfigOptionsController implements StartupSnapshot {
             }
         }
         for (DataScopeTypeView r : scopeTypes()) {
-            if (r.getId() != null && r.matches(model, fields)) {
+            if (r.getId() != null && !Boolean.TRUE.equals(r.getRoleLevelOnly()) && r.matches(model, fields)) {
                 out.add(r.getId());
             }
         }
@@ -387,18 +388,29 @@ public class NavigationConfigOptionsController implements StartupSnapshot {
         private JsonNode filter;
         private String identityModel;
         private JsonNode identityFilter;
+        private Boolean roleLevelOnly;
 
         boolean matches(String model, Set<String> fields) {
             if (Boolean.TRUE.equals(appliesToAll)) {
                 return true;
             }
             if (filter != null && !filter.isEmpty()) {
-                // Mirror the engine's ScopeApplicabilityResolver.Rule exactly: on the
-                // identity model use identityFilter (no fallback to the business filter,
-                // whose anchor doesn't exist there); elsewhere the business filter.
-                Set<String> anchors = (identityModel != null && identityModel.equals(model))
-                        ? fieldRefs(identityFilter) : fieldRefs(filter);
-                return !anchors.isEmpty() && fields.containsAll(anchors);
+                // Mirror the engine's ScopeFilterTemplates.forModel exactly: on the identity model
+                // its own template; elsewhere the business filter; failing that, the identity
+                // model's own anchor, on the row or through the employee it belongs to. An anchor
+                // on id says nothing, as every model has one.
+                if (identityModel != null && identityModel.equals(model)) {
+                    return !fieldRefs(identityFilter).isEmpty() && fields.containsAll(fieldRefs(identityFilter));
+                }
+                Set<String> own = fieldRefs(filter);
+                if (!own.isEmpty() && fields.containsAll(own)) {
+                    return true;
+                }
+                Set<String> anchors = identityModel == null ? Set.of() : fieldRefs(identityFilter);
+                if (anchors.isEmpty() || anchors.contains("id")) {
+                    return false;
+                }
+                return fields.containsAll(anchors) || belongsToIdentityModel(model);
             }
             if (applicableFields == null) {
                 return false;
@@ -409,6 +421,12 @@ public class NavigationConfigOptionsController implements StartupSnapshot {
                 }
             }
             return false;
+        }
+
+        private boolean belongsToIdentityModel(String model) {
+            MetaField owner = model == null ? null : ModelManager.getModelFieldOrNull(model, "employeeId");
+            return owner != null && FieldType.TO_ONE_TYPES.contains(owner.getFieldType())
+                    && identityModel.equals(owner.getRelatedModel());
         }
 
         /** LHS field names referenced by a filter template (never the RHS env values). */

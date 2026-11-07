@@ -1,5 +1,6 @@
 package io.softa.starter.permission.scope;
 
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -58,9 +59,9 @@ import java.util.concurrent.ConcurrentMap;
 public class DefaultDepartmentCascadePathResolver implements DepartmentCascadePathResolver {
 
     private static final String DEPT_MODEL = "Department";
-    private static final String EMPLOYEE_MODEL = "Employee";
+    private static final String EMPLOYEE_MODEL = ModelConstant.EMPLOYEE_MODEL;
     private static final String DEPT_FIELD = "departmentId";
-    private static final String EMPLOYEE_FIELD = "employeeId";
+    private static final String EMPLOYEE_FIELD = ModelConstant.EMPLOYEE_FIELD;
     private static final String SELF_PATH = DepartmentCascadePathResolver.SELF_PATH;
 
     private final ConcurrentMap<String, Optional<String>> cache = new ConcurrentHashMap<>();

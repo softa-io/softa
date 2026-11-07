@@ -110,11 +110,17 @@ class RoleControllerTest {
 
         List<RoleGrantCeiling.Grants> before = List.of();
         when(roleGrantCeiling.callerGrants()).thenReturn(before);
+        RoleGrantCeiling.Grants roleBefore = new RoleGrantCeiling.Grants(
+                java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), java.util.Map.of());
+        when(roleGrantCeiling.roleGrants(5L)).thenReturn(roleBefore);
 
         controller.saveWizard(5L, new WizardSaveDTO(roleUpdate, null, null, null, null));
 
-        // Judged against the caller's grants as they were before the save rewrote the role.
-        org.mockito.Mockito.verify(roleGrantCeiling).assertWithinCaller(5L, before);
+        // Judged against the caller's grants and the role as they were before the save rewrote the role.
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(roleGrantCeiling, roleDataScopeService);
+        order.verify(roleGrantCeiling).roleGrants(5L);
+        order.verify(roleDataScopeService).deleteByFilters(any());
+        order.verify(roleGrantCeiling).assertWithinCaller(5L, before, roleBefore);
     }
 
     // ─── createWithWizard ───

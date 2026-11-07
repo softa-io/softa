@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.enums.Operator;
@@ -17,8 +18,11 @@ import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.MetaOptionItem;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.meta.OptionManager;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.file.dto.ImportFieldDTO;
+import io.softa.starter.file.enums.ImportRule;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -400,7 +404,94 @@ class OptionDropdownResolverTest {
 
     // ---------------------------------------------------------------- harness
 
+    // ---------------------------------------------------------------- the company grant
+
+    @Test
+    void aColumnOntoTheCompanyOffersOnlyTheCompaniesTheWriteIsGranted() {
+        // Read as any other relation, the company list reaches the companies of every role the user
+        // holds, and the self-service role carries no company grant, so it reaches them all. An HR
+        // granted one company was offered every signing entity, and the import took the one they picked.
+        withMetadata(mm -> {
+            field("Employee", "legalEntityId", FieldType.MANY_TO_ONE, "Company", null, null);
+            field("Company", "name", FieldType.STRING, null, null, null);
+            model("Company", false);
+            stubRows("Company", "name", List.of("Albedo"));
+            when(permissionService.getGrantedCompanyIds("Employee", AccessType.CREATE)).thenReturn(Set.of(7L));
+
+            assertThat(resolve("Employee", null, ImportRule.ONLY_CREATE, "legalEntityId.name"))
+                    .containsEntry(0, List.of("Albedo"));
+            assertThat(capturedQuery("Company").getFilters())
+                    .hasToString("[\"id\",\"IN\",[7]]");
+        });
+    }
+
+    @Test
+    void aCreateOrUpdateTemplateOffersTheCompaniesEitherWriteIsGranted() {
+        // A row may create or update, so the column offers what either may name. The write itself still
+        // refuses a company outside the grant of the action it performs.
+        withMetadata(mm -> {
+            field("Employee", "legalEntityId", FieldType.MANY_TO_ONE, "Company", null, null);
+            field("Company", "name", FieldType.STRING, null, null, null);
+            model("Company", false);
+            stubRows("Company", "name", List.of("Albedo", "Zingkey"));
+            when(permissionService.getGrantedCompanyIds("Employee", AccessType.CREATE)).thenReturn(Set.of(7L));
+            when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE)).thenReturn(Set.of(8L));
+
+            resolve("Employee", null, ImportRule.CREATE_OR_UPDATE, "legalEntityId.name");
+
+            assertThat(capturedQuery("Company").getFilters())
+                    .hasToString("[\"id\",\"IN\",[7,8]]");
+        });
+    }
+
+    @Test
+    void anUnrestrictedWriteLeavesTheCompanyColumnWhole() {
+        // An administrator, or a holding role with no company grant: nothing to narrow by.
+        withMetadata(mm -> {
+            field("Employee", "legalEntityId", FieldType.MANY_TO_ONE, "Company", null, null);
+            field("Company", "name", FieldType.STRING, null, null, null);
+            model("Company", false);
+            stubRows("Company", "name", List.of("Albedo", "Zingkey"));
+            when(permissionService.getGrantedCompanyIds("Employee", AccessType.CREATE)).thenReturn(null);
+
+            assertThat(resolve("Employee", null, ImportRule.ONLY_CREATE, "legalEntityId.name"))
+                    .containsEntry(0, List.of("Albedo", "Zingkey"));
+            assertThat(Filters.isEmpty(capturedQuery("Company").getFilters())).isTrue();
+        });
+    }
+
+    @Test
+    void aWriteGrantedNoCompanyOffersNoCompany() {
+        // Every company the column could list would be refused by the write, so it lists none.
+        withMetadata(mm -> {
+            field("Employee", "legalEntityId", FieldType.MANY_TO_ONE, "Company", null, null);
+            field("Company", "name", FieldType.STRING, null, null, null);
+            model("Company", false);
+            stubRows("Company", "name", List.of("Albedo", "Zingkey"));
+            when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE)).thenReturn(Set.of());
+
+            assertThat(resolve("Employee", null, ImportRule.ONLY_UPDATE, "legalEntityId.name"))
+                    .doesNotContainKey(0);
+            assertThat(queriesByModel).doesNotContainKey("Company");
+        });
+    }
+
+    @Test
+    void aTemplateWithoutACompanyColumnDoesNotAskForTheGrant() {
+        withMetadata(mm -> {
+            field("Employee", "bankId", FieldType.MANY_TO_ONE, "Bank", null, null);
+            field("Bank", "name", FieldType.STRING, null, null, null);
+            model("Bank", false);
+            stubRows("Bank", "name", List.of("DBS BANK LTD"));
+
+            resolve("Employee", null, "bankId.name");
+
+            verifyNoInteractions(permissionService);
+        });
+    }
+
     private final ModelService<?> modelService = mock(ModelService.class);
+    private final PermissionService permissionService = mock(PermissionService.class);
     private final Map<String, MetaField> fields = new LinkedHashMap<>();
     private final Map<String, MetaModel> models = new LinkedHashMap<>();
     private final Map<String, List<MetaOptionItem>> optionSets = new LinkedHashMap<>();
@@ -441,22 +532,29 @@ class OptionDropdownResolverTest {
     private Map<Integer, List<String>> resolveDeclared(String modelName, String fieldName, boolean noDropdown) {
         OptionDropdownResolver resolver = new OptionDropdownResolver();
         ReflectionTestUtils.setField(resolver, "modelService", modelService);
+        ReflectionTestUtils.setField(resolver, "permissionService", permissionService);
         ImportFieldDTO field = new ImportFieldDTO();
         field.setFieldName(fieldName);
         field.setNoDropdown(noDropdown);
-        return resolver.resolve(modelName, List.of(field), null);
+        return resolver.resolve(modelName, List.of(field), null, ImportRule.CREATE_OR_UPDATE);
     }
 
     private Map<Integer, List<String>> resolve(String modelName, String country, String... columns) {
+        return resolve(modelName, country, ImportRule.CREATE_OR_UPDATE, columns);
+    }
+
+    private Map<Integer, List<String>> resolve(String modelName, String country, ImportRule importRule,
+                                               String... columns) {
         OptionDropdownResolver resolver = new OptionDropdownResolver();
         ReflectionTestUtils.setField(resolver, "modelService", modelService);
+        ReflectionTestUtils.setField(resolver, "permissionService", permissionService);
         List<ImportFieldDTO> importFields = new ArrayList<>();
         for (String column : columns) {
             ImportFieldDTO dto = new ImportFieldDTO();
             dto.setFieldName(column);
             importFields.add(dto);
         }
-        return resolver.resolve(modelName, importFields, country);
+        return resolver.resolve(modelName, importFields, country, importRule);
     }
 
     /**

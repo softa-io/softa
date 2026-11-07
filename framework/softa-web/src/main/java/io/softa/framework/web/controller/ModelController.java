@@ -16,7 +16,9 @@ import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.*;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -531,6 +533,8 @@ public class ModelController<K extends Serializable> {
     public ApiResponse<List<Map<String, Object>>> searchList(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchListParams searchListParams) {
         FlexQuery flexQuery = SearchListParams.convertParamsToFlexQuery(searchListParams);
+        narrowToWritableDepartments(modelName, searchListParams == null ? null : searchListParams.getSourceRecord(),
+                flexQuery);
         return ApiResponse.success(modelService.searchList(modelName, flexQuery));
     }
 
@@ -549,7 +553,70 @@ public class ModelController<K extends Serializable> {
     public ApiResponse<List<Map<String, Object>>> searchName(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchNameParams searchNameParams) {
         SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
-        return ApiResponse.success(modelService.searchName(modelName, params.toFlexQuery(), params.toPage()));
+        FlexQuery flexQuery = params.toFlexQuery();
+        Set<Long> writable = writableCompanies(modelName, searchNameParams, permissionService);
+        if (writable != null) {
+            flexQuery.setFilters(Filters.and(flexQuery.getFilters(), new Filters().in(ModelConstant.ID, writable)));
+        }
+        narrowToWritableDepartments(modelName, searchNameParams == null ? null : searchNameParams.getSourceRecord(),
+                flexQuery);
+        return ApiResponse.success(modelService.searchName(modelName, flexQuery, params.toPage()));
+    }
+
+    /** ANDs {@link #writableDepartments} onto a read of the options, when it narrows them. */
+    private void narrowToWritableDepartments(String modelName, SourceRecord source, FlexQuery flexQuery) {
+        Filters writable = writableDepartments(modelName, source, permissionService);
+        if (writable != null) {
+            flexQuery.setFilters(Filters.and(flexQuery.getFilters(), writable));
+        }
+    }
+
+    /**
+     * The departments a picker may offer when it places a record being written; null when nothing narrows it.
+     *
+     * <p>The same reasoning as {@link #writableCompanies}, for departments: the department list as the user
+     * reads it answers for what they may view, and an exemption from the department grant shows them all of it,
+     * so a form offered departments the save would then refuse. Its read says which record it is for, and the
+     * department grants of the roles holding that write answer instead — create when the record has no id yet,
+     * update when it has ({@link PermissionService#getWritableDepartmentScope}).
+     */
+    static Filters writableDepartments(String modelName, SourceRecord source, PermissionService permissionService) {
+        if (!ModelConstant.DEPARTMENT_MODEL.equals(modelName) || source == null
+                || source.getModel() == null || source.getModel().isBlank()
+                || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
+        return permissionService.getWritableDepartmentScope(source.getModel(),
+                creating ? AccessType.CREATE : AccessType.UPDATE);
+    }
+
+    /**
+     * The companies a picker may offer when it names a company on a record being written; null when
+     * nothing narrows it.
+     *
+     * <p>The company list as the user reads it reaches the companies of every role they hold, and a role
+     * with no company grant — the self-service role everyone carries — reaches them all. A form picking
+     * a company for a record (an employee's signing entity, a cost centre's company) offered companies
+     * the write would then refuse. Its search says which record it is for ({@link SourceRecord}): the
+     * company grants of the roles holding that write answer instead — create when the record has no id
+     * yet, update when it has, then by the roles reaching that record
+     * ({@link PermissionService#getGrantedCompanyIds(String, AccessType, java.io.Serializable)}).
+     *
+     * <p>A write granted no company offers none: every company the picker could list would be refused.
+     */
+    static Set<Long> writableCompanies(String modelName, SearchNameParams params, PermissionService permissionService) {
+        if (!ModelConstant.COMPANY_MODEL.equals(modelName) || params == null || params.getSourceRecord() == null) {
+            return null;
+        }
+        SourceRecord source = params.getSourceRecord();
+        if (source.getModel() == null || source.getModel().isBlank() || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
+        return creating
+                ? permissionService.getGrantedCompanyIds(source.getModel(), AccessType.CREATE)
+                : permissionService.getGrantedCompanyIds(source.getModel(), AccessType.UPDATE, source.getRecordId());
     }
 
     /**

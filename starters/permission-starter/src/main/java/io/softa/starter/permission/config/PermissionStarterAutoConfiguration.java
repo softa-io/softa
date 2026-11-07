@@ -22,6 +22,7 @@ import io.softa.starter.permission.spi.support.DbPermissionEndpointSource;
 import io.softa.starter.permission.spi.support.DbSensitiveFieldSetSource;
 import io.softa.starter.permission.spi.support.DefaultPermissionSnapshotProvider;
 import io.softa.starter.permission.index.EndpointIndex;
+import io.softa.starter.permission.scope.DepartmentIdPathResolver;
 import io.softa.starter.permission.scope.ModelDefaultScopeRegistry;
 import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 import io.softa.starter.permission.scope.SubtreeFilterRewriter;
@@ -80,10 +81,13 @@ public class PermissionStarterAutoConfiguration {
             // Same lazy treatment again: the registry reads its rows through ModelService, which is
             // not usable while this bean is built. Absent it, no model declares a fallback scope —
             // the behaviour that predates the mechanism.
-            ObjectProvider<ModelDefaultScopeRegistry> defaultScopes) {
+            ObjectProvider<ModelDefaultScopeRegistry> defaultScopes,
+            // Same lazy treatment: it reads the department tree. Absent it, the department grant's conditions
+            // worked out for the holder contribute nothing.
+            ObjectProvider<DepartmentIdPathResolver> departmentPaths) {
         return new PermissionServiceImpl(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability,
                 endpointIndex::getIfAvailable, subtreeRewriter::getIfAvailable,
-                defaultScopes::getIfAvailable);
+                defaultScopes::getIfAvailable, departmentPaths::getIfAvailable);
     }
 
     /**

@@ -203,6 +203,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
                     ctx.getUserId(), method, uri, candidatePermissions);
             throw new PermissionException("Missing permission for " + method + " " + uri);
         }
+        AdmittedRequest.record(req, uri, candidatePermissions);
         return true;
     }
 

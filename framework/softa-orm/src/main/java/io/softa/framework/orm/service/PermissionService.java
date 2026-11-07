@@ -391,4 +391,56 @@ public interface PermissionService {
         return new CreateAccess(Set.of());
     }
 
+    /**
+     * The companies the caller may perform {@code accessType} on {@code model} for: the company grants
+     * of the roles holding that action, together.
+     *
+     * <p>For a write that names a company in a field the company axis does not read — a signing entity
+     * beside the {@code companyId} the record belongs to. Row scope bounds the record by its
+     * {@code companyId}; nothing bounds such a field, and checking it by reading the company list is no
+     * answer either, since that read reaches the companies of <em>every</em> role the user holds (any
+     * role without a company grant reaches them all). This asks only the roles that may perform the write.
+     *
+     * <p>Default: {@code null}.
+     *
+     * @return {@code null} when unrestricted (an admin, a bypassed caller, or a holding role with no
+     *         company grant); empty when the caller reaches no company; otherwise exactly those
+     */
+    default Set<Long> getGrantedCompanyIds(String model, AccessType accessType) {
+        return null;
+    }
+
+    /**
+     * {@link #getGrantedCompanyIds(String, AccessType)} for a write to one stored row: the company grants of
+     * the holding roles that reach that row. A role answers for its own rows and its own companies together,
+     * so a role that may edit one department's records in company A and another that may edit every record in
+     * company B do not add up to moving the first department's records to company B.
+     *
+     * <p>Default: the answer for the model. A null {@code id} — a record with none yet — is that answer too.
+     *
+     * @return as {@link #getGrantedCompanyIds(String, AccessType)}; empty when no holding role reaches the row
+     */
+    default Set<Long> getGrantedCompanyIds(String model, AccessType accessType, Serializable id) {
+        return getGrantedCompanyIds(model, accessType);
+    }
+
+    /**
+     * Which departments a write of {@code model} may put a record in, as a filter on the department model:
+     * the department grants of the roles holding that write, together. An exemption does not count, since it
+     * lifts the grant only for viewing.
+     *
+     * <p>For a picker choosing a record's department. The department list as the user reads it answers for what
+     * they may view, so it offered departments the write would then refuse.
+     *
+     * <p>Default: {@code null}.
+     *
+     * @return {@code null} when the choice is not bounded: an admin, a bypassed caller, a holding role with no
+     *         department grant or with a condition on direct reports that applies to the model, whose reports
+     *         can sit anywhere and leave the save to decide, or a model whose rows the picked department does not place — one belonging to
+     *         a department by no field, or through its employee
+     */
+    default Filters getWritableDepartmentScope(String model, AccessType accessType) {
+        return null;
+    }
+
 }
