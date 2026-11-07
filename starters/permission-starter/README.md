@@ -496,8 +496,11 @@ with a `sourceRecord` (`{model, recordId}`) offers what that write may choose: t
 the write on `model` — create when `recordId` is absent, update when it is set — exemptions left out, since they lift
 the grant for viewing only (`PermissionService.getWritableDepartmentScope`). It narrows only where the picked
 department places the record, on the department model and models with a `departmentId` of their own; a record following
-its employee, an admin, and a holding role with no department grant are left as they read. A request naming no
-`sourceRecord` reads the list as ever.
+its employee, an admin, and a holding role with no department grant are left as they read. So is a holding role
+with `DIRECT_REPORTS`, on a model the type applies to: the holder's reports can sit in any department, so the picker
+cannot tell which the write will accept and the save's own check decides. On a model it does not apply to, the role
+offers the departments it names or works out, none if there are none. A request naming no `sourceRecord` reads the
+list as ever.
 
 A model written only through custom endpoints — a contract saved through `POST /Contract/upload`
 — has no holder of its standard write, and the fallback below would hand the choice to every role,

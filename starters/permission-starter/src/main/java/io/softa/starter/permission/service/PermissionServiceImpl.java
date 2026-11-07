@@ -1598,8 +1598,12 @@ public class PermissionServiceImpl implements PermissionService {
      * {@inheritDoc}
      *
      * <p>The holders are found as {@link #companyHolders} finds them: a picker asks before the save, so a model
-     * written through custom endpoints answers by the roles holding those, not by every role. A condition on
-     * direct reports names no department, so it contributes none.
+     * written through custom endpoints answers by the roles holding those, not by every role.
+     *
+     * <p>A holding role with a condition on direct reports leaves the picker unbounded, on a model the condition
+     * applies to. The holder's reports can sit in any department, so nothing here can say which the write will
+     * accept, and the save's own check decides. Where it does not apply the save judges by the role's departments
+     * alone, and so does the picker.
      */
     @Override
     public Filters getWritableDepartmentScope(String model, AccessType accessType) {
@@ -1607,8 +1611,11 @@ public class PermissionServiceImpl implements PermissionService {
         PermissionInfo pi = currentPi();
         if (pi == null) return ScopeRuleCompiler.matchNone();
         if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        boolean reportsApply = applicability.applicableFor(model).contains(ScopeType.DIRECT_REPORTS);
         return anyOf(companyHolders(pi, model, accessType).stream()
-                .map(g -> departmentAxis(ModelConstant.DEPARTMENT_MODEL, g, true))
+                .map(g -> reportsApply && g.departmentConditions().contains(CONDITION_DIRECT_REPORTS)
+                        ? null
+                        : departmentAxis(ModelConstant.DEPARTMENT_MODEL, g, true))
                 .toList());
     }
 

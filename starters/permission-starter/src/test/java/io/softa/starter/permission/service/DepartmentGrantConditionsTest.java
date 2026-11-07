@@ -257,6 +257,8 @@ class DepartmentGrantConditionsTest {
     // ---- a department picker on a record being written ---------------------------------------------
 
     private static final String EDIT_TICKET = "permission.ticket.edit";
+    /** A model belonging to a department that has no manager to judge direct reports by. */
+    private static final String NO_MANAGER = "DepartmentNote";
 
     /** The scope a picker gets, with these roles and the ticket's update held by {@code EDIT_TICKET}. */
     @SuppressWarnings("unchecked")
@@ -271,6 +273,9 @@ class DepartmentGrantConditionsTest {
         when(index.modelActionPermissions(RECORD, "update")).thenReturn(Set.of(EDIT_TICKET));
         ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
         when(applicability.applicableFor(ModelConstant.DEPARTMENT_MODEL)).thenReturn(Set.of(ScopeType.ALL));
+        when(applicability.applicableFor(TICKET)).thenReturn(Set.of(ScopeType.ALL, ScopeType.DIRECT_REPORTS));
+        when(applicability.applicableFor(NO_MANAGER)).thenReturn(Set.of(ScopeType.ALL));
+        when(index.modelActionPermissions(NO_MANAGER, "update")).thenReturn(Set.of(EDIT_TICKET));
         DepartmentIdPathResolver paths = mock(DepartmentIdPathResolver.class);
         when(paths.idPathsOf(anyCollection())).thenAnswer(inv -> {
             java.util.Collection<Long> ids = inv.getArgument(0);
@@ -319,6 +324,37 @@ class DepartmentGrantConditionsTest {
     @DisplayName("a writer granted no department offers none")
     void aWriterGrantedNoneOffersNone() {
         assertThat(writable(TICKET, writer(Set.of(), Set.of(), Set.of())).toString()).contains("\"IN\",[]");
+    }
+
+    @Test
+    @DisplayName("a writer with direct reports leaves the picker to the save, which is the one that can tell")
+    void aWriterWithDirectReportsLeavesThePicker() {
+        assertThat(writable(TICKET, writer(Set.of(), Set.of("DIRECT_REPORTS"), Set.of()))).isNull();
+        // However much else the role names, and whichever writer it is.
+        assertThat(writable(TICKET, writer(Set.of("1/10"), Set.of("OWN_DEPARTMENT", "DIRECT_REPORTS"), Set.of()))).isNull();
+        assertThat(writable(TICKET, writer(Set.of("1/10"), Set.of(), Set.of()),
+                writer(Set.of(), Set.of("DIRECT_REPORTS"), Set.of()))).isNull();
+    }
+
+    @Test
+    @DisplayName("direct reports on a role that may only read lend the picker nothing")
+    void aReaderWithDirectReportsLendsNothing() {
+        assertThat(writable(TICKET, writer(Set.of("1/10"), Set.of(), Set.of()),
+                role(Set.of(), Set.of("DIRECT_REPORTS"), Set.of())).toString()).contains("1/10");
+    }
+
+    @Test
+    @DisplayName("where direct reports do not apply the save judges by departments, and so does the picker")
+    void directReportsThatDoNotApplyChangeNothing() {
+        modelManager.when(() -> ModelManager.existModel(NO_MANAGER)).thenReturn(true);
+        MetaField department = toOne(ModelConstant.DEPARTMENT_MODEL);
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(NO_MANAGER, ModelConstant.DEPARTMENT_FIELD))
+                .thenReturn(department);
+
+        assertThat(writable(NO_MANAGER, writer(Set.of(), Set.of("DIRECT_REPORTS"), Set.of())).toString())
+                .contains("\"IN\",[]");
+        assertThat(writable(NO_MANAGER, writer(Set.of("1/10"), Set.of("DIRECT_REPORTS"), Set.of())).toString())
+                .contains("1/10");
     }
 
     @Test

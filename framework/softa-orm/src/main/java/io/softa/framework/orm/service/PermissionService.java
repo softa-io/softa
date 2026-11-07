@@ -435,7 +435,8 @@ public interface PermissionService {
      * <p>Default: {@code null}.
      *
      * @return {@code null} when the choice is not bounded: an admin, a bypassed caller, a holding role with no
-     *         department grant, or a model whose rows the picked department does not place — one belonging to
+     *         department grant or with a condition on direct reports that applies to the model, whose reports
+     *         can sit anywhere and leave the save to decide, or a model whose rows the picked department does not place — one belonging to
      *         a department by no field, or through its employee
      */
     default Filters getWritableDepartmentScope(String model, AccessType accessType) {
