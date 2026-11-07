@@ -373,14 +373,11 @@ public class ApprovalPathPreviewer {
 
         /** The automatic approvals {@link ApproverDedupService} recorded on a step, and why each. */
         private List<AutoApproval> autoApprovals(List<ApprovalActionAuditEntry> entries) {
-            Map<String, ApproverDedupService.SelfRole> self = approverDedupService.selfApprovers(definition, state);
+            String submitter = approverDedupService.selfApprover(definition, state);
             return entries.stream()
                     .filter(entry -> ApprovalActionType.AUTO_APPROVE.equals(entry.getAction()) && entry.getActorId() != null)
-                    .map(entry -> new AutoApproval(actor(entry.getActorId()), switch (self.get(entry.getActorId())) {
-                        case SUBMITTER -> AutoApprovalReason.SUBMITTER;
-                        case SUBJECT -> AutoApprovalReason.SUBJECT;
-                        case null -> AutoApprovalReason.EARLIER_APPROVAL;
-                    }))
+                    .map(entry -> new AutoApproval(actor(entry.getActorId()), entry.getActorId().equals(submitter)
+                            ? AutoApprovalReason.SUBMITTER : AutoApprovalReason.EARLIER_APPROVAL))
                     .toList();
         }
 

@@ -59,8 +59,8 @@ public class CompiledFlowDefinition {
     @Schema(description = "Whether the initiator may urge the approvers; null = on")
     private Boolean urgeEnabled;
 
-    @Schema(description = "How often, in minutes, each step an approval waits on may be urged; null = 240")
-    private Integer urgeIntervalMinutes;
+    @Schema(description = "How often, in hours, each step an approval waits on may be urged; null = 4")
+    private Integer urgeIntervalHours;
 
     @Schema(description = "Hours after a step opens that its approvers still to act are reminded, then every as many "
             + "hours, at most 3 times; null = no reminders")
@@ -81,7 +81,7 @@ public class CompiledFlowDefinition {
     @Schema(description = "Approver consolidation policy (审批人去重); null = GLOBAL at runtime")
     private ApproverDedupStrategy approverDedup;
 
-    @Schema(description = "What a step does when the record's own people are among its approvers (本人是审批人时); "
+    @Schema(description = "What a step does when the record's submitter is among its approvers (提交人是审批人时); "
             + "null = AutoApprove at runtime")
     private SelfApprovalStrategy selfApproval;
 

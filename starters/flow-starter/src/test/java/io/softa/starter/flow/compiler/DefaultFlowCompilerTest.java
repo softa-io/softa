@@ -169,7 +169,7 @@ class DefaultFlowCompilerTest {
                 .scenario(FlowScenario.APPROVAL)
                 .withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
                 .urgeEnabled(false)
-                .urgeIntervalMinutes(60)
+                .urgeIntervalHours(2)
                 .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -187,7 +187,7 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
         assertEquals(WithdrawPolicy.BEFORE_FIRST_ACTION, compiled.getWithdrawPolicy());
         assertEquals(false, compiled.getUrgeEnabled());
-        assertEquals(60, compiled.getUrgeIntervalMinutes());
+        assertEquals(2, compiled.getUrgeIntervalHours());
     }
 
     @Test
@@ -332,8 +332,8 @@ class DefaultFlowCompilerTest {
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
                                                 "approverSources", List.of(Map.of(
-                                                        "type", "VariableList",
-                                                        "variable", "managerIds"))))
+                                                        "type", "RoleQuery",
+                                                        "roleCodes", List.of("MANAGER")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -348,7 +348,7 @@ class DefaultFlowCompilerTest {
 
         assertEquals(VoteThresholdMode.MIN_COUNT, compiled.getNodeIndex().get("approval").getConfig().get("approvalMode"));
         assertEquals(2, compiled.getNodeIndex().get("approval").getConfig().get("minCount"));
-        assertEquals("VariableList",
+        assertEquals("RoleQuery",
                 ((Map<?, ?>) ((List<?>) compiled.getNodeIndex().get("approval").getConfig().get("approverSources")).getFirst())
                         .get("type"));
     }

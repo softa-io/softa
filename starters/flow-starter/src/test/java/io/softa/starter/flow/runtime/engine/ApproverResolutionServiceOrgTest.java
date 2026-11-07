@@ -108,16 +108,6 @@ class ApproverResolutionServiceOrgTest {
                 service.whyNobody(approvalNode(Map.of("type", "RoleQuery", "roleIds", List.of(1))), Map.of()));
     }
 
-    @Test
-    void anApproverExpressionThatFailsIsRefusedWithTheStep() {
-        CompiledFlowNode node = approvalNode(Map.of("type", "Expression", "expression", "1 +"));
-
-        var refused = org.junit.jupiter.api.Assertions.assertThrows(
-                io.softa.starter.flow.runtime.exception.FlowActionValidationException.class,
-                () -> service.resolveApprovers(node, varsWithSubject("100", 5000L)));
-        assertTrue(refused.getMessage().startsWith("The approver expression of step '"), refused.getMessage());
-    }
-
     // ── DeptLeader ──────────────────────────────────────────────────────
 
     @Test
@@ -338,21 +328,7 @@ class ApproverResolutionServiceOrgTest {
         assertTrue(result.isEmpty());
     }
 
-    // ── Backward compatibility: existing types still work ───────────────
-
-    @Test
-    void variableListStillWorks() {
-        CompiledFlowNode node = approvalNode(Map.of(
-                "type", "VariableList",
-                "variable", "myApprovers"));
-
-        Map<String, Object> vars = new LinkedHashMap<>();
-        vars.put("myApprovers", List.of("u1", "u2"));
-
-        List<String> result = service.resolveApprovers(node, vars);
-
-        assertEquals(List.of("u1", "u2"), result);
-    }
+    // ── Specific people ─────────────────────────────────────────────────
 
     @Test
     void specificPeopleAreTheUsersTheSourceNames() {
@@ -407,11 +383,12 @@ class ApproverResolutionServiceOrgTest {
         field.set(service, TestActorAccounts.of(Map.of(2002L, "Frozen"), Map.of()));
         CompiledFlowNode named = approvalNode(Map.of("type", "Users", "userIds", List.of("2001", "2002")));
         Map<String, Object> vars = varsWithInitiator("100");
-        vars.put("myApprovers", List.of("2002", "2003"));
+        when(orgService.getUsersByRoleIds(List.of(1L)))
+                .thenReturn(List.of(new ApproverInfo(2002L, "Frozen"), new ApproverInfo(2003L, "Finn")));
 
         assertEquals(List.of("2001"), service.resolveApprovers(named, vars), "specific people");
-        assertEquals(List.of("2003"), service.resolveApprovers(approvalNode(Map.of("type", "VariableList",
-                "variable", "myApprovers")), vars), "a variable list");
+        assertEquals(List.of("2003"), service.resolveApprovers(approvalNode(Map.of("type", "RoleQuery",
+                "roleIds", List.of(1))), vars), "a role's holders");
         FlowExecutionState state = FlowExecutionState.builder().initiatorId("100").variables(new LinkedHashMap<>()).build();
         assertEquals(List.of(), service.resolvePeople(Map.of("type", "Users", "userIds", List.of("2002")), state),
                 "a CC rule's recipients");

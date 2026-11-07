@@ -431,8 +431,9 @@ class FlowApprovalPreviewTest {
 
     @Test
     void aStepWhoseApproversComeFromWhatANodeComputesIsUndetermined() {
-        DesignFlowDefinition design = chain("Annual leave", script("pick", "seq.list('" + HR + "')", "reviewers"),
-                approval("review", "Review", Map.of("approverSources", List.of(Map.of("type", "VariableList", "variable", "reviewers")))),
+        DesignFlowDefinition design = chain("Annual leave", script("pick", "'10'", "reviewDept"),
+                approval("review", "Review", Map.of("approverSources", List.of(Map.of("type", "DeptLeader",
+                        "deptScope", "VARIABLE_DEPT", "deptVariable", "reviewDept")))),
                 approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))));
         // Without dedup, whoever reviews has no bearing on the manager's step.
         design.setApproverDedup(ApproverDedupStrategy.NONE);

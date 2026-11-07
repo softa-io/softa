@@ -120,9 +120,9 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         Map<String, Object> schema = new LinkedHashMap<>();
         // ── Approver resolution ─────────────────────────────────────────────
         // One or more groups, making one pool the approval mode counts over. Each group is one select: specific
-        // people first, then the sources that find them when the step is reached — the organization's, then the
-        // groups', then the developers' — then those no longer offered. A CC rule names its one group of recipients
-        // from the same options. An option says what the designer needs to tell which settings apply (`appliesWhen`):
+        // people first, then the sources that find them in the organization when the step is reached — one person,
+        // then the holders of a role, a position or a department. A CC rule names its one group of recipients from
+        // the same options. An option says what the designer needs to tell which settings apply (`appliesWhen`):
         // where specific people are named (`names`), and that a source finds one person at most (`findsOne`).
         schema.put("approverSources", ordered("type", "approverSources", "label", "Approvers", "required", true,
                 "options", withFindsOne(List.of(
@@ -157,21 +157,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                         ordered("type", "Department", "label", "Department members",
                                 "fields", concat(deptScopeFields(true, "SPECIFIC_DEPT"),
                                         ordered("includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments",
-                                                "default", false)))),
-                        // Read what the application puts in the flow's variables: for developers.
-                        ordered("type", "VariableList", "label", "Variable list (advanced)",
-                                "fields", ordered("variable", ordered("type", "variableRef", "label", "Variable", "required", true))),
-                        ordered("type", "Expression", "label", "Expression (advanced)",
-                                "fields", ordered("expression", ordered("type", "expression", "label", "Expression", "required", true))),
-                        // No longer offered: both read a start variable the application must supply (most supply
-                        // none), and Supervisor relative to the submitter / Role find the same people from the
-                        // organization. Listed so a step saved with one still shows it; the designer offers neither.
-                        ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)", "deprecated", true),
-                        // Keys into the caller's role-approver map, which a built-in role's code names; another
-                        // key may be typed.
-                        ordered("type", "Role", "label", "Role (variable)", "deprecated", true,
-                                "fields", ordered("roleCode", ordered("type", "rolePicker", "label", "Role", "required", true,
-                                        "valueField", "code", "allowCustom", true)))
+                                                "default", false))))
                 ))));
         // ── Vote thresholds ──────────────────────────────────────────────────
         // Counted over the pool the step's groups make — offered only for a step that may have several approvers: one
@@ -230,9 +216,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                         + "partner who can approve.",
                                 "RoleQuery", "Applies when nobody who can approve holds these roles.",
                                 "Position", "Applies when nobody who can approve holds these positions.",
-                                "Department", "Applies when these departments have nobody who can approve.",
-                                "VariableList", "Applies when the variable names nobody who can approve.",
-                                "Expression", "Applies when the expression names nobody who can approve."),
+                                "Department", "Applies when these departments have nobody who can approve."),
                         "otherwise", "Applies when the step finds nobody who can approve."),
                 "default", error,
                 "appliesWhen", APPROVERS_FOUND_BY_RULE));

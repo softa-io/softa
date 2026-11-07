@@ -21,10 +21,6 @@ import lombok.Getter;
 public enum ApproverSourceType {
     /** Specific people: the users the source names in {@link #USER_IDS}, not found. */
     USERS("Users", false),
-    VARIABLE_LIST("VariableList", false),
-    EXPRESSION("Expression", false),
-    INITIATOR_MANAGER("InitiatorManager", true),
-    ROLE("Role", false),
     /** One manager: the Nth up the chain. */
     SUPERVISOR("Supervisor", true),
     /** One leader per department — one department, unless a variable names several. */
@@ -65,10 +61,7 @@ public enum ApproverSourceType {
                 .filter(id -> !id.isEmpty()).toList();
     }
 
-    /**
-     * Accepted spellings, upper-cased on both sides: the {@code @JsonValue} type and the constant
-     * name. The two differ for multi-word constants — {@code VARIABLELIST} vs {@code VARIABLE_LIST}.
-     */
+    /** The sources by their {@code type}, the {@code @JsonValue}. */
     private static final Map<String, ApproverSourceType> NAMES_MAP = Stream.of(values()).collect(Collectors.toMap(ApproverSourceType::getType, Function.identity()));
 
     /**

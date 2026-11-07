@@ -28,7 +28,9 @@ import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
+import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
+import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -41,6 +43,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * An approval flow's CC rules (part of its definition) over a single-step approval (START → Approval → END): a
@@ -131,16 +135,22 @@ class AutoCcScenarioTest {
 
     @Test
     void recipientsAreFoundTheWayAStepsApproversAre() {
+        OrganizationService organization = mock(OrganizationService.class);
+        when(organization.getUsersByRoleCodes(List.of("HR_ADMIN")))
+                .thenReturn(List.of(new ApproverInfo(5L, "Erin"), new ApproverInfo(6L, "Finn")));
+        FlowRuntimeEngine withOrganization = TestFlowRuntimeFactory.createWithOrganization(bundleRegistry,
+                new StubFlowInstanceStore(),
+                new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
+                approvalHandler, organization);
         publish("AnyOne", FlowCcRule.builder().timing(CcTiming.ON_SUBMIT)
-                .recipientSource(Map.of("type", "VariableList", "variable", "watchers")).build());
+                .recipientSource(Map.of("type", "RoleQuery", "roleCodes", List.of("HR_ADMIN"))).build());
         FlowStartRequest start = new FlowStartRequest();
         start.setFlowId(FLOW_ID);
         start.setInitiatorId(INITIATOR);
-        start.setVariables(Map.of("watchers", List.of("cc-5", "cc-6")));
 
-        FlowExecutionState started = engine.start(start);
+        FlowExecutionState started = withOrganization.start(start);
 
-        assertEquals(List.of("cc-5", "cc-6"),
+        assertEquals(List.of("5", "6"),
                 ccsOf(started).stream().map(ApprovalActionAuditEntry::getTargetActorId).toList());
     }
 

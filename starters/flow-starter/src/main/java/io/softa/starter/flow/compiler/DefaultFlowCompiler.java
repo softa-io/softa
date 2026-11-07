@@ -106,7 +106,7 @@ public class DefaultFlowCompiler {
                 .withdrawPolicy(definition.getWithdrawPolicy() == null ? WithdrawPolicy.NEVER : definition.getWithdrawPolicy())
                 .returnEnabled(definition.getReturnEnabled())
                 .urgeEnabled(definition.getUrgeEnabled())
-                .urgeIntervalMinutes(definition.getUrgeIntervalMinutes())
+                .urgeIntervalHours(definition.getUrgeIntervalHours())
                 .remindAfterHours(definition.getRemindAfterHours())
                 .emailNotification(definition.getEmailNotification())
                 .cc(definition.getCc() == null ? List.of() : List.copyOf(definition.getCc()))

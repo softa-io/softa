@@ -84,20 +84,20 @@ class ScenarioRulesCompileTest {
                 .build(), "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
         assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).urgeEnabled(true).build(),
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
-        assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).urgeIntervalMinutes(60).build(),
+        assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).urgeIntervalHours(2).build(),
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
         assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).returnEnabled(true).build(),
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
         assertFalse(has(builder(FlowScenario.APPROVAL, submit()).withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
-                .returnEnabled(true).urgeEnabled(false).urgeIntervalMinutes(60).approverDedup(ApproverDedupStrategy.GLOBAL)
+                .returnEnabled(true).urgeEnabled(false).urgeIntervalHours(2).approverDedup(ApproverDedupStrategy.GLOBAL)
                 .build(), "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
     }
 
     @Test
-    void theUrgeIntervalIsAtLeastAMinute() {
-        assertTrue(has(builder(FlowScenario.APPROVAL, submit()).urgeIntervalMinutes(0).build(), "INVALID_URGE_INTERVAL", null));
-        assertTrue(has(builder(FlowScenario.APPROVAL, submit()).urgeIntervalMinutes(-5).build(), "INVALID_URGE_INTERVAL", null));
-        assertFalse(has(builder(FlowScenario.APPROVAL, submit()).urgeIntervalMinutes(1).build(), "INVALID_URGE_INTERVAL", null));
+    void theUrgeIntervalIsAtLeastAnHour() {
+        assertTrue(has(builder(FlowScenario.APPROVAL, submit()).urgeIntervalHours(0).build(), "INVALID_URGE_INTERVAL", null));
+        assertTrue(has(builder(FlowScenario.APPROVAL, submit()).urgeIntervalHours(-5).build(), "INVALID_URGE_INTERVAL", null));
+        assertFalse(has(builder(FlowScenario.APPROVAL, submit()).urgeIntervalHours(1).build(), "INVALID_URGE_INTERVAL", null));
     }
 
     @Test
@@ -115,7 +115,9 @@ class ScenarioRulesCompileTest {
         FlowCcRule nobodyNamed = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT)
                 .recipientSource(Map.of("type", "Users", "userIds", List.of(" "))).build();
         FlowCcRule typeless = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT).recipientSource(Map.of("level", 1)).build();
-        for (FlowCcRule invalid : List.of(whenless, nobody, nobodyNamed, typeless)) {
+        FlowCcRule unknown = FlowCcRule.builder().timing(CcTiming.ON_SUBMIT)
+                .recipientSource(Map.of("type", "VariableList", "variable", "watchers")).build();
+        for (FlowCcRule invalid : List.of(whenless, nobody, nobodyNamed, typeless, unknown)) {
             assertTrue(has(builder(FlowScenario.APPROVAL, submit()).cc(List.of(invalid)).build(), "INVALID_CC_RULE", null));
         }
     }

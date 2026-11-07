@@ -138,7 +138,7 @@ author among a model's enabled Compute flows — two declaring it would overwrit
 enabling or rolling back a Compute flow is refused while another enabled Compute flow of its model declares one of
 its outputs (`ComputeOutputs`). An API call or a parent names the flow it starts.
 
-Settings belong to one scenario too: `withdrawPolicy`, `returnEnabled`, `urgeEnabled`, `urgeIntervalMinutes`,
+Settings belong to one scenario too: `withdrawPolicy`, `returnEnabled`, `urgeEnabled`, `urgeIntervalHours`,
 `remindAfterHours`, `approverDedup`, `selfApproval`, `emailNotification` and `cc` to Approval flows; `sync` / `rollbackOnFail` to Automation flows, and a sync flow — which runs inside the writer's
 transaction — may not contain a Timer, AsyncTask or Approval node. The compiler rejects a flow that
 breaks any of these rules.
@@ -148,10 +148,10 @@ breaks any of these rules.
 | `withdrawPolicy` | Until when the initiator may withdraw: `Never`, `BeforeFirstAction` (until an approver first approves, rejects, returns, transfers or delegates — an automatic approval does not count), `UntilCompleted` | `Never` |
 | `returnEnabled` | Whether the approvers may return the approval to the initiator — at any step, the same at every one: a return always goes to the initiator and ends the approval, and they edit the record and submit it again. A step has no switch of its own; one saved on a step before is ignored | off |
 | `urgeEnabled` | Whether the initiator may urge the approvers the approval waits on; an administrator may either way | on |
-| `urgeIntervalMinutes` | How often each waiting step may be urged, by the initiator or an administrator alike; at least 1 (`INVALID_URGE_INTERVAL` otherwise) | `240` |
+| `urgeIntervalHours` | How often, in hours, each waiting step may be urged, by the initiator or an administrator alike — hours, as `remindAfterHours` counts them; at least 1 (`INVALID_URGE_INTERVAL` otherwise). It replaced `urgeIntervalMinutes`: a design or bundle stored with the old key reads as unset until a migration converts it — the deploying app ships one (zingkey-hcm `Release-20261113/20261106-urge-interval-hours`, before the new jar starts) | `4` |
 | `remindAfterHours` | Hours after a step opens that its approvers still to act are reminded, then every as many hours, at most 3 times; at least 1 (`INVALID_REMIND_AFTER_HOURS` otherwise). Only a reminder — see [Overdue Reminders](#overdue-reminders) | none: no reminders |
 | `approverDedup` | `Global`, `Contiguous`, `None` — see [Approver Resolution](#approver-resolution) | `Global` |
-| `selfApproval` | `AutoApprove`, `RequireApproval` — see [Approving Business Records](#approving-business-records) | `AutoApprove` |
+| `selfApproval` | When the submitter is a step's approver: `AutoApprove`, `RequireApproval` — see [Approving Business Records](#approving-business-records) | `AutoApprove` |
 | `emailNotification` | Whether its notices are also emailed — see [Notifications](#notifications) | on |
 | `cc` | Who is copied in as the approval is submitted, approved or rejected — see [CC](#cc) | none |
 
@@ -390,7 +390,7 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 | `POST` | `/flow/instances/return` | Return a pending approval to the initiator, ending the instance as `Returned`. Only the step's approver, on a flow that allows returns (`returnEnabled`), with a comment saying what to change |
 | `POST` | `/flow/instances/withdraw` | Withdraw an Approval instance: its initiator, while it waits on its approvers and the flow's `withdrawPolicy` permits it (`WithdrawPolicyGuard`). On a record's approval that failed, its submitter takes the record back whatever the policy, while the record still waits on it — as `withdrawRecord` does: a draft again, the failed instance kept |
 | `GET` | `/flow/instances/{instanceId}/withdraw` | Whether the caller may withdraw the instance now — `true` exactly when a withdrawal would be accepted, by the same `WithdrawPolicyGuard`. Allowed to whoever may view the instance |
-| `POST` | `/flow/instances/urge` | Remind the approvers the approval waits on — its initiator only, on a flow whose `urgeEnabled` is not turned off. Each waiting step is urged at most once per the flow's `urgeIntervalMinutes` (default 240), by the initiator or an administrator alike; each step urged gets its own `URGE` history entry, and when every step is still inside the interval the urge is refused. Returns `FlowUrgeStatus`, not the instance |
+| `POST` | `/flow/instances/urge` | Remind the approvers the approval waits on — its initiator only, on a flow whose `urgeEnabled` is not turned off. Each waiting step is urged at most once per the flow's `urgeIntervalHours` (default 4), by the initiator or an administrator alike; each step urged gets its own `URGE` history entry, and when every step is still inside the interval the urge is refused. Returns `FlowUrgeStatus`, not the instance |
 | `GET` | `/flow/instances/{instanceId}/urge` | Whether the caller may urge the approval now, and if not, when (`FlowUrgeStatus`) — never, for the initiator of a flow that turns `urgeEnabled` off. Allowed to whoever may view the instance |
 | `POST` | `/flow/instances/comment` | Add a comment audit entry while the instance runs — its participants only: the initiator and the people it gives or gave a task to, by the same rule as viewing it (an approver whose step another's vote carried still comments; an administrator who urged it does not). An instance that has ended takes no more comments. Returns `true`, not the instance |
 | `GET` | `/flow/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
@@ -533,7 +533,7 @@ submission recorded (*Approving Business Records*): `subject`, `subjectDept`, `e
 and `awaitingRevision`. On the caller's own approvals that wait on their approvers, `withdrawable` and `urge` say
 whether they may withdraw or urge them now, and on their own records' approvals that failed, `withdrawable` whether
 they may take the record back; on the monitor search, `urge` says whether the caller may urge as an
-administrator — the flow's `urgeIntervalMinutes` decides, whatever its `urgeEnabled` says. `recordDeleted` marks an
+administrator — the flow's `urgeIntervalHours` decides, whatever its `urgeEnabled` says. `recordDeleted` marks an
 approval whose record is gone — a draft deleted after a return or a withdrawal — `recordCancelled` one whose record
 was cancelled after it ended, and `effectStatus` says where an approved record's change stands, for a model whose
 approval takes effect later (`ModelApprovalHandler.effectStatuses`).
@@ -762,7 +762,7 @@ instance (urge, terminate, retry, reassign) makes no administrator one.
 |---|---|---|
 | `GET` | `/flow/monitor/health` | Flow runtime health snapshot (per-status instance counts, overdue timers) |
 | `POST` | `/flow/monitor/instances/search` | Cross-initiator paged instance summaries, read with the caller's own permissions: the `FlowInstance` rows their data scope reaches. Honors the request's `initiatorId` filter when present; otherwise as [Instance search](#instance-search) |
-| `POST` | `/flow/monitor/instances/urge` | Urge an approval as an administrator rather than its initiator: whoever may read the instance's `FlowInstance` row with their own permissions, whether or not the flow's `urgeEnabled` lets its initiator urge. The flow's `urgeIntervalMinutes` applies — a step urged within it, by anyone, is not urged again. Returns `FlowUrgeStatus` |
+| `POST` | `/flow/monitor/instances/urge` | Urge an approval as an administrator rather than its initiator: whoever may read the instance's `FlowInstance` row with their own permissions, whether or not the flow's `urgeEnabled` lets its initiator urge. The flow's `urgeIntervalHours` applies — a step urged within it, by anyone, is not urged again. Returns `FlowUrgeStatus` |
 | `POST` | `/flow/monitor/instances/terminate` | End each instance named (`instanceIds`, at most 100) that is running, waiting or failed, with one `reason` (required): its pending approvals close, it ends `Cancelled` — a record's approval cancels its record — and the history records a `TERMINATE` entry with the reason, which the initiator is sent. Only instances the caller's permissions read; each in its own transaction. Returns `FlowBatchActionResult` |
 | `POST` | `/flow/monitor/instances/retry` | Run again the steps after an approval of each instance named (`instanceIds`, at most 100; an optional `comment`) that failed in them — see [When a step after an approval fails](#when-a-step-after-an-approval-fails): the approval goes on from the step it failed after, and the history records a `RETRY` entry by the caller; should a step fail again, the instance fails again. Refused for an instance that failed otherwise, and for a record taken back by its submitter or submitted again since. Granted with terminating — whoever may end a failed approval may carry it on. Only instances the caller's permissions read; each in its own transaction. Returns `FlowBatchActionResult`: an instance run again and failed again is `Failed`, with the step and the error |
 | `POST` | `/flow/monitor/approvers/reassign/preview` | How many of an approver's pending approval tasks (`fromActorId` → `toActorId`), on the instances the caller's permissions read, a reassignment would move: `FlowReassignPreview` (`tasks`, `instances`). A new approver who cannot act is refused (`400`), naming them |
@@ -812,11 +812,10 @@ Approval nodes support:
 
 - approvers via `config.approverSources`: one or more groups, each with a `type` (`ApproverSourceType`) — specific
   people (`{"type": "Users", "userIds": [...]}`, the designer's first option; a new step starts with one such group),
-  or a source that finds them when the step is reached — `Supervisor`, `DeptLeader`, `DeptHrbp`, `RoleQuery`,
-  `Position`, `Department`, `VariableList`, `Expression` (and, on steps saved with them, `InitiatorManager` and
-  `Role`). Each type's fields sit beside its `type`. A step had one source (`config.approverSource`), and its named
-  approvers in a list of their own (`config.approvers`), before; the deploying application's release moves the one a
-  step used into `approverSources` — the engine reads neither any more
+  or a source that finds them in the organization when the step is reached — `Supervisor`, `DeptLeader`, `DeptHrbp`,
+  `RoleQuery`, `Position`, `Department`. Each type's fields sit beside its `type`. A step had one source
+  (`config.approverSource`), and its named approvers in a list of their own (`config.approvers`), before; the
+  deploying application's release moves the one a step used into `approverSources` — the engine reads neither any more
 - empty-approver strategies via `config.emptyApproverStrategy`: `Error` (default), `AutoApprove`, `AssignToRole`;
   `Skip` still runs on a step saved with it — approved as `AutoApprove` is, with no trace in the history — but the
   designer no longer offers it (the descriptor lists it under `deprecatedOptions`). The strategy applies only to a
@@ -853,17 +852,22 @@ under `Error`, the message naming the roles. The roles' names come from `Organiz
 A value a config cannot be read with — a constant name such as `ERROR`, which an earlier designer offered — is
 reported against its field (`UNREADABLE_CONFIG`) instead of failing the validation; choose it again.
 
-Supported dynamic source types:
+Supported dynamic source types, all from the organization: `Supervisor` (the N-th level supervisor), `DeptLeader` and
+`DeptHrbp` (of a department), `RoleQuery` (holders of the roles named by `roleIds`, by `roleCodes`, or both —
+optionally narrowed to a department), `Position`, `Department` (its members).
 
-- from start variables: `VariableList`, `Expression`; `InitiatorManager` (`initiatorManagerId`) and `Role`
-  (`roleApprovers`) still resolve on a step saved with them, but the designer no longer offers them (`"deprecated":
-  true` in the descriptor): they read a start variable the application must supply, and `Supervisor` relative to the
-  submitter / `RoleQuery` find the same people from the organization. An `Expression` that fails refuses as a step
-  that finds nobody does — "The approver expression of step '{label}' failed: …" (`400` at a submission, the
-  instance failed after an approval) — instead of a server error
-- from the organization: `Supervisor` (the N-th level supervisor), `DeptLeader` and `DeptHrbp` (of a
-  department), `RoleQuery` (holders of the roles named by `roleIds`, by `roleCodes`, or both — optionally
-  narrowed to a department), `Position`, `Department` (its members)
+**No source reads its people from the flow's variables.** `VariableList` (a variable holding account ids),
+`Expression` (an AviatorScript returning them), `InitiatorManager` (`initiatorManagerId`) and `Role`
+(`roleApprovers`) are gone. An approval's variables are the record's fields, the employee id of its subject and the
+trigger metadata — never an account id — so they found nobody unless the application put account ids there, and an
+expression could name people only by writing their ids into it, which a route condition and specific people say
+plainly. A step's group or a CC rule of a type the engine does not know is refused at publish
+(`UNKNOWN_APPROVER_SOURCE_TYPE` / `INVALID_CC_RULE`) and finds nobody at run time. The deploying application's release
+rewrites the stored flows that still use one, in a flow's design and every published bundle (design and compiled
+JSON), before the new jar starts: such a group is dropped — with no account ids among the variables it found nobody —
+a step left with none gets one `{"type": "Supervisor", "relativeTo": "SUBJECT", "level": 1}`, the employee's direct
+manager, and such a CC rule is deleted. A department named by a variable (`deptScope: VARIABLE_DEPT`) stays: it reads
+a department field of the record.
 
 The organization is read relative to the record's **subject** — the employee it is about (*Approving Business
 Records*) — so a request filed on someone's behalf goes to their approvers, not the submitter's. `Supervisor`
@@ -919,8 +923,7 @@ asking `OrganizationService.getUnusableAccounts` — none unless the application
 answers from the account statuses above, an account the tenant does not have counting as one that cannot act):
 
 - **Resolved people who cannot act are passed over silently**, as a supervisor who left is: a step's specific
-  people and those of every other source (`VariableList`, `Expression`, `InitiatorManager`, `Role` too), and
-  a CC rule's recipients. A step left with nobody follows its empty-approver strategy.
+  people and those of every other source, and a CC rule's recipients. A step left with nobody follows its empty-approver strategy.
 - **An action that hands the step to someone who cannot act is refused** (`400`), naming them and why — "Ann Lee's
   account is frozen": transfer, delegate, CC (refused as a whole when it includes anyone who cannot act), an
   administrator's reassignment, creating a delegation rule (one's own or on someone's behalf), a bulk reassignment
@@ -1258,13 +1261,16 @@ Nothing in a run fails an instance but a step that throws: a subflow that cannot
 (`FlowExecutionOrchestrator.executeSubflow`), so it is handled like any failing step — at submission the submission
 is refused, after an approval the approval stands as above, in an automation run the run fails.
 
-On a submit flow the record's own people are approved for by default ("本人是审批人时"): when a step's
-approvers include the submitter, or the user of the employee the record is about, they are counted as having
-approved — recorded as `AUTO_APPROVE` ("Auto-approved (submitter)" / "Auto-approved (subject)") in the
-approval history — and the step's approval mode decides the rest: an any-one step passes, an all-approve step
-still waits for the others. The flow setting `selfApproval` decides it: `AutoApprove` (the default) or
-`RequireApproval`, which asks them like any other approver. An empty step whose strategy is `AutoApprove` is
-recorded the same way, with no actor ("Auto-approved (no approver)").
+On a submit flow the submitter is approved for by default ("提交人是审批人时"): when a step's approvers include
+the user who submitted the record, they are counted as having approved — submitting it was agreeing to it —
+recorded as `AUTO_APPROVE` ("Auto-approved (submitter)") in the approval history, and the step's approval mode
+decides the rest: an any-one step passes, an all-approve step still waits for the others. The flow setting
+`selfApproval` decides it: `AutoApprove` (the default) or `RequireApproval`, which asks the submitter like any
+other approver. The employee the record is about gets no such pass when someone else submitted it — HR filing a
+department head's salary adjustment, say, whose own department-leader step resolves to them: approving it in
+their name would decide their own matter, so they are asked like any other approver. An employee filing their own
+record is its submitter, and the setting covers them. An empty step whose strategy is `AutoApprove` is recorded
+the same way, with no actor ("Auto-approved (no approver)").
 
 ### The approval lock
 
@@ -1309,7 +1315,7 @@ order the approval reaches them, each with an `outcome`:
 | Outcome | The step |
 |---|---|
 | `Waiting` | Waits for `approvers`, of whom `requiredApprovals` must approve; `assignedRoles` names the roles they hold when the step found nobody and went to roles (`AssignToRole`) |
-| `AutoApproved` | Passes on its own: `autoApprovals` counts as having approved the submitter (`Submitter`), the employee the record is about (`Subject`) — under the flow's `selfApproval` — or someone who approved an earlier step, under the flow's approver dedup (`EarlierApproval`) |
+| `AutoApproved` | Passes on its own: `autoApprovals` counts as having approved the submitter (`Submitter`) — under the flow's `selfApproval` — or someone who approved an earlier step, under the flow's approver dedup (`EarlierApproval`) |
 | `NoApproverApproved`, `NoApproverSkipped` | Resolves to nobody; its empty-approver strategy approves it on record or skips it |
 | `NoApproverFails` | Resolves to nobody under strategy `Error` — or `AssignToRole`, its roles leaving nobody either: the submission would be refused there, with the message `failure` gives |
 | `Undetermined` | Who approves it, or whether it passes on its own, depends on data only known once the approval runs |
@@ -1526,9 +1532,8 @@ The editor palette is built from `FlowNodeDescriptor` records exposed through `/
   (`code`) instead of the id when given, and taking a typed value no record holds with `allowCustom`; a
   `keyValueMap`'s `valueType` says what its values are (`expression`, `template`)
 - an approval step's `approverSources` offers its sources in the order an HR administrator reaches for them —
-  specific people, the organization's (supervisor, department leader, HRBP), the groups' (role, position, department
-  members), then the developers' (variable list, expression), then those no longer offered (`deprecated`) — each
-  option saying what the editor needs to tell which settings apply: `names` (the field a group of specific people
+  specific people, the organization's (supervisor, department leader, HRBP), then the groups' (role, position,
+  department members) — each option saying what the editor needs to tell which settings apply: `names` (the field a group of specific people
   names them in, `userIds`) and `findsOne` (the source finds one person at most). A setting that applies only to some
   steps says so in `appliesWhen`: `severalApprovers` (the approval mode, `minCount`, `percentage`) or
   `approversFoundByRule` (the empty-approver strategy and its roles); the engine ignores it elsewhere, by the same

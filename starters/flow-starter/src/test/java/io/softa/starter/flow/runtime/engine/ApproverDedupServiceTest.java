@@ -13,7 +13,6 @@ import io.softa.starter.flow.enums.SelfApprovalStrategy;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -22,14 +21,16 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link ApproverDedupService}: the GLOBAL / CONTIGUOUS distinction, and the record's own
- * people — its submitter and the employee it is about — approved for automatically on an Approval flow
- * unless the flow asks them like anyone else (recorded, and counted by the step's approval mode).
+ * Unit tests for {@link ApproverDedupService}: the GLOBAL / CONTIGUOUS distinction, and the record's submitter
+ * approved for automatically on an Approval flow unless the flow asks them like anyone else (recorded, and
+ * counted by the step's approval mode) — while the employee the record is about, when someone else filed it, is
+ * asked like anyone.
  */
 class ApproverDedupServiceTest {
 
@@ -60,10 +61,7 @@ class ApproverDedupServiceTest {
     }
 
     /** A record about employee 5001, whose login account is user Y, submitted by user X (HR). */
-    private FlowExecutionState filedByHrFor5001() {
-        OrganizationService organization = mock(OrganizationService.class);
-        when(organization.getUserIdOfEmployee(5001L)).thenReturn(Long.valueOf(Y_USER));
-        service.setOrganizationService(organization);
+    private static FlowExecutionState filedByHrFor5001() {
         FlowExecutionState state = stateWith();
         state.setInitiatorId(X);
         Map<String, Object> variables = new HashMap<>();
@@ -182,33 +180,35 @@ class ApproverDedupServiceTest {
     }
 
     @Test
-    void theEmployeeTheRecordIsAboutIsApprovedForToo() {
+    void theEmployeeTheRecordIsAboutIsAskedLikeAnyoneWhenSomeoneElseFiledIt() {
         FlowExecutionState state = filedByHrFor5001();
         PendingApproval pending = pendingFor(Y_USER, "ap1");
 
-        assertTrue(service.applyAndCheckComplete(submitFlow(), node("ap1"), state, pending));
-        ApprovalActionAuditEntry approval = state.getApprovalAuditDelta().getLast();
-        assertEquals(Y_USER, approval.getActorId());
-        assertEquals("Auto-approved (subject)", approval.getComment());
+        assertFalse(service.applyAndCheckComplete(submitFlow(), node("ap1"), state, pending),
+                "approving for them would decide their own matter in their name");
+        assertTrue(pending.getApprovedActors().isEmpty());
+        assertTrue(state.getApprovalAuditDelta().isEmpty());
     }
 
     @Test
-    void aFlowThatRequiresApprovalAsksTheRecordsOwnPeopleLikeAnyone() {
+    void aFlowThatRequiresApprovalAsksTheSubmitterLikeAnyone() {
         FlowExecutionState state = filedByHrFor5001();
         PendingApproval pending = pendingFor(X, "ap1");
-        pending.getApprovers().add(Y_USER);
 
         assertFalse(service.applyAndCheckComplete(submitFlow(SelfApprovalStrategy.REQUIRE_APPROVAL), node("ap1"),
                 state, pending));
         assertTrue(pending.getApprovedActors().isEmpty());
-        assertTrue(service.selfApprovers(submitFlow(SelfApprovalStrategy.REQUIRE_APPROVAL), state).isEmpty());
+        assertNull(service.selfApprover(submitFlow(SelfApprovalStrategy.REQUIRE_APPROVAL), state));
     }
 
     @Test
-    void theSubmittersRoleComesFirstWhenTheyFiledForThemselves() {
+    void anEmployeeFilingTheirOwnRecordIsApprovedForAsItsSubmitter() {
         FlowExecutionState state = filedByHrFor5001();
         state.setInitiatorId(Y_USER);
+        PendingApproval pending = pendingFor(Y_USER, "ap1");
 
-        assertEquals(Map.of(Y_USER, ApproverDedupService.SelfRole.SUBMITTER), service.selfApprovers(submitFlow(), state));
+        assertEquals(Y_USER, service.selfApprover(submitFlow(), state));
+        assertTrue(service.applyAndCheckComplete(submitFlow(), node("ap1"), state, pending));
+        assertEquals("Auto-approved (submitter)", state.getApprovalAuditDelta().getLast().getComment());
     }
 }

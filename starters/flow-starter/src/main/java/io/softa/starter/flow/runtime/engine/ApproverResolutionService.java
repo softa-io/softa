@@ -1,19 +1,16 @@
 package io.softa.starter.flow.runtime.engine;
 
-import java.lang.reflect.Array;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.i18n.I18n;
-import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
@@ -27,8 +24,6 @@ public class ApproverResolutionService {
 
     public static final String APPROVER_CONTEXT_KEY = "approverContext";
     public static final String INITIATOR_ID_KEY = "initiatorId";
-    public static final String INITIATOR_MANAGER_ID_KEY = "initiatorManagerId";
-    public static final String ROLE_APPROVERS_KEY = "roleApprovers";
     /**
      * The start variable a record's approval carries its subject in — the id of the employee the record
      * is about, from its handler's {@code subject()} field. Org-relative sources start from it.
@@ -43,15 +38,13 @@ public class ApproverResolutionService {
     private ActorAccounts actorAccounts;
 
     /**
-     * The variables approvers are resolved against: the instance's own, with the approver context — the
-     * initiator, their manager, the role approvers — the dynamic sources read.
+     * The variables approvers are resolved against: the instance's own, with the approver context — the initiator,
+     * whom the sources relative to the submitter start from.
      */
     public static Map<String, Object> resolutionVariables(Map<String, Object> variables, String initiatorId) {
         Map<String, Object> resolved = new LinkedHashMap<>(variables == null ? Map.of() : variables);
         Map<String, Object> approverContext = new LinkedHashMap<>();
         approverContext.put(INITIATOR_ID_KEY, initiatorId);
-        approverContext.put(INITIATOR_MANAGER_ID_KEY, resolved.getOrDefault(INITIATOR_MANAGER_ID_KEY, null));
-        approverContext.put(ROLE_APPROVERS_KEY, resolved.getOrDefault(ROLE_APPROVERS_KEY, Map.of()));
         resolved.put(APPROVER_CONTEXT_KEY, approverContext);
         return resolved;
     }
@@ -126,7 +119,6 @@ public class ApproverResolutionService {
             case "RoleQuery" -> I18n.get("nobody who can approve holds its roles");
             case "Position" -> I18n.get("nobody who can approve holds its positions");
             case "Department" -> I18n.get("its departments have nobody who can approve");
-            case "VariableList", "Expression" -> I18n.get("its rule names nobody who can approve");
             default -> null;
         };
     }
@@ -164,24 +156,19 @@ public class ApproverResolutionService {
         // One pool: everyone the groups name or find, each once, in the groups' order.
         Set<String> pool = new LinkedHashSet<>();
         for (Map<String, Object> group : groups(cfg)) {
-            pool.addAll(resolveGroup(node, group, resolutionVariables));
+            pool.addAll(resolveGroup(group, resolutionVariables));
         }
         return List.copyOf(pool);
     }
 
     /** The users one group names or finds. */
-    private List<String> resolveGroup(CompiledFlowNode node, Map<String, Object> source,
-                                      Map<String, Object> resolutionVariables) {
+    private List<String> resolveGroup(Map<String, Object> source, Map<String, Object> resolutionVariables) {
         String type = asString(source.get("type"));
         if (!StringUtils.hasText(type)) {
             return List.of();
         }
         Object resolved = switch (type) {
             case "Users" -> ApproverSourceType.namedUsers(source);
-            case "VariableList" -> lookupValue(resolutionVariables, asString(source.get("variable")));
-            case "Expression" -> resolveExpression(node, resolutionVariables, asString(source.get("expression")));
-            case "InitiatorManager" -> lookupValue(resolutionVariables, INITIATOR_MANAGER_ID_KEY);
-            case "Role" -> resolveRoleApprovers(resolutionVariables, asString(source.get("roleCode")));
             case "Supervisor" -> resolveSupervisor(resolutionVariables, source);
             case "DeptLeader" -> resolveDeptLeader(resolutionVariables, source);
             case "DeptHrbp" -> resolveDeptHrbp(resolutionVariables, source);
@@ -496,41 +483,6 @@ public class ApproverResolutionService {
         return null;
     }
 
-    // ── Existing resolution methods ───────────────────────────────────────
-
-    /**
-     * The approvers an expression names. One that fails is the step's configuration at fault, not the server: refused
-     * with the step and what went wrong, as a step that finds nobody is — at a submission the submission is, after an
-     * approval the instance fails with it — instead of an error nobody can read.
-     */
-    private Object resolveExpression(CompiledFlowNode node, Map<String, Object> variables, String expression) {
-        if (!StringUtils.hasText(expression)) {
-            return null;
-        }
-        try {
-            return ComputeUtils.execute(expression, new LinkedHashMap<>(variables));
-        } catch (RuntimeException e) {
-            String label = StringUtils.hasText(node.getLabel()) ? node.getLabel() : node.getNodeId();
-            String detail = Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName()).lines()
-                    .findFirst().orElse("");
-            throw new FlowActionValidationException(I18n.get(
-                    "The approver expression of step ''{0}'' failed: {1}. Ask your HR administrator to correct it.",
-                    label, detail));
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Object resolveRoleApprovers(Map<String, Object> variables, String roleCode) {
-        if (!StringUtils.hasText(roleCode)) {
-            return null;
-        }
-        Object roleApprovers = lookupValue(variables, ROLE_APPROVERS_KEY);
-        if (!(roleApprovers instanceof Map<?, ?> map)) {
-            return null;
-        }
-        return ((Map<String, Object>) map).get(roleCode);
-    }
-
     @SuppressWarnings("unchecked")
     private Object lookupValue(Map<String, Object> variables, String key) {
         if (!StringUtils.hasText(key) || variables == null || variables.isEmpty()) {
@@ -568,16 +520,6 @@ public class ApproverResolutionService {
                     .filter(StringUtils::hasText)
                     .distinct()
                     .toList();
-        }
-        if (value.getClass().isArray()) {
-            List<String> result = new ArrayList<>();
-            for (int i = 0; i < Array.getLength(value); i++) {
-                Object item = Array.get(value, i);
-                if (item != null && StringUtils.hasText(item.toString()) && !result.contains(item.toString())) {
-                    result.add(item.toString());
-                }
-            }
-            return List.copyOf(result);
         }
         String single = value.toString();
         if (!StringUtils.hasText(single)) {
