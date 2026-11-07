@@ -486,8 +486,8 @@ public class PermissionServiceImpl implements PermissionService {
      * department — not, as merging the rules of both used to make it, editing everyone.
      */
     Filters rowScope(PermissionInfo pi, String model, AccessType access) {
-        boolean changing = changes(access);
-        return anyOf(holders(pi, model, access).stream().map(g -> grantScope(g, model, changing)).toList());
+        boolean withinGrant = staysWithinGrant(access);
+        return anyOf(holders(pi, model, access).stream().map(g -> grantScope(g, model, withinGrant)).toList());
     }
 
     /**
@@ -588,15 +588,15 @@ public class PermissionServiceImpl implements PermissionService {
      * waived by an ALL rule on some model. Admins never get here — a tenant admin sees every company
      * in its tenant.
      */
-    private Filters grantScope(Grant g, String model, boolean changing) {
+    private Filters grantScope(Grant g, String model, boolean withinGrant) {
         RequestMemo memo = RequestMemo.current();
         if (memo == null) {
-            return computeGrantScope(g, model, changing);
+            return computeGrantScope(g, model, withinGrant);
         }
-        String key = changing ? model + CHANGING_KEY : model;
+        String key = withinGrant ? model + WITHIN_GRANT_KEY : model;
         Optional<Filters> known = memo.scope(g, key);
         if (known == null) {
-            Filters computed = computeGrantScope(g, model, changing);
+            Filters computed = computeGrantScope(g, model, withinGrant);
             memo.putScope(g, key, computed);
             return computed;
         }
@@ -604,22 +604,26 @@ public class PermissionServiceImpl implements PermissionService {
         return known.map(Filters::deepCopy).orElse(null);
     }
 
-    /** Marks a remembered scope as the one for changing rows; no model name holds it. */
-    private static final String CHANGING_KEY = "|changing";
+    /** Marks a remembered scope as the one that stays within the department grant; no model name holds it. */
+    private static final String WITHIN_GRANT_KEY = "|withinGrant";
 
-    /** Whether {@code access} changes rows, which is what an exemption from the department grant does not lift. */
-    private static boolean changes(AccessType access) {
-        return AccessType.CREATE.equals(access) || AccessType.UPDATE.equals(access) || AccessType.DELETE.equals(access);
+    /**
+     * Whether {@code access} stays within the department grant on a model the role is exempt on. The exemption
+     * lets a role view past the grant, in lists and on detail pages, and nothing else: changing rows stays
+     * within it, and so does exporting them, which takes the rows out of the system in bulk.
+     */
+    private static boolean staysWithinGrant(AccessType access) {
+        return access != null && !AccessType.READ.equals(access);
     }
 
-    private Filters computeGrantScope(Grant g, String model, boolean changing) {
-        Filters company = roleAxes(model, g, changing);
+    private Filters computeGrantScope(Grant g, String model, boolean withinGrant) {
+        Filters company = roleAxes(model, g, withinGrant);
         Filters rows;
         if (hasExplicitRules(g, model)) {
             rows = scopeCompiler.compile(withDeclaredScope(g.rules(model), model), model);
             rows = allOf(rows, conditionOf(g, model));
         } else {
-            rows = scopeWithoutGrant(model, g, changing);
+            rows = scopeWithoutGrant(model, g, withinGrant);
         }
         return allOf(company, rows);
     }
@@ -645,26 +649,26 @@ public class PermissionServiceImpl implements PermissionService {
      * department grant. {@code null} when neither narrows — which, for a role with neither grant
      * configured, is every model.
      */
-    private Filters roleAxes(String model, Grant g, boolean changing) {
-        return allOf(companyScope(model, g.companies()), departmentAxis(model, g, changing));
+    private Filters roleAxes(String model, Grant g, boolean withinGrant) {
+        return allOf(companyScope(model, g.companies()), departmentAxis(model, g, withinGrant));
     }
 
     /**
      * The role's department grant on {@code model}: the departments it names and those worked out for the
      * holder, each with everything under it, or the rows of the holder's direct reports. A row has to meet any
      * one of them. {@code null} when it does not narrow: no grant, a model that does not belong to a department,
-     * a model the role is exempt on — for viewing only, as changing rows stays within the grant — or a record
-     * that follows its employee ({@link #followsEmployee}).
+     * a model the role is exempt on — for viewing only, as changing and exporting rows stay within the grant —
+     * or a record that follows its employee ({@link #followsEmployee}).
      *
      * <p>Without an employee behind the caller the conditions worked out for the holder contribute nothing.
      */
     // Package-private for test, like departmentScope.
     Filters departmentAxis(String model, RoleGrant grant, AccessType access) {
-        return departmentAxis(model, Grant.of(grant), changes(access));
+        return departmentAxis(model, Grant.of(grant), staysWithinGrant(access));
     }
 
-    private Filters departmentAxis(String model, Grant g, boolean changing) {
-        if (g.departments() == null || (!changing && g.departmentExempt().contains(model))
+    private Filters departmentAxis(String model, Grant g, boolean withinGrant) {
+        if (g.departments() == null || (!withinGrant && g.departmentExempt().contains(model))
                 || followsEmployee(model, g)) {
             return null;
         }
@@ -979,11 +983,11 @@ public class PermissionServiceImpl implements PermissionService {
      * range of its own (see {@link #hasOwnRowScope}); a label lookup crosses the range upstream, through
      * {@code ModelService.searchListIgnoringRowScope}.
      */
-    private Filters scopeWithoutGrant(String model, Grant g, boolean changing) {
+    private Filters scopeWithoutGrant(String model, Grant g, boolean withinGrant) {
         List<Referencer> refs = findReferencers(model, g);
         Referencer ref = refs.isEmpty() ? null : refs.getFirst();
         if (ref != null && ref.kind() != Kind.SHARED) {
-            return followOwners(refs, g, changing);
+            return followOwners(refs, g, withinGrant);
         }
         if (hasForwardAnchor(model)) {
             return ScopeRuleCompiler.matchNone();
@@ -1067,13 +1071,13 @@ public class PermissionServiceImpl implements PermissionService {
      * of the rows that own it. With several owners a child row is in range when an in-range row of
      * any of them owns it: the union, which does not depend on the order the owners were found in.
      */
-    private Filters followOwners(List<Referencer> refs, Grant g, boolean changing) {
+    private Filters followOwners(List<Referencer> refs, Grant g, boolean withinGrant) {
         Set<Serializable> visibleIds = new LinkedHashSet<>();
         List<Filters> backRefFilters = new ArrayList<>();
         for (Referencer ref : refs) {
             // The owner's rows under the SAME grant: a child is visible through the role that can see
             // its owner, not through whichever of the caller's roles happens to.
-            Filters ownerScope = grantScope(g, ref.parentModel(), changing);
+            Filters ownerScope = grantScope(g, ref.parentModel(), withinGrant);
             Filters owners = ownerScope == null ? new Filters() : ownerScope;
             switch (ref.kind()) {
                 // Both callers hand over ownership edges only; a shared reference bounds nothing.
@@ -1261,9 +1265,9 @@ public class PermissionServiceImpl implements PermissionService {
         return rowsReached(model, grants, ids, false);
     }
 
-    /** {@link #rowsReached} for viewing or, with {@code changing}, for changing: they differ on a model exempt from the department grant. */
-    private Set<Object> rowsReached(String model, List<Grant> grants, List<Serializable> ids, boolean changing) {
-        Filters scope = anyOf(grants.stream().map(g -> grantScope(g, model, changing)).toList());
+    /** {@link #rowsReached} for viewing or, with {@code withinGrant}, for what stays within the department grant: they differ on a model exempt from it. */
+    private Set<Object> rowsReached(String model, List<Grant> grants, List<Serializable> ids, boolean withinGrant) {
+        Filters scope = anyOf(grants.stream().map(g -> grantScope(g, model, withinGrant)).toList());
         if (scope == null) {
             return ids.stream().map(PermissionServiceImpl::normalizeId).collect(Collectors.toSet());
         }
@@ -1739,7 +1743,7 @@ public class PermissionServiceImpl implements PermissionService {
         List<Serializable> idList = ids.stream().distinct().collect(Collectors.toList());
         fieldsByWriters.forEach((grantingWriters, written) -> {
             Filters scope = anyOf(grantingWriters.stream()
-                    .map(g -> judgedOnOwner(g, model, accessType) ? null : grantScope(g, model, changes(accessType)))
+                    .map(g -> judgedOnOwner(g, model, accessType) ? null : grantScope(g, model, staysWithinGrant(accessType)))
                     .toList());
             if (scope == null) return;
             Filters target = Filters.and(byIds(model, idList), scope);
@@ -1965,15 +1969,15 @@ public class PermissionServiceImpl implements PermissionService {
      * see its javadoc for why the order decides whether one-to-many children work at all.
      */
     private Filters idCheckScope(Grant g, String model, AccessType accessType) {
-        boolean changing = changes(accessType);
+        boolean withinGrant = staysWithinGrant(accessType);
         if (hasExplicitRules(g, model)) {
-            return grantScope(g, model, changing);
+            return grantScope(g, model, withinGrant);
         }
         // Rows a grant reaches without rules of its own still stay inside its companies. Reads were bounded
         // so (computeGrantScope); the writes below returned "no restriction" and were not, so a role granted
         // one company could change or delete another company's cost centres by id. The department grant
         // rides with it, for the same reason.
-        Filters company = roleAxes(model, g, changing);
+        Filters company = roleAxes(model, g, withinGrant);
         if (judgedOnOwner(g, model, accessType)) {
             // Written before its owner, so it may not name its employee yet: the owner's own check decides.
             return ModelConstant.EMPLOYEE_FIELD.equals(departmentAnchorOf(model))
@@ -1983,7 +1987,7 @@ public class PermissionServiceImpl implements PermissionService {
         List<Referencer> refs = findReferencers(model, g);
         Kind kind = refs.isEmpty() ? null : refs.getFirst().kind();
         if (kind == Kind.OWNED_ONE_TO_ONE) {
-            return allOf(company, followOwners(refs, g, changing));
+            return allOf(company, followOwners(refs, g, withinGrant));
         }
         if (kind == Kind.SHARED && !hasForwardAnchor(model)) {
             return company;
@@ -2000,7 +2004,7 @@ public class PermissionServiceImpl implements PermissionService {
                     ? ScopeRuleCompiler.matchNone()
                     : allOf(company, scopeCompiler.compile(List.of(ruleOf(declared)), model));
         }
-        return grantScope(g, model, changing);
+        return grantScope(g, model, withinGrant);
     }
 
     /**

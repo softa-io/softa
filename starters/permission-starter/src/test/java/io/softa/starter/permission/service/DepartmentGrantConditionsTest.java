@@ -12,6 +12,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -124,7 +127,6 @@ class DepartmentGrantConditionsTest {
     @DisplayName("an exemption lifts the grant for viewing")
     void anExemptionLiftsViewing() {
         assertThat(scope(role(Set.of("1/10"), Set.of(), Set.of(TICKET)), AccessType.READ)).isNull();
-        assertThat(scope(role(Set.of("1/10"), Set.of(), Set.of(TICKET)), AccessType.EXPORT)).isNull();
     }
 
     @Test
@@ -182,6 +184,39 @@ class DepartmentGrantConditionsTest {
         List<RecordAccess> access = ContextHolder.callWith(ctx, () -> service.getRecordAccess(TICKET, List.of(1L)));
 
         assertThat(access.getFirst().actions()).doesNotContain(AccessType.UPDATE);
+    }
+
+    @Test
+    @DisplayName("an exemption lets a role view past the grant, not export past it")
+    void anExemptionDoesNotReachAnExport() {
+        RoleGrant exempt = role(Set.of("1/10"), Set.of(), Set.of(TICKET));
+
+        assertThat(scope(exempt, AccessType.READ)).isNull();
+        assertThat(scope(exempt, AccessType.EXPORT).toString()).contains("1/10");
+        assertThat(scope(exempt, AccessType.UPDATE).toString()).contains("1/10");
+    }
+
+    @Test
+    @DisplayName("what a role views and what it exports on an exempt model are remembered apart")
+    @SuppressWarnings("unchecked")
+    void viewingAndExportingAreRememberedApart() {
+        RoleGrant exempt = role(Set.of("1/10"), Set.of(), Set.of(TICKET));
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleGrants(List.of(exempt));
+        ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
+        when(applicability.applicableFor(TICKET)).thenReturn(Set.of(ScopeType.ALL));
+        ScopeRuleCompiler compiler = mock(ScopeRuleCompiler.class);
+        EndpointIndex index = mock(EndpointIndex.class);
+        PermissionServiceImpl service = new PermissionServiceImpl(null, compiler, null,
+                (ModelService<Long>) mock(ModelService.class), applicability, () -> index);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        try {
+            assertThat(service.rowScope(pi, TICKET, AccessType.READ)).isNull();
+            assertThat(service.rowScope(pi, TICKET, AccessType.EXPORT)).isNotNull();
+            assertThat(service.rowScope(pi, TICKET, AccessType.READ)).isNull();
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     // ---- a record belonging to an employee -----------------------------------------------------------
