@@ -702,13 +702,28 @@ public class PermissionServiceImpl implements PermissionService {
     private static final String CONDITION_MANAGED_DEPARTMENTS = "MANAGED_DEPARTMENTS";
     private static final String CONDITION_DIRECT_REPORTS = "DIRECT_REPORTS";
 
-    /** The paths of the departments the conditions name for the caller, read from the request's employee. */
+    /**
+     * The paths of the departments the conditions name for the caller, read from the request's employee.
+     * Remembered for the request, past the writes that forget a grant's rows: a batch write asks once per check,
+     * and each asking reads the tenant's whole tree out of the cache.
+     */
     private Set<String> holderDepartmentPaths(Set<String> conditions) {
-        EmpInfo employee = ContextHolder.getContext().getEmpInfo();
+        Context context = ContextHolder.getContext();
+        EmpInfo employee = context.getEmpInfo();
         DepartmentIdPathResolver resolver = departmentPathsSupplier.get();
         if (employee == null || resolver == null) {
             return Set.of();
         }
+        RequestMemo memo = RequestMemo.current();
+        if (memo == null) {
+            return resolveHolderDepartmentPaths(employee, conditions, resolver);
+        }
+        String key = context.getTenantId() + "|" + employee.getEmpId() + "|" + new TreeSet<>(conditions);
+        return memo.holderPaths(key, () -> resolveHolderDepartmentPaths(employee, conditions, resolver));
+    }
+
+    private static Set<String> resolveHolderDepartmentPaths(EmpInfo employee, Set<String> conditions,
+                                                            DepartmentIdPathResolver resolver) {
         List<Long> departments = new ArrayList<>();
         if (conditions.contains(CONDITION_OWN_DEPARTMENT) && employee.getDeptId() != null) {
             departments.add(employee.getDeptId());
@@ -885,6 +900,7 @@ public class PermissionServiceImpl implements PermissionService {
         private final Map<PermissionInfo, List<Grant>> grants = new java.util.IdentityHashMap<>();
         private final Map<PermissionInfo, Map<String, FieldPlan>> plans = new java.util.IdentityHashMap<>();
         private final Map<Grant, Map<String, Optional<Filters>>> scopes = new java.util.IdentityHashMap<>();
+        private final Map<String, Set<String>> holderPaths = new java.util.HashMap<>();
 
         /** The current request's memo; {@code null} off a request. */
         static RequestMemo current() {
@@ -928,6 +944,10 @@ public class PermissionServiceImpl implements PermissionService {
 
         synchronized void forgetScopes() {
             scopes.clear();
+        }
+
+        synchronized Set<String> holderPaths(String key, Supplier<Set<String>> resolve) {
+            return holderPaths.computeIfAbsent(key, k -> resolve.get());
         }
     }
 

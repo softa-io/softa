@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Resolve {@code deptId → idPath} for {@code DepartmentSubtreeScopeContributor}
@@ -44,9 +45,11 @@ import java.util.Set;
  * HR app's {@code DepartmentChangedEvent} adapter) drops
  * {@code dept-idpath:{tenantId}} immediately on any structural change
  * (create / move / delete / head-change), so a moved department is reflected on
- * the next lookup, and the tenant's permission snapshots with it, as they hold the
- * paths of the departments a role names. {@link #CACHE_TTL_SECONDS} is a backstop
- * for the edge case where a change commits with no tenant bound to evict against.
+ * the next lookup. The tenant's permission snapshots go with it only when a stored
+ * path changed ({@link #evict(Long, boolean)}), as they hold the paths of the
+ * departments a role names and nothing else about the tree. {@link #CACHE_TTL_SECONDS}
+ * is a backstop for the edge case where a change commits with no tenant bound to evict
+ * against, and for a tree read before a change and written back after its eviction.
  *
  * <h3>Query semantics</h3>
  * The tree is loaded under {@code skipPermissionCheck=true} — the caller's
@@ -134,17 +137,39 @@ public class DepartmentIdPathResolver {
         return ids;
     }
 
-    /** Drop the cached department tree for a tenant, and the permission snapshots holding
-     *  paths read from it; the next lookup reloads them. Public so the domain's event adapter
-     *  (the HR app's {@code DepartmentChangedEvent} listener) can evict on any structural
-     *  change. {@link #CACHE_TTL_SECONDS} is the backstop when no tenant is bound to evict
-     *  against. */
+    /** {@link #evict(Long, boolean)} for a change that may have moved a department: the safe default. */
     public void evict(Long tenantId) {
+        evict(tenantId, true);
+    }
+
+    /**
+     * Drop the cached department tree for a tenant; the next lookup reloads it. Public so the domain's event
+     * adapter (the HR app's {@code DepartmentChangedEvent} listener) can evict on any structural change.
+     * {@link #CACHE_TTL_SECONDS} is the backstop when no tenant is bound to evict against.
+     *
+     * <p>Permission snapshots hold the stored path of each department a role names, so they are dropped too when
+     * an existing department's path changed — a move, which rewrites the moved subtree's paths. Nothing else
+     * touches a stored path: a new department is found under its parent by the tree read at request time, and
+     * deleting or disabling one leaves the paths of the others as they were. Rebuilding every snapshot of the
+     * tenant for those would make each such edit cost every user's next request.
+     *
+     * @param pathsChanged whether an existing department's stored {@code idPath} changed
+     */
+    public void evict(Long tenantId, boolean pathsChanged) {
         if (tenantId == null) return;
         try {
             cacheService.clear(CACHE_KEY_PREFIX + tenantId);
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — evicting dept-idpath:{} failed; TTL will expire it", tenantId, t);
+        }
+        if (!pathsChanged) return;
+        try {
+            // Before the clear: a snapshot built from the old paths and written back after the clear finds the
+            // mark changed and removes itself (DefaultPermissionSnapshotProvider).
+            cacheService.save(PermissionSnapshotProvider.departmentPathsMarkKey(tenantId),
+                    UUID.randomUUID().toString(), RedisConstant.ONE_HOUR);
+        } catch (Throwable t) {
+            log.warn("DepartmentIdPathResolver — marking dept paths of {} changed failed", tenantId, t);
         }
         try {
             cacheService.clearByPrefix(PermissionSnapshotProvider.CACHE_KEY_PREFIX + tenantId + ":");
@@ -156,7 +181,9 @@ public class DepartmentIdPathResolver {
     /**
      * The current tenant's {@code {deptId → idPath}} map, read-through cached in
      * Redis. Returns an empty map when no tenant is bound (fail-closed) or on any
-     * cache/DB error — the enclosing scope rule then degrades to empty.
+     * cache/DB error — the enclosing scope rule then degrades to empty. A tree that could
+     * not be read is not cached: that would empty every department scope of the tenant
+     * for as long as the entry lives, on account of one failed query.
      */
     private Map<Long, String> tenantTree() {
         Long tenantId = ContextHolder.existContext() ? ContextHolder.getContext().getTenantId() : null;
@@ -172,6 +199,7 @@ public class DepartmentIdPathResolver {
             log.warn("DepartmentIdPathResolver — Redis read for {} failed; falling back to DB", key, t);
         }
         Map<Long, String> tree = loadTreeFromDb();
+        if (tree == null) return Map.of();
         try {
             cacheService.save(key, tree, CACHE_TTL_SECONDS);
         } catch (Throwable t) {
@@ -183,7 +211,8 @@ public class DepartmentIdPathResolver {
     /**
      * Load the current tenant's whole department tree ({@code id}, {@code idPath})
      * in one query. Runs with {@code skipPermissionCheck=true} (scope bypass) but
-     * keeps the tenant filter, so only this tenant's departments load.
+     * keeps the tenant filter, so only this tenant's departments load. {@code null} when
+     * the read failed, as opposed to a tenant that has no departments.
      */
     private Map<Long, String> loadTreeFromDb() {
         Context ctx = ContextHolder.getContext();
@@ -204,7 +233,7 @@ public class DepartmentIdPathResolver {
             return tree;
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — dept-tree DB load failed; treating tree as empty", t);
-            return Map.of();
+            return null;
         } finally {
             if (ctx != null) ctx.setSkipPermissionCheck(previous);
         }

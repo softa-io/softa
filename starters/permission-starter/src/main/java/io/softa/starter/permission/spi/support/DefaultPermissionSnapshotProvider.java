@@ -219,17 +219,33 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         }
 
         // Tier 3: build from RBAC config.
+        String pathsMark = departmentPathsMark(tenantId);
         PermissionInfo fresh = loadFromDb(tenantId, userId);
         if (fresh != null) {
             fresh.setBuildStamp(buildStamp);
             try {
                 cacheService.save(key, fresh, CACHE_TTL_SECONDS);
+                // A department moved while this was being built: the tenant's snapshots were cleared before the
+                // save above, and this one, holding the old paths, would otherwise stand for the whole TTL.
+                if (!Objects.equals(pathsMark, departmentPathsMark(tenantId))) {
+                    cacheService.clear(key);
+                }
             } catch (Throwable t) {
                 log.warn("PermissionInfo cache write failed for key={}; continuing", key, t);
             }
             stashInRequest(ra, key, fresh);
         }
         return fresh;
+    }
+
+    /** See {@link PermissionSnapshotProvider#departmentPathsMarkKey}; null when absent or unreadable. */
+    private String departmentPathsMark(Long tenantId) {
+        try {
+            return cacheService.get(PermissionSnapshotProvider.departmentPathsMarkKey(tenantId));
+        } catch (Throwable t) {
+            log.warn("Department paths mark read failed for tenant {}; continuing", tenantId, t);
+            return null;
+        }
     }
 
     private static void stashInRequest(RequestAttributes ra, String key, PermissionInfo pi) {

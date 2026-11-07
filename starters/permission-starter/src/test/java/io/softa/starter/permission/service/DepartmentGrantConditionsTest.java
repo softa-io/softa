@@ -219,6 +219,41 @@ class DepartmentGrantConditionsTest {
         }
     }
 
+    @Test
+    @DisplayName("a batch write reads the holder's department paths once, past the checks that forget a grant's rows")
+    @SuppressWarnings("unchecked")
+    void aRequestResolvesTheHoldersPathsOnce() {
+        RoleGrant grant = role(Set.of("1/10"), Set.of("OWN_DEPARTMENT"), Set.of());
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleGrants(List.of(grant));
+        EndpointIndex index = mock(EndpointIndex.class);
+        ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
+        when(applicability.applicableFor(TICKET)).thenReturn(Set.of(ScopeType.ALL));
+        DepartmentIdPathResolver paths = mock(DepartmentIdPathResolver.class);
+        when(paths.idPathsOf(anyCollection())).thenReturn(List.of("1/7"));
+        PermissionServiceImpl service = new PermissionServiceImpl(null, mock(ScopeRuleCompiler.class), null,
+                (ModelService<Long>) mock(ModelService.class), applicability, () -> index,
+                () -> null, () -> null, () -> paths);
+        Context ctx = new Context();
+        ctx.setTenantId(1L);
+        ctx.setUserId(2L);
+        ctx.setEmpInfo(employee);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        try {
+            ContextHolder.callWith(ctx, () -> {
+                for (int i = 0; i < 3; i++) {
+                    assertThat(service.departmentAxis(TICKET, grant, AccessType.UPDATE).toString()).contains("1/7");
+                    // What a write check does before reading anything.
+                    service.checkIdsAccess(TICKET, List.of(), AccessType.UPDATE);
+                }
+                return null;
+            });
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+        org.mockito.Mockito.verify(paths, org.mockito.Mockito.times(1)).idPathsOf(anyCollection());
+    }
+
     // ---- a department picker on a record being written ---------------------------------------------
 
     private static final String EDIT_TICKET = "permission.ticket.edit";

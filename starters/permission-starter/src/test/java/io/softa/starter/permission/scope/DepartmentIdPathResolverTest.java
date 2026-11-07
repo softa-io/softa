@@ -130,6 +130,42 @@ class DepartmentIdPathResolverTest {
     }
 
     @Test
+    void evict_withoutAPathChanged_leavesThePermissionSnapshots() {
+        resolver.evict(TENANT, false);
+
+        verify(cacheService).clear(KEY);
+        verify(cacheService, never()).clearByPrefix(anyString());
+        verify(cacheService, never()).save(eq("dept-paths-mark:" + TENANT), any(), anyInt());
+    }
+
+    @Test
+    void evict_withAPathChanged_marksThePathsBeforeClearingTheSnapshots() {
+        resolver.evict(TENANT, true);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(cacheService);
+        order.verify(cacheService).save(eq("dept-paths-mark:" + TENANT), any(), anyInt());
+        order.verify(cacheService).clearByPrefix("perm:" + TENANT + ":");
+    }
+
+    @Test
+    void aTreeThatCouldNotBeReadIsNotCached() {
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class))).thenThrow(new IllegalStateException("db down"));
+
+        assertThat(ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(1L))).isEmpty();
+
+        verify(cacheService, never()).save(eq(KEY), any(), anyInt());
+    }
+
+    @Test
+    void aTenantWithNoDepartmentsIsCached() {
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class))).thenReturn(List.of());
+
+        assertThat(ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(1L))).isEmpty();
+
+        verify(cacheService).save(eq(KEY), eq(Map.of()), anyInt());
+    }
+
+    @Test
     void loadTree_readsDisabledDepartmentsToo() {
         when(modelService.searchList(eq("Department"), any(FlexQuery.class))).thenReturn(List.of());
 
