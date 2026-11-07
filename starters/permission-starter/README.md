@@ -448,9 +448,7 @@ bounded on its own and needs its own exemption. A department just inserted, whos
 after the insert, is judged by its parent's path, so a role may create one under a department it is
 granted (not at the top). There is no user-level union.
 Who may hand a grant on is judged by user-starter's `RoleGrantCeiling`, on a save and an assignment alike: a role
-with no department grant is wider than a caller bounded by one, except on a model where all its rules are `SELF`,
-which reach only the holder's own record. There the department axis steps aside and every other axis still applies,
-the caller's own rules on the model included; no rule, `ALL`, `CUSTOM`, a mix, or an exemption stays wider.
+with no department grant is wider than a caller bounded by one.
 The company grant is judged there by the companies named: a role may be given any of the ids a caller role's rules
 list together, in any order and as one rule or several, the way the snapshot adds them up. A `CUSTOM` rule naming
 no fixed ids (a predicate, a placeholder) is compared as written, since what it reaches can change.

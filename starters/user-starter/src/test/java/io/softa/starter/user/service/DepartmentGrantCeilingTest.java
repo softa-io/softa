@@ -200,85 +200,7 @@ class DepartmentGrantCeilingTest {
         assertThat(DepartmentGrants.holderConditions(null)).isEmpty();
     }
 
-    // ---- rules that reach only the holder -----------------------------------------------------------
-
     private static final Rule SELF = new Rule("SELF", null);
-
-    /** A role with no department grant and these rules on tickets, holding the ticket action. */
-    private static Grants unbounded(Rule... rules) {
-        return new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(Set.of("ticket.view")), new LinkedHashSet<>(),
-                new LinkedHashMap<>(rules.length == 0 ? Map.of() : Map.of(TICKET, scope(rules))));
-    }
-
-    @Test
-    void anUnboundedRoleReachingOnlyTheHolderIsNoWiderThanABoundedCaller() {
-        assertThat(check(unbounded(SELF), caller(DIVISION))).isEmpty();
-    }
-
-    @Test
-    void anyOtherRuleOnAnUnboundedRoleStaysWider() {
-        Rule custom = new Rule("CUSTOM", json("[\"id\",\">\",0]"));
-        Rule managed = new Rule("MANAGED_DEPARTMENTS", null);
-        for (Grants wider : List.of(unbounded(Rule.ALL), unbounded(custom), unbounded(SELF, custom),
-                unbounded(SELF, Rule.ALL), unbounded(managed), unbounded(SELF, managed), unbounded())) {
-            assertThat(check(wider, caller(DIVISION))).as(wider.scopes().toString())
-                    .contains(new Violation(Violation.Kind.DEPARTMENTS, TICKET));
-        }
-    }
-
-    @Test
-    void theCallersOwnRulesAreStillCompared() {
-        // The department axis steps aside; a caller managing departments does not hold SELF, so it cannot hand it on.
-        Grants managing = new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(Set.of("ticket.view")),
-                new LinkedHashSet<>(), new LinkedHashMap<>(Map.of(TICKET, scope(new Rule("MANAGED_DEPARTMENTS", null)))),
-                DIVISION);
-
-        assertThat(check(unbounded(SELF), managing)).contains(new Violation(Violation.Kind.RECORDS, TICKET));
-    }
-
-    @Test
-    void aTargetCarryingADepartmentGrantKeepsToIt() {
-        Grants named = new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(Set.of("ticket.view")),
-                new LinkedHashSet<>(), new LinkedHashMap<>(Map.of(TICKET, scope(SELF))), Set.of("/15"));
-
-        assertThat(check(named, caller(DIVISION))).contains(new Violation(Violation.Kind.DEPARTMENTS, TICKET));
-    }
-
-    @Test
-    void anExemptionOnTheModelIsNotWithinTheRule() {
-        Grants exempt = unbounded(SELF);
-        exempt.departmentExempt().add(TICKET);
-
-        assertThat(check(exempt, caller(DIVISION))).isPresent();
-    }
-
-    @Test
-    void theRuleReachesASensitiveFieldSetTheCallerHoldsOnThoseRows() {
-        // A set follows the role's rows: the caller still has to hold the set themselves.
-        Map<String, Set<String>> setModels = Map.of("pay", Set.of(TICKET));
-        Grants target = unbounded(SELF);
-        target.sensitiveFieldSets().add("pay");
-        Grants holding = caller(DIVISION);
-        holding.sensitiveFieldSets().add("pay");
-
-        assertThat(RoleGrantCeiling.firstViolation(target, List.of(holding), MODEL_BY_PERMISSION, setModels, NO_COMPANY,
-                DEPARTMENT_BOUND)).isEmpty();
-        assertThat(RoleGrantCeiling.firstViolation(target, List.of(caller(DIVISION)), MODEL_BY_PERMISSION, setModels,
-                NO_COMPANY, DEPARTMENT_BOUND)).contains(new Violation(Violation.Kind.FIELD_SET, "pay"));
-    }
-
-    @Test
-    void aSetAttachedToAModelTheRoleHasNoRuleOnStaysOutOfReach() {
-        Grants target = unbounded(SELF);
-        target.sensitiveFieldSets().add("pay");
-        Grants holding = caller(DIVISION);
-        holding.sensitiveFieldSets().add("pay");
-        Predicate<String> bothBound = model -> true;
-
-        assertThat(RoleGrantCeiling.firstViolation(target, List.of(holding), MODEL_BY_PERMISSION,
-                Map.of("pay", Set.of(TICKET, "TicketDetail")), NO_COMPANY, bothBound))
-                .contains(new Violation(Violation.Kind.FIELD_SET, "pay"));
-    }
 
     // ---- the shapes of the built-in roles -----------------------------------------------------------
 
@@ -325,20 +247,15 @@ class DepartmentGrantCeilingTest {
     }
 
     @Test
-    void assigningSelfServiceWithThePageStopsAtTheDirectoryReadingEveryone() {
-        // The exemption is not judged on an assignment, but its ALL has no department grant around it.
+    void assigningSelfServiceWithThePageStopsAtItsMissingDepartmentGrant() {
+        // No department grant reads as wider than a bounded caller, whatever the rules on the model say.
         assertThat(assign(selfServiceShape(true), boundedManager(true)))
-                .contains(new Violation(Violation.Kind.DEPARTMENTS, DIRECTORY));
-    }
-
-    @Test
-    void assigningSelfServiceWithoutTheDirectoryIsWithinABoundedManagerHoldingThePage() {
-        assertThat(assign(selfServiceShape(false), boundedManager(true))).isEmpty();
+                .contains(new Violation(Violation.Kind.DEPARTMENTS, LEAVE));
     }
 
     @Test
     void aManagerAlsoHoldingSelfServiceMayAssignIt() {
-        // One of their roles is unbounded and holds the same rules: nothing here turns on the SELF exception.
+        // One of their roles is unbounded and holds the same rules.
         assertThat(assign(selfServiceShape(true), boundedManager(false), selfServiceShape(true))).isEmpty();
     }
 
