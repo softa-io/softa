@@ -19,6 +19,13 @@ public interface SmsSendRecordService extends EntityService<SmsSendRecord, Long>
     boolean markSending(Long id, long expectedVersion);
 
     /**
+     * Write back what the first delivery attempt prepared — rendered content, the
+     * routed provider, sign name and external template id — so retries replay it.
+     * Bumps version; {@code false} if the version did not match.
+     */
+    boolean markPrepared(SmsSendRecord record, long expectedVersion);
+
+    /**
      * Mark a record SENT with the provider's external message id and how long
      * the provider call took, and preserve the selected provider identity
      * ({@code provider_config_id} + {@code provider_type}).
@@ -33,7 +40,7 @@ public interface SmsSendRecordService extends EntityService<SmsSendRecord, Long>
     /**
      * Manually requeue one record for delivery — the SMS mirror of
      * {@code MailSendRecordService#retry}: PENDING / RETRY / FAILED / DEAD_LETTER →
-     * RETRY plus a fresh outbox row, atomically; SENT / SENDING rejected.
+     * RETRY, due now; SENT / SENDING rejected.
      */
     boolean retry(Long id);
 

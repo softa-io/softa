@@ -14,6 +14,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class ErrorClassifier {
 
+    /** No server or provider resolves, or the one the record names is gone. */
+    public static final String CONFIG_NOT_RESOLVABLE = "CONFIG_NOT_RESOLVABLE";
+
+    /** The template the request names does not exist, is disabled, or fails to render. */
+    public static final String TEMPLATE_NOT_RESOLVABLE = "TEMPLATE_NOT_RESOLVABLE";
+
+    /** The monthly quota of the bucket the send is charged to is used up. */
+    public static final String MONTHLY_QUOTA_EXCEEDED = "MONTHLY_QUOTA_EXCEEDED";
+
+    /** The prepared content cannot go out: empty, over the size cap, or a malformed Reply-To. */
+    public static final String CONTENT_INVALID = "CONTENT_INVALID";
+
     public ErrorCategory classify(String errorCode, String errorMessage) {
         if (errorCode != null) {
             ErrorCategory c = classifyByCode(errorCode.trim());
@@ -27,13 +39,15 @@ public class ErrorClassifier {
     }
 
     private ErrorCategory classifyByCode(String code) {
-        // Our own marker codes emitted from the service layer. Config problems are
-        // AUTH-class: not retryable (a deleted / broken config never heals on its
-        // own), goes straight to the DLQ for an operator.
-        if (code.equals("PROVIDER_NOT_FOUND")
-                || code.equals("PROVIDER_RESOLVE_FAILED")
-                || code.equals("CONFIG_NOT_RESOLVABLE")) {
-            return ErrorCategory.AUTH;
+        // Our own marker codes, set when a send is prepared or its config resolved. Checked
+        // before the heuristics below: MONTHLY_QUOTA_EXCEEDED must not read as a retryable QUOTA.
+        if (code.equals(CONFIG_NOT_RESOLVABLE)
+                || code.equals(TEMPLATE_NOT_RESOLVABLE)
+                || code.equals(MONTHLY_QUOTA_EXCEEDED)) {
+            return ErrorCategory.CONFIG;
+        }
+        if (code.equals(CONTENT_INVALID)) {
+            return ErrorCategory.INVALID_INPUT;
         }
         // SMTP reply codes from SmtpMailTransport: "SMTP_<ExceptionType>".
         if (code.startsWith("SMTP_")) {

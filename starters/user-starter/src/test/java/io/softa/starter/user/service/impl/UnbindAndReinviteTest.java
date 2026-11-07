@@ -5,11 +5,11 @@ import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.entity.UserAccount;
@@ -63,9 +63,9 @@ class UnbindAndReinviteTest {
 
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
-    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final MessageService messageService = mock(MessageService.class);
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
-            accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
+            accountService, identityService, messageService, null, mock(JoinProofGuard.class),
             mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
     private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
             InvitationServiceTestSupport.quiet(invitationService);

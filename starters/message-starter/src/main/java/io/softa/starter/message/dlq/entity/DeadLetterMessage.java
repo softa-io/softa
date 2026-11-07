@@ -42,7 +42,7 @@ public class DeadLetterMessage extends AuditableModel {
     private Long id;
 
     @Field(label = "Source Tenant Id",
-            description = "Tenant that owned the original send/outbox row")
+            description = "Tenant that owned the original send record or broker message")
     private Long sourceTenantId;
 
     @Field(description = "Source: BrokerPoison (Pulsar DLQ) or SendExhausted (mail/sms retry exhausted)")

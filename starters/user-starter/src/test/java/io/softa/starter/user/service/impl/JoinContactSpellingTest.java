@@ -6,10 +6,10 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.dto.JoinContacts;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
@@ -56,7 +56,7 @@ class JoinContactSpellingTest {
     /** Waved through: the proof is JoinProofTest's subject, the contact spelling is this one's. */
     private final JoinProofGuard proofGuard = mock(JoinProofGuard.class);
     private final UserInvitationServiceImpl realInvitationService = spy(new UserInvitationServiceImpl(
-            accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
+            accountService, identityService, mock(MessageService.class), null, proofGuard,
             mock(VerificationCodeGuard.class), siteAt("http://localhost")));
     private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
             InvitationServiceTestSupport.quiet(realInvitationService);

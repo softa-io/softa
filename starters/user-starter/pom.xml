@@ -26,6 +26,14 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Login and join codes, invitations, account-change notices and subscription reminders are
+             sent through MessageService. -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>message-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Optional cron-starter integration for the DynamicRoleSync cron via UserMaintenanceCronConsumer.
              optional=true: NOT propagated to downstream apps — a deployment on a different scheduler omits
              it, the consumer stays dormant (@ConditionalOnClass), and the app drives

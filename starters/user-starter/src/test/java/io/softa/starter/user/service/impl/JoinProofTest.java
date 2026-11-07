@@ -7,12 +7,12 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.dto.JoinContacts;
 import io.softa.starter.user.dto.JoinVerification;
 import io.softa.starter.user.entity.UserAccount;
@@ -69,7 +69,7 @@ class JoinProofTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
     private final UserInvitationServiceImpl realInvitationService = spy(new UserInvitationServiceImpl(
-            accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
+            accountService, identityService, mock(MessageService.class), null, proofGuard,
             mock(VerificationCodeGuard.class), siteAt("http://localhost")));
     private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
             InvitationServiceTestSupport.quiet(realInvitationService);

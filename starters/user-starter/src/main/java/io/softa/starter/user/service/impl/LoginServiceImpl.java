@@ -25,11 +25,12 @@ import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.base.security.PasswordUtils;
 import io.softa.framework.base.utils.UUIDUtils;
 import java.util.Map;
-import io.softa.framework.base.message.MailRequestMessage;
-import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.dto.JoinContacts;
 import io.softa.starter.user.dto.JoinPasswordResult;
@@ -151,7 +152,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     private JoinProofGuard proofGuard;
 
     @Autowired
-    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    private MessageService messageService;
 
     @Autowired
     private SessionStore sessionStore;
@@ -367,8 +368,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      *       for an unknown identifier would make the limiter itself the oracle: the eleventh ask of
      *       one number is refused when it exists and accepted when it does not.</li>
      *   <li><b>The elapsed time.</b> Both paths do the same lookup, {@code beforeSend} and
-     *       {@code store}. Delivery is the only extra step on the linked path, and it hands off to
-     *       an async publish rather than waiting on a gateway.</li>
+     *       {@code store}. Delivery is the only extra step on the linked path, and it writes a send
+     *       record for the delivery loop rather than waiting on a gateway.</li>
      *   <li><b>The status.</b> Neither path throws — see {@link #withoutSayingWhy}.</li>
      * </ul>
      *
@@ -404,8 +405,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         } catch (BusinessException e) {
             log.debug("Verification code request refused; answered uniformly anyway: {}", e.getMessage());
         } catch (RuntimeException e) {
-            // A fault stays loud in the log, not in the response: publishing happens only on the
-            // linked path, so a broker failure surfacing here would say "this number exists".
+            // A fault stays loud in the log, not in the response: sending happens only on the
+            // linked path, so a database failure surfacing here would say "this number exists".
             log.error("Verification code request failed; answered uniformly anyway.", e);
         }
     }
@@ -436,19 +437,31 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         String code = this.generateNumericCode(email);
         // PLATFORM tier: a login / join code is requested BEFORE any session, so there is no tenant
         // context to render a tenant-specific template from — the platform row is the code's copy.
-        // Absent message-starter this is a graceful no-op, same as every other request message.
-        eventPublisher.publishEvent(new MailRequestMessage(
-                List.of(email), TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), null, MessageScope.PLATFORM));
+        SendMailDTO mail = SendMailDTO.ofTemplate(List.of(email), TEMPLATE_CODE,
+                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
+        sendCode(() -> messageService.sendMail(mail));
     }
 
-    /** The mobile twin of {@link #deliverEmailCode}; see there for why it is separate. */
+    /** The mobile twin of {@link #deliverEmailCode}; see there for why it is separate — and platform-tier. */
     private void deliverMobileCode(String mobile) {
         mobile = LoginIdentifiers.normalize(mobile);
         String code = this.generateNumericCode(mobile);
-        eventPublisher.publishEvent(new SmsRequestMessage(
-                List.of(mobile), TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES)));
+        SendSmsDTO sms = SendSmsDTO.ofTemplate(mobile, TEMPLATE_CODE,
+                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
+        sendCode(() -> messageService.sendSms(sms));
+    }
+
+    /**
+     * Store the code's send record. A send message-starter rejects — an address on file that does not
+     * parse — is logged at ERROR and goes no further: the screen answers the same either way, and
+     * {@code /join} has nothing the person could correct.
+     */
+    private static void sendCode(Runnable send) {
+        try {
+            send.run();
+        } catch (BusinessException e) {
+            log.error("Verification code send rejected: {}", e.getMessage());
+        }
     }
 
     @Override

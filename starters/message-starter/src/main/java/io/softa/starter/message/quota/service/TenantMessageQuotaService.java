@@ -14,9 +14,9 @@ public interface TenantMessageQuotaService extends EntityService<TenantMessageQu
      * The resolved monthly limits for one quota bucket: the tenant's row when
      * present, each null limit falling back to the deployment default
      * ({@code message.quota.*}); a null resolved value means unlimited.
-     * Read with permission checks skipped — this runs inside the send
-     * acceptance path under the caller's context, and the quota registry is
-     * platform-owned data the caller must not need a grant for.
+     * Read with permission checks skipped — this runs when a send record is
+     * prepared, in the record's context, and the quota registry is
+     * platform-owned data no caller needs a grant for.
      *
      * @param tenantId the quota bucket (-1 = the platform's own quota)
      */

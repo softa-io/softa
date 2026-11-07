@@ -7,13 +7,13 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MailRequestMessage;
-import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
@@ -32,6 +32,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -52,14 +53,14 @@ class UnknownIdentifierIsIndistinguishableTest {
 
     private static final Long PROFILE = 7L;
 
-    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final MessageService messageService = mock(MessageService.class);
     private final VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     UnknownIdentifierIsIndistinguishableTest() {
-        ReflectionTestUtils.setField(loginService, "eventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(loginService, "messageService", messageService);
         ReflectionTestUtils.setField(loginService, "consultantService", mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "codeGuard", codeGuard);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
@@ -130,9 +131,7 @@ class UnknownIdentifierIsIndistinguishableTest {
 
         loginService.sendEmailCode("nobody@nowhere.test");
 
-        // any(Object.class), not any(): publishEvent is overloaded and a bare any() binds to the
-        // ApplicationEvent form, which nothing here ever calls — the check would pass on its own.
-        verify(eventPublisher, never()).publishEvent(any(Object.class));
+        verifyNoInteractions(messageService);
     }
 
     @Test
@@ -177,7 +176,7 @@ class UnknownIdentifierIsIndistinguishableTest {
 
         assertThat(real).isNull();
         assertThat(madeUp).isNull();
-        verify(eventPublisher).publishEvent(any(SmsRequestMessage.class));
+        verify(messageService).sendSms(any(SendSmsDTO.class));
     }
 
     @Test
@@ -188,7 +187,7 @@ class UnknownIdentifierIsIndistinguishableTest {
         when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of());
 
         assertThatCode(() -> loginService.sendEmailCode("ghost@acme.com")).doesNotThrowAnyException();
-        verify(eventPublisher, never()).publishEvent(any(Object.class));
+        verifyNoInteractions(messageService);
     }
 
     @Test
@@ -199,7 +198,7 @@ class UnknownIdentifierIsIndistinguishableTest {
 
         loginService.sendMobileCode("+86 138-0013-8000");
 
-        verify(eventPublisher).publishEvent(any(SmsRequestMessage.class));
+        verify(messageService).sendSms(any(SendSmsDTO.class));
     }
 
     // ───────────────────────── /join is not this ─────────────────────────
@@ -213,9 +212,9 @@ class UnknownIdentifierIsIndistinguishableTest {
 
         loginService.sendJoinCode("tok", "email");
 
-        ArgumentCaptor<MailRequestMessage> sent = ArgumentCaptor.forClass(MailRequestMessage.class);
-        verify(eventPublisher).publishEvent(sent.capture());
-        assertThat(sent.getValue().to()).containsExactly("newcomer@acme.com");
+        ArgumentCaptor<SendMailDTO> sent = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendMail(sent.capture());
+        assertThat(sent.getValue().getTo()).containsExactly("newcomer@acme.com");
     }
 
     @Test
