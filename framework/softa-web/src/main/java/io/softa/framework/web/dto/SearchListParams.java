@@ -56,6 +56,10 @@ public class SearchListParams {
     @Schema(description = "Sub queries for relational fields: {fieldName: SubQuery}", example = "{}")
     private Map<String, SubQuery> subQueries;
 
+    @Schema(description = "The record this list offers a choice for, as on searchName: a tree picker on a form "
+            + "reads its options here. Only the department model narrows by it, to what the write may choose.")
+    private SourceRecord sourceRecord;
+
     /**
      * Convert SearchListParams to FlexQuery.
      *

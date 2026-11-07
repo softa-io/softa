@@ -219,6 +219,81 @@ class DepartmentGrantConditionsTest {
         }
     }
 
+    // ---- a department picker on a record being written ---------------------------------------------
+
+    private static final String EDIT_TICKET = "permission.ticket.edit";
+
+    /** The scope a picker gets, with these roles and the ticket's update held by {@code EDIT_TICKET}. */
+    @SuppressWarnings("unchecked")
+    private Filters writable(String model, RoleGrant... roles) {
+        modelManager.when(() -> ModelManager.existModel(ModelConstant.DEPARTMENT_MODEL)).thenReturn(true);
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleGrants(List.of(roles));
+        PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
+        when(provider.get(anyLong(), anyLong())).thenReturn(pi);
+        EndpointIndex index = mock(EndpointIndex.class);
+        when(index.modelActionPermissions(TICKET, "update")).thenReturn(Set.of(EDIT_TICKET));
+        when(index.modelActionPermissions(RECORD, "update")).thenReturn(Set.of(EDIT_TICKET));
+        ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
+        when(applicability.applicableFor(ModelConstant.DEPARTMENT_MODEL)).thenReturn(Set.of(ScopeType.ALL));
+        DepartmentIdPathResolver paths = mock(DepartmentIdPathResolver.class);
+        when(paths.idPathsOf(anyCollection())).thenAnswer(inv -> {
+            java.util.Collection<Long> ids = inv.getArgument(0);
+            return ids.stream().map(id -> "1/" + id).toList();
+        });
+        PermissionServiceImpl service = new PermissionServiceImpl(provider, mock(ScopeRuleCompiler.class), null,
+                (ModelService<Long>) mock(ModelService.class), applicability, () -> index,
+                () -> null, () -> null, () -> paths);
+        Context ctx = new Context();
+        ctx.setTenantId(1L);
+        ctx.setUserId(2L);
+        ctx.setEmpInfo(employee);
+        return ContextHolder.callWith(ctx, () -> service.getWritableDepartmentScope(model, AccessType.UPDATE));
+    }
+
+    private static RoleGrant writer(Set<String> paths, Set<String> conditions, Set<String> exempt) {
+        RoleGrant g = role(paths, conditions, exempt);
+        g.setPermissions(Set.of(EDIT_TICKET));
+        return g;
+    }
+
+    @Test
+    @DisplayName("a picker offers the writers' departments, past no exemption")
+    void aPickerOffersTheWritersDepartments() {
+        String offered = writable(TICKET, writer(Set.of("1/10"), Set.of("OWN_DEPARTMENT"), Set.of(TICKET))).toString();
+
+        assertThat(offered).contains("\"idPath\"", "1/10", "1/7").doesNotContain("departmentId");
+    }
+
+    @Test
+    @DisplayName("a role that may only read the model lends the picker nothing")
+    void aReaderLendsThePickerNothing() {
+        RoleGrant reader = role(Set.of("1/99"), Set.of(), Set.of());
+
+        assertThat(writable(TICKET, writer(Set.of("1/10"), Set.of(), Set.of()), reader).toString())
+                .contains("1/10").doesNotContain("1/99");
+    }
+
+    @Test
+    @DisplayName("a writer with no department grant leaves the picker as it reads")
+    void anUnboundedWriterLeavesThePicker() {
+        assertThat(writable(TICKET, writer(Set.of("1/10"), Set.of(), Set.of()), writer(null, Set.of(), Set.of()))).isNull();
+    }
+
+    @Test
+    @DisplayName("a writer granted no department offers none")
+    void aWriterGrantedNoneOffersNone() {
+        assertThat(writable(TICKET, writer(Set.of(), Set.of(), Set.of())).toString()).contains("\"IN\",[]");
+    }
+
+    @Test
+    @DisplayName("a department picked on a record following its employee places nothing, so it is not narrowed")
+    void aRecordFollowingItsEmployeeIsNotNarrowed() {
+        recordOfAnEmployee();
+
+        assertThat(writable(RECORD, writer(Set.of("1/10"), Set.of(), Set.of()))).isNull();
+    }
+
     // ---- a record belonging to an employee -----------------------------------------------------------
 
     private static final String RECORD = "EmpFamily";

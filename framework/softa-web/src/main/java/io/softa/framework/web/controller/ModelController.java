@@ -533,6 +533,8 @@ public class ModelController<K extends Serializable> {
     public ApiResponse<List<Map<String, Object>>> searchList(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchListParams searchListParams) {
         FlexQuery flexQuery = SearchListParams.convertParamsToFlexQuery(searchListParams);
+        narrowToWritableDepartments(modelName, searchListParams == null ? null : searchListParams.getSourceRecord(),
+                flexQuery);
         return ApiResponse.success(modelService.searchList(modelName, flexQuery));
     }
 
@@ -555,7 +557,37 @@ public class ModelController<K extends Serializable> {
         if (writable != null) {
             flexQuery.setFilters(Filters.and(flexQuery.getFilters(), new Filters().in(ModelConstant.ID, writable)));
         }
+        narrowToWritableDepartments(modelName, searchNameParams == null ? null : searchNameParams.getSourceRecord(),
+                flexQuery);
         return ApiResponse.success(modelService.searchName(modelName, flexQuery));
+    }
+
+    /** ANDs {@link #writableDepartments} onto a read of the options, when it narrows them. */
+    private void narrowToWritableDepartments(String modelName, SourceRecord source, FlexQuery flexQuery) {
+        Filters writable = writableDepartments(modelName, source, permissionService);
+        if (writable != null) {
+            flexQuery.setFilters(Filters.and(flexQuery.getFilters(), writable));
+        }
+    }
+
+    /**
+     * The departments a picker may offer when it places a record being written; null when nothing narrows it.
+     *
+     * <p>The same reasoning as {@link #writableCompanies}, for departments: the department list as the user
+     * reads it answers for what they may view, and an exemption from the department grant shows them all of it,
+     * so a form offered departments the save would then refuse. Its read says which record it is for, and the
+     * department grants of the roles holding that write answer instead — create when the record has no id yet,
+     * update when it has ({@link PermissionService#getWritableDepartmentScope}).
+     */
+    static Filters writableDepartments(String modelName, SourceRecord source, PermissionService permissionService) {
+        if (!ModelConstant.DEPARTMENT_MODEL.equals(modelName) || source == null
+                || source.getModel() == null || source.getModel().isBlank()
+                || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
+        return permissionService.getWritableDepartmentScope(source.getModel(),
+                creating ? AccessType.CREATE : AccessType.UPDATE);
     }
 
     /**

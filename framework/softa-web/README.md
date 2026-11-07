@@ -38,7 +38,14 @@ holding that write: create when `sourceRecord.recordId` is empty, update otherwi
 every role they hold, and a role with no company grant (the self-service role) reaches them all, so a form
 picking a signing entity or a cost centre's company would offer companies the save then refuses. A search
 with no `sourceRecord` — a list filter, a report — is left as it reads. A write granted no company offers
-none: every company the picker could list would be refused.
+none: every company the picker could list would be refused. On an update, only the holding roles reaching
+that record count.
+
+**A department picker offers what the write may choose.** `POST /Department/searchName` and
+`POST /Department/searchList` — the read a tree picker makes — take the same `sourceRecord`, and are narrowed to the
+department grants of the roles holding that write (`PermissionService.getWritableDepartmentScope`). The list as
+the user reads it answers for what they may view, which an exemption from the grant opens in full. Only where the
+picked department places the record: a model with a `departmentId` of its own, or the department model itself.
 
 ## Enum Request Parameters
 

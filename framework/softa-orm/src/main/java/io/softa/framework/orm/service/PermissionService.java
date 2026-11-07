@@ -424,4 +424,22 @@ public interface PermissionService {
         return getGrantedCompanyIds(model, accessType);
     }
 
+    /**
+     * Which departments a write of {@code model} may put a record in, as a filter on the department model:
+     * the department grants of the roles holding that write, together. An exemption does not count, since it
+     * lifts the grant only for viewing.
+     *
+     * <p>For a picker choosing a record's department. The department list as the user reads it answers for what
+     * they may view, so it offered departments the write would then refuse.
+     *
+     * <p>Default: {@code null}.
+     *
+     * @return {@code null} when the choice is not bounded: an admin, a bypassed caller, a holding role with no
+     *         department grant, or a model whose rows the picked department does not place — one belonging to
+     *         a department by no field, or through its employee
+     */
+    default Filters getWritableDepartmentScope(String model, AccessType accessType) {
+        return null;
+    }
+
 }

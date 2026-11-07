@@ -1574,6 +1574,34 @@ public class PermissionServiceImpl implements PermissionService {
         return companiesOf(holders.stream().filter(g -> reachesRow(g, model, id, accessType)).toList());
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The holders are found as {@link #companyHolders} finds them: a picker asks before the save, so a model
+     * written through custom endpoints answers by the roles holding those, not by every role. A condition on
+     * direct reports names no department, so it contributes none.
+     */
+    @Override
+    public Filters getWritableDepartmentScope(String model, AccessType accessType) {
+        if (shouldBypass() || !placesRowsByDepartment(model)) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return ScopeRuleCompiler.matchNone();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        return anyOf(companyHolders(pi, model, accessType).stream()
+                .map(g -> departmentAxis(ModelConstant.DEPARTMENT_MODEL, g, true))
+                .toList());
+    }
+
+    /**
+     * Whether a department picked on a record of {@code model} decides which departments' rows it counts among:
+     * the department model itself, or a model with a {@code departmentId} of its own. One following its employee
+     * does not: a department named on it says nothing about whose it is.
+     */
+    private static boolean placesRowsByDepartment(String model) {
+        String anchor = departmentAnchorOf(model);
+        return anchor != null && !ModelConstant.EMPLOYEE_FIELD.equals(anchor) && departmentPathFieldOf(model) != null;
+    }
+
     /** The grants' companies together; {@code null} as soon as one of them is unrestricted. */
     private static Set<Long> companiesOf(List<Grant> grants) {
         Set<Long> granted = new java.util.TreeSet<>();
