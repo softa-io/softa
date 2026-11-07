@@ -149,6 +149,8 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         // Before anything is rewritten: when the caller holds this role, it is the role as it was that
         // bounds what the role may become.
         List<RoleGrantCeiling.Grants> callerBefore = roleGrantCeiling.callerGrants();
+        // The role as it was too: what the save merely keeps on it is not judged as something new it grants.
+        RoleGrantCeiling.Grants roleBefore = roleGrantCeiling.roleGrants(id);
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         roleService.updateOne(role, true);
@@ -182,7 +184,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleSensitiveFieldSetService.deleteByFilters(new Filters().eq(RoleSensitiveFieldSet::getRoleId, id));
         writeRoleSensitiveFieldSets(id, body.roleSensitiveFieldSetIds());
         // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
-        roleGrantCeiling.assertWithinCaller(id, callerBefore);
+        roleGrantCeiling.assertWithinCaller(id, callerBefore, roleBefore);
         assertSaveAllowed(id, false);
         // Wipe ALL existing user_role rows for this role — both Manual and
         // Dynamic — then rebuild from scratch. By application convention

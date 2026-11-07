@@ -67,8 +67,15 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  * division pass on exactly that division and none of the teams under it, which is the delegation the
  * grant exists for. The conditions worked out for the holder, and viewing a model past the grant, are
  * granted only by a caller role reaching every department, meaning not bounded by department and reading
- * every department: they resolve per holder, so nothing at save time says they stay inside the caller's. A caller role bounded by such conditions itself is compared
- * by what they resolve to for the caller when saving.
+ * every department: they resolve per holder, so nothing at save time says they stay inside the caller's. A
+ * caller role bounded by such conditions itself is compared by what they resolve to for the caller when saving.
+ *
+ * <p>Those two are judged only where they are new. A save leaves in place what the role already held, so
+ * editing a role that carries a condition or an exemption the caller could not grant does not make them drop
+ * it; adding one is what is refused. A role with no earlier state — created or cloned — holds nothing yet, so
+ * everything on it is new. Assigning a role changes nothing about what the role holds, so neither is judged
+ * there at all: the role pickers of the built-in roles view past the grant, and a manager bounded by department
+ * could otherwise assign none of them. Pages, actions, companies and named departments are judged as ever.
  */
 @Component
 public class RoleGrantCeiling {
@@ -122,7 +129,16 @@ public class RoleGrantCeiling {
      * Taken before the write, they hold the role as it was, so the role may not be widened past it.
      */
     public void assertWithinCaller(Long roleId, @Nullable List<Grants> callerBefore) {
-        violation(roleId, callerBefore).ifPresent(reason -> {
+        assertWithinCaller(roleId, callerBefore, null);
+    }
+
+    /**
+     * {@link #assertWithinCaller(Long, List)} for a save over an existing role: {@code roleBefore}, the role as
+     * it stood, says which of its department conditions and exemptions this save merely keeps
+     * ({@link Grants#addedTo}).
+     */
+    public void assertWithinCaller(Long roleId, @Nullable List<Grants> callerBefore, @Nullable Grants roleBefore) {
+        violation(roleId, callerBefore, roleBefore, false).ifPresent(reason -> {
             throw new BusinessException("You can only grant access you hold yourself: {0}", reason);
         });
     }
@@ -134,16 +150,33 @@ public class RoleGrantCeiling {
         }
         Context context = ContextHolder.getContext();
         Long userId = context.getUserId();
-        return inTenantContext(context.getTenantId(), () -> new ArrayList<>(load(callerRoleIds(userId)).values()));
+        // Read here: the tenant context below carries no employee, and what a caller's conditions name is
+        // worked out from theirs.
+        EmpInfo employee = context.getEmpInfo();
+        return inTenantContext(context.getTenantId(),
+                () -> new ArrayList<>(load(callerRoleIds(userId), employee).values()));
     }
 
-    /** Why the role is out of the caller's reach, or empty when it is within it (or no ceiling applies). */
-    public Optional<String> violation(Long roleId) {
+    /** The role as it stands now, for a save to be judged against later; null when no ceiling applies. */
+    public @Nullable Grants roleGrants(Long roleId) {
+        if (roleId == null || !applies()) {
+            return null;
+        }
+        return inTenantContext(ContextHolder.getContext().getTenantId(),
+                () -> load(List.of(roleId), null).getOrDefault(roleId, Grants.empty()));
+    }
+
+    /**
+     * Why assigning the role is out of the caller's reach, or empty when it is within it (or no ceiling
+     * applies). An assignment does not change the role, so its department conditions and exemptions are not
+     * judged; everything else is, as on a save.
+     */
+    public Optional<String> assignmentViolation(Long roleId) {
         Set<Long> cleared = CLEARED.get();
         if (roleId != null && cleared != null && cleared.contains(roleId)) {
             return Optional.empty();
         }
-        return violation(roleId, null);
+        return violation(roleId, null, null, true);
     }
 
     /** Roles already judged within the caller during the save now running, by the grants before it. */
@@ -167,17 +200,26 @@ public class RoleGrantCeiling {
         }
     }
 
-    private Optional<String> violation(Long roleId, @Nullable List<Grants> callerBefore) {
+    /**
+     * @param roleBefore  the role before the save being judged; null when it has no earlier state
+     * @param assignment  the role is being assigned rather than saved: nothing on it is added
+     */
+    private Optional<String> violation(Long roleId, @Nullable List<Grants> callerBefore, @Nullable Grants roleBefore,
+                                       boolean assignment) {
         if (roleId == null || !applies()) {
             return Optional.empty();
         }
         Context context = ContextHolder.getContext();
         Long tenantId = context.getTenantId();
         Long userId = context.getUserId();
+        // Read here: the tenant context below carries no employee, and what a caller's conditions name is
+        // worked out from theirs.
+        EmpInfo employee = context.getEmpInfo();
         return inTenantContext(tenantId, () -> {
-            Grants target = load(List.of(roleId)).getOrDefault(roleId, Grants.empty());
+            Grants stored = load(List.of(roleId), null).getOrDefault(roleId, Grants.empty());
+            Grants target = stored.addedTo(assignment ? stored : roleBefore);
             List<Grants> caller = callerBefore != null ? callerBefore
-                    : new ArrayList<>(load(callerRoleIds(userId)).values());
+                    : new ArrayList<>(load(callerRoleIds(userId), employee).values());
             Set<String> permissions = new HashSet<>(target.permissions());
             caller.forEach(g -> permissions.addAll(g.permissions()));
             return firstViolation(target, caller, modelsOf(permissions), modelsOfSets(target.sensitiveFieldSets()),
@@ -271,6 +313,7 @@ public class RoleGrantCeiling {
         Axes axes = new Axes(multiCompany, departmentBound);
         // Worked out per holder, or lifted outright: nothing short of a caller role reaching every department
         // covers these. Asked of every model, since one with no action on it — a people picker — counts too.
+        // What a save merely keeps has already been taken out of the target (Grants.addedTo).
         boolean reachesEveryDepartment = caller.stream().anyMatch(RoleGrantCeiling::reachesEveryDepartment);
         if (!reachesEveryDepartment && !target.departmentConditions().isEmpty()) {
             return Optional.of(new Violation(Violation.Kind.DEPARTMENT_CONDITIONS, target.departmentConditions().iterator().next()));
@@ -460,6 +503,21 @@ public class RoleGrantCeiling {
         Grants withDepartmentConditions(Set<String> conditions) {
             return new Grants(navigations, permissions, sensitiveFieldSets, scopes, departmentPaths, conditions, departmentExempt);
         }
+
+        /**
+         * This role, holding of its department conditions and exemptions only those {@code before} did not:
+         * what a save over {@code before} adds. Null is a role with no earlier state, so every one counts.
+         */
+        Grants addedTo(@Nullable Grants before) {
+            if (before == null) {
+                return this;
+            }
+            Set<String> conditions = new LinkedHashSet<>(departmentConditions);
+            conditions.removeAll(before.departmentConditions());
+            Set<String> exempt = new LinkedHashSet<>(departmentExempt);
+            exempt.removeAll(before.departmentExempt());
+            return new Grants(navigations, permissions, sensitiveFieldSets, scopes, departmentPaths, conditions, exempt);
+        }
     }
 
     /** A role's rules on one model and the condition narrowing them. A scope with no rule is no scope. */
@@ -487,7 +545,14 @@ public class RoleGrantCeiling {
                 .stream().map(Role::getId).toList();
     }
 
-    private Map<Long, Grants> load(Collection<Long> roleIds) {
+    /**
+     * The roles' static grants.
+     *
+     * @param employee whose conditions to resolve a role's department grant for, when the roles are the
+     *                 caller's own; null leaves a target role's conditions unresolved, since they name nothing
+     *                 until someone holds it
+     */
+    private Map<Long, Grants> load(Collection<Long> roleIds, @Nullable EmpInfo employee) {
         Map<Long, Grants> out = new LinkedHashMap<>();
         if (roleIds.isEmpty()) {
             return out;
@@ -524,19 +589,19 @@ public class RoleGrantCeiling {
                 g.sensitiveFieldSets().add(r.getSensitiveFieldSetId());
             }
         }
-        loadDepartmentPaths(out);
+        loadDepartmentPaths(out, employee);
         return out;
     }
+
+    /** Marks a granted root that resolved to no department; no stored path starts with it. */
+    static final String UNRESOLVED_ROOT = "?";
 
     /**
      * Each role's department grant, as the {@code idPath} of every department it names. Read only where
      * the role model declares the grant; a role without one keeps {@code null}, which is every role of an
      * application that has not configured any.
      */
-    /** Marks a granted root that resolved to no department; no stored path starts with it. */
-    static final String UNRESOLVED_ROOT = "?";
-
-    private void loadDepartmentPaths(Map<Long, Grants> grants) {
+    private void loadDepartmentPaths(Map<Long, Grants> grants, @Nullable EmpInfo employee) {
         if (!DepartmentGrants.declared()) {
             return;
         }
@@ -545,7 +610,7 @@ public class RoleGrantCeiling {
             Set<Long> roots = DepartmentGrants.roots(role.getDepartmentGrant());
             if (roots != null && grants.containsKey(role.getId())) {
                 Set<String> conditions = DepartmentGrants.holderConditions(role.getDepartmentGrant());
-                roots.addAll(departmentsOfCaller(conditions));
+                roots.addAll(departmentsOf(employee, conditions));
                 rootsByRole.put(role.getId(), roots);
                 grants.put(role.getId(), grants.get(role.getId()).withDepartmentConditions(conditions));
             }
@@ -567,11 +632,10 @@ public class RoleGrantCeiling {
     }
 
     /**
-     * What the conditions name for the caller saving, read from their employee: a caller whose own reach is
-     * worked out this way grants within what it comes to now. Without an employee, nothing.
+     * What the conditions name for this employee: a caller whose own reach is worked out this way grants
+     * within what it comes to now. Without an employee, nothing.
      */
-    private static Set<Long> departmentsOfCaller(Set<String> conditions) {
-        EmpInfo employee = ContextHolder.getContext().getEmpInfo();
+    private static Set<Long> departmentsOf(@Nullable EmpInfo employee, Set<String> conditions) {
         Set<Long> departments = new HashSet<>();
         if (employee == null) {
             return departments;
