@@ -15,6 +15,7 @@ import org.mockito.Mockito;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -183,6 +184,122 @@ class DepartmentGrantConditionsTest {
         assertThat(access.getFirst().actions()).doesNotContain(AccessType.UPDATE);
     }
 
+    // ---- a record belonging to an employee -----------------------------------------------------------
+
+    private static final String RECORD = "EmpFamily";
+    private static final String THROUGH_EMPLOYEE = "employeeId.departmentId.idPath";
+
+    /** {@code EmpFamily.employeeId} onto the employee model, which belongs to a department. */
+    private void recordOfAnEmployee() {
+        modelManager.when(() -> ModelManager.existModel(RECORD)).thenReturn(true);
+        MetaModel meta = mock(MetaModel.class);
+        MetaField employee = toOne(ModelConstant.EMPLOYEE_MODEL);
+        MetaField department = toOne(ModelConstant.DEPARTMENT_MODEL);
+        modelManager.when(() -> ModelManager.getModel(RECORD)).thenReturn(meta);
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(RECORD, ModelConstant.EMPLOYEE_FIELD)).thenReturn(employee);
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD))
+                .thenReturn(department);
+    }
+
+    private static MetaField toOne(String related) {
+        MetaField field = mock(MetaField.class);
+        when(field.getFieldType()).thenReturn(FieldType.MANY_TO_ONE);
+        when(field.getRelatedModel()).thenReturn(related);
+        return field;
+    }
+
+    /** The role, holding rules of its own on the record, so it is not following anyone. */
+    private static RoleGrant roleOnRecord(Set<String> paths, Set<String> conditions, Set<String> exempt) {
+        RoleGrant g = role(paths, conditions, exempt);
+        ScopeRule all = new ScopeRule();
+        all.setScopeType(ScopeType.ALL);
+        g.setModelScopeMap(Map.of(RECORD, List.of(all)));
+        return g;
+    }
+
+    @Test
+    @DisplayName("named departments and conditions reach a record through its employee")
+    void conditionsReachARecordThroughItsEmployee() {
+        recordOfAnEmployee();
+
+        String read = scope(RECORD, roleOnRecord(Set.of("1/10"), Set.of("OWN_DEPARTMENT", "MANAGED_DEPARTMENTS"), Set.of()),
+                AccessType.READ).toString();
+
+        assertThat(read).contains(THROUGH_EMPLOYEE, "1/10", "1/7", "1/8");
+    }
+
+    @Test
+    @DisplayName("direct reports reach a record through its employee where the type applies")
+    void directReportsReachARecord() {
+        recordOfAnEmployee();
+
+        String read = scope(RECORD, roleOnRecord(Set.of(), Set.of("DIRECT_REPORTS"), Set.of()), AccessType.READ).toString();
+
+        assertThat(read).contains(MANAGER_RULE);
+    }
+
+    @Test
+    @DisplayName("an exemption on the record lifts the grant for viewing it only")
+    void anExemptionOnTheRecordLiftsViewingOnly() {
+        recordOfAnEmployee();
+        RoleGrant exempt = roleOnRecord(Set.of("1/10"), Set.of(), Set.of(RECORD));
+
+        assertThat(scope(RECORD, exempt, AccessType.READ)).isNull();
+        assertThat(scope(RECORD, exempt, AccessType.UPDATE).toString()).contains(THROUGH_EMPLOYEE);
+    }
+
+    /** The employee model owning the record through a to-many, and the role holding a rule on the employee. */
+    private RoleGrant roleFollowingTheEmployee(Set<String> exempt) {
+        recordOfAnEmployee();
+        modelManager.when(() -> ModelManager.existModel(ModelConstant.EMPLOYEE_MODEL)).thenReturn(true);
+        MetaModel employeeMeta = mock(MetaModel.class);
+        modelManager.when(() -> ModelManager.getModel(ModelConstant.EMPLOYEE_MODEL)).thenReturn(employeeMeta);
+        MetaField children = mock(MetaField.class);
+        when(children.getFieldType()).thenReturn(FieldType.ONE_TO_MANY);
+        when(children.getRelatedModel()).thenReturn(RECORD);
+        when(children.getRelatedField()).thenReturn(ModelConstant.EMPLOYEE_FIELD);
+        modelManager.when(() -> ModelManager.getModelFields(ModelConstant.EMPLOYEE_MODEL)).thenReturn(List.of(children));
+        RoleGrant g = role(Set.of("1/10"), Set.of(), exempt);
+        ScopeRule all = new ScopeRule();
+        all.setScopeType(ScopeType.ALL);
+        g.setModelScopeMap(Map.of(ModelConstant.EMPLOYEE_MODEL, List.of(all)));
+        return g;
+    }
+
+    @Test
+    @DisplayName("a sub-record the role reaches only through the employee is judged by the employee")
+    void aFollowerIsJudgedByItsEmployee() {
+        // The employee's own scope carries the grant, or its exemption: a person shown past the grant keeps
+        // their sections, and one within it is not bounded twice.
+        assertThat(scope(RECORD, roleFollowingTheEmployee(Set.of()), AccessType.READ)).isNull();
+        assertThat(scope(RECORD, roleFollowingTheEmployee(Set.of(ModelConstant.EMPLOYEE_MODEL)), AccessType.READ)).isNull();
+    }
+
+    @Test
+    @DisplayName("a role with no way to the record through the employee is bounded on it directly")
+    void aRecordFollowingNoEmployeeIsBounded() {
+        recordOfAnEmployee();
+
+        assertThat(scope(RECORD, role(Set.of("1/10"), Set.of(), Set.of()), AccessType.READ).toString())
+                .contains(THROUGH_EMPLOYEE);
+    }
+
+    @Test
+    @DisplayName("work a service does past the permission checks is not bounded")
+    void workPastTheChecksIsNotBounded() {
+        recordOfAnEmployee();
+        PermissionServiceImpl service = new PermissionServiceImpl(null, null, null, null, null);
+        Filters original = Filters.of("name", Operator.EQUAL, "x");
+        Context ctx = new Context();
+        ctx.setTenantId(1L);
+        ctx.setUserId(2L);
+
+        Filters seen = ContextHolder.callWith(ctx, () -> ContextUtils.withoutPermissionChecks(
+                () -> service.appendScopeAccessFilters(RECORD, original)));
+
+        assertThat(seen).isEqualTo(original);
+    }
+
     private static RoleGrant role(Set<String> paths, Set<String> conditions, Set<String> exempt) {
         ScopeRule all = new ScopeRule();
         all.setScopeType(ScopeType.ALL);
@@ -203,11 +320,16 @@ class DepartmentGrantConditionsTest {
     /** The role's rows on the model for {@code access}, the role being the only holder of the action. */
     @SuppressWarnings("unchecked")
     private Filters scope(RoleGrant grant, AccessType access) {
+        return scope(TICKET, grant, access);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Filters scope(String model, RoleGrant grant, AccessType access) {
         PermissionInfo pi = new PermissionInfo();
         pi.setRoleGrants(List.of(grant));
         EndpointIndex index = mock(EndpointIndex.class);
         ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
-        when(applicability.applicableFor(TICKET)).thenReturn(Set.of(ScopeType.ALL, ScopeType.DIRECT_REPORTS));
+        when(applicability.applicableFor(model)).thenReturn(Set.of(ScopeType.ALL, ScopeType.DIRECT_REPORTS));
         ScopeRuleCompiler compiler = mock(ScopeRuleCompiler.class);
         when(compiler.compile(anyList(), anyString())).thenAnswer(inv -> {
             List<ScopeRule> rules = inv.getArgument(0);
@@ -227,6 +349,6 @@ class DepartmentGrantConditionsTest {
         ctx.setTenantId(1L);
         ctx.setUserId(2L);
         ctx.setEmpInfo(employee);
-        return ContextHolder.callWith(ctx, () -> service.departmentAxis(TICKET, grant, access));
+        return ContextHolder.callWith(ctx, () -> service.departmentAxis(model, grant, access));
     }
 }

@@ -92,6 +92,21 @@ public interface ModelConstant {
      * configuration rather than ownership is named otherwise.
      */
     String DEPARTMENT_FIELD = "departmentId";
+
+    /**
+     * The model whose rows are people. Hard-coded for the reason {@link #DEPARTMENT_MODEL} is: a record
+     * belonging to an employee belongs to that employee's department, which is how the department grant
+     * reaches a model with no department of its own.
+     */
+    String EMPLOYEE_MODEL = "Employee";
+
+    /**
+     * The field a model's rows belong to an employee through, when it is a {@code MANY_TO_ONE} /
+     * {@code ONE_TO_ONE} onto {@link #EMPLOYEE_MODEL}. Fixed by name for the reason
+     * {@link #DEPARTMENT_FIELD} is: a reference to an employee under another name (an approver, a
+     * manager) says nothing about whose record the row is.
+     */
+    String EMPLOYEE_FIELD = "employeeId";
     // Reserved field: Version number identifier, used for optimistic lock control
     String VERSION = "version";
     // Starting value of the optimistic-lock version, materialized into the catalog

@@ -62,7 +62,7 @@ final class ScopeFilterTemplates {
     }
 
     /** The field through which a record belongs to an employee, on a model with no manager field of its own. */
-    private static final String OWNER_FIELD = "employeeId";
+    private static final String OWNER_FIELD = ModelConstant.EMPLOYEE_FIELD;
 
     /**
      * The template a type compiles to on a model with these fields, or {@code null} when it does not apply.

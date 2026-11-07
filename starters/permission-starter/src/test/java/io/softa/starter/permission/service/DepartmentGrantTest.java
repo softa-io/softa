@@ -23,6 +23,7 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.scope.DepartmentGrantRules;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.permission.index.EndpointIndex;
@@ -165,6 +166,78 @@ class DepartmentGrantTest {
 
         // Its own path when it has one; otherwise unset, under a granted parent — never at the top.
         assertThat(result).contains("\"idPath\"", "parentId.idPath", "IS NOT SET");
+    }
+
+    /** A to-one of this name on this model. */
+    private void toOne(String name, String field, String relatedModel) {
+        MetaField meta = mock(MetaField.class);
+        when(meta.getFieldType()).thenReturn(FieldType.MANY_TO_ONE);
+        when(meta.getRelatedModel()).thenReturn(relatedModel);
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(name, field)).thenReturn(meta);
+    }
+
+    /** A record of an employee's: {@code employeeId} onto the employee model, which belongs to a department. */
+    private void belongingToAnEmployee(String name) {
+        model(name, null, null);
+        toOne(name, ModelConstant.EMPLOYEE_FIELD, ModelConstant.EMPLOYEE_MODEL);
+        toOne(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD, ModelConstant.DEPARTMENT_MODEL);
+    }
+
+    @Test
+    @DisplayName("a record of an employee's is bounded through that employee's department")
+    void boundsARecordThroughItsEmployee() {
+        belongingToAnEmployee("EmpFamily");
+
+        assertThat(scope("EmpFamily", new HashSet<>(GRANTED)))
+                .isEqualTo(IdPath.subtreesOf("employeeId.departmentId.idPath", List.of("1/10", "1/11")));
+        assertThat(DepartmentGrantRules.anchorOf("EmpFamily")).isEqualTo(ModelConstant.EMPLOYEE_FIELD);
+    }
+
+    @Test
+    @DisplayName("an employeeId with no column of its own is followed through its cascade path")
+    void aDynamicEmployeeIdGoesThroughItsCascadePath() {
+        belongingToAnEmployee("EmpFamily");
+        MetaField employee = ModelManager.getModelFieldOrNull("EmpFamily", ModelConstant.EMPLOYEE_FIELD);
+        when(employee.isDynamicCascadedField()).thenReturn(true);
+        when(employee.getCascadedField()).thenReturn("contractId.employeeId");
+
+        assertThat(scope("EmpFamily", GRANTED).toString()).contains("contractId.employeeId.departmentId.idPath");
+    }
+
+    @Test
+    @DisplayName("a model's own departmentId comes before its employeeId")
+    void aDepartmentOfItsOwnWins() {
+        belongingToAnEmployee("Ticket");
+        toOne("Ticket", ModelConstant.DEPARTMENT_FIELD, ModelConstant.DEPARTMENT_MODEL);
+
+        assertThat(DepartmentGrantRules.anchorOf("Ticket")).isEqualTo(ModelConstant.DEPARTMENT_FIELD);
+        assertThat(scope("Ticket", GRANTED).toString()).contains("\"departmentId.idPath")
+                .doesNotContain("employeeId");
+    }
+
+    @Test
+    @DisplayName("a departmentId that is no anchor is not worked around through employeeId")
+    void aDepartmentIdThatIsNoAnchorRulesTheEmployeeOut() {
+        belongingToAnEmployee("FlowRow");
+        model("FlowRow", FieldType.LONG, null);
+
+        assertThat(DepartmentGrantRules.anchorOf("FlowRow")).isNull();
+        assertThat(scope("FlowRow", GRANTED)).isNull();
+    }
+
+    @Test
+    @DisplayName("an employeeId pointing elsewhere, or an employee model with no department, is no anchor")
+    void leavesAnEmployeeIdThatDoesNotReachADepartment() {
+        model("Elsewhere", null, null);
+        toOne("Elsewhere", ModelConstant.EMPLOYEE_FIELD, "Contractor");
+        toOne(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD, ModelConstant.DEPARTMENT_MODEL);
+        assertThat(DepartmentGrantRules.anchorOf("Elsewhere")).isNull();
+
+        model("NoDepartment", null, null);
+        toOne("NoDepartment", ModelConstant.EMPLOYEE_FIELD, ModelConstant.EMPLOYEE_MODEL);
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD))
+                .thenReturn(null);
+        assertThat(DepartmentGrantRules.anchorOf("NoDepartment")).isNull();
     }
 
     @Test

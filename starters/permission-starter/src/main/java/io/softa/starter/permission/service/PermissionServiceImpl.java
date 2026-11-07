@@ -653,7 +653,8 @@ public class PermissionServiceImpl implements PermissionService {
      * The role's department grant on {@code model}: the departments it names and those worked out for the
      * holder, each with everything under it, or the rows of the holder's direct reports. A row has to meet any
      * one of them. {@code null} when it does not narrow: no grant, a model that does not belong to a department,
-     * or a model the role is exempt on — for viewing only, as changing rows stays within the grant.
+     * a model the role is exempt on — for viewing only, as changing rows stays within the grant — or a record
+     * that follows its employee ({@link #followsEmployee}).
      *
      * <p>Without an employee behind the caller the conditions worked out for the holder contribute nothing.
      */
@@ -663,7 +664,8 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     private Filters departmentAxis(String model, Grant g, boolean changing) {
-        if (g.departments() == null || (!changing && g.departmentExempt().contains(model))) {
+        if (g.departments() == null || (!changing && g.departmentExempt().contains(model))
+                || followsEmployee(model, g)) {
             return null;
         }
         if (departmentPathFieldOf(model) == null || g.departmentConditions().isEmpty()) {
@@ -677,6 +679,19 @@ public class PermissionServiceImpl implements PermissionService {
             return departments;
         }
         return Filters.or(departments, scopeCompiler.compile(List.of(ruleOf(ScopeType.DIRECT_REPORTS)), model));
+    }
+
+    /**
+     * Whether a record's department is already answered by the employee it follows: the role holds no rule of
+     * its own for the model, which is owned by the employee model through a to-many or to-one field, and so
+     * reaches exactly the rows of the employees it reaches. Bounding it again would add nothing where the role is
+     * bounded on employees, and would take the record away where it is not: an exemption on the employee model
+     * has to show that employee's own sub-records, not a person with every section blank.
+     */
+    private boolean followsEmployee(String model, Grant g) {
+        return ModelConstant.EMPLOYEE_FIELD.equals(departmentAnchorOf(model)) && !hasExplicitRules(g, model)
+                && findReferencers(model, g).stream().anyMatch(ref -> ref.kind() != Kind.SHARED
+                        && ModelConstant.EMPLOYEE_MODEL.equals(ref.parentModel()));
     }
 
     private static final String CONDITION_OWN_DEPARTMENT = "OWN_DEPARTMENT";
@@ -1960,7 +1975,10 @@ public class PermissionServiceImpl implements PermissionService {
         // rides with it, for the same reason.
         Filters company = roleAxes(model, g, changing);
         if (judgedOnOwner(g, model, accessType)) {
-            return company;
+            // Written before its owner, so it may not name its employee yet: the owner's own check decides.
+            return ModelConstant.EMPLOYEE_FIELD.equals(departmentAnchorOf(model))
+                    ? companyScope(model, g.companies())
+                    : company;
         }
         List<Referencer> refs = findReferencers(model, g);
         Kind kind = refs.isEmpty() ? null : refs.getFirst().kind();
@@ -2122,7 +2140,8 @@ public class PermissionServiceImpl implements PermissionService {
      * <p>{@code rootPaths} are the {@code idPath}s of the granted roots, so this matches every row whose
      * department sits at or under one of them, through the department's own path: {@code idPath} on the
      * department model, {@code departmentId.idPath} on a model belonging to a department — or, where that
-     * {@code departmentId} is a dynamic cascaded field with no column of its own, its cascade path. The tree
+     * {@code departmentId} is a dynamic cascaded field with no column of its own, its cascade path —
+     * {@code employeeId.departmentId.idPath} on one belonging to an employee. The tree
      * is read live, so a department created under or moved into a granted subtree is in it at once.
      *
      * <p>A department just inserted has no path yet: the application writes it once the row has an id, after
@@ -2172,7 +2191,8 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * The path field the department grant matches on {@code model}, or null when the grant does not reach
      * it — see {@link #departmentAnchorOf}. The department model needs its own {@code idPath}; another model
-     * goes through its {@code departmentId}, or that field's cascade path when it is dynamic.
+     * goes through its {@code departmentId}, or through its {@code employeeId} and that employee's
+     * {@code departmentId}. A dynamic field along the way has no column of its own, and its cascade path is used.
      */
     private static String departmentPathFieldOf(String model) {
         String anchor = departmentAnchorOf(model);
@@ -2183,8 +2203,15 @@ public class PermissionServiceImpl implements PermissionService {
         if (ModelConstant.DEPARTMENT_MODEL.equals(model)) {
             return IdPath.FIELD;
         }
-        MetaField field = ModelManager.getModelFieldOrNull(model, anchor);
-        return IdPath.fieldOn(field.isDynamicCascadedField() ? field.getCascadedField() : anchor);
+        String path = storedPath(model, anchor);
+        return IdPath.fieldOn(ModelConstant.EMPLOYEE_FIELD.equals(anchor)
+                ? path + "." + storedPath(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD)
+                : path);
+    }
+
+    private static String storedPath(String model, String fieldName) {
+        MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+        return field.isDynamicCascadedField() ? field.getCascadedField() : fieldName;
     }
 
     /** The field a model is bounded by the department grant through; see {@link DepartmentGrantRules#anchorOf}. */

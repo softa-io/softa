@@ -121,10 +121,13 @@ public final class DepartmentGrantRules {
 
     /**
      * The field a model is bounded by the grant through, or null when the grant does not reach it: the
-     * department model by its own {@code id}; any other model by {@code departmentId}, when that field is a
-     * to-one onto the department model. A {@code departmentId} that is a plain number column, or that points
-     * elsewhere, is not an anchor: the grant would compare ids across models. A model that references
-     * departments as configuration rather than ownership names the field otherwise, and so is not bounded.
+     * department model by its own {@code id}; a model with {@code departmentId} by that field, when it is a
+     * to-one onto the department model; a model without one by {@code employeeId}, when it is a to-one onto
+     * the employee model and that model belongs to a department, since a record of an employee's belongs where
+     * the employee does. A {@code departmentId} that is a plain number column, or that points elsewhere, is not
+     * an anchor, and it also rules {@code employeeId} out: the model says where its rows belong, and the grant
+     * would compare ids across models. A model that references departments as configuration rather than
+     * ownership names the field otherwise, and so is not bounded.
      */
     public static @Nullable String anchorOf(@Nullable String model) {
         if (model == null || !ModelManager.existModel(model)) {
@@ -134,10 +137,19 @@ public final class DepartmentGrantRules {
             return ModelConstant.ID;
         }
         MetaField field = ModelManager.getModelFieldOrNull(model, ModelConstant.DEPARTMENT_FIELD);
-        boolean anchored = field != null
-                && FieldType.TO_ONE_TYPES.contains(field.getFieldType())
-                && ModelConstant.DEPARTMENT_MODEL.equals(field.getRelatedModel());
-        return anchored ? ModelConstant.DEPARTMENT_FIELD : null;
+        if (field != null) {
+            return isToOneOnto(field, ModelConstant.DEPARTMENT_MODEL) ? ModelConstant.DEPARTMENT_FIELD : null;
+        }
+        boolean belongsToEmployee = isToOneOnto(ModelManager.getModelFieldOrNull(model, ModelConstant.EMPLOYEE_FIELD),
+                ModelConstant.EMPLOYEE_MODEL)
+                && isToOneOnto(ModelManager.getModelFieldOrNull(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD),
+                ModelConstant.DEPARTMENT_MODEL);
+        return belongsToEmployee ? ModelConstant.EMPLOYEE_FIELD : null;
+    }
+
+    private static boolean isToOneOnto(@Nullable MetaField field, String model) {
+        return field != null && FieldType.TO_ONE_TYPES.contains(field.getFieldType())
+                && model.equals(field.getRelatedModel());
     }
 
     /**
