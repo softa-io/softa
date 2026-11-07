@@ -152,6 +152,22 @@ class FlowInstanceSummaryComposerTest {
     }
 
     @Test
+    void theRequestersOwnRecordWhoseApprovalFailedSaysWhetherTheyMayTakeItBack() {
+        // Nobody is left to act on it: its submitter takes the record back from My Requests (zingkey-hcm#2385).
+        FlowInstance failed = instance("i1", FlowExecutionStatus.FAILED);
+        failed.setScenario(FlowScenario.APPROVAL);
+        FlowExecutionState state = FlowExecutionState.builder().instanceId("i1").build();
+        when(instanceStore.listByInstanceIds(argThat(ids -> ids.size() == 1 && ids.contains("i1"))))
+                .thenReturn(List.of(state));
+        when(withdrawPolicyGuard.withdrawable(state, "u-1")).thenReturn(true);
+
+        FlowInstanceSummaryView view = composer.summarize(List.of(failed), "u-1").getFirst();
+
+        assertTrue(view.getWithdrawable());
+        assertNull(view.getUrge(), "an approval that failed waits on nobody to urge");
+    }
+
+    @Test
     void theMonitoringConsoleSaysWhetherAnAdministratorMayUrgeEachWaitingApproval() {
         FlowInstance waiting = instance("i1", FlowExecutionStatus.WAITING);
         waiting.setInitiatorId("u-2");

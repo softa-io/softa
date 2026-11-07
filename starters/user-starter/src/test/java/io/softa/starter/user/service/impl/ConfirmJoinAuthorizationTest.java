@@ -21,6 +21,7 @@ import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -29,7 +30,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The authorization tie on {@code confirmJoin} (PRD §4.4).
+ * The authorization tie on {@code confirmJoin}.
  *
  * <p>The endpoint is anonymous — whoever holds the link reaches it with no session — and it takes
  * {@code profileId} from the caller. Without a check that the named person is the one the
@@ -53,6 +54,8 @@ class ConfirmJoinAuthorizationTest {
     private final UserInvitationServiceImpl service = spy(new UserInvitationServiceImpl(
             accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
             mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(service);
 
     private UserInvitation givenPendingInvitationTo(String email, String mobile) {
         UserInvitation invitation = new UserInvitation();
@@ -76,6 +79,11 @@ class ConfirmJoinAuthorizationTest {
         return invitation;
     }
 
+    private static UserIdentity withPassword(UserIdentity identity) {
+        identity.setPassword("hash");
+        return identity;
+    }
+
     private static UserIdentity identity(String loginEmail, String loginMobile) {
         UserIdentity identity = new UserIdentity();
         identity.setLoginEmail(loginEmail);
@@ -95,21 +103,6 @@ class ConfirmJoinAuthorizationTest {
     }
 
     @Test
-    void aLinkHolder_cannotBindTheirAccountToSomeoneElsesPerson() {
-        // The attack: a valid invitation for alice@acme.com, confirmed while naming a stranger's
-        // profileId whose login identifier this invitation was never addressed to.
-        givenPendingInvitationTo("alice@acme.com", null);
-        when(identityService.findByProfile(ATTACKER_TARGET_PROFILE))
-                .thenReturn(Optional.of(identity("victim@elsewhere.com", "+8613800138000")));
-
-        assertThatThrownBy(() -> service.confirmJoin(TOKEN, ATTACKER_TARGET_PROFILE, "proof"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("does not belong");
-
-        verify(accountService, never()).updateOne(any(UserAccount.class));
-    }
-
-    @Test
     void aMembershipAlreadyBoundToAPerson_isNotHandedToAnotherProfileId() {
         // A re-hired leaver's revived row carries their profileId. verifyJoinCode returns that
         // person, so a different id here is a stale client or a link-holder choosing one — and
@@ -118,6 +111,8 @@ class ConfirmJoinAuthorizationTest {
         givenPendingInvitationTo("alice@acme.com", null);
         UserAccount revived = accountService.getById(ACCOUNT_ID).orElseThrow();
         revived.setProfileId(RIGHTFUL_PROFILE);
+        // A real person — they have a password — not the placeholder minted with the account.
+        when(identityService.findByProfile(RIGHTFUL_PROFILE)).thenReturn(Optional.of(withPassword(identity("alice@acme.com", null))));
         when(identityService.findByProfile(ATTACKER_TARGET_PROFILE))
                 .thenReturn(Optional.of(identity("alice@acme.com", null)));
 
@@ -189,5 +184,32 @@ class ConfirmJoinAuthorizationTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("re-hire");
         verify(accountService, never()).updateOne(any(UserAccount.class));
+    }
+
+    @Test
+    void aPersonAlreadyInThisCompany_isAlreadyJoined() {
+        givenPendingInvitationTo("alice@acme.com", null);
+        UserAccount live = new UserAccount();
+        live.setId(77L);
+        live.setTenantId(TENANT);
+        live.setStatus(AccountStatus.ACTIVE);
+        when(accountService.findMembershipInTenant(TENANT, RIGHTFUL_PROFILE)).thenReturn(Optional.of(live));
+
+        assertThatThrownBy(() -> service.confirmJoin(TOKEN, RIGHTFUL_PROFILE, "proof"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo("ALREADY_JOINED"));
+        verify(accountService, never()).updateOne(any(UserAccount.class));
+    }
+
+    @Test
+    void anEnterpriseEmailAnotherPersonHolds_isTaken_systemWide() {
+        givenPendingInvitationTo("alice@acme.com", null);
+        when(accountService.isEmailHeldByAnotherPerson(eq("alice@acme.com"), eq(RIGHTFUL_PROFILE), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.confirmJoin(TOKEN, RIGHTFUL_PROFILE, "proof"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo("EMAIL_TAKEN"));
+        verify(accountService, never()).updateOne(any(UserAccount.class));
+        verify(invitationSecurityLog).entry(eq(io.softa.starter.user.enums.SecurityAction.JOIN_BLOCKED), any(), any(), eq(RIGHTFUL_PROFILE));
     }
 }

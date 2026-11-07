@@ -80,9 +80,30 @@ finds it in a search (`searchName`).
   stored, looked up or hashed, or a row is written in a spelling the lookups cannot
   find. Distinct from the **work contacts** on `UserAccount` (`email` / `mobile`),
   which are HR's per-company data and keep their case.
-- **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`) and carried by the
-  `SOFTA_SESSION_ID` cookie set on login; `logout` clears it. A session names one
+- **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`). A session names one
   membership — switching company mints a new one.
+- **A session belongs to the kind of client it was issued to.** A request that sends
+  `X-App-Platform` or `X-App-Version` is the APP's; one that sends neither is Web's (H5
+  included). Each carries its session one way only:
+
+  | Client | Gets the session | Sends it back | Ignored |
+  | --- | --- | --- | --- |
+  | APP | `sessionToken` in the response body (no cookie) | `X-Session-Id` header | any cookie |
+  | Web / H5 | `SOFTA_SESSION_ID` cookie (never in the body) | the cookie | `X-Session-Id` |
+
+  A session is also checked against the client using it, on every authenticated request
+  and on `/login/myTenants`, `/login/switchTenant`, `/login/leaveTenant` and
+  `/UserAccount/logout`: a Web session sent with the APP headers, or an APP session sent
+  without them, is refused with `errorCode = SESSION_EXPIRED` (code 410) and is **not**
+  ended — whoever sent it that way may not be its holder, and the holder's own client
+  keeps working. The client goes back to its sign-in screen. A session stored before the
+  client was recorded on it reads as a Web session; the release that brings this rule
+  clears all sessions anyway.
+- **The client type is self-reported.** Telling the APP from Web by request headers is a
+  product rule (consultants and platform accounts on the Web only, the APP minimum
+  version), not a security boundary: any caller can send or omit those headers. The
+  source (`APP` / `WEB`) and device model recorded in the security log and the login
+  history are what the client said about itself.
 - **Password lockout** lives on the credential (`UserIdentity.passwordLockedUntil`),
   so it is linked across every company the person belongs to. `UserAccount.locked`
   is a **derived, read-only** projection of it for the account list — writes that
@@ -130,6 +151,19 @@ to lists, plus:
 | `rehire` | Revive a `DEACTIVATED` membership on its original row |
 | `resetWorkContacts` / `unbindAndReinvite` | Correct a mis-addressed or mis-bound invitation |
 | `logout`, `getMyAccount`, `saveMyAccount`, `changeMyPassword`, `setMyFirstPassword`, `mustSetMyPassword` | The caller's own membership |
+
+`UserProfileController` (`/UserProfile/*`) — `getMyUserInfo` returns the session's `UserInfo`,
+which login also returns. Besides the person's name, language, timezone and photo it carries
+`tenantId` and `tenantName`, the tenant's display name, for the client to show which company the
+session is in. `UserInfo` is cached for a month under `user-info:{accountId}` and `tenantName` is
+cached with it, so serving a cached one reads no tenant. Two consequences:
+
+- Entries cached before `tenantName` existed carry none. Delete the `user-info:*` keys once after
+  upgrading; the next request rebuilds each one.
+- A renamed tenant keeps its old name until its cache entries expire: `user-info:*` and
+  `tenant-info:{tenantId}`, which a rename does not evict either. Delete them to show it at once.
+
+Keys sit under `spring.data.redis.root-key` when one is set.
 
 `ConsultantController` (`/consultant/*`) — platform-side, not reachable from a
 tenant. `list`, `save` (person + consultant record + the whole grant table in one
@@ -268,6 +302,29 @@ social-oauth:
   x:        { enable: true,  client-id: ..., client-secret: ... }
   linkedin: { enable: false, client-id: ..., client-secret: ... }
 ```
+
+### Sign-in protection
+
+Per-address limits and how the caller's address is read (prefix `softa.user.login-protection`,
+bound by `LoginProtectionProperties`):
+
+```yaml
+softa:
+  user:
+    login-protection:
+      trusted-proxies: 1                  # proxies in front of the app that append to X-Forwarded-For
+      trust-real-ip: false                # read X-Real-IP when X-Forwarded-For is absent
+      attempts-per-address-per-hour: 300  # codes sent + codes checked + passwords tried, together
+```
+
+`trusted-proxies` must match the deployment: the caller's address is read that many entries from
+the right of `X-Forwarded-For`, and everything further left was written by the caller. Set it to 1
+behind a single reverse proxy (or one that replaces the header), 2 behind a load balancer and a
+reverse proxy that both append. Too low puts every caller behind one address into one bucket; too
+high trusts an entry the caller wrote. **The gateway must append to `X-Forwarded-For`**: without
+it the address is the socket peer — the proxy itself — unless `trust-real-ip` is on, which is right
+only behind a proxy that sets `X-Real-IP` and drops one sent by the caller. Looking up an identifier nobody signs in with is limited
+separately (30 misses per address per hour); a spent miss budget refuses misses only.
 
 ### First platform administrator
 

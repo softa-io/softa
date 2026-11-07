@@ -39,7 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * The steps after an approval failing (zingkey-hcm#2385): the approval stands — the approver's request goes
  * through — and the instance fails at the step that failed, remembering where to run again from, its initiator and
- * the tenant's administrators told. An administrator runs the steps again: the approval goes on, or fails again.
+ * the tenant's administrators told. An administrator runs the steps again: the approval goes on, or fails again. Not
+ * only a step: a route out of the approval that cannot be decided stops it the same way (#2382).
  */
 class StepsAfterApprovalScenarioTest {
 
@@ -117,6 +118,28 @@ class StepsAfterApprovalScenarioTest {
     }
 
     @Test
+    void aRouteThatCannotBeDecidedAfterTheApprovalFailsTheInstanceAndTheApprovalStands() {
+        // The amount kept as text and compared with a number (zingkey-hcm#2382): the route out of the approval cannot
+        // be decided. Nothing the approver can put right, so the approval stands and the instance fails at its step.
+        publishService.publish(FLOW_ID, routedFlow());
+        FlowStartRequest start = new FlowStartRequest();
+        start.setFlowId(FLOW_ID);
+        start.setInitiatorId(INITIATOR);
+        start.setVariables(Map.of("amount", "a lot"));
+        FlowExecutionState started = engine.start(start);
+
+        FlowExecutionState state = engine.approve(approve(started.getInstanceId()));
+
+        assertThat(state.getStatus()).isEqualTo(FlowExecutionStatus.FAILED);
+        assertThat(state.getFailedNodeId()).isEqualTo("approval");
+        assertThat(state.getRetryAfterNodeId()).isEqualTo("approval");
+        assertThat(state.getCompletedNodeIds()).contains("approval").doesNotContain("hook", "end");
+        assertThat(webhook.calls).isZero();
+        assertThat(store.get(started.getInstanceId()).orElseThrow().getStatus()).isEqualTo(FlowExecutionStatus.FAILED);
+        assertThat(told).filteredOn(FlowNotificationEvent.FlowFailed.class::isInstance).hasSize(1);
+    }
+
+    @Test
     void onlyAnApprovalThatFailedInTheStepsAfterAnApprovalRunsAgain() {
         FlowExecutionState waiting = start();
 
@@ -162,7 +185,7 @@ class StepsAfterApprovalScenarioTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approvers", List.of(ALICE), "approvalMode", "AnyOne")).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(ALICE))), "approvalMode", "AnyOne")).build(),
                                 FlowGraphNode.builder().id("hook").type(FlowNodeType.CALL_WEBHOOK).label("Notify payroll")
                                         .config(Map.of("url", "https://example.com/hook")).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
@@ -170,6 +193,30 @@ class StepsAfterApprovalScenarioTest {
                                 FlowGraphEdge.builder().id("e1").source("start").target("approval").build(),
                                 FlowGraphEdge.builder().id("e2").source("approval").target("hook").build(),
                                 FlowGraphEdge.builder().id("e3").source("hook").target("end").build()))
+                        .build())
+                .build();
+    }
+
+    /** Start, Alice's approval, then the webhook for large amounts, else the end. */
+    private static DesignFlowDefinition routedFlow() {
+        return DesignFlowDefinition.builder()
+                .name("Steps after approval, routed")
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest"))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
+                                FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(ALICE))), "approvalMode", "AnyOne")).build(),
+                                FlowGraphNode.builder().id("hook").type(FlowNodeType.CALL_WEBHOOK).label("Notify payroll")
+                                        .config(Map.of("url", "https://example.com/hook")).build(),
+                                FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
+                        .edges(List.of(
+                                FlowGraphEdge.builder().id("e1").source("start").target("approval").build(),
+                                FlowGraphEdge.builder().id("e2").source("approval").target("hook")
+                                        .conditionExpression("amount > 5000").build(),
+                                FlowGraphEdge.builder().id("e3").source("approval").target("end").build(),
+                                FlowGraphEdge.builder().id("e4").source("hook").target("end").build()))
                         .build())
                 .build();
     }

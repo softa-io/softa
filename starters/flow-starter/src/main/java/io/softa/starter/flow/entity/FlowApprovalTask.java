@@ -95,20 +95,11 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(description = "Total approver count snapshot")
     private Integer totalApproverCount;
 
-    @Field(description = "Reject mode snapshot")
-    private VoteThresholdMode rejectMode;
-
-    @Field(description = "Required reject count snapshot")
-    private Integer requiredRejectCount;
-
     @Field(length = 4000, description = "Candidate actor ids for the node")
     private List<String> candidateActors;
 
     @Field(length = 4000, description = "Actors who already approved when this projection was synced")
     private List<String> approvedActors;
-
-    @Field(length = 4000, description = "Actors who already rejected when this projection was synced")
-    private List<String> rejectedActors;
 
     @Field(description = "Task opened time")
     private LocalDateTime startTime;
@@ -130,12 +121,6 @@ public class FlowApprovalTask extends AuditableModel {
 
     @Field(label = "Closed By Actor ID", description = "Actor who closed this task when available")
     private String closedByActorId;
-
-    @Field(description = "Whether the task is blocked by an add-sign-before prerequisite")
-    private Boolean blocked;
-
-    @Field(label = "Blocked By Actor ID", description = "Actor who must act before this blocked task can proceed")
-    private String blockedByActorId;
 
     @Field(length = 200, description = "The instance's title")
     private String instanceTitle;

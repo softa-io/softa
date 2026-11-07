@@ -372,20 +372,6 @@ public class FlowInstanceController {
         return ApiResponse.success(withoutRecordValues(runtimeEngine.delegate(request)));
     }
 
-    @PostMapping("/add-sign-before")
-    @Operation(summary = "Add prerequisite signer before current approver", description = "Adds a prerequisite signer before the current approver on the same approval node and cycle.")
-    public ApiResponse<FlowExecutionState> addSignBefore(@Valid @RequestBody FlowAddSignBeforeRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(withoutRecordValues(runtimeEngine.addSignBefore(request)));
-    }
-
-    @PostMapping("/add-sign-after")
-    @Operation(summary = "Add follow-up signer after current approver", description = "Adds a follow-up signer after the current approver on the same approval node and cycle.")
-    public ApiResponse<FlowExecutionState> addSignAfter(@Valid @RequestBody FlowAddSignAfterRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(withoutRecordValues(runtimeEngine.addSignAfter(request)));
-    }
-
     @PostMapping("/cc")
     @Operation(summary = "CC people on a pending approval", description = "The caller, an approver of the pending "
             + "step still to vote, CCs one or more people (`targetActorIds`): each gets a read-only copy of the approval "
@@ -413,9 +399,20 @@ public class FlowInstanceController {
     @PostMapping("/withdraw")
     @Operation(summary = "Withdraw approval flow", description = "The initiator takes back an approval waiting on "
             + "its approvers, within the flow's withdraw policy: Never, BeforeFirstAction (until an approver first "
-            + "acts) or UntilCompleted.")
+            + "acts) or UntilCompleted. A record's approval that failed is taken back whatever the policy, by its "
+            + "submitter, while the record still waits on it: the record becomes a draft again, the failed instance "
+            + "stays as it is.")
     public ApiResponse<FlowExecutionState> withdraw(@Valid @RequestBody FlowWithdrawRequest request) {
         request.setActorId(currentUserId());
+        // A record's approval that failed waits on nobody: its submitter takes the record back, as from the record.
+        Optional<FlowExecutionState> failed = ContextUtils.withoutPermissionChecks(
+                () -> runtimeEngine.getInstance(request.getInstanceId()))
+                .filter(state -> withdrawPolicyGuard.takesBack(state, request.getActorId()));
+        if (failed.isPresent()) {
+            FlowExecutionState state = failed.get();
+            return ApiResponse.success(withoutRecordValues(launchService.withdrawRecord(state.getModelName(),
+                    state.getRowId(), request.getActorId(), request.getComment())));
+        }
         return ApiResponse.success(withoutRecordValues(runtimeEngine.withdraw(request)));
     }
 
@@ -450,7 +447,8 @@ public class FlowInstanceController {
     @GetMapping("/{instanceId}/withdraw")
     @Operation(summary = "Get whether the caller may withdraw",
             description = "True when the caller is the initiator of an approval waiting on its approvers and the "
-                    + "flow's withdraw policy still permits it — exactly when a withdrawal would be accepted. "
+                    + "flow's withdraw policy still permits it, or the submitter of a record whose approval failed "
+                    + "while the record still waits on it — exactly when a withdrawal would be accepted. "
                     + "Allowed to whoever may view the instance.")
     public ApiResponse<Boolean> getWithdrawable(@PathVariable String instanceId) {
         return runtimeEngine.getInstance(instanceId)

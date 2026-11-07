@@ -48,7 +48,8 @@ import io.softa.starter.flow.enums.FlowScenario;
     // duplication under a fresh name is a dedicated editor operation instead
     copyable = false,
     displayName = {"flowName"},
-    searchName = {"flowName"}
+    searchName = {"flowName"},
+    defaultOrder = {"flowName"}
 )
 @Index(indexName = "uk_tenant_flow_name", fields = {"tenantId", "flowName"}, unique = true,
        message = "A flow with this name already exists.")

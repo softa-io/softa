@@ -56,6 +56,15 @@ public interface FlowClient {
     FlowApprovalPreview previewRecord(String modelName, String rowId);
 
     /**
+     * What submitting a record not saved yet as the current user would do now — {@link #previewRecord} on its field
+     * values, in the form they are stored (ids, codes), the subject among them, instead of a saved row: a record its
+     * application creates as it is submitted (a pay run's approval request) previews its route before it exists.
+     * Nothing is started or written; the caller decides who may ask. Call it outside a transaction, as
+     * {@link #previewRecord}.
+     */
+    FlowApprovalPreview previewValues(String modelName, Map<String, Object> values);
+
+    /**
      * Withdraws the record from approval as the current user, its submitter — or, when its approval
      * failed, takes the record back. The record is a draft again. Refused when the record has no
      * approval in progress, or its flow does not let its submitter withdraw. Joins the caller's
@@ -99,10 +108,6 @@ public interface FlowClient {
     FlowExecutionState transfer(FlowTransferRequest request);
 
     FlowExecutionState delegate(FlowDelegateRequest request);
-
-    FlowExecutionState addSignBefore(FlowAddSignBeforeRequest request);
-
-    FlowExecutionState addSignAfter(FlowAddSignAfterRequest request);
 
     FlowExecutionState cc(FlowCcRequest request);
 

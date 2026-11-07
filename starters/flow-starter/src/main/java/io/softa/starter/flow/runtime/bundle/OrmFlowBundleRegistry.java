@@ -31,8 +31,7 @@ import io.softa.starter.flow.service.FlowBundleService;
  *       instances pick the change up within the TTL. Platform-shared bundles have an entry of
  *       their own, merged into every tenant's candidates.</li>
  *   <li><b>Definitions</b> — {@code bundleId → definition}, a bounded LRU. A published revision
- *       never changes, so entries never go stale; a debug purge evicts its bundle. Every read is
- *       checked against the current tenant.</li>
+ *       never changes, so entries never go stale. Every read is checked against the current tenant.</li>
  *   <li>The active revision of a design is not cached: it is one indexed lookup, and its
  *       definition then comes from the LRU.</li>
  * </ul>
@@ -78,20 +77,6 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     public CompiledFlowDefinition register(CompiledFlowDefinition definition,
                                            DesignFlowDefinition design,
                                            String flowId) {
-        return doRegister(definition, design, flowId, false);
-    }
-
-    @Override
-    public CompiledFlowDefinition registerDebug(CompiledFlowDefinition definition,
-                                                DesignFlowDefinition design,
-                                                String flowId) {
-        return doRegister(definition, design, flowId, true);
-    }
-
-    private CompiledFlowDefinition doRegister(CompiledFlowDefinition definition,
-                                              DesignFlowDefinition design,
-                                              String flowId,
-                                              boolean debug) {
         if (definition == null) {
             throw new FlowRuntimeException("Compiled flow definition must not be null");
         }
@@ -114,11 +99,6 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
                     .build();
 
             FlowBundle entity = FlowBundleMapper.toEntity(published, design, null, flowId);
-            if (debug) {
-                // resolvable like any bundle, but never the design's effective revision
-                entity.setActive(false);
-                entity.setDebug(true);
-            }
             try {
                 bundleService.saveBundle(entity);
             } catch (DuplicateKeyException e) {
@@ -130,13 +110,10 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
             // Not put into the definition cache: the first read loads the stored row, which
             // carries the owning tenant this object lacks.
             published.setBundleId(entity.getId());
-            if (!debug) {
-                bundleService.markAsActive(flowId, nextRevision);
-                invalidateTriggerIndex();
-            }
+            bundleService.markAsActive(flowId, nextRevision);
+            invalidateTriggerIndex();
 
-            log.debug("Registered flow bundle: bundleId={} flowId={} r{} debug={}",
-                    entity.getId(), flowId, nextRevision, debug);
+            log.debug("Registered flow bundle: bundleId={} flowId={} r{}", entity.getId(), flowId, nextRevision);
             return published;
         }
         throw new FlowRuntimeException(
@@ -216,11 +193,6 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
         invalidateTriggerIndex();
     }
 
-    @Override
-    public void evict(Long bundleId) {
-        definitions.remove(bundleId);
-    }
-
     private TenantFlows tenantFlows(Long tenantId) {
         TenantFlows cached = triggerIndex.get(tenantId);
         if (cached != null && !cached.isExpired(triggerCacheTtlNanos)) {
@@ -236,7 +208,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
 
     private TenantFlows loadTenantFlows(Long tenantId) {
         // Pinned to the tenant and permission-skipped: what can fire must not depend on whose
-        // write happened to cause the load. Active bundles are never debug runs.
+        // write happened to cause the load.
         List<CompiledFlowDefinition> active = ContextUtils.inTenantContext(tenantId, bundleService::getAllActiveFlow)
                 .stream()
                 .map(FlowBundleMapper::toDefinition)

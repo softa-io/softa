@@ -19,8 +19,13 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
     /** Rows a search returns when the caller names no limit. */
     static final int DEFAULT_LIMIT = 20;
 
-    /** The most rows a search returns. */
-    static final int MAX_LIMIT = 50;
+    /**
+     * The most rows a search returns. A picker shows a long list by asking again for more as it is scrolled — 20, then
+     * 40, and so on — rather than for a second page: the search over employees and accounts orders the two together by
+     * name in memory, which a database's collation need not agree with, so a page read on its own could repeat or skip
+     * someone; the first so many never do. Past this a picker narrows by typing.
+     */
+    static final int MAX_LIMIT = 200;
 
     /** The most ids one lookup names: the values picked in one picker. */
     static final int MAX_IDS = 200;

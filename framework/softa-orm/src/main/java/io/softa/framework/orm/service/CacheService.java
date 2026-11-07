@@ -2,6 +2,7 @@ package io.softa.framework.orm.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import tools.jackson.core.type.TypeReference;
 
 /**
@@ -111,6 +112,15 @@ public interface CacheService {
     void clear(String key);
 
     /**
+     * Read a string value and remove it in one atomic step: of two callers racing for the same key,
+     * exactly one gets the value. For one-time tokens.
+     *
+     * @param key cache key
+     * @return the value, or null when the key was absent
+     */
+    String getAndClear(String key);
+
+    /**
      * Clear key list.
      *
      * @param keys key list
@@ -129,5 +139,55 @@ public interface CacheService {
      * @return number of keys removed
      */
     long clearByPrefix(String prefix);
+
+    /**
+     * Remaining time to live of a key, in seconds.
+     *
+     * @param key cache key
+     * @return seconds left; {@code -1} when the key never expires, {@code -2} when it does not exist
+     */
+    long getExpire(String key);
+
+    /**
+     * Reset the time to live of an existing key. A missing key stays missing.
+     *
+     * @param key           cache key
+     * @param expireSeconds expiration time in seconds, positive
+     */
+    void expire(String key, int expireSeconds);
+
+    /**
+     * Add a member to a set and (re)set the set's time to live.
+     *
+     * @param key           set key
+     * @param member        member to add
+     * @param expireSeconds expiration time of the whole set, in seconds, positive
+     */
+    void addToSet(String key, String member, int expireSeconds);
+
+    /**
+     * Add a member to a set that may hold at most {@code maxSize} members, in one atomic step: of two
+     * callers racing for the last place, exactly one gets it. A member already present is accepted
+     * without counting again. The set expires {@code expireSeconds} after its first member.
+     *
+     * @return whether the member is in the set now; false when it was full
+     */
+    boolean addToBoundedSet(String key, String member, int maxSize, int expireSeconds);
+
+    /**
+     * Remove a member from a set. Removing the last member removes the set.
+     *
+     * @param key    set key
+     * @param member member to remove
+     */
+    void removeFromSet(String key, String member);
+
+    /**
+     * All members of a set; empty when the set does not exist.
+     *
+     * @param key set key
+     * @return the members
+     */
+    Set<String> getSetMembers(String key);
 
 }

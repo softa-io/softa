@@ -48,7 +48,7 @@ public enum FlowNodeType {
     PARALLEL_JOIN("ParallelJoin", FlowNodeCategory.ROUTING, Scenarios.STATEFUL),
 
     // ── 人工交互
-    /** 多方投票审批节点（拒绝 / 回退 / 加签 / 转交 / 委托 / 催办…）*/
+    /** 多方投票审批节点（拒绝 / 回退 / 转交 / 委托 / 催办…）*/
     APPROVAL("Approval", FlowNodeCategory.HUMAN, Scenarios.APPROVAL_ONLY),
     /** 人工确认 / 填表节点（无投票语义，等待人工提交后继续）*/
     HUMAN_TASK("HumanTask", FlowNodeCategory.HUMAN, Scenarios.APPROVAL_ONLY),

@@ -39,17 +39,6 @@ public interface FlowBundleRegistry {
         return register(definition, null, null);
     }
 
-    /**
-     * Persist a debug-run bundle: resolvable by {@code bundleId} like any
-     * revision (so instances survive restarts), but never active and hidden from
-     * revision lists. Purged by the maintenance job after the retention window.
-     */
-    default CompiledFlowDefinition registerDebug(CompiledFlowDefinition definition,
-                                                 DesignFlowDefinition design,
-                                                 String flowId) {
-        throw new UnsupportedOperationException("Debug bundles are not supported by this registry");
-    }
-
     /** Look up an exact revision by bundle id (primary runtime key). */
     Optional<CompiledFlowDefinition> getByBundleId(Long bundleId);
 
@@ -81,12 +70,5 @@ public interface FlowBundleRegistry {
      * effective. Default no-op; caching implementations should override.
      */
     default void refreshActiveForFlowId(String flowId) {
-    }
-
-    /**
-     * Drop a bundle from the in-memory cache (used when its row is purged).
-     * Default no-op; caching implementations should override.
-     */
-    default void evict(Long bundleId) {
     }
 }

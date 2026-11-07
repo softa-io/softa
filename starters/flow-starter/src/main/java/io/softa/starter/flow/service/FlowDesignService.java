@@ -62,6 +62,12 @@ public interface FlowDesignService extends EntityService<FlowDesign, String> {
     List<ApprovalModelView> listApprovalModels();
 
     /**
+     * The flows a Subflow node can call: the enabled Automation flows whose effective revision declares a Subflow
+     * trigger. A draft never published, or a flow switched off, is not one — a parent calling it would fail.
+     */
+    List<String> subflowTargetIds();
+
+    /**
      * Update the draft's publish markers ({@code FlowDesign#getPublishedRevision()} and
      * {@code FlowDesign#getPublishedChecksum()}) after a successful publish.
      * Called by {@link FlowPublishService} once the bundle has been persisted.

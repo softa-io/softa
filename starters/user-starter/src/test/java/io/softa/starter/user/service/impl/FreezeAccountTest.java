@@ -23,9 +23,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Freeze / Unfreeze (D21 / U7), which replaced Lock / Unlock.
+ * Freeze / Unfreeze, which replaced Lock / Unlock.
  *
- * <p>A manual lock and the automatic password lockout (A8) were two mechanisms for two different
+ * <p>A manual lock and the automatic password lockout were two mechanisms for two different
  * things wearing one name: the lockout reacts to guessing, lives on the credential and expires by
  * itself, while freezing is an administrator's decision about a membership that only an
  * administrator lifts. The cell that matters most is Freeze-on-Locked: it clears the password lock
@@ -39,6 +39,8 @@ class FreezeAccountTest {
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     FreezeAccountTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
@@ -65,6 +67,41 @@ class FreezeAccountTest {
     }
 
     @Test
+    void freezing_dropsTheAccountsPushDevices() {
+        // A frozen company must not keep notifying the person; the sessions end on their next
+        // request, but a device that never asks again would go on receiving pushes.
+        given(AccountStatus.ACTIVE);
+        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+
+        accountService.freezeAccount(ACCOUNT, "Under investigation");
+
+        verify(devices).unregisterAccount(ACCOUNT);
+    }
+
+    @Test
+    void freezing_dropsTheDevicesOnlyOnceItCommits_andAFailingRegistryDoesNotUndoIt() {
+        UserAccount account = given(AccountStatus.ACTIVE);
+        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("push store down")).when(devices).unregisterAccount(ACCOUNT);
+        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            accountService.freezeAccount(ACCOUNT, "Under investigation");
+            assertThat(account.getStatus()).isEqualTo(AccountStatus.FROZEN);
+            org.mockito.Mockito.verify(devices, org.mockito.Mockito.never()).unregisterAccount(ACCOUNT);
+
+            org.assertj.core.api.Assertions.assertThatCode(() ->
+                    org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                            .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit))
+                    .doesNotThrowAnyException();
+            verify(devices).unregisterAccount(ACCOUNT);
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
     void freezingALockedAccount_clearsThePasswordLockOnTheWayThrough() {
         UserAccount account = given(AccountStatus.LOCKED);
         UserIdentity person = new UserIdentity();
@@ -76,9 +113,8 @@ class FreezeAccountTest {
         accountService.freezeAccount(ACCOUNT, "Under investigation");
 
         assertThat(account.getStatus()).isEqualTo(AccountStatus.FROZEN);
-        assertThat(person.getPasswordLockedUntil()).isNull();
-        // Writing a null, so the overload that keeps them is not optional.
-        verify(identityService).updateOne(person, false);
+        // The lock column alone: writing the row that was read would also put back its password.
+        verify(identityService).clearPasswordLock(11L);
         verify(identityService).clearPasswordFailures(11L);
     }
 

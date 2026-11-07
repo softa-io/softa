@@ -40,6 +40,14 @@ public class ApiResponseErrorDetails<T> extends ApiResponse<T> {
      * a {@code ModelWriteValidator}. Lets a form put each message on its field instead of one toast;
      * absent (null) for every other error, so existing clients see the same body they always did.
      */
+    @Schema(description = "Stable machine-readable error code, e.g. SESSION_EXPIRED; present only when the failure has one")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String errorCode;
+
+    @Schema(description = "Values that accompany the error code, e.g. remainingAttempts")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Map<String, Object> errorDetails;
+
     @Schema(description = "Field-level rejections: field name -> message; present only for validation failures")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Map<String, String> fieldErrors;
@@ -91,5 +99,14 @@ public class ApiResponseErrorDetails<T> extends ApiResponse<T> {
         ApiResponseErrorDetails<Void> response = exception(responseCode, error);
         response.setFieldErrors(fieldErrors == null || fieldErrors.isEmpty() ? null : fieldErrors);
         return response;
+    }
+
+    /**
+     * Carry an exception's stable error code and its details, if it has them.
+     */
+    public ApiResponseErrorDetails<T> withErrorCode(String errorCode, Map<String, Object> errorDetails) {
+        this.errorCode = errorCode;
+        this.errorDetails = errorDetails == null || errorDetails.isEmpty() ? null : errorDetails;
+        return this;
     }
 }

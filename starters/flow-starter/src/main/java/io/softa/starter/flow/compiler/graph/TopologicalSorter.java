@@ -61,7 +61,7 @@ public final class TopologicalSorter {
                     diagnostics.add(CompileDiagnostic.nodeLevel(node.getId(),
                             unsortable.getType() != null ? unsortable.getType().getType() : null,
                             GRAPH_CYCLE,
-                            "Node '" + node.getId() + "' is part of a cycle, or is only reachable through one"));
+                            "Node '" + node.displayName() + "' is part of a cycle, or is only reachable through one"));
                 }
             }
         }

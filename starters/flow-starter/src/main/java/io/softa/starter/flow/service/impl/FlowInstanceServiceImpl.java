@@ -98,6 +98,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getDepartmentId),
             LambdaUtils.getAttributeName(FlowInstance::getEffectiveDate),
             LambdaUtils.getAttributeName(FlowInstance::getRecordCode),
+            LambdaUtils.getAttributeName(FlowInstance::getSummary),
             LambdaUtils.getAttributeName(FlowInstance::getSuperseded),
             LambdaUtils.getAttributeName(FlowInstance::getStatus),
             LambdaUtils.getAttributeName(FlowInstance::getFailedNodeId),
@@ -300,7 +301,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         }
         // The caller's own conditions narrow what the rest selects — the initiator pin included — never widen it.
         FlexQuery query = new FlexQuery(CallerConditions.and(filters, request.filters()),
-                CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowInstance::getCreatedTime)));
+                CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowInstance::getId)));
         query.select(INSTANCE_SUMMARY_FIELDS);
         Page<FlowInstance> page = Page.of(
                 request.pageNumber() == null ? 1 : request.pageNumber(),
@@ -344,7 +345,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     /**
-     * A record's approvals, newest first. Other instances may run on the record — automation, debug runs: not its
+     * A record's approvals, newest first. Other instances may run on the record — automation runs: not its
      * approval.
      */
     private List<FlowInstance> approvalsOf(String modelName, String rowId) {
@@ -391,6 +392,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             instance.getActions().forEach(action -> {
                 actors.add(action.getActor());
                 actors.add(action.getTarget());
+                actors.add(action.getOperator());
             });
         }
         userNames.name(actors);
@@ -619,7 +621,6 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         List<String> approvers = step.getApprovers() == null ? List.of() : step.getApprovers();
         return approvers.stream()
                 .filter(approver -> step.getApprovedActors() == null || !step.getApprovedActors().contains(approver))
-                .filter(approver -> step.getRejectedActors() == null || !step.getRejectedActors().contains(approver))
                 .toList();
     }
 
@@ -647,6 +648,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                             .nodeLabel(entry.getNodeLabel())
                             .actor(actor(entry.getActorId()))
                             .target(actor(entry.getTargetActorId()))
+                            .operator(actor(entry.getOperatorId()))
                             .comment(entry.getComment())
                             .eventTime(entry.getEventTime())
                             .build()).toList())

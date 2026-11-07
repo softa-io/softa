@@ -20,7 +20,6 @@ import io.softa.starter.ai.enums.AiMessageStatus;
 @Model(
         label = "AI Message",
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        defaultOrder = {"createdTime"},
         copyable = false
 )
 public class AiMessage extends AuditableModel {

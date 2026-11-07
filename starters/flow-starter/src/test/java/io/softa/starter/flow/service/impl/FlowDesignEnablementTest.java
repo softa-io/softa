@@ -228,7 +228,7 @@ class FlowDesignEnablementTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                                        .config(Map.of("approvers", List.of("manager"))).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(
                                 FlowGraphEdge.builder().id("e1").source("start").target("approval").build(),

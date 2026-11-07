@@ -14,8 +14,6 @@ import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.WithdrawPolicy;
-import io.softa.starter.flow.runtime.api.FlowAddSignAfterRequest;
-import io.softa.starter.flow.runtime.api.FlowAddSignBeforeRequest;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowReturnRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
@@ -35,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Lifecycle scenarios that need a withdraw-enabled, return-enabled approval flow:
- * withdraw, add-sign (before/after), and return-to-initiator, which ends the instance. Together with
+ * withdraw and return-to-initiator, which ends the instance. Together with
  * {@code FlowActionScenarioTest} these cover the full approval action-handler set.
  */
 class FlowApprovalLifecycleScenarioTest {
@@ -124,39 +122,6 @@ class FlowApprovalLifecycleScenarioTest {
     }
 
     @Test
-    void addSignBeforeKeepsFlowWaiting() {
-        FlowExecutionState started = start();
-        FlowAddSignBeforeRequest req = new FlowAddSignBeforeRequest();
-        req.setInstanceId(started.getInstanceId());
-        req.setNodeId("approval");
-        req.setActorId(APPROVER);
-        req.setTargetActorId(OTHER);
-        assertEquals(FlowExecutionStatus.WAITING, engine.addSignBefore(req).getStatus());
-    }
-
-    @Test
-    void addSignAfterKeepsFlowWaiting() {
-        FlowExecutionState started = start();
-        FlowAddSignAfterRequest req = new FlowAddSignAfterRequest();
-        req.setInstanceId(started.getInstanceId());
-        req.setNodeId("approval");
-        req.setActorId(APPROVER);
-        req.setTargetActorId(OTHER);
-        assertEquals(FlowExecutionStatus.WAITING, engine.addSignAfter(req).getStatus());
-    }
-
-    @Test
-    void addSignToSelfIsRejected() {
-        FlowExecutionState started = start();
-        FlowAddSignBeforeRequest req = new FlowAddSignBeforeRequest();
-        req.setInstanceId(started.getInstanceId());
-        req.setNodeId("approval");
-        req.setActorId(APPROVER);
-        req.setTargetActorId(APPROVER);
-        assertThrows(FlowActionValidationException.class, () -> engine.addSignBefore(req));
-    }
-
-    @Test
     void returnToInitiatorEndsTheInstance() {
         FlowExecutionState started = start();
 
@@ -206,9 +171,9 @@ class FlowApprovalLifecycleScenarioTest {
                 .nodes(List.of(
                         node("start", FlowNodeType.START),
                         FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                .config(Map.of("approvers", List.of(APPROVER))).build(),
+                                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))))).build(),
                         FlowGraphNode.builder().id("second").type(FlowNodeType.APPROVAL).label("second")
-                                .config(Map.of("approvers", List.of(OTHER))).build(),
+                                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(OTHER))))).build(),
                         node("end", FlowNodeType.END)))
                 .edges(List.of(
                         edge("e1", "start", "approval"),
@@ -225,9 +190,7 @@ class FlowApprovalLifecycleScenarioTest {
                                 .id("approval")
                                 .type(FlowNodeType.APPROVAL)
                                 .label("approval")
-                                .config(Map.of(
-                                        "approvers", List.of(APPROVER),
-                                        "returnEnabled", true))
+                                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER)))))
                                 .build(),
                         node("end", FlowNodeType.END)))
                 .edges(List.of(
@@ -241,6 +204,7 @@ class FlowApprovalLifecycleScenarioTest {
                 .name("Approval Lifecycle")
                 .scenario(FlowScenario.APPROVAL)
                 .withdrawPolicy(withdrawPolicy)
+                .returnEnabled(true)
                 .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(graph)
                 .build();

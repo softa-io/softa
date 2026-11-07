@@ -12,7 +12,6 @@ import io.softa.starter.flow.runtime.engine.ApprovalActorValidator;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
-import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
@@ -21,9 +20,8 @@ import io.softa.starter.flow.runtime.state.*;
  * Returns a pending approval to the initiator, which ends the instance as {@code RETURNED}: the
  * initiator edits and submits again, and that submission starts a new instance from the beginning.
  *
- * <p>Allowed when the node's {@link ApprovalNodeConfig#getReturnEnabled() returnEnabled} is set, to one
- * of the node's approvers whose turn it is — the same actor rules as a rejection — and with a comment
- * saying what to change.
+ * <p>Allowed when the flow's {@code returnEnabled} is set — at any of its steps — to one of the step's approvers
+ * whose turn it is — the same actor rules as a rejection — and with a comment saying what to change.
  */
 @Component
 public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturnRequest> {
@@ -55,15 +53,14 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
         PendingApproval pendingApproval = contextService.requirePendingApproval(state, request.getNodeId());
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
         CompiledFlowNode node = contextService.requiredNode(definition, pendingApproval.getNodeId());
-        ApprovalNodeConfig cfg = resolveConfig(node);
-        if (cfg == null || !Boolean.TRUE.equals(cfg.getReturnEnabled())) {
-            throw new FlowActionValidationException("Approval node does not allow return: " + node.getNodeId());
+        if (!Boolean.TRUE.equals(definition.getReturnEnabled())) {
+            throw new FlowActionValidationException("Flow '" + definition.getFlowName()
+                    + "' does not allow returning an approval to its initiator");
         }
         if (!StringUtils.hasText(state.getInitiatorId())) {
             throw new FlowActionValidationException("Flow instance does not record an initiator and cannot be returned: " + state.getInstanceId());
         }
         actorValidator.validateApprovalActor(pendingApproval, request.getActorId(), node);
-        actorValidator.requireNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
         // A return says what to change: the initiator edits the record and submits it again.
         if (!StringUtils.hasText(request.getComment())) {
             throw new FlowActionValidationException("A comment is required to return approval node: " + request.getNodeId());
@@ -88,8 +85,4 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
         return state;
     }
 
-    private static ApprovalNodeConfig resolveConfig(CompiledFlowNode node) {
-        Object parsed = node.getParsedConfig();
-        return parsed instanceof ApprovalNodeConfig cfg ? cfg : null;
-    }
 }

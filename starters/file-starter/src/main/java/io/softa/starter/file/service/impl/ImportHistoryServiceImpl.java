@@ -49,7 +49,7 @@ public class ImportHistoryServiceImpl extends EntityServiceImpl<ImportHistory, L
                 .where(new Filters()
                         .eq(ImportHistory::getCreatedId, userId)
                         .in(ImportHistory::getModelName, modelNames))
-                .orderBy(Orders.ofDesc(ImportHistory::getCreatedTime))
+                .orderBy(Orders.ofDesc(ImportHistory::getId))
                 .setConvertType(ConvertType.REFERENCE);
         return this.modelService.searchList(this.modelName, flexQuery);
     }

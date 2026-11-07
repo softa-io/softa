@@ -31,7 +31,7 @@ public class HumanTaskNodeExecutionHandler implements NodeExecutionHandler {
 
     @Override
     public NodeOutcome execute(CompiledFlowNode node, FlowVariableContext ctx) {
-        throw new FlowRuntimeException("HumanTask node '" + node.getNodeId()
+        throw new FlowRuntimeException("HumanTask node '" + node.displayName()
                 + "' is not supported: the runtime has no human-task wait yet. "
                 + "This node should have been rejected at compile time.");
     }

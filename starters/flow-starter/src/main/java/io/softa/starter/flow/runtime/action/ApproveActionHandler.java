@@ -66,7 +66,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         FlowExecutionStatus statusBefore = ctx.statusBefore();
 
         actorValidator.validateApprovalActor(pendingApproval, request.getActorId(), node);
-        actorValidator.requireNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
         // The actor is this node's approver — that, not the actor's own roles, is what authorizes the
         // writes from here on: the form edits the node allows and every node the approval resumes.
         // An approver rarely holds update on the record they approve; approving is the grant. The

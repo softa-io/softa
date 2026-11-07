@@ -123,7 +123,7 @@ class ManualCcScenarioTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approvers", List.of(FIRST, SECOND), "approvalMode", approvalMode))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(FIRST, SECOND))), "approvalMode", approvalMode))
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(

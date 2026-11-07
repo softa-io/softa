@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.ContextUtils;
@@ -51,11 +52,21 @@ public class TaskInstanceContextEnricher {
 
     private final FlowBundleRegistry bundleRegistry;
 
+    /** Where the waiting instances on a page stand now; null leaves {@code currentSteps} out. */
+    private final CurrentStepsReader currentStepsReader;
+
     public TaskInstanceContextEnricher(FlowInstanceService instanceService, FlowUserNames names,
                                        FlowBundleRegistry bundleRegistry) {
+        this(instanceService, names, bundleRegistry, null);
+    }
+
+    @Autowired
+    public TaskInstanceContextEnricher(FlowInstanceService instanceService, FlowUserNames names,
+                                       FlowBundleRegistry bundleRegistry, CurrentStepsReader currentStepsReader) {
         this.instanceService = instanceService;
         this.names = names;
         this.bundleRegistry = bundleRegistry;
+        this.currentStepsReader = currentStepsReader;
     }
 
     public void enrich(List<FlowApprovalTaskView> views) {
@@ -106,6 +117,8 @@ public class TaskInstanceContextEnricher {
             view.setSubmittedTime(instance.getCreatedTime());
             view.setEffectiveDate(instance.getEffectiveDate());
             view.setRecordCode(instance.getRecordCode());
+            view.setSummary(instance.getSummary());
+            view.setSuperseded(Boolean.TRUE.equals(instance.getSuperseded()) ? Boolean.TRUE : null);
             if (instance.getInitiatorId() != null) {
                 view.setInitiator(new FlowRecordApprovalsView.Actor(instance.getInitiatorId(), null));
                 initiators.add(view.getInitiator());
@@ -120,42 +133,74 @@ public class TaskInstanceContextEnricher {
             }
             if (instance.getBundleId() != null) {
                 definitions.computeIfAbsent(instance.getBundleId(), bundleRegistry::getByBundleId)
-                        .map(definition -> definition.getNodeIndex().get(view.getNodeId()))
-                        .ifPresent(node -> applyStepConfig(view, node));
+                        .ifPresent(definition -> {
+                            CompiledFlowNode node = definition.getNodeIndex().get(view.getNodeId());
+                            if (node != null) {
+                                applyStepConfig(view, definition, node);
+                            }
+                        });
             }
         }
         names.name(initiators);
         names.nameEmployees(subjects);
         names.nameDepartments(departments);
+        applyCurrentSteps(views);
     }
 
-    /** The accounts a task names: its holder, the step's candidates, who approved, rejected, closed or blocks it. */
+    /**
+     * Where each request still in approval stands now — the steps its instance waits on, with the approvers still to
+     * act, named: what a list of tasks already handled, or copied, says of the request. One query for the page.
+     */
+    private void applyCurrentSteps(List<FlowApprovalTaskView> views) {
+        if (currentStepsReader == null) {
+            return;
+        }
+        List<String> waiting = views.stream()
+                .filter(view -> view.getInstanceStatus() == FlowExecutionStatus.WAITING)
+                .map(FlowApprovalTaskView::getInstanceId)
+                .distinct()
+                .toList();
+        Map<String, List<FlowRecordApprovalsView.PendingStep>> steps = currentStepsReader.of(waiting);
+        if (steps.isEmpty()) {
+            return;
+        }
+        List<FlowRecordApprovalsView.Actor> approvers = new ArrayList<>();
+        steps.values().forEach(list -> list.forEach(step -> approvers.addAll(step.getApprovers())));
+        names.name(approvers);
+        views.forEach(view -> {
+            List<FlowRecordApprovalsView.PendingStep> current = steps.get(view.getInstanceId());
+            if (current != null) {
+                view.setCurrentSteps(current);
+            }
+        });
+    }
+
+    /** The accounts a task names: its holder, the step's candidates, who approved or closed it. */
     private static List<String> actorIdsOf(FlowApprovalTaskView view) {
         List<String> ids = new ArrayList<>();
         ids.add(view.getActorId());
-        Stream.of(view.getCandidateActors(), view.getApprovedActors(), view.getRejectedActors())
+        Stream.of(view.getCandidateActors(), view.getApprovedActors())
                 .filter(Objects::nonNull)
                 .forEach(ids::addAll);
         ids.add(view.getClosedByActorId());
-        ids.add(view.getBlockedByActorId());
         return ids.stream().filter(Objects::nonNull).distinct().toList();
     }
 
     /**
-     * A return-enabled step, as the node declares it; a step to fill in when it makes fields required (a handling
-     * step); batchable only while the task is open to its approver (pending, its add-sign prerequisite met, the
-     * instance waiting) and it is no step to fill in — a batch fills in nothing.
+     * A step its approvers may return, as its flow says ({@code returnEnabled}); a step to fill in when it makes fields
+     * required (a handling step); batchable only while the task is open to its approver (pending, the instance
+     * waiting) and it is no step to fill in — a batch fills in nothing.
      */
-    private static void applyStepConfig(FlowApprovalTaskView view, CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
+    private static void applyStepConfig(FlowApprovalTaskView view, CompiledFlowDefinition definition,
+                                        CompiledFlowNode node) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig)) {
             return;
         }
-        view.setReturnAllowed(Boolean.TRUE.equals(cfg.getReturnEnabled()));
+        view.setReturnAllowed(Boolean.TRUE.equals(definition.getReturnEnabled()));
         boolean fillIn = !FormPermissionService.requiredFields(node).isEmpty();
         view.setFillIn(fillIn);
         boolean open = view.getStatus() == FlowApprovalTaskStatus.PENDING
                 && view.getTaskType() == FlowApprovalTaskType.APPROVAL
-                && !Boolean.TRUE.equals(view.getBlocked())
                 && view.getInstanceStatus() == FlowExecutionStatus.WAITING;
         view.setBatchable(open && !fillIn);
     }

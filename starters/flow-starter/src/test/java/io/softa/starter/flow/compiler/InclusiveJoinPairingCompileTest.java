@@ -43,7 +43,7 @@ class InclusiveJoinPairingCompileTest {
                         edge("join-end", "join", "end"))));
 
         assertEquals(List.of("INCLUSIVE_JOIN_UNPAIRED"), codes(diagnostics));
-        assertTrue(diagnostics.getFirst().message().contains("entered from outside the gateway's branches, by 'other-join'"),
+        assertTrue(diagnostics.getFirst().message().contains("entered from outside the gateway's branches, by 'other → join'"),
                 diagnostics.getFirst().message());
     }
 
@@ -167,7 +167,7 @@ class InclusiveJoinPairingCompileTest {
 
     private static FlowGraphNode approval(String id) {
         return FlowGraphNode.builder().id(id).type(FlowNodeType.APPROVAL).label(id)
-                .config(Map.of("approvers", List.of("2001"))).build();
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001"))))).build();
     }
 
     private static FlowGraphEdge edge(String id, String source, String target) {

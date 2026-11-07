@@ -45,7 +45,12 @@ public @interface Model {
     /** Default search field names; empty = framework default. */
     String[] searchName() default {};
 
-    /** Default order entries, e.g. {@code "createdTime:desc"}. */
+    /**
+     * Default order entries, one sort each — {@code "field"} or {@code "field:dir"} — e.g. {@code {"sequence", "name"}}.
+     * Applies to paged and non-paged reads that name no order. Unset, a paged read lists the newest first
+     * ({@code id DESC}), the lines and tags a record's read expands (ONE_TO_MANY, MANY_TO_MANY) come in entry order
+     * ({@code id} ascending), and any other non-paged read is not sorted.
+     */
     String[] defaultOrder() default {};
 
     /**

@@ -67,7 +67,7 @@ class BatchApprovalScenarioTest {
 
     @Test
     void eachTaskIsApprovedOnItsOwnAndARefusalLeavesTheOthersApproved() {
-        publishService.publish("plain", flow(Map.of("approvers", List.of(APPROVER))));
+        publishService.publish("plain", flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))))));
         String first = start("plain");
         String second = start("plain");
 
@@ -85,9 +85,10 @@ class BatchApprovalScenarioTest {
 
     @Test
     void aStepThatAllowsNoReturnIsSkippedAndOneThatDoesIsReturned() {
-        publishService.publish("no-return", flow(Map.of("approvers", List.of(APPROVER))));
+        publishService.publish("no-return", flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))))));
         // A second approval flow of the document takes its records by a condition of its own
-        DesignFlowDefinition returnable = flow(Map.of("approvers", List.of(APPROVER), "returnEnabled", true));
+        DesignFlowDefinition returnable = flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER)))));
+        returnable.setReturnEnabled(true);
         returnable.setTrigger(new SubmitTrigger("LeaveRequest", "true"));
         publishService.publish("returnable", returnable);
         String kept = start("no-return");
@@ -98,14 +99,14 @@ class BatchApprovalScenarioTest {
 
         assertEquals(1, result.skipped());
         assertEquals(1, result.succeeded());
-        assertEquals("This step does not allow returns.", result.items().getFirst().message());
+        assertEquals("This approval does not allow returns.", result.items().getFirst().message());
         assertEquals(FlowExecutionStatus.WAITING, engine.getInstance(kept).orElseThrow().getStatus());
         assertEquals(FlowExecutionStatus.RETURNED, engine.getInstance(returned).orElseThrow().getStatus());
     }
 
     @Test
     void aStepWithFieldsToFillInIsNeverActedOnInABatch() {
-        publishService.publish("required", flow(Map.of("approvers", List.of(APPROVER),
+        publishService.publish("required", flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))),
                 "formPermissions", Map.of("decision", "Required"))));
         String required = start("required");
 
@@ -119,7 +120,7 @@ class BatchApprovalScenarioTest {
 
     @Test
     void aRejectionWithoutItsCommentIsRefusedTaskByTask() {
-        publishService.publish("plain", flow(Map.of("approvers", List.of(APPROVER))));
+        publishService.publish("plain", flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))))));
         String instance = start("plain");
 
         FlowBatchActionResult result = executor.execute(BatchApprovalExecutor.Action.REJECT, request(null, instance),

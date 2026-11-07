@@ -23,7 +23,7 @@ class MembershipOptionJsonTest {
     @Test
     void selectableReachesTheClient() throws Exception {
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false, null));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false, null, false));
 
         assertThat(json).contains("\"selectable\":true");
     }
@@ -31,7 +31,7 @@ class MembershipOptionJsonTest {
     @Test
     void aNonActiveOptionSaysSoOnTheWire() throws Exception {
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.FROZEN, false, false, null));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.FROZEN, false, false, null, false));
 
         assertThat(json).contains("\"selectable\":false");
     }
@@ -39,10 +39,10 @@ class MembershipOptionJsonTest {
     @Test
     void lockedIsCarried_andLeavesSelectableAlone() throws Exception {
         // The badge reaches the client; the picker's decision does not change with it, because a
-        // person who just got in with a code (allowed during a lock, PRD D5) must still be able to
+        // person who just got in with a code (allowed during a lock) must still be able to
         // enter their company.
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, true, false, null));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, true, false, null, false));
 
         assertThat(json).contains("\"locked\":true").contains("\"selectable\":true");
     }
@@ -50,7 +50,7 @@ class MembershipOptionJsonTest {
     @Test
     void theOtherFieldsAreCarriedToo() throws Exception {
         String json = mapper.writeValueAsString(
-                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false, null));
+                new MembershipOption(1L, 2L, "Acme", AccountStatus.ACTIVE, false, false, null, false));
 
         assertThat(json).contains("\"accountId\":1")
                 .contains("\"tenantId\":2")

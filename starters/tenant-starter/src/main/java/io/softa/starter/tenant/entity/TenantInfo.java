@@ -33,7 +33,8 @@ import io.softa.starter.tenant.enums.TenantStatus;
 @EqualsAndHashCode(callSuper = true)
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        softDelete = true
+        softDelete = true,
+        defaultOrder = {"name"}
 )
 @Index(indexName = "uk_tenant_info_subscription", fields = {"subscriptionId"}, unique = true)
 @Index(indexName = "uk_tenant_info_code", fields = {"code"}, unique = true,

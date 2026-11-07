@@ -16,6 +16,7 @@ import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
@@ -80,6 +81,41 @@ class ApproverResolutionServiceOrgTest {
         List<String> result = service.resolveApprovers(node, varsWithSubject("100", 5000L));
 
         assertTrue(result.isEmpty());
+    }
+
+    /**
+     * Why a step found nobody, for the refusal its submitter takes to HR: named for the source it finds people with
+     * (zingkey-hcm#2447).
+     */
+    @Test
+    void whyNobodyNamesWhatIsMissing() {
+        when(orgService.getEmployeeNames(List.of(5000L))).thenReturn(Map.of(5000L, "Alice Tan"));
+        when(orgService.getDeptIdOfEmployee(5000L)).thenReturn(10L);
+        when(orgService.getDeptNames(List.of(10L))).thenReturn(Map.of(10L, "Finance"));
+        // The submitter's account has no employee profile.
+        when(orgService.getEmployeeIdOfUser(100L)).thenReturn(null);
+
+        assertEquals("Alice Tan has no manager who can approve",
+                service.whyNobody(approvalNode(Map.of("type", "Supervisor")), varsWithSubject("100", 5000L)));
+        assertEquals("Alice Tan has no manager 2 levels up who can approve",
+                service.whyNobody(approvalNode(Map.of("type", "Supervisor", "level", 2)), varsWithSubject("100", 5000L)));
+        assertEquals("the submitter has no employee profile",
+                service.whyNobody(approvalNode(Map.of("type", "Supervisor", "relativeTo", "INITIATOR")),
+                        varsWithInitiator("100")));
+        assertEquals("Finance and the departments above it have no leader who can approve",
+                service.whyNobody(approvalNode(Map.of("type", "DeptLeader")), varsWithSubject("100", 5000L)));
+        assertEquals("nobody who can approve holds its roles",
+                service.whyNobody(approvalNode(Map.of("type", "RoleQuery", "roleIds", List.of(1))), Map.of()));
+    }
+
+    @Test
+    void anApproverExpressionThatFailsIsRefusedWithTheStep() {
+        CompiledFlowNode node = approvalNode(Map.of("type", "Expression", "expression", "1 +"));
+
+        var refused = org.junit.jupiter.api.Assertions.assertThrows(
+                io.softa.starter.flow.runtime.exception.FlowActionValidationException.class,
+                () -> service.resolveApprovers(node, varsWithSubject("100", 5000L)));
+        assertTrue(refused.getMessage().startsWith("The approver expression of step '"), refused.getMessage());
     }
 
     // ── DeptLeader ──────────────────────────────────────────────────────
@@ -319,20 +355,49 @@ class ApproverResolutionServiceOrgTest {
     }
 
     @Test
-    void staticApproversStillWork() {
-        ApprovalNodeConfig cfg = ApprovalNodeConfig.builder()
-                .approvers(List.of("alice", "bob"))
-                .approvalMode(VoteThresholdMode.ANY_ONE)
-                .build();
-        CompiledFlowNode node = CompiledFlowNode.builder()
-                .nodeId("a1")
-                .type(FlowNodeType.APPROVAL)
-                .parsedConfig(cfg)
-                .build();
+    void specificPeopleAreTheUsersTheSourceNames() {
+        CompiledFlowNode node = approvalNode(Map.of("type", "Users", "userIds", List.of("alice", " ", "bob", "alice")));
 
-        List<String> result = service.resolveApprovers(node);
+        assertEquals(List.of("alice", "bob"), service.resolveApprovers(node, varsWithInitiator("100")));
+        assertFalse(service.hasDynamicApproverSource(node), "named, not found when the step is reached");
+        assertTrue(service.hasDynamicApproverSource(approvalNode(Map.of("type", "Supervisor"))));
+    }
 
-        assertEquals(List.of("alice", "bob"), result);
+    // ── Groups ──────────────────────────────────────────────────────────
+
+    /** A step's groups make one pool: everyone they name or find, each once, in the groups' order. */
+    @Test
+    void aStepsGroupsMakeOnePool() {
+        when(orgService.getSupervisorOfEmployee(5000L, 1)).thenReturn(new ApproverInfo(200L, "Manager"));
+        CompiledFlowNode node = approvalNode(List.of(
+                Map.of("type", "Supervisor"),
+                Map.of("type", "Users", "userIds", List.of("300", "200"))));
+
+        assertEquals(List.of("200", "300"), service.resolveApprovers(node, varsWithSubject("100", 5000L)));
+        assertTrue(service.hasDynamicApproverSource(node), "one group finds its people when the step is reached");
+        assertFalse(service.hasDynamicApproverSource(approvalNode(List.of(
+                Map.of("type", "Users", "userIds", List.of("300")),
+                Map.of("type", "Users", "userIds", List.of("400"))))), "every group names its people");
+    }
+
+    /** A group that finds nobody leaves the others to decide; the pool is empty only when none finds anyone. */
+    @Test
+    void aGroupThatFindsNobodyLeavesTheOthers() {
+        when(orgService.getSupervisorOfEmployee(5000L, 1)).thenReturn(null);
+        when(orgService.getEmployeeNames(List.of(5000L))).thenReturn(Map.of(5000L, "Alice Tan"));
+        CompiledFlowNode withHr = approvalNode(List.of(
+                Map.of("type", "Supervisor"),
+                Map.of("type", "Users", "userIds", List.of("300"))));
+
+        assertEquals(List.of("300"), service.resolveApprovers(withHr, varsWithSubject("100", 5000L)));
+
+        CompiledFlowNode nobody = approvalNode(List.of(
+                Map.of("type", "Supervisor"),
+                Map.of("type", "RoleQuery", "roleIds", List.of(1))));
+        assertEquals(List.of(), service.resolveApprovers(nobody, varsWithSubject("100", 5000L)));
+        assertEquals("Alice Tan has no manager who can approve; nobody who can approve holds its roles",
+                service.whyNobody(nobody, varsWithSubject("100", 5000L)), "each group says why");
+        assertEquals("it names no approver", service.whyNobody(approvalNode(List.of()), Map.of()));
     }
 
     @Test
@@ -340,24 +405,28 @@ class ApproverResolutionServiceOrgTest {
         var field = ApproverResolutionService.class.getDeclaredField("actorAccounts");
         field.setAccessible(true);
         field.set(service, TestActorAccounts.of(Map.of(2002L, "Frozen"), Map.of()));
-        CompiledFlowNode named = CompiledFlowNode.builder().nodeId("a1").type(FlowNodeType.APPROVAL)
-                .parsedConfig(ApprovalNodeConfig.builder().approvers(List.of("2001", "2002")).build())
-                .build();
+        CompiledFlowNode named = approvalNode(Map.of("type", "Users", "userIds", List.of("2001", "2002")));
         Map<String, Object> vars = varsWithInitiator("100");
         vars.put("myApprovers", List.of("2002", "2003"));
 
-        assertEquals(List.of("2001"), service.resolveApprovers(named, vars), "static approvers");
+        assertEquals(List.of("2001"), service.resolveApprovers(named, vars), "specific people");
         assertEquals(List.of("2003"), service.resolveApprovers(approvalNode(Map.of("type", "VariableList",
                 "variable", "myApprovers")), vars), "a variable list");
         FlowExecutionState state = FlowExecutionState.builder().initiatorId("100").variables(new LinkedHashMap<>()).build();
-        assertEquals(List.of(), service.resolvePeople(List.of("2002"), null, state), "a CC rule's recipients");
+        assertEquals(List.of(), service.resolvePeople(Map.of("type", "Users", "userIds", List.of("2002")), state),
+                "a CC rule's recipients");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private CompiledFlowNode approvalNode(Map<String, Object> approverSource) {
+        return approvalNode(List.of(approverSource));
+    }
+
+    /** A step whose groups of approvers are {@code groups}. */
+    private CompiledFlowNode approvalNode(List<Map<String, Object>> groups) {
         ApprovalNodeConfig cfg = ApprovalNodeConfig.builder()
-                .approverSource(approverSource)
+                .approverSources(groups)
                 .approvalMode(VoteThresholdMode.ANY_ONE)
                 .build();
         return CompiledFlowNode.builder()

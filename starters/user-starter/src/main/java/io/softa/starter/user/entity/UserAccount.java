@@ -32,7 +32,8 @@ import io.softa.starter.user.enums.AccountStatus;
         multiTenant = true,
         copyable = false,
         displayName = {"nickname", "username"},
-        searchName = {"nickname", "username"}
+        searchName = {"nickname", "username"},
+        defaultOrder = {"nickname", "username"}
 )
 /**
  * A MEMBERSHIP: one person's employment at one company. The person is {@link UserProfile}.
@@ -42,7 +43,7 @@ import io.softa.starter.user.enums.AccountStatus;
  * ability — not to this one, which only moves where credentials are stored. Login still resolves an
  * account by its email, and a relaxed index would make that resolution ambiguous.
  */
-// Unique WITHIN a tenant, not globally (A3). The work email is this company's contact for an
+// Unique WITHIN a tenant, not globally. The work email is this company's contact for an
 // employment, and two unrelated customers employing people who happen to share an address is not a
 // conflict — a global index made the second company's hire fail on the first company's data, and
 // told them an account exists elsewhere while doing it.
@@ -70,6 +71,13 @@ public class UserAccount extends AuditableModel {
                     + "deleting a person is not something a tenant-scoped action may do")
     private Long profileId;
 
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = UserProfile.class, copyable = false,
+            description = "The person this membership belonged to before it was closed and reopened "
+                    + "for a re-hire. While the reopened row has no person, /join recognises this one "
+                    + "by their login mobile and binds them back instead of treating the number as "
+                    + "dormant")
+    private Long formerProfileId;
+
     /**
      * Denormalised from {@code ConsultantAuthorization} on purpose.
      *
@@ -95,11 +103,21 @@ public class UserAccount extends AuditableModel {
     // scanner never auto-DROPs, so rolling the binary back still finds its credentials. Dropping
     // them for real is a separate release step (user-02-drop-old-credential-columns.sql).
 
+    /** This company's enterprise email: the employee record's Work Email. Cleared when the account closes. */
     @Field
     private String email;
 
+    /**
+     * The mobile the account list shows and searches: the invitation mobile until the person joins,
+     * their login mobile after (kept in step when it changes), and on a closed account the number it
+     * had when it closed.
+     */
     @Field
     private String mobile;
+
+    @Field(copyable = false, description = "The enterprise email the account had when it closed; "
+            + "shown in the account list, never a login or a uniqueness check")
+    private String closedEmail;
 
     @Field(copyable = false)
     private LocalDateTime activationTime;
@@ -123,6 +141,14 @@ public class UserAccount extends AuditableModel {
     // reconciliation window that UserAccountController's unconditional strip covers.
     @Field(label = "Password lock", dynamic = true, readonly = true)
     private Boolean locked;
+
+    // DERIVED, not stored, like locked: the employee record this account signs in, read per row by
+    // the account list. Null when no employee record points at the account.
+    @Field(label = "Employee Name", dynamic = true, readonly = true)
+    private String employeeName;
+
+    @Field(label = "Employee Code", dynamic = true, readonly = true)
+    private String employeeCode;
 
     @Field
     private AccountStatus status;

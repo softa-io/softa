@@ -24,7 +24,8 @@ import io.softa.framework.orm.enums.WidgetType;
 @Model(
         label = "System Field",
         businessKey = {"modelName", "fieldName"},
-        description = "Metadata catalog of fields"
+        description = "Metadata catalog of fields",
+        defaultOrder = {"modelName", "fieldName"}
 )
 public class SysField extends AuditableModel {
 

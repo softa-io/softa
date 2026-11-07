@@ -36,6 +36,8 @@ import static org.mockito.Mockito.verify;
 class WorkContactSharedTest {
 
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     private static UserAccount account(Long id, Long profileId) {
         UserAccount a = new UserAccount();

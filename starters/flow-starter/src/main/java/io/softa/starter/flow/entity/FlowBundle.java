@@ -84,8 +84,4 @@ public class FlowBundle extends AuditableModel {
 
     @Field(description = "Whether this is the currently effective revision (one per design)")
     private Boolean active;
-
-    @Field(description = "Debug-run bundle: compiled from an unpublished draft, never active, "
-            + "hidden from revision lists, purged by the maintenance job")
-    private Boolean debug;
 }

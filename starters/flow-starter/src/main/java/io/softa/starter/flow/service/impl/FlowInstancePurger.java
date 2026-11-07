@@ -8,8 +8,7 @@ import io.softa.starter.flow.entity.*;
 
 /**
  * Deletes flow instances together with everything recorded under their instance id: trace rows,
- * approval tasks and records, parallel-branch rows. Shared by the purges of expired debug runs and of
- * expired Automation runs.
+ * approval tasks and records, parallel-branch rows: the purge of expired Automation runs.
  */
 @Component
 public class FlowInstancePurger {

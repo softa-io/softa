@@ -63,6 +63,7 @@ public final class FlowExecutionStateMapper {
         entity.setDepartmentId(state.getDepartmentId());
         entity.setEffectiveDate(state.getEffectiveDate());
         entity.setRecordCode(state.getRecordCode());
+        entity.setSummary(state.getSummary());
         entity.setTriggerEventId(state.getTriggerEventId());
         // Held while the record's approval is unfinished; the unique index on it keeps a record
         // to one approval in progress, concurrent submissions included.
@@ -105,6 +106,7 @@ public final class FlowExecutionStateMapper {
                 .departmentId(entity.getDepartmentId())
                 .effectiveDate(entity.getEffectiveDate())
                 .recordCode(entity.getRecordCode())
+                .summary(entity.getSummary())
                 .triggerEventId(entity.getTriggerEventId())
                 .status(entity.getStatus())
                 .errorMessage(entity.getErrorMessage())

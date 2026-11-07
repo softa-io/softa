@@ -126,21 +126,6 @@ class FlowInstanceAccessGuardTest {
     }
 
     @Test
-    void runtimeStateAddSignParticipantsAreAllowed() {
-        FlowExecutionState state = FlowExecutionState.builder()
-                .instanceId("i1")
-                .initiatorId("initiator")
-                .pendingApprovals(List.of(PendingApproval.builder()
-                        .blockedActorId("blocked")
-                        .prerequisiteActorId("prereq")
-                        .build()))
-                .build();
-
-        assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "blocked"));
-        assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "prereq"));
-    }
-
-    @Test
     void runtimeStateHistoryParticipantIsAllowed() {
         FlowExecutionState state = FlowExecutionState.builder()
                 .instanceId("i1")
@@ -149,14 +134,12 @@ class FlowInstanceAccessGuardTest {
                         .actorId("actor")
                         .targetActorId("target")
                         .approvedActors(List.of("approved"))
-                        .rejectedActors(List.of("rejected"))
                         .build()))
                 .build();
 
         assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "actor"));
         assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "target"));
         assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "approved"));
-        assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "rejected"));
     }
 
     @Test
@@ -327,7 +310,7 @@ class FlowInstanceAccessGuardTest {
 
     @Test
     void onlyARecordsApprovalLendsItsRecord() {
-        // An explicit start or a debug run names its record freely; its initiator must not read it past
+        // An explicit start names its record freely; its initiator must not read it past
         // their own row permissions through the instance, nor learn through it which record a run works on.
         FlowExecutionState namedFreely = FlowExecutionState.builder()
                 .instanceId("i2")
@@ -379,11 +362,11 @@ class FlowInstanceAccessGuardTest {
     @Test
     void whoTookPartInNoneReadsTheRecordWithTheirOwnPermissionsOrIsRefused() {
         FlowExecutionState approval = approvalOf("i1", PendingApproval.builder().approvers(List.of("approver")).build());
-        // A debug run the reader started on the record is not its approval, and lends nothing — the guard does not
+        // A run the reader started on the record is not its approval, and lends nothing — the guard does not
         // count on the service to have left such runs out.
-        FlowExecutionState debugRun = FlowExecutionState.builder().instanceId("d1").initiatorId("reader")
+        FlowExecutionState otherRun = FlowExecutionState.builder().instanceId("d1").initiatorId("reader")
                 .modelName("ExpenseClaim").rowId("7").build();
-        when(instanceService.recordApprovalStates("ExpenseClaim", "7")).thenReturn(List.of(debugRun, approval));
+        when(instanceService.recordApprovalStates("ExpenseClaim", "7")).thenReturn(List.of(otherRun, approval));
         when(instanceService.recordApprovalStates("ExpenseClaim", "8")).thenReturn(List.of());
         try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class);
              MockedStatic<IdUtils> ids = mockStatic(IdUtils.class)) {

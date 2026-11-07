@@ -22,7 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Reading the work contacts from the employee record (S-B / D23).
+ * Reading the work contacts from the employee record.
  *
  * <p>Where they are read from is the whole point. Reset User notifies the address it is REPLACING,
  * so the account has to still hold the old value when it runs — which is only true because nothing
@@ -42,6 +42,8 @@ class ArchiveWorkContactsTest {
     @SuppressWarnings("unchecked")
     private final ModelService<Long> modelService = mock(ModelService.class);
     private final UserAccountServiceImpl accountService = new UserAccountServiceImpl();
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     /** The Employee model exists only in an HR deployment, and the read is skipped without it. */
     private MockedStatic<ModelManager> modelManager;

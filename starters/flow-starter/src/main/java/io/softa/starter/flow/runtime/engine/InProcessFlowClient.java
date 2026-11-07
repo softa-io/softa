@@ -86,6 +86,11 @@ public class InProcessFlowClient implements FlowClient {
     }
 
     @Override
+    public FlowApprovalPreview previewValues(String modelName, Map<String, Object> values) {
+        return launch.previewValues(modelName, values, currentUserId());
+    }
+
+    @Override
     public FlowExecutionState withdrawRecord(String modelName, String rowId, String comment) {
         return launch.withdrawRecord(modelName, rowId, currentUserId(), comment);
     }
@@ -149,18 +154,6 @@ public class InProcessFlowClient implements FlowClient {
     public FlowExecutionState delegate(FlowDelegateRequest r) {
         r.setActorId(currentUserId());
         return engine.delegate(r);
-    }
-
-    @Override
-    public FlowExecutionState addSignBefore(FlowAddSignBeforeRequest r) {
-        r.setActorId(currentUserId());
-        return engine.addSignBefore(r);
-    }
-
-    @Override
-    public FlowExecutionState addSignAfter(FlowAddSignAfterRequest r) {
-        r.setActorId(currentUserId());
-        return engine.addSignAfter(r);
     }
 
     @Override

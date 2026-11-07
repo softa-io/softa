@@ -1,5 +1,6 @@
 package io.softa.starter.user.controller;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -18,6 +20,8 @@ import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.dto.MembershipOption;
@@ -27,6 +31,7 @@ import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
+import io.softa.starter.user.service.impl.LoginHistoryRecorder;
 import io.softa.starter.user.service.impl.LoginServiceImpl;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,6 +73,7 @@ class LoginControllerTenantSwitchTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final TenantInfoService tenantInfoService = mock(TenantInfoService.class);
     private final CacheService cacheService = mock(CacheService.class);
+    private final SessionStore sessionStore = new SessionStore(cacheService, mock(ApplicationEventPublisher.class));
     private final LoginServiceImpl loginService = new LoginServiceImpl();
     private final LoginController controller = new LoginController();
 
@@ -91,9 +97,14 @@ class LoginControllerTenantSwitchTest {
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
+        // Every company here is a live customer unless a test says otherwise.
+        when(tenantInfoService.isTenantActive(org.mockito.ArgumentMatchers.any())).thenReturn(true);
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(controller, "loginService", loginService);
-        ReflectionTestUtils.setField(controller, "cacheService", cacheService);
+        ReflectionTestUtils.setField(controller, "sessionStore", sessionStore);
+        ReflectionTestUtils.setField(controller, "profileService", profileService);
+        ReflectionTestUtils.setField(controller, "loginHistory", mock(LoginHistoryRecorder.class));
+        ReflectionTestUtils.setField(loginService, "sessionStore", sessionStore);
 
         when(tenantInfoService.getTenantName(1L)).thenReturn("Acme");
         when(tenantInfoService.getTenantName(2L)).thenReturn("Globex");
@@ -114,11 +125,49 @@ class LoginControllerTenantSwitchTest {
         return account;
     }
 
+    /** The APP's session, sent the APP's way: the header, with the APP's own headers. */
+    private MockHttpServletRequest appSignedInAt(Long accountId) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(io.softa.starter.user.util.ClientInfo.PLATFORM_HEADER, "ios");
+        request.addHeader(BaseConstant.SESSION_ID_HEADER, OLD_SESSION);
+        when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
+                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, "ios", "1.0.0", null, LocalDateTime.now()));
+        return request;
+    }
+
+    @Test
+    void aWebSessionSentFromTheApp_orAnAppSessionFromTheWeb_isRefused_andNotEnded() {
+        givenMemberships(membership(HERE, 1L, AccountStatus.ACTIVE));
+        // A Web session (no client recorded) presented with the APP headers and as X-Session-Id.
+        MockHttpServletRequest stolen = new MockHttpServletRequest();
+        stolen.addHeader(io.softa.starter.user.util.ClientInfo.PLATFORM_HEADER, "ios");
+        stolen.addHeader(BaseConstant.SESSION_ID_HEADER, OLD_SESSION);
+        when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
+                .thenReturn(new SessionRecord(HERE, PROFILE, 1L, null, null, null, LocalDateTime.now()));
+
+        assertThatThrownBy(() -> controller.myTenants(stolen))
+                .isInstanceOf(io.softa.framework.base.exception.UserNotFoundException.class)
+                .extracting(e -> ((io.softa.framework.base.exception.UserNotFoundException) e).getErrorCode())
+                .isEqualTo(io.softa.framework.web.session.SessionErrorCodes.SESSION_EXPIRED);
+
+        // The APP's session sent as a Web cookie, without the APP headers.
+        MockHttpServletRequest asWeb = new MockHttpServletRequest();
+        asWeb.setCookies(new Cookie(BaseConstant.SESSION_ID, OLD_SESSION));
+        when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
+                .thenReturn(new SessionRecord(HERE, PROFILE, 1L, "android", "1.0.0", null, LocalDateTime.now()));
+        assertThatThrownBy(() -> controller.switchTenant(switchTo(THERE), asWeb, response))
+                .isInstanceOf(io.softa.framework.base.exception.UserNotFoundException.class);
+
+        verify(cacheService, never()).clear(java.util.List.of("session:" + OLD_SESSION));
+        verify(cacheService, never()).save(anyString(), any(), anyInt());
+    }
+
     /** A live session cookie standing for the membership the caller is currently inside. */
     private MockHttpServletRequest signedInAt(Long accountId) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(BaseConstant.SESSION_ID, OLD_SESSION));
-        when(cacheService.get("session:" + OLD_SESSION, Long.class)).thenReturn(accountId);
+        when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
+                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, null, null, null, LocalDateTime.now()));
         return request;
     }
 
@@ -160,15 +209,54 @@ class LoginControllerTenantSwitchTest {
         ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object> value = ArgumentCaptor.forClass(Object.class);
         verify(cacheService).save(key.capture(), value.capture(), anyInt());
-        assertThat(value.getValue()).isEqualTo(THERE);
+        assertThat(((SessionRecord) value.getValue()).accountId()).isEqualTo(THERE);
         String newSessionId = key.getValue().substring("session:".length());
         assertThat(newSessionId).isNotEqualTo(OLD_SESSION);
 
         // Load-bearing: the previous session id is invalidated. Left standing, a copy of the old
         // cookie keeps the previous company open next to the new one.
-        verify(cacheService).clear("session:" + OLD_SESSION);
+        verify(cacheService).clear(java.util.List.of("session:" + OLD_SESSION));
 
         assertThat(response.getHeader("Set-Cookie")).contains(BaseConstant.SESSION_ID + "=" + newSessionId);
+        // Web keeps it in the cookie only: a copy in the body would be readable by page scripts.
+        assertThat(result.sessionToken()).isNull();
+    }
+
+    @Test
+    void aSessionOfThePreviousHolder_cannotSwitch_onceTheAccountIsSomeoneElses() {
+        // The account was closed, reopened and joined by person 8; this session was opened for 7.
+        UserInfo nowHeldBy = userInfoOf(HERE);
+        nowHeldBy.setProfileId(8L);
+        when(profileService.getUserInfo(HERE)).thenReturn(nowHeldBy);
+        MockHttpServletRequest request = signedInAt(HERE);
+
+        assertThatThrownBy(() -> controller.switchTenant(switchTo(THERE), request, response))
+                .isInstanceOf(io.softa.framework.base.exception.UserNotFoundException.class)
+                .extracting(e -> ((io.softa.framework.base.exception.UserNotFoundException) e).getErrorCode())
+                .isEqualTo(io.softa.framework.web.session.SessionErrorCodes.SESSION_EXPIRED);
+        verify(cacheService).clear(java.util.List.of("session:" + OLD_SESSION));
+        verify(accountService, never()).listMembershipsOf(any());
+    }
+
+    @Test
+    void theApp_alsoGetsTheNewSessionInTheBody() {
+        givenMemberships(membership(HERE, 1L, AccountStatus.ACTIVE), membership(THERE, 2L, AccountStatus.ACTIVE));
+        when(profileService.getUserInfo(THERE)).thenReturn(userInfoOf(THERE));
+        MockHttpServletRequest request = appSignedInAt(HERE);
+        // iOS keeps cookies unless told not to: one riding along changes nothing.
+        request.setCookies(new Cookie(BaseConstant.SESSION_ID, "a-stale-cookie"));
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(request));
+        try {
+            AuthenticationResult result = controller.switchTenant(switchTo(THERE), request, response).getData();
+
+            // It keeps no cookies and sends it back as X-Session-Id: the body, and no cookie.
+            assertThat(result.sessionToken()).isNotBlank();
+            assertThat(response.getHeader("Set-Cookie")).isNull();
+            verify(cacheService).clear(java.util.List.of("session:" + OLD_SESSION));
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     @Test
@@ -272,7 +360,7 @@ class LoginControllerTenantSwitchTest {
     void anExpiredSession_isRefused() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(BaseConstant.SESSION_ID, OLD_SESSION));
-        when(cacheService.get("session:" + OLD_SESSION, Long.class)).thenReturn(null);
+        when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class)).thenReturn(null);
 
         assertThatThrownBy(() -> controller.switchTenant(switchTo(THERE), request, response))
                 .isInstanceOf(UserNotFoundException.class);

@@ -77,7 +77,6 @@ class AssignToRoleTest {
         PendingApproval step = state.getPendingApprovals().getFirst();
         assertEquals(List.of("3001", "3002"), step.getApprovers(), "the submitter and the subject are left out");
         assertEquals(1, step.getRequiredApprovalCount(), "any one, though the node asks all");
-        assertEquals(1, step.getRequiredRejectCount());
         assertEquals(List.of("HR Admin"), step.getAssignedRoles());
 
         approve(state, "3002");
@@ -112,7 +111,7 @@ class AssignToRoleTest {
     void handingToRolesNamesAtLeastOne() {
         DesignFlowDefinition design = flow();
         design.getGraph().getNodes().stream().filter(node -> "hr".equals(node.getId())).findFirst().orElseThrow()
-                .setConfig(Map.of("approverSource", Map.of("type", "Supervisor"), "emptyApproverStrategy", "AssignToRole"));
+                .setConfig(Map.of("approverSources", List.of(Map.of("type", "Supervisor")), "emptyApproverStrategy", "AssignToRole"));
 
         List<CompileDiagnostic> diagnostics = new DefaultFlowCompiler().validate(design);
 
@@ -149,7 +148,7 @@ class AssignToRoleTest {
         List<FlowGraphNode> nodes = new ArrayList<>(List.of(
                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),
                 FlowGraphNode.builder().id("hr").type(FlowNodeType.APPROVAL).label("HR approval")
-                        .config(Map.of("approverSource", Map.of("type", "Supervisor"), "approvalMode", "Unanimous",
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor")), "approvalMode", "Unanimous",
                                 "emptyApproverStrategy", "AssignToRole", "emptyApproverRoleCodes", List.of("HR_ADMIN")))
                         .build(),
                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build()));

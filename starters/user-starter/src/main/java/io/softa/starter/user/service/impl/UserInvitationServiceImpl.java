@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -37,6 +38,14 @@ import io.softa.starter.user.entity.UserInvitation;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.InvitationPurpose;
 import io.softa.starter.user.enums.InvitationStatus;
+import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.entity.UserSecurityLog;
+import io.softa.starter.user.enums.SecurityAction;
+import io.softa.starter.user.enums.SecurityLogSource;
+import io.softa.starter.user.service.UserSecurityLogService;
+import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
@@ -56,7 +65,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     private static final int EXPIRY_DAYS = 7;
     /** Token entropy: 32 random bytes → URL-safe Base64 (~43 chars). */
     private static final int TOKEN_BYTES = 32;
-    /** Cap on the unbind reason (W5). Long enough for a sentence, short enough to stay readable. */
+    /** Cap on the unbind reason. Long enough for a sentence, short enough to stay readable. */
     private static final int MAX_REASON_LENGTH = 500;
     /** Template codes, seeded as system ({@code tenantId=0}) rows by the host app.
      *  {@code MailTemplate} and {@code SmsTemplate} are separate models, so one code names
@@ -77,6 +86,20 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     private final VerificationCodeGuard codeGuard;
     /** Site origin every invitation / reset link is built on ({@code system.site-url}). */
     private final SystemConfig systemConfig;
+
+    /** Splits the invitation mobile into dial code, country and masked number for the join page. */
+    @Autowired
+    private JoinMobileFormat mobileFormat;
+
+    @Autowired
+    private UserSecurityLogService securityLog;
+
+    @Autowired
+    private UserSessionService sessionService;
+
+    /** Optional: present only where APP push is deployed. */
+    @Autowired(required = false)
+    private PushDeviceRegistry pushDeviceRegistry;
 
     public UserInvitationServiceImpl(UserAccountService accountService,
                                      UserIdentityService identityService,
@@ -151,7 +174,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         issue(account, InvitationPurpose.INVITE, invitedBy);
     }
 
-    /** Statuses a mis-binding can be corrected from (§2.3 matrix, row "Unbind & Re-invite"). */
+    /** Statuses a mis-binding can be corrected from with Unbind & Re-invite. */
     private static final Set<AccountStatus> UNBINDABLE = Set.of(
             AccountStatus.INVITED, AccountStatus.ACTIVE, AccountStatus.LOCKED, AccountStatus.FROZEN);
 
@@ -164,18 +187,17 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         Assert.notBlank(reason, "A reason is required to unbind this account.");
         Assert.isTrue(reason.trim().length() <= MAX_REASON_LENGTH,
                 "The reason cannot exceed " + MAX_REASON_LENGTH + " characters.");
-        // From the employee record, not the caller (S-B / D23): the corrected contact is HR's edit
+        // From the employee record, not the caller: the corrected contact is HR's edit
         // to the record, and this operation carries it onto the membership. A typo is fixed where
         // it lives rather than retyped here, so the two cannot end up disagreeing.
-        WorkContacts archive = accountService.archiveWorkContacts(userId);
-        // Trimmed, case kept, mobile separators collapsed — the form UserAccount.email / mobile hold
-        // everywhere, so the equality queries behind the shared-contact guard find this row (see
-        // UserAccountServiceImpl.workContact).
-        String email = StringUtils.trimToNull(archive.email());
-        String mobile = LoginIdentifiers.collapseMobile(StringUtils.trimToNull(archive.mobile()));
-        if (email == null && mobile == null) {
+        // The enterprise email is the record's Work Email; the invitation goes to the record's
+        // personal mobile, which becomes the login mobile of whoever joins.
+        String email = StringUtils.trimToNull(accountService.archiveWorkContacts(userId).email());
+        String mobile = LoginIdentifiers.collapseMobile(StringUtils.trimToNull(
+                accountService.archivePersonalMobile(userId)));
+        if (mobile == null) {
             throw new BusinessException(
-                    "Enter the correct work email or work mobile before re-inviting.");
+                    "Enter the employee's personal mobile on their record before re-inviting.");
         }
 
         UserAccount account = accountService.getById(userId)
@@ -186,6 +208,9 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (!UNBINDABLE.contains(account.getStatus())) {
             throw new BusinessException("This account cannot be unbound in its current state.");
         }
+        // The record has to have changed: re-inviting to the very contacts the last invitation went
+        // to reaches the same wrong person again. Asked before anyone is signed out or detached.
+        this.refuseUnchangedInvitation(userId, email, mobile);
         // Refused here rather than at the unique index: "this email is already registered" from a
         // constraint violation names no account and arrives after the unbind has been written.
         accountService.findContactHolderInTenant(email, userId)
@@ -194,11 +219,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                             "That work email already belongs to another account.");
                 });
 
-        // ① Release what this company issued from the OLD person's login identifiers, FIRST. The
-        // order encodes which half is security-critical: a failure after this point leaves the
-        // membership detached, which is recoverable, while the reverse leaves the wrong person
-        // holding a live login route into an address this company is about to hand to someone else.
-        accountService.releaseLoginIdentifiers(account);
+        // ① The wrong person is signed out of this company on every device, FIRST: a failure after
+        // this point leaves a detached membership, which is recoverable. Their login mobile is
+        // their own and stays — it signs them into their other companies — and the enterprise
+        // email stops signing them in here as soon as the account is no longer joined.
+        sessionService.revokeAccount(userId, SessionRevokeReason.UNBOUND);
 
         // ② Detach, ③ record the corrected contacts, and reset to "not contacted yet".
         Long previousProfileId = account.getProfileId();
@@ -213,8 +238,38 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
         // ④ Fresh token, every outstanding one revoked inside issue().
         issue(account, InvitationPurpose.REINVITE, operatedBy, reason.trim());
+        UserSecurityLog row = securityLog.entry(SecurityAction.UNBIND_AND_REINVITE,
+                SecurityLogSource.USER_ACCOUNTS, account, previousProfileId);
+        row.setReason(reason.trim());
+        securityLog.record(row);
         log.warn("Account {} unbound from profile {} and re-invited by {}. Reason: {}",
                 userId, previousProfileId, operatedBy, reason.trim());
+    }
+
+    /**
+     * Refuse when the record's personal mobile and work email both equal what this account's last
+     * invitation went to. Mobiles are compared in their normalised form, a blank email equals a blank
+     * one. An account never invited has nothing to compare and is let through. A forgot-password
+     * link is not an invitation and does not count.
+     */
+    private void refuseUnchangedInvitation(Long accountId, String email, String mobile) {
+        Optional<UserInvitation> last = this.searchList(new Filters().eq(UserInvitation::getUserId, accountId)).stream()
+                .filter(invitation -> invitation.getPurpose() != InvitationPurpose.PASSWORD_RESET)
+                .max(java.util.Comparator.comparing(UserInvitation::getCreatedTime,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
+                        .thenComparing(UserInvitation::getId, java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())));
+        if (last.isEmpty()) {
+            return;
+        }
+        boolean sameMobile = Objects.equals(LoginIdentifiers.normalize(StringUtils.trimToNull(mobile)),
+                LoginIdentifiers.normalize(StringUtils.trimToNull(last.get().getMobile())));
+        boolean sameEmail = StringUtils.equalsIgnoreCase(StringUtils.trimToNull(email),
+                StringUtils.trimToNull(last.get().getEmail()));
+        if (sameMobile && sameEmail) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.INVITATION_UNCHANGED,
+                    "The personal mobile and work email are the same as the last invitation. "
+                            + "Update the employee profile first.");
+        }
     }
 
     @SkipPermissionCheck
@@ -315,15 +370,19 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
      * has no mailbox to prove, so it gets nothing.
      */
     private Optional<ResetTarget> resolveResetTarget(String identifier) {
+        // A reset link is mailed: only an email can carry it. A mobile resolves the person too, but
+        // there is no mailbox in it to prove.
+        if (identifier == null || !identifier.contains("@")) {
+            return Optional.empty();
+        }
         String typed = LoginIdentifiers.typedForm(identifier);
         Optional<UserIdentity> identity = identityService.findByLoginIdentifier(typed);
         if (identity.isEmpty() || StringUtils.isBlank(identity.get().getPassword())) {
             return Optional.empty();
         }
+        // The lookup itself proved the address signs this person in — the enterprise email of an
+        // account they have joined, or a consultant's own address — so it is theirs to reset by.
         String canonical = LoginIdentifiers.normalize(identifier);
-        if (!canonical.equals(LoginIdentifiers.normalize(identity.get().getLoginEmail()))) {
-            return Optional.empty();
-        }
         List<UserAccount> active = accountService.listMembershipsOf(identity.get().getProfileId()).stream()
                 .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
                 .toList();
@@ -495,6 +554,13 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         log.debug("Invitation link ({}) for {}: {}", purpose, mailTo, link);
     }
 
+    @Override
+    @SkipPermissionCheck
+    @CrossTenant
+    public void revokeOutstandingLinks(Long userId) {
+        revokePending(userId);
+    }
+
     private void revokePending(Long userId) {
         // A user has at most a handful of invitations; filter PENDING in memory to avoid an
         // enum-valued query filter.
@@ -522,7 +588,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         Assert.notBlank(rawToken, "This link is invalid.");
         Assert.notBlank(newPassword, "New password cannot be empty.");
         // Strength is checked inside credentialService.setPassword against the person's own
-        // identifiers (PRD D4) — a bare minimum-length assertion here would contradict it.
+        // identifiers — a bare minimum-length assertion here would contradict it.
 
         UserInvitation invitation = this.searchOne(
                         new Filters().eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
@@ -556,7 +622,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 : identityService.findByProfile(account.getProfileId());
         if (account.getStatus() != AccountStatus.ACTIVE
                 || identity.isEmpty() || StringUtils.isBlank(identity.get().getPassword())
-                || !addressedToTheirLogin(invitation, identity.get())) {
+                || !this.addressedToThem(invitation, identity.get())) {
             throw new BusinessException("This link is no longer valid. Please contact your administrator.");
         }
         // The password goes on the PERSON, so accepting an invitation from company B when you
@@ -567,23 +633,46 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         invitation.setAcceptedAt(LocalDateTime.now());
         this.updateOne(invitation);
 
+        // As a reset by code ends: whoever knew the old password may be signed in somewhere, so every
+        // session of the person ends (and the sign-in tokens issued before), and no device keeps
+        // receiving their notifications.
+        Long profileId = identity.get().getProfileId();
+        sessionService.revokePerson(profileId, null, SessionRevokeReason.PASSWORD_RESET);
+        if (pushDeviceRegistry != null) {
+            pushDeviceRegistry.unregisterPerson(profileId);
+        }
+        securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB, account, profileId));
+
         log.info("User {} set password via {} token (invitation {}).",
                 invitation.getUserId(), invitation.getPurpose(), invitation.getId());
     }
 
-    /** Whether the link was mailed to the person's own login email — canonical forms, blank never matches. */
-    private static boolean addressedToTheirLogin(UserInvitation invitation, UserIdentity identity) {
-        String sentTo = LoginIdentifiers.normalize(invitation.getEmail());
-        return sentTo != null && sentTo.equals(LoginIdentifiers.normalize(identity.getLoginEmail()));
+    /**
+     * Whether the link went to an address that signs this very person in — the enterprise email of an
+     * account they have joined, or a consultant's own address. A blank one, or one that now signs in
+     * nobody or someone else, never matches.
+     */
+    private boolean addressedToThem(UserInvitation invitation, UserIdentity identity) {
+        String sentTo = StringUtils.trimToNull(invitation.getEmail());
+        if (sentTo == null) {
+            return false;
+        }
+        try {
+            return identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(sentTo))
+                    .map(holder -> Objects.equals(holder.getProfileId(), identity.getProfileId()))
+                    .orElse(false);
+        } catch (BusinessException shared) {
+            return false;   // the address names more than one person: not proof of this one
+        }
     }
 
     /**
-     * Confirm joining: bind the person to the membership and activate it (PRD §3.3 / §4.4).
+     * Confirm joining: bind the person to the membership and activate it.
      *
      * <p><b>Binding happens HERE, not when the password was set.</b> Someone who sets a password
      * and closes the tab has proved control of the invitation but has not agreed to join this
-     * company — their membership stays INVITED and the confirm screen is what they return to
-     * (E8). Activating early would make "set a password" mean "accepted", which is exactly the
+     * company — their membership stays INVITED and the confirm screen is what they return to.
+     * Activating early would make "set a password" mean "accepted", which is exactly the
      * mis-binding the confirm screen exists to prevent.
      *
      * <p>Re-entrant on purpose: a double-tapped Join Now must not fail. An already-activated
@@ -603,8 +692,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         Assert.notNull(profileId, "profileId is required");
         JoinEntry entry = this.inspectJoinToken(rawToken);
         if (!entry.usable()) {
-            if (entry.reason() == JoinEntry.Reason.ALREADY_JOINED) {
-                return;   // re-entrant: a double tap is not an error
+            // Re-entrant: a double tap is not an error. The first confirm marked the invitation
+            // accepted, which the entry check reads as a spent link, so a tap that follows it lands
+            // here too and is told nothing it does not already know.
+            if (entry.reason() == JoinEntry.Reason.ALREADY_JOINED || this.acceptedBy(rawToken, profileId)) {
+                return;
             }
             throw new BusinessException("This link is no longer valid. Please contact your administrator.");
         }
@@ -621,60 +713,48 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         UserAccount account = accountService.getById(invitation.getUserId())
                 .orElseThrow(() -> new BusinessException("Account not found."));
 
-        // A row that already belongs to a person (a re-hired leaver's revived membership) is not
-        // reassigned by whoever holds the link. verifyJoinCode returns that person for such a row,
-        // so a mismatch here is either a stale client or a caller naming a profileId of their own
-        // choosing — and overwriting would orphan the real person: their password and their other
-        // tenants stay on the old profileId while this row walks off with a new one.
-        if (account.getProfileId() != null && !account.getProfileId().equals(profileId)) {
+        // A row bound to someone else is not reassigned by whoever holds the link — unless that
+        // someone is only the placeholder minted when HR created the account (no password, nothing
+        // else joined): the person is decided at /join by the number verified, and verifyJoinCode
+        // has just decided it.
+        if (account.getProfileId() != null && !account.getProfileId().equals(profileId)
+                && !this.isPlaceholderPerson(account.getProfileId(), account.getId())) {
             throw new BusinessException("This link does not belong to that account.");
         }
 
-        // Refuse if this person already occupies this company's (tenant, profile) slot (PRD §4.5).
-        // The unique index would refuse the bind too, but a constraint violation is not something a
-        // person can be told about — and a DEACTIVATED prior membership needs a DIFFERENT message:
-        // re-hiring reuses that row (reviveMembership), so a new invitation is the wrong tool and
-        // would only hit the index. listMembershipsOf hides deactivated rows, which is exactly the
-        // case that would otherwise surface as a raw constraint error, so this asks for all statuses.
-        accountService.findMembershipInTenant(account.getTenantId(), profileId)
-                .filter(existing -> !existing.getId().equals(account.getId()))
-                .ifPresent(existing -> {
-                    if (existing.getStatus() == AccountStatus.DEACTIVATED) {
-                        throw new BusinessException("This person previously left this company. Use "
-                                + "the re-hire flow rather than a new invitation.");
-                    }
-                    throw new BusinessException(
-                            "You are already a member of this company. Please contact your administrator.");
-                });
-
-        // The profileId is supplied by the CALLER (it came back from verifyJoinCode, but the
-        // /confirmJoin endpoint is anonymous and re-accepts it), so it has to be tied to the token
-        // here — otherwise a holder of any valid invitation could bind their account to someone
-        // else's person by naming that person's id.
-        //
-        // For a row that already belongs to a person, the equality asserted above IS the tie: the
-        // invitation was issued for this very row, and verifyJoinCode proved control of the address
-        // it was sent to. The contact comparison below would refuse exactly the person it exists to
-        // admit — a re-hired leaver who kept a personal login email (ada@personal.com) while the
-        // invitation went to the work address on her revived row (ada@acme.com), an address
-        // off-boarding released from her identity and which verifyJoinCode deliberately does not
-        // always rebind (see its takeover note). So the contact check is made for UNBOUND rows only.
-        //
-        // For an unbound row the contact IS the tie, the same one setJoinPassword makes: the
-        // person's login identifier must be one the invitation was addressed to. A first-time
-        // invitee passes because createPersonForJoin seeded that identifier from this very address.
-        if (account.getProfileId() == null) {
-            JoinContacts contacts = new JoinContacts(invitation.getEmail(), invitation.getMobile());
-            UserIdentity boundIdentity = identityService.findByProfile(profileId)
-                    .orElseThrow(() -> new BusinessException("Person record not found."));
-            if (!contacts.includes(boundIdentity.getLoginEmail())
-                    && !contacts.includes(boundIdentity.getLoginMobile())) {
-                throw new BusinessException("This link does not belong to that account.");
+        // The person already holds a live account in this company.
+        Optional<UserAccount> here = accountService.findMembershipInTenant(account.getTenantId(), profileId)
+                .filter(existing -> !existing.getId().equals(account.getId()));
+        if (here.isPresent()) {
+            this.logJoinBlocked(account, profileId, here.get().getStatus() == AccountStatus.DEACTIVATED
+                    ? "Previously left this company" : AccountErrorCodes.ALREADY_JOINED);
+            if (here.get().getStatus() == AccountStatus.DEACTIVATED) {
+                throw new BusinessException("This person previously left this company. Use "
+                        + "the re-hire flow rather than a new invitation.");
             }
+            throw AccountErrorCodes.refusal(AccountErrorCodes.ALREADY_JOINED,
+                    "You have already joined this company. Please sign in.");
         }
 
+        // The enterprise email is one person's across the whole system (Deactivated aside): checked
+        // again here because another company may have given it to someone since the record was saved.
+        if (accountService.isEmailHeldByAnotherPerson(account.getEmail(), profileId, account.getId())) {
+            this.logJoinBlocked(account, profileId, AccountErrorCodes.EMAIL_TAKEN);
+            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN,
+                    "This email is already linked to another account. Please contact your HR.");
+        }
+
+        if (!profileId.equals(account.getProfileId())) {
+            // Sessions still naming this account were opened for whoever held it before.
+            sessionService.revokeAccount(account.getId(), SessionRevokeReason.UNBOUND);
+        }
         account.setProfileId(profileId);
         account.setStatus(AccountStatus.ACTIVE);
+        // From here the list shows the number the person signs in with, not the invitation's.
+        identityService.findByProfile(profileId)
+                .map(UserIdentity::getLoginMobile)
+                .filter(StringUtils::isNotBlank)
+                .ifPresent(account::setMobile);
         account.setActivationTime(LocalDateTime.now());
         accountService.updateOne(account);
 
@@ -687,6 +767,28 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 profileId, account.getTenantId(), invitation.getId());
     }
 
+    /**
+     * Whether a person is only the placeholder created together with this account: no password, and
+     * no account outside Deactivated other than this one. Such a person is nobody yet, so /join may
+     * put the verified person in its place.
+     */
+    @Override
+    @SkipPermissionCheck
+    @CrossTenant
+    public boolean isPlaceholderPerson(Long profileId, Long accountId) {
+        boolean holdsOthers = accountService.listMembershipsOf(profileId).stream()
+                .anyMatch(other -> !other.getId().equals(accountId));
+        boolean hasPassword = identityService.findByProfile(profileId)
+                .map(identity -> StringUtils.isNotBlank(identity.getPassword())).orElse(false);
+        return !holdsOthers && !hasPassword;
+    }
+
+    private void logJoinBlocked(UserAccount account, Long profileId, String why) {
+        UserSecurityLog row = securityLog.entry(SecurityAction.JOIN_BLOCKED, SecurityLogSource.WEB, account, profileId);
+        row.setReason(why);
+        securityLog.record(row);
+    }
+
     @SkipPermissionCheck
     @CrossTenant
     @Override
@@ -696,10 +798,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (!this.inspectJoinToken(rawToken).usable()) {
             throw new BusinessException("This invitation link is no longer usable.");
         }
-        UserInvitation invitation = this.searchOne(new Filters()
-                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+        // The ACCOUNT's current contacts, not what the invitation was sent to: HR may have corrected
+        // the record since, and the code must go to the number on file now, not to an old one.
+        UserAccount account = this.resolveJoinAccount(rawToken)
                 .orElseThrow(() -> new BusinessException("This invitation link is no longer usable."));
-        return new JoinContacts(invitation.getEmail(), invitation.getMobile());
+        return new JoinContacts(account.getEmail(), account.getMobile());
     }
 
     @SkipPermissionCheck
@@ -717,7 +820,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     }
 
     /**
-     * The /join entry check (PRD §3.0) — five conditions, in this order.
+     * The /join entry check — five conditions, in this order.
      *
      * <p><b>The order is the requirement, not an implementation detail.</b> A token that was
      * superseded by a re-send is "invalid" even if the account is also already active; reporting
@@ -743,6 +846,12 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
             return JoinEntry.rejected(JoinEntry.Reason.LINK_INVALID);
         }
         UserInvitation invitation = found.get();
+        // Only an invitation is a join link. A forgot-password link names an account its owner has
+        // long joined — treated as one, it lands on "already joined" and walks past the proof
+        // check that guards binding. It answers like an unknown token.
+        if (invitation.getPurpose() == InvitationPurpose.PASSWORD_RESET) {
+            return JoinEntry.rejected(JoinEntry.Reason.LINK_INVALID);
+        }
         // ② past its 7-day life
         if (invitation.getExpiresAt() != null && invitation.getExpiresAt().isBefore(LocalDateTime.now())) {
             return JoinEntry.rejected(JoinEntry.Reason.LINK_EXPIRED);
@@ -756,17 +865,40 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (membership.getActivationTime() != null) {
             return JoinEntry.rejected(JoinEntry.Reason.ALREADY_JOINED);
         }
-        // ④ closed or frozen while the invitation was outstanding (E11: off-boarded mid-invite)
+        // ④ closed or frozen while the invitation was outstanding
         if (membership.getStatus() == AccountStatus.DEACTIVATED
                 || membership.getStatus() == AccountStatus.FROZEN) {
             return JoinEntry.rejected(JoinEntry.Reason.MEMBERSHIP_CLOSED);
         }
-        // ⑤ usable
+        // ⑤ usable — showing the account's CURRENT contacts (see resolveJoinContacts)
+        JoinMobileFormat.Formatted mobile = mobileFormat.format(membership.getMobile());
         return JoinEntry.usable(
                 tenantInfoService == null ? null : tenantInfoService.getTenantName(membership.getTenantId()),
                 membership.getNickname(),
-                ContactMasking.email(invitation.getEmail()),
-                ContactMasking.mobile(invitation.getMobile()));
+                ContactMasking.email(membership.getEmail()),
+                mobile.masked(), mobile.dialCode(), mobile.countryName(),
+                invitation.getPurpose() == InvitationPurpose.REINVITE);
+    }
+
+    /** Whether this join link was accepted, and by this very person: their own second tap. */
+    private boolean acceptedBy(String rawToken, Long profileId) {
+        return StringUtils.isNotBlank(rawToken) && this.searchOne(new Filters()
+                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                .filter(invitation -> invitation.getStatus() == InvitationStatus.ACCEPTED
+                        && invitation.getPurpose() != InvitationPurpose.PASSWORD_RESET)
+                .flatMap(invitation -> accountService.getById(invitation.getUserId()))
+                .map(account -> profileId.equals(account.getProfileId()))
+                .orElse(false);
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
+    public boolean isRebindLink(String rawToken) {
+        return StringUtils.isNotBlank(rawToken) && this.searchOne(new Filters()
+                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                .map(invitation -> invitation.getPurpose() == InvitationPurpose.REINVITE)
+                .orElse(false);
     }
 
     /**

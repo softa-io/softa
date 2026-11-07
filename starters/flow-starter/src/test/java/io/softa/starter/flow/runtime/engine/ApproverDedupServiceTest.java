@@ -36,7 +36,7 @@ class ApproverDedupServiceTest {
     private final ApprovalAuditReader auditReader =
             new ApprovalAuditReader(new NoopApprovalActionLedger());
     private final ApproverDedupService service = new ApproverDedupService(
-            new ApprovalLifecycleService(new PendingApprovalFactory(new ApproverResolutionService(), auditReader)),
+            new ApprovalLifecycleService(),
             new FlowAuditService(auditReader), auditReader);
 
     private static final String X = "x";
@@ -83,7 +83,6 @@ class ApproverDedupServiceTest {
                 .nodeId(nodeId)
                 .approvers(new ArrayList<>(List.of(approver)))
                 .approvedActors(new ArrayList<>())
-                .rejectedActors(new ArrayList<>())
                 .requiredApprovalCount(1)
                 .build();
     }

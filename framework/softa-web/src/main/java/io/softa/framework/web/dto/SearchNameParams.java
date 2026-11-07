@@ -2,6 +2,7 @@ package io.softa.framework.web.dto;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
@@ -9,17 +10,21 @@ import org.apache.commons.lang3.StringUtils;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.Operator;
-import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.ConvertType;
 
 /**
  * SearchNameParams
- * The parameters for searching by name.
+ * The parameters for searching by name, one page of candidates at a time.
  * The value is used to match the displayName field by default. Or specify the matchField.
+ *
+ * <p>Split in two for the read: {@link #toFlexQuery()} is what to search, {@link #toPage()} is which page of
+ * it. An endpoint that narrows the candidates (a typed shadow of {@code /{model}/searchName}) adds its
+ * conditions to the query and passes the page on as it came.
  */
 @Data
 @Schema(name = "SearchNameParams")
@@ -40,12 +45,16 @@ public class SearchNameParams {
     @Schema(description = "Context filters for the search. From the relational field or form context.")
     private Filters filters;
 
-    @Schema(description = "Ordering for the search results.")
+    @Schema(description = "Ordering for the search results. The model's primary key always ends it, so pages "
+            + "neither repeat nor skip a candidate.")
     private Orders orders;
 
-    @Schema(description = "Limit size for search, default 10 when omitted. Must be within "
+    @Schema(description = "Which page of candidates to return, counting from 1. Default 1.", example = "1")
+    private Integer pageNumber = BaseConstant.DEFAULT_PAGE_NUMBER;
+
+    @Schema(description = "Candidates per page, default 10 when omitted. Must be within "
             + "[1, 10000] when stated; 0 or a negative value is rejected.", example = "10")
-    private Integer limitSize = BaseConstant.DEFAULT_NAME_LIST_SIZE;
+    private Integer pageSize = BaseConstant.DEFAULT_NAME_LIST_SIZE;
 
     @Schema(description = "Effective date, default is `Today`.")
     private LocalDate effectiveDate;
@@ -54,39 +63,37 @@ public class SearchNameParams {
     private SourceRecord sourceRecord;
 
     /**
-     * Convert QueryParams to FlexQuery.
+     * What to search: the match on the search fields, the filters, the orders and the fields to read. How many
+     * rows, and which of them, is the page's: see {@link #toPage()}.
      *
-     * @param searchNameParams QueryParams
-     * @return FlexQuery
+     * <p>Sets the effective date on the context, as the read is made in it.
+     *
+     * @return the query
      */
-    static public FlexQuery convertParamsToFlexQuery(SearchNameParams searchNameParams) {
-        if (searchNameParams == null) {
-            searchNameParams = new SearchNameParams();
+    public FlexQuery toFlexQuery() {
+        Filters searchFilters = filters;
+        if (StringUtils.isNotBlank(value)) {
+            String field = StringUtils.isBlank(matchField) ? ModelConstant.SEARCH_NAME : matchField;
+            Operator matchOperator = operator == null ? Operator.CONTAINS : operator;
+            searchFilters = Filters.and(searchFilters, Filters.of(field, matchOperator, value));
         }
-        Filters filters = searchNameParams.getFilters();
-        if (StringUtils.isNotBlank(searchNameParams.getValue())) {
-            // Construct the match filters.
-            String matchField = StringUtils.isBlank(searchNameParams.getMatchField()) ? ModelConstant.SEARCH_NAME : searchNameParams.getMatchField();
-            Operator operator = searchNameParams.getOperator() == null ? Operator.CONTAINS : searchNameParams.getOperator();
-            Filters matchFilters = Filters.of(matchField, operator, searchNameParams.getValue());
-            filters = Filters.and(filters, matchFilters);
-        }
-        FlexQuery flexQuery = new FlexQuery(filters, searchNameParams.getOrders());
-        flexQuery.setFields(searchNameParams.getAdditionalFields());
-        // Set the convert type to REFERENCE.
+        FlexQuery flexQuery = new FlexQuery(searchFilters, orders);
+        flexQuery.setFields(additionalFields);
+        // Relations and options among the display fields read as references.
         flexQuery.setConvertType(ConvertType.REFERENCE);
-        // An omitted limitSize takes the default; a stated one is honoured or rejected.
-        Integer limitSize = searchNameParams.getLimitSize();
-        if (limitSize == null) {
-            limitSize = BaseConstant.DEFAULT_NAME_LIST_SIZE;
-        } else {
-            Assert.isTrue(limitSize > 0,
-                    "API `searchName`: limitSize must be a positive number, but got {0}.", limitSize);
-            Assert.isTrue(limitSize <= BaseConstant.MAX_BATCH_SIZE,
-                    "API `searchName` cannot exceed the maximum limit of {0}.", BaseConstant.MAX_BATCH_SIZE);
-        }
-        flexQuery.setLimitSize(limitSize);
-        ContextHolder.getContext().setEffectiveDate(searchNameParams.getEffectiveDate());
+        ContextHolder.getContext().setEffectiveDate(effectiveDate);
         return flexQuery;
+    }
+
+    /**
+     * Which page of candidates to read: a cursor page, so consecutive pages neither repeat nor skip a
+     * candidate, and nothing is counted. An omitted page size takes the name search's own default of 10; a
+     * stated one is honoured or rejected by {@link Page}.
+     *
+     * @return the page to read
+     */
+    public Page<Map<String, Object>> toPage() {
+        // The field carries a default, so null only arrives from a body that spelled it out: still "I did not choose".
+        return Page.ofCursorPage(pageNumber, pageSize == null ? BaseConstant.DEFAULT_NAME_LIST_SIZE : pageSize);
     }
 }

@@ -10,6 +10,7 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -150,12 +151,28 @@ public class FlowOrgService implements OrganizationService {
         if (employeeId == null || level < 1) {
             return null;
         }
+        // Each employee once: a chain that loops back ends where it would repeat.
+        Set<Long> walked = new HashSet<>(List.of(employeeId));
         Map<String, Object> employee = employeeById(employeeId);
         for (int i = 0; i < level && employee != null; i++) {
-            Long supervisorId = toLong(employee.get(props.getSupervisorIdField()));
-            employee = supervisorId == null ? null : employeeById(supervisorId);
+            employee = supervisorOf(employee, walked);
         }
-        return employee == null ? null : toApprover(employee);
+        // A supervisor who cannot approve — gone, or without an account that signs in — passes the step on up, as a
+        // department whose leader cannot passes it to the department above.
+        while (employee != null) {
+            ApproverInfo approver = toApprover(employee);
+            if (approver != null) {
+                return approver;
+            }
+            employee = supervisorOf(employee, walked);
+        }
+        return null;
+    }
+
+    /** The employee's supervisor, or null at the top of the chain or where it would loop back to one walked. */
+    private Map<String, Object> supervisorOf(Map<String, Object> employee, Set<Long> walked) {
+        Long supervisorId = toLong(employee.get(props.getSupervisorIdField()));
+        return supervisorId == null || !walked.add(supervisorId) ? null : employeeById(supervisorId);
     }
 
     @Override
@@ -267,16 +284,19 @@ public class FlowOrgService implements OrganizationService {
             filters = Filters.and(filters, Filters.of(props.getAccountIdField() + "." + props.getAccountStatusField(),
                     Operator.IN, props.getApproverAccountStatuses()));
         }
-        FlexQuery query = new FlexQuery(personFields(), filters, Orders.ofAsc(props.getNameField()));
+        // Then by id: two people of one name keep their places when a picker asks again for more.
+        FlexQuery query = new FlexQuery(personFields(), filters,
+                Orders.ofAsc(props.getNameField()).addAsc(ModelConstant.ID));
         query.setConvertType(ConvertType.REFERENCE);
         query.setLimitSize(limit);
         return query;
     }
 
     /**
-     * Login accounts matching {@code keyword} through the account model's own search fields, by their display name,
-     * each saying whether it signs in; only those that do unless {@code includeInactive}. None when the application has
-     * no account model.
+     * Login accounts matching {@code keyword} through the account model's own search fields, the first {@code limit} by
+     * id, oldest first — the accounts a tenant starts with, its administrators among them, rather than the employees
+     * invited last — the caller orders them by name among the employees; each says whether it signs in, and only those
+     * that do unless {@code includeInactive}. None when the application has no account model.
      */
     private List<DirectoryPerson> accountsMatching(String keyword, boolean includeInactive, int limit) {
         if (!ModelManager.existModel(props.getAccountModel())) {
@@ -287,9 +307,9 @@ public class FlowOrgService implements OrganizationService {
         if (StringUtils.hasText(keyword)) {
             filters = Filters.and(filters, Filters.of(ModelConstant.SEARCH_NAME, Operator.CONTAINS, keyword.trim()));
         }
-        FlexQuery query = new FlexQuery(filters);
-        query.setLimitSize(limit);
-        List<Map<String, Object>> rows = read(() -> modelService.searchName(props.getAccountModel(), query));
+        FlexQuery query = new FlexQuery(filters, Orders.ofAsc(ModelConstant.ID));
+        List<Map<String, Object>> rows = read(() -> modelService.searchName(props.getAccountModel(), query,
+                Page.ofCursorPage(limit)));
         if (rows.isEmpty()) {
             return List.of();
         }
@@ -347,7 +367,8 @@ public class FlowOrgService implements OrganizationService {
     public List<DirectoryDepartment> searchDepartments(String keyword, int limit) {
         Filters filters = StringUtils.hasText(keyword)
                 ? Filters.of(ModelConstant.SEARCH_NAME, Operator.CONTAINS, keyword.trim()) : null;
-        FlexQuery query = new FlexQuery(departmentFields(), filters, Orders.ofAsc(props.getDeptNameField()));
+        FlexQuery query = new FlexQuery(departmentFields(), filters,
+                Orders.ofAsc(props.getDeptNameField()).addAsc(ModelConstant.ID));
         query.setConvertType(ConvertType.REFERENCE);
         query.setLimitSize(limit);
         return read(() -> modelService.searchList(props.getDepartmentModel(), query)).stream()

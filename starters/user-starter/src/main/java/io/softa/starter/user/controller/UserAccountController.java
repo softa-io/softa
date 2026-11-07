@@ -2,16 +2,9 @@ package io.softa.starter.user.controller;
 
 import java.io.Serializable;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.*;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,52 +20,34 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.constant.BaseConstant;
-import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.domain.AggFunctions;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.Page;
-import io.softa.framework.orm.domain.PivotTable;
-import io.softa.framework.orm.domain.SubQueries;
+import io.softa.framework.orm.domain.*;
 import io.softa.framework.orm.enums.ConvertType;
-import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.vo.ModelReference;
 import io.softa.framework.web.controller.EntityController;
-import io.softa.framework.web.dto.BulkUpdateParams;
-import io.softa.framework.web.dto.CountParams;
-import io.softa.framework.web.dto.CountResult;
-import io.softa.framework.web.dto.GetByIdParams;
-import io.softa.framework.web.dto.GetByIdsParams;
-import io.softa.framework.web.dto.QueryParams;
-import io.softa.framework.web.dto.SearchListParams;
-import io.softa.framework.web.dto.SearchNameParams;
-import io.softa.framework.web.dto.SimpleAggParams;
+import io.softa.framework.web.dto.*;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.web.utils.CookieUtils;
-import io.softa.starter.user.dto.ChangePasswordDTO;
-import io.softa.starter.user.dto.WorkContacts;
-import io.softa.starter.user.dto.SetFirstPasswordDTO;
-import io.softa.starter.user.dto.FreezeAccountDTO;
-import io.softa.starter.user.dto.ResetWorkContactsDTO;
-import io.softa.starter.user.dto.FreezeAccountsDTO;
-import io.softa.starter.user.dto.UnbindAndReinviteDTO;
-import io.softa.starter.user.dto.UserAccountDTO;
+import io.softa.starter.user.dto.*;
 import io.softa.starter.user.entity.UserAccount;
-import io.softa.starter.user.service.PermissionCacheInvalidator;
-import io.softa.starter.user.service.UserAccountService;
-import io.softa.starter.user.service.UserIdentityService;
-import io.softa.starter.user.service.UserInvitationService;
-import io.softa.starter.user.service.UserRosterScope;
+import io.softa.starter.user.enums.AccountStatus;
+import io.softa.starter.user.service.*;
+import io.softa.starter.user.spi.PushDeviceRegistry;
 
 /**
  * UserAccount Controller
@@ -94,7 +69,11 @@ public class UserAccountController extends EntityController<UserAccountService, 
     private static final String CONSULTANT_FIELD = "consultant";
 
     @Autowired
-    private CacheService cacheService;
+    private SessionStore sessionStore;
+
+    /** Optional: present only where APP push is deployed. */
+    @Autowired(required = false)
+    private PushDeviceRegistry pushDeviceRegistry;
 
     @Autowired
     private ModelService<Long> modelService;
@@ -241,7 +220,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
     /**
      * Typed shadow of the generic {@code /UserAccount/searchPage}. {@link UserAccount}
      * is not multi-tenant, so the generic endpoint would return every tenant's
-     * accounts to a tenant admin — {@link #scopeByTenant} confines the result.
+     * accounts to a tenant admin — scopeByTenant confines the result.
      * Spring routes here over the templated {@code /{modelName}/searchPage}
      * (literal path is more specific).
      */
@@ -293,7 +272,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
      * <p>The list the platform super-admin browses spans tenants ({@link #searchPage} /
      * {@link #searchList} above), but the generic getById ran tenant-filtered, so opening any row
      * from another tenant answered "Record Not Found". Same window, same caller gate, and the SAME
-     * BOUNDS: the detail read is re-checked against {@link #scopeToAdminAccounts}, so the super-admin
+     * BOUNDS: the detail read is re-checked against scopeToAdminAccounts, so the super-admin
      * opens exactly what the roster lists — every tenant's admins plus its own tenant's accounts —
      * and an id outside that roster answers like a nonexistent record. Everyone else reads exactly
      * what the generic path read.
@@ -489,10 +468,11 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @DataMask
     public ApiResponse<List<Map<String, Object>>> searchName(
             @RequestBody(required = false) SearchNameParams searchNameParams) {
-        FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(searchNameParams);
+        SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
+        FlexQuery flexQuery = params.toFlexQuery();
         return ApiResponse.success(rosterScope.call(() -> {
             flexQuery.setFilters(rosterScope.scopeByTenant(flexQuery.getFilters()));
-            return modelService.searchName(MODEL, flexQuery);
+            return modelService.searchName(MODEL, flexQuery, params.toPage());
         }));
     }
 
@@ -611,6 +591,8 @@ public class UserAccountController extends EntityController<UserAccountService, 
         if (rows == null || rows.isEmpty()) {
             return rows;
         }
+        showClosedEmail(rows);
+        stampEmployee(rows);
         Set<Long> people = rows.stream().map(UserAccountController::profileIdOf)
                 .filter(Objects::nonNull).collect(Collectors.toSet());
         Set<Long> locked = identityService.findPasswordLockedProfiles(people);
@@ -621,6 +603,77 @@ public class UserAccountController extends EntityController<UserAccountService, 
             row.put(LOCKED_FIELD, profileId != null && locked.contains(profileId));
         }
         return rows;
+    }
+
+    /**
+     * A closed account's email column shows the address it had when it closed. Closing clears the
+     * enterprise email itself — the mailbox goes to the next hire — and keeps a copy for this list.
+     * Only rows whose read asked for the email are touched.
+     */
+    private static final String EMAIL_FIELD = "email";
+    /** The employee record, by model name: an HR deployment has one, others do not. */
+    private static final String EMPLOYEE_MODEL = "Employee";
+    private static final String EMPLOYEE_NAME_FIELD = "employeeName";
+    private static final String EMPLOYEE_CODE_FIELD = "employeeCode";
+
+    /**
+     * The employee each row's account signs in — name and code — for the list's Employee column.
+     * Derived on every read, like {@code locked}; a row no employee record points at gets nulls. Read
+     * past row scope: the caller already sees the account, and the name beside it is what identifies
+     * it, not a search into employees.
+     */
+    private void stampEmployee(List<Map<String, Object>> rows) {
+        List<Long> ids = rows.stream().map(row -> idOf(row.get(ModelConstant.ID))).filter(Objects::nonNull).toList();
+        Map<Long, Map<String, Object>> byAccount = new HashMap<>();
+        if (!ids.isEmpty() && ModelManager.existModel(EMPLOYEE_MODEL)) {
+            Context context = ContextHolder.cloneContext();
+            context.setSkipPermissionCheck(true);
+            List<Map<String, Object>> employees = ContextHolder.callWith(context, () -> modelService.searchList(
+                    EMPLOYEE_MODEL, new FlexQuery(List.of(ModelConstant.ID, "userId", "fullName", "code"),
+                            new Filters().in("userId", ids))));
+            for (Map<String, Object> employee : employees) {
+                Long accountId = idOf(employee.get("userId") instanceof Map<?, ?> ref ? ref.get(ModelConstant.ID)
+                        : employee.get("userId"));
+                if (accountId != null) {
+                    byAccount.putIfAbsent(accountId, employee);
+                }
+            }
+        }
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> employee = byAccount.get(idOf(row.get(ModelConstant.ID)));
+            row.put(EMPLOYEE_NAME_FIELD, employee == null ? null : employee.get("fullName"));
+            row.put(EMPLOYEE_CODE_FIELD, employee == null ? null : employee.get("code"));
+        }
+    }
+
+    private void showClosedEmail(List<Map<String, Object>> rows) {
+        List<Long> ids = rows.stream()
+                .filter(row -> row.containsKey(EMAIL_FIELD) && row.get(EMAIL_FIELD) == null)
+                .map(row -> idOf(row.get(ModelConstant.ID)))
+                .filter(Objects::nonNull)
+                .toList();
+        if (ids.isEmpty()) {
+            return;
+        }
+        Map<Long, String> closed = service.searchList(new Filters()
+                        .in(ModelConstant.ID, ids)
+                        .eq(UserAccount::getStatus, AccountStatus.DEACTIVATED)).stream()
+                .filter(account -> account.getClosedEmail() != null)
+                .collect(Collectors.toMap(UserAccount::getId, UserAccount::getClosedEmail));
+        for (Map<String, Object> row : rows) {
+            String email = closed.get(idOf(row.get(ModelConstant.ID)));
+            if (email != null && row.containsKey(EMAIL_FIELD) && row.get(EMAIL_FIELD) == null) {
+                row.put(EMAIL_FIELD, email);
+            }
+        }
+    }
+
+    private static Long idOf(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        String id = value == null ? null : value.toString();
+        return StringUtils.isNumeric(id) ? Long.valueOf(id) : null;
     }
 
     /**
@@ -667,6 +720,9 @@ public class UserAccountController extends EntityController<UserAccountService, 
      */
     private static void dropDerivedLock(Map<String, Object> row) {
         row.remove(LOCKED_FIELD);
+        // The employee columns are derived the same way, and a write of them has nowhere to go.
+        row.remove(EMPLOYEE_NAME_FIELD);
+        row.remove(EMPLOYEE_CODE_FIELD);
     }
 
     /**
@@ -748,14 +804,31 @@ public class UserAccountController extends EntityController<UserAccountService, 
     }
 
     @PostMapping("/logout")
-    public ApiResponse<Void> logout(HttpServletRequest request, HttpServletResponse response) {
-        String sessionId = CookieUtils.getCookie(request, BaseConstant.SESSION_ID);
-        cacheService.clear(RedisConstant.SESSION + sessionId);
+    public ApiResponse<Void> logout(@RequestBody(required = false) LogoutDTO body,
+                                    HttpServletRequest request, HttpServletResponse response) {
+        // X-Session-Id for the APP, the cookie for Web: each client signs out the session it holds.
+        String sessionId = SessionStore.sessionIdOf(request);
+        SessionRecord session = sessionId == null ? null : sessionStore.peek(sessionId).orElse(null);
+        if (session != null && !SessionStore.sameClient(session, request)) {
+            // Only the kind of client a session was issued to may end it, as only it may use it.
+            UserNotFoundException refused = new UserNotFoundException("This session belongs to another kind of client.");
+            refused.withErrorCode(SessionErrorCodes.SESSION_EXPIRED);
+            throw refused;
+        }
+        Long profileId = session == null ? null : session.profileId();
+        if (sessionId != null) {
+            sessionStore.revoke(sessionId, SessionRevokeReason.LOGOUT);
+        }
+        // The device is dropped only for the person whose session this was.
+        if (body != null && StringUtils.isNotBlank(body.getDeviceToken()) && pushDeviceRegistry != null
+                && profileId != null) {
+            pushDeviceRegistry.unregisterDevice(body.getDeviceToken(), profileId);
+        }
         CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
         return ApiResponse.success();
     }
 
-    // Lock / Unlock are gone (D21). A manual lock and the automatic password lockout (A8) were two
+    // Lock / Unlock are gone. A manual lock and the automatic password lockout were two
     // mechanisms for two different things wearing one name: the lockout reacts to guessing, lives
     // on the credential and expires by itself, while freezing is an administrator's decision about
     // a membership that only an administrator lifts.
@@ -816,7 +889,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         // onRosterAccounts for the same reason those are — a platform super-admin works a roster
         // that spans tenants, and the account may not be in the ambient one.
         return ApiResponse.success(onRosterAccounts(List.of(id),
-                () -> service.archiveWorkContacts(id)));
+                () -> service.archiveContactsForAccount(id)));
     }
 
     @Operation(summary = "Reset a membership's work contacts — keeps the person, their password "
@@ -1010,27 +1083,33 @@ public class UserAccountController extends EntityController<UserAccountService, 
         return ApiResponse.success();
     }
 
+    /**
+     * Writes the caller's own account row past row scope — the write half of
+     * {@link UserAccountService#getMyOwnAccount}, which says why. The row is the one that read
+     * returned for the session's user id, never one named by the request.
+     */
+    private <T> T onMyOwnAccount(Supplier<T> op) {
+        Context context = ContextHolder.cloneContext();
+        context.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(context, op::get);
+    }
+
     @Operation(summary = "getMyAccount")
     @GetMapping("/getMyAccount")
     public ApiResponse<UserAccount> getMyAccount() {
         Long userId = ContextHolder.getContext().getUserId();
-        try {
-            Optional<UserAccount> accountOpt = service.getById(userId);
-
-            if (accountOpt.isEmpty()) {
-                log.warn("Current user account not found for ID: {}", userId);
-                return new ApiResponse<>(ResponseCode.USER_NOT_FOUND.getCode(), "Current user account not found.",
-                        null);
-            }
-            UserAccount account = accountOpt.get();
-            // No masking needed any more: the credential is not on this model. Keeping the old
-            // setPassword(null) calls would not compile, and re-adding them elsewhere would only
-            // re-create the leak this move removed.
-            return ApiResponse.success(account);
-        } catch (Exception e) {
-            log.error("Error fetching current user account for ID: {}", userId, e);
-            return new ApiResponse<>(ResponseCode.ERROR.getCode(), "Failed to retrieve user account.", null);
+        // No catch-all: a failure reaches the global handler with its own code and message, instead
+        // of every cause — a refused scope included — reading as one opaque "Failed to retrieve".
+        Optional<UserAccount> accountOpt = service.getMyOwnAccount(userId);
+        if (accountOpt.isEmpty()) {
+            log.warn("Current user account not found for ID: {}", userId);
+            return new ApiResponse<>(ResponseCode.USER_NOT_FOUND.getCode(), "Current user account not found.",
+                    null);
         }
+        // No masking needed any more: the credential is not on this model. Keeping the old
+        // setPassword(null) calls would not compile, and re-adding them elsewhere would only
+        // re-create the leak this move removed.
+        return ApiResponse.success(accountOpt.get());
     }
 
     @Operation(summary = "saveMyAccount")
@@ -1049,7 +1128,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         }
 
         try {
-            UserAccount existingAccount = service.getById(currentUserId)
+            UserAccount existingAccount = service.getMyOwnAccount(currentUserId)
                     .orElseThrow(() -> new BusinessException(ResponseCode.USER_NOT_FOUND,
                             "Current user account not found for update."));
 
@@ -1061,7 +1140,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
             // delivered — and collide with uk_user_account_tenant_email on the way.
             existingAccount.setNickname(myAccountDTO.getNickname());
 
-            boolean success = service.updateOne(existingAccount);
+            boolean success = this.onMyOwnAccount(() -> service.updateOne(existingAccount));
 
             if (success) {
                 log.info("User account updated successfully for user ID: {}", currentUserId);

@@ -107,15 +107,11 @@ class OrmFlowBundleRegistryTenantTest {
     }
 
     @Test
-    void debugRunsAndBundleReadsLeaveTheTriggerIndexAlone() {
+    void bundleReadsLeaveTheTriggerIndexAlone() {
         CompiledFlowDefinition published = publish(TENANT_A, "approval", FLOW_A);
         // a bundle read before the first event must not count as "the index is loaded"
         assertTrue(inTenant(TENANT_A, () -> registry.getByBundleId(published.getBundleId())).isPresent());
         assertEquals(List.of("approval"), firedIn(TENANT_A));
-
-        CompiledFlowDefinition debug = inTenant(TENANT_A,
-                () -> registry.registerDebug(orderFlow("approval"), null, FLOW_A));
-        assertTrue(inTenant(TENANT_A, () -> registry.getByBundleId(debug.getBundleId())).isPresent());
 
         assertEquals(List.of(1), firedRevisionsIn(TENANT_A));
         assertEquals(1, stubService.activeQueries(TENANT_A));

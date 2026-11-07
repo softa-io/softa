@@ -42,7 +42,6 @@ class ApprovalActionLedgerMappingTest {
                 .statusAfter(FlowExecutionStatus.RETURNED)
                 .targetActorId("initiator-1")
                 .approvedActors(List.of("manager"))
-                .rejectedActors(List.of())
                 .build();
 
         FlowApprovalRecord record = FlowApprovalRecordServiceImpl.toRecord(state, entry);
@@ -64,7 +63,6 @@ class ApprovalActionLedgerMappingTest {
         assertEquals(FlowExecutionStatus.WAITING, restored.getStatusBefore());
         assertEquals(FlowExecutionStatus.RETURNED, restored.getStatusAfter());
         assertEquals(List.of("manager"), restored.getApprovedActors());
-        assertEquals(List.of(), restored.getRejectedActors());
     }
 
     @Test

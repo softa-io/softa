@@ -80,20 +80,11 @@ public class FlowApprovalTaskView {
     @Schema(description = "Total approver count snapshot")
     private Integer totalApproverCount;
 
-    @Schema(description = "Reject mode snapshot")
-    private VoteThresholdMode rejectMode;
-
-    @Schema(description = "Required reject count snapshot")
-    private Integer requiredRejectCount;
-
     @Schema(description = "Candidate actor ids for the node")
     private List<String> candidateActors;
 
     @Schema(description = "Actors who already approved when this projection was synced")
     private List<String> approvedActors;
-
-    @Schema(description = "Actors who already rejected when this projection was synced")
-    private List<String> rejectedActors;
 
     @Schema(description = "Task opened time")
     private LocalDateTime startTime;
@@ -104,14 +95,8 @@ public class FlowApprovalTaskView {
     @Schema(description = "Actor who closed this task when available")
     private String closedByActorId;
 
-    @Schema(description = "Whether the task is blocked by an unresolved add-sign dependency")
-    private Boolean blocked;
-
-    @Schema(description = "Actor who must act before this blocked task can proceed")
-    private String blockedByActorId;
-
     @Schema(description = "The names of the accounts the task names — its holder, the step's candidates, those who "
-            + "approved or rejected, who closed it and who blocks it — by account id (batch-enriched)")
+            + "approved or rejected and who closed it — by account id (batch-enriched)")
     private Map<String, String> actorNames;
 
     @Schema(description = "Approval deadline derived from the node's timeout config; null = no deadline")
@@ -150,6 +135,18 @@ public class FlowApprovalTaskView {
 
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
+
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it — the "
+            + "days of a leave, a claim's amount")
+    private String summary;
+
+    @Schema(description = "While the owning instance waits: the steps it waits on now, each with the approvers still "
+            + "to act, named — where a request a task's holder handled stands now")
+    private List<FlowRecordApprovalsView.PendingStep> currentSteps;
+
+    @Schema(description = "A record's approval returned, withdrawn or cancelled that a later submission of the record "
+            + "replaced: its outcome is no longer the record's")
+    private Boolean superseded;
 
     @Schema(description = "Whether the task can be acted on in a batch: open to its approver now, and no field the step "
             + "makes required")

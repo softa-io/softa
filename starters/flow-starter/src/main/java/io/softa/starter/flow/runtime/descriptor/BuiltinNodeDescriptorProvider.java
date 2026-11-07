@@ -12,6 +12,7 @@ import io.softa.starter.flow.design.FlowNodeDescriptor.Ports;
 import io.softa.starter.flow.design.FlowNodeDescriptorProvider;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
+import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
@@ -29,6 +30,14 @@ import io.softa.starter.flow.enums.VoteThresholdMode;
  */
 @Component
 public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider {
+
+    /**
+     * {@code appliesWhen}: the field applies only to a step that may have several approvers — several groups, or one
+     * naming several people or finding a source not marked {@code findsOne} ({@code ApprovalNodeConfig}).
+     */
+    static final String SEVERAL_APPROVERS = "severalApprovers";
+    /** {@code appliesWhen}: the field applies only to a step a group of which finds its people by rule. */
+    static final String APPROVERS_FOUND_BY_RULE = "approversFoundByRule";
 
     /** What the designer shows for each {@link ApproverRelativeTo}. */
     private static final Map<String, String> RELATIVE_TO_LABELS = Map.of(
@@ -49,7 +58,10 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry()),
                 structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal()),
                 structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, timerConfigSchema()),
-                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, approvalConfigSchema()),
+                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, approvalConfigSchema(),
+                        // A new step starts with one group on the first option, specific people, waiting for them to
+                        // be picked.
+                        Map.of("approverSources", List.of(Map.of("type", ApproverSourceType.USERS.getType())))),
                 // HUMAN_TASK is intentionally omitted: the runtime has no human-task wait
                 // (dedicated wait token, assignee resolution, completion API) and the node is
                 // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from
@@ -77,8 +89,14 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
                                                  String icon, int sortOrder, Ports ports,
                                                  Map<String, Object> configSchema) {
+        return structural(type, label, description, icon, sortOrder, ports, configSchema, Map.of());
+    }
+
+    private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
+                                                 String icon, int sortOrder, Ports ports,
+                                                 Map<String, Object> configSchema, Map<String, Object> defaultConfig) {
         return FlowNodeDescriptor.of(type, label, description, icon, sortOrder, ports,
-                configSchema, Map.of(), type.getScenarios(), true);
+                configSchema, defaultConfig, type.getScenarios(), true);
     }
 
     /** Insertion-ordered map builder — property panels render fields in this order. */
@@ -101,19 +119,17 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     private static Map<String, Object> approvalConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         // ── Approver resolution ─────────────────────────────────────────────
-        schema.put("approvers",     ordered("type", "userPicker",     "label", "Approvers (static)", "multiple", true));
-        schema.put("approverSource", ordered("type", "approverSource", "label", "Approvers (dynamic)",
-                "options", List.of(
-                        ordered("type", "VariableList", "label", "Variable list",
-                                "fields", ordered("variable", ordered("type", "variableRef", "label", "Variable", "required", true))),
-                        ordered("type", "Expression", "label", "Expression",
-                                "fields", ordered("expression", ordered("type", "expression", "label", "Expression", "required", true))),
-                        ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)"),
-                        // Keys into the caller's role-approver map, which a built-in role's code names; another
-                        // key may be typed.
-                        ordered("type", "Role", "label", "Role (variable)",
-                                "fields", ordered("roleCode", ordered("type", "rolePicker", "label", "Role", "required", true,
-                                        "valueField", "code", "allowCustom", true))),
+        // One or more groups, making one pool the approval mode counts over. Each group is one select: specific
+        // people first, then the sources that find them when the step is reached — the organization's, then the
+        // groups', then the developers' — then those no longer offered. A CC rule names its one group of recipients
+        // from the same options. An option says what the designer needs to tell which settings apply (`appliesWhen`):
+        // where specific people are named (`names`), and that a source finds one person at most (`findsOne`).
+        schema.put("approverSources", ordered("type", "approverSources", "label", "Approvers", "required", true,
+                "options", withFindsOne(List.of(
+                        ordered("type", ApproverSourceType.USERS.getType(), "label", "Specific people",
+                                "names", ApproverSourceType.USER_IDS,
+                                "fields", ordered(ApproverSourceType.USER_IDS, ordered("type", "userPicker", "label", "People",
+                                        "multiple", true, "required", true))),
                         // Org-relative sources start from the record's subject — the employee it is about — unless
                         // they say the initiator, so a request filed on someone's behalf goes to their approvers.
                         ordered("type", "Supervisor", "label", "Supervisor",
@@ -126,7 +142,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                 "fields", deptScopeFields(false, "SUBJECT_DEPT")),
                         ordered("type", "DeptHrbp", "label", "Department HRBP",
                                 "fields", deptScopeFields(false, "SUBJECT_DEPT")),
-                        ordered("type", "RoleQuery", "label", "Role query",
+                        ordered("type", "RoleQuery", "label", "Role",
                                 "fields", concat(ordered(
                                         // Either list, or both. Ids reach every role, the tenant's own included; codes reach
                                         // the built-in roles (admin-created ones have none) and are the same in every tenant,
@@ -141,39 +157,106 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                         ordered("type", "Department", "label", "Department members",
                                 "fields", concat(deptScopeFields(true, "SPECIFIC_DEPT"),
                                         ordered("includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments",
-                                                "default", false))))
-                )));
-        // These three are read into enums through Jackson, which takes each one's JSON value and nothing else: offer
-        // that value, not the constant name (a chosen constant name made the whole config unreadable).
-        schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "Empty-approver strategy",
-                "options", List.of(EmptyApproverStrategy.ERROR.getType(), EmptyApproverStrategy.AUTO_APPROVE.getType(),
-                        EmptyApproverStrategy.SKIP.getType(), EmptyApproverStrategy.ASSIGN_TO_ROLE.getType()),
-                "default", EmptyApproverStrategy.ERROR.getType()));
-        // Who a step that finds nobody goes to under AssignToRole, as a role query names roles: ids reach the tenant's
-        // own roles, codes the built-in ones, the same in every tenant.
-        String assignToRole = EmptyApproverStrategy.ASSIGN_TO_ROLE.getType();
-        schema.put("emptyApproverRoleIds", ordered("type", "rolePicker", "label", "Assign to roles", "multiple", true,
-                "depends", Map.of("emptyApproverStrategy", assignToRole)));
-        schema.put("emptyApproverRoleCodes", ordered("type", "rolePicker", "label", "Assign to built-in roles",
-                "multiple", true, "valueField", "code", "depends", Map.of("emptyApproverStrategy", assignToRole)));
+                                                "default", false)))),
+                        // Read what the application puts in the flow's variables: for developers.
+                        ordered("type", "VariableList", "label", "Variable list (advanced)",
+                                "fields", ordered("variable", ordered("type", "variableRef", "label", "Variable", "required", true))),
+                        ordered("type", "Expression", "label", "Expression (advanced)",
+                                "fields", ordered("expression", ordered("type", "expression", "label", "Expression", "required", true))),
+                        // No longer offered: both read a start variable the application must supply (most supply
+                        // none), and Supervisor relative to the submitter / Role find the same people from the
+                        // organization. Listed so a step saved with one still shows it; the designer offers neither.
+                        ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)", "deprecated", true),
+                        // Keys into the caller's role-approver map, which a built-in role's code names; another
+                        // key may be typed.
+                        ordered("type", "Role", "label", "Role (variable)", "deprecated", true,
+                                "fields", ordered("roleCode", ordered("type", "rolePicker", "label", "Role", "required", true,
+                                        "valueField", "code", "allowCustom", true)))
+                ))));
         // ── Vote thresholds ──────────────────────────────────────────────────
+        // Counted over the pool the step's groups make — offered only for a step that may have several approvers: one
+        // with one approver at most passes on that one's approval whatever it holds (ApprovalNodeConfig).
+        String anyOne = VoteThresholdMode.ANY_ONE.getType();
+        String unanimous = VoteThresholdMode.UNANIMOUS.getType();
         String minCount = VoteThresholdMode.MIN_COUNT.getType();
         String percentage = VoteThresholdMode.PERCENTAGE.getType();
         schema.put("approvalMode", ordered("type", "enum", "label", "Approval mode",
-                "options", voteThresholdModes(), "default", VoteThresholdMode.ANY_ONE.getType()));
-        schema.put("minCount",     ordered("type", "number", "label", "Minimum approvals", "depends", Map.of("approvalMode", minCount)));
-        schema.put("percentage",   ordered("type", "number", "label", "Approval percentage (0-100)", "depends", Map.of("approvalMode", percentage)));
-        schema.put("rejectMode",   ordered("type", "enum", "label", "Reject mode",
-                "options", voteThresholdModes(), "default", VoteThresholdMode.ANY_ONE.getType()));
-        schema.put("rejectMinCount",   ordered("type", "number", "label", "Minimum rejections", "depends", Map.of("rejectMode", minCount)));
-        schema.put("rejectPercentage", ordered("type", "number", "label", "Rejection percentage (0-100)", "depends", Map.of("rejectMode", percentage)));
-        // ── Timeout ──────────────────────────────────────────────────────────
-        schema.put("timeout", ordered("type", "approvalTimeout", "label", "Timeout configuration"));
-        // ── Return policy: a return goes to the initiator and ends the instance ──
-        schema.put("returnEnabled",      ordered("type", "boolean", "label", "Allow return to initiator"));
+                "options", voteThresholdModes(), "default", anyOne,
+                "optionLabels", ordered(anyOne, "Any one", unanimous, "Everyone", minCount, "Minimum number",
+                        percentage, "Percentage"),
+                "optionDescriptions", ordered(
+                        anyOne, "One approval passes the step, from anyone its groups find.",
+                        unanimous, "Everyone its groups find must approve; someone two groups find approves once.",
+                        minCount, "This many approvals pass the step, from anyone its groups find.",
+                        percentage, "This share of everyone its groups find must approve."),
+                "appliesWhen", SEVERAL_APPROVERS));
+        schema.put("minCount", ordered("type", "number", "label", "Minimum approvals",
+                "depends", Map.of("approvalMode", minCount), "appliesWhen", SEVERAL_APPROVERS));
+        schema.put("percentage", ordered("type", "number", "label", "Approval percentage (0-100)",
+                "depends", Map.of("approvalMode", percentage), "appliesWhen", SEVERAL_APPROVERS));
+        // ── Nobody found ─────────────────────────────────────────────────────
+        // These three are read into enums through Jackson, which takes each one's JSON value and nothing else: offer
+        // that value, not the constant name (a chosen constant name made the whole config unreadable).
+        // Offered only for a step that finds approvers by rule: one that only names them stops and says why when none
+        // of them can act (ApprovalNodeConfig). What a step that finds nobody does is said for the source it finds
+        // people with (hintBy: the help by the field, by the type of the step's one group; a step of several groups
+        // finds nobody only when none of them finds anyone, said by `otherwise`). Skip is no longer offered — it
+        // approves as AutoApprove does and leaves no trace in the history — and stays listed so a step saved with it
+        // still shows it.
+        String error = EmptyApproverStrategy.ERROR.getType();
+        String autoApprove = EmptyApproverStrategy.AUTO_APPROVE.getType();
+        String toRole = EmptyApproverStrategy.ASSIGN_TO_ROLE.getType();
+        String skip = EmptyApproverStrategy.SKIP.getType();
+        schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "If nobody is found",
+                "options", List.of(error, autoApprove, toRole, skip),
+                "deprecatedOptions", List.of(skip),
+                "optionLabels", ordered(error, "Stop and say why", autoApprove, "Approve automatically",
+                        toRole, "Assign to roles", skip, "Skip (not in the history)"),
+                "optionDescriptions", ordered(
+                        error, "A submission is refused with the reason. After an approval the instance fails, and its "
+                                + "submitter and the administrators are told.",
+                        autoApprove, "The step counts as approved; the history shows it was approved automatically.",
+                        toRole, "Anyone holding the roles below decides instead, not the submitter or the employee "
+                                + "the request is about.",
+                        skip, "The step is passed over with no trace in the history. No longer offered: use Approve "
+                                + "automatically."),
+                "hintBy", ordered("field", "approverSources",
+                        "hints", ordered(
+                                "Supervisor", "Applies when the employee has no manager at this level, or none above "
+                                        + "who can approve.",
+                                "DeptLeader", "Applies when the department and those above it have no leader who can "
+                                        + "approve.",
+                                "DeptHrbp", "Applies when the department and those above it have no HR business "
+                                        + "partner who can approve.",
+                                "RoleQuery", "Applies when nobody who can approve holds these roles.",
+                                "Position", "Applies when nobody who can approve holds these positions.",
+                                "Department", "Applies when these departments have nobody who can approve.",
+                                "VariableList", "Applies when the variable names nobody who can approve.",
+                                "Expression", "Applies when the expression names nobody who can approve."),
+                        "otherwise", "Applies when the step finds nobody who can approve."),
+                "default", error,
+                "appliesWhen", APPROVERS_FOUND_BY_RULE));
+        // Who a step that finds nobody goes to under AssignToRole, as a role query names roles: ids reach the tenant's
+        // own roles, codes the built-in ones, the same in every tenant.
+        schema.put("emptyApproverRoleIds", ordered("type", "rolePicker", "label", "Assign to roles", "multiple", true,
+                "depends", Map.of("emptyApproverStrategy", toRole), "appliesWhen", APPROVERS_FOUND_BY_RULE));
+        schema.put("emptyApproverRoleCodes", ordered("type", "rolePicker", "label", "Assign to built-in roles",
+                "multiple", true, "valueField", "code", "depends", Map.of("emptyApproverStrategy", toRole),
+                "appliesWhen", APPROVERS_FOUND_BY_RULE));
         // ── Form field permissions ────────────────────────────────────────────
         schema.put("formPermissions", ordered("type", "fieldPermissionMap", "label", "Field permissions"));
         return schema;
+    }
+
+    /** {@code options}, each a source that finds one person at most marked so ({@code findsOne}). */
+    private static List<Map<String, Object>> withFindsOne(List<Map<String, Object>> options) {
+        options.forEach(option -> {
+            ApproverSourceType source = ApproverSourceType.lookup(option.get("type"));
+            if (source != null && source.isFindsOne()) {
+                option.put("findsOne", true);
+            }
+        });
+        return options;
     }
 
     /**

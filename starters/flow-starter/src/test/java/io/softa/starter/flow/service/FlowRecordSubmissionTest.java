@@ -95,7 +95,8 @@ class FlowRecordSubmissionTest {
     private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
             publishService, engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
             new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null,
-            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger())));
+            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger()),
+                    new FailedApprovalRecords(instanceService, modelService)));
 
     /** The record as its table holds it: reads return a copy, updates land on it. */
     private final Map<String, Object> record = new LinkedHashMap<>(
@@ -178,8 +179,14 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aStepWithNobodyToApproveRefusesTheSubmissionWhole() {
-        // No approver, and the empty-approver strategy is Error unless set.
-        publishService.publish("annual", approvalFlow("Annual leave", List.of()));
+        // No organization service here, so its supervisor source finds nobody; the empty-approver strategy is Error
+        // unless set. (A step that names nobody at all is not published.)
+        DesignFlowDefinition design = approvalFlow("Annual leave", List.of(MANAGER));
+        design.getGraph().getNodes().set(1, FlowGraphNode.builder()
+                .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
+                .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor"))))
+                .build());
+        publishService.publish("annual", design);
 
         FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
                 () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
@@ -196,13 +203,15 @@ class FlowRecordSubmissionTest {
     void theApprovalKeepsWhatTheRecordShowsInTheApprovalLists() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3),
-                LocalDate.of(2026, 11, 2), "LR-0007"));
+                LocalDate.of(2026, 11, 2), "LR-0007", "Annual Leave · 3 days · 2–4 Nov"));
 
         FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(5001L, state.getSubjectId());
         assertEquals(LocalDate.of(2026, 11, 2), state.getEffectiveDate());
         assertEquals("LR-0007", state.getRecordCode());
+        // What the record asks for, as its handler words it: the line the approval lists show (zingkey-hcm#2350).
+        assertEquals("Annual Leave · 3 days · 2–4 Nov", state.getSummary());
         // No organization service here, so no department to keep.
         assertNull(state.getDepartmentId());
     }
@@ -419,13 +428,13 @@ class FlowRecordSubmissionTest {
     @Test
     void theSubmitFlowStartedAnotherWayIsNotTheRecordsApproval() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        // A debug run of the same flow, on the same record.
-        FlowStartRequest debugRun = new FlowStartRequest();
-        debugRun.setFlowId("annual");
-        debugRun.setInitiatorId(SUBMITTER);
-        debugRun.setModelName(MODEL);
-        debugRun.setRowId(ROW);
-        FlowExecutionState other = engine.start(debugRun);
+        // The same flow started on the same record without a submission.
+        FlowStartRequest unsubmitted = new FlowStartRequest();
+        unsubmitted.setFlowId("annual");
+        unsubmitted.setInitiatorId(SUBMITTER);
+        unsubmitted.setModelName(MODEL);
+        unsubmitted.setRowId(ROW);
+        FlowExecutionState other = engine.start(unsubmitted);
         assertFalse(other.isApprovalOfRecord());
 
         engine.approve(nodeRequest(new FlowApproveRequest(), other.getInstanceId(), MANAGER, "fine"));
@@ -579,7 +588,7 @@ class FlowRecordSubmissionTest {
         DesignFlowDefinition design = approvalFlow("Annual leave", List.of(SUBMITTER, MANAGER));
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                .config(Map.of("approvers", List.of(SUBMITTER, MANAGER), "approvalMode", "Unanimous"))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER))), "approvalMode", "Unanimous"))
                 .build());
         publishService.publish("annual", design);
 
@@ -595,7 +604,7 @@ class FlowRecordSubmissionTest {
         // No organization service here, so the supervisor source resolves to nobody (strategy Error).
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Supervisor")
-                .config(Map.of("approverSource", Map.of("type", "Supervisor", "level", 1)))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor", "level", 1))))
                 .build());
         publishService.publish("supervisor", design);
 
@@ -661,7 +670,7 @@ class FlowRecordSubmissionTest {
         } else {
             nodes.add(FlowGraphNode.builder()
                     .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                    .config(Map.of("approvers", approvers, "returnEnabled", true))
+                    .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", approvers))))
                     .build());
             edges.add(edge("e1", "start", "approval"));
             edges.add(edge("e2", "approval", "end"));
@@ -672,6 +681,7 @@ class FlowRecordSubmissionTest {
                 .name(name)
                 .scenario(approval ? FlowScenario.APPROVAL : FlowScenario.AUTOMATION)
                 .withdrawPolicy(approval ? WithdrawPolicy.UNTIL_COMPLETED : null)
+                .returnEnabled(approval ? Boolean.TRUE : null)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build())
                 .build();

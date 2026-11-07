@@ -21,6 +21,7 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowWithdrawRequest;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
@@ -37,7 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * What a flow's scenario decides at run time: only an Approval announces its completion and can be
- * withdrawn, and a Subflow node runs only an Automation flow that declares a Subflow trigger.
+ * withdrawn, and a Subflow node runs only an Automation flow that declares a Subflow trigger — failing like any
+ * other step when it cannot.
  */
 class FlowScenarioRuntimeTest {
 
@@ -46,9 +48,10 @@ class FlowScenarioRuntimeTest {
             new FlowPublishServiceImpl(new DefaultFlowCompiler(), bundleRegistry);
     private final ApprovalNodeExecutionHandler approvalHandler = new ApprovalNodeExecutionHandler();
     private final List<FlowNotificationEvent> notices = new ArrayList<>();
+    private final StubFlowInstanceStore instanceStore = new StubFlowInstanceStore();
     private final FlowRuntimeEngine engine = TestFlowRuntimeFactory.createWithNotifications(
             bundleRegistry,
-            new StubFlowInstanceStore(),
+            instanceStore,
             new DefaultNodeHandlerRegistry(List.of(
                     approvalHandler,
                     new SubflowNodeExecutionHandler(),
@@ -69,7 +72,7 @@ class FlowScenarioRuntimeTest {
     void anApprovalAnnouncesItsCompletion() {
         publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                        .config(Map.of("approvers", List.of("manager"))).build()));
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build()));
         FlowExecutionState started = engine.start(start("leave", "submitter"));
 
         FlowApproveRequest approve = new FlowApproveRequest();
@@ -105,14 +108,52 @@ class FlowScenarioRuntimeTest {
     }
 
     @Test
-    void aSubflowNodeRefusesAFlowStartedAnotherWay() {
+    void aSubflowNodeRefusesAFlowStartedAnotherWayAsAFailingStep() {
         publishService.publish("child", flow(FlowScenario.AUTOMATION, new ApiTrigger(null)));
         publishService.publish("parent", flow(FlowScenario.AUTOMATION, new ApiTrigger(null), subflowNode("child")));
 
-        FlowExecutionState parent = engine.startAutomation(start("parent", "user-1"));
+        // A run's failing step fails the run: recorded failed, its writes rolled back with the error.
+        FlowRuntimeException failure = assertThrows(FlowRuntimeException.class,
+                () -> engine.startAutomation(start("parent", "user-1")));
 
+        assertTrue(failure.getMessage().contains("Subflow trigger"), failure.getMessage());
+        FlowExecutionState parent = instanceStore.listByFlowId("parent").getFirst();
         assertEquals(FlowExecutionStatus.FAILED, parent.getStatus());
-        assertTrue(parent.getErrorMessage().contains("Subflow trigger"), parent.getErrorMessage());
+        assertEquals("subflow", parent.getFailedNodeId());
+        assertTrue(notices.stream().anyMatch(FlowNotificationEvent.FlowFailed.class::isInstance), "who is told");
+    }
+
+    @Test
+    void aFlowCallingItselfAsASubflowFails() {
+        publishService.publish("child", flow(FlowScenario.AUTOMATION, new SubflowTrigger(), subflowNode("child")));
+        publishService.publish("parent", flow(FlowScenario.AUTOMATION, new ApiTrigger(null), subflowNode("child")));
+
+        FlowRuntimeException failure = assertThrows(FlowRuntimeException.class,
+                () -> engine.startAutomation(start("parent", "user-1")));
+
+        assertTrue(failure.getMessage().contains("already running above it"), failure.getMessage());
+    }
+
+    @Test
+    void aSubflowFailingAfterAnApprovalKeepsTheApprovalAndFailsTheInstanceToRunAgain() {
+        publishService.publish("child", flow(FlowScenario.AUTOMATION, new ApiTrigger(null)));
+        publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
+                FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build(),
+                subflowNode("child")));
+        FlowExecutionState started = engine.start(start("leave", "submitter"));
+
+        FlowApproveRequest approve = new FlowApproveRequest();
+        approve.setInstanceId(started.getInstanceId());
+        approve.setNodeId("approval");
+        approve.setActorId("manager");
+        FlowExecutionState approved = engine.approve(approve);
+
+        assertEquals(FlowExecutionStatus.FAILED, approved.getStatus(), "the approver gets the failed instance");
+        assertEquals("subflow", approved.getFailedNodeId());
+        assertEquals("approval", approved.getRetryAfterNodeId(), "an administrator can run the steps again");
+        assertTrue(approved.getCompletedNodeIds().contains("approval"), "the approval stands");
+        assertTrue(notices.stream().anyMatch(FlowNotificationEvent.FlowFailed.class::isInstance));
     }
 
     private static FlowStartRequest start(String flowId, String initiatorId) {

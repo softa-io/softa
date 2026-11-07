@@ -23,8 +23,8 @@ import io.softa.starter.flow.runtime.nodeconfig.NodeErrorConfig;
  *       serving as the single discriminator for both handler routing and palette rendering.</li>
  *   <li>{@code errorConfig} ({@link NodeErrorConfig}) replaces the former loose pair of
  *       {@code errorStrategy} + {@code retryCount} fields.</li>
- *   <li>Return policy ({@code returnEnabled}) is now embedded in {@code parsedConfig} as part
- *       of {@code ApprovalNodeConfig}.</li>
+ *   <li>Return policy ({@code returnEnabled}) is the flow's, on {@code CompiledFlowDefinition}, the same at every
+ *       step.</li>
  * </ul>
  */
 @Data
@@ -72,4 +72,9 @@ public class CompiledFlowNode {
 
     @Schema(description = "Original design-time canvas position")
     private FlowGraphPosition position;
+
+    /** What a message calls the node: its label — the step's name people see — or its id when it has none. */
+    public String displayName() {
+        return label != null && !label.isBlank() ? label : nodeId;
+    }
 }

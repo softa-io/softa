@@ -64,11 +64,16 @@ class FlowDirectoryServiceImplTest {
         assertTrue(skipped[0]);
     }
 
+    /** A picker asks again for more as its list is scrolled — 20, 40, and so on — up to two hundred. */
     @Test
-    void aSearchReturnsOneToFiftyRows() {
+    void aSearchReturnsOneToTwoHundredRows() {
+        directory.searchDepartments("fin", 200);
+        verify(organization).searchDepartments("fin", 200);
+        reset(organization);
+
         assertThrows(RuntimeException.class, () -> directory.searchPeople("a", 0));
-        assertThrows(RuntimeException.class, () -> directory.searchAllPeople("a", false, 51));
-        assertThrows(RuntimeException.class, () -> directory.searchDepartments("a", 51));
+        assertThrows(RuntimeException.class, () -> directory.searchAllPeople("a", false, 201));
+        assertThrows(RuntimeException.class, () -> directory.searchDepartments("a", 201));
         verifyNoInteractions(organization);
     }
 

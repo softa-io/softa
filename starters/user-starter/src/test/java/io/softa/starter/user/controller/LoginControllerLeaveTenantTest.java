@@ -1,5 +1,6 @@
 package io.softa.starter.user.controller;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -7,6 +8,7 @@ import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -15,6 +17,8 @@ import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.entity.UserAccount;
@@ -67,6 +71,7 @@ class LoginControllerLeaveTenantTest {
     private final TenantInfoService tenantInfoService = mock(TenantInfoService.class);
     private final ConsultantService consultantService = mock(ConsultantService.class);
     private final CacheService cacheService = mock(CacheService.class);
+    private final SessionStore sessionStore = new SessionStore(cacheService, mock(ApplicationEventPublisher.class));
     private final LoginServiceImpl loginService = new LoginServiceImpl();
     private final LoginController controller = new LoginController();
     private final MockHttpServletResponse response = new MockHttpServletResponse();
@@ -87,7 +92,9 @@ class LoginControllerLeaveTenantTest {
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(controller, "loginService", loginService);
-        ReflectionTestUtils.setField(controller, "cacheService", cacheService);
+        ReflectionTestUtils.setField(controller, "sessionStore", sessionStore);
+        ReflectionTestUtils.setField(controller, "profileService", profileService);
+        ReflectionTestUtils.setField(loginService, "sessionStore", sessionStore);
 
         when(tenantInfoService.getTenantName(anyLong())).thenReturn("Some Co");
         when(tenantInfoService.isTenantActive(anyLong())).thenReturn(true);
@@ -112,7 +119,8 @@ class LoginControllerLeaveTenantTest {
     private MockHttpServletRequest signedInAt(Long accountId) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(BaseConstant.SESSION_ID, SESSION));
-        when(cacheService.get("session:" + SESSION, Long.class)).thenReturn(accountId);
+        when(cacheService.get("session:" + SESSION, SessionRecord.class))
+                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, null, null, null, LocalDateTime.now()));
         return request;
     }
 
@@ -139,7 +147,7 @@ class LoginControllerLeaveTenantTest {
         assertThat(result.tenants()).extracting("accountId").containsExactly(THERE);
         verify(cacheService, never()).save(startsWithSession(), any(), anyInt());
         // The session the person was inside is gone, on the server and in the browser.
-        verify(cacheService).clear("session:" + SESSION);
+        verify(cacheService).clear(java.util.List.of("session:" + SESSION));
         Cookie cleared = response.getCookie(BaseConstant.SESSION_ID);
         assertThat(cleared).isNotNull();
         assertThat(cleared.getMaxAge()).isZero();
@@ -163,7 +171,9 @@ class LoginControllerLeaveTenantTest {
 
         assertThatThrownBy(() -> controller.leaveTenant(request, response))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("No accessible tenant. Please contact the platform administrator.");
+                .hasMessage("No accessible tenant. Please contact the platform administrator.")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(io.softa.starter.user.constant.AccountErrorCodes.CONSULTANT_NO_ACCESS);
 
         verify(cacheService, never()).clear(anyString());
         assertThat(response.getCookie(BaseConstant.SESSION_ID)).isNull();
@@ -173,7 +183,7 @@ class LoginControllerLeaveTenantTest {
     void anUnknownSessionIsRefusedBeforeAnythingIsRead() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(BaseConstant.SESSION_ID, "forged"));
-        when(cacheService.get(eq("session:forged"), eq(Long.class))).thenReturn(null);
+        when(cacheService.get(eq("session:forged"), eq(SessionRecord.class))).thenReturn(null);
 
         assertThatThrownBy(() -> controller.leaveTenant(request, response))
                 .hasMessageContaining("Invalid session ID");

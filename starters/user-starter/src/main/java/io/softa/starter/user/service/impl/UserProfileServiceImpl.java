@@ -325,9 +325,16 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         // The tenant comes from the MEMBERSHIP, not the person: a person is global, and which
         // company this session is in is exactly what the chosen account represents.
         userInfo.setTenantId(account.getTenantId());
+        userInfo.setProfileId(account.getProfileId());
         // Reflect the account's live status so ContextBuilder can force-logout a frozen account.
-        userInfo.setActive(AccountStatus.ACTIVE == account.getStatus());
+        // LOCKED is legacy data (the lock lives on the person now) and enters like ACTIVE at sign-in;
+        // reading it as inactive here would end every session it is given, on its first request.
+        userInfo.setActive(AccountStatus.ACTIVE == account.getStatus() || AccountStatus.LOCKED == account.getStatus());
         this.validateTenantInfo(profile, userInfo.getTenantId());
+        // Taken here, next to the tenant check, and cached with the rest: reading a cached UserInfo
+        // then touches no tenant at all.
+        userInfo.setTenantName(tenantInfoService == null ? null
+                : tenantInfoService.getTenantName(userInfo.getTenantId()));
         if (profile.getPhotoId() != null) {
             // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time
             Optional<FileInfo> fileInfoOpt = fileService.getByFileId(profile.getPhotoId(), RedisConstant.ONE_QUARTER);
@@ -446,7 +453,8 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         // manager's number entered for a worker who has none). Copying such a number across anyway
         // does not create a login route, it destroys one — both holders then resolve to "shared by
         // more than one account" instead of the one who had it to themselves.
-        identity.setLoginEmail(claimable(account.getEmail(), profileId));
+        // The login mobile only: the enterprise email signs the person in through the joined
+        // account itself, so no copy of it is kept on the identity.
         identity.setLoginMobile(claimable(account.getMobile(), profileId));
         identityService.createOne(identity);
 

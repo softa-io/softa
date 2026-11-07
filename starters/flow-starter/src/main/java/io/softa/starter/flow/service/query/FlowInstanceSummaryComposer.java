@@ -12,11 +12,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.ContextUtils;
-import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -24,11 +20,8 @@ import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.ApprovalModel;
-import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.ApprovalStatus;
-import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
-import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.RecordEffectStatus;
 import io.softa.starter.flow.runtime.engine.ModelApprovalHandlerRegistry;
@@ -53,14 +46,6 @@ import io.softa.starter.flow.service.support.FlowUserNames;
 @Component
 public class FlowInstanceSummaryComposer {
 
-    private static final String TASK_MODEL = FlowApprovalTask.class.getSimpleName();
-
-    private static final List<String> STEP_FIELDS = List.of(
-            LambdaUtils.getAttributeName(FlowApprovalTask::getInstanceId),
-            LambdaUtils.getAttributeName(FlowApprovalTask::getNodeId),
-            LambdaUtils.getAttributeName(FlowApprovalTask::getNodeLabel),
-            LambdaUtils.getAttributeName(FlowApprovalTask::getActorId));
-
     private final ModelService<Long> modelService;
 
     private final FlowUserNames names;
@@ -73,6 +58,8 @@ public class FlowInstanceSummaryComposer {
 
     private final ModelApprovalHandlerRegistry handlerRegistry;
 
+    private final CurrentStepsReader currentStepsReader;
+
     @SuppressWarnings("unchecked")
     public FlowInstanceSummaryComposer(ModelService<?> modelService, FlowUserNames names,
                                        FlowInstanceStore instanceStore, WithdrawPolicyGuard withdrawPolicyGuard,
@@ -83,6 +70,7 @@ public class FlowInstanceSummaryComposer {
         this.withdrawPolicyGuard = withdrawPolicyGuard;
         this.urgeThrottle = urgeThrottle;
         this.handlerRegistry = handlerRegistry;
+        this.currentStepsReader = new CurrentStepsReader(modelService);
     }
 
     /** The rows of a page, with what {@code requesterId} may do to their own waiting approvals. */
@@ -160,13 +148,16 @@ public class FlowInstanceSummaryComposer {
         }));
     }
 
-    /** Withdraw and urge, on the requester's own approvals that wait on their approvers. */
+    /**
+     * Withdraw and urge, on the requester's own approvals that wait on their approvers — and withdraw on those of
+     * their records' approvals that failed, which takes the record back (zingkey-hcm#2385).
+     */
     private void applyInitiatorActions(List<FlowInstanceSummaryView> views, String requesterId) {
         if (requesterId == null) {
             return;
         }
         Map<String, FlowInstanceSummaryView> own = views.stream()
-                .filter(view -> isWaitingApproval(view)
+                .filter(view -> (isWaitingApproval(view) || isFailedRecordApproval(view))
                         && view.getInitiator() != null && requesterId.equals(view.getInitiator().getId()))
                 .collect(Collectors.toMap(FlowInstanceSummaryView::getInstanceId, Function.identity(), (a, b) -> a,
                         LinkedHashMap::new));
@@ -178,9 +169,15 @@ public class FlowInstanceSummaryComposer {
             FlowInstanceSummaryView view = own.get(state.getInstanceId());
             if (view != null) {
                 view.setWithdrawable(withdrawPolicyGuard.withdrawable(state, requesterId));
-                view.setUrge(urgeThrottle.status(state, requesterId, now));
+                if (isWaitingApproval(view)) {
+                    view.setUrge(urgeThrottle.status(state, requesterId, now));
+                }
             }
         }
+    }
+
+    private static boolean isFailedRecordApproval(FlowInstanceSummaryView view) {
+        return Boolean.TRUE.equals(view.getRecordApproval()) && FlowExecutionStatus.FAILED.equals(view.getStatus());
     }
 
     /**
@@ -221,46 +218,10 @@ public class FlowInstanceSummaryComposer {
 
     /** The steps each waiting instance waits on, in the order their tasks opened, with the approvers still to act. */
     private Map<String, List<FlowRecordApprovalsView.PendingStep>> currentSteps(List<FlowInstance> instances) {
-        List<String> waiting = instances.stream()
+        return currentStepsReader.of(instances.stream()
                 .filter(instance -> FlowExecutionStatus.WAITING.equals(instance.getStatus()))
                 .map(FlowInstance::getInstanceId)
-                .toList();
-        if (waiting.isEmpty()) {
-            return Map.of();
-        }
-        FlexQuery query = new FlexQuery(new Filters()
-                .in(FlowApprovalTask::getInstanceId, waiting)
-                .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.APPROVAL)
-                .eq(FlowApprovalTask::getStatus, FlowApprovalTaskStatus.PENDING),
-                Orders.ofAsc(FlowApprovalTask::getStartTime).addAsc(FlowApprovalTask::getId));
-        query.setFields(STEP_FIELDS);
-        List<Map<String, Object>> tasks = ContextUtils.withoutPermissionChecks(
-                () -> modelService.searchList(TASK_MODEL, query));
-        Map<String, Map<String, FlowRecordApprovalsView.PendingStep>> byInstance = new LinkedHashMap<>();
-        for (Map<String, Object> task : tasks) {
-            String instanceId = text(task.get(STEP_FIELDS.get(0)));
-            String nodeId = text(task.get(STEP_FIELDS.get(1)));
-            String nodeLabel = text(task.get(STEP_FIELDS.get(2)));
-            String actorId = text(task.get(STEP_FIELDS.get(3)));
-            if (instanceId == null || actorId == null) {
-                continue;
-            }
-            FlowRecordApprovalsView.PendingStep step = byInstance
-                    .computeIfAbsent(instanceId, id -> new LinkedHashMap<>())
-                    .computeIfAbsent(Objects.toString(nodeId, ""), key -> new FlowRecordApprovalsView.PendingStep(
-                            nodeId, nodeLabel, new ArrayList<>()));
-            boolean listed = step.getApprovers().stream().anyMatch(actor -> actorId.equals(actor.getId()));
-            if (!listed) {
-                step.getApprovers().add(new FlowRecordApprovalsView.Actor(actorId, null));
-            }
-        }
-        Map<String, List<FlowRecordApprovalsView.PendingStep>> result = new LinkedHashMap<>();
-        byInstance.forEach((instanceId, steps) -> result.put(instanceId, new ArrayList<>(steps.values())));
-        return result;
-    }
-
-    private static String text(Object value) {
-        return value == null ? null : value.toString();
+                .toList());
     }
 
     private static FlowInstanceSummaryView toView(FlowInstance instance, List<FlowRecordApprovalsView.PendingStep> steps) {
@@ -284,6 +245,7 @@ public class FlowInstanceSummaryComposer {
                 : new FlowInstanceSummaryView.Department(instance.getDepartmentId()));
         view.setEffectiveDate(instance.getEffectiveDate());
         view.setRecordCode(instance.getRecordCode());
+        view.setSummary(instance.getSummary());
         view.setStatus(instance.getStatus());
         view.setCurrentSteps(steps);
         view.setAwaitingRevision(Boolean.TRUE.equals(instance.getRecordApproval())

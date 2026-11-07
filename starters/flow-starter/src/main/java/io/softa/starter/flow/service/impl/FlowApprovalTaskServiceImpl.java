@@ -336,8 +336,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return Objects.equals(current.getStatus(), desired.getStatus())
                 && Objects.equals(current.getTaskType(), desired.getTaskType())
                 && Objects.equals(current.getAction(), desired.getAction())
-                && Objects.equals(current.getBlocked(), desired.getBlocked())
-                && Objects.equals(current.getBlockedByActorId(), desired.getBlockedByActorId())
                 && Objects.equals(current.getComment(), desired.getComment());
     }
 
@@ -350,14 +348,11 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         target.setApprovalMode(source.getApprovalMode());
         target.setRequiredApprovalCount(source.getRequiredApprovalCount());
         target.setTotalApproverCount(source.getTotalApproverCount());
-        target.setRejectMode(source.getRejectMode());
-        target.setRequiredRejectCount(source.getRequiredRejectCount());
         target.setCandidateActors(source.getCandidateActors());
         target.setApprovedActors(source.getApprovedActors());
-        target.setRejectedActors(source.getRejectedActors());
         target.setClosedByActorId(source.getClosedByActorId());
-        target.setBlocked(source.getBlocked());
-        target.setBlockedByActorId(source.getBlockedByActorId());
+        // An escalation sets a new deadline on the step it hands on.
+        target.setDueTime(source.getDueTime());
         if (target.getStartTime() == null) {
             target.setStartTime(source.getStartTime());
         }

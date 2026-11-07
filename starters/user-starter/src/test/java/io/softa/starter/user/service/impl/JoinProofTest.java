@@ -19,6 +19,7 @@ import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
 import io.softa.starter.user.enums.AccountStatus;
+import io.softa.starter.user.enums.InvitationPurpose;
 import io.softa.starter.user.enums.InvitationStatus;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
@@ -70,12 +71,16 @@ class JoinProofTest {
     private final UserInvitationServiceImpl realInvitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
             mock(VerificationCodeGuard.class), siteAt("http://localhost")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(realInvitationService);
 
     private final UserAccount revived = new UserAccount();
     private final UserIdentity ada = new UserIdentity();
 
     JoinProofTest() {
         ReflectionTestUtils.setField(loginService, "invitationService", invitationService);
+        ReflectionTestUtils.setField(loginService, "history", mock(LoginHistoryRecorder.class));
+        ReflectionTestUtils.setField(loginService, "mobileFormat", InvitationServiceTestSupport.mobileFormat());
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
@@ -97,6 +102,8 @@ class JoinProofTest {
         when(invitationService.resolveJoinAccount(TOKEN)).thenReturn(Optional.of(revived));
         when(identityService.findByProfile(ADA)).thenReturn(Optional.of(ada));
         when(identityService.isIdentifierClaimable(WORK_EMAIL, ADA)).thenReturn(true);
+        // A row with no mobile joins by email only for the placeholder minted with it.
+        when(invitationService.isPlaceholderPerson(ADA, 100L)).thenReturn(true);
 
         // confirmJoin's own reads. The invitation is re-read PENDING on every call so the second
         // confirm reaches the account's activationTime check rather than the token-status one.
@@ -137,18 +144,33 @@ class JoinProofTest {
     void theChain_verifyThenSetPasswordThenConfirm_succeeds_andSpendsTheProof() {
         String proof = passTheCode();
         // The cache holds a digest of the proof, never the proof itself: a dump is not a replay.
-        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:proof:").doesNotContain(proof));
+        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:proof").doesNotContain(proof));
 
         loginService.setJoinPassword(TOKEN, ADA, PASSWORD, proof);
         verify(identityService).setPassword(11L, PASSWORD);
         // Still alive: confirmJoin is next and needs it.
-        assertThat(cache).hasSize(1);
+        assertThat(cache.keySet()).filteredOn(key -> key.startsWith("join:proof:")).hasSize(1);
 
         realInvitationService.confirmJoin(TOKEN, ADA, proof);
         assertThat(revived.getStatus()).isEqualTo(AccountStatus.ACTIVE);
         verify(accountService).updateOne(revived);
         // Load-bearing: spent on success, so the completed flow leaves no standing credential.
         assertThat(cache).isEmpty();
+    }
+
+    @Test
+    void joiningAReopenedAccount_endsTheSessionsStillNamingIt() {
+        // Reopened for a re-hire: nobody is behind it until now, and whatever session still names the
+        // account was opened for whoever held it before.
+        io.softa.starter.user.service.UserSessionService sessions = mock(io.softa.starter.user.service.UserSessionService.class);
+        ReflectionTestUtils.setField(realInvitationService, "sessionService", sessions);
+        String proof = passTheCode();
+        revived.setProfileId(null);
+
+        realInvitationService.confirmJoin(TOKEN, ADA, proof);
+
+        verify(sessions).revokeAccount(100L, io.softa.framework.web.session.SessionRevokeReason.UNBOUND);
+        assertThat(revived.getProfileId()).isEqualTo(ADA);
     }
 
     @Test
@@ -211,6 +233,28 @@ class JoinProofTest {
     }
 
     @Test
+    void aSecondTap_afterTheInvitationIsMarkedAccepted_returnsQuietly_forTheSamePersonOnly() {
+        // As it really happens: the first confirm marks the invitation ACCEPTED, and the entry check
+        // reads an accepted link as spent. The person's own second tap is not an error; a tap naming
+        // someone else is still refused.
+        UserInvitation invitation = pendingInvitation();
+        doReturn(Optional.of(invitation)).when(realInvitationService).searchOne(any(Filters.class));
+        String proof = passTheCode();
+        realInvitationService.confirmJoin(TOKEN, ADA, proof);
+        assertThat(invitation.getStatus()).isEqualTo(InvitationStatus.ACCEPTED);
+        // Whatever the account's activation says, the invitation's status is what is read first.
+        revived.setActivationTime(null);
+
+        assertThatCode(() -> realInvitationService.confirmJoin(TOKEN, ADA, proof)).doesNotThrowAnyException();
+        verify(accountService).updateOne(revived);   // once — the second tap wrote nothing
+        assertThat(realInvitationService.resolveJoinAccount(TOKEN)).isEmpty();   // so LoginService asks to sign in
+
+        assertThatThrownBy(() -> realInvitationService.confirmJoin(TOKEN, STRANGER, proof))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("no longer valid");
+    }
+
+    @Test
     void confirmJoinTwice_theSecondTapReturnsQuietly_eventhoughTheProofIsSpent() {
         // The first confirm spends the proof; the person's double tap arrives without one. The
         // ALREADY_JOINED quiet return has to run BEFORE the proof check, or a completed join is
@@ -221,5 +265,23 @@ class JoinProofTest {
 
         assertThatCode(() -> realInvitationService.confirmJoin(TOKEN, ADA, proof)).doesNotThrowAnyException();
         verify(accountService).updateOne(revived);   // once — the second tap wrote nothing
+    }
+
+    @Test
+    void aForgotPasswordLink_cannotJoin_anyoneIntoAnything() {
+        // Someone signed in can mail themselves a reset link — an account long joined, a token still
+        // pending. Read as a join link it lands on "already joined", past the proof check that guards
+        // binding; it must read as no link at all.
+        UserInvitation reset = pendingInvitation();
+        reset.setPurpose(InvitationPurpose.PASSWORD_RESET);
+        doAnswer(inv -> Optional.of(reset)).when(realInvitationService).searchOne(any(Filters.class));
+        revived.setActivationTime(LocalDateTime.now().minusDays(30));
+        revived.setStatus(AccountStatus.ACTIVE);
+
+        assertThat(realInvitationService.inspectJoinToken(TOKEN).reason())
+                .isEqualTo(io.softa.starter.user.dto.JoinEntry.Reason.LINK_INVALID);
+        assertThatThrownBy(() -> realInvitationService.confirmJoin(TOKEN, STRANGER, "anything"))
+                .isInstanceOf(BusinessException.class);
+        verify(accountService, never()).updateOne(any(UserAccount.class));
     }
 }

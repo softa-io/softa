@@ -52,6 +52,16 @@ class NewAccountRefusalTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
+
+    {
+        // The people these contacts name still work somewhere, so none of their numbers is dormant.
+        UserAccount live = new UserAccount();
+        live.setStatus(AccountStatus.ACTIVE);
+        org.mockito.Mockito.doReturn(java.util.List.of(live)).when(accountService)
+                .listMembershipsOf(org.mockito.ArgumentMatchers.any());
+    }
 
     NewAccountRefusalTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
@@ -122,7 +132,10 @@ class NewAccountRefusalTest {
 
     @Test
     void theEmailIsHeldByAnotherAccountHere() {
-        doReturn(List.of(accountHolding(555L))).when(accountService).searchList(any(Filters.class));
+        UserAccount holder = accountHolding(555L);
+        // Stored with HR's capitals: the email comparison is case-insensitive.
+        holder.setEmail(EMAIL.toUpperCase());
+        doReturn(List.of(holder)).when(accountService).searchList(any(Filters.class));
 
         assertThat(refusalInThisTenant(EMAIL, null)).isEqualTo("Email already exists: " + EMAIL);
     }

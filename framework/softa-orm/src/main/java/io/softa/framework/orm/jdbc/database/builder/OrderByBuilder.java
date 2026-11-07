@@ -13,9 +13,15 @@ import io.softa.framework.orm.meta.ModelManager;
  * OrderBy Builder
  * For paged queries:
  *      When `orders` in flexQuery is empty, using the `defaultOrder` configuration of model.
- *      When 'defaultOrder' is not configured, using the global default order `DEFAULT_PAGED_ORDER`.
+ *      When 'defaultOrder' is not configured, using the global default order `DEFAULT_PAGED_ORDER` (`id DESC`,
+ *      newest first).
+ *      The order then ends with the physical primary key (`sliceId` on a timeline model), in the direction of
+ *      the first sort, so that the pages split the rows exactly: a row tied with others on the order still
+ *      lands on one page only.
  * For non-paged queries:
- *      Order according to the `orders` in flexQuery, or do not specify the sort when it is empty.
+ *      Order according to the `orders` in flexQuery, else the model's `defaultOrder`; with neither,
+ *      no sort — there is no global fallback. The lines and tags a record's read expands carry their own
+ *      order, filled in by the relation processors (`BaseProcessor.orderAsEntered`).
  * For DISTINCT queries:
  *      Only explicit `orders` are applied, never an implicit one — MySQL (error 3065) and
  *      PostgreSQL reject ORDER BY columns outside the DISTINCT select list.
@@ -69,17 +75,30 @@ public class OrderByBuilder extends BaseBuilder implements SqlClauseBuilder {
                 String aliasField = this.parseLogicField(order.get(0), false);
                 sqlWrapper.orderBy(aliasField, order.get(1));
             }
-            // For stable order paging queries, if there is no `id` in the orders parameter,
-            // automatically add `t.id ASC` at the end of the order condition,
-            // to ensure that different page data is as non-repetitive as possible.
-            // Skipped for DISTINCT: `id` is outside the select list (same 3065 failure).
-            // Skipped when grouping does not carry `id`, for the reason given on isSortable.
-            if (page != null && page.isCursorPage() && !distinct
-                    && !orders.getFields().contains(ModelConstant.ID)
-                    && isSortable(ModelConstant.ID)) {
-                sqlWrapper.orderBy(SqlWrapper.MAIN_TABLE_ALIAS + "." + ModelConstant.ID, Orders.ASC);
+            // Each page is a query of its own, and rows that tie on the order come back in whatever order that
+            // query's plan gives them — a plan that changes with the LIMIT and OFFSET — so a row could land on
+            // two pages or on none. The physical primary key therefore ends a paged read's order unless the
+            // order names it, in the direction of the first sort: rows of one date, newest first, stay newest
+            // first. On a timeline model the key is `sliceId`, since the slices of one record share its `id`.
+            // It is the framework's addition, not the caller's choice, so it is not recorded as a field
+            // accessed. Skipped for DISTINCT: the key is outside the select list (same 3065 failure).
+            // Skipped when grouping does not carry the key, for the reason given on isSortable.
+            if (page != null && !distinct) {
+                String primaryKey = ModelManager.getModelPrimaryKey(mainModelName);
+                if (!orders.getFields().contains(primaryKey) && isSortable(primaryKey)) {
+                    String column = ModelManager.getModelFieldColumn(mainModelName, primaryKey);
+                    sqlWrapper.orderBy(SqlWrapper.MAIN_TABLE_ALIAS + "." + column, directionOfFirstSort(orders));
+                }
             }
         }
+    }
+
+    /** The direction of the order's first sort, ascending for an empty order. */
+    private static String directionOfFirstSort(Orders orders) {
+        if (orders.isEmpty()) {
+            return Orders.ASC;
+        }
+        return Orders.DESC.equalsIgnoreCase(orders.getOrderList().getFirst().get(1)) ? Orders.DESC : Orders.ASC;
     }
 
     /**

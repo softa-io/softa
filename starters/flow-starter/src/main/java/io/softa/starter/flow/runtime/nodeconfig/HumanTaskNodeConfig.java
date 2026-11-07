@@ -5,7 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.starter.flow.enums.ApprovalTimeoutStrategy;
 
 /**
  * Config for {@code FlowNodeType.HUMAN_TASK} nodes.
@@ -31,14 +30,6 @@ public class HumanTaskNodeConfig {
      * If set, the assigned actor fills this form before submitting.
      */
     private String formCode;
-
-    /** Timeout strategy if the task is not completed in time. */
-    @Builder.Default
-    private ApprovalTimeoutStrategy timeoutStrategy = ApprovalTimeoutStrategy.REMIND;
-
-    /** Seconds before the timeout strategy is triggered (0 = no timeout). */
-    @Builder.Default
-    private long timeoutSeconds = 0;
 
     /** Variable name under which the submitted form data is stored in {@code vars}. */
     private String outputVariable;

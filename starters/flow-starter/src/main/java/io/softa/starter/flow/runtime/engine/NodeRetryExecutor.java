@@ -47,7 +47,7 @@ public class NodeRetryExecutor {
                 throw e;
             }
         }
-        throw new FlowRuntimeException("Node " + node.getNodeId() + " execution exhausted all retries");
+        throw new FlowRuntimeException("Node '" + node.displayName() + "' execution exhausted all retries");
     }
 
     private NodeErrorStrategy resolveErrorStrategy(CompiledFlowNode node) {

@@ -106,6 +106,10 @@ public class FlowInstance extends AuditableModel {
     @Field(description = "A record's approval: the record's own number, as at submission")
     private String recordCode;
 
+    @Field(length = 256, description = "A record's approval: a line saying what the record asks for — the days of a "
+            + "leave, the amount of a claim — as its handler words it at submission and after an approver's edits")
+    private String summary;
+
     @Field(defaultValue = "false", description = "A record's approval that a later submission of the same record "
             + "replaced, or whose record was cancelled: an approval returned and not superseded is still waiting "
             + "for its record to be edited")

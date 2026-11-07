@@ -1,23 +1,14 @@
 package io.softa.starter.flow.runtime.action;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextUtils;
-import io.softa.framework.orm.service.ModelService;
-import io.softa.framework.orm.utils.IdUtils;
-import io.softa.starter.flow.entity.ApprovalModel;
-import io.softa.starter.flow.entity.FlowInstance;
-import io.softa.starter.flow.enums.ApprovalStatus;
 import io.softa.starter.flow.runtime.api.FlowRetryRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.engine.FailedApprovalRecords;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
 import io.softa.starter.flow.runtime.engine.FlowExecutionOrchestrator;
@@ -29,7 +20,6 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.FlowExecutionTraceEntry;
 import io.softa.starter.flow.runtime.state.FlowTraceEventType;
-import io.softa.starter.flow.service.FlowInstanceService;
 
 /**
  * Runs the steps after an approval again, as an administrator, for an instance that failed in them
@@ -49,20 +39,16 @@ public class RetryActionHandler implements FlowActionHandler<FlowRetryRequest> {
     private final FlowActionContextService contextService;
     private final FlowAuditService auditService;
     private final FlowExecutionOrchestrator orchestrator;
-    private final FlowInstanceService instanceService;
-    private final ModelService<Serializable> modelService;
+    private final FailedApprovalRecords failedApprovals;
 
-    @SuppressWarnings("unchecked")
     public RetryActionHandler(FlowActionContextService contextService,
                               FlowAuditService auditService,
                               FlowExecutionOrchestrator orchestrator,
-                              FlowInstanceService instanceService,
-                              ModelService<?> modelService) {
+                              FailedApprovalRecords failedApprovals) {
         this.contextService = contextService;
         this.auditService = auditService;
         this.orchestrator = orchestrator;
-        this.instanceService = instanceService;
-        this.modelService = (ModelService<Serializable>) modelService;
+        this.failedApprovals = failedApprovals;
     }
 
     @Override
@@ -113,22 +99,12 @@ public class RetryActionHandler implements FlowActionHandler<FlowRetryRequest> {
 
     /** The record waits on this approval still: in approval, and this its latest. */
     private void requireRecordStillWaitsOn(FlowExecutionState state) {
-        List<FlowInstance> approvals = ContextUtils.withoutPermissionChecks(
-                () -> instanceService.findByModelNameAndRowId(state.getModelName(), state.getRowId()));
-        FlowInstance latest = approvals.stream()
-                .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
-                .max(Comparator.comparing(FlowInstance::getCreatedTime, Comparator.nullsFirst(Comparator.naturalOrder())))
-                .orElse(null);
-        if (latest != null && !Objects.equals(latest.getInstanceId(), state.getInstanceId())) {
-            throw new FlowActionValidationException("The record was submitted again after this approval failed: "
-                    + "it waits on its new approval, and this one cannot run again.");
-        }
-        Serializable id = IdUtils.formatId(state.getModelName(), state.getRowId());
-        Map<String, Object> row = ContextUtils.withoutPermissionChecks(
-                () -> modelService.getById(state.getModelName(), id, List.of(ApprovalModel.APPROVAL_STATUS))).orElse(null);
-        if (row == null || ApprovalStatus.from(row.get(ApprovalModel.APPROVAL_STATUS)) != ApprovalStatus.PENDING) {
-            throw new FlowActionValidationException("The record is no longer in this approval — its submitter took it "
-                    + "back, or it was removed — so the approval cannot run again.");
+        switch (failedApprovals.standingOf(state)) {
+            case SUBMITTED_AGAIN -> throw new FlowActionValidationException("The record was submitted again after "
+                    + "this approval failed: it waits on its new approval, and this one cannot run again.");
+            case MOVED_ON -> throw new FlowActionValidationException("The record is no longer in this approval — its "
+                    + "submitter took it back, or it was removed — so the approval cannot run again.");
+            case WAITS -> { }
         }
     }
 }

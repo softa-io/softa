@@ -44,7 +44,7 @@ public class TimerNodeExecutionHandler implements NodeExecutionHandler {
     @Override
     public NodeOutcome execute(CompiledFlowNode node, FlowVariableContext ctx) {
         if (!(node.getParsedConfig() instanceof TimerNodeConfig timerConfig)) {
-            throw new FlowRuntimeException("Timer node '" + node.getNodeId() + "' must configure config.timer");
+            throw new FlowRuntimeException("Timer node '" + node.displayName() + "' must configure config.timer");
         }
 
         Map<String, Object> scope = ctx.toExpressionScope();

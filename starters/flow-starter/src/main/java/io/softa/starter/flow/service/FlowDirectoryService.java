@@ -18,7 +18,7 @@ public interface FlowDirectoryService {
     /**
      * People whose login account signs in, matched on {@code keyword} (all when blank), by name, as the caller may read
      * the directory. Whether each can act is not said: they all can. {@code limit} defaults to 20 and may not exceed
-     * 50: a picker narrows by typing.
+     * 200: a picker asks again for more as its list is scrolled, and past 200 narrows by typing.
      */
     List<DirectoryPerson> searchPeople(String keyword, Integer limit);
 

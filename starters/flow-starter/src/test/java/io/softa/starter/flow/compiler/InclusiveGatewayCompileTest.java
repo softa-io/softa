@@ -89,7 +89,8 @@ class InclusiveGatewayCompileTest {
         CompileDiagnostic unpaired = diagnostics.getFirst();
         assertEquals(CompileDiagnostic.Severity.ERROR, unpaired.severity());
         assertEquals("gateway", unpaired.nodeId());
-        assertTrue(unpaired.message().contains("Branch 'g-travel' may end before join 'join'"), unpaired.message());
+        assertTrue(unpaired.message().contains("Branch 'Which checks → Travel' may end before join 'Join'"),
+                unpaired.message());
     }
 
     private static List<String> codes(List<CompileDiagnostic> diagnostics) {
@@ -119,7 +120,7 @@ class InclusiveGatewayCompileTest {
 
     private static FlowGraphNode approval(String id, String label) {
         return FlowGraphNode.builder().id(id).type(FlowNodeType.APPROVAL).label(label)
-                .config(Map.of("approvers", List.of("2001"))).build();
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001"))))).build();
     }
 
     private static FlowGraphEdge edge(String id, String source, String target, String condition) {

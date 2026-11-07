@@ -134,7 +134,7 @@ public class CompanyAbbreviationResolver {
         }
         FlexQuery query = new FlexQuery(List.of(NAME_FIELD, ABBREVIATION_FIELD),
                 new Filters().eq(ACTIVE_FIELD, true).isSet(ABBREVIATION_FIELD));
-        query.setOrders(Orders.ofDesc(ModelConstant.CREATED_TIME));
+        query.setOrders(Orders.ofDesc(ModelConstant.ID));
         query.setLimitSize(SAMPLE_CANDIDATES);
         Context system = ContextHolder.getContext().copy();
         system.setSkipPermissionCheck(true);

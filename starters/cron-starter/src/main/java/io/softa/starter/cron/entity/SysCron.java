@@ -19,7 +19,8 @@ import io.softa.starter.cron.enums.TenantJobMode;
         label = "System Cron",
         activeControl = true,
         description = "Carries the task ownership time during execution and supports "
-                + "automatic compensation for missed tasks."
+                + "automatic compensation for missed tasks.",
+                defaultOrder = {"priority", "name"}
 )
 public class SysCron extends AuditableModel {
 

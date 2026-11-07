@@ -16,7 +16,7 @@ import io.softa.starter.flow.service.support.FlowUserNames;
  * invited but not accepted, locked, frozen or gone ({@code softa.flow.org.approver-account-statuses}), as
  * {@link OrganizationService#getUnusableAccounts} tells. The approvers and CC recipients a flow resolves are
  * {@linkplain #usable kept only while they can act}, as a supervisor who left already is; a person an action names —
- * whom a task is transferred, delegated or reassigned to, a signer added, someone CC'd, a delegate — is
+ * whom a task is transferred, delegated or reassigned to, someone CC'd, a delegate — is
  * {@linkplain #requireUsable refused}, naming them and why. An id that is no account id can act, and so can every
  * user when the application has no organization service.
  */

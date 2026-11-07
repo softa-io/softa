@@ -98,7 +98,7 @@ class FlowActionReplayTest {
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approvers", List.of(X))).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(X))))).build(),
                                 node("end", FlowNodeType.END)))
                         .edges(List.of(
                                 edge("e1", "start", "approval"),

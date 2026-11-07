@@ -7,15 +7,21 @@ import io.softa.framework.base.i18n.I18n;
 
 /**
  * An approval step resolved to nobody under its {@code Error} empty-approver strategy — or under {@code AssignToRole},
- * its roles leaving nobody either. The action that reached the step — a submission, an approval — is refused
- * ({@code 400}) and changes nothing. The message is the same whatever the step's approver source, the roles named:
- * whoever reads it cannot fix it and has to ask for an approver to be set up.
+ * its roles leaving nobody either. A submission that reaches the step is refused ({@code 400}) and changes nothing;
+ * reached after an approval, the instance fails with it, the approval kept, and its initiator and the tenant's
+ * administrators are told (zingkey-hcm#2385). The message says why the step found nobody, when its approver source can
+ * tell — the employee has no manager who can approve, nobody who can holds its roles — and who can set one up: whoever
+ * reads it cannot fix it themselves.
  */
 @Getter
 public class FlowNoApproverException extends FlowActionValidationException {
 
     /** The refusal, translated: {0} is the step's label, else its node id. */
     public static final String MESSAGE = "No approver was found for step ''{0}''. "
+            + "Ask your HR administrator to set one up, then try again.";
+
+    /** The refusal with why the step found nobody, translated: {0} is the step's label, else its node id; {1} why. */
+    public static final String REASON_MESSAGE = "No approver was found for step ''{0}'': {1}. "
             + "Ask your HR administrator to set one up, then try again.";
 
     /**
@@ -30,7 +36,12 @@ public class FlowNoApproverException extends FlowActionValidationException {
     private final String nodeId;
 
     public FlowNoApproverException(String nodeId, String nodeLabel) {
-        super(messageOf(nodeId, nodeLabel));
+        this(nodeId, nodeLabel, (String) null);
+    }
+
+    /** {@code reason}: why the step found nobody, null when its source cannot tell. */
+    public FlowNoApproverException(String nodeId, String nodeLabel, String reason) {
+        super(messageOf(nodeId, nodeLabel, reason));
         this.nodeId = nodeId;
     }
 
@@ -47,6 +58,13 @@ public class FlowNoApproverException extends FlowActionValidationException {
     /** The refusal for the step, translated into the current language; the approval path preview reports it too. */
     public static String messageOf(String nodeId, String nodeLabel) {
         return I18n.get(MESSAGE, labelOf(nodeId, nodeLabel));
+    }
+
+    /** {@link #messageOf(String, String)} saying why, when {@code reason} does. */
+    public static String messageOf(String nodeId, String nodeLabel, String reason) {
+        return reason == null || reason.isBlank()
+                ? messageOf(nodeId, nodeLabel)
+                : I18n.get(REASON_MESSAGE, labelOf(nodeId, nodeLabel), reason);
     }
 
     /** {@link #messageOf(String, String)} for a step that went to {@code roles} and found nobody there either. */

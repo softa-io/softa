@@ -30,7 +30,7 @@ public class ForEachNodeExecutionHandler implements NodeExecutionHandler {
 
     @Override
     public NodeOutcome execute(CompiledFlowNode node, FlowVariableContext ctx) {
-        throw new FlowRuntimeException("ForEach node '" + node.getNodeId()
+        throw new FlowRuntimeException("ForEach node '" + node.displayName()
                 + "' is not supported: the runtime does not execute loop child nodes yet. "
                 + "This node should have been rejected at compile time.");
     }

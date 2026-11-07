@@ -15,20 +15,25 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.softa.framework.base.constant.BaseConstant;
-import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.enums.SystemUser;
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.orm.annotation.SwitchUser;
-import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.framework.web.session.SessionStore;
 import io.softa.framework.web.utils.CookieUtils;
 import io.softa.starter.user.dto.*;
 import io.softa.starter.user.service.LoginService;
+import io.softa.starter.user.service.impl.LoginHistoryRecorder;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.service.OAuth2Service;
+import io.softa.starter.user.util.ClientInfo;
 
 /**
  * Login Controller
@@ -61,7 +66,10 @@ public class LoginController {
 
     /** Reads the session behind an authenticated call, and drops the one a switch replaces. */
     @Autowired
-    private CacheService cacheService;
+    private SessionStore sessionStore;
+
+    @Autowired
+    private LoginHistoryRecorder loginHistory;
 
     /**
      * Login by Apple ID
@@ -143,7 +151,7 @@ public class LoginController {
     }
 
     /**
-     * The /join landing check — may this token proceed, and if not, why (PRD §3.0).
+     * The /join landing check — may this token proceed, and if not, why.
      *
      * <p>Public by necessity: whoever opened the link has no session yet. It reveals only masked
      * contacts and the company name, so a leaked token yields recognition, not usable details.
@@ -180,16 +188,16 @@ public class LoginController {
     }
 
     /**
-     * Set a first password mid-join, where no session exists yet. Authorized by the invitation, and
-     * narrow because of it: it reaches only the profile the invitation names, only when that
-     * profile has no password.
+     * Set the login password mid-join, where no session exists yet. Authorized by the invitation and
+     * the proof of the code just passed. On an Unbind &amp; Re-invite link this also finishes the join
+     * ({@code completed}); on any other invitation the confirm-join step follows.
      */
-    @Operation(summary = "Set the first password during the join flow")
+    @Operation(summary = "Set the login password during the join flow; completes an Unbind & Re-invite link")
     @PostMapping("/setJoinPassword")
     @SwitchUser(SystemUser.REGISTERED_USER)
-    public ApiResponse<Void> setJoinPassword(@RequestBody @Valid SetJoinPasswordDTO dto) {
-        loginService.setJoinPassword(dto.getToken(), dto.getProfileId(), dto.getNewPassword(), dto.getProof());
-        return ApiResponse.success();
+    public ApiResponse<JoinPasswordResult> setJoinPassword(@RequestBody @Valid SetJoinPasswordDTO dto) {
+        return ApiResponse.success(loginService.setJoinPassword(dto.getToken(), dto.getProfileId(),
+                dto.getNewPassword(), dto.getProof()));
     }
 
     /**
@@ -226,9 +234,37 @@ public class LoginController {
             HttpServletResponse response) {
         if (result.isResolved()) {
             String sessionId = loginService.generateSessionId(result.userInfo().getUserId());
-            CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
+            result = handOver(result, sessionId, response);
         }
         return ApiResponse.success(result);
+    }
+
+    /**
+     * Hand a new session to its client the one way that client carries it: the APP gets it in the
+     * body and sends it back as {@code X-Session-Id}; Web and H5 get the cookie, which page scripts
+     * cannot read, and never a copy in the body. The APP gets no cookie either: it keeps none, and a
+     * cookie it did keep would be ignored (see {@link SessionStore#sessionIdOf}).
+     */
+    private static AuthenticationResult handOver(AuthenticationResult result, String sessionId,
+                                                 HttpServletResponse response) {
+        if (ClientInfo.current().isApp()) {
+            return result.withSessionToken(sessionId);
+        }
+        CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
+        return result;
+    }
+
+    /**
+     * Set the first password of a person who signed in without one, with the single-use sign-in
+     * token that sign-in returned — no session exists yet — then enter by the entry rule.
+     */
+    @Operation(summary = "Set the first password with the sign-in token, then enter by the entry rule")
+    @PostMapping("/setFirstPassword")
+    @SwitchUser(SystemUser.REGISTERED_USER)
+    public ApiResponse<AuthenticationResult> setFirstPassword(@RequestBody @Valid LoginSetFirstPasswordDTO dto,
+            HttpServletResponse response) {
+        return this.issueOrAskForCompany(
+                loginService.setFirstPassword(dto.getAuthToken(), dto.getNewPassword()), response);
     }
 
     /**
@@ -273,7 +309,7 @@ public class LoginController {
     @GetMapping("/myTenants")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<List<MembershipOption>> myTenants(HttpServletRequest request) {
-        return ApiResponse.success(loginService.myTenants(this.sessionUser(this.sessionIdOf(request))));
+        return ApiResponse.success(loginService.myTenants(this.sessionUser(request, this.sessionIdOf(request))));
     }
 
     /**
@@ -296,16 +332,17 @@ public class LoginController {
     public ApiResponse<AuthenticationResult> switchTenant(@RequestBody @Valid SwitchTenantDTO dto,
             HttpServletRequest request, HttpServletResponse response) {
         String previousSessionId = this.sessionIdOf(request);
-        AuthenticationResult result =
-                loginService.switchTenant(this.sessionUser(previousSessionId), dto.getAccountId());
+        Long previousAccountId = this.sessionUser(request, previousSessionId);
+        AuthenticationResult result = loginService.switchTenant(previousAccountId, dto.getAccountId());
         // Gates first: a refusal here mints nothing, and the caller is still in the company they
         // started in — which is why the old session is dropped only after this returns.
         String sessionId = loginService.generateSessionId(result.userInfo().getUserId());
         // Explicit, and before the new cookie goes out: a copy of the old cookie taken from another
         // device would otherwise keep the previous company alive alongside the new one.
-        cacheService.clear(RedisConstant.SESSION + previousSessionId);
-        CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-        return ApiResponse.success(result);
+        sessionStore.revoke(previousSessionId, SessionRevokeReason.SWITCHED_TENANT);
+        loginHistory.recordSwitch(result.profileId(), previousAccountId, result.userInfo().getUserId(),
+                result.userInfo().getTenantId());
+        return ApiResponse.success(handOver(result, sessionId, response));
     }
 
     /**
@@ -329,15 +366,16 @@ public class LoginController {
     public ApiResponse<AuthenticationResult> leaveTenant(HttpServletRequest request,
                                                          HttpServletResponse response) {
         String sessionId = this.sessionIdOf(request);
-        AuthenticationResult result = loginService.leaveTenant(this.sessionUser(sessionId));
-        cacheService.clear(RedisConstant.SESSION + sessionId);
+        AuthenticationResult result = loginService.leaveTenant(this.sessionUser(request, sessionId));
+        sessionStore.revoke(sessionId, SessionRevokeReason.LEFT_TENANT);
         CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
         return ApiResponse.success(result);
     }
 
     /**
-     * The session id this request carries — cookie first, then the header {@code ContextBuilder}
-     * also accepts, so the two endpoints above authenticate the same way every other endpoint does.
+     * The session id this request carries, read the way {@code ContextBuilder} reads it — the
+     * {@code X-Session-Id} header for the APP, the cookie for Web — so these endpoints authenticate
+     * the same way every other endpoint does.
      *
      * <p>Read here rather than taken from the Context on purpose. {@code /login/**} is anonymous at
      * the context filter and public in the permission gate, so an UNAUTHENTICATED caller reaches
@@ -345,23 +383,47 @@ public class LoginController {
      * gated them would make both endpoints answer for whoever asked.
      */
     private String sessionIdOf(HttpServletRequest request) {
-        String sessionId = CookieUtils.getCookie(request, BaseConstant.SESSION_ID);
+        String sessionId = SessionStore.sessionIdOf(request);
         if (sessionId == null) {
-            sessionId = request.getHeader(BaseConstant.SESSION_ID_HEADER);
-        }
-        if (sessionId == null) {
-            throw new UserNotFoundException("Session ID is missing");
+            throw sessionExpired("Session ID is missing");
         }
         return sessionId;
     }
 
-    /** The UserAccount — one membership — the session maps to; absent means expired or forged. */
-    private Long sessionUser(String sessionId) {
-        Long userId = cacheService.get(RedisConstant.SESSION + sessionId, Long.class);
-        if (userId == null) {
-            throw new UserNotFoundException("Invalid session ID");
+    /**
+     * The account the session is in — while it still belongs to the person the session was opened
+     * for. These endpoints skip the per-request context, so they make its check themselves: an
+     * account closed, reopened and joined by someone else must not list, switch or leave on behalf of
+     * the new holder with the previous one's session. Nor may a session be used by a kind of client
+     * it was not issued to: an APP session without the APP's headers, a Web session with them.
+     */
+    private Long sessionUser(HttpServletRequest request, String sessionId) {
+        SessionRecord session = sessionStore.peek(sessionId)
+                .orElseThrow(() -> sessionExpired("Invalid session ID"));
+        if (!SessionStore.sameClient(session, request)) {
+            throw sessionExpired("This session belongs to another kind of client.");
         }
-        return userId;
+        boolean sameHolder;
+        try {
+            UserInfo info = profileService.getUserInfo(session.accountId());
+            Long holder = info == null ? null : info.getProfileId();
+            // An entry cached before the person was recorded on it compares as nothing.
+            sameHolder = holder == null || session.profileId() == null || holder.equals(session.profileId());
+        } catch (BusinessException e) {
+            // Nobody is behind the account any more: reopened, and not joined yet.
+            sameHolder = false;
+        }
+        if (!sameHolder) {
+            sessionStore.revoke(sessionId, SessionRevokeReason.UNBOUND);
+            throw sessionExpired("The account no longer belongs to this session's person.");
+        }
+        return session.accountId();
+    }
+
+    private static UserNotFoundException sessionExpired(String message) {
+        UserNotFoundException e = new UserNotFoundException(message);
+        e.withErrorCode(SessionErrorCodes.SESSION_EXPIRED);
+        return e;
     }
 
     /**

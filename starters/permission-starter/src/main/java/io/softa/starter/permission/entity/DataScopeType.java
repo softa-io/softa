@@ -57,7 +57,8 @@ import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Model(idStrategy = IdStrategy.EXTERNAL_ID, businessKey = {"id"},
-        description = "Data-scope type registry (applicability metadata)")
+        description = "Data-scope type registry (applicability metadata)",
+        defaultOrder = {"sortOrder"})
 public class DataScopeType extends AuditableModel {
 
     @Serial

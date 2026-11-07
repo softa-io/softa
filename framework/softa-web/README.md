@@ -176,6 +176,35 @@ Notes:
 1. `QueryParams` does not expose `convertType`. The web layer sets `ConvertType.REFERENCE` by default. To use other `ConvertType` values, call the service layer with `FlexQuery` directly.
 2. Filters and orders follow the same formats as top-level `filters` and `orders` (`Filters` list format and `Orders` list or string format).
 
+## SearchNameParams
+`SearchNameParams` is the request body for `/searchName`: a relation field's candidates, each as `id` and `displayName` plus any `additionalFields`, one page at a time.
+
+Key fields in `SearchNameParams`:
+- `value`: the text typed, matched with `operator` (default `CONTAINS`) on `matchField` (default `searchName`, the model's search fields). Blank lists every candidate.
+- `filters`: context filters from the relation field or the form, joined to the match with AND.
+- `orders`: sorting rules. Without them the model's `defaultOrder` applies, and newest first (`id DESC`) on a model without one; either way the primary key ends the order (`sliceId` on a timeline model), so consecutive pages neither repeat nor skip a candidate.
+- `additionalFields`: fields returned beside `id` and `displayName`.
+- `pageNumber`: which page, counting from 1 (default 1).
+- `pageSize`: candidates per page, 10 when omitted, at most `MAX_BATCH_SIZE`. It replaced `limitSize`, which the endpoint no longer reads.
+- `effectiveDate`: the date effective-dated models are read on, default today.
+- `sourceRecord`: the record being edited, for searches that depend on it.
+
+Example request (the second page of active records matching "an"):
+```json
+{
+  "value": "an",
+  "filters": ["active", "=", true],
+  "additionalFields": ["code"],
+  "pageNumber": 2,
+  "pageSize": 20
+}
+```
+
+Notes:
+1. The response is the page's rows as a list, not a `Page`: a name search reads a cursor page, in one stable order and with nothing counted, so a picker asks for the next page until one comes back short.
+2. In code, `toFlexQuery()` builds the query (the match, filters, orders, additional fields, `ConvertType.REFERENCE`, the effective date) and `toPage()` the page; `ModelService.searchName(modelName, flexQuery, page)` takes both and returns the page's rows, the same list the endpoint answers with. A controller that serves its own `/searchName` to narrow the candidates adds its filters to `toFlexQuery()` and passes `toPage()` on unchanged, so its pages keep the same order.
+3. A lookup that wants a known set rather than a picker's pages, such as the names of known ids, sends its `filters` with `pageSize` set to how many it expects.
+
 ## Return Values by ConvertType, QueryParams, SubQuery
 Unless stated otherwise, the descriptions below refer to service-level `FlexQuery` behavior. Web APIs using `QueryParams` default to `ConvertType.REFERENCE`, so they follow the `REFERENCE` column when no SubQuery is specified.
 

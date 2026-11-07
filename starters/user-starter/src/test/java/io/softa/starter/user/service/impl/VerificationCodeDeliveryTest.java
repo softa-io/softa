@@ -41,10 +41,15 @@ class VerificationCodeDeliveryTest {
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "codeGuard", codeGuard);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
-        // These cases are about what a LINKED identifier gets; the unlinked half lives in
-        // UnknownIdentifierIsIndistinguishableTest.
-        when(identityService.findByLoginIdentifier(anyString()))
-                .thenReturn(Optional.of(new UserIdentity()));
+        // These cases are about what a LINKED identifier gets; an unlinked one is ACCOUNT_NOT_FOUND
+        // (IdentifierResolutionTest).
+        io.softa.starter.user.service.UserAccountService accountService =
+                mock(io.softa.starter.user.service.UserAccountService.class);
+        ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        UserIdentity linked = new UserIdentity();
+        linked.setProfileId(7L);
+        when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.of(linked));
+        when(accountService.listAccountIdsOf(7L)).thenReturn(java.util.List.of(100L));
     }
 
     @Test
