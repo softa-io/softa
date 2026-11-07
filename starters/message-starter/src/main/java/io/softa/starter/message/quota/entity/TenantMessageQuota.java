@@ -12,9 +12,10 @@ import io.softa.framework.orm.enums.IdStrategy;
 
 /**
  * Monthly send-volume quota for one tenant — a commercial ceiling, not rate
- * limiting: once the month's accepted sends reach the limit, further sends are
- * rejected at acceptance with a {@code BusinessException} (nothing queues or
- * delays). Complements — never replaces — the per-config infrastructure
+ * limiting. A send is charged when its record is prepared (its first delivery
+ * attempt); once the month's charged sends reach the limit, further records
+ * fail with {@code MONTHLY_QUOTA_EXCEEDED}, logged at ERROR — raise the limit
+ * and Retry them. Complements — never replaces — the per-config infrastructure
  * limits ({@code dailySendLimit} / {@code rateLimitPerMinute}), which protect
  * individual servers/providers at delivery time.
  * <p>

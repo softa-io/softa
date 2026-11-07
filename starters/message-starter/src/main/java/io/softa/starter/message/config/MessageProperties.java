@@ -6,25 +6,23 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Centralised properties for {@code message-starter} infrastructure behaviour
- * that isn't part of the MQ topic map (which lives in
- * {@link io.softa.starter.message.mq.MqTopicsProperties}).
+ * Centralised properties for {@code message-starter} infrastructure behaviour.
  * <p>
  * Bound under prefix {@code softa.message}. Each nested section corresponds
  * to one infrastructure concern. Defaults aim to be safe for production
- * single-node deployments; tune {@code outbox.poll-interval-ms} down to
-     * raise throughput, raise {@code zombie.stale-seconds} if the broker or
-     * provider can legitimately take longer than five minutes to complete.
+ * single-node deployments; raise {@code mail.send-concurrency} /
+ * {@code sms.send-concurrency} for throughput, raise {@code zombie.stale-seconds}
+ * if a provider can legitimately take longer than five minutes to complete.
  *
  * <pre>{@code
  * softa:
  *   message:
- *     outbox:
- *       enabled: true              # default; set false on read-only replicas
- *       poll-interval-ms: 500      # publisher polling cadence
+ *     delivery:
+ *       enabled: true              # default; set false on instances that must not send
+ *       poll-interval-ms: 500      # how often due send records are claimed
  *     zombie:
  *       enabled: true
-     *       stale-seconds: 300         # stale SENDING / PUBLISHING claims are revived
+ *       stale-seconds: 300         # stale SENDING records are revived
  *       cron: "0 * * * * *"        # sweep cadence (every minute)
  * }</pre>
  *
@@ -40,7 +38,7 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties(prefix = "softa.message")
 public class MessageProperties {
 
-    private final Outbox outbox = new Outbox();
+    private final Delivery delivery = new Delivery();
     private final Zombie zombie = new Zombie();
     private final Mail mail = new Mail();
     private final Sms sms = new Sms();
@@ -60,11 +58,15 @@ public class MessageProperties {
         private Long smsMonthlyDefault;
     }
 
+    /**
+     * The delivery loop ({@code DeliveryPoller}): claims due send records and runs them on the
+     * channel worker pools sized by {@code mail.send-concurrency} / {@code sms.send-concurrency}.
+     */
     @Data
-    public static class Outbox {
-        /** Whether the {@code OutboxPublisher} scheduled job is enabled. */
+    public static class Delivery {
+        /** Whether this instance runs the delivery loop. */
         private boolean enabled = true;
-        /** Polling interval in milliseconds. Lower = faster publish, higher DB load. */
+        /** Polling interval in milliseconds. Lower = faster pickup, more queries. */
         private long pollIntervalMs = 500;
     }
 
@@ -74,7 +76,7 @@ public class MessageProperties {
         private boolean enabled = true;
         /** Cron expression for the sweep cadence (default: every minute). */
         private String cron = "0 * * * * *";
-        /** Stale {@code SENDING} records and {@code PUBLISHING} outbox claims are revived. */
+        /** {@code SENDING} records older than this are revived. */
         private long staleSeconds = 300;
     }
 
@@ -112,11 +114,10 @@ public class MessageProperties {
         private boolean debug = false;
 
         /**
-         * Delivery consumers per instance on the Shared mail-send subscription:
-         * how many mails one instance sends in parallel. Each consumer holds its
-         * own SMTP connection, so stay within the server's limit on concurrent
-         * connections per account. Read by {@code MailSendConsumer} as
-         * {@code softa.message.mail.send-concurrency}.
+         * How many mails one instance sends in parallel: the size of its mail
+         * worker pool in the delivery loop. Each worker holds its own SMTP
+         * connection, so stay within the server's limit on concurrent connections
+         * per account.
          */
         private int sendConcurrency = 1;
     }
@@ -214,10 +215,7 @@ public class MessageProperties {
     public static class Sms {
         private final Transport transport = new Transport();
 
-        /**
-         * Delivery consumers per instance on the Shared sms-send subscription.
-         * Read by {@code SmsSendConsumer} as {@code softa.message.sms.send-concurrency}.
-         */
+        /** How many SMS one instance sends in parallel: the size of its SMS worker pool. */
         private int sendConcurrency = 1;
     }
 

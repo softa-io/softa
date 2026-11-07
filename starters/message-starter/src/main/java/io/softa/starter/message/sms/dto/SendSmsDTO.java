@@ -41,4 +41,15 @@ public class SendSmsDTO {
             + "template and quota — for platform-owned SMS (security codes for platform accounts, "
             + "operational alerts). Explicit providerConfigId still wins over the policy.")
     private MessageScope scope;
+
+    /** A templated SMS to one number: the template's code and variables, rendered in {@code scope}'s tier. */
+    public static SendSmsDTO ofTemplate(String phoneNumber, String templateCode, Map<String, Object> variables,
+                                        MessageScope scope) {
+        SendSmsDTO sms = new SendSmsDTO();
+        sms.setPhoneNumber(phoneNumber);
+        sms.setTemplateCode(templateCode);
+        sms.setTemplateVariables(variables);
+        sms.setScope(scope);
+        return sms;
+    }
 }

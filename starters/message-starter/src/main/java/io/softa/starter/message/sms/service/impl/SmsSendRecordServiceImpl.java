@@ -2,12 +2,9 @@ package io.softa.starter.message.sms.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.starter.message.mq.TopicRoute;
-import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
 import io.softa.starter.message.shared.AbstractCasSendRecordServiceImpl;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsProvider;
@@ -28,9 +25,6 @@ public class SmsSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<S
     private static final String MANUAL_RETRY_CODE = "MANUAL_RETRY";
     private static final String MANUAL_RETRY_MESSAGE = "Manually requeued for delivery";
 
-    @Autowired
-    private OutboxRecordWriter outboxRecordWriter;
-
     @Override
     public boolean retry(Long id) {
         SmsSendRecord record = getById(id).orElseThrow(() ->
@@ -43,12 +37,9 @@ public class SmsSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<S
             throw new BusinessException("This SMS is being sent right now. If it is stuck, "
                     + "stale SENDING records are requeued automatically after the zombie window.");
         }
-        // See MailSendRecordServiceImpl#retry — same primitive, same one-new-attempt semantics.
-        LocalDateTime retryAt = LocalDateTime.now();
+        // See MailSendRecordServiceImpl#retry — same transition, same one-new-attempt semantics.
         long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
-        boolean ok = outboxRecordWriter.transitionAndEnqueueAt(
-                () -> markRetry(id, expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE, retryAt),
-                id, "SmsSendRecord", TopicRoute.SMS_SEND, retryAt);
+        boolean ok = markRetry(id, expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE, LocalDateTime.now());
         if (!ok) {
             throw new BusinessException("The record changed concurrently — refresh and retry again.");
         }
@@ -58,6 +49,17 @@ public class SmsSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<S
     @Override
     public boolean markSending(Long id, long expectedVersion) {
         return claimForAttempt(id, expectedVersion, SmsSendStatus.SENDING);
+    }
+
+    @Override
+    public boolean markPrepared(SmsSendRecord record, long expectedVersion) {
+        Map<String, Object> patch = versionedPatch(record.getId(), expectedVersion);
+        patch.put("content", record.getContent());
+        patch.put("providerConfigId", record.getProviderConfigId());
+        patch.put("providerType", record.getProviderType());
+        patch.put("signName", record.getSignName());
+        patch.put("externalTemplateId", record.getExternalTemplateId());
+        return updateVersioned(patch);
     }
 
     @Override

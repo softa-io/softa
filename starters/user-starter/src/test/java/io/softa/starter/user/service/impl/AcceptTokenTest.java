@@ -4,10 +4,10 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
@@ -51,7 +51,7 @@ class AcceptTokenTest {
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
-            accountService, identityService, mock(ApplicationEventPublisher.class), null,
+            accountService, identityService, mock(MessageService.class), null,
             mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
     private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
             InvitationServiceTestSupport.quiet(invitationService);

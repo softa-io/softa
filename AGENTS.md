@@ -60,7 +60,7 @@ softa-parent (root pom.xml)
 │   ├── cron-starter             # Scheduled task execution
 │   ├── es-starter               # Elasticsearch CRUDQ
 │   ├── file-starter             # File management
-│   ├── message-starter          # SMS / Mail + Pulsar MQ producers/consumers
+│   ├── message-starter          # Mail / SMS / Inbox: send records, delivery loop, templates
 │   ├── reference-data-starter   # ISO 3166-1 countries, ISO 4217 currencies, ISO 3166-2 subdivisions
 │   ├── studio-starter           # Metadata control plane: cross-env governance + DDL rendering (Pebble)
 │   ├── user-starter             # User management

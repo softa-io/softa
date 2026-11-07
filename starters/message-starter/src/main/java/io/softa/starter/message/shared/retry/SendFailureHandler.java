@@ -5,22 +5,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.message.dlq.service.DeadLetterMessageService;
-import io.softa.starter.message.mq.TopicRoute;
-import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
 import io.softa.starter.message.shared.ErrorCategory;
 import io.softa.starter.message.shared.ErrorClassifier;
 import io.softa.starter.message.shared.metrics.MessageMetrics;
 
 /**
  * Shared failure handling for the mail and sms send paths: classify the
- * provider error, ask {@link ExponentialBackoffPolicy} for a decision, and
- * apply it under the channel's CAS helpers — retry (CAS + delayed outbox row,
- * made atomic by {@link OutboxRecordWriter}), terminal fail, or dead-letter.
+ * error, ask {@link ExponentialBackoffPolicy} for a decision, and apply it
+ * under the channel's CAS helpers — retry (RETRY with {@code nextRetryAt}, which
+ * the delivery loop polls for), terminal fail, or dead-letter.
  * <p>
- * The two channels were byte-for-byte identical here; extracting it keeps the
- * subtle atomic-CAS + delayed-enqueue contract in one place so they can't
- * diverge. Each channel supplies its CAS helpers via {@link RecordTransitions}.
+ * Every terminal outcome is logged at ERROR with the record id, the error code
+ * and the reason, so log-based alerting reaches a developer for each send that
+ * will not go out — a missing server, provider or template included. Each
+ * channel supplies its CAS helpers via {@link RecordTransitions}.
  */
 @Slf4j
 @Component
@@ -31,9 +31,6 @@ public class SendFailureHandler {
 
     @Autowired
     private ExponentialBackoffPolicy retryPolicy;
-
-    @Autowired
-    private OutboxRecordWriter outboxRecordWriter;
 
     @Autowired
     private DeadLetterMessageService deadLetterMessageService;
@@ -68,8 +65,6 @@ public class SendFailureHandler {
      *
      * @param channel         {@code "mail"} / {@code "sms"} — metrics + log tag
      * @param provider        transport / provider name (nullable), for metrics + dead-letter
-     * @param deliveryRoute   channel delivery route used for both initial sends and delayed retries
-     * @param recordType      outbox aggregate type (record entity name)
      * @param recordId        the send-record id
      * @param expectedVersion CAS version the caller claimed
      * @param currentAttempts retries already made
@@ -77,7 +72,7 @@ public class SendFailureHandler {
      * @param errorMessage    provider error message
      * @param tx              channel CAS helpers
      */
-    public void handle(String channel, String provider, TopicRoute deliveryRoute, String recordType,
+    public void handle(String channel, String provider,
                        Long recordId, long expectedVersion, int currentAttempts,
                        String errorCode, String errorMessage, RecordTransitions tx) {
         ErrorCategory category = errorClassifier.classify(errorCode, errorMessage);
@@ -86,12 +81,7 @@ public class SendFailureHandler {
         switch (decision) {
             case RetryDecision.Retry r -> {
                 LocalDateTime next = LocalDateTime.now().plusSeconds(r.delay().getSeconds());
-                // CAS to RETRY + enqueue the delayed retry row atomically, so a
-                // crash between them can't strand a RETRY record with no outbox row.
-                boolean applied = outboxRecordWriter.transitionAndEnqueueAt(
-                        () -> tx.markRetry().apply(recordId, expectedVersion, errorCode, errorMessage, next),
-                        recordId, recordType, deliveryRoute, next);
-                if (!applied) {
+                if (!tx.markRetry().apply(recordId, expectedVersion, errorCode, errorMessage, next)) {
                     logCasMiss(channel, recordId, "retry");
                     return;
                 }
@@ -105,8 +95,9 @@ public class SendFailureHandler {
                     return;
                 }
                 if (metrics != null) metrics.failed(channel, provider, "failed");
-                log.error("{} send failed terminally [{}] for record id={}: [{}] {}",
-                        channel, category, recordId, errorCode, errorMessage);
+                log.error("{} send failed terminally [{}] for record id={} tenantId={}: [{}] {}",
+                        channel, category, recordId, ContextHolder.getContext().getTenantId(),
+                        errorCode, errorMessage);
             }
             case RetryDecision.DeadLetter d -> deadLetter(channel, provider, recordId, expectedVersion,
                     currentAttempts, errorCode, errorMessage, category, tx.markDeadLetter());
@@ -131,8 +122,9 @@ public class SendFailureHandler {
         deadLetterMessageService.archiveSendExhausted(
                 channel, recordId, provider, errorCode, errorMessage, category, attempts);
         if (metrics != null) metrics.failed(channel, provider, "dead_letter");
-        log.error("{} send moved to dead-letter [{}] for record id={} after {} attempts: [{}] {}",
-                channel, category, recordId, attempts, errorCode, errorMessage);
+        log.error("{} send moved to dead-letter [{}] for record id={} tenantId={} after {} attempts: [{}] {}",
+                channel, category, recordId, ContextHolder.getContext().getTenantId(), attempts,
+                errorCode, errorMessage);
         return true;
     }
 

@@ -3,13 +3,13 @@ package io.softa.starter.user.service.impl;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MailRequestMessage;
-import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserSecurityLog;
@@ -45,7 +45,7 @@ class ResetUserTest {
     private static final String NEW = "+6592222222";
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
-    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final MessageService messageService = mock(MessageService.class);
     private final PushDeviceRegistry devices = mock(PushDeviceRegistry.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
     private final UserSecurityLogService securityLog = AccountServiceTestSupport.quiet(accountService);
@@ -54,7 +54,7 @@ class ResetUserTest {
 
     ResetUserTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
-        ReflectionTestUtils.setField(accountService, "eventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(accountService, "messageService", messageService);
         ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
         account.setId(ACCOUNT);
         account.setTenantId(1L);
@@ -107,8 +107,8 @@ class ResetUserTest {
 
         verify(sessions()).revokePerson(PROFILE, null, SessionRevokeReason.RESET_USER);
         verify(devices).unregisterPerson(PROFILE);
-        verify(eventPublisher).publishEvent(any(SmsRequestMessage.class));
-        verify(eventPublisher).publishEvent(any(MailRequestMessage.class));
+        verify(messageService).sendSms(any(SendSmsDTO.class));
+        verify(messageService).sendMail(any(SendMailDTO.class));
         verify(securityLog).entry(eq(SecurityAction.RESET_USER), any(), eq(account), any());
     }
 

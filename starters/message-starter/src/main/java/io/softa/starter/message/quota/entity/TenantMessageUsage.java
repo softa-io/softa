@@ -12,7 +12,7 @@ import io.softa.framework.orm.enums.IdStrategy;
 
 /**
  * One quota bucket's send ledger for one calendar month — the durable,
- * queryable history behind the monthly quota: accepted send counts per
+ * queryable history behind the monthly quota: charged send counts per
  * channel plus a snapshot of the ceiling that was in force. Rows accumulate
  * forever (one per bucket per month), so per-tenant consumption history is a
  * plain model query; remaining allowance is derived
@@ -21,7 +21,7 @@ import io.softa.framework.orm.enums.IdStrategy;
  * Deliberately NOT {@code multiTenant} — like {@code TenantMessageQuota},
  * this is a platform-owned ledger ABOUT tenants ({@code tenantId = -1} is the
  * platform's own bucket). <b>System-maintained</b>: rows are created and
- * incremented by the send acceptance path via optimistic-lock CAS
+ * incremented when a send record is prepared, via optimistic-lock CAS
  * ({@code versionLock}); manual edits distort the accounting and the
  * enforcement it feeds. The {@code *MonthlyLimit} columns are per-send
  * snapshots of the resolved ceiling ({@code TenantMessageQuota} row or

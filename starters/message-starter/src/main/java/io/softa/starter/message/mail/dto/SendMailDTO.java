@@ -86,4 +86,14 @@ public class SendMailDTO {
             + "serverConfigId/templateId still win over the policy.")
     private MessageScope scope;
 
+    /** A templated mail: the template's code and variables, rendered in {@code scope}'s tier. */
+    public static SendMailDTO ofTemplate(List<String> to, String templateCode, Map<String, Object> variables,
+                                         MessageScope scope) {
+        SendMailDTO mail = new SendMailDTO();
+        mail.setTo(to);
+        mail.setTemplateCode(templateCode);
+        mail.setTemplateVariables(variables);
+        mail.setScope(scope);
+        return mail;
+    }
 }

@@ -16,7 +16,8 @@ import io.softa.starter.file.dto.ImportTemplateDTO;
  * <p>
  * The subscription is Shared, so every replica takes imports off the topic; under the former
  * default (Exclusive) a second replica failed to boot. Each message is one independent import.
- * The one-time switch needs a stop-then-start release; see {@code MailSendConsumer}.
+ * Switching an existing deployment from Exclusive needs one stop-then-start release: Pulsar
+ * refuses a Shared consumer while an Exclusive one is still attached.
  */
 @Slf4j
 @Component

@@ -16,18 +16,16 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import java.time.LocalDateTime;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MailRequestMessage;
-import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.security.PasswordUtils;
 import io.softa.framework.base.utils.Assert;
@@ -37,6 +35,9 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.dto.UserAccountDTO;
 import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.dto.WorkContacts;
@@ -120,7 +121,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     /** Notifies the OLD address when work contacts are reset — see resetWorkContacts. */
     @Autowired
-    private ApplicationEventPublisher eventPublisher;
+    private MessageService messageService;
 
     /** Optional: the contact-change notice names the company; absent tenant-starter → blank. */
     @Autowired(required = false)
@@ -880,13 +881,13 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
             channels.add("sms");
-            results.add("sms:" + this.remind(() -> eventPublisher.publishEvent(new SmsRequestMessage(
-                    List.of(oldMobile), TEMPLATE_RESET_USER, vars))));
+            results.add("sms:" + this.remind(tenantId, () -> messageService.sendSms(SendSmsDTO.ofTemplate(
+                    oldMobile, TEMPLATE_RESET_USER, vars, MessageScope.TENANT))));
         }
         if (StringUtils.isNotBlank(account.getEmail())) {
             channels.add("email");
-            results.add("email:" + this.remind(() -> eventPublisher.publishEvent(new MailRequestMessage(
-                    List.of(account.getEmail()), TEMPLATE_RESET_USER, vars, tenantId, MessageScope.TENANT))));
+            results.add("email:" + this.remind(tenantId, () -> messageService.sendMail(SendMailDTO.ofTemplate(
+                    List.of(account.getEmail()), TEMPLATE_RESET_USER, vars, MessageScope.TENANT))));
         }
         UserSecurityLog row = securityLog.entry(SecurityAction.RESET_USER, SecurityLogSource.USER_ACCOUNTS, account, null);
         row.setReason(reason.trim());
@@ -951,15 +952,15 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(previous)) {
             channels.add("email");
-            results.add("email:" + this.remind(() -> eventPublisher.publishEvent(new MailRequestMessage(
-                    List.of(previous), TEMPLATE_EMAIL_CHANGED, vars, account.getTenantId(), MessageScope.TENANT))));
+            results.add("email:" + this.remind(account.getTenantId(), () -> messageService.sendMail(SendMailDTO.ofTemplate(
+                    List.of(previous), TEMPLATE_EMAIL_CHANGED, vars, MessageScope.TENANT))));
         }
         String loginMobile = identityService.findByProfile(account.getProfileId())
                 .map(UserIdentity::getLoginMobile).orElse(null);
         if (StringUtils.isNotBlank(loginMobile)) {
             channels.add("sms");
-            results.add("sms:" + this.remind(() -> eventPublisher.publishEvent(new SmsRequestMessage(
-                    List.of(loginMobile), TEMPLATE_EMAIL_CHANGED, vars))));
+            results.add("sms:" + this.remind(account.getTenantId(), () -> messageService.sendSms(SendSmsDTO.ofTemplate(
+                    loginMobile, TEMPLATE_EMAIL_CHANGED, vars, MessageScope.TENANT))));
         }
         UserSecurityLog row = securityLog.entry(SecurityAction.ENTERPRISE_EMAIL_CHANGED,
                 SecurityLogSource.EMPLOYEE_PROFILE, account, null);
@@ -1012,13 +1013,16 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
     }
 
-    /** Hand a reminder off for delivery; "sent" or "failed". Never fails the change it reports on. */
-    private String remind(Runnable send) {
+    /**
+     * Send a reminder in the account's tenant — its template, its send records — whoever makes the
+     * change; "sent" or "failed". Never fails the change it reports on.
+     */
+    private String remind(Long tenantId, Runnable send) {
         try {
-            send.run();
+            ContextUtils.inTenantContext(tenantId, send);
             return "sent";
         } catch (RuntimeException e) {
-            log.warn("Reminder could not be handed off: {}", e.getMessage());
+            log.error("Reminder could not be sent: {}", e.getMessage());
             return "failed";
         }
     }

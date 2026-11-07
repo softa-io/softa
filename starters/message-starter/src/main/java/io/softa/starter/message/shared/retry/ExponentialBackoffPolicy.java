@@ -66,6 +66,7 @@ public class ExponentialBackoffPolicy {
     }
 
     private static boolean isPermanent(ErrorCategory c) {
-        return c == ErrorCategory.PERMANENT || c == ErrorCategory.INVALID_INPUT || c == ErrorCategory.AUTH;
+        return c == ErrorCategory.PERMANENT || c == ErrorCategory.INVALID_INPUT || c == ErrorCategory.AUTH
+                || c == ErrorCategory.CONFIG;
     }
 }
