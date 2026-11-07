@@ -5,6 +5,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.enums.Operator;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -147,7 +148,8 @@ public class EmployeeContextEnricher implements ContextEnricher {
 
     /** Departments the employee directly heads — {@code picEmpId} (department
      *  head) OR {@code hrbpEmpId} (HR business partner). Subtree expansion happens
-     *  later via the {@code CHILD_OF_ID} filter operator.
+     *  later via the {@code CHILD_OF_ID} filter operator. Read enabled or not, as the department tree is:
+     *  disabling a department does not take its people and records from the person heading it.
      *
      *  <p>No {@code @SkipPermissionCheck}: Spring AOP never advises a private method. The
      *  caller {@link #buildFromDb} has already set the flag for this read. */
@@ -155,7 +157,9 @@ public class EmployeeContextEnricher implements ContextEnricher {
         if (empId == null || !ModelManager.existModel(DEPARTMENT_MODEL)) return new HashSet<>();
         Filters f = Filters.of("picEmpId", Operator.EQUAL, empId)
                 .or("hrbpEmpId", Operator.EQUAL, empId);
-        List<Map<String, Object>> depts = modelService.searchList(DEPARTMENT_MODEL, new FlexQuery(f));
+        FlexQuery query = new FlexQuery(f);
+        query.setFilterControl(FilterControl.bypassActiveControl());
+        List<Map<String, Object>> depts = modelService.searchList(DEPARTMENT_MODEL, query);
         Set<Long> out = new HashSet<>(depts.size());
         for (Map<String, Object> d : depts) {
             Long id = coerceLong(d.get("id"));
