@@ -99,7 +99,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
 
     /** The department grant's conditions worked out for the holder, as written in the column. */
     static final Set<String> DEPARTMENT_CONDITIONS = DepartmentGrantRules.HOLDER_CONDITIONS;
-    /** The wire form of a rule granting every department, and of a rule granting one subtree. */
+    /** The role data scope field exempting a model from the department grant. */
     private static final String F_DEPARTMENT_GRANT_EXEMPT = "departmentGrantExempt";
 
     private final CacheService cacheService;

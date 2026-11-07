@@ -260,8 +260,8 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
 
     /**
      * The role's department grant from the wizard payload, refused unless it is one the runtime reads
-     * the way it reads: {@code ALL}, or department subtrees with fixed roots, possibly none — see
-     * {@link DepartmentGrants}. Absent from the payload leaves the stored grant as it is, so a client
+     * the way it reads: {@code ALL}, or department subtrees with fixed roots and conditions worked out for the
+     * holder, possibly none — see {@link DepartmentGrants}. Absent from the payload leaves the stored grant as it is, so a client
      * that does not know the grant does not wipe it; an explicit null clears it ({@link #saveWizard}).
      *
      * <p>Refused outright where the role model does not declare the column: the value would be dropped
@@ -329,12 +329,13 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleNavigationService.createList(rows);
     }
 
+    /** The wizard's entry field exempting a model from the department grant. */
+    private static final String DEPARTMENT_EXEMPT = "departmentGrantExempt";
+
     /** Writes one role_data_scope row per {@code {model, dataScopes, scopeCondition?, departmentGrantExempt?}} entry
      *  (one per queryable model). Entries without a model are skipped; a condition without any
      *  rule is refused.
      *  Incoming id/roleId ignored — id auto-assigned, roleId bound by caller. */
-    private static final String DEPARTMENT_EXEMPT = "departmentGrantExempt";
-
     private void writeRoleDataScopes(Long roleId, JsonNode rowsJson) {
         if (rowsJson == null || !rowsJson.isArray() || rowsJson.isEmpty()) return;
         rejectUnboundedCompanyScope(rowsJson);
