@@ -12,7 +12,6 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.HtmlUtils;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.entity.MailSendServerConfig;
@@ -60,9 +59,6 @@ public class MailDeliveryProcessor {
 
     @Autowired
     private MonthlyQuotaGuard quotaGuard;
-
-    @Autowired
-    private MessageProperties messageProperties;
 
     @Autowired
     private SmtpMailTransport smtpMailTransport;
@@ -244,8 +240,7 @@ public class MailDeliveryProcessor {
                     "No content: the template rendered an empty body.");
         }
         try {
-            MailBodies.requireWithinLimit(record.getBodyHtml(), record.getBodyText(),
-                    messageProperties.getMail().getMaxBodyChars());
+            MailBodies.requireWithinLimit(record.getBodyHtml(), record.getBodyText());
             MailAddresses.requireValidAddressList("replyTo", record.getReplyTo());
         } catch (BusinessException e) {
             throw new SendRejection(ErrorClassifier.CONTENT_INVALID, e.getMessage());

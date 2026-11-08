@@ -40,8 +40,8 @@ import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
  * {@code softa.message.sms.send-concurrency} threads per instance. A worker that finishes a send claims
  * the next due record — PENDING, or RETRY whose {@code nextRetryAt} has passed — straight away, so a
  * backlog drains at the pool's pace: concurrency ÷ time per send. A worker goes idle only when nothing is
- * due; every {@code softa.message.delivery.poll-interval-ms} the poll hands newly due records to idle
- * workers. A record is claimed only by a worker about to send it, so a claimed record never waits.
+ * due; every {@link #POLL_INTERVAL_MS} the poll hands newly due records to idle workers. A record is
+ * claimed only by a worker about to send it, so a claimed record never waits.
  * <p>
  * The send record is the queue: there is no outbox table and no broker in between. The claim is the
  * record's optimistic lock (PENDING/RETRY → SENDING), so workers and instances reading the same table
@@ -61,6 +61,12 @@ public class DeliveryPoller implements DisposableBean {
 
     /** Due records a scan reads per worker: enough that a lost claim has somewhere else to go. */
     static final int CANDIDATES_PER_WORKER = 4;
+
+    /**
+     * How often idle workers look for newly due records. Busy workers do not wait for it, so it only
+     * bounds how soon a new send is picked up when the pool is idle.
+     */
+    static final long POLL_INTERVAL_MS = 500;
 
     private final MailSendRecordService mailRecords;
 
@@ -86,7 +92,7 @@ public class DeliveryPoller implements DisposableBean {
     }
 
     /** Hands newly due records to idle workers; busy workers find their next record themselves. */
-    @Scheduled(fixedDelayString = "${softa.message.delivery.poll-interval-ms:500}")
+    @Scheduled(fixedDelay = POLL_INTERVAL_MS)
     public void poll() {
         mail.fill();
         sms.fill();

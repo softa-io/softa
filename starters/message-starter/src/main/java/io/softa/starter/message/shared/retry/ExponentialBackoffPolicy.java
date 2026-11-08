@@ -2,65 +2,76 @@ package io.softa.starter.message.shared.retry;
 
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.message.shared.ErrorCategory;
 
 /**
- * Exponential back-off with configurable base, cap, multiplier and jitter.
- * Delay sequence (default base=30s, multiplier=2, cap=3600s):
+ * Exponential back-off: a send that fails transiently is retried after 30s, 60s, 120s, 240s and
+ * 480s — each delay doubled — and dead-lettered when it fails again after its {@link #MAX_ATTEMPTS}
+ * retries, about a quarter of an hour after the first failure:
  * <pre>
  * attempt 0 → 30s
  * attempt 1 → 60s
  * attempt 2 → 120s
  * attempt 3 → 240s
- * …
- * cap       → 3600s
+ * attempt 4 → 480s
+ * attempt 5 → dead letter
  * </pre>
- * Jitter is additive in the band {@code [-jitter * delay, +jitter * delay]}
- * (default ±50%) — cheap protection against thundering herd when a provider
- * comes back online and everyone retries at once.
+ * Jitter is additive in the band {@code [-50%, +50%]} of the delay — cheap protection against a
+ * thundering herd when a provider comes back online and everyone retries at once.
  * <p>
- * {@link ErrorCategory#QUOTA} clamps the delay to at least
- * {@link RetryProperties.Exponential} so we don't
- * immediately slam a rate-limited provider with a 30s retry.
+ * {@link ErrorCategory#QUOTA} waits at least {@link #QUOTA_FLOOR_SECONDS}, so a rate-limited
+ * provider is not hit again 30 seconds later. The numbers are constants: no deployment has needed
+ * other values, and changing them means understanding how they interact.
  */
 @Component
 public class ExponentialBackoffPolicy {
 
-    @Autowired
-    private RetryProperties properties;
+    /** Retries a send gets before it is dead-lettered; revivals by the zombie sweep count too. */
+    public static final int MAX_ATTEMPTS = 5;
+
+    static final int BASE_SECONDS = 30;
+
+    static final double MULTIPLIER = 2.0;
+
+    static final double JITTER = 0.5;
+
+    /** A rate-limited (QUOTA) send waits at least this long before its next attempt. */
+    static final int QUOTA_FLOOR_SECONDS = 300;
+
+    private final double jitter;
+
+    public ExponentialBackoffPolicy() {
+        this(JITTER);
+    }
+
+    /** For tests: {@code jitter = 0} makes every delay exact. */
+    ExponentialBackoffPolicy(double jitter) {
+        this.jitter = jitter;
+    }
 
     public RetryDecision decide(int attempt, ErrorCategory category) {
         if (!category.isRetryable()) {
             return isPermanent(category) ? new RetryDecision.Fail() : new RetryDecision.DeadLetter();
         }
-        int max = properties.getDefaultMaxAttempts();
-        if (attempt >= max) {
+        if (attempt >= MAX_ATTEMPTS) {
             return new RetryDecision.DeadLetter();
         }
         return new RetryDecision.Retry(computeDelay(attempt, category));
     }
 
     private Duration computeDelay(int attempt, ErrorCategory category) {
-        RetryProperties.Exponential cfg = properties.getExponential();
-        double base = cfg.getBaseSeconds();
-        double mult = cfg.getMultiplier();
-        double cap = cfg.getMaxSeconds();
-        // Math.pow grows fast enough that attempt > 30 would overflow; clamp first.
-        int safeAttempt = Math.min(attempt, 30);
-        double raw = base * Math.pow(mult, safeAttempt);
-        double bounded = Math.min(raw, cap);
+        // attempt < MAX_ATTEMPTS here, so the longest delay is 30s * 2^4 = 480s.
+        double bounded = BASE_SECONDS * Math.pow(MULTIPLIER, attempt);
 
-        double jitterFactor = cfg.getJitter();
-        if (jitterFactor > 0) {
-            double rand = ThreadLocalRandom.current().nextDouble(-jitterFactor, jitterFactor);
+        if (jitter > 0) {
+            double rand = ThreadLocalRandom.current().nextDouble(-jitter, jitter);
             bounded = Math.max(1.0, bounded * (1.0 + rand));
         }
 
         if (category == ErrorCategory.QUOTA) {
-            bounded = Math.max(bounded, cfg.getQuotaFloorSeconds());
+            bounded = Math.max(bounded, QUOTA_FLOOR_SECONDS);
         }
         return Duration.ofSeconds((long) bounded);
     }

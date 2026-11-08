@@ -159,11 +159,10 @@ class MailMessageParserTest {
 
     @Test
     void mimeDepthExceededTruncates() throws Exception {
-        messageProperties.getMail().getFetch().setMaxMimeDepth(10);
         MimeMessage msg = msg();
         MimeMultipart current = new MimeMultipart("mixed");
         MimeMultipart outer = current;
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < MailMessageParser.MAX_MIME_DEPTH + 2; i++) {
             MimeBodyPart wrap = new MimeBodyPart();
             MimeMultipart inner = new MimeMultipart("mixed");
             wrap.setContent(inner);
@@ -185,10 +184,9 @@ class MailMessageParserTest {
 
     @Test
     void mimePartsExceededTruncates() throws Exception {
-        messageProperties.getMail().getFetch().setMaxMimeParts(10);
         MimeMessage msg = msg();
         MimeMultipart mixed = new MimeMultipart("mixed");
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < MailMessageParser.MAX_MIME_PARTS + 10; i++) {
             MimeBodyPart bp = new MimeBodyPart();
             bp.setText("p" + i, "UTF-8");
             mixed.addBodyPart(bp);
@@ -203,8 +201,6 @@ class MailMessageParserTest {
 
     @Test
     void withinLimitsSucceeds() throws Exception {
-        messageProperties.getMail().getFetch().setMaxMimeDepth(10);
-        messageProperties.getMail().getFetch().setMaxMimeParts(100);
         MimeMessage msg = msg();
         msg.setText("ok", "UTF-8");
         msg.setHeader("Message-ID", "<ok@example.com>");

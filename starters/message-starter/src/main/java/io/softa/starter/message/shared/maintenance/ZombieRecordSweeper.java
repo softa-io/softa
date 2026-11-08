@@ -1,5 +1,6 @@
 package io.softa.starter.message.shared.maintenance;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.BooleanSupplier;
@@ -16,13 +17,12 @@ import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.shared.ErrorCategory;
-import io.softa.starter.message.shared.retry.RetryProperties;
+import io.softa.starter.message.shared.retry.ExponentialBackoffPolicy;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
@@ -36,9 +36,11 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
  * forever without this sweep.
  * <p>
  * Strategy: every minute, find records in {@code SENDING} whose
- * {@code updated_time} is older than {@code softa.message.zombie.stale-seconds}
- * (default 300 = 5 minutes) and transition them back to {@code RETRY} with
- * {@code next_retry_at = now}, which makes them due for the delivery loop again.
+ * {@code updated_time} is older than {@link #STALE_AFTER} (five minutes — far
+ * longer than any send, whose connect and read timeouts are seconds) and
+ * transition them back to {@code RETRY} with {@code next_retry_at = now}, which
+ * makes them due for the delivery loop again. It runs wherever the delivery loop
+ * does ({@code softa.message.delivery.enabled}).
  * <p>
  * Each revival counts as a retry, and the budget is checked here too: a record
  * whose retries are already used up is dead-lettered instead of revived. An
@@ -52,10 +54,13 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
 @Slf4j
 @Component
 @ConditionalOnProperty(
-        name = "softa.message.zombie.enabled",
+        name = "softa.message.delivery.enabled",
         havingValue = "true",
         matchIfMissing = true)
 public class ZombieRecordSweeper {
+
+    /** A {@code SENDING} record untouched this long is stale. */
+    static final Duration STALE_AFTER = Duration.ofMinutes(5);
 
     private static final int BATCH_LIMIT = 200;
     private static final String ZOMBIE_CODE = "ZOMBIE_RECOVERED";
@@ -71,12 +76,6 @@ public class ZombieRecordSweeper {
     private SmsSendRecordService smsSendRecordService;
 
     @Autowired
-    private MessageProperties properties;
-
-    @Autowired
-    private RetryProperties retryProperties;
-
-    @Autowired
     private SendFailureHandler sendFailureHandler;
 
     /**
@@ -84,11 +83,10 @@ public class ZombieRecordSweeper {
      * records), but each revive runs inside the record's own tenant context,
      * where the versioned update finds its row.
      */
-    @Scheduled(cron = "${softa.message.zombie.cron:0 * * * * *}")
+    @Scheduled(cron = "0 * * * * *")
     @CrossTenant
     public void sweep() {
-        LocalDateTime threshold = LocalDateTime.now()
-                .minusSeconds(properties.getZombie().getStaleSeconds());
+        LocalDateTime threshold = LocalDateTime.now().minus(STALE_AFTER);
         int mail = sweepMail(threshold);
         int sms = sweepSms(threshold);
         if (mail + sms > 0) {
@@ -101,7 +99,7 @@ public class ZombieRecordSweeper {
         int revived = 0;
         for (MailSendRecord row : rows) {
             int retries = attempts(row.getRetryCount());
-            if (retries >= retryProperties.getDefaultMaxAttempts()) {
+            if (retries >= ExponentialBackoffPolicy.MAX_ATTEMPTS) {
                 inTenantContext(row.getTenantId(), () -> sendFailureHandler.deadLetter(
                         "mail", SmtpMailTransport.NAME, row.getId(), version(row.getVersion()), retries,
                         EXHAUSTED_CODE, EXHAUSTED_MESSAGE, ErrorCategory.UNKNOWN,
@@ -121,7 +119,7 @@ public class ZombieRecordSweeper {
         int revived = 0;
         for (SmsSendRecord row : rows) {
             int retries = attempts(row.getRetryCount());
-            if (retries >= retryProperties.getDefaultMaxAttempts()) {
+            if (retries >= ExponentialBackoffPolicy.MAX_ATTEMPTS) {
                 String provider = row.getProviderType() != null
                         ? row.getProviderType().name().toLowerCase() : null;
                 inTenantContext(row.getTenantId(), () -> sendFailureHandler.deadLetter(

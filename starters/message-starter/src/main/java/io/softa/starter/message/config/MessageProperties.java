@@ -3,27 +3,28 @@ package io.softa.starter.message.config;
 import java.time.Duration;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.util.unit.DataSize;
 
 /**
  * Centralised properties for {@code message-starter} infrastructure behaviour.
  * <p>
- * Bound under prefix {@code softa.message}. Each nested section corresponds
- * to one infrastructure concern. Defaults aim to be safe for production
- * single-node deployments; raise {@code mail.send-concurrency} /
- * {@code sms.send-concurrency} for throughput, raise {@code zombie.stale-seconds}
- * if a provider can legitimately take longer than five minutes to complete.
+ * Bound under prefix {@code softa.message}. Only what differs between deployments is configurable:
+ * whether an instance sends, how many sends it runs at once, the default monthly quotas, transport
+ * timeouts, and a few switches. Retry back-off, the stale-send window, polling and mail-fetch limits
+ * are constants in the code that uses them. Raise {@code mail.send-concurrency} /
+ * {@code sms.send-concurrency} for throughput, within what the mail server or SMS provider allows.
  *
  * <pre>{@code
  * softa:
  *   message:
  *     delivery:
  *       enabled: true              # default; set false on instances that must not send
- *       poll-interval-ms: 500      # how often idle workers look for newly due records
- *     zombie:
- *       enabled: true
- *       stale-seconds: 300         # stale SENDING records are revived
- *       cron: "0 * * * * *"        # sweep cadence (every minute)
+ *     mail:
+ *       send-concurrency: 1        # mails one instance sends at once (each worker holds an SMTP connection)
+ *     sms:
+ *       send-concurrency: 1        # SMS one instance sends at once
+ *     quota:
+ *       mail-monthly-default: 10000
+ *       sms-monthly-default: 10000
  * }</pre>
  *
  * <h3>Why some keys still appear as {@code @Value} / {@code @ConditionalOnProperty} literals</h3>
@@ -39,7 +40,6 @@ import org.springframework.util.unit.DataSize;
 public class MessageProperties {
 
     private final Delivery delivery = new Delivery();
-    private final Zombie zombie = new Zombie();
     private final Mail mail = new Mail();
     private final Sms sms = new Sms();
     private final Quota quota = new Quota();
@@ -59,29 +59,14 @@ public class MessageProperties {
     }
 
     /**
-     * The delivery loop ({@code DeliveryPoller}): claims due send records and runs them on the
-     * channel worker pools sized by {@code mail.send-concurrency} / {@code sms.send-concurrency}.
+     * The delivery loop ({@code DeliveryPoller}) and the {@code ZombieRecordSweeper} that revives its
+     * stalled sends; the worker pools are sized by {@code mail.send-concurrency} /
+     * {@code sms.send-concurrency}.
      */
     @Data
     public static class Delivery {
-        /** Whether this instance runs the delivery loop. */
+        /** Whether this instance sends: runs the delivery loop and the stale-send sweep. */
         private boolean enabled = true;
-        /**
-         * How often, in milliseconds, idle workers look for newly due records. Busy workers do not
-         * wait for it: each claims its next record as soon as it finishes a send. Lower = faster
-         * pickup of new sends, more queries while idle.
-         */
-        private long pollIntervalMs = 500;
-    }
-
-    @Data
-    public static class Zombie {
-        /** Whether the {@code ZombieRecordSweeper} scheduled job is enabled. */
-        private boolean enabled = true;
-        /** Cron expression for the sweep cadence (default: every minute). */
-        private String cron = "0 * * * * *";
-        /** {@code SENDING} records older than this are revived. */
-        private long staleSeconds = 300;
     }
 
     @Data
@@ -89,16 +74,6 @@ public class MessageProperties {
         private final Fetch fetch = new Fetch();
         private final Transport transport = new Transport();
         private final SmtpPool smtpPool = new SmtpPool();
-
-        /**
-         * Maximum accepted length (in characters) for a single outbound mail
-         * body field ({@code htmlBody} or {@code textBody}) at acceptance
-         * time. A guard against runaway payloads (e.g. base64 images inlined
-         * into the HTML), not a storage bound — the columns are unbounded
-         * TEXT-class. Raise deliberately for deployments that legitimately
-         * send larger bodies.
-         */
-        private int maxBodyChars = 1_048_576;
 
         /**
          * Enable Jakarta Mail's full SMTP/IMAP protocol debug log
@@ -126,93 +101,30 @@ public class MessageProperties {
         private int sendConcurrency = 1;
     }
 
+    /** Scheduled mail fetch. Its batch, lease and size limits are constants in the fetch code. */
     @Data
     public static class Fetch {
         /**
-         * Maximum number of messages to process per cron tick per (config, folder).
-         * Server-side IMAP returns the full UID list cheaply; this caps how many
-         * bodies we fetch and persist in one batch. The remainder is picked up by
-         * the next cron tick.
-         */
-        private int batchLimit = 100;
-
-        /**
-         * Stale-lease threshold for {@code mail_fetch_imap_watermark.in_progress_since}.
-         * If a worker holds the lease longer than this without releasing it, the
-         * lease is considered abandoned (worker likely crashed) and another worker
-         * may take over. Default is intentionally conservative — any legitimate
-         * fetch should finish well within this window.
-         */
-        private Duration leaseTimeout = Duration.ofHours(1);
-
-        /**
-         * Total RFC822 size cap per email. Sourced from {@code message.getSize()}
-         * (IMAP {@code RFC822.SIZE} / POP3 {@code LIST}), measured by the receiving
-         * mail server — the sender cannot forge it. Above this limit the body is
-         * never fetched; an envelope-only record is persisted with
-         * {@code truncationReason=BodyTooLarge}.
-         */
-        private DataSize maxMessageSize = DataSize.ofMegabytes(100);
-
-        /**
-         * Per-attachment size cap. Sourced from MIME {@code BODYSTRUCTURE.size}
-         * (no extra fetch). Attachments above this limit are skipped during upload
-         * and do not appear in {@code MailReceiveRecord.attachments}; the first
-         * occurrence sets {@code truncationReason=AttachmentTooLarge} so audit
-         * can find emails whose attachments were truncated.
-         */
-        private DataSize maxAttachmentSize = DataSize.ofMegabytes(20);
-
-        /**
          * Whether to archive the raw EML stream to {@link io.softa.framework.orm.service.FileService}.
-         * Disabled by default — opt in for compliance / audit deployments. When
-         * enabled, archive is bounded by {@code maxMessageSize} (oversized emails
-         * are filtered before reaching this path).
+         * Disabled by default — opt in for compliance / audit deployments. Oversized emails are
+         * filtered before reaching this path.
          */
         private boolean archiveEml = false;
-
-        /**
-         * Maximum MIME nesting depth. Real-world emails rarely exceed 6 even with
-         * S/MIME-signed-encrypted-alternative compositions; values beyond this are
-         * treated as suspicious (potential MIME zip-bomb) and abort body extraction
-         * with {@code truncationReason=MimeDepthExceeded}.
-         */
-        private int maxMimeDepth = 10;
-
-        /**
-         * Maximum total MIME parts walked per email. Defends against attachment-storm
-         * attacks (a flat email with thousands of small parts that would each trigger
-         * a {@link io.softa.framework.orm.service.FileService} upload). Normal emails
-         * stay below 30; a hit aborts body extraction with
-         * {@code truncationReason=MimePartsExceeded}.
-         */
-        private int maxMimeParts = 100;
     }
 
     /**
      * Reuse of authenticated SMTP connections across sends, one small pool per
      * {@code MailSendServerConfig}. Without it every mail pays a TCP connect, TLS
      * handshake and AUTH exchange, which is most of a small mail's send time.
+     * The idle cut-off and messages per connection are constants in {@code PooledSmtpSender}.
      */
     @Data
     public static class SmtpPool {
-        /** Reuse connections; {@code false} opens and closes one connection per send. */
+        /**
+         * Reuse connections; {@code false} opens and closes one connection per send — the way out
+         * for a server that does not take connection reuse well.
+         */
         private boolean enabled = true;
-
-        /**
-         * An idle connection older than this is closed instead of reused. Keep it
-         * well below the idle cut-off of any NAT or load balancer on the path to
-         * the SMTP server (typically minutes): a connection one of those dropped
-         * silently would only answer the reuse probe with a read timeout.
-         */
-        private Duration idleTimeout = Duration.ofSeconds(30);
-
-        /**
-         * Close a connection after it has carried this many messages. Some servers
-         * cap messages per session; closing first avoids a failed send, and the
-         * retry it would cost, when the cap is hit.
-         */
-        private int maxMessagesPerConnection = 100;
     }
 
     @Data

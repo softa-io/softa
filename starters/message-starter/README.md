@@ -205,9 +205,8 @@ Every `MessageService.sendMail(...)` / `sendSms(...)` call follows the same path
    claims a due record — `PENDING`, or `RETRY` whose `next_retry_at` has passed —
    across tenants with a CAS `PENDING|RETRY → SENDING` through framework
    `versionLock`, sends it in the record's tenant and trace, and goes straight on
-   to the next due record. It idles only when nothing is due; every
-   `softa.message.delivery.poll-interval-ms` (default 500) the poll hands newly
-   due records to idle workers. A backlog therefore drains at concurrency ÷ time
+   to the next due record. It idles only when nothing is due; every 500 ms the
+   poll hands newly due records to idle workers. A backlog therefore drains at concurrency ÷ time
    per send on each instance; raise `send-concurrency` for more, within the mail
    server's limit on concurrent connections per account (each mail worker holds
    one). Each scan reads a few due records per worker and tries them in random
@@ -272,6 +271,13 @@ Earlier releases delivered through a `message_outbox` table and the `mail-send` 
 
 - Remove those four topic entries from the application config; nothing reads
   them any more.
+- These properties are gone; their values are constants now:
+  `softa.message.delivery.poll-interval-ms`, `softa.message.zombie.*` (the
+  stale-send sweep follows `softa.message.delivery.enabled`),
+  `softa.message.retry.*`, `softa.message.mail.max-body-chars`,
+  `softa.message.mail.smtp-pool.idle-timeout` /
+  `max-messages-per-connection`, and `softa.message.mail.fetch.*` except
+  `archive-eml`. Remove them from the application config; set ones are ignored.
 - The framework events `MailRequestMessage` / `SmsRequestMessage` (softa-base)
   are gone. Code that published one calls `MessageService` instead —
   `SendMailDTO.ofTemplate` / `SendSmsDTO.ofTemplate` build the same templated
@@ -295,26 +301,20 @@ Earlier releases delivered through a `message_outbox` table and the `mail-send` 
 
 ### Message-starter properties
 
-Bound under `softa.message` from `MessageProperties`, `RetryProperties`, and DLQ `@Value` keys:
+Bound under `softa.message` from `MessageProperties` and the DLQ `@Value` keys.
+Only what differs between deployments is configurable; the retry back-off, the
+stale-send window, the poll interval, the mail body cap, the SMTP pool's idle
+cut-off and messages per connection, and the mail-fetch batch, lease and size
+limits are constants in the code that uses them.
 
 ```yml
 softa:
   message:
     delivery:
-      enabled: true           # default true; false = this instance sends nothing
-      poll-interval-ms: 500   # how often idle workers look for newly due records
-    zombie:
-      enabled: true           # default true
-      stale-seconds: 300      # SENDING records older than this are revived
-      cron: "0 * * * * *"     # every minute
-    retry:
-      default-max-attempts: 5
-      exponential:
-        base-seconds: 30
-        max-seconds: 3600
-        multiplier: 2.0
-        jitter: 0.5                 # ±50% randomisation
-        quota-floor-seconds: 300    # QUOTA errors wait at least 5 min
+      enabled: true           # default true; false = this instance sends nothing (no delivery loop, no stale-send sweep)
+    quota:
+      mail-monthly-default: 10000   # monthly ceiling for buckets with no TenantMessageQuota row; unset = unlimited
+      sms-monthly-default: 10000
     dlq:
       topic: dev_demo_message_dlq   # unset = broker-poison archiving disabled
       max-redeliver: 5              # broker nacks before dead-lettering
@@ -324,20 +324,12 @@ softa:
       debug: false                  # Jakarta Mail protocol debug — never enable in prod (leaks AUTH)
       send-concurrency: 1           # mails one instance sends in parallel (each worker holds an SMTP connection)
       fetch:
-        batch-limit: 100            # max messages per cron tick per (config, folder)
-        lease-timeout: 1h           # abandoned IMAP watermark lease takeover
-        max-message-size: 100MB     # RFC822 size cap; oversize → envelope-only + BodyTooLarge
-        max-attachment-size: 20MB   # per-part cap; oversize parts skipped
         archive-eml: false          # opt-in raw EML archive via FileService
-        max-mime-depth: 10          # MIME zip-bomb guard
-        max-mime-parts: 100         # attachment-storm guard
       transport:
         connection-timeout: 5s      # SMTP/IMAP/POP3 connect timeout
         read-timeout: 30s           # SMTP/IMAP/POP3 read timeout
       smtp-pool:
-        enabled: true               # reuse authenticated SMTP connections across sends
-        idle-timeout: 30s           # idle connections older than this are closed, not reused
-        max-messages-per-connection: 100
+        enabled: true               # reuse authenticated SMTP connections; false = one connection per send
     sms:
       send-concurrency: 1           # SMS one instance sends in parallel
       transport:
@@ -1082,20 +1074,21 @@ Either can be left null/zero to disable that window. Counters live in Redis
 (`rl:{channel}:{daily|min}:{tenantId}:{configId}:{window}`), so multi-instance
 deployments share one budget. A quota breach surfaces as a provider-side
 `QUOTA_EXCEEDED` error, classified as `ErrorCategory.QUOTA` — the retry policy
-applies the configured `quotaFloorSeconds` (default 5 min) so we don't hammer
-the provider.
+waits at least 5 minutes before the next attempt so we don't hammer the
+provider.
 
 ### Zombie record sweeper
 
 `ZombieRecordSweeper` runs every minute. Records stuck in `SENDING` whose
-`updated_time` is older than `softa.message.zombie.stale-seconds` (default
-300) are versionLock-transitioned back to `RETRY` with `next_retry_at = now`,
+`updated_time` is older than five minutes — far longer than any send, whose
+connect and read timeouts are seconds — are versionLock-transitioned back to
+`RETRY` with `next_retry_at = now`,
 which makes them due for the delivery loop again. This covers JVM crashes
 between claiming a record and finishing the provider call.
 
 Each revival counts as a retry and is held to the same budget as a failed send:
-a stuck record whose `retry_count` has reached
-`softa.message.retry.default-max-attempts` is moved to `DEAD_LETTER` (error code
+a stuck record whose `retry_count` has reached the retry policy's five attempts
+is moved to `DEAD_LETTER` (error code
 `ZOMBIE_EXHAUSTED`, archived to `dead_letter_message`) instead of being revived.
 An attempt that never finishes — a crash or hang on every try — never reaches the
 failure handler, so without this check it would be revived every stale window,
@@ -1108,7 +1101,8 @@ logs it at ERROR with the record id and the provider message id, and the sweep
 re-sends it once after the stale window — the price of at-least-once delivery —
 or dead-letters it if its retry budget is already spent.
 
-Disable via `softa.message.zombie.enabled=false` on read-only replicas.
+It runs wherever the delivery loop runs: `softa.message.delivery.enabled=false`
+turns both off.
 
 ### Sensitive field encryption
 
@@ -1129,10 +1123,10 @@ server configuration. `SmtpMailTransport` keeps authenticated connections open
 between sends, one small pool per server config, so a run of mails through one
 server pays the TCP connect, TLS handshake and AUTH once instead of per message.
 An idle connection is probed with `NOOP` before reuse. A connection that saw a
-failure, carried `max-messages-per-connection` messages, or sat idle past
-`idle-timeout` is closed instead. Keep `idle-timeout` below the idle cut-off of
-any NAT or load balancer in front of the SMTP server: a connection dropped
-silently would only answer the probe with a read timeout.
+failure, carried 100 messages, or sat idle past 30 seconds is closed instead.
+The idle cut-off stays below that of any NAT or load balancer in front of the
+SMTP server: a connection dropped silently would only answer the probe with a
+read timeout.
 
 Each pool is keyed by the settings its connections were opened with, so an
 edited config (new host, rotated password) opens fresh connections on its next
@@ -1181,11 +1175,10 @@ DLQ topic or watch the table — there is no in-process listener SPI.
 
 ### Retry policy
 
-Failed sends are retried by `ExponentialBackoffPolicy` — exponential back-off
-with a configurable base, multiplier, cap, and ±jitter, tuned via
-`softa.message.retry.exponential.*`. The error category from `ErrorClassifier`
-decides the disposition: TRANSIENT / QUOTA / UNKNOWN retry (QUOTA clamped to
-`quota-floor-seconds`) until `default-max-attempts` is reached and the record
-is dead-lettered; PERMANENT / INVALID_INPUT / AUTH / CONFIG fail immediately
+Failed sends are retried by `ExponentialBackoffPolicy` — exponential back-off of
+30 s, 60 s, 120 s, 240 s and 480 s, each ±50% jitter. The error category from
+`ErrorClassifier` decides the disposition: TRANSIENT / QUOTA / UNKNOWN retry
+(QUOTA waits at least 5 minutes) until five retries are used up and the record
+is dead-lettered, about a quarter of an hour after the first failure; PERMANENT / INVALID_INPUT / AUTH / CONFIG fail immediately
 without retry. `RetryDecision` is a sealed type (`Retry` / `Fail` / `DeadLetter`) so the
 failure handler's `switch` stays exhaustive.

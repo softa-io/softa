@@ -7,13 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.shared.ErrorCategory;
-import io.softa.starter.message.shared.retry.RetryProperties;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsProvider;
@@ -51,8 +49,6 @@ class ZombieRecordSweeperTest {
         sweeper = new ZombieRecordSweeper();
         ReflectionTestUtils.setField(sweeper, "mailSendRecordService", mailService);
         ReflectionTestUtils.setField(sweeper, "smsSendRecordService", smsService);
-        ReflectionTestUtils.setField(sweeper, "properties", new MessageProperties());
-        ReflectionTestUtils.setField(sweeper, "retryProperties", new RetryProperties());
         ReflectionTestUtils.setField(sweeper, "sendFailureHandler", sendFailureHandler);
 
         when(mailService.searchList(any(FlexQuery.class))).thenReturn(List.of());

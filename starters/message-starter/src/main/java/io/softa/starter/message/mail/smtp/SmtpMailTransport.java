@@ -1,6 +1,7 @@
 package io.softa.starter.message.mail.smtp;
 
 import java.io.UnsupportedEncodingException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +51,9 @@ public class SmtpMailTransport {
     /** One pool per server config id, replaced when that config's connection settings change. */
     private final Map<Long, PooledSmtpSender> pools = new ConcurrentHashMap<>();
 
+    /** {@link PooledSmtpSender#IDLE_TIMEOUT}; a field only so a test can make every connection idle at once. */
+    private Duration poolIdleTimeout = PooledSmtpSender.IDLE_TIMEOUT;
+
     @Autowired(required = false)
     private FileService fileService;
 
@@ -86,8 +90,7 @@ public class SmtpMailTransport {
      * pooling is off or the config is unsaved (no id to key a pool by).
      */
     private JavaMailSenderImpl senderFor(MailSendServerConfig config) {
-        MessageProperties.SmtpPool settings = messageProperties.getMail().getSmtpPool();
-        if (!settings.isEnabled() || config.getId() == null) {
+        if (!messageProperties.getMail().getSmtpPool().isEnabled() || config.getId() == null) {
             return buildSender(config);
         }
         PooledSmtpSender.Key key = PooledSmtpSender.Key.of(config);
@@ -97,8 +100,8 @@ public class SmtpMailTransport {
                 return current;
             }
             replaced[0] = current;
-            return configure(new PooledSmtpSender(key, settings.getIdleTimeout(),
-                    settings.getMaxMessagesPerConnection()), config);
+            return configure(new PooledSmtpSender(key, poolIdleTimeout,
+                    PooledSmtpSender.MAX_MESSAGES_PER_CONNECTION), config);
         });
         if (replaced[0] != null) {
             // Outside compute(): closing sends QUIT over the network.
@@ -107,7 +110,7 @@ public class SmtpMailTransport {
         return sender;
     }
 
-    /** Close pooled connections idle past {@code softa.message.mail.smtp-pool.idle-timeout}. */
+    /** Close pooled connections idle past {@link PooledSmtpSender#IDLE_TIMEOUT}. */
     @Scheduled(fixedDelay = 30, timeUnit = TimeUnit.SECONDS)
     public void evictIdleConnections() {
         pools.values().forEach(PooledSmtpSender::evictIdle);

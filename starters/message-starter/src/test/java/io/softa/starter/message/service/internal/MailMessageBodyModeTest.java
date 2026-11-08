@@ -5,7 +5,6 @@ import java.util.List;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.BodyMode;
@@ -121,7 +120,7 @@ class MailMessageBodyModeTest {
         if (dto.getTo() == null) {
             dto.setTo(List.of("recipient@example.com"));
         }
-        MailMessageHandler handler = new MailMessageHandler(mock(MailSendRecordService.class), new MessageProperties());
+        MailMessageHandler handler = new MailMessageHandler(mock(MailSendRecordService.class));
         return handler.accept(dto);
     }
 

@@ -12,11 +12,11 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
+import io.softa.starter.message.mail.support.MailBodies;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -38,14 +38,12 @@ import static org.mockito.Mockito.when;
 class MailMessageHandlerTest {
 
     private MailSendRecordService recordService;
-    private MessageProperties messageProperties;
     private MailMessageHandler handler;
 
     @BeforeEach
     void setUp() {
         recordService = mock(MailSendRecordService.class);
-        messageProperties = new MessageProperties();
-        handler = new MailMessageHandler(recordService, messageProperties);
+        handler = new MailMessageHandler(recordService);
         when(recordService.createOne(any(MailSendRecord.class))).thenReturn(42L);
     }
 
@@ -107,12 +105,11 @@ class MailMessageHandlerTest {
     }
 
     @Test
-    void bodyOverConfiguredLimitIsRejected() {
-        messageProperties.getMail().setMaxBodyChars(10);
+    void bodyOverTheLimitIsRejected() {
         SendMailDTO dto = new SendMailDTO();
         dto.setTo(List.of("alice@example.com"));
         dto.setSubject("Hi");
-        dto.setTextBody("x".repeat(11));
+        dto.setTextBody("x".repeat(MailBodies.MAX_CHARS + 1));
 
         BusinessException ex = assertThrows(BusinessException.class, () -> handler.send(dto));
         assertTrue(ex.getMessage().contains("maximum length"));

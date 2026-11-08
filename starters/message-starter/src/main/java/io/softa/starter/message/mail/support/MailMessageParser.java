@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
+import org.springframework.util.unit.DataSize;
 
 import io.softa.framework.base.utils.HtmlUtils;
 import io.softa.framework.orm.dto.FileInfo;
@@ -53,6 +54,32 @@ import io.softa.starter.message.mail.enums.TruncationReason;
 @Component
 public class MailMessageParser {
 
+    /**
+     * Total RFC822 size cap per email, from {@code message.getSize()} (IMAP {@code RFC822.SIZE} /
+     * POP3 {@code LIST}) — measured by the receiving server, so the sender cannot forge it. Above it
+     * the body is never fetched: an envelope-only record is stored with
+     * {@code truncationReason = BodyTooLarge}.
+     */
+    static final DataSize MAX_MESSAGE_SIZE = DataSize.ofMegabytes(100);
+
+    /**
+     * Per-attachment size cap, from the MIME {@code BODYSTRUCTURE} size (no extra fetch). Larger
+     * attachments are skipped; the first sets {@code truncationReason = AttachmentTooLarge}.
+     */
+    static final DataSize MAX_ATTACHMENT_SIZE = DataSize.ofMegabytes(20);
+
+    /**
+     * MIME nesting depth beyond which extraction stops ({@code MimeDepthExceeded}). Real mail rarely
+     * passes 6, even signed-and-encrypted alternatives; deeper is treated as a MIME bomb.
+     */
+    static final int MAX_MIME_DEPTH = 10;
+
+    /**
+     * MIME parts walked per email before extraction stops ({@code MimePartsExceeded}): a guard against
+     * attachment storms, each part of which would be uploaded. Normal mail stays below 30.
+     */
+    static final int MAX_MIME_PARTS = 100;
+
     @Autowired(required = false)
     private FileService fileService;
 
@@ -64,15 +91,15 @@ public class MailMessageParser {
 
     /**
      * Convert a message to a {@link MailReceiveRecord}. Messages whose reported
-     * size exceeds {@code maxMessageSize} are persisted envelope-only (no body
+     * size exceeds {@link #MAX_MESSAGE_SIZE} are persisted envelope-only (no body
      * fetch, no memory blow-up) with {@code truncationReason = BodyTooLarge}.
      */
     public MailReceiveRecord parse(Message message, MailReceiveServerConfig config, String folderName)
             throws MessagingException, IOException {
-        long maxBytes = messageProperties.getMail().getFetch().getMaxMessageSize().toBytes();
+        long maxBytes = MAX_MESSAGE_SIZE.toBytes();
         long size = message.getSize();
         if (size > 0 && size > maxBytes) {
-            log.warn("Message size={} exceeds maxMessageSize={} on folder '{}', persisting envelope only",
+            log.warn("Message size={} exceeds the {}-byte cap on folder '{}', persisting envelope only",
                     size, maxBytes, folderName);
             MailReceiveRecord record = toEnvelopeOnlyRecord(message, config, folderName);
             record.setTruncationReason(TruncationReason.BodyTooLarge.name());
@@ -149,7 +176,7 @@ public class MailMessageParser {
 
     /**
      * Build an envelope-only record without invoking {@code message.getContent()}.
-     * Used when {@code maxMessageSize} is exceeded — we want to preserve the fact
+     * Used when {@link #MAX_MESSAGE_SIZE} is exceeded — we want to preserve the fact
      * that this email arrived (for audit / observability) without paying the
      * body-fetch cost or risking memory blow-up.
      */
@@ -306,15 +333,15 @@ public class MailMessageParser {
      * named attachments into {@code attachments}. First-wins for each
      * format keeps {@code multipart/alternative} ordering-independent.
      *
-     * <p>Two structural defenses are enforced via {@code maxMimeDepth} and
-     * {@code maxMimeParts}: a hit on either throws {@link MimeBoundaryException}
+     * <p>Two structural defenses are enforced via {@link #MAX_MIME_DEPTH} and
+     * {@link #MAX_MIME_PARTS}: a hit on either throws {@link MimeBoundaryException}
      * to abort the walk; the caller turns that into a {@code truncationReason}
      * on the record.
      */
     private void extractBody(Part part, BodyExtractResult acc, int depth)
             throws MessagingException, IOException {
-        int maxDepth = messageProperties.getMail().getFetch().getMaxMimeDepth();
-        int maxParts = messageProperties.getMail().getFetch().getMaxMimeParts();
+        int maxDepth = MAX_MIME_DEPTH;
+        int maxParts = MAX_MIME_PARTS;
         if (depth > maxDepth) {
             throw new MimeBoundaryException(TruncationReason.MimeDepthExceeded);
         }
@@ -347,18 +374,18 @@ public class MailMessageParser {
     /**
      * Upload one attachment {@link Part} to {@link FileService} and return the
      * resulting {@link FileInfo}. Returns {@code null} when {@code fileService}
-     * isn't on the classpath, the part exceeds {@code maxAttachmentSize}, or the
+     * isn't on the classpath, the part exceeds {@link #MAX_ATTACHMENT_SIZE}, or the
      * upload itself fails. Skipped attachments do not appear in
      * {@code MailReceiveRecord.attachments}; the
      * {@code AttachmentTooLarge} truncation reason is set so audit can find them.
      */
     private FileInfo uploadAttachment(Part part, String fileName, BodyExtractResult acc) {
         if (fileService == null) return null;
-        long maxAttachBytes = messageProperties.getMail().getFetch().getMaxAttachmentSize().toBytes();
+        long maxAttachBytes = MAX_ATTACHMENT_SIZE.toBytes();
         try {
             int reportedSize = part.getSize();
             if (reportedSize > 0 && reportedSize > maxAttachBytes) {
-                log.warn("Attachment '{}' size={} exceeds maxAttachmentSize={}, skipping upload",
+                log.warn("Attachment '{}' size={} exceeds the {}-byte cap, skipping upload",
                         fileName, reportedSize, maxAttachBytes);
                 if (acc.firstAttachmentTruncation == null) {
                     acc.firstAttachmentTruncation = TruncationReason.AttachmentTooLarge;

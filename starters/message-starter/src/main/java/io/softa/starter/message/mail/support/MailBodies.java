@@ -11,6 +11,13 @@ import io.softa.starter.message.mail.enums.BodyMode;
  */
 public final class MailBodies {
 
+    /**
+     * Longest body field, in characters, that a mail may carry. A guard against runaway payloads
+     * (base64 images inlined into the HTML, template loops), not a storage bound: the columns are
+     * unbounded TEXT.
+     */
+    public static final int MAX_CHARS = 1_048_576;
+
     private MailBodies() {}
 
     /**
@@ -28,16 +35,15 @@ public final class MailBodies {
     }
 
     /**
-     * Application-level guard on body size. The columns are unbounded TEXT, so this configurable cap
-     * is what stops runaway payloads (base64-inlined images, template loops).
+     * Application-level guard on body size: see {@link #MAX_CHARS}.
      *
-     * @throws BusinessException when either body is longer than {@code limit} characters
+     * @throws BusinessException when either body is longer than {@link #MAX_CHARS} characters
      */
-    public static void requireWithinLimit(String html, String text, int limit) {
+    public static void requireWithinLimit(String html, String text) {
         int longest = Math.max(html == null ? 0 : html.length(), text == null ? 0 : text.length());
-        if (longest > limit) {
+        if (longest > MAX_CHARS) {
             throw new BusinessException(
-                    "Mail send rejected: the body exceeds the maximum length of {0} characters", limit);
+                    "Mail send rejected: the body exceeds the maximum length of {0} characters", MAX_CHARS);
         }
     }
 }

@@ -9,16 +9,16 @@ package io.softa.starter.message.mail.enums;
  */
 public enum TruncationReason {
 
-    /** {@code message.getSize()} exceeded {@code maxMessageSize}; body never fetched, envelope-only record persisted. */
+    /** {@code message.getSize()} exceeded {@code MailMessageParser.MAX_MESSAGE_SIZE}; body never fetched, envelope-only record persisted. */
     BodyTooLarge,
 
-    /** At least one MIME part exceeded {@code maxAttachmentSize}; that attachment skipped, others uploaded. */
+    /** At least one MIME part exceeded {@code MailMessageParser.MAX_ATTACHMENT_SIZE}; that attachment skipped, others uploaded. */
     AttachmentTooLarge,
 
-    /** MIME nesting depth exceeded {@code maxMimeDepth}; body/attachment processing aborted. */
+    /** MIME nesting depth exceeded {@code MailMessageParser.MAX_MIME_DEPTH}; body/attachment processing aborted. */
     MimeDepthExceeded,
 
-    /** MIME part count exceeded {@code maxMimeParts}; body/attachment processing aborted. */
+    /** MIME part count exceeded {@code MailMessageParser.MAX_MIME_PARTS}; body/attachment processing aborted. */
     MimePartsExceeded,
 
     /** JavaMail or downstream parsing threw an unexpected error; recorded for observability. */

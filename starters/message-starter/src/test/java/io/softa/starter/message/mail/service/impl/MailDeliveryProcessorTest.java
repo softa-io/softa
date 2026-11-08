@@ -11,7 +11,6 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.entity.MailSendServerConfig;
 import io.softa.starter.message.mail.entity.MailTemplate;
@@ -78,7 +77,6 @@ class MailDeliveryProcessorTest {
         ReflectionTestUtils.setField(processor, "dispatcher", dispatcher);
         ReflectionTestUtils.setField(processor, "templateService", templateService);
         ReflectionTestUtils.setField(processor, "quotaGuard", quotaGuard);
-        ReflectionTestUtils.setField(processor, "messageProperties", new MessageProperties());
         ReflectionTestUtils.setField(processor, "smtpMailTransport", smtpMailTransport);
         ReflectionTestUtils.setField(processor, "recordService", recordService);
         ReflectionTestUtils.setField(processor, "rateLimiter", rateLimiter);

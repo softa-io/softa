@@ -10,7 +10,6 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
@@ -39,8 +38,6 @@ import io.softa.starter.message.shared.TenantScopes;
 final class MailMessageHandler {
 
     private final MailSendRecordService recordService;
-
-    private final MessageProperties messageProperties;
 
     Long send(SendMailDTO dto) {
         return insert(accept(dto));
@@ -76,7 +73,7 @@ final class MailMessageHandler {
                     "Mail send rejected: no content — provide htmlBody/textBody or a template to render one");
         }
         if (hasBody) {
-            MailBodies.requireWithinLimit(html, text, messageProperties.getMail().getMaxBodyChars());
+            MailBodies.requireWithinLimit(html, text);
         }
 
         MailSendRecord record = new MailSendRecord();

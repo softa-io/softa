@@ -222,7 +222,7 @@ class SmtpMailTransportTest {
 
     @Test
     void evictionClosesIdleConnectionsAndSendsStillWork() throws Exception {
-        properties.getMail().getSmtpPool().setIdleTimeout(Duration.ZERO);
+        ReflectionTestUtils.setField(transport, "poolIdleTimeout", Duration.ZERO);
         MailSendServerConfig config = savedConfig();
         assertTrue(transport.send(config, request("One", "<p>1</p>", null)).isSuccess());
 
