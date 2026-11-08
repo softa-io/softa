@@ -19,7 +19,7 @@ import org.springframework.util.unit.DataSize;
  *   message:
  *     delivery:
  *       enabled: true              # default; set false on instances that must not send
- *       poll-interval-ms: 500      # how often due send records are claimed
+ *       poll-interval-ms: 500      # how often idle workers look for newly due records
  *     zombie:
  *       enabled: true
  *       stale-seconds: 300         # stale SENDING records are revived
@@ -66,7 +66,11 @@ public class MessageProperties {
     public static class Delivery {
         /** Whether this instance runs the delivery loop. */
         private boolean enabled = true;
-        /** Polling interval in milliseconds. Lower = faster pickup, more queries. */
+        /**
+         * How often, in milliseconds, idle workers look for newly due records. Busy workers do not
+         * wait for it: each claims its next record as soon as it finishes a send. Lower = faster
+         * pickup of new sends, more queries while idle.
+         */
         private long pollIntervalMs = 500;
     }
 

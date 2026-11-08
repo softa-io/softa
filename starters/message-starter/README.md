@@ -200,13 +200,19 @@ Every `MessageService.sendMail(...)` / `sendSms(...)` call follows the same path
    caller's trace id. The method returns the record id(s) at once; the records
    commit or roll back with the caller's transaction. A rejection throws before
    anything is written and does not mark the caller's transaction rollback-only.
-2. The **delivery loop** (`DeliveryPoller`, every
-   `softa.message.delivery.poll-interval-ms`, default 500) claims due records —
-   `PENDING`, or `RETRY` whose `next_retry_at` has passed — across tenants: a CAS
-   `PENDING|RETRY → SENDING` through framework `versionLock`. It claims no more
-   records than its channel has free workers
-   (`softa.message.{mail,sms}.send-concurrency`, default 1 per instance) and runs
-   each claimed record on a worker, in the record's tenant and trace.
+2. The **delivery loop** (`DeliveryPoller`) runs each channel on a worker pool
+   (`softa.message.{mail,sms}.send-concurrency`, default 1 per instance). A worker
+   claims a due record — `PENDING`, or `RETRY` whose `next_retry_at` has passed —
+   across tenants with a CAS `PENDING|RETRY → SENDING` through framework
+   `versionLock`, sends it in the record's tenant and trace, and goes straight on
+   to the next due record. It idles only when nothing is due; every
+   `softa.message.delivery.poll-interval-ms` (default 500) the poll hands newly
+   due records to idle workers. A backlog therefore drains at concurrency ÷ time
+   per send on each instance; raise `send-concurrency` for more, within the mail
+   server's limit on concurrent connections per account (each mail worker holds
+   one). Each scan reads a few due records per worker and tries them in random
+   order, so a claim lost to another worker or instance moves on to the next
+   record.
 3. The channel's `DeliveryProcessor` **prepares** a record on its first attempt:
    it renders the template and applies its defaults, chooses the server (mail)
    or routes the number to a provider (SMS), and charges the monthly quota, last.
@@ -296,7 +302,7 @@ softa:
   message:
     delivery:
       enabled: true           # default true; false = this instance sends nothing
-      poll-interval-ms: 500   # how often due send records are claimed
+      poll-interval-ms: 500   # how often idle workers look for newly due records
     zombie:
       enabled: true           # default true
       stale-seconds: 300      # SENDING records older than this are revived

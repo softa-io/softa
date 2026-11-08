@@ -1,13 +1,19 @@
 package io.softa.starter.message.shared.delivery;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntFunction;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -16,7 +22,6 @@ import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -31,25 +36,31 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
 import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
 
 /**
- * Drives delivery. Every {@code softa.message.delivery.poll-interval-ms} it claims the mail and SMS
- * send records that are due — PENDING, or RETRY whose {@code nextRetryAt} has passed — across tenants,
- * and runs each on its channel's worker pool: {@code softa.message.mail.send-concurrency} /
- * {@code softa.message.sms.send-concurrency} threads per instance. It claims only as many records as
- * the pool has free workers, so a claimed record never waits in a queue; the rest stay due for the
- * next poll, or for another instance.
+ * Drives delivery. Each channel has a worker pool of {@code softa.message.mail.send-concurrency} /
+ * {@code softa.message.sms.send-concurrency} threads per instance. A worker that finishes a send claims
+ * the next due record — PENDING, or RETRY whose {@code nextRetryAt} has passed — straight away, so a
+ * backlog drains at the pool's pace: concurrency ÷ time per send. A worker goes idle only when nothing is
+ * due; every {@code softa.message.delivery.poll-interval-ms} the poll hands newly due records to idle
+ * workers. A record is claimed only by a worker about to send it, so a claimed record never waits.
  * <p>
  * The send record is the queue: there is no outbox table and no broker in between. The claim is the
- * record's optimistic lock (PENDING/RETRY → SENDING), so instances polling the same table never send a
- * record twice. A record whose instance dies after claiming it stays SENDING until the
+ * record's optimistic lock (PENDING/RETRY → SENDING), so workers and instances reading the same table
+ * never send a record twice. Each scan reads a few due records per worker it is filling and tries them
+ * in random order, so a claim lost to another worker or instance moves on to the next record instead of
+ * leaving the worker idle. A record whose instance dies after claiming it stays SENDING until the
  * {@code ZombieRecordSweeper} revives it.
  * <p>
- * Each claim and each delivery runs in the record's own tenant context, under the trace id of the
- * request that submitted it, with permission checks skipped (system work).
+ * The scan reads every tenant's records; each claim and each delivery runs in the record's own tenant
+ * context, under the trace id of the request that submitted it, with permission checks skipped
+ * (system work).
  */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "softa.message.delivery.enabled", havingValue = "true", matchIfMissing = true)
 public class DeliveryPoller implements DisposableBean {
+
+    /** Due records a scan reads per worker: enough that a lost claim has somewhere else to go. */
+    static final int CANDIDATES_PER_WORKER = 4;
 
     private final MailSendRecordService mailRecords;
 
@@ -59,9 +70,9 @@ public class DeliveryPoller implements DisposableBean {
 
     private final SmsDeliveryProcessor smsProcessor;
 
-    private final Workers mailWorkers;
+    private final Lane mail;
 
-    private final Workers smsWorkers;
+    private final Lane sms;
 
     public DeliveryPoller(MailSendRecordService mailRecords, SmsSendRecordService smsRecords,
                           MailDeliveryProcessor mailProcessor, SmsDeliveryProcessor smsProcessor,
@@ -70,56 +81,59 @@ public class DeliveryPoller implements DisposableBean {
         this.smsRecords = smsRecords;
         this.mailProcessor = mailProcessor;
         this.smsProcessor = smsProcessor;
-        this.mailWorkers = new Workers("mail", properties.getMail().getSendConcurrency());
-        this.smsWorkers = new Workers("sms", properties.getSms().getSendConcurrency());
+        this.mail = new Lane("mail", properties.getMail().getSendConcurrency(), this::dueMail);
+        this.sms = new Lane("sms", properties.getSms().getSendConcurrency(), this::dueSms);
     }
 
-    /** The scan is cross-tenant; every claim and delivery switches into its record's tenant. */
+    /** Hands newly due records to idle workers; busy workers find their next record themselves. */
     @Scheduled(fixedDelayString = "${softa.message.delivery.poll-interval-ms:500}")
-    @CrossTenant
     public void poll() {
-        pollMail();
-        pollSms();
+        mail.fill();
+        sms.fill();
     }
 
-    private void pollMail() {
-        int free = mailWorkers.free();
-        if (free == 0) {
-            return;
-        }
+    private List<Candidate> dueMail(int limit) {
         Filters due = Filters.or(
                 new Filters().eq(MailSendRecord::getStatus, MailSendStatus.PENDING),
                 new Filters().eq(MailSendRecord::getStatus, MailSendStatus.RETRY)
                         .le(MailSendRecord::getNextRetryAt, LocalDateTime.now()));
         FlexQuery query = new FlexQuery(due, Orders.ofAsc(MailSendRecord::getId));
-        query.setLimitSize(free);
-        for (MailSendRecord record : mailRecords.searchList(query)) {
+        query.setLimitSize(limit);
+        List<Candidate> candidates = new ArrayList<>();
+        for (MailSendRecord record : scan(() -> mailRecords.searchList(query))) {
             long version = record.getVersion() != null ? record.getVersion() : 0L;
             Context ctx = recordContext(record.getTenantId(), record.getTraceId());
-            mailWorkers.claimAndRun(
+            candidates.add(new Candidate(
                     () -> ContextHolder.callWith(ctx, () -> mailRecords.markSending(record.getId(), version)),
-                    () -> ContextHolder.runWith(ctx, () -> mailProcessor.deliver(record, version + 1)));
+                    () -> ContextHolder.runWith(ctx, () -> mailProcessor.deliver(record, version + 1))));
         }
+        return candidates;
     }
 
-    private void pollSms() {
-        int free = smsWorkers.free();
-        if (free == 0) {
-            return;
-        }
+    private List<Candidate> dueSms(int limit) {
         Filters due = Filters.or(
                 new Filters().eq(SmsSendRecord::getStatus, SmsSendStatus.PENDING),
                 new Filters().eq(SmsSendRecord::getStatus, SmsSendStatus.RETRY)
                         .le(SmsSendRecord::getNextRetryAt, LocalDateTime.now()));
         FlexQuery query = new FlexQuery(due, Orders.ofAsc(SmsSendRecord::getId));
-        query.setLimitSize(free);
-        for (SmsSendRecord record : smsRecords.searchList(query)) {
+        query.setLimitSize(limit);
+        List<Candidate> candidates = new ArrayList<>();
+        for (SmsSendRecord record : scan(() -> smsRecords.searchList(query))) {
             long version = record.getVersion() != null ? record.getVersion() : 0L;
             Context ctx = recordContext(record.getTenantId(), record.getTraceId());
-            smsWorkers.claimAndRun(
+            candidates.add(new Candidate(
                     () -> ContextHolder.callWith(ctx, () -> smsRecords.markSending(record.getId(), version)),
-                    () -> ContextHolder.runWith(ctx, () -> smsProcessor.deliver(record, version + 1)));
+                    () -> ContextHolder.runWith(ctx, () -> smsProcessor.deliver(record, version + 1))));
         }
+        return candidates;
+    }
+
+    /** Reads due records across tenants, from the scheduler thread or from a worker alike. */
+    private static <T> List<T> scan(Supplier<List<T>> read) {
+        Context ctx = new Context();
+        ctx.setCrossTenant(true);
+        ctx.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(ctx, read::get);
     }
 
     /** A fresh system context for one record: its tenant, the submitting request's trace id. */
@@ -132,15 +146,22 @@ public class DeliveryPoller implements DisposableBean {
         return ctx;
     }
 
-    /** Lets in-flight sends finish (bounded) when the application shuts down. */
+    /** Lets in-flight sends finish (bounded) when the application shuts down; no new claims start. */
     @Override
     public void destroy() throws InterruptedException {
-        mailWorkers.shutdown();
-        smsWorkers.shutdown();
+        mail.shutdown();
+        sms.shutdown();
     }
 
-    /** One channel's worker pool, with a permit per worker so a poll never claims more than it can run. */
-    private static final class Workers {
+    /** One due record: its claim and its delivery, each running in the record's own context. */
+    private record Candidate(BooleanSupplier claim, Runnable delivery) {
+    }
+
+    /**
+     * One channel's worker pool. A worker holds a permit from its first claim until it finds nothing
+     * left to claim, so the pool never runs more sends than it has workers.
+     */
+    private static final class Lane {
 
         private static final long SHUTDOWN_GRACE_SECONDS = 30;
 
@@ -150,51 +171,99 @@ public class DeliveryPoller implements DisposableBean {
 
         private final ExecutorService pool;
 
-        Workers(String channel, int concurrency) {
+        private final IntFunction<List<Candidate>> due;
+
+        private volatile boolean stopping;
+
+        Lane(String channel, int concurrency, IntFunction<List<Candidate>> due) {
             int size = Math.max(1, concurrency);
             this.channel = channel;
             this.slots = new Semaphore(size);
             this.pool = Executors.newFixedThreadPool(size, threadFactory("softa-" + channel + "-send-"));
+            this.due = due;
         }
 
-        int free() {
-            return slots.availablePermits();
-        }
-
-        /**
-         * Claim a record and, only if the claim wins, run its delivery on a worker. The permit is held
-         * from the claim until the delivery ends.
-         */
-        void claimAndRun(BooleanSupplier claim, Runnable delivery) {
-            if (!slots.tryAcquire()) {
+        /** The poll: give every idle worker a due record. Reads nothing while no worker is idle. */
+        void fill() {
+            int idle = slots.availablePermits();
+            if (idle == 0 || stopping) {
                 return;
             }
-            boolean running = false;
-            try {
-                if (!claim.getAsBoolean()) {
+            for (Candidate candidate : candidates(idle * CANDIDATES_PER_WORKER)) {
+                if (!slots.tryAcquire()) {
                     return;
                 }
-                pool.execute(() -> {
-                    try {
-                        delivery.run();
-                    } catch (RuntimeException e) {
-                        // The record stays SENDING; the zombie sweeper revives it.
-                        log.error("DeliveryPoller: {} delivery failed unexpectedly", channel, e);
-                    } finally {
-                        slots.release();
-                    }
-                });
-                running = true;
-            } catch (RuntimeException e) {
-                log.error("DeliveryPoller: could not claim or start a {} delivery", channel, e);
-            } finally {
-                if (!running) {
+                if (!start(candidate)) {
                     slots.release();
                 }
             }
         }
 
+        /** Claims the record and hands it to a worker; true once a worker owns it, permit included. */
+        private boolean start(Candidate candidate) {
+            try {
+                if (!candidate.claim().getAsBoolean()) {
+                    return false;
+                }
+            } catch (RuntimeException e) {
+                log.error("DeliveryPoller: could not claim a {} record", channel, e);
+                return false;
+            }
+            try {
+                pool.execute(() -> work(candidate));
+                return true;
+            } catch (RejectedExecutionException e) {
+                // Shutting down after the claim: the record stays SENDING until the zombie sweeper revives it.
+                log.warn("DeliveryPoller: {} pool is shutting down; a claimed record waits for the sweeper", channel);
+                return false;
+            }
+        }
+
+        /** Sends, then goes straight on to the next due record; releases the permit once none is due. */
+        private void work(Candidate first) {
+            try {
+                Candidate current = first;
+                while (current != null) {
+                    deliver(current);
+                    current = stopping ? null : claimNext();
+                }
+            } finally {
+                slots.release();
+            }
+        }
+
+        private void deliver(Candidate candidate) {
+            try {
+                candidate.delivery().run();
+            } catch (RuntimeException e) {
+                // The record stays SENDING; the zombie sweeper revives it.
+                log.error("DeliveryPoller: {} delivery failed unexpectedly", channel, e);
+            }
+        }
+
+        /** The next due record this worker won, or null when nothing is due (or every claim was lost). */
+        private Candidate claimNext() {
+            try {
+                for (Candidate candidate : candidates(CANDIDATES_PER_WORKER)) {
+                    if (candidate.claim().getAsBoolean()) {
+                        return candidate;
+                    }
+                }
+            } catch (RuntimeException e) {
+                log.error("DeliveryPoller: could not claim the next {} record", channel, e);
+            }
+            return null;
+        }
+
+        /** Due records, oldest first, tried in random order so workers do not all race for the oldest. */
+        private List<Candidate> candidates(int limit) {
+            List<Candidate> candidates = new ArrayList<>(due.apply(limit));
+            Collections.shuffle(candidates);
+            return candidates;
+        }
+
         void shutdown() throws InterruptedException {
+            stopping = true;
             pool.shutdown();
             if (!pool.awaitTermination(SHUTDOWN_GRACE_SECONDS, TimeUnit.SECONDS)) {
                 log.warn("DeliveryPoller: {} sends still running after {}s at shutdown; "
