@@ -392,7 +392,7 @@ public class OneToManyProcessor extends BaseProcessor {
         filters.and(subQuery.getFilters());
         // count subQuery on the join model
         FlexQuery relatedFlexQuery = new FlexQuery(List.of(metaField.getRelatedField()), filters);
-        relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        relatedFlexQuery.setFilterControl(FilterControl.bypassActiveControl());
         // The same rows the expansion would return, counted: a count that clamps to today while the
         // list it stands in for does not would disagree with it.
         applyAcrossTimeline(relatedFlexQuery);
@@ -421,7 +421,7 @@ public class OneToManyProcessor extends BaseProcessor {
      */
     private List<Map<String, Object>> getRelatedRowsWithDisplayName(List<Serializable> mainModelIds) {
         FlexQuery relatedFlexQuery = new FlexQuery(new Filters().in(metaField.getRelatedField(), mainModelIds));
-        relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        relatedFlexQuery.setFilterControl(FilterControl.bypassActiveControl());
         // Set the convert type to REFERENCE.
         relatedFlexQuery.setConvertType(ConvertType.REFERENCE);
         relatedFlexQuery.select(metaField.getRelatedField());
@@ -474,7 +474,7 @@ public class OneToManyProcessor extends BaseProcessor {
             }
         }
         relatedFlexQuery.setConvertType(flexQuery.getConvertType());
-        relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        relatedFlexQuery.setFilterControl(FilterControl.bypassActiveControl());
         // The lines read in the order they were entered unless the subQuery or the related model names one.
         orderAsEntered(metaField.getRelatedModel(), relatedFlexQuery);
         applyAcrossTimeline(relatedFlexQuery);
