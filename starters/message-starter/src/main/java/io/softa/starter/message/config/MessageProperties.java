@@ -52,9 +52,9 @@ public class MessageProperties {
      */
     @Data
     public static class Quota {
-        /** Default maximum accepted mail sends per bucket per calendar month; null = unlimited. */
+        /** Default maximum mail sends charged per bucket per calendar month; null = unlimited. */
         private Long mailMonthlyDefault;
-        /** Default maximum accepted SMS sends per bucket per calendar month; null = unlimited. */
+        /** Default maximum SMS sends charged per bucket per calendar month; null = unlimited. */
         private Long smsMonthlyDefault;
     }
 

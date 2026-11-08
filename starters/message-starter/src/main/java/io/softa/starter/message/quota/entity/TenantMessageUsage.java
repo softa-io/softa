@@ -52,23 +52,23 @@ public class TenantMessageUsage extends AuditableModel {
     private String month;
 
     @Field(label = "Mail Monthly Limit",
-            description = "Snapshot of the mail ceiling in force at the last accepted mail send "
+            description = "Snapshot of the mail ceiling in force when this month's last mail send was charged "
                     + "of this month (quota row or deployment default); null = unlimited.")
     private Long mailMonthlyLimit;
 
     @Field(label = "Mail Used", required = true,
-            description = "Accepted mail sends this month. Incremented once per accepted message; "
-                    + "delivery retries never touch it.")
+            description = "Mail sends charged this month: once per message, when its record is prepared at "
+                    + "its first delivery attempt; delivery retries never touch it.")
     private Long mailUsed;
 
     @Field(label = "SMS Monthly Limit",
-            description = "Snapshot of the SMS ceiling in force at the last accepted SMS send "
+            description = "Snapshot of the SMS ceiling in force when this month's last SMS send was charged "
                     + "of this month; null = unlimited.")
     private Long smsMonthlyLimit;
 
     @Field(label = "SMS Used", required = true,
-            description = "Accepted SMS sends this month. Incremented once per accepted message; "
-                    + "delivery retries never touch it.")
+            description = "SMS sends charged this month: once per message, when its record is prepared at "
+                    + "its first delivery attempt; delivery retries never touch it.")
     private Long smsUsed;
 
     @Field(required = true, description = "Optimistic-lock version. Bumped on every increment.")
