@@ -156,18 +156,20 @@ public class FlowInstanceAccessGuard {
     }
 
     /**
-     * Authorizes a caller to preview the approval a business record's submission would start: they
-     * can read the record with their own permissions. Taking part in the record's earlier approvals
-     * is not enough — the preview is about its next one.
+     * Authorizes a caller to preview a business record's approval: they can read the record with their own
+     * permissions, or the approval is in progress and they take part in it ({@link #isParticipant}) — its route is
+     * what its approvers and CC recipients are shown. Taking part in the record's earlier approvals is not enough:
+     * with none in progress the preview is about its next one.
      *
      * @param modelName   the record's model
      * @param rowId       the record
+     * @param running     the record's approval in progress, or null when it has none
      * @param requesterId the authenticated caller's user id
-     * @throws FlowAuthorizationException if they cannot read the record
+     * @throws FlowAuthorizationException if neither holds
      */
-    public void requireRecordReader(String modelName, String rowId, String requesterId) {
+    public void requirePreviewer(String modelName, String rowId, FlowExecutionState running, String requesterId) {
         requireAuthenticated(requesterId, "preview the approval of " + modelName + " " + rowId);
-        if (canReadRecord(modelName, rowId)) {
+        if ((running != null && isParticipant(running, requesterId)) || canReadRecord(modelName, rowId)) {
             return;
         }
         throw new FlowAuthorizationException("User may not preview the approval of " + modelName + " " + rowId);

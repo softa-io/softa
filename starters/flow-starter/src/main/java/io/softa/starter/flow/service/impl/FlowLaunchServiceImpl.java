@@ -297,9 +297,11 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     @Override
     public FlowApprovalPreview previewRecord(String modelName, String rowId, String requesterId) {
         requireRecordKey(modelName, rowId, "preview");
-        // The caller's own permissions decide, before anything is read past them.
-        accessGuard.requireRecordReader(modelName, rowId, requesterId);
-        FlowApprovalPreview preview = previewSubmission(modelName, rowId, requesterId);
+        FlowInstance latest = latestApproval(modelName, rowId);
+        FlowExecutionState running = inProgress(latest) ? runningState(latest) : null;
+        // Taking part in the approval in progress or the caller's own permissions decide, before the record is read.
+        accessGuard.requirePreviewer(modelName, rowId, running, requesterId);
+        FlowApprovalPreview preview = previewSubmission(modelName, rowId, latest, running, requesterId);
         userNames.name(actorsOf(preview));
         return preview;
     }
@@ -308,10 +310,10 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * {@link #submitRecord} up to the start of the approval, whose path is worked out instead — or, for a
      * record whose approval is in progress, the rest of that approval's path.
      */
-    private FlowApprovalPreview previewSubmission(String modelName, String rowId, String submitterId) {
-        FlowInstance latest = latestApproval(modelName, rowId);
+    private FlowApprovalPreview previewSubmission(String modelName, String rowId, FlowInstance latest,
+                                                  FlowExecutionState running, String submitterId) {
         if (inProgress(latest)) {
-            return previewInProgress(latest, submitterId);
+            return previewInProgress(running, submitterId);
         }
         Submission<?> submission;
         try {
@@ -391,9 +393,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * The rest of an approval in progress: the step it waits on now, then those after it — and whether the
      * requester may withdraw it: its submitter, on a flow that lets them.
      */
-    private FlowApprovalPreview previewInProgress(FlowInstance approval, String requesterId) {
-        FlowExecutionState state = ContextUtils.withoutPermissionChecks(
-                () -> flowRuntimeEngine.getInstance(approval.getInstanceId())).orElse(null);
+    private FlowApprovalPreview previewInProgress(FlowExecutionState state, String requesterId) {
         CompiledFlowDefinition definition = state == null ? null
                 : flowBundleRegistry.getByBundleId(state.getBundleId()).orElse(null);
         if (definition == null) {
@@ -402,6 +402,11 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         FlowApprovalPreview preview = pathPreviewer.previewRemaining(definition, state);
         preview.setWithdrawable(withdrawPolicyGuard.withdrawable(state, requesterId));
         return preview;
+    }
+
+    private FlowExecutionState runningState(FlowInstance approval) {
+        return ContextUtils.withoutPermissionChecks(
+                () -> flowRuntimeEngine.getInstance(approval.getInstanceId())).orElse(null);
     }
 
     private static FlowApprovalPreview notReady(FlowApprovalPreview.Status status, String message) {

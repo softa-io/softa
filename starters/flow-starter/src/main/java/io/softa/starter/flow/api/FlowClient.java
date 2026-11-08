@@ -49,7 +49,7 @@ public interface FlowClient {
     /**
      * What submitting the record as the current user would do now, without submitting it — the same
      * answer as {@code GET /flow/instances/preview}, under the same check: the current user can read
-     * the record with their own permissions. Nothing is started or written. A refusal by the
+     * the record with their own permissions or takes part in its approval in progress. Nothing is started or written. A refusal by the
      * handler's {@code validate} is reported rather than thrown, so call it outside a transaction: a
      * refusal thrown through a transactional method marks the transaction it joins rollback-only.
      */
