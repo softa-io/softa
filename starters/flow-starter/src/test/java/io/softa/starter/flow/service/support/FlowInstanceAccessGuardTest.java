@@ -454,6 +454,40 @@ class FlowInstanceAccessGuardTest {
     }
 
     @Test
+    void aReaderOfTheRecordPreviewsWithoutItsApprovalBeingAskedFor() {
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class);
+             MockedStatic<IdUtils> ids = mockStatic(IdUtils.class)) {
+            models.when(() -> ModelManager.existModel("LeaveRequest")).thenReturn(true);
+            ids.when(() -> IdUtils.formatId(anyString(), any(Serializable.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(1));
+            when(modelService.getById(eq("LeaveRequest"), any(), eq(List.of("id"))))
+                    .thenReturn(Optional.of(Map.of("id", 42L)));
+
+            assertDoesNotThrow(() -> guard.requirePreviewer("LeaveRequest", "42", () -> {
+                throw new AssertionError("a reader needs no approval state");
+            }, "u1"));
+        }
+    }
+
+    @Test
+    void aParticipantPreviewsOnlyTheApprovalInProgress() {
+        FlowExecutionState running = FlowExecutionState.builder().instanceId("i1").initiatorId("u1").build();
+
+        assertDoesNotThrow(() -> guard.requirePreviewer("LeaveRequest", "42", () -> running, "u1"));
+        assertThrows(FlowAuthorizationException.class,
+                () -> guard.requirePreviewer("LeaveRequest", "42", () -> running, "u2"));
+        assertThrows(FlowAuthorizationException.class,
+                () -> guard.requirePreviewer("LeaveRequest", "42", () -> null, "u1"));
+    }
+
+    @Test
+    void aBlankRequesterPreviewsNothingAndNoApprovalIsAskedFor() {
+        assertThrows(FlowAuthorizationException.class, () -> guard.requirePreviewer("LeaveRequest", "42", () -> {
+            throw new AssertionError("no approval state before authentication");
+        }, " "));
+    }
+
+    @Test
     void anAdministratorIsWhoeverTheirOwnPermissionsLetReadTheInstance() {
         when(modelService.count(eq("FlowInstance"), any(Filters.class))).thenReturn(1L);
         assertDoesNotThrow(() -> guard.requireInstanceAdministrator("i1", "admin"));

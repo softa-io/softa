@@ -262,6 +262,27 @@ class FlowApprovalPreviewTest {
         assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, MANAGER));
     }
 
+    @Test
+    void anApprovalWhoseStateCannotBeLoadedAdmitsNoOutsiderAndRefusesAReader() {
+        startApprovalWaitingOn(MANAGER);
+        when(engine.getInstance("run-1")).thenReturn(Optional.empty());
+
+        assertEquals(Status.REFUSED, launchService.previewRecord(MODEL, ROW, DEPUTY).getStatus());
+
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, MANAGER));
+    }
+
+    @Test
+    void aBlankRequesterIsRefusedBeforeAnyApprovalIsRead() {
+        startApprovalWaitingOn(MANAGER);
+
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, " "));
+
+        verify(instanceService, never()).findByModelNameAndRowId(MODEL, ROW);
+        verify(engine, never()).getInstance("run-1");
+    }
+
     private void startApprovalWaitingOn(String approver) {
         CompiledFlowDefinition flow = publishService.publish("annual", chain("Annual leave",
                 approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(approver)))))));

@@ -297,11 +297,9 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     @Override
     public FlowApprovalPreview previewRecord(String modelName, String rowId, String requesterId) {
         requireRecordKey(modelName, rowId, "preview");
-        FlowInstance latest = latestApproval(modelName, rowId);
-        FlowExecutionState running = inProgress(latest) ? runningState(latest) : null;
-        // Taking part in the approval in progress or the caller's own permissions decide, before the record is read.
-        accessGuard.requirePreviewer(modelName, rowId, running, requesterId);
-        FlowApprovalPreview preview = previewSubmission(modelName, rowId, latest, running, requesterId);
+        // The caller's own permissions or taking part in the approval in progress decide, before the record is read.
+        accessGuard.requirePreviewer(modelName, rowId, () -> approvalInProgress(modelName, rowId), requesterId);
+        FlowApprovalPreview preview = previewSubmission(modelName, rowId, requesterId);
         userNames.name(actorsOf(preview));
         return preview;
     }
@@ -310,10 +308,10 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * {@link #submitRecord} up to the start of the approval, whose path is worked out instead — or, for a
      * record whose approval is in progress, the rest of that approval's path.
      */
-    private FlowApprovalPreview previewSubmission(String modelName, String rowId, FlowInstance latest,
-                                                  FlowExecutionState running, String submitterId) {
+    private FlowApprovalPreview previewSubmission(String modelName, String rowId, String submitterId) {
+        FlowInstance latest = latestApproval(modelName, rowId);
         if (inProgress(latest)) {
-            return previewInProgress(running, submitterId);
+            return previewInProgress(latest, submitterId);
         }
         Submission<?> submission;
         try {
@@ -393,7 +391,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * The rest of an approval in progress: the step it waits on now, then those after it — and whether the
      * requester may withdraw it: its submitter, on a flow that lets them.
      */
-    private FlowApprovalPreview previewInProgress(FlowExecutionState state, String requesterId) {
+    private FlowApprovalPreview previewInProgress(FlowInstance approval, String requesterId) {
+        FlowExecutionState state = runningState(approval);
         CompiledFlowDefinition definition = state == null ? null
                 : flowBundleRegistry.getByBundleId(state.getBundleId()).orElse(null);
         if (definition == null) {
@@ -402,6 +401,12 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         FlowApprovalPreview preview = pathPreviewer.previewRemaining(definition, state);
         preview.setWithdrawable(withdrawPolicyGuard.withdrawable(state, requesterId));
         return preview;
+    }
+
+    /** The state of the record's approval in progress, or null when it has none. */
+    private FlowExecutionState approvalInProgress(String modelName, String rowId) {
+        FlowInstance latest = latestApproval(modelName, rowId);
+        return inProgress(latest) ? runningState(latest) : null;
     }
 
     private FlowExecutionState runningState(FlowInstance approval) {

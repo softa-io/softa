@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
@@ -163,13 +164,19 @@ public class FlowInstanceAccessGuard {
      *
      * @param modelName   the record's model
      * @param rowId       the record
-     * @param running     the record's approval in progress, or null when it has none
+     * @param running     the record's approval in progress, or null when it has none; asked only of an
+     *                    authenticated caller who cannot read the record
      * @param requesterId the authenticated caller's user id
      * @throws FlowAuthorizationException if neither holds
      */
-    public void requirePreviewer(String modelName, String rowId, FlowExecutionState running, String requesterId) {
+    public void requirePreviewer(String modelName, String rowId, Supplier<FlowExecutionState> running,
+                                 String requesterId) {
         requireAuthenticated(requesterId, "preview the approval of " + modelName + " " + rowId);
-        if ((running != null && isParticipant(running, requesterId)) || canReadRecord(modelName, rowId)) {
+        if (canReadRecord(modelName, rowId)) {
+            return;
+        }
+        FlowExecutionState approval = running.get();
+        if (approval != null && isParticipant(approval, requesterId)) {
             return;
         }
         throw new FlowAuthorizationException("User may not preview the approval of " + modelName + " " + rowId);
