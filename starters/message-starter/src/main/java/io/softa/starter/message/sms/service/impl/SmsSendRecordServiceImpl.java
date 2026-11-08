@@ -1,6 +1,7 @@
 package io.softa.starter.message.sms.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
@@ -37,13 +38,29 @@ public class SmsSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<S
             throw new BusinessException("This SMS is being sent right now. If it is stuck, "
                     + "stale SENDING records are requeued automatically after the zombie window.");
         }
-        // See MailSendRecordServiceImpl#retry — same transition, same one-new-attempt semantics.
-        long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
-        boolean ok = markRetry(id, expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE, LocalDateTime.now());
-        if (!ok) {
+        if (!requeue(record)) {
             throw new BusinessException("The record changed concurrently — refresh and retry again.");
         }
         return true;
+    }
+
+    @Override
+    public int retryByIds(List<Long> ids) {
+        int requeued = 0;
+        for (SmsSendRecord record : getByIds(ids)) {
+            SmsSendStatus status = record.getStatus();
+            if (status != SmsSendStatus.SENT && status != SmsSendStatus.SENDING && requeue(record)) {
+                requeued++;
+            }
+        }
+        return requeued;
+    }
+
+    /** See MailSendRecordServiceImpl#requeue — same transition, same one-new-attempt semantics. */
+    private boolean requeue(SmsSendRecord record) {
+        long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
+        return markRetry(record.getId(), expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE,
+                LocalDateTime.now());
     }
 
     @Override

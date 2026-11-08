@@ -2,6 +2,7 @@ package io.softa.starter.message.mail.service;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 import io.softa.framework.orm.service.EntityService;
@@ -58,6 +59,14 @@ public interface MailSendRecordService extends EntityService<MailSendRecord, Lon
      * is the zombie sweeper's job.
      */
     boolean retry(Long id);
+
+    /**
+     * Requeue the selected records the way {@link #retry} does, skipping what it
+     * would reject instead of failing: {@code SENT} and in-flight {@code SENDING}
+     * records, a record that changed while being requeued (a worker claimed it),
+     * and ids that are not found. Returns how many were requeued.
+     */
+    int retryByIds(List<Long> ids);
 
     /**
      * Terminally fail a record with no more retries. Bumps version.

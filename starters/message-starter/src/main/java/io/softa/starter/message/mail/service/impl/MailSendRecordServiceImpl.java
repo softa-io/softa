@@ -48,15 +48,34 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
             throw new BusinessException("This email is being sent right now. If it is stuck, "
                     + "stale SENDING records are requeued automatically after the zombie window.");
         }
-        // Due now: the delivery loop picks it up on its next poll. retryCount keeps counting — a
-        // manual retry grants ONE new attempt and a failure returns the record to FAILED /
-        // DEAD_LETTER instead of silently re-arming the whole automatic retry budget.
-        long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
-        boolean ok = markRetry(id, expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE, LocalDateTime.now());
-        if (!ok) {
+        if (!requeue(record)) {
             throw new BusinessException("The record changed concurrently — refresh and retry again.");
         }
         return true;
+    }
+
+    @Override
+    public int retryByIds(List<Long> ids) {
+        int requeued = 0;
+        for (MailSendRecord record : getByIds(ids)) {
+            MailSendStatus status = record.getStatus();
+            if (status != MailSendStatus.SENT && status != MailSendStatus.SENDING && requeue(record)) {
+                requeued++;
+            }
+        }
+        return requeued;
+    }
+
+    /**
+     * Due now: the delivery loop picks it up on its next poll. retryCount keeps counting — a
+     * manual retry grants ONE new attempt and a failure returns the record to FAILED /
+     * DEAD_LETTER instead of silently re-arming the whole automatic retry budget.
+     * {@code false} when the record changed since it was read.
+     */
+    private boolean requeue(MailSendRecord record) {
+        long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
+        return markRetry(record.getId(), expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE,
+                LocalDateTime.now());
     }
 
     @Override

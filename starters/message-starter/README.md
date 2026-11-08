@@ -228,8 +228,11 @@ that renders nothing: the record fails `FAILED` with a marker code
 `CONTENT_INVALID`) and the reason, and every terminal failure is logged at ERROR
 with the record id and tenant, so log-based alerting reaches a developer. Fix the
 configuration, then use the record's Retry action: a record that failed before it
-was prepared is prepared afresh. The caller never sees these errors —
-`sendMail` returned the record id when the request was accepted.
+was prepared is prepared afresh. `POST /MailSendRecord/retry?id=` requeues one
+record and `POST /MailSendRecord/retryByIds` (body `{"ids": [...]}`) the selected
+ones, skipping `SENT` and in-flight `SENDING` records; the SMS endpoints are the
+same under `/SmsSendRecord`. The caller never sees these errors — `sendMail`
+returned the record id when the request was accepted.
 
 Instances polling the same tables never send a record twice: of two claims
 holding the same version only one wins. There is no outbox table and no broker in

@@ -1,6 +1,7 @@
 package io.softa.starter.message.sms.service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
@@ -43,6 +44,14 @@ public interface SmsSendRecordService extends EntityService<SmsSendRecord, Long>
      * RETRY, due now; SENT / SENDING rejected.
      */
     boolean retry(Long id);
+
+    /**
+     * Requeue the selected records the way {@link #retry} does, skipping what it
+     * would reject instead of failing: {@code SENT} and in-flight {@code SENDING}
+     * records, a record that changed while being requeued, and ids that are not
+     * found. Returns how many were requeued.
+     */
+    int retryByIds(List<Long> ids);
 
     /** Terminally fail a record. */
     boolean markFailed(Long id, long expectedVersion, String errorCode, String errorMessage);

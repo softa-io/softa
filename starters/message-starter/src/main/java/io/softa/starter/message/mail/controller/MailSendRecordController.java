@@ -7,6 +7,7 @@ import java.util.function.Supplier;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,11 +35,12 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.shared.TenantScopes;
+import io.softa.starter.message.shared.dto.SendRecordIdsDTO;
 
 /**
  * REST controller for outgoing mail records: a read-only audit log plus the manual
- * {@code retry} operation. Records are created automatically by MessageService and
- * must not be created via API.
+ * {@code retry} / {@code retryByIds} operations. Records are created automatically
+ * by MessageService and must not be created via API.
  *
  * <p><b>Reads are tenant-scoped, and the platform super-admin additionally sees mail addressed to
  * the admin roster.</b> A send record is stamped with the tenant the mail belongs to — the invitation
@@ -77,6 +79,16 @@ public class MailSendRecordController
     @PostMapping("/retry")
     public ApiResponse<Boolean> retry(@RequestParam Long id) {
         return ApiResponse.success(service.retry(id));
+    }
+
+    /**
+     * Requeue the selected records, skipping SENT and in-flight SENDING ones
+     * instead of failing. Returns how many were requeued.
+     */
+    @Operation(summary = "Manually requeue the selected mail records for delivery")
+    @PostMapping("/retryByIds")
+    public ApiResponse<Integer> retryByIds(@RequestBody @Valid SendRecordIdsDTO request) {
+        return ApiResponse.success(service.retryByIds(request.getIds()));
     }
 
     @Operation(summary = "Search MailSendRecord page — tenant-scoped (super-admin also sees the admin roster)")

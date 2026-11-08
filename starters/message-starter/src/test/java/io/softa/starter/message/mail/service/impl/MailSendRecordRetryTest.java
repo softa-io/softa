@@ -1,6 +1,7 @@
 package io.softa.starter.message.mail.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -23,7 +25,8 @@ import static org.mockito.Mockito.verify;
 /**
  * Status-gate contract for the manual retry: PENDING / RETRY / FAILED / DEAD_LETTER
  * become RETRY, due now, so the delivery loop takes them on its next poll; SENT and
- * in-flight SENDING are rejected before anything is written.
+ * in-flight SENDING are rejected before anything is written. The bulk retry applies
+ * the same gate and skips what it would reject.
  */
 class MailSendRecordRetryTest {
 
@@ -35,11 +38,15 @@ class MailSendRecordRetryTest {
     }
 
     private void record(MailSendStatus status) {
+        doReturn(Optional.of(record(7L, status))).when(service).getById(7L);
+    }
+
+    private static MailSendRecord record(Long id, MailSendStatus status) {
         MailSendRecord record = new MailSendRecord();
-        record.setId(7L);
+        record.setId(id);
         record.setStatus(status);
         record.setVersion(3L);
-        doReturn(Optional.of(record)).when(service).getById(7L);
+        return record;
     }
 
     @Test
@@ -86,6 +93,27 @@ class MailSendRecordRetryTest {
 
         assertThrows(BusinessException.class, () -> service.retry(7L));
         verify(service, never()).markRetry(any(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void bulkRetry_requeuesWhatRetryAccepts_andSkipsTheRest() {
+        List<Long> ids = List.of(1L, 2L, 3L, 4L, 5L);
+        doReturn(List.of(
+                record(1L, MailSendStatus.FAILED),
+                record(2L, MailSendStatus.SENT),
+                record(3L, MailSendStatus.DEAD_LETTER),
+                record(4L, MailSendStatus.SENDING),
+                record(5L, MailSendStatus.RETRY))).when(service).getByIds(ids);
+        doReturn(true).when(service).markRetry(anyLong(), eq(3L), eq("MANUAL_RETRY"), any(), any());
+        // 5 was claimed by a worker between the read and the requeue.
+        doReturn(false).when(service).markRetry(eq(5L), eq(3L), eq("MANUAL_RETRY"), any(), any());
+
+        assertEquals(2, service.retryByIds(ids));
+
+        verify(service).markRetry(eq(1L), eq(3L), eq("MANUAL_RETRY"), any(), any());
+        verify(service).markRetry(eq(3L), eq(3L), eq("MANUAL_RETRY"), any(), any());
+        verify(service, never()).markRetry(eq(2L), anyLong(), any(), any(), any());
+        verify(service, never()).markRetry(eq(4L), anyLong(), any(), any(), any());
     }
 
     @Test
