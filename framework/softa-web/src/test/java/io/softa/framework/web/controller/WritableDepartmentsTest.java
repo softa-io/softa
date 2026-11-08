@@ -52,6 +52,24 @@ class WritableDepartmentsTest {
     }
 
     @Test
+    void aFieldThatDoesNotPlaceTheRecordIsNotNarrowed() {
+        SourceRecord source = from("Employee", 7L);
+        source.setFieldName("newDeptId");
+
+        assertThat(writable("Department", source)).isNull();
+        verifyNoInteractions(permissionService);
+    }
+
+    @Test
+    void theFieldThatPlacesTheRecordIsNarrowed() {
+        when(permissionService.getWritableDepartmentScope("Employee", AccessType.UPDATE)).thenReturn(WITHIN);
+        SourceRecord source = from("Employee", 7L);
+        source.setFieldName("departmentId");
+
+        assertThat(writable("Department", source)).isSameAs(WITHIN);
+    }
+
+    @Test
     void onlyTheDepartmentModelIsNarrowed() {
         assertThat(writable("Company", from("Employee", 7L))).isNull();
         verifyNoInteractions(permissionService);

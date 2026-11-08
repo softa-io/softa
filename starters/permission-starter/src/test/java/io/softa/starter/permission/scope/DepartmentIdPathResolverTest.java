@@ -68,6 +68,39 @@ class DepartmentIdPathResolverTest {
     }
 
     @Test
+    void aTreeReadBeforeAnEvictionRemovesItselfAfterTheWriteBack() {
+        // The eviction lands between the read of the mark and the write-back of the old tree.
+        when(cacheService.get("dept-idpath-mark:" + TENANT)).thenReturn("before", "after");
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 5L, "idPath", "1/5")));
+
+        ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(5L));
+
+        verify(cacheService).save(eq(KEY), any(), anyInt());
+        verify(cacheService).clear(KEY);
+    }
+
+    @Test
+    void aTreeReadWithNoEvictionStays() {
+        when(cacheService.get("dept-idpath-mark:" + TENANT)).thenReturn("same", "same");
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 5L, "idPath", "1/5")));
+
+        ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(5L));
+
+        verify(cacheService, never()).clear(KEY);
+    }
+
+    @Test
+    void anEvictionMovesTheMarkBeforeClearingTheTree() {
+        resolver.evict(TENANT, false);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(cacheService);
+        order.verify(cacheService).save(eq("dept-idpath-mark:" + TENANT), any(), anyInt());
+        order.verify(cacheService).clear(KEY);
+    }
+
+    @Test
     void cacheHit_servesFromCache_noDbNoWrite() {
         doReturn(Map.of(5L, "1/5")).when(cacheService).get(eq(KEY), any(TypeReference.class));
 

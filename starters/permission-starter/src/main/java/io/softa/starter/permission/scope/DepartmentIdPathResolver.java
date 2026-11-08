@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -49,7 +50,8 @@ import java.util.UUID;
  * path changed ({@link #evict(Long, boolean)}), as they hold the paths of the
  * departments a role names and nothing else about the tree. {@link #CACHE_TTL_SECONDS}
  * is a backstop for the edge case where a change commits with no tenant bound to evict
- * against, and for a tree read before a change and written back after its eviction.
+ * against. A tree read before a change and written back after its eviction finds the
+ * change's mark moved and removes itself, as a permission snapshot does.
  *
  * <h3>Query semantics</h3>
  * The tree is loaded under {@code skipPermissionCheck=true} — the caller's
@@ -77,6 +79,9 @@ public class DepartmentIdPathResolver {
     /** Per-tenant cache key prefix: {@code dept-idpath:{tenantId}}. HR-domain
      *  key, kept out of softa's RedisConstant. */
     private static final String CACHE_KEY_PREFIX = "dept-idpath:";
+
+    /** Changes with every eviction, so a load that overlapped one can tell. Outlives any load. */
+    private static final String MARK_KEY_PREFIX = "dept-idpath-mark:";
 
     /** Backstop expiry for the cached tree. Structural changes evict eagerly via
      *  {@link #evict} (the HR app's event adapter); this TTL only covers the edge
@@ -158,6 +163,13 @@ public class DepartmentIdPathResolver {
     public void evict(Long tenantId, boolean pathsChanged) {
         if (tenantId == null) return;
         try {
+            // Before the clear: a tree read from the old rows and written back after the clear finds the mark
+            // changed and removes itself (tenantTree).
+            cacheService.save(MARK_KEY_PREFIX + tenantId, UUID.randomUUID().toString(), RedisConstant.ONE_HOUR);
+        } catch (Throwable t) {
+            log.warn("DepartmentIdPathResolver — marking the tree of {} changed failed", tenantId, t);
+        }
+        try {
             cacheService.clear(CACHE_KEY_PREFIX + tenantId);
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — evicting dept-idpath:{} failed; TTL will expire it", tenantId, t);
@@ -198,14 +210,28 @@ public class DepartmentIdPathResolver {
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — Redis read for {} failed; falling back to DB", key, t);
         }
+        String mark = treeMark(tenantId);
         Map<Long, String> tree = loadTreeFromDb();
         if (tree == null) return Map.of();
         try {
             cacheService.save(key, tree, CACHE_TTL_SECONDS);
+            if (!Objects.equals(mark, treeMark(tenantId))) {
+                cacheService.clear(key);
+            }
         } catch (Throwable t) {
             log.warn("DepartmentIdPathResolver — Redis write for {} failed; served from DB", key, t);
         }
         return tree;
+    }
+
+    /** The tenant's tree mark; null when absent or unreadable. */
+    private String treeMark(Long tenantId) {
+        try {
+            return cacheService.get(MARK_KEY_PREFIX + tenantId);
+        } catch (Throwable t) {
+            log.warn("DepartmentIdPathResolver — tree mark read for {} failed; continuing", tenantId, t);
+            return null;
+        }
     }
 
     /**

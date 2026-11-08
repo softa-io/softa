@@ -578,12 +578,17 @@ public class ModelController<K extends Serializable> {
      * reads it answers for what they may view, and an exemption from the department grant shows them all of it,
      * so a form offered departments the save would then refuse. Its read says which record it is for, and the
      * department grants of the roles holding that write answer instead — create when the record has no id yet,
-     * update when it has ({@link PermissionService#getWritableDepartmentScope}).
+     * update when it has ({@link PermissionService#getWritableDepartmentScope}). A picker that names its field,
+     * and the field does not place the record ({@link PermissionService#placesInDepartment}), reads as any other.
      */
     static Filters writableDepartments(String modelName, SourceRecord source, PermissionService permissionService) {
         if (!ModelConstant.DEPARTMENT_MODEL.equals(modelName) || source == null
                 || source.getModel() == null || source.getModel().isBlank()
                 || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        if (source.getFieldName() != null && !source.getFieldName().isBlank()
+                && !PermissionService.placesInDepartment(source.getModel(), source.getFieldName())) {
             return null;
         }
         boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();

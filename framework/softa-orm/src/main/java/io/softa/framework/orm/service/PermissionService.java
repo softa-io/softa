@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.CreateAccess;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.RecordAccess;
@@ -441,6 +442,18 @@ public interface PermissionService {
      */
     default Filters getWritableDepartmentScope(String model, AccessType accessType) {
         return null;
+    }
+
+    /**
+     * Whether {@code fieldName} is what places a record of {@code model} in a department: its
+     * {@code departmentId}, or the parent of a department. Only such a field is bounded by
+     * {@link #getWritableDepartmentScope}. Any other field naming a department (where a person is being moved
+     * to, say) does not decide whose the record is, so what the write's department grant reaches says nothing
+     * about it.
+     */
+    static boolean placesInDepartment(String model, String fieldName) {
+        return ModelConstant.DEPARTMENT_FIELD.equals(fieldName)
+                || (ModelConstant.DEPARTMENT_MODEL.equals(model) && "parentId".equals(fieldName));
     }
 
 }

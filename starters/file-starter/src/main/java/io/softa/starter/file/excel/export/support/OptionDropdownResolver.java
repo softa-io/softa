@@ -82,6 +82,10 @@ import io.softa.starter.file.enums.ImportRule;
  * company the record does not belong to by its company axis (an employee's signing entity) would then
  * offer companies the import is bound to refuse. Such a column is narrowed to the company grants of the
  * roles holding the writes the template performs ({@link PermissionService#getGrantedCompanyIds}).
+ *
+ * <p><b>A column placing the record in a department offers the departments the import may place it in.</b> The
+ * same reasoning, for the department grants of those roles ({@link PermissionService#getWritableDepartmentScope}).
+ * Only a column on the field that places the record ({@link PermissionService#placesInDepartment}).
  */
 @Slf4j
 @Component
@@ -122,9 +126,15 @@ public class OptionDropdownResolver {
      *                  model narrowed differently stay separate requests
      * @param country   the country to narrow by, or null when the model does not vary by country
      * @param ids       the only rows that may be offered, or null when the column is not narrowed by id
+     * @param placesInDepartment whether the column is on the field that places the record in a department
+     * @param within    a further bound on the rows offered, or null
      */
     private record ValueRequest(String modelName, String fieldName, String filters, String country,
-                                Set<Long> ids) {
+                                Set<Long> ids, boolean placesInDepartment, Filters within) {
+
+        ValueRequest(String modelName, String fieldName, String filters, String country, Set<Long> ids) {
+            this(modelName, fieldName, filters, country, ids, false, null);
+        }
     }
 
     /**
@@ -181,7 +191,13 @@ public class OptionDropdownResolver {
         boolean offersCompanies = entityRequestToColumns.keySet().stream()
                 .anyMatch(request -> ModelConstant.COMPANY_MODEL.equals(request.modelName()));
         Set<Long> grantedCompanies = offersCompanies ? grantedCompanies(modelName, importRule) : null;
+        boolean placesInDepartment = entityRequestToColumns.keySet().stream().anyMatch(ValueRequest::placesInDepartment);
+        Filters writableDepartments = placesInDepartment ? writableDepartments(modelName, importRule) : null;
         entityRequestToColumns.forEach((request, columns) -> {
+            if (request.placesInDepartment() && writableDepartments != null) {
+                request = new ValueRequest(request.modelName(), request.fieldName(), request.filters(),
+                        request.country(), request.ids(), true, writableDepartments);
+            }
             if (ModelConstant.COMPANY_MODEL.equals(request.modelName()) && grantedCompanies != null) {
                 request = new ValueRequest(request.modelName(), request.fieldName(), request.filters(),
                         request.country(), grantedCompanies);
@@ -200,13 +216,8 @@ public class OptionDropdownResolver {
      * would be refused.
      */
     private Set<Long> grantedCompanies(String modelName, ImportRule importRule) {
-        List<AccessType> writes = switch (importRule == null ? ImportRule.CREATE_OR_UPDATE : importRule) {
-            case ONLY_CREATE -> List.of(AccessType.CREATE);
-            case ONLY_UPDATE -> List.of(AccessType.UPDATE);
-            case CREATE_OR_UPDATE -> List.of(AccessType.CREATE, AccessType.UPDATE);
-        };
         Set<Long> granted = new TreeSet<>();
-        for (AccessType write : writes) {
+        for (AccessType write : writesOf(importRule)) {
             Set<Long> companies = permissionService.getGrantedCompanyIds(modelName, write);
             if (companies == null) {
                 return null;
@@ -214,6 +225,32 @@ public class OptionDropdownResolver {
             granted.addAll(companies);
         }
         return granted;
+    }
+
+    /**
+     * The departments the template's writes may place a record in, together; null when not bounded.
+     *
+     * <p>A longer list is the safe failure here too: the write itself still refuses what its own action may not
+     * reach. A write reaching no department offers none, and the column is left without a list.
+     */
+    private Filters writableDepartments(String modelName, ImportRule importRule) {
+        Filters either = null;
+        for (AccessType write : writesOf(importRule)) {
+            Filters departments = permissionService.getWritableDepartmentScope(modelName, write);
+            if (departments == null) {
+                return null;
+            }
+            either = either == null ? departments : Filters.or(either, departments);
+        }
+        return either;
+    }
+
+    private static List<AccessType> writesOf(ImportRule importRule) {
+        return switch (importRule == null ? ImportRule.CREATE_OR_UPDATE : importRule) {
+            case ONLY_CREATE -> List.of(AccessType.CREATE);
+            case ONLY_UPDATE -> List.of(AccessType.UPDATE);
+            case CREATE_OR_UPDATE -> List.of(AccessType.CREATE, AccessType.UPDATE);
+        };
     }
 
     /** Gives every column of a batch the values that batch resolved to, if it resolved to any. */
@@ -291,8 +328,10 @@ public class OptionDropdownResolver {
             // offers its target's code-as-ids — because those exist independently of any employee.
             return;
         }
+        boolean places = ModelConstant.DEPARTMENT_MODEL.equals(relatedModel)
+                && PermissionService.placesInDepartment(modelName, parts[0]);
         ValueRequest request = new ValueRequest(relatedModel, leafField, rootField.getFilters(),
-                narrowingCountryFor(relatedModel, country), null);
+                narrowingCountryFor(relatedModel, country), null, places, null);
         entityRequestToColumns.computeIfAbsent(request, k -> new ArrayList<>()).add(columnIndex);
     }
 
@@ -511,6 +550,9 @@ public class OptionDropdownResolver {
             }
             if (request.ids() != null) {
                 filters.and(ModelConstant.ID, Operator.IN, request.ids());
+            }
+            if (request.within() != null) {
+                filters.and(request.within());
             }
             FlexQuery flexQuery = new FlexQuery(List.of(request.fieldName()), filters,
                     Orders.ofAsc(request.fieldName()));

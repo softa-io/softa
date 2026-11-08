@@ -45,7 +45,9 @@ that record count.
 `POST /Department/searchList` — the read a tree picker makes — take the same `sourceRecord`, and are narrowed to the
 department grants of the roles holding that write (`PermissionService.getWritableDepartmentScope`). The list as
 the user reads it answers for what they may view, which an exemption from the grant opens in full. Only where the
-picked department places the record: a model with a `departmentId` of its own, or the department model itself.
+picked department places the record: a model with a `departmentId` of its own, or the department model itself. A
+picker that names its field in `sourceRecord.fieldName` is narrowed only when that field places the record: the
+`departmentId`, or a department's `parentId`.
 
 ## Enum Request Parameters
 

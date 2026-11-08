@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -405,6 +406,52 @@ class OptionDropdownResolverTest {
     // ---------------------------------------------------------------- harness
 
     // ---------------------------------------------------------------- the company grant
+
+    @Test
+    void aColumnPlacingTheRecordOffersTheDepartmentsTheWriteReaches() {
+        withMetadata(mm -> {
+            field("Employee", "departmentId", FieldType.MANY_TO_ONE, "Department", null, null);
+            field("Department", "name", FieldType.STRING, null, null, null);
+            model("Department", false);
+            stubRows("Department", "name", List.of("R&D"));
+            when(permissionService.getWritableDepartmentScope("Employee", AccessType.CREATE))
+                    .thenReturn(Filters.of("idPath", Operator.EQUAL, "1/2"));
+
+            assertThat(resolve("Employee", null, ImportRule.ONLY_CREATE, "departmentId.name"))
+                    .containsEntry(0, List.of("R&D"));
+            assertThat(capturedQuery("Department").getFilters().toString()).contains("1/2");
+        });
+    }
+
+    @Test
+    void anotherColumnOntoDepartmentsIsNotNarrowed() {
+        withMetadata(mm -> {
+            field("Promotion", "newDeptId", FieldType.MANY_TO_ONE, "Department", null, null);
+            field("Department", "name", FieldType.STRING, null, null, null);
+            model("Department", false);
+            stubRows("Department", "name", List.of("Sales"));
+
+            resolve("Promotion", null, ImportRule.ONLY_CREATE, "newDeptId.name");
+
+            verify(permissionService, never()).getWritableDepartmentScope(any(), any());
+        });
+    }
+
+    @Test
+    void aCreateOrUpdateTemplateIsNotBoundedWhenEitherWriteIsNot() {
+        withMetadata(mm -> {
+            field("Employee", "departmentId", FieldType.MANY_TO_ONE, "Department", null, null);
+            field("Department", "name", FieldType.STRING, null, null, null);
+            model("Department", false);
+            stubRows("Department", "name", List.of("R&D", "Sales"));
+            when(permissionService.getWritableDepartmentScope("Employee", AccessType.CREATE))
+                    .thenReturn(Filters.of("idPath", Operator.EQUAL, "1/2"));
+
+            resolve("Employee", null, ImportRule.CREATE_OR_UPDATE, "departmentId.name");
+
+            assertThat(String.valueOf(capturedQuery("Department").getFilters())).doesNotContain("1/2");
+        });
+    }
 
     @Test
     void aColumnOntoTheCompanyOffersOnlyTheCompaniesTheWriteIsGranted() {
