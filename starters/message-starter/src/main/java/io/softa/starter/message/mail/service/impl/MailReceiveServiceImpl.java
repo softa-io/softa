@@ -328,11 +328,6 @@ public class MailReceiveServiceImpl implements MailReceiveService {
         if (isDuplicate(record.getMessageId(), config.getId())) {
             return null;
         }
-        // Don't archive truncated records (oversized / MIME-limit) — there's no
-        // faithful body to keep. archiveEml is itself a no-op when disabled.
-        if (record.getTruncationReason() == null) {
-            mailMessageParser.archiveEml(message, record);
-        }
         recordService.createOne(record);
         return record;
     }

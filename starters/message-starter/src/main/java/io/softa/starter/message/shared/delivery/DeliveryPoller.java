@@ -16,7 +16,6 @@ import java.util.function.IntFunction;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -56,7 +55,6 @@ import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "softa.message.delivery.enabled", havingValue = "true", matchIfMissing = true)
 public class DeliveryPoller implements DisposableBean {
 
     /** Due records a scan reads per worker: enough that a lost claim has somewhere else to go. */

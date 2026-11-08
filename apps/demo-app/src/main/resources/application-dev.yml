@@ -243,7 +243,7 @@ resilience4j:
         failure-rate-threshold: 60
         wait-duration-in-open-state: 30s
 
-# ---- message-starter: mail fetch and transport ----
+# ---- message-starter: transport timeouts ----
 # Incoming mail's size and MIME limits are constants in MailMessageParser
 # (100MB per message, 20MB per attachment, 10 MIME levels, 100 parts); hits
 # land on MailReceiveRecord.truncationReason for SecOps triage. Defaults below
@@ -251,10 +251,6 @@ resilience4j:
 #softa:
 #  message:
 #    mail:
-#      fetch:
-#        # Archive raw EML to file-starter. Default false; opt in for
-#        # compliance/audit. Oversized emails never reach the archive.
-#        archive-eml: false
 #      transport:
 #        # SMTP / IMAP / POP3 socket timeouts. Applied per-Session by
 #        # SmtpMailTransport + MailReceiveServiceImpl. Tune down for fast

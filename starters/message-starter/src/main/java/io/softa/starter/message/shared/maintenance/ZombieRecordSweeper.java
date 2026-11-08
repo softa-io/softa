@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -39,8 +38,7 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
  * {@code updated_time} is older than {@link #STALE_AFTER} (five minutes — far
  * longer than any send, whose connect and read timeouts are seconds) and
  * transition them back to {@code RETRY} with {@code next_retry_at = now}, which
- * makes them due for the delivery loop again. It runs wherever the delivery loop
- * does ({@code softa.message.delivery.enabled}).
+ * makes them due for the delivery loop again.
  * <p>
  * Each revival counts as a retry, and the budget is checked here too: a record
  * whose retries are already used up is dead-lettered instead of revived. An
@@ -53,10 +51,6 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(
-        name = "softa.message.delivery.enabled",
-        havingValue = "true",
-        matchIfMissing = true)
 public class ZombieRecordSweeper {
 
     /** A {@code SENDING} record untouched this long is stale. */

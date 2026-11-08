@@ -8,20 +8,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * Centralised properties for {@code message-starter} infrastructure behaviour.
  * <p>
  * Bound under prefix {@code softa.message}. Only what differs between deployments is configurable:
- * whether an instance sends, how many sends it runs at once, the default monthly quotas, transport
- * timeouts, and a few switches. Retry back-off, the stale-send window, polling and mail-fetch limits
- * are constants in the code that uses them. Raise {@code mail.send-concurrency} /
+ * how many sends an instance runs at once, the default monthly quotas, transport timeouts and the
+ * protocol debug log. Retry back-off, the stale-send window, polling, the SMTP pool's limits and
+ * mail-fetch limits are constants in the code that uses them; connection reuse is switched per server
+ * config ({@code MailSendServerConfig.connectionReuseEnabled}). Raise {@code mail.send-concurrency} /
  * {@code sms.send-concurrency} for throughput, within what the mail server or SMS provider allows.
  *
  * <pre>{@code
  * softa:
  *   message:
- *     delivery:
- *       enabled: true              # default; set false on instances that must not send
  *     mail:
- *       send-concurrency: 1        # mails one instance sends at once (each worker holds an SMTP connection)
+ *       send-concurrency: 4        # mails one instance sends at once (each worker holds an SMTP connection)
  *     sms:
- *       send-concurrency: 1        # SMS one instance sends at once
+ *       send-concurrency: 10       # SMS one instance sends at once
  *     quota:
  *       mail-monthly-default: 10000
  *       sms-monthly-default: 10000
@@ -39,7 +38,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "softa.message")
 public class MessageProperties {
 
-    private final Delivery delivery = new Delivery();
     private final Mail mail = new Mail();
     private final Sms sms = new Sms();
     private final Quota quota = new Quota();
@@ -58,22 +56,9 @@ public class MessageProperties {
         private Long smsMonthlyDefault;
     }
 
-    /**
-     * The delivery loop ({@code DeliveryPoller}) and the {@code ZombieRecordSweeper} that revives its
-     * stalled sends; the worker pools are sized by {@code mail.send-concurrency} /
-     * {@code sms.send-concurrency}.
-     */
-    @Data
-    public static class Delivery {
-        /** Whether this instance sends: runs the delivery loop and the stale-send sweep. */
-        private boolean enabled = true;
-    }
-
     @Data
     public static class Mail {
-        private final Fetch fetch = new Fetch();
         private final Transport transport = new Transport();
-        private final SmtpPool smtpPool = new SmtpPool();
 
         /**
          * Enable Jakarta Mail's full SMTP/IMAP protocol debug log
@@ -96,43 +81,20 @@ public class MessageProperties {
          * How many mails one instance sends in parallel: the size of its mail
          * worker pool in the delivery loop. Each worker holds its own SMTP
          * connection, so stay within the server's limit on concurrent connections
-         * per account.
+         * per account; lower it for a server that allows fewer than four.
          */
-        private int sendConcurrency = 1;
-    }
-
-    /** Scheduled mail fetch. Its batch, lease and size limits are constants in the fetch code. */
-    @Data
-    public static class Fetch {
-        /**
-         * Whether to archive the raw EML stream to {@link io.softa.framework.orm.service.FileService}.
-         * Disabled by default — opt in for compliance / audit deployments. Oversized emails are
-         * filtered before reaching this path.
-         */
-        private boolean archiveEml = false;
-    }
-
-    /**
-     * Reuse of authenticated SMTP connections across sends, one small pool per
-     * {@code MailSendServerConfig}. Without it every mail pays a TCP connect, TLS
-     * handshake and AUTH exchange, which is most of a small mail's send time.
-     * The idle cut-off and messages per connection are constants in {@code PooledSmtpSender}.
-     */
-    @Data
-    public static class SmtpPool {
-        /**
-         * Reuse connections; {@code false} opens and closes one connection per send — the way out
-         * for a server that does not take connection reuse well.
-         */
-        private boolean enabled = true;
+        private int sendConcurrency = 4;
     }
 
     @Data
     public static class Sms {
         private final Transport transport = new Transport();
 
-        /** How many SMS one instance sends in parallel: the size of its SMS worker pool. */
-        private int sendConcurrency = 1;
+        /**
+         * How many SMS one instance sends in parallel: the size of its SMS worker pool. Each send is
+         * one HTTPS call, so ten stays well below the request rates SMS providers allow.
+         */
+        private int sendConcurrency = 10;
     }
 
     /**

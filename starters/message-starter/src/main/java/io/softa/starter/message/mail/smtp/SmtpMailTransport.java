@@ -33,8 +33,11 @@ import io.softa.starter.message.mail.enums.MailPriority;
  * Authenticated connections are reused across sends, one small pool per
  * {@link MailSendServerConfig} ({@code PooledSmtpSender}), so a run of mails
  * through one server pays the TCP connect, TLS handshake and AUTH once rather
- * than per message. {@code softa.message.mail.smtp-pool.enabled=false} goes
- * back to a fresh, single-use sender per send.
+ * than per message. A connection that cannot be reused is found and replaced
+ * by itself: it is probed with {@code NOOP} before it is lent, and closed after
+ * any failure, after 100 messages or after 30 seconds idle. A server whose
+ * {@code connectionReuseEnabled} is off sends every mail on a connection of
+ * its own.
  * <p>
  * The pools need no eviction hook on config writes: each is keyed by the
  * settings its connections were opened with, so an edited config opens fresh
@@ -86,11 +89,20 @@ public class SmtpMailTransport {
     }
 
     /**
-     * The pooled sender for {@code config}, or a fresh single-use one when
-     * pooling is off or the config is unsaved (no id to key a pool by).
+     * The pooled sender for {@code config}, or a fresh single-use one when the
+     * config is unsaved (no id to key a pool by — a connectivity test) or has
+     * connection reuse turned off.
      */
     private JavaMailSenderImpl senderFor(MailSendServerConfig config) {
-        if (!messageProperties.getMail().getSmtpPool().isEnabled() || config.getId() == null) {
+        if (config.getId() == null) {
+            return buildSender(config);
+        }
+        if (Boolean.FALSE.equals(config.getConnectionReuseEnabled())) {
+            // Reuse turned off for this server: close the pool it may still have.
+            PooledSmtpSender stale = pools.remove(config.getId());
+            if (stale != null) {
+                stale.shutdown();
+            }
             return buildSender(config);
         }
         PooledSmtpSender.Key key = PooledSmtpSender.Key.of(config);

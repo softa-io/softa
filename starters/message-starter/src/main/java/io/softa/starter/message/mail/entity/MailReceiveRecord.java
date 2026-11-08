@@ -154,11 +154,6 @@ public class MailReceiveRecord extends AuditableModel {
     @Field(description = "Failed recipient addresses extracted from the DSN report.")
     private List<String> failedRecipients;
 
-    // ---- Phase-3 addition: EML archive ----
-
-    @Field(description = "EML original file ID (file-starter)")
-    private Long emlFileId;
-
     // ---- Phase-4 addition: resource-limit truncation ----
 
     /** BodyTooLarge fires when the raw message exceeds {@code MailMessageParser.MAX_MESSAGE_SIZE}. */

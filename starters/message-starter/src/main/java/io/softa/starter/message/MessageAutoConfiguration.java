@@ -22,8 +22,8 @@ import io.softa.starter.message.config.MessageProperties;
  * </ul>
  * Individual components are gated by {@code @ConditionalOnProperty} where
  * appropriate (e.g. the Pulsar consumers only activate when their topic is
- * configured; the delivery loop and the stale-send sweep can be switched off
- * with {@code softa.message.delivery.enabled=false}).
+ * configured). The delivery loop and the stale-send sweep always run: an
+ * application with message-starter sends.
  */
 @ComponentScan
 @EnableScheduling

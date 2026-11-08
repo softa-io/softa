@@ -56,7 +56,6 @@ class MailReceiveServiceImplTest {
         when(mailClassifier.classify(any())).thenReturn(normal);
         MailMessageParser parser = new MailMessageParser();
         ReflectionTestUtils.setField(parser, "mailClassifier", mailClassifier);
-        ReflectionTestUtils.setField(parser, "messageProperties", messageProperties);
         BounceReceiptLinker linker = new BounceReceiptLinker();
         ReflectionTestUtils.setField(linker, "sendRecordService", mock(MailSendRecordService.class));
 
@@ -207,7 +206,6 @@ class MailReceiveServiceImplTest {
 
         MailReceiveRecord record = invokeProcessOne(msg, config, "INBOX");
         Assertions.assertNotNull(record);
-        Assertions.assertNull(record.getEmlFileId());   // archiveEml disabled by default
         verify(recordService).createOne(record);
     }
 

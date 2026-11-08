@@ -1,7 +1,6 @@
 package io.softa.starter.message.mail.support;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -32,7 +31,6 @@ import io.softa.framework.orm.dto.UploadFileDTO;
 import io.softa.framework.orm.enums.FileSource;
 import io.softa.framework.orm.enums.FileType;
 import io.softa.framework.orm.service.FileService;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailReceiveRecord;
 import io.softa.starter.message.mail.entity.MailReceiveServerConfig;
 import io.softa.starter.message.mail.enums.BodyMode;
@@ -86,8 +84,6 @@ public class MailMessageParser {
     @Autowired
     private MailClassifier mailClassifier;
 
-    @Autowired
-    private MessageProperties messageProperties;
 
     /**
      * Convert a message to a {@link MailReceiveRecord}. Messages whose reported
@@ -106,43 +102,6 @@ public class MailMessageParser {
             return record;
         }
         return toFullRecord(message, config, folderName);
-    }
-
-    /**
-     * Archive the raw EML content of a message via {@link FileService}.
-     * No-op when {@code fileService} is unavailable or when the
-     * {@code archiveEml} flag is disabled — callers can invoke unconditionally.
-     */
-    public void archiveEml(Message message, MailReceiveRecord record) {
-        if (fileService == null) return;
-        if (!messageProperties.getMail().getFetch().isArchiveEml()) return;
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            message.writeTo(baos);
-            byte[] emlBytes = baos.toByteArray();
-
-            String fileName = StringUtils.hasText(record.getMessageId())
-                    ? record.getMessageId().replaceAll("[<>]", "")
-                    : "mail_" + System.currentTimeMillis();
-
-            UploadFileDTO uploadDTO = new UploadFileDTO();
-            uploadDTO.setModelName("MailReceiveRecord");
-            uploadDTO.setFileName(fileName);
-            uploadDTO.setFileType(FileType.EML);
-            uploadDTO.setFileSize(emlBytes.length / 1024);
-            uploadDTO.setFileSource(FileSource.DOWNLOAD);
-            uploadDTO.setInputStream(new ByteArrayInputStream(emlBytes));
-
-            FileInfo fileInfo = fileService.uploadFromStream(uploadDTO);
-            record.setEmlFileId(fileInfo.getFileId());
-
-            log.debug("Archived EML for Message-ID={}, fileId={}",
-                    record.getMessageId(), fileInfo.getFileId());
-        } catch (Exception e) {
-            log.warn("Failed to archive EML for Message-ID={}: {}",
-                    record.getMessageId(), e.getMessage());
-            // Non-fatal: continue processing even if archival fails
-        }
     }
 
     /**

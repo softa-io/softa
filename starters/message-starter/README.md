@@ -201,7 +201,8 @@ Every `MessageService.sendMail(...)` / `sendSms(...)` call follows the same path
    commit or roll back with the caller's transaction. A rejection throws before
    anything is written and does not mark the caller's transaction rollback-only.
 2. The **delivery loop** (`DeliveryPoller`) runs each channel on a worker pool
-   (`softa.message.{mail,sms}.send-concurrency`, default 1 per instance). A worker
+   (`softa.message.{mail,sms}.send-concurrency`, by default 4 mail and 10 SMS
+   workers per instance). A worker
    claims a due record — `PENDING`, or `RETRY` whose `next_retry_at` has passed —
    across tenants with a CAS `PENDING|RETRY → SENDING` through framework
    `versionLock`, sends it in the record's tenant and trace, and goes straight on
@@ -271,13 +272,30 @@ Earlier releases delivered through a `message_outbox` table and the `mail-send` 
 
 - Remove those four topic entries from the application config; nothing reads
   them any more.
-- These properties are gone; their values are constants now:
-  `softa.message.delivery.poll-interval-ms`, `softa.message.zombie.*` (the
-  stale-send sweep follows `softa.message.delivery.enabled`),
+- These properties are gone; their values are constants now, or the behaviour
+  is always on: `softa.message.delivery.*` (every instance with message-starter
+  runs the delivery loop and the stale-send sweep), `softa.message.zombie.*`,
   `softa.message.retry.*`, `softa.message.mail.max-body-chars`,
-  `softa.message.mail.smtp-pool.idle-timeout` /
-  `max-messages-per-connection`, and `softa.message.mail.fetch.*` except
-  `archive-eml`. Remove them from the application config; set ones are ignored.
+  `softa.message.mail.smtp-pool.*` (connection reuse is a switch on each
+  server config now, see below), and `softa.message.mail.fetch.*`. Remove them
+  from the application config; set ones are ignored.
+- Three defaults changed: `softa.message.mail.send-concurrency` 1 → 4,
+  `softa.message.sms.send-concurrency` 1 → 10 and
+  `softa.message.dlq.max-redeliver` 5 → 2. A deployment whose mail server allows
+  fewer than four concurrent connections per account sets
+  `mail.send-concurrency` lower.
+- `MailSendServerConfig.connectionReuseEnabled` (default true) turns SMTP
+  connection reuse off for a server that does not take a second message on one
+  connection. The scanner adds `mail_send_server_config.connection_reuse_enabled`,
+  existing rows taking the default, wherever `scanner-scope` covers
+  message-starter; elsewhere the column and its catalog row are added the way
+  that deployment adds catalog columns, and until then every server reuses
+  connections as before.
+- The raw EML archive of received mail is gone, with
+  `MailReceiveRecord.emlFileId`; the parsed bodies and attachments are kept as
+  before. The scanner drops `mail_receive_record.eml_file_id` wherever
+  `scanner-scope` covers message-starter; elsewhere the column is unused and can
+  be dropped by hand.
 - The framework events `MailRequestMessage` / `SmsRequestMessage` (softa-base)
   are gone. Code that published one calls `MessageService` instead —
   `SendMailDTO.ofTemplate` / `SendSmsDTO.ofTemplate` build the same templated
@@ -302,36 +320,33 @@ Earlier releases delivered through a `message_outbox` table and the `mail-send` 
 ### Message-starter properties
 
 Bound under `softa.message` from `MessageProperties` and the DLQ `@Value` keys.
-Only what differs between deployments is configurable; the retry back-off, the
-stale-send window, the poll interval, the mail body cap, the SMTP pool's idle
-cut-off and messages per connection, and the mail-fetch batch, lease and size
-limits are constants in the code that uses them.
+Only what differs between deployments is configurable. Every instance with
+message-starter sends — the delivery loop and the stale-send sweep always run.
+SMTP connection reuse is a switch on each server config
+(`connectionReuseEnabled`, on by default), not a property. The retry back-off,
+the stale-send window, the poll interval, the mail body cap, the SMTP pool's
+idle cut-off and messages per connection, and the mail-fetch batch, lease and
+size limits are constants in the code that uses them.
 
 ```yml
 softa:
   message:
-    delivery:
-      enabled: true           # default true; false = this instance sends nothing (no delivery loop, no stale-send sweep)
     quota:
       mail-monthly-default: 10000   # monthly ceiling for buckets with no TenantMessageQuota row; unset = unlimited
       sms-monthly-default: 10000
     dlq:
       topic: dev_demo_message_dlq   # unset = broker-poison archiving disabled
-      max-redeliver: 5              # broker nacks before dead-lettering
+      max-redeliver: 2              # broker nacks before dead-lettering
       alert:
         recipients: ops@example.com # comma-separated; empty = no alert mail
     mail:
       debug: false                  # Jakarta Mail protocol debug — never enable in prod (leaks AUTH)
-      send-concurrency: 1           # mails one instance sends in parallel (each worker holds an SMTP connection)
-      fetch:
-        archive-eml: false          # opt-in raw EML archive via FileService
+      send-concurrency: 4           # mails one instance sends in parallel (each worker holds an SMTP connection)
       transport:
         connection-timeout: 5s      # SMTP/IMAP/POP3 connect timeout
         read-timeout: 30s           # SMTP/IMAP/POP3 read timeout
-      smtp-pool:
-        enabled: true               # reuse authenticated SMTP connections; false = one connection per send
     sms:
-      send-concurrency: 1           # SMS one instance sends in parallel
+      send-concurrency: 10          # SMS one instance sends in parallel
       transport:
         connection-timeout: 5s      # HTTPS RestClient connect timeout
         read-timeout: 30s           # HTTPS RestClient read timeout
@@ -1101,8 +1116,7 @@ logs it at ERROR with the record id and the provider message id, and the sweep
 re-sends it once after the stale window — the price of at-least-once delivery —
 or dead-letters it if its retry budget is already spent.
 
-It runs wherever the delivery loop runs: `softa.message.delivery.enabled=false`
-turns both off.
+It runs wherever message-starter runs, alongside the delivery loop.
 
 ### Sensitive field encryption
 
@@ -1131,9 +1145,13 @@ read timeout.
 Each pool is keyed by the settings its connections were opened with, so an
 edited config (new host, rotated password) opens fresh connections on its next
 send, and config changes still only need the Redis config cache evicted
-(automatic on update/delete). `softa.message.mail.smtp-pool.enabled=false`
-goes back to one connection per send. Connectivity tests always open a new
+(automatic on update/delete). Connectivity tests always open a new
 connection.
+
+A server that does not take a second message on one connection has
+`connectionReuseEnabled` turned off on its config (on by default): every send
+through it opens and closes its own connection, and the pool it had is closed
+on its next send.
 
 ### Mail classification rules
 

@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailReceiveRecord;
 import io.softa.starter.message.mail.entity.MailReceiveServerConfig;
 import io.softa.starter.message.mail.enums.BodyMode;
@@ -32,7 +31,6 @@ import static org.mockito.Mockito.when;
 class MailMessageParserTest {
 
     private MailMessageParser parser;
-    private MessageProperties messageProperties;
 
     @BeforeEach
     void setUp() {
@@ -41,9 +39,7 @@ class MailMessageParserTest {
         MailClassification normal = new MailClassification();
         normal.setType(ReceivedMailType.NORMAL);
         when(mailClassifier.classify(any())).thenReturn(normal);
-        messageProperties = new MessageProperties();
         ReflectionTestUtils.setField(parser, "mailClassifier", mailClassifier);
-        ReflectionTestUtils.setField(parser, "messageProperties", messageProperties);
         // fileService null by default (optional dependency)
     }
 
