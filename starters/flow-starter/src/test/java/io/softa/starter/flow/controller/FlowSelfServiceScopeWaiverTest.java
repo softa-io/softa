@@ -8,7 +8,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
-import io.softa.starter.flow.runtime.engine.InProcessFlowClient;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -45,7 +44,6 @@ class FlowSelfServiceScopeWaiverTest {
         assertChecked(FlowInstanceController.class, "getInstance", "getOverlay", "getTrace",
                 "getRecordApprovals", "previewRecordApproval", "getInstanceRecord", "getRecordThroughApprovals",
                 "getInstanceSummary", "getInstanceDesign", "getFormPermissions");
-        assertChecked(InProcessFlowClient.class, "recordApprovals", "previewRecord");
     }
 
     @Test

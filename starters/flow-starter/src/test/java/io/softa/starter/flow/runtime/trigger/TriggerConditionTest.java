@@ -97,10 +97,7 @@ class TriggerConditionTest {
                 registryFor(flow("broken", null, "noSuchFunction(days)")), engine);
         ReflectionTestUtils.setField(automation, "eventService", events);
 
-        List<FlowTriggerResult> results = automation.fireAsyncOnly(changeOf(Map.of("days", 5)));
-
-        assertEquals(1, results.size());
-        assertFalse(results.getFirst().isSuccess());
+        automation.fireAsyncOnly(changeOf(Map.of("days", 5)));
         verify(engine, never()).start(any());
         ArgumentCaptor<FlowEvent> logged = ArgumentCaptor.forClass(FlowEvent.class);
         verify(events).recordEvent(logged.capture());
@@ -124,9 +121,8 @@ class TriggerConditionTest {
         FlowAutomationService automation = new FlowAutomationService(
                 registryFor(flow("long-leave", Filters.of(List.of("days", ">", 3)), null)), engine);
 
-        List<FlowTriggerResult> results = automation.fireAsyncOnly(changeOf(Map.of("days", new BigDecimal("5"))));
+        automation.fireAsyncOnly(changeOf(Map.of("days", new BigDecimal("5"))));
 
-        assertTrue(results.getFirst().isSuccess());
         verify(engine).start(any());
     }
 
@@ -154,7 +150,6 @@ class TriggerConditionTest {
             @Override public CompiledFlowDefinition register(CompiledFlowDefinition d, DesignFlowDefinition design, String flowId) { return d; }
             @Override public Optional<CompiledFlowDefinition> getByBundleId(Long bundleId) { return Optional.empty(); }
             @Override public Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId) { return Optional.empty(); }
-            @Override public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) { return List.of(); }
             @Override public Collection<CompiledFlowDefinition> list() { return List.of(flows); }
         });
     }

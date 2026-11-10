@@ -59,7 +59,7 @@ class FlowBundleHistoryTest {
         assertEquals("Added an HR step", history.getFirst().getChangeDescription());
         assertNull(history.getLast().getChangeDescription());
         assertEquals("Leave", history.getFirst().getFlowName());
-        assertEquals(3, history.getFirst().getNodeCount(), "the compiled summary is kept");
+        assertEquals(FlowScenario.APPROVAL, history.getFirst().getScenario(), "read from the revision's own columns");
     }
 
     @Test

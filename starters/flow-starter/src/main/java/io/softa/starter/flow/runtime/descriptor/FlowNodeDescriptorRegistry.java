@@ -35,10 +35,6 @@ public class FlowNodeDescriptorRegistry {
                         }));
     }
 
-    public Optional<FlowNodeDescriptor> get(String type) {
-        return Optional.ofNullable(byType.get(type));
-    }
-
     public Collection<FlowNodeDescriptor> list() {
         return byType.values().stream()
                 .sorted(Comparator.comparingInt(FlowNodeDescriptor::sortOrder)

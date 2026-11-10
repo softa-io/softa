@@ -72,12 +72,12 @@ public class FlowVariableCatalogService {
         collectTriggerVariables(definition, byName);
         for (String builtin : BUILTIN_VARIABLES) {
             byName.putIfAbsent(builtin, new FlowVariableView(
-                    builtin, FlowVariableView.Source.BUILTIN, null, "Trigger metadata",
+                    builtin, FlowVariableView.Source.BUILTIN, "Trigger metadata",
                     TYPE_STRING, null));
         }
         if (definition != null && definition.getTrigger() instanceof SubmitTrigger) {
             byName.putIfAbsent(SUBJECT_VARIABLE, new FlowVariableView(
-                    SUBJECT_VARIABLE, FlowVariableView.Source.BUILTIN, null, "The employee the record is about",
+                    SUBJECT_VARIABLE, FlowVariableView.Source.BUILTIN, "The employee the record is about",
                     FieldType.LONG.getType(), null));
         }
         if (definition != null && definition.getGraph() != null && nodeId != null) {
@@ -115,7 +115,7 @@ public class FlowVariableCatalogService {
         for (MetaField field : fields) {
             String fieldType = field.getFieldType() == null ? null : field.getFieldType().getType();
             byName.putIfAbsent(field.getFieldName(), new FlowVariableView(
-                    field.getFieldName(), FlowVariableView.Source.TRIGGER, null, modelName,
+                    field.getFieldName(), FlowVariableView.Source.TRIGGER, modelName,
                     fieldType, relatedModelOf(field), throughRelations.get(field.getFieldName())));
         }
     }
@@ -170,7 +170,7 @@ public class FlowVariableCatalogService {
             for (String variable : declaredOutputs(upstream.getConfig())) {
                 boolean isPrimary = variable.equals(primaryOutput);
                 byName.putIfAbsent(variable, new FlowVariableView(
-                        variable, FlowVariableView.Source.NODE_OUTPUT, upstreamId, sourceLabel,
+                        variable, FlowVariableView.Source.NODE_OUTPUT, sourceLabel,
                         isPrimary ? inferNodeOutputType(upstream) : null,
                         isPrimary ? nodeTargetModel(upstream) : null));
             }

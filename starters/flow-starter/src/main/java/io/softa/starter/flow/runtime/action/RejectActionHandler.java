@@ -1,6 +1,5 @@
 package io.softa.starter.flow.runtime.action;
 
-import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -79,7 +78,6 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
 
         state.getPendingApprovals().clear();
         FlowStatusTransitions.apply(state, FlowExecutionStatus.REJECTED);
-        contextService.mergeVariables(state, Map.of("approvalDecision", auditService.buildApprovalDecisionPayload("Rejected", request)));
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_REJECTED,
                 auditService.buildRejectionMessage(node, request));
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
@@ -90,7 +88,7 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
         // The flow's rejection CCs, recorded on the step that rejected it.
         autoCcService.processCc(state, node, CcTiming.ON_REJECTED);
         contextService.persistState(state);
-        notificationService.notify(new FlowNotificationEvent.TaskCompleted(state, pendingApproval, false));
+        notificationService.notify(new FlowNotificationEvent.Rejected(state, pendingApproval));
         return state;
     }
 }

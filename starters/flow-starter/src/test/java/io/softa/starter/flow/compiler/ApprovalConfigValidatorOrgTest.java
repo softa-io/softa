@@ -162,7 +162,7 @@ class ApprovalConfigValidatorOrgTest {
 
     /**
      * A step that names no group finds nobody on every run — under the default strategy every submission is refused
-     * — so it is not published (zingkey-hcm#2450). A group of specific people naming nobody, or a group without a
+     * — so it is not published. A group of specific people naming nobody, or a group without a
      * type, names nobody either; the diagnostic stands on the group's people when it chose them, else on the group, and
      * on the step's groups when it has none.
      */

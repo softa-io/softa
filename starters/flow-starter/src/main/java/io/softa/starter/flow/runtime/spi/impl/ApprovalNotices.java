@@ -60,13 +60,11 @@ final class ApprovalNotices {
                     new Notice(e.pendingActorIds(), "Reminder to approve: {0}", e.message(), URGED);
             case FlowNotificationEvent.TimeoutReminded e ->
                     new Notice(stillToAct(e.pendingApproval()), "Approval overdue: {0}", null, null);
-            case FlowNotificationEvent.FlowCompleted e -> e.approved()
-                    ? new Notice(List.of(state.getInitiatorId()), "Approved: {0}", null, APPROVED)
-                    : null;
-            // Approving one step is no news to the initiator; a rejection ends the approval.
-            case FlowNotificationEvent.TaskCompleted e -> e.approved()
-                    ? null
-                    : new Notice(List.of(state.getInitiatorId()), "Rejected: {0}",
+            case FlowNotificationEvent.FlowCompleted e ->
+                    new Notice(List.of(state.getInitiatorId()), "Approved: {0}", null, APPROVED);
+            // A rejection ends the approval.
+            case FlowNotificationEvent.Rejected e ->
+                    new Notice(List.of(state.getInitiatorId()), "Rejected: {0}",
                             latestComment(state, ApprovalActionType.REJECT), REJECTED);
             case FlowNotificationEvent.Returned e ->
                     new Notice(List.of(state.getInitiatorId()), "Returned to you: {0}", e.comment(), RETURNED);

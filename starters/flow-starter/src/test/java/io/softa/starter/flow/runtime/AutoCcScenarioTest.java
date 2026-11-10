@@ -82,7 +82,6 @@ class AutoCcScenarioTest {
         FlowExecutionState started = start();
         ApprovalActionAuditEntry cc = ccsOf(started).getFirst();
         assertEquals("start", cc.getNodeId());
-        assertEquals(1, cc.getCycleNumber());
         assertEquals("cc-1", cc.getTargetActorId());
         assertNull(cc.getActorId(), "no person sent it");
 
@@ -95,7 +94,7 @@ class AutoCcScenarioTest {
         assertEquals(List.of("cc-1"), ccNotices().getFirst().recipientActorIds());
 
         assertDoesNotThrow(() -> engine.addComment(comment(started, "cc-1")));
-        assertDoesNotThrow(() -> engine.readCc(read(started, "start", 1, "cc-1")));
+        assertDoesNotThrow(() -> engine.readCc(read(started, "start", "cc-1")));
     }
 
     @Test
@@ -254,11 +253,10 @@ class AutoCcScenarioTest {
         return comment;
     }
 
-    private static FlowCcReadRequest read(FlowExecutionState state, String nodeId, int cycle, String actorId) {
+    private static FlowCcReadRequest read(FlowExecutionState state, String nodeId, String actorId) {
         FlowCcReadRequest read = new FlowCcReadRequest();
         read.setInstanceId(state.getInstanceId());
         read.setNodeId(nodeId);
-        read.setCycleNumber(cycle);
         read.setActorId(actorId);
         return read;
     }

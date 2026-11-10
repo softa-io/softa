@@ -63,7 +63,6 @@ class WebHookTaskExecutorTest {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(restClient);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of(
                         "url", "https://api.example.com/callback",
                         "method", "POST",
@@ -84,7 +83,6 @@ class WebHookTaskExecutorTest {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(restClient);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of(
                         "url", "https://api.example.com/resource",
                         "method", "get"))
@@ -104,7 +102,6 @@ class WebHookTaskExecutorTest {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(restClient);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of(
                         "url", "https://api.example.com/orders/{{ orderId }}",
                         "method", "POST"))
@@ -120,7 +117,6 @@ class WebHookTaskExecutorTest {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(mock(RestClient.class));
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of("method", "POST"))
                 .build();
 
@@ -134,7 +130,6 @@ class WebHookTaskExecutorTest {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(mock(RestClient.class));
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of("url", "   "))
                 .build();
 
@@ -146,7 +141,6 @@ class WebHookTaskExecutorTest {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(mock(RestClient.class));
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of("url", "file:///etc/passwd"))
                 .build();
 
@@ -158,11 +152,9 @@ class WebHookTaskExecutorTest {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(mock(RestClient.class));
 
         TaskExecutionRequest localhost = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of("url", "http://localhost/callback"))
                 .build();
         TaskExecutionRequest privateIp = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .input(Map.of("url", "http://10.0.0.1/callback"))
                 .build();
 

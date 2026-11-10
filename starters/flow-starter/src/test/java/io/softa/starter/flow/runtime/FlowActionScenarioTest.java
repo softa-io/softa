@@ -141,7 +141,6 @@ class FlowActionScenarioTest {
         int historyBefore = started.getApprovalAuditDelta().size();
         FlowCommentRequest comment = new FlowCommentRequest();
         comment.setInstanceId(started.getInstanceId());
-        comment.setNodeId("approval");
         comment.setActorId(APPROVER);
         comment.setComment("please clarify");
 

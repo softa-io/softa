@@ -34,11 +34,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * The steps after an approval failing (zingkey-hcm#2385): the approval stands — the approver's request goes
+ * The steps after an approval failing: the approval stands — the approver's request goes
  * through — and the instance fails at the step that failed, remembering where to run again from, its initiator and
  * the tenant's administrators told. An administrator runs the steps again: the approval goes on, or fails again. An
  * approval flow holds people and routes only, so what stops it after an approval is the next step finding nobody to
- * approve it — here, its approver's account frozen — or a route out of the approval that cannot be decided (#2382).
+ * approve it — here, its approver's account frozen — or a route out of the approval that cannot be decided.
  */
 class StepsAfterApprovalScenarioTest {
 
@@ -121,7 +121,7 @@ class StepsAfterApprovalScenarioTest {
 
     @Test
     void aRouteThatCannotBeDecidedAfterTheApprovalFailsTheInstanceAndTheApprovalStands() {
-        // The amount kept as text and compared with a number (zingkey-hcm#2382): the route out of the approval cannot
+        // The amount kept as text and compared with a number: the route out of the approval cannot
         // be decided. Nothing the approver can put right, so the approval stands and the instance fails at its step.
         unusable.clear();
         publishService.publish(FLOW_ID, routedFlow());

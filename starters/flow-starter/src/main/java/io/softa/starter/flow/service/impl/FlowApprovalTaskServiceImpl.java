@@ -109,9 +109,9 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         boolean participant = tasks.stream()
                 .anyMatch(task -> requesterId != null && requesterId.equals(task.getActorId()));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
-        List<FlowApprovalTaskView> views = FlowApprovalTaskViewMapper.toViews(tasks);
-        instanceContextEnricher.enrich(views);
-        return views;
+        // The tasks of one instance, read on its own page: the instance is already in hand there, so the tasks carry
+        // none of its context — what the lists of many instances' tasks add.
+        return FlowApprovalTaskViewMapper.toViews(tasks);
     }
 
     /**
@@ -161,7 +161,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         Map<String, FlowApprovalTask> openTasksByKey = new LinkedHashMap<>();
         Map<String, FlowApprovalTask> latestTasksByKey = new LinkedHashMap<>();
         for (FlowApprovalTask task : existingTasks) {
-            String key = keyOf(task.getNodeId(), task.getCycleNumber(), task.getActorId(), task.getTaskType());
+            String key = keyOf(task.getNodeId(), task.getActorId(), task.getTaskType());
             latestTasksByKey.merge(key, task, FlowApprovalTaskServiceImpl::latestTask);
             if (isOpen(task)) {
                 openTasksByKey.putIfAbsent(key, task);
@@ -173,7 +173,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         List<FlowApprovalTask> toUpdate = new ArrayList<>();
 
         for (FlowApprovalTask desired : desiredTasks) {
-            String key = keyOf(desired.getNodeId(), desired.getCycleNumber(), desired.getActorId(), desired.getTaskType());
+            String key = keyOf(desired.getNodeId(), desired.getActorId(), desired.getTaskType());
             FlowApprovalTask openTask = openTasksByKey.remove(key);
             if (openTask != null) {
                 copyMutableFields(openTask, desired);
@@ -262,11 +262,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         target.setTaskType(source.getTaskType());
         target.setAction(source.getAction());
         target.setComment(source.getComment());
-        target.setDynamicApprovers(source.getDynamicApprovers());
-        target.setApprovalMode(source.getApprovalMode());
         target.setRequiredApprovalCount(source.getRequiredApprovalCount());
-        target.setTotalApproverCount(source.getTotalApproverCount());
-        target.setCandidateActors(source.getCandidateActors());
         target.setApprovedActors(source.getApprovedActors());
         target.setClosedByActorId(source.getClosedByActorId());
         // An escalation sets a new deadline on the step it hands on.
@@ -297,7 +293,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     /**
-     * The task holder's latest decision on its step and cycle among the entries the current action recorded, or null.
+     * The task holder's latest decision on its step among the entries the current action recorded, or null.
      * Only this action's: an earlier decision of theirs on the step — before a transfer came back to them — did not
      * close this task.
      */
@@ -310,7 +306,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             ApprovalActionAuditEntry entry = delta.get(i);
             if (HOLDER_DECISIONS.contains(entry.getAction())
                     && Objects.equals(task.getNodeId(), entry.getNodeId())
-                    && Objects.equals(task.getCycleNumber(), entry.getCycleNumber())
                     && Objects.equals(task.getActorId(), entry.getActorId())) {
                 return entry;
             }
@@ -366,11 +361,8 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return FlowApprovalTaskStatus.CANCELED;
     }
 
-    private static String keyOf(String nodeId,
-                                Integer cycleNumber,
-                                String actorId,
-                                FlowApprovalTaskType taskType) {
-        return nodeId + "::" + cycleNumber + "::" + actorId + "::" + taskType;
+    private static String keyOf(String nodeId, String actorId, FlowApprovalTaskType taskType) {
+        return nodeId + "::" + actorId + "::" + taskType;
     }
 
     /**

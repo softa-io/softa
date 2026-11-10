@@ -153,13 +153,6 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
         return bundleId.flatMap(this::getByBundleId);
     }
 
-    @Override
-    public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) {
-        return bundleService.listRevisionsByFlowId(flowId).stream()
-                .map(FlowBundleMapper::toDefinition)
-                .filter(Objects::nonNull)
-                .toList();
-    }
 
     @Override
     public List<CompiledFlowDefinition> list() {

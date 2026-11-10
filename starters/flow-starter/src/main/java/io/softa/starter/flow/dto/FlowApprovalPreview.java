@@ -36,9 +36,6 @@ public class FlowApprovalPreview {
     @Schema(description = "The flow that would approve the record (Ready), or approves it now (InProgress)")
     private Flow flow;
 
-    @Schema(description = "The flows that apply to the record, of which exactly one must (SeveralFlows)")
-    private List<Flow> candidates;
-
     @Schema(description = "The approval steps in the order the approval reaches them, every step assumed approved (Ready); "
             + "the step it waits on now, then those after it (InProgress)")
     private List<Step> steps;

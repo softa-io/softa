@@ -28,13 +28,6 @@ public class StubFlowInstanceStore implements FlowInstanceStore {
     }
 
     @Override
-    public List<FlowExecutionState> listByFlowId(String flowId) {
-        return states.values().stream()
-                .filter(s -> flowId != null && flowId.equals(s.getFlowId()))
-                .toList();
-    }
-
-    @Override
     public List<FlowExecutionState> listByStatus(FlowExecutionStatus status) {
         return states.values().stream()
                 .filter(s -> status != null && status.equals(s.getStatus()))

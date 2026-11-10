@@ -99,7 +99,7 @@ class TriggerConditionCompileTest {
                 "INVALID_TRIGGER_CONDITION").contains("reads the record's own fields only"));
     }
 
-    /** The trigger is edited on the Start node: its diagnostics point there, so the designer marks it (zingkey-hcm#2450). */
+    /** The trigger is edited on the Start node: its diagnostics point there, so the designer marks it. */
     @Test
     void aTriggersDiagnosticsPointAtTheStartNode() {
         CompileDiagnostic invalid = compiler.validate(submit(null, "days > 3 &&")).stream()

@@ -19,7 +19,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Undoing the steps after an approval within the transaction that keeps the approval (zingkey-hcm#2385): their
+ * Undoing the steps after an approval within the transaction that keeps the approval: their
  * writes go back to the savepoint, and what they left for the commit goes with them — the callbacks they registered,
  * told they rolled back, and the change logs they added — while everything from before them stays.
  */

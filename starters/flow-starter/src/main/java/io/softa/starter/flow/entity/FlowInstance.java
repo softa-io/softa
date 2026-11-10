@@ -136,9 +136,6 @@ public class FlowInstance extends AuditableModel {
             description = "Approval step after which a failed approval runs again on retry (set only when the steps after an approval failed)")
     private String retryAfterNodeId;
 
-    @Field(fieldType = FieldType.TEXT, description = "Immutable trigger payload (JSON)")
-    private String inputPayload;
-
     @Field(fieldType = FieldType.TEXT, description = "Execution variables (JSON)")
     private String variables;
 

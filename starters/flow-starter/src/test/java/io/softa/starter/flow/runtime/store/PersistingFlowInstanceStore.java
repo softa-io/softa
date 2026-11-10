@@ -29,12 +29,6 @@ public class PersistingFlowInstanceStore implements FlowInstanceStore {
     }
 
     @Override
-    public List<FlowExecutionState> listByFlowId(String flowId) {
-        return rows.values().stream().filter(row -> flowId.equals(row.getFlowId()))
-                .map(FlowExecutionStateMapper::toState).toList();
-    }
-
-    @Override
     public List<FlowExecutionState> listByStatus(FlowExecutionStatus status) {
         return rows.values().stream().filter(row -> status.equals(row.getStatus()))
                 .map(FlowExecutionStateMapper::toState).toList();

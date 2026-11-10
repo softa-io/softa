@@ -20,9 +20,6 @@ public record FlowVariableView(
         @Schema(description = "Where the variable comes from")
         Source source,
 
-        @Schema(description = "Producing node id; null for trigger/builtin variables")
-        String sourceNodeId,
-
         @Schema(description = "Human-readable origin, e.g. the producing node's label or the trigger model")
         String sourceLabel,
 
@@ -42,9 +39,8 @@ public record FlowVariableView(
 ) {
 
     /** A variable no rule reads through. */
-    public FlowVariableView(String name, Source source, String sourceNodeId, String sourceLabel, String type,
-                            String modelName) {
-        this(name, source, sourceNodeId, sourceLabel, type, modelName, null);
+    public FlowVariableView(String name, Source source, String sourceLabel, String type, String modelName) {
+        this(name, source, sourceLabel, type, modelName, null);
     }
 
     @Getter

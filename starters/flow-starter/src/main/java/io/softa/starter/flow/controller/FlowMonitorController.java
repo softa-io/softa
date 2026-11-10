@@ -73,9 +73,9 @@ public class FlowMonitorController {
     @PostMapping("/instances/search")
     @Operation(summary = "Search flow instances (monitor)",
             description = "Cross-initiator paged instance summaries for operator monitoring views, read with the "
-                    + "caller's own permissions: the FlowInstance rows their roles' data scope reaches. Honors the "
-                    + "request's initiatorId filter when present; its filters and orders, on stored fields of "
-                    + "FlowInstance only, narrow and sort within that scope. Heavy JSON state columns and the trace are "
+                    + "caller's own permissions: the FlowInstance rows their roles' data scope reaches. The "
+                    + "request's filters and orders, on stored fields of FlowInstance only, narrow and sort within "
+                    + "that scope. Heavy JSON state columns and the trace are "
                     + "excluded — fetch a single instance or its overlay for detail. Each waiting approval's urge "
                     + "says whether the caller may urge it now as an administrator, and if not, when.")
     public ApiResponse<Page<FlowInstanceSummaryView>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {

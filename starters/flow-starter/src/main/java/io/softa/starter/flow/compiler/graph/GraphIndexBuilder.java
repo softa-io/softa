@@ -3,7 +3,6 @@ package io.softa.starter.flow.compiler.graph;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import io.softa.starter.flow.api.CompileDiagnostic;
@@ -12,7 +11,7 @@ import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.enums.FlowNodeType;
 
 /**
- * Builds lookup indexes and resolves entry/terminal nodes from graph primitives.
+ * Builds lookup indexes and resolves the entry nodes from graph primitives.
  * <p>
  * Structural defects (blank/duplicate ids, missing types, dangling endpoints) are
  * reported as anchored {@link CompileDiagnostic}s into the caller's sink — all of
@@ -118,18 +117,4 @@ public final class GraphIndexBuilder {
                 .toList();
     }
 
-    public static List<String> resolveTerminalNodes(Collection<FlowGraphNode> nodes,
-                                                     Map<String, List<String>> outgoingEdgeIds) {
-        List<String> explicitEnds = nodes.stream()
-                .filter(node -> FlowNodeType.END.equals(node.getType()))
-                .map(FlowGraphNode::getId)
-                .toList();
-        if (!explicitEnds.isEmpty()) {
-            return explicitEnds;
-        }
-        return nodes.stream()
-                .map(FlowGraphNode::getId)
-                .filter(id -> CollectionUtils.isEmpty(outgoingEdgeIds.get(id)))
-                .toList();
-    }
 }

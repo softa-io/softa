@@ -4,9 +4,11 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
@@ -111,6 +113,15 @@ public class FlowInstanceSummaryComposer {
     }
 
     public List<FlowInstanceSummaryView> summarize(List<FlowInstance> instances, String requesterId) {
+        return summarize(instances, requesterId, List.of());
+    }
+
+    /**
+     * {@link #summarize(List, String)}, with the states of some of the instances already in the caller's hand — one
+     * instance's page has read its state to rule on the caller — which are not read again.
+     */
+    public List<FlowInstanceSummaryView> summarize(List<FlowInstance> instances, String requesterId,
+                                                   List<FlowExecutionState> loaded) {
         if (instances == null || instances.isEmpty()) {
             return List.of();
         }
@@ -126,7 +137,7 @@ public class FlowInstanceSummaryComposer {
         names.name(users);
         names.nameEmployees(views.stream().map(FlowInstanceSummaryView::getSubject).toList());
         names.nameDepartments(views.stream().map(FlowInstanceSummaryView::getSubjectDept).toList());
-        applyInitiatorActions(views, requesterId);
+        applyInitiatorActions(views, requesterId, loaded);
         markDeletedRecords(views);
         applyEffectStatuses(views);
         return views;
@@ -150,9 +161,10 @@ public class FlowInstanceSummaryComposer {
 
     /**
      * Withdraw and urge, on the requester's own approvals that wait on their approvers — and withdraw on those of
-     * their records' approvals that failed, which takes the record back (zingkey-hcm#2385).
+     * their records' approvals that failed, which takes the record back.
      */
-    private void applyInitiatorActions(List<FlowInstanceSummaryView> views, String requesterId) {
+    private void applyInitiatorActions(List<FlowInstanceSummaryView> views, String requesterId,
+                                       List<FlowExecutionState> loaded) {
         if (requesterId == null) {
             return;
         }
@@ -164,8 +176,16 @@ public class FlowInstanceSummaryComposer {
         if (own.isEmpty()) {
             return;
         }
+        List<FlowExecutionState> states = new ArrayList<>(loaded.stream()
+                .filter(state -> own.containsKey(state.getInstanceId()))
+                .toList());
+        Set<String> unread = new LinkedHashSet<>(own.keySet());
+        states.forEach(state -> unread.remove(state.getInstanceId()));
+        if (!unread.isEmpty()) {
+            states.addAll(instanceStore.listByInstanceIds(unread));
+        }
         LocalDateTime now = LocalDateTime.now();
-        for (FlowExecutionState state : instanceStore.listByInstanceIds(own.keySet())) {
+        for (FlowExecutionState state : states) {
             FlowInstanceSummaryView view = own.get(state.getInstanceId());
             if (view != null) {
                 view.setWithdrawable(withdrawPolicyGuard.withdrawable(state, requesterId));
@@ -254,7 +274,6 @@ public class FlowInstanceSummaryComposer {
         view.setFailedNodeId(instance.getFailedNodeId());
         view.setRetryable(FlowExecutionStatus.FAILED.equals(instance.getStatus())
                 && instance.getRetryAfterNodeId() != null && !instance.getRetryAfterNodeId().isBlank());
-        view.setNextFireAt(instance.getNextFireAt());
         view.setCreatedTime(instance.getCreatedTime());
         view.setUpdatedTime(instance.getUpdatedTime());
         return view;

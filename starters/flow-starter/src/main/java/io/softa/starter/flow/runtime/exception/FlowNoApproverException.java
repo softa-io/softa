@@ -1,7 +1,6 @@
 package io.softa.starter.flow.runtime.exception;
 
 import java.util.List;
-import lombok.Getter;
 
 import io.softa.framework.base.i18n.I18n;
 
@@ -9,11 +8,10 @@ import io.softa.framework.base.i18n.I18n;
  * An approval step resolved to nobody under its {@code Error} empty-approver strategy — or under {@code AssignToRole},
  * its roles leaving nobody either. A submission that reaches the step is refused ({@code 400}) and changes nothing;
  * reached after an approval, the instance fails with it, the approval kept, and its initiator and the tenant's
- * administrators are told (zingkey-hcm#2385). The message says why the step found nobody, when its approver source can
+ * administrators are told. The message says why the step found nobody, when its approver source can
  * tell — the employee has no manager who can approve, nobody who can holds its roles — and who can set one up: whoever
  * reads it cannot fix it themselves.
  */
-@Getter
 public class FlowNoApproverException extends FlowActionValidationException {
 
     /** The refusal, translated: {0} is the step's label, else its node id. */
@@ -32,27 +30,18 @@ public class FlowNoApproverException extends FlowActionValidationException {
             + "but the submitter or the employee the record is about. Ask your HR administrator to set one up, then "
             + "try again.";
 
-    /** The step that resolved to nobody. */
-    private final String nodeId;
-
-    public FlowNoApproverException(String nodeId, String nodeLabel) {
-        this(nodeId, nodeLabel, (String) null);
-    }
-
     /** {@code reason}: why the step found nobody, null when its source cannot tell. */
     public FlowNoApproverException(String nodeId, String nodeLabel, String reason) {
         super(messageOf(nodeId, nodeLabel, reason));
-        this.nodeId = nodeId;
     }
 
-    private FlowNoApproverException(String nodeId, List<String> roles, String nodeLabel) {
-        super(messageOf(nodeId, nodeLabel, roles));
-        this.nodeId = nodeId;
+    private FlowNoApproverException(String message) {
+        super(message);
     }
 
     /** A step that went to {@code roles} under {@code AssignToRole} and found nobody there either. */
     public static FlowNoApproverException inRoles(String nodeId, String nodeLabel, List<String> roles) {
-        return new FlowNoApproverException(nodeId, roles, nodeLabel);
+        return new FlowNoApproverException(messageOf(nodeId, nodeLabel, roles));
     }
 
     /** The refusal for the step, translated into the current language; the approval path preview reports it too. */

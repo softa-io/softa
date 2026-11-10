@@ -21,7 +21,6 @@ import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.bundle.OrmFlowBundleRegistry;
 import io.softa.starter.flow.runtime.bundle.OrmFlowBundleRegistryTest.StubBundleService;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
-import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
@@ -152,8 +151,10 @@ class CronTaskFlowConsumerTest {
         publish(TENANT_A, "report", "daily-report", new CronTrigger("0 0 9 ? * MON-FRI"));
         FlowTriggerEvent cronEvent = FlowTriggerEvent.builder().type("Cron").sourceModel("cron:6").build();
 
-        assertThrows(FlowActionValidationException.class, () -> inTenant(TENANT_A, () -> automationService.fire(cronEvent)));
-        assertTrue(inTenant(TENANT_A, () -> automationService.fireAsyncOnly(cronEvent)).isEmpty());
+        inTenant(TENANT_A, () -> {
+            automationService.fireAsyncOnly(cronEvent);
+            return null;
+        });
         assertTrue(starts.isEmpty());
     }
 

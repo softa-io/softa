@@ -26,11 +26,11 @@ class FlowApprovalRecordQueryServiceImplTest {
         LocalDateTime now = LocalDateTime.now();
         when(records.searchList(any(Filters.class))).thenReturn(List.of(
                 record(60L, 1, "approver-1", "leave", "inst-1", "approvalA",
-                        ApprovalActionType.APPROVE, now.minusMinutes(9), null, 1, "ok"),
+                        ApprovalActionType.APPROVE, now.minusMinutes(9), null, "ok"),
                 record(61L, 2, "admin-1", "leave", "inst-1", "approvalB",
-                        ApprovalActionType.URGE, now.minusMinutes(5), null, 1, "please act on it"),
+                        ApprovalActionType.URGE, now.minusMinutes(5), null, "please act on it"),
                 record(62L, 3, "admin-2", "leave", "inst-1", null,
-                        ApprovalActionType.TERMINATE, now.minusMinutes(1), null, null, "raised twice")));
+                        ApprovalActionType.TERMINATE, now.minusMinutes(1), null, "raised twice")));
 
         service.getByInstanceId("inst-1", "approver-1");
         service.getByInstanceId("inst-1", "admin-1");
@@ -51,7 +51,6 @@ class FlowApprovalRecordQueryServiceImplTest {
                                              ApprovalActionType action,
                                              LocalDateTime eventTime,
                                              String targetActorId,
-                                             Integer cycleNumber,
                                              String comment) {
         var record = new FlowApprovalRecord();
         record.setId(id);
@@ -62,7 +61,6 @@ class FlowApprovalRecordQueryServiceImplTest {
         record.setNodeId(nodeId);
         record.setAction(action);
         record.setTargetActorId(targetActorId);
-        record.setCycleNumber(cycleNumber);
         record.setComment(comment);
         record.setEventTime(eventTime);
         return record;

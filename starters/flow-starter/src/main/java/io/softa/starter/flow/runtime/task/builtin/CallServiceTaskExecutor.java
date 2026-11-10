@@ -2,8 +2,6 @@ package io.softa.starter.flow.runtime.task.builtin;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.reflect.MethodUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +9,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
-import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.nodeconfig.CallServiceConfig;
@@ -55,8 +52,6 @@ import io.softa.starter.flow.runtime.task.TaskExecutor;
         havingValue = "true"
 )
 public class CallServiceTaskExecutor extends AbstractTaskExecutor {
-
-    private static final Pattern EXACT_INTERPOLATION = Pattern.compile("^\\{\\{\\s*(.+?)\\s*}}$");
 
     private final ApplicationContext applicationContext;
     private final List<String> allowListPrefixes;
@@ -171,34 +166,10 @@ public class CallServiceTaskExecutor extends AbstractTaskExecutor {
         }
         if (rawArgs instanceof List<?> list) {
             return list.stream()
-                    .map(value -> resolveArgValue(value, variables))
+                    .map(value -> interpolate(value, variables))
                     .toArray();
         }
-        return new Object[]{resolveArgValue(rawArgs, variables)};
-    }
-
-    private Object resolveArgValue(Object value, Map<String, Object> variables) {
-        if (value instanceof String stringValue) {
-            Matcher matcher = EXACT_INTERPOLATION.matcher(stringValue);
-            if (matcher.matches()) {
-                return ComputeUtils.execute(matcher.group(1), new LinkedHashMap<>(variables));
-            }
-            if (stringValue.contains("{{")) {
-                return ComputeUtils.stringInterpolation(stringValue, new LinkedHashMap<>(variables));
-            }
-            return stringValue;
-        }
-        if (value instanceof List<?> list) {
-            return list.stream()
-                    .map(item -> resolveArgValue(item, variables))
-                    .toList();
-        }
-        if (value instanceof Map<?, ?> map) {
-            Map<String, Object> resolved = new LinkedHashMap<>();
-            map.forEach((key, item) -> resolved.put((String) key, resolveArgValue(item, variables)));
-            return resolved;
-        }
-        return value;
+        return new Object[]{interpolate(rawArgs, variables)};
     }
 
     private Object[] applyArgTypes(Object[] args, Object argTypesRaw) {

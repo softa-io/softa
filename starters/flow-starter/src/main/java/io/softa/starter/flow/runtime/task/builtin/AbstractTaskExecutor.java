@@ -84,16 +84,6 @@ public abstract class AbstractTaskExecutor implements TaskExecutor {
         return value;
     }
 
-    protected String asString(Object value) {
-        return value == null ? null : value.toString();
-    }
-
-    protected Integer asInteger(Object value) {
-        if (value == null) return null;
-        if (value instanceof Number n) return n.intValue();
-        return Integer.parseInt(value.toString());
-    }
-
     /** Resolves a value, applying {{ }} interpolation when it is a String containing placeholders. */
     protected String resolveString(Object value, Map<String, Object> scope) {
         if (value == null) return null;

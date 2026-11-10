@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * A task node's input, however its config holds it: the designer writes the executor's fields at the top, as the
  * executor's descriptor lists them; a hand-written design may nest them under {@code input}; either may sit inside
- * {@code task}. Read only from {@code input}, a designed node ran with none (zingkey-hcm#2384).
+ * {@code task}. Read only from {@code input}, a designed node ran with none.
  */
 class NodeConfigParserTaskInputTest {
 

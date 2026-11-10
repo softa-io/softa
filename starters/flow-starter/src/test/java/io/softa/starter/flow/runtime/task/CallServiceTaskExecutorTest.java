@@ -5,7 +5,6 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationContext;
 
-import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.task.builtin.CallServiceTaskExecutor;
 
@@ -54,7 +53,6 @@ class CallServiceTaskExecutorTest {
         CallServiceTaskExecutor executor = new CallServiceTaskExecutor(ctx, "orderService");
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_SERVICE)
                 .input(Map.of("beanName", "orderService", "methodName", "submit", "args", List.of("O-1")))
                 .build();
 
@@ -70,7 +68,6 @@ class CallServiceTaskExecutorTest {
         CallServiceTaskExecutor executor = new CallServiceTaskExecutor(ctx, "orderService");
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_SERVICE)
                 .input(Map.of("beanName", "orderService", "methodName", "submit",
                         "args", List.of("{{ orderId }}")))
                 .build();
@@ -86,7 +83,6 @@ class CallServiceTaskExecutorTest {
         CallServiceTaskExecutor executor = new CallServiceTaskExecutor(ctx, "orderService,quotationService");
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_SERVICE)
                 .input(Map.of("beanName", "dataSource", "methodName", "getConnection"))
                 .build();
 
@@ -102,7 +98,6 @@ class CallServiceTaskExecutorTest {
         CallServiceTaskExecutor executor = new CallServiceTaskExecutor(ctx, "orderService");
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CALL_SERVICE)
                 .input(Map.of("beanName", "orderServiceImpl", "methodName", "submit", "args", List.of("O-2")))
                 .build();
 

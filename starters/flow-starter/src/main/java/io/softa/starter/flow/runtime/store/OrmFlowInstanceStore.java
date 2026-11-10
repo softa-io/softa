@@ -91,12 +91,6 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
                 .toList());
     }
 
-    @Override
-    public List<FlowExecutionState> listByFlowId(String flowId) {
-        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByFlowId(flowId).stream()
-                .map(FlowExecutionStateMapper::toState)
-                .toList());
-    }
 
     @Override
     public List<FlowExecutionState> listByStatus(FlowExecutionStatus status) {

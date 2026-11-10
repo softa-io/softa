@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.engine;
 
+import java.util.Map;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
@@ -7,35 +8,31 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.flow.api.FlowClient;
 import io.softa.starter.flow.dto.FlowApprovalPreview;
-import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
-import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * The port's record reads make the same service calls as {@code FlowInstanceController}: a record's approval preview
- * is the current user's.
+ * The port makes the same service calls as {@code FlowInstanceController}, as the current user: the approval
+ * preview of a record not saved yet is theirs.
  */
 class InProcessFlowClientInstanceReadsTest {
 
     private static final String ACTOR = "100";
 
-    private final FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
     private final FlowLaunchService launch = mock(FlowLaunchService.class);
-    private final FlowInstanceService instances = mock(FlowInstanceService.class);
-    private final FlowInstanceAccessGuard accessGuard = mock(FlowInstanceAccessGuard.class);
 
-    private final FlowClient client = new InProcessFlowClient(engine, launch, instances, accessGuard);
+    private final FlowClient client = new InProcessFlowClient(launch);
 
     @Test
-    void theApprovalPreviewOfARecordIsTheCurrentUsers() {
+    void theApprovalPreviewOfUnsavedValuesIsTheCurrentUsers() {
         FlowApprovalPreview preview = FlowApprovalPreview.builder().status(FlowApprovalPreview.Status.NO_FLOW).build();
-        when(launch.previewRecord("LeaveRequest", "42", ACTOR)).thenReturn(preview);
+        Map<String, Object> values = Map.of("employeeId", 5000L);
+        when(launch.previewValues("PayRunApproval", values, ACTOR)).thenReturn(preview);
 
-        assertSame(preview, asCurrentUser(() -> client.previewRecord("LeaveRequest", "42")));
+        assertSame(preview, asCurrentUser(() -> client.previewValues("PayRunApproval", values)));
     }
 
     private static <T> T asCurrentUser(Supplier<T> call) {

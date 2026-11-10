@@ -16,6 +16,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.TestActorAccounts;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.service.FlowDesignService;
@@ -111,21 +112,35 @@ class FlowDelegationFlowsTest {
         return delegation;
     }
 
-    /** An active revision whose nodes run in {@code order}: start and end as such, the rest approval steps — but notify. */
+    /**
+     * An active revision whose nodes run in {@code order}, one edge from each to the next: start and end as such, the
+     * rest approval steps — but notify.
+     */
     private static CompiledFlowDefinition flow(String flowId, String name, FlowScenario scenario, List<String> order) {
         Map<String, CompiledFlowNode> nodes = new LinkedHashMap<>();
-        // Indexed out of flow order: the steps come in the order the flow runs them.
-        order.reversed().forEach(nodeId -> nodes.put(nodeId, CompiledFlowNode.builder()
-                .nodeId(nodeId)
-                .type(switch (nodeId) {
-                    case "start" -> FlowNodeType.START;
-                    case "end" -> FlowNodeType.END;
-                    case "notify" -> FlowNodeType.SEND_INBOX_NOTIFICATION;
-                    default -> FlowNodeType.APPROVAL;
-                })
-                .label(Character.toUpperCase(nodeId.charAt(0)) + nodeId.substring(1))
-                .build()));
+        Map<String, CompiledFlowTransition> edges = new LinkedHashMap<>();
+        // Indexed out of flow order, last drawn first: the steps come in the order the flow's edges run them.
+        for (int i = order.size() - 1; i >= 0; i--) {
+            String nodeId = order.get(i);
+            String in = i == 0 ? null : order.get(i - 1) + "->" + nodeId;
+            String out = i == order.size() - 1 ? null : nodeId + "->" + order.get(i + 1);
+            if (out != null) {
+                edges.put(out, CompiledFlowTransition.builder().edgeId(out).source(nodeId).target(order.get(i + 1)).build());
+            }
+            nodes.put(nodeId, CompiledFlowNode.builder()
+                    .nodeId(nodeId)
+                    .type(switch (nodeId) {
+                        case "start" -> FlowNodeType.START;
+                        case "end" -> FlowNodeType.END;
+                        case "notify" -> FlowNodeType.SEND_INBOX_NOTIFICATION;
+                        default -> FlowNodeType.APPROVAL;
+                    })
+                    .label(Character.toUpperCase(nodeId.charAt(0)) + nodeId.substring(1))
+                    .incomingEdgeIds(in == null ? List.of() : List.of(in))
+                    .outgoingEdgeIds(out == null ? List.of() : List.of(out))
+                    .build());
+        }
         return CompiledFlowDefinition.builder()
-                .flowId(flowId).flowName(name).scenario(scenario).nodeIndex(nodes).topologicalOrder(order).build();
+                .flowId(flowId).flowName(name).scenario(scenario).nodeIndex(nodes).transitionIndex(edges).build();
     }
 }

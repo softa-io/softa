@@ -22,8 +22,6 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 @Component
 public class ApproverResolutionService {
 
-    public static final String APPROVER_CONTEXT_KEY = "approverContext";
-    public static final String INITIATOR_ID_KEY = "initiatorId";
     /**
      * The start variable a record's approval carries its subject in — the id of the employee the record
      * is about, from its handler's {@code subject()} field. Org-relative sources start from it.
@@ -38,24 +36,12 @@ public class ApproverResolutionService {
     private ActorAccounts actorAccounts;
 
     /**
-     * The variables approvers are resolved against: the instance's own, with the approver context — the initiator,
-     * whom the sources relative to the submitter start from.
-     */
-    public static Map<String, Object> resolutionVariables(Map<String, Object> variables, String initiatorId) {
-        Map<String, Object> resolved = new LinkedHashMap<>(variables == null ? Map.of() : variables);
-        Map<String, Object> approverContext = new LinkedHashMap<>();
-        approverContext.put(INITIATOR_ID_KEY, initiatorId);
-        resolved.put(APPROVER_CONTEXT_KEY, approverContext);
-        return resolved;
-    }
-
-    /**
      * People named or found the way a group of an approval step's approvers is — a source in the shape of an
      * {@code approverSources} entry — for a list that is not a step's: a flow's CC rule. Those who cannot act are left
      * out, as a step's approvers are.
      */
     public List<String> resolvePeople(Map<String, Object> source, FlowExecutionState state) {
-        return resolveApprovers(asStep(source), resolutionVariables(state.getVariables(), state.getInitiatorId()));
+        return resolveApprovers(asStep(source), state.getVariables(), state.getInitiatorId());
     }
 
     /** A step whose one group is {@code source}: for a list resolved the way a step's approvers are. */
@@ -68,12 +54,12 @@ public class ApproverResolutionService {
     }
 
     /**
-     * The approvers of a step reached with {@code variables}: everyone its groups name or find, each once — less the
-     * users who cannot act ({@link ActorAccounts}), dropped the way the organization lookups drop a supervisor who
-     * left. A step left with nobody follows its empty-approver strategy.
+     * The approvers of a step reached with {@code variables}, submitted by {@code initiatorId}: everyone its groups
+     * name or find, each once — less the users who cannot act ({@link ActorAccounts}), dropped the way the
+     * organization lookups drop a supervisor who left. A step left with nobody follows its empty-approver strategy.
      */
-    public List<String> resolveApprovers(CompiledFlowNode node, Map<String, Object> variables) {
-        List<String> approvers = resolveCandidates(node, variables);
+    public List<String> resolveApprovers(CompiledFlowNode node, Map<String, Object> variables, String initiatorId) {
+        List<String> approvers = resolveCandidates(node, new Resolution(variables, initiatorId));
         return actorAccounts == null || approvers.isEmpty() ? approvers : actorAccounts.usable(approvers);
     }
 
@@ -82,7 +68,7 @@ public class ApproverResolutionService {
      * sets approvers up — the employee has no manager who can approve, nobody who can holds its roles; each of its
      * groups says why, joined. Null when none can say more than that nobody was found.
      */
-    public String whyNobody(CompiledFlowNode node, Map<String, Object> variables) {
+    public String whyNobody(CompiledFlowNode node, Map<String, Object> variables, String initiatorId) {
         if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
             return null;
         }
@@ -90,11 +76,11 @@ public class ApproverResolutionService {
         if (groups.stream().noneMatch(group -> StringUtils.hasText(asString(group.get("type"))))) {
             return I18n.get("it names no approver");
         }
-        Map<String, Object> resolutionVariables = variables == null ? Map.of() : variables;
+        Resolution resolution = new Resolution(variables, initiatorId);
         // The pool is empty only when every group found nobody: each group that can say why does, once.
         Set<String> reasons = new LinkedHashSet<>();
         for (Map<String, Object> group : groups) {
-            String reason = whyGroupFoundNobody(group, resolutionVariables);
+            String reason = whyGroupFoundNobody(group, resolution);
             if (reason != null) {
                 reasons.add(reason);
             }
@@ -103,7 +89,7 @@ public class ApproverResolutionService {
     }
 
     /** Why one group found nobody; null when it cannot say more, or picks no source (another group says why). */
-    private String whyGroupFoundNobody(Map<String, Object> source, Map<String, Object> resolutionVariables) {
+    private String whyGroupFoundNobody(Map<String, Object> source, Resolution resolution) {
         String type = asString(source.get("type"));
         if (!StringUtils.hasText(type)) {
             return null;
@@ -111,10 +97,10 @@ public class ApproverResolutionService {
         return switch (type) {
             case "Users" -> ApproverSourceType.namedUsers(source).isEmpty()
                     ? I18n.get("it names no approver") : I18n.get("none of its approvers can approve");
-            case "Supervisor" -> organizationService == null ? null : whyNoSupervisor(resolutionVariables, source);
-            case "DeptLeader" -> organizationService == null ? null : whyNoDeptHead(resolutionVariables, source,
+            case "Supervisor" -> organizationService == null ? null : whyNoSupervisor(resolution, source);
+            case "DeptLeader" -> organizationService == null ? null : whyNoDeptHead(resolution, source,
                     "{0} and the departments above it have no leader who can approve");
-            case "DeptHrbp" -> organizationService == null ? null : whyNoDeptHead(resolutionVariables, source,
+            case "DeptHrbp" -> organizationService == null ? null : whyNoDeptHead(resolution, source,
                     "{0} and the departments above it have no HR business partner who can approve");
             case "RoleQuery" -> I18n.get("nobody who can approve holds its roles");
             case "Position" -> I18n.get("nobody who can approve holds its positions");
@@ -123,9 +109,9 @@ public class ApproverResolutionService {
         };
     }
 
-    private String whyNoSupervisor(Map<String, Object> variables, Map<String, Object> source) {
+    private String whyNoSupervisor(Resolution resolution, Map<String, Object> source) {
         ApproverRelativeTo relativeTo = ApproverRelativeTo.of(source.get("relativeTo"), ApproverRelativeTo.SUBJECT);
-        Long employeeId = relativeTo == ApproverRelativeTo.SUBJECT ? subjectEmployee(variables) : initiatorEmployee(variables);
+        Long employeeId = relativeTo == ApproverRelativeTo.SUBJECT ? subjectEmployee(resolution) : initiatorEmployee(resolution);
         if (employeeId == null) {
             return relativeTo == ApproverRelativeTo.SUBJECT
                     ? I18n.get("the request names no employee")
@@ -139,8 +125,8 @@ public class ApproverResolutionService {
                 : I18n.get("{0} has no manager {1} levels up who can approve", who, level);
     }
 
-    private String whyNoDeptHead(Map<String, Object> variables, Map<String, Object> source, String message) {
-        List<Long> deptIds = departments(variables, source, ApproverDeptScope.SUBJECT_DEPT);
+    private String whyNoDeptHead(Resolution resolution, Map<String, Object> source, String message) {
+        List<Long> deptIds = departments(resolution, source, ApproverDeptScope.SUBJECT_DEPT);
         if (deptIds.isEmpty()) {
             return I18n.get("its department could not be told");
         }
@@ -148,33 +134,32 @@ public class ApproverResolutionService {
         return I18n.get(message, names.isEmpty() ? I18n.get("the department") : String.join(", ", names));
     }
 
-    private List<String> resolveCandidates(CompiledFlowNode node, Map<String, Object> variables) {
+    private List<String> resolveCandidates(CompiledFlowNode node, Resolution resolution) {
         if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
             return List.of();
         }
-        Map<String, Object> resolutionVariables = new LinkedHashMap<>(variables == null ? Map.of() : variables);
         // One pool: everyone the groups name or find, each once, in the groups' order.
         Set<String> pool = new LinkedHashSet<>();
         for (Map<String, Object> group : groups(cfg)) {
-            pool.addAll(resolveGroup(group, resolutionVariables));
+            pool.addAll(resolveGroup(group, resolution));
         }
         return List.copyOf(pool);
     }
 
     /** The users one group names or finds. */
-    private List<String> resolveGroup(Map<String, Object> source, Map<String, Object> resolutionVariables) {
+    private List<String> resolveGroup(Map<String, Object> source, Resolution resolution) {
         String type = asString(source.get("type"));
         if (!StringUtils.hasText(type)) {
             return List.of();
         }
         Object resolved = switch (type) {
             case "Users" -> ApproverSourceType.namedUsers(source);
-            case "Supervisor" -> resolveSupervisor(resolutionVariables, source);
-            case "DeptLeader" -> resolveDeptLeader(resolutionVariables, source);
-            case "DeptHrbp" -> resolveDeptHrbp(resolutionVariables, source);
-            case "RoleQuery" -> resolveRoleQuery(resolutionVariables, source);
+            case "Supervisor" -> resolveSupervisor(resolution, source);
+            case "DeptLeader" -> resolveDeptLeader(resolution, source);
+            case "DeptHrbp" -> resolveDeptHrbp(resolution, source);
+            case "RoleQuery" -> resolveRoleQuery(resolution, source);
             case "Position" -> resolvePosition(source);
-            case "Department" -> resolveDepartment(resolutionVariables, source);
+            case "Department" -> resolveDepartment(resolution, source);
             default -> null;
         };
         return normalizeApprovers(resolved);
@@ -199,18 +184,18 @@ public class ApproverResolutionService {
         source.put("type", "RoleQuery");
         source.put("roleIds", cfg.getEmptyApproverRoleIds());
         source.put("roleCodes", cfg.getEmptyApproverRoleCodes());
-        Map<String, Object> resolution = resolutionVariables(variables, initiatorId);
         Set<String> leftOut = new HashSet<>();
         if (StringUtils.hasText(initiatorId)) {
             leftOut.add(initiatorId);
         }
-        Long subject = parseLong(lookupValue(resolution, SUBJECT_ID_KEY));
+        Long subject = parseLong(variables == null ? null : variables.get(SUBJECT_ID_KEY));
         Long subjectUser = subject == null || organizationService == null ? null
                 : organizationService.getUserIdOfEmployee(subject);
         if (subjectUser != null) {
             leftOut.add(subjectUser.toString());
         }
-        return resolveApprovers(asStep(source), resolution).stream().filter(holder -> !leftOut.contains(holder)).toList();
+        return resolveApprovers(asStep(source), variables, initiatorId).stream()
+                .filter(holder -> !leftOut.contains(holder)).toList();
     }
 
     /**
@@ -297,40 +282,40 @@ public class ApproverResolutionService {
 
     // ── Org-aware resolution methods ────────────────────────────────────
 
-    private Object resolveSupervisor(Map<String, Object> variables, Map<String, Object> source) {
+    private Object resolveSupervisor(Resolution resolution, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
         }
         ApproverRelativeTo relativeTo = ApproverRelativeTo.of(source.get("relativeTo"), ApproverRelativeTo.SUBJECT);
-        Long employeeId = relativeTo == ApproverRelativeTo.SUBJECT ? subjectEmployee(variables) : initiatorEmployee(variables);
+        Long employeeId = relativeTo == ApproverRelativeTo.SUBJECT ? subjectEmployee(resolution) : initiatorEmployee(resolution);
         int level = parseIntOrDefault(source.get("level"), 1);
         ApproverInfo supervisor = organizationService.getSupervisorOfEmployee(employeeId, level);
         return supervisor == null ? null : supervisor.getUserIdAsString();
     }
 
-    private Object resolveDeptLeader(Map<String, Object> variables, Map<String, Object> source) {
+    private Object resolveDeptLeader(Resolution resolution, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
         }
-        return departments(variables, source, ApproverDeptScope.SUBJECT_DEPT).stream()
+        return departments(resolution, source, ApproverDeptScope.SUBJECT_DEPT).stream()
                 .map(organizationService::getDeptLeader)
                 .filter(Objects::nonNull)
                 .map(ApproverInfo::getUserIdAsString)
                 .toList();
     }
 
-    private Object resolveDeptHrbp(Map<String, Object> variables, Map<String, Object> source) {
+    private Object resolveDeptHrbp(Resolution resolution, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
         }
-        return departments(variables, source, ApproverDeptScope.SUBJECT_DEPT).stream()
+        return departments(resolution, source, ApproverDeptScope.SUBJECT_DEPT).stream()
                 .map(organizationService::getDeptHrbp)
                 .filter(Objects::nonNull)
                 .map(ApproverInfo::getUserIdAsString)
                 .toList();
     }
 
-    private Object resolveRoleQuery(Map<String, Object> variables, Map<String, Object> source) {
+    private Object resolveRoleQuery(Resolution resolution, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
         }
@@ -351,7 +336,7 @@ public class ApproverResolutionService {
         List<ApproverInfo> users = List.copyOf(holders.values());
         if (ApproverDeptScope.of(source.get("deptScope"), ApproverDeptScope.ALL) != ApproverDeptScope.ALL) {
             // Narrowed to a department that cannot be told: nobody, never every holder.
-            List<Long> deptIds = departments(variables, source, ApproverDeptScope.ALL);
+            List<Long> deptIds = departments(resolution, source, ApproverDeptScope.ALL);
             users = users.stream().filter(user -> deptIds.contains(user.getDeptId())).toList();
         }
         return users.stream().map(ApproverInfo::getUserIdAsString).toList();
@@ -369,11 +354,11 @@ public class ApproverResolutionService {
                 .map(ApproverInfo::getUserIdAsString).toList();
     }
 
-    private Object resolveDepartment(Map<String, Object> variables, Map<String, Object> source) {
+    private Object resolveDepartment(Resolution resolution, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
         }
-        List<Long> deptIds = departments(variables, source, ApproverDeptScope.SPECIFIC_DEPT);
+        List<Long> deptIds = departments(resolution, source, ApproverDeptScope.SPECIFIC_DEPT);
         if (deptIds.isEmpty()) {
             return null;
         }
@@ -389,18 +374,17 @@ public class ApproverResolutionService {
      * when it names none. Empty when they cannot be told: no subject or initiator department, nothing
      * named, an empty variable.
      */
-    private List<Long> departments(Map<String, Object> variables, Map<String, Object> source,
-                                   ApproverDeptScope fallback) {
+    private List<Long> departments(Resolution resolution, Map<String, Object> source, ApproverDeptScope fallback) {
         List<Long> deptIds = switch (ApproverDeptScope.of(source.get("deptScope"), fallback)) {
             case ALL -> List.of();
-            case SUBJECT_DEPT -> listOf(organizationService.getDeptIdOfEmployee(subjectEmployee(variables)));
-            case INITIATOR_DEPT -> listOf(organizationService.getDeptIdOfEmployee(initiatorEmployee(variables)));
+            case SUBJECT_DEPT -> listOf(organizationService.getDeptIdOfEmployee(subjectEmployee(resolution)));
+            case INITIATOR_DEPT -> listOf(organizationService.getDeptIdOfEmployee(initiatorEmployee(resolution)));
             case SPECIFIC_DEPT -> {
                 List<Long> named = parseLongList(source.get("deptIds"));
                 yield named != null ? named : listOf(parseLong(source.get("deptId")));
             }
             case VARIABLE_DEPT -> {
-                Object value = lookupValue(variables, asString(source.get("deptVariable")));
+                Object value = resolution.variable(asString(source.get("deptVariable")));
                 List<Long> held = parseLongList(value);
                 yield held != null ? held : listOf(parseLong(value));
             }
@@ -412,14 +396,14 @@ public class ApproverResolutionService {
      * The record's subject, the employee it is about ({@value #SUBJECT_ID_KEY}). An instance without one
      * starts from its initiator instead.
      */
-    private Long subjectEmployee(Map<String, Object> variables) {
-        Long subjectId = parseLong(lookupValue(variables, SUBJECT_ID_KEY));
-        return subjectId != null ? subjectId : initiatorEmployee(variables);
+    private Long subjectEmployee(Resolution resolution) {
+        Long subjectId = parseLong(resolution.variable(SUBJECT_ID_KEY));
+        return subjectId != null ? subjectId : initiatorEmployee(resolution);
     }
 
     /** The employee of the initiator's login account. */
-    private Long initiatorEmployee(Map<String, Object> variables) {
-        Long initiatorId = parseLong(lookupValue(variables, INITIATOR_ID_KEY));
+    private Long initiatorEmployee(Resolution resolution) {
+        Long initiatorId = parseLong(resolution.initiatorId());
         return initiatorId == null ? null : organizationService.getEmployeeIdOfUser(initiatorId);
     }
 
@@ -483,30 +467,13 @@ public class ApproverResolutionService {
         return null;
     }
 
-    @SuppressWarnings("unchecked")
-    private Object lookupValue(Map<String, Object> variables, String key) {
-        if (!StringUtils.hasText(key) || variables == null || variables.isEmpty()) {
-            return null;
-        }
-        if (variables.containsKey(key)) {
-            return variables.get(key);
-        }
-        Object approverContext = variables.get(APPROVER_CONTEXT_KEY);
-        if (approverContext instanceof Map<?, ?> context && context.containsKey(key)) {
-            return ((Map<String, Object>) context).get(key);
-        }
-        if (!key.contains(".")) {
-            return null;
-        }
+    /** What a step's approvers are found from: the instance's variables and its submitter's account. */
+    private record Resolution(Map<String, Object> variables, String initiatorId) {
 
-        Object current = variables;
-        for (String part : key.split("\\.")) {
-            if (!(current instanceof Map<?, ?> currentMap)) {
-                return null;
-            }
-            current = ((Map<String, Object>) currentMap).get(part);
+        /** The variable {@code key} names — a path a rule reads is a key of its own — or null. */
+        Object variable(String key) {
+            return variables == null || !StringUtils.hasText(key) ? null : variables.get(key);
         }
-        return current;
     }
 
     private List<String> normalizeApprovers(Object value) {

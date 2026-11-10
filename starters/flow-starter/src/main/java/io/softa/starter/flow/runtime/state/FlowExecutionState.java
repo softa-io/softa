@@ -82,9 +82,6 @@ public class FlowExecutionState {
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;
 
-    @Schema(description = "Immutable trigger payload (the 'input' tier of the three-tier variable context)")
-    private Map<String, Object> inputPayload;
-
     @Schema(description = "Execution variables (the 'vars' tier of the three-tier variable context)")
     private Map<String, Object> variables;
 
@@ -125,6 +122,15 @@ public class FlowExecutionState {
     @Schema(hidden = true)
     @Builder.Default
     private int auditSequenceBase = 0;
+
+    /**
+     * The instance's committed audit rows as this action read them, with what it flushed since — so an action reads
+     * the ledger once ({@code ApprovalAuditReader}). {@code null} = not read yet; a new instance starts it empty.
+     * Excluded from JSON / persistence, as the delta is.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private List<ApprovalActionAuditEntry> committedAudit;
 
     @Schema(description = "Parallel join arrival counts")
     private Map<String, Integer> joinArrivalCounts;

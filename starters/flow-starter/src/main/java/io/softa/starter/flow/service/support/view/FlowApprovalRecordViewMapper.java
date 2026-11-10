@@ -25,8 +25,6 @@ public final class FlowApprovalRecordViewMapper {
                 .flowRevision(record.getFlowRevision())
                 .nodeId(record.getNodeId())
                 .nodeLabel(record.getNodeLabel())
-                .cycleNumber(record.getCycleNumber())
-                .taskId(record.getTaskId())
                 .sequence(record.getSequence())
                 .action(record.getAction())
                 .actorId(record.getActorId())

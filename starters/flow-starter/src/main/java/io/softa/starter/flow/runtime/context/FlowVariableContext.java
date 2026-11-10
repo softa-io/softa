@@ -4,8 +4,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 /**
@@ -13,30 +11,24 @@ import lombok.Getter;
  *
  * <pre>
  * ┌─────────────────────────────────────────────────────┐
- * │ input   – immutable trigger payload (entity fields, │
- * │           form data, API body, etc.)                │
+ * │ input   – a subflow's input, as its Subflow node    │
+ * │           maps it; empty for a root instance        │
  * ├─────────────────────────────────────────────────────┤
  * │ vars    – mutable flow variables; nodes write here  │
  * │           via outputVariable / outputMapping        │
  * └─────────────────────────────────────────────────────┘
  * </pre>
  *
- * <h3>Expression access</h3>
- * <ul>
- *   <li>{@code {{ amount }}} — resolved via {@link #resolve(String)}: checks {@code vars} first,
- *       then {@code input}</li>
- *   <li>{@code {{ input.entityId }}} — explicit input access</li>
- * </ul>
+ * Expressions read one flat scope ({@link #toExpressionScope}): {@code {{ amount }}} is {@code vars} first, then
+ * {@code input}.
  */
 @Getter
 public class FlowVariableContext {
 
-    /** Immutable trigger payload. */
-    @JsonProperty("input")
+    /** A subflow's input. */
     private final Map<String, Object> input;
 
     /** Mutable flow variables. */
-    @JsonProperty("vars")
     private final Map<String, Object> vars;
 
     public FlowVariableContext() {
@@ -44,25 +36,9 @@ public class FlowVariableContext {
         this.vars  = new LinkedHashMap<>();
     }
 
-    @JsonCreator
-    public FlowVariableContext(
-            @JsonProperty("input") Map<String, Object> input,
-            @JsonProperty("vars")  Map<String, Object> vars) {
+    public FlowVariableContext(Map<String, Object> input, Map<String, Object> vars) {
         this.input = input != null ? new LinkedHashMap<>(input) : new LinkedHashMap<>();
         this.vars  = vars  != null ? new LinkedHashMap<>(vars)  : new LinkedHashMap<>();
-    }
-
-    // ── Resolution ────────────────────────────────────────────────────────────
-
-    /**
-     * Short-path resolution for bare variable names used in {@code {{ expr }}}.
-     * Checks {@code vars} first, then {@code input}.
-     */
-    public Object resolve(String name) {
-        if (vars.containsKey(name)) {
-            return vars.get(name);
-        }
-        return input.get(name);
     }
 
     // ── Mutation ──────────────────────────────────────────────────────────────
@@ -86,13 +62,6 @@ public class FlowVariableContext {
         Map<String, Object> scope = new LinkedHashMap<>(input);
         scope.putAll(vars);
         return scope;
-    }
-
-    /**
-     * Return an unmodifiable view of the {@code input} map.
-     */
-    public Map<String, Object> inputView() {
-        return Collections.unmodifiableMap(input);
     }
 
     /**

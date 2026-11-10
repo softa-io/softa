@@ -4,7 +4,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -14,7 +13,6 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.exception.FlowNoApproverException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 
@@ -25,15 +23,12 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 public class PendingApprovalFactory {
 
     private final ApproverResolutionService approverResolutionService;
-    private final ApprovalAuditReader auditReader;
 
     @Autowired(required = false)
     private AutoDelegationService autoDelegationService;
 
-    public PendingApprovalFactory(ApproverResolutionService approverResolutionService,
-                                  ApprovalAuditReader auditReader) {
+    public PendingApprovalFactory(ApproverResolutionService approverResolutionService) {
         this.approverResolutionService = approverResolutionService;
-        this.auditReader = auditReader;
     }
 
     /**
@@ -89,8 +84,8 @@ public class PendingApprovalFactory {
     }
 
     private String whyNobody(CompiledFlowNode node, FlowExecutionState state) {
-        return approverResolutionService.whyNobody(node, ApproverResolutionService.resolutionVariables(
-                state == null ? null : state.getVariables(), state == null ? null : state.getInitiatorId()));
+        return approverResolutionService.whyNobody(node, state == null ? null : state.getVariables(),
+                state == null ? null : state.getInitiatorId());
     }
 
     private PendingApproval resolvePendingApproval(CompiledFlowDefinition definition,
@@ -99,8 +94,7 @@ public class PendingApprovalFactory {
                                                    boolean recordDelegationUsage) {
         Map<String, Object> variables = state == null ? null : state.getVariables();
         String initiatorId = state == null ? null : state.getInitiatorId();
-        List<String> approvers = approverResolutionService.resolveApprovers(node,
-                ApproverResolutionService.resolutionVariables(variables, initiatorId));
+        List<String> approvers = approverResolutionService.resolveApprovers(node, variables, initiatorId);
         List<String> assignedRoles = null;
         if (approvers.isEmpty() && EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(resolveEmptyApproverStrategy(node))) {
             // Found nobody: the holders of its roles take it, any one of whom decides.
@@ -117,12 +111,9 @@ public class PendingApprovalFactory {
                 .flowRevision(definition.getRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())
-                .cycleNumber(nextCycleNumberForNode(state, node.getNodeId()))
                 .approvers(approvers)
-                .dynamicApprovers(toRoles || approverResolutionService.hasDynamicApproverSource(node))
                 .approvalMode(toRoles ? VoteThresholdMode.ANY_ONE : approverResolutionService.resolveApprovalMode(node))
                 .requiredApprovalCount(toRoles ? 1 : approverResolutionService.resolveRequiredApprovalCount(node, approvers))
-                .totalApproverCount(approvers.size())
                 .approvedActors(new ArrayList<>())
                 .dueTime(computeDueTime(definition))
                 .remindCount(0)
@@ -135,27 +126,6 @@ public class PendingApprovalFactory {
         }
 
         return pendingApproval;
-    }
-
-    private Integer nextCycleNumberForNode(FlowExecutionState state, String nodeId) {
-        int maxCycle = 0;
-        if (state != null) {
-            if (state.getPendingApprovals() != null) {
-                maxCycle = Math.max(maxCycle, state.getPendingApprovals().stream()
-                        .filter(item -> Objects.equals(nodeId, item.getNodeId()))
-                        .map(PendingApproval::getCycleNumber)
-                        .filter(Objects::nonNull)
-                        .max(Integer::compareTo)
-                        .orElse(0));
-            }
-            maxCycle = Math.max(maxCycle, auditReader.fullHistory(state).stream()
-                    .filter(entry -> Objects.equals(nodeId, entry.getNodeId()))
-                    .map(ApprovalActionAuditEntry::getCycleNumber)
-                    .filter(Objects::nonNull)
-                    .max(Integer::compareTo)
-                    .orElse(0));
-        }
-        return maxCycle + 1;
     }
 
     /**

@@ -109,9 +109,6 @@ public class FlowInstanceSummaryView {
     @Schema(description = "Whether it failed in the steps after an approval, which an administrator can run again")
     private Boolean retryable;
 
-    @Schema(description = "Earliest timer due time")
-    private LocalDateTime nextFireAt;
-
     @Schema(description = "When the instance started — a record's approval: when the record was submitted")
     private LocalDateTime createdTime;
 

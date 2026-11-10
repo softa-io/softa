@@ -72,7 +72,7 @@ class FlowOrgServiceTest {
     @Test
     void aLeaderOrHrbpIsLookedForUpTheDepartmentTree() {
         // Department 10's leader has no account and it has no HRBP: both defer to department 1.
-        assertEquals(new ApproverInfo(1004L, "Dora", 1L, null), org.getDeptLeader(10L));
+        assertEquals(new ApproverInfo(1004L, "Dora", 1L), org.getDeptLeader(10L));
         assertEquals(1004L, org.getDeptHrbp(10L).getUserId());
     }
 

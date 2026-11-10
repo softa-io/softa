@@ -51,7 +51,6 @@ class GetDataTaskExecutorTest {
         when(modelService.count(eq("Employee"), any())).thenReturn(7L);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of("modelName", "Employee", "getDataType", "Count"))
                 .build();
 
@@ -65,7 +64,6 @@ class GetDataTaskExecutorTest {
         when(modelService.count(eq("Employee"), any())).thenReturn(3L);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of("modelName", "Employee", "getDataType", "Exist"))
                 .build();
 
@@ -78,7 +76,6 @@ class GetDataTaskExecutorTest {
         when(modelService.searchOne(eq("Employee"), any())).thenReturn(Optional.of(row));
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of(
                         "modelName", "Employee",
                         "getDataType", "SingleRow",
@@ -94,7 +91,6 @@ class GetDataTaskExecutorTest {
                 .thenReturn(Optional.of(Map.of("name", "Alice", "deptId", 10L)));
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of(
                         "modelName", "Employee",
                         "getDataType", "OneFieldValue",
@@ -112,7 +108,6 @@ class GetDataTaskExecutorTest {
         when(modelService.searchList(eq("Employee"), any())).thenReturn(rows);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of(
                         "modelName", "Employee",
                         "getDataType", "MultiRows",
@@ -125,7 +120,6 @@ class GetDataTaskExecutorTest {
     @Test
     void missingModelNameThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of("getDataType", "Count"))
                 .build();
 
@@ -137,7 +131,6 @@ class GetDataTaskExecutorTest {
     @Test
     void unsupportedGetDataTypeThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of("modelName", "Employee", "getDataType", "Bogus"))
                 .build();
 
@@ -151,7 +144,6 @@ class GetDataTaskExecutorTest {
         when(modelService.searchOne(eq("Employee"), any())).thenReturn(Optional.empty());
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.GET_RECORD)
                 .input(Map.of("modelName", "Employee", "getDataType", "SingleRow"))
                 .build();
 

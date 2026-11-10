@@ -22,8 +22,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionTraceEntry;
 import io.softa.starter.flow.runtime.state.FlowTraceEventType;
 
 /**
- * Runs the steps after an approval again, as an administrator, for an instance that failed in them
- * (zingkey-hcm#2385): the approval goes on from the step it failed after, as it would have had nothing failed. The
+ * Runs the steps after an approval again, as an administrator, for an instance that failed in them:
+ * the approval goes on from the step it failed after, as it would have had nothing failed. The
  * approval history records who ran it again; should the steps fail again, the instance fails again and its initiator
  * and the tenant's administrators are told again.
  *

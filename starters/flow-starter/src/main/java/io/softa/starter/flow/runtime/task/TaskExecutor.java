@@ -30,10 +30,4 @@ public interface TaskExecutor {
 
     /** Sort order within the palette group (lower = higher). */
     default int getSortOrder() { return 100; }
-
-    /**
-     * False marks a preview/stub executor: hidden from the default palette listing
-     * (visible via {@code ?includePreview=true}).
-     */
-    default boolean isProductionReady() { return true; }
 }

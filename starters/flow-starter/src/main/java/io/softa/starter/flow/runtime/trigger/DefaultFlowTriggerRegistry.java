@@ -19,6 +19,9 @@ import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 @Component
 public class DefaultFlowTriggerRegistry {
 
+    /** The type of the events change logs become ({@link ChangeLogTriggerMapper}): the only events that start a flow. */
+    private static final String ENTITY_CHANGE_TYPE = "EntityChange";
+
     /**
      * A flow an event starts: its trigger fits the event and its condition holds — or the condition could not be
      * judged, {@code error} saying why. Such a flow is not run, and its caller records the failure: a condition that
@@ -192,27 +195,17 @@ public class DefaultFlowTriggerRegistry {
         return Objects.equals(flowTenant, currentTenant);
     }
 
-    /** Whether the flow's trigger fits the event, its condition aside. */
+    /**
+     * Whether the flow's trigger fits the event, its condition aside: an entity-change trigger, on a change of a record
+     * of the model it names, matching its change events. No event starts any other: a submit trigger is chosen per
+     * record by findSubmitFlows, a cron trigger per schedule by findCronFlow, an Api flow is started explicitly by its
+     * id, and a Subflow flow runs only from a parent flow.
+     */
     private boolean fits(CompiledFlowDefinition definition, FlowTriggerEvent event) {
-        TriggerSource trigger = definition.getTrigger();
-        // No event starts these: a submit trigger is chosen per record by findSubmitFlows, a cron trigger
-        // per schedule by findCronFlow, an Api flow is started explicitly by its id, and a Subflow flow runs
-        // only from a parent flow.
-        if (trigger == null || trigger instanceof SubmitTrigger || trigger instanceof CronTrigger
-                || trigger instanceof ApiTrigger || trigger instanceof SubflowTrigger) {
-            return false;
-        }
-        // Derive the trigger type discriminator from the TriggerSource class name
-        String triggerTypeName = resolveTriggerTypeName(trigger);
-        if (!Objects.equals(triggerTypeName, event.getType())) {
-            return false;
-        }
-        // A change of a record of the model the trigger names, and no other
-        if (!Objects.equals(definition.getModelName(), event.getSourceModel())) {
-            return false;
-        }
-        // An entity change also matches its change events
-        return !(trigger instanceof EntityChangeTrigger change) || matchesChangeEvents(change.events(), event);
+        return definition.getTrigger() instanceof EntityChangeTrigger change
+                && ENTITY_CHANGE_TYPE.equals(event.getType())
+                && Objects.equals(definition.getModelName(), event.getSourceModel())
+                && matchesChangeEvents(change.events(), event);
     }
 
     /**
@@ -241,17 +234,6 @@ public class DefaultFlowTriggerRegistry {
             case "UPDATE" -> ChangeEvent.UPDATE;
             case "DELETE" -> ChangeEvent.DELETE;
             default -> null; // e.g. READ — entity-change triggers never fire on reads
-        };
-    }
-
-    private String resolveTriggerTypeName(TriggerSource trigger) {
-        // Returns the @JsonSubTypes name value for the concrete type
-        return switch (trigger) {
-            case EntityChangeTrigger t -> "EntityChange";
-            case ApiTrigger t          -> "Api";
-            case CronTrigger t         -> "Cron";
-            case SubflowTrigger t      -> "Subflow";
-            case SubmitTrigger t       -> "Submit";
         };
     }
 }

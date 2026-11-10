@@ -10,7 +10,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.starter.flow.design.FlowGraphPosition;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.nodeconfig.NodeErrorConfig;
 
@@ -69,9 +68,6 @@ public class CompiledFlowNode {
             + "the gateway does not take as arrived. Null when its branches each end on their own, and on every other "
             + "node")
     private String pairedJoinId;
-
-    @Schema(description = "Original design-time canvas position")
-    private FlowGraphPosition position;
 
     /** What a message calls the node: its label — the step's name people see — or its id when it has none. */
     public String displayName() {

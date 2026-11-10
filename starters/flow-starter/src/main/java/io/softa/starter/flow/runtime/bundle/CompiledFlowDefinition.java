@@ -1,7 +1,5 @@
 package io.softa.starter.flow.runtime.bundle;
 
-import io.softa.starter.flow.api.CompiledFlowCapabilitySummary;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -91,25 +89,11 @@ public class CompiledFlowDefinition {
     @Schema(description = "Entry node ids")
     private List<String> entryNodeIds;
 
-    @Schema(description = "Terminal node ids")
-    private List<String> terminalNodeIds;
-
-    /**
-     * Topological node order — a compile-time output used to verify the sort (and available to tooling).
-     * The runtime engine traverses by edges, so it is neither read at runtime nor persisted in the bundle.
-     */
-    @JsonIgnore
-    @Schema(hidden = true)
-    private List<String> topologicalOrder;
-
     @Schema(description = "Node index")
     private Map<String, CompiledFlowNode> nodeIndex;
 
     @Schema(description = "Transition index")
     private Map<String, CompiledFlowTransition> transitionIndex;
-
-    @Schema(description = "Derived capability summary")
-    private CompiledFlowCapabilitySummary capabilitySummary;
 
     // ── Revision metadata ──────────────────────────────────────────────────
 

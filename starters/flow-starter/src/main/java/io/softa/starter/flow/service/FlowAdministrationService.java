@@ -21,8 +21,8 @@ public interface FlowAdministrationService {
     FlowBatchActionResult terminate(List<String> instanceIds, String reason, String operatorId);
 
     /**
-     * Runs again the steps after an approval of each instance the administrator may administer that failed in them
-     * (zingkey-hcm#2385); the others are refused. Granted with terminating: whoever may end a failed approval may
+     * Runs again the steps after an approval of each instance the administrator may administer that failed in them;
+     * the others are refused. Granted with terminating: whoever may end a failed approval may
      * also carry it on.
      */
     FlowBatchActionResult retry(List<String> instanceIds, String comment, String operatorId);

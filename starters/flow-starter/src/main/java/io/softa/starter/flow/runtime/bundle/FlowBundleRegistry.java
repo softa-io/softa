@@ -49,9 +49,6 @@ public interface FlowBundleRegistry {
      */
     Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId);
 
-    /** List all revisions for a flow id, ordered by revision descending. */
-    List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId);
-
     /** The current tenant's active revisions of its enabled flows (one per flow), ordered by flow name. */
     Collection<CompiledFlowDefinition> list();
 

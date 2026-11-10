@@ -4,9 +4,7 @@ import java.util.*;
 
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
-import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.NodeErrorStrategy;
-import io.softa.starter.flow.api.CompiledFlowCapabilitySummary;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.bundle.NodeConfigParser;
@@ -34,7 +32,6 @@ public final class NodeTransformer {
                     .parsedConfig(NodeConfigParser.parse(node.getType(), config))
                     .incomingEdgeIds(defaultList(incomingEdgeIds.get(node.getId())))
                     .outgoingEdgeIds(defaultList(outgoingEdgeIds.get(node.getId())))
-                    .position(node.getPosition())
                     .build();
             compiled.put(node.getId(), compiledNode);
         }
@@ -47,23 +44,12 @@ public final class NodeTransformer {
             compiled.put(edge.getId(), CompiledFlowTransition.builder()
                     .edgeId(edge.getId())
                     .source(edge.getSource())
-                    .sourceHandle(edge.getSourceHandle())
                     .target(edge.getTarget())
-                    .targetHandle(edge.getTargetHandle())
                     .condition(edge.getCondition())
                     .conditionExpression(edge.getConditionExpression())
-                    .data(edge.getData())
                     .build());
         }
         return compiled;
-    }
-
-    public static CompiledFlowCapabilitySummary buildCapabilitySummary(Collection<FlowGraphNode> nodes) {
-        return CompiledFlowCapabilitySummary.builder()
-                .hasSubflow(nodes.stream().anyMatch(n -> FlowNodeType.SUBFLOW.equals(n.getType())))
-                .hasParallelGateway(nodes.stream().anyMatch(n ->
-                        FlowNodeType.PARALLEL_FORK.equals(n.getType()) || FlowNodeType.PARALLEL_JOIN.equals(n.getType())))
-                .build();
     }
 
     private static NodeErrorConfig extractErrorConfig(Map<String, Object> config) {

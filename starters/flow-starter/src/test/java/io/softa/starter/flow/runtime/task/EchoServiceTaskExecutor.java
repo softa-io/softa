@@ -36,7 +36,6 @@ public class EchoServiceTaskExecutor implements TaskExecutor {
         Map<String, Object> result = new LinkedHashMap<>(request.getInput());
         result.put("executor", getExecutor());
         result.put("input", request.getInput());
-        result.put("options", request.getOptions());
         result.put("flowVariables", Map.copyOf(variables));
         return result;
     }

@@ -19,21 +19,16 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.api.FlowClient;
 import io.softa.starter.flow.event.SeedFlowPublisher;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
-import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.InProcessFlowClient;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
-import io.softa.starter.flow.runtime.spi.impl.CompositeApprovalNotificationService;
-import io.softa.starter.flow.runtime.spi.impl.InboxApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.impl.InboxReadMarker;
-import io.softa.starter.flow.runtime.spi.impl.MailApprovalNotificationService;
+import io.softa.starter.flow.runtime.spi.impl.MessageApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.impl.FlowOrgService;
 import io.softa.starter.flow.runtime.spi.impl.OrganizationServiceProperties;
-import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.FlowPublishService;
-import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.MetadataFieldDefinitions;
 import io.softa.starter.flow.service.support.RecordFieldDefinitions;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
@@ -81,10 +76,8 @@ public class FlowAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(FlowClient.class)
-    public InProcessFlowClient flowInProcessFlowClient(FlowRuntimeEngine engine, FlowLaunchService launch,
-                                                       FlowInstanceService instances,
-                                                       FlowInstanceAccessGuard accessGuard) {
-        return new InProcessFlowClient(engine, launch, instances, accessGuard);
+    public InProcessFlowClient flowInProcessFlowClient(FlowLaunchService launch) {
+        return new InProcessFlowClient(launch);
     }
 
     /**
@@ -95,8 +88,8 @@ public class FlowAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(ApprovalNotificationService.class)
-    public CompositeApprovalNotificationService flowApprovalNotificationService(
-            ObjectProvider<MessageService> messageService, ModelService<?> modelService,
+    public MessageApprovalNotificationService flowApprovalNotificationService(
+            MessageService messageService, ModelService<?> modelService,
             PlatformTransactionManager transactionManager, FlowBundleRegistry bundleRegistry,
             ObjectProvider<SystemConfig> systemConfig, ObjectProvider<OrganizationService> organizationService,
             @Value("${flow.notification.failure-role-codes:TENANT_ADMIN}") List<String> failureRoleCodes) {
@@ -108,10 +101,8 @@ public class FlowAutoConfiguration {
                     .map(String::valueOf)
                     .toList();
         };
-        return new CompositeApprovalNotificationService(List.of(
-                new InboxApprovalNotificationService(messageService, modelService, transactionManager, administrators),
-                new MailApprovalNotificationService(messageService, modelService, transactionManager, bundleRegistry,
-                        systemConfig, administrators)));
+        return new MessageApprovalNotificationService(messageService, modelService, transactionManager, bundleRegistry,
+                systemConfig, administrators);
     }
 
     /** Marks an approver's inbox messages about an approval read once they act on it. */

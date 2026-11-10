@@ -40,8 +40,7 @@ public class TaskExecutorDescriptorProvider implements FlowNodeDescriptorProvide
                 null,
                 executor.getConfigSchema(),
                 executor.getDefaultConfig() != null ? executor.getDefaultConfig() : Map.of(),
-                executor.getSupportedNodeType().getScenarios(),
-                executor.isProductionReady()
+                executor.getSupportedNodeType().getScenarios()
         );
     }
 }

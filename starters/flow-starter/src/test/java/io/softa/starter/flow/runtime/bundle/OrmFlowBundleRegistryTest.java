@@ -12,7 +12,6 @@ import org.springframework.dao.DuplicateKeyException;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.starter.flow.api.CompiledFlowCapabilitySummary;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
@@ -64,9 +63,6 @@ public class OrmFlowBundleRegistryTest {
         assertEquals(original.getSync(), restored.getSync());
         assertEquals(original.getRollbackOnFail(), restored.getRollbackOnFail());
         assertEquals(original.getEntryNodeIds(), restored.getEntryNodeIds());
-        assertEquals(original.getTerminalNodeIds(), restored.getTerminalNodeIds());
-        // topologicalOrder is a compile-time output, intentionally not persisted (@JsonIgnore).
-        assertNull(restored.getTopologicalOrder());
         assertNotNull(restored.getTrigger());
         assertInstanceOf(EntityChangeTrigger.class, restored.getTrigger());
         assertEquals("Order", restored.getModelName());
@@ -171,23 +167,6 @@ public class OrmFlowBundleRegistryTest {
 
         assertTrue(found.isPresent());
         assertEquals(1, found.get().getRevision());
-    }
-
-    @Test
-    void listRevisionsByFlowId_returnsAllRevisionsDescending() {
-        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
-        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
-        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
-
-        List<CompiledFlowDefinition> revisions = registry.listRevisionsByFlowId(FLOW_A);
-
-        assertEquals(3, revisions.size());
-        assertEquals(List.of(3, 2, 1), revisions.stream().map(CompiledFlowDefinition::getRevision).toList());
-    }
-
-    @Test
-    void listRevisionsByFlowId_returnsEmptyForUnknownDesign() {
-        assertTrue(registry.listRevisionsByFlowId("999").isEmpty());
     }
 
     @Test
@@ -338,8 +317,6 @@ public class OrmFlowBundleRegistryTest {
                 .rollbackOnFail(false)
                 .trigger(new EntityChangeTrigger("Order", null, null))
                 .entryNodeIds(List.of("start"))
-                .terminalNodeIds(List.of("end"))
-                .topologicalOrder(List.of("start", "task1", "end"))
                 .nodeIndex(Map.of(
                         "start", CompiledFlowNode.builder().nodeId("start").type(FlowNodeType.START).label("Start").build(),
                         "task1", CompiledFlowNode.builder().nodeId("task1").type(FlowNodeType.CALL_SERVICE).label("Task 1").build(),
@@ -349,10 +326,6 @@ public class OrmFlowBundleRegistryTest {
                         "e1", CompiledFlowTransition.builder().edgeId("e1").source("start").target("task1").build(),
                         "e2", CompiledFlowTransition.builder().edgeId("e2").source("task1").target("end").build()
                 ))
-                .capabilitySummary(CompiledFlowCapabilitySummary.builder()
-                        .hasSubflow(false)
-                        .hasParallelGateway(false)
-                        .build())
                 .build();
     }
 

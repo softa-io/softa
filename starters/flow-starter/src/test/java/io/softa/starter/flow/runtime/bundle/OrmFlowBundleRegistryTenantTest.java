@@ -239,7 +239,6 @@ class OrmFlowBundleRegistryTenantTest {
                 .sync(false)
                 .trigger(new EntityChangeTrigger("Order", List.of(ChangeEvent.CREATE), null))
                 .entryNodeIds(List.of("start"))
-                .terminalNodeIds(List.of("end"))
                 .nodeIndex(Map.of(
                         "start", CompiledFlowNode.builder().nodeId("start").type(FlowNodeType.START).build(),
                         "end", CompiledFlowNode.builder().nodeId("end").type(FlowNodeType.END).build()))

@@ -15,7 +15,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * A record's approval that failed waits on nobody, so its submitter takes the record back — whatever the flow's withdraw
- * policy, while the record still waits on that approval (zingkey-hcm#2385). The guard says so wherever Withdraw is
+ * policy, while the record still waits on that approval. The guard says so wherever Withdraw is
  * offered — the record's page, the approval page, My Requests — and only then.
  */
 class WithdrawPolicyGuardTakeBackTest {

@@ -127,6 +127,7 @@ public class ApprovalPathPreviewer {
                 .approvalAuditDelta(new ArrayList<>(live.getApprovalAuditDelta() == null ? List.of() : live.getApprovalAuditDelta()))
                 .persistedAuditCount(live.getPersistedAuditCount())
                 .auditSequenceBase(live.getAuditSequenceBase())
+                .committedAudit(live.getCommittedAudit() == null ? null : new ArrayList<>(live.getCommittedAudit()))
                 .joinArrivalCounts(new HashMap<>(live.getJoinArrivalCounts() == null ? Map.of() : live.getJoinArrivalCounts()))
                 .trace(new ArrayList<>())
                 .build();

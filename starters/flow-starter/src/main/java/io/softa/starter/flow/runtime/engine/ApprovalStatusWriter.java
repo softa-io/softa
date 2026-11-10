@@ -69,11 +69,9 @@ public class ApprovalStatusWriter {
      * {@code CANCELLED} result with no instance. Runs in the cancellation's transaction, so a handler that
      * throws refuses it.
      *
-     * @param record  the draft as the cancellation's checks read it; its status is set here too
-     * @param actorId the applicant cancelling it
+     * @param record the draft as the cancellation's checks read it; its status is set here too
      */
-    public <T extends ApprovalModel> void cancelled(ModelApprovalHandler<T> handler, String rowId, T record,
-                                                    String actorId) {
+    public <T extends ApprovalModel> void cancelled(ModelApprovalHandler<T> handler, String rowId, T record) {
         String modelName = modelNameOf(handler);
         record.setApprovalStatus(ApprovalStatus.CANCELLED);
         Map<String, Object> patch = new HashMap<>();
@@ -81,7 +79,7 @@ public class ApprovalStatusWriter {
         patch.put(ApprovalModel.APPROVAL_STATUS, ApprovalStatus.CANCELLED.getCode());
         ContextUtils.withoutPermissionChecks(() -> {
             modelService.updateOne(modelName, patch);
-            handler.afterOutcome(record, new ApprovalOutcome(ApprovalOutcomeType.CANCELLED, null, actorId, null));
+            handler.afterOutcome(record, new ApprovalOutcome(ApprovalOutcomeType.CANCELLED, null));
         });
     }
 

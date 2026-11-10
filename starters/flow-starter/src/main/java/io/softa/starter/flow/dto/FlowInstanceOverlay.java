@@ -31,9 +31,6 @@ public record FlowInstanceOverlay(
         @Schema(description = "Exact FlowBundle.id the instance runs on — fetch its design snapshot to render the graph")
         Long bundleId,
 
-        @Schema(description = "Source FlowDesign.id")
-        String flowId,
-
         @Schema(description = "Published revision")
         Integer revision,
 
@@ -56,53 +53,39 @@ public record FlowInstanceOverlay(
             @Schema(description = "First ENTER_NODE timestamp")
             LocalDateTime enteredAt,
 
-            @Schema(description = "COMPLETE_NODE timestamp; null while open")
-            LocalDateTime completedAt,
-
             @Schema(description = "Node-level error when Failed")
-            String error,
-
-            @Schema(description = "Pending approval details when WaitingApproval")
-            PendingApproval approval
+            String error
     ) {
     }
 
     public static FlowInstanceOverlay of(FlowExecutionState state) {
         Map<String, LocalDateTime> enteredAt = new LinkedHashMap<>();
-        Map<String, LocalDateTime> completedAt = new LinkedHashMap<>();
         for (FlowExecutionTraceEntry entry : orEmpty(state.getTrace())) {
-            if (entry.getNodeId() == null) {
-                continue;
-            }
-            if (entry.getEventType() == FlowTraceEventType.ENTER_NODE) {
+            if (entry.getNodeId() != null && entry.getEventType() == FlowTraceEventType.ENTER_NODE) {
                 enteredAt.putIfAbsent(entry.getNodeId(), entry.getEventTime());
-            } else if (entry.getEventType() == FlowTraceEventType.COMPLETE_NODE) {
-                completedAt.put(entry.getNodeId(), entry.getEventTime());
             }
         }
 
         Map<String, NodeState> nodes = new LinkedHashMap<>();
         for (String nodeId : orEmpty(state.getCompletedNodeIds())) {
-            nodes.put(nodeId, new NodeState(FlowNodeRunStatus.COMPLETED,
-                    enteredAt.get(nodeId), completedAt.get(nodeId), null, null));
+            nodes.put(nodeId, new NodeState(FlowNodeRunStatus.COMPLETED, enteredAt.get(nodeId), null));
         }
         for (PendingApproval approval : orEmpty(state.getPendingApprovals())) {
             nodes.put(approval.getNodeId(), new NodeState(FlowNodeRunStatus.WAITING_APPROVAL,
-                    enteredAt.get(approval.getNodeId()), null, null, approval));
+                    enteredAt.get(approval.getNodeId()), null));
         }
         for (FlowWaitToken token : orEmpty(state.getWaitTokens())) {
             FlowNodeRunStatus waiting = token.getType() == WaitType.ASYNC
                     ? FlowNodeRunStatus.WAITING_ASYNC : FlowNodeRunStatus.WAITING_TIMER;
-            nodes.put(token.getNodeId(), new NodeState(waiting,
-                    enteredAt.get(token.getNodeId()), null, null, null));
+            nodes.put(token.getNodeId(), new NodeState(waiting, enteredAt.get(token.getNodeId()), null));
         }
         if (state.getFailedNodeId() != null) {
             nodes.put(state.getFailedNodeId(), new NodeState(FlowNodeRunStatus.FAILED,
-                    enteredAt.get(state.getFailedNodeId()), null, state.getErrorMessage(), null));
+                    enteredAt.get(state.getFailedNodeId()), state.getErrorMessage()));
         }
 
-        return new FlowInstanceOverlay(state.getInstanceId(), state.getBundleId(), state.getFlowId(),
-                state.getFlowRevision(), state.getStatus(), state.getErrorMessage(), nodes);
+        return new FlowInstanceOverlay(state.getInstanceId(), state.getBundleId(), state.getFlowRevision(),
+                state.getStatus(), state.getErrorMessage(), nodes);
     }
 
     private static <T> List<T> orEmpty(List<T> values) {

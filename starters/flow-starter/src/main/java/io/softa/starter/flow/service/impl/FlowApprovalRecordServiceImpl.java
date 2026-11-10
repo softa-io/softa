@@ -10,6 +10,7 @@ import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowApprovalRecord;
+import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
@@ -50,10 +51,11 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
             return;
         }
         // The in-memory audit list is a delta buffer: loaded states start it empty, so persisted
-        // sequences continue from the instance's existing row count (resolved once, lazily).
+        // sequences continue from the instance's existing rows — as the action read them, else read
+        // now (resolved once, lazily): the task projection after the save reads them anyway.
         int base = state.getAuditSequenceBase();
         if (base < 0) {
-            base = (int) this.count(new Filters().eq(FlowApprovalRecord::getInstanceId, state.getInstanceId()));
+            base = ApprovalAuditReader.committed(state, this).size();
             state.setAuditSequenceBase(base);
         }
         List<FlowApprovalRecord> rows = new ArrayList<>(entries.size() - already);
@@ -64,6 +66,10 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
         }
         this.createList(rows);
         state.setPersistedAuditCount(entries.size());
+        // What was just written joins the rows the action read, as a read would return them.
+        if (state.getCommittedAudit() != null) {
+            rows.forEach(row -> state.getCommittedAudit().add(toEntry(row)));
+        }
     }
 
     @Override
@@ -84,7 +90,6 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
         record.setFlowRevision(entry.getFlowRevision() == null ? state.getFlowRevision() : entry.getFlowRevision());
         record.setNodeId(entry.getNodeId());
         record.setNodeLabel(entry.getNodeLabel());
-        record.setCycleNumber(entry.getCycleNumber());
         record.setAction(entry.getAction());
         record.setActorId(entry.getActorId());
         record.setTargetActorId(entry.getTargetActorId());
@@ -107,7 +112,6 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
                 .flowRevision(record.getFlowRevision())
                 .nodeId(record.getNodeId())
                 .nodeLabel(record.getNodeLabel())
-                .cycleNumber(record.getCycleNumber())
                 .actorId(record.getActorId())
                 .targetActorId(record.getTargetActorId())
                 .operatorId(record.getOperatorId())

@@ -89,7 +89,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                                  String icon, int sortOrder, Ports ports,
                                                  Map<String, Object> configSchema, Map<String, Object> defaultConfig) {
         return FlowNodeDescriptor.of(type, label, description, icon, sortOrder, ports,
-                configSchema, defaultConfig, type.getScenarios(), true);
+                configSchema, defaultConfig, type.getScenarios());
     }
 
     /** Insertion-ordered map builder — property panels render fields in this order. */

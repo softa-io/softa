@@ -42,12 +42,6 @@ public class FlowApprovalRecordView {
     @Schema(description = "Primary node label")
     private String nodeLabel;
 
-    @Schema(description = "Approval task cycle number associated with the record when applicable")
-    private Integer cycleNumber;
-
-    @Schema(description = "Task id when the record is attached to one task row")
-    private Long taskId;
-
     @Schema(description = "Monotonic runtime sequence within one instance")
     private Integer sequence;
 

@@ -69,7 +69,7 @@ application's own:
 |---|---|
 | `FlowOrgService` | No `OrganizationService` bean |
 | `InProcessFlowClient` | No `FlowClient` bean |
-| `CompositeApprovalNotificationService` (inbox + mail channels) | No `ApprovalNotificationService` bean |
+| `MessageApprovalNotificationService` (inbox and email, through message-starter) | No `ApprovalNotificationService` bean |
 | `InboxReadMarker` | Always |
 | `flowDeadLetterPolicy` | Pulsar on the classpath and no bean of that name: at most 3 redeliveries, then `<topic>-<subscription>-DLQ` |
 | `SeedFlowPublisher` | seed-starter on the classpath (`SeedFileLoadedEvent`, checked by name) |
@@ -85,14 +85,14 @@ and consumers register only when the bean they need exists (`MessageService`, `A
 
 | Property | Default | Read by |
 |---|---|---|
-| `flow.notification.failure-role-codes` | `TENANT_ADMIN` | `FlowAutoConfiguration`, for the notification channels |
+| `flow.notification.failure-role-codes` | `TENANT_ADMIN` | `FlowAutoConfiguration`, for the default notifications |
 | `flow.trigger-cache-ttl-seconds` | `60` | `OrmFlowBundleRegistry` |
 | `flow.automation.retention-days` | `30` | `FlowAutomationPurgeService` |
 | `flow.task.builtin.call-service.enabled` | `false` | `CallServiceTaskExecutor`'s condition |
 | `flow.task.call-service.allow-list` | — | `CallServiceTaskExecutor`: the bean-name prefixes it may call, required once it is on |
 | `flow.task.builtin.query-records.enabled` | `true` | `QueryRecordsTaskExecutor`'s condition |
 | `softa.flow.org.*` | the HR conventions | `OrganizationServiceProperties`, for `FlowOrgService` |
-| `system.site-url`, `system.enable-multi-tenancy` | — | The mail channel's links; the per-tenant fan-out of Cron flows |
+| `system.site-url`, `system.enable-multi-tenancy` | — | The links in approval emails; the per-tenant fan-out of Cron flows |
 
 Each Pulsar component is `@ConditionalOnProperty` on its topic:
 
@@ -130,10 +130,11 @@ account counts as able to act), `getRoleNames` (none: a step handed to roles nam
 directory methods (empty: the pickers find nobody). `FlowOrgService` implements them all over `softa.flow.org.*`.
 
 **`ApprovalNotificationService`** (`runtime/spi`) — `notify(FlowNotificationEvent)`, called inside the action's
-transaction. `ApprovalNotices` maps each event to its recipients, inbox text and mail template. The default channels
-write after the commit, in a transaction of their own, except `FlowFailed`, told at once because the failed attempt's
-transaction rolls back; a replacement owns that timing. To add a channel, declare a
-`CompositeApprovalNotificationService` that lists the inbox and mail channels with yours.
+transaction. `ApprovalNotices` maps each event to its recipients, inbox text and mail template, once per event. The
+default, `MessageApprovalNotificationService`, writes the inbox message and the email after the commit, each in a
+transaction of its own, except `FlowFailed`, told at once because the failed attempt's transaction rolls back; a
+replacement owns that timing. A bean of the application's replaces both channels; to add one, declare a bean that calls
+a `MessageApprovalNotificationService` first, then sends yours.
 
 **`TaskExecutor`** (`runtime/task`) — one per `FlowNodeType`: two for one type, or a type without a typed config in
 `TaskConfigTypes`, fail the boot (`DefaultTaskExecutorRegistry`). `getConfigSchema` and `getDefaultConfig` feed the
@@ -147,9 +148,10 @@ and the no-arg test path share, plus every host bean. A validator returns every 
 an `Error` stops a publish. Structural errors (missing or duplicate ids, unknown edge ends) are reported alone, before
 any validator runs.
 
-**`FlowClient`** (`api`) — the in-process port: a record's approval (`submitRecord`, `previewRecord`, `previewValues`,
-`withdrawRecord`, `cancelRecord`, `recordApprovals`) and `start` for an `Api`-triggered Automation flow. Identity comes
-from the context, never from a parameter. Approver actions and task reads stay on REST.
+**`FlowClient`** (`api`) — the in-process port for what a business module does with a record's approval:
+`submitRecord`, `previewValues`, `withdrawRecord`, `cancelRecord`. Identity comes from the context, never from a
+parameter. Approver actions, task reads, a record's approval history, a saved record's preview and starting an
+`Api`-triggered Automation flow stay on REST; a method joins the port when a business module calls it, not before.
 
 **`FlowStateChangeListener`** (`runtime/engine`) — called by `FlowProjectionPublisher` once an instance's state is
 saved, in the same transaction, with permission checks off. The projections are such listeners: the task projection
@@ -254,8 +256,7 @@ The softa-docs pages state each rule; this is where to change it.
   built-in validators alone.
 - `StoredDesignJsonTest` reads the designs in `src/test/resources/stored-designs` with the runtime's Jackson settings;
   add a fixture when a new design shape reaches a database.
-- `ContractPackageDisciplineTest` keeps the contract packages free of Spring, `InProcessFlowClientContractTest` holds
-  the port to delegating and resolving the caller from the context, and `FlowExceptionHandlerOrderTest` keeps
+- `ContractPackageDisciplineTest` keeps the contract packages free of Spring, and `FlowExceptionHandlerOrderTest` keeps
   `FlowExceptionHandler` ahead of softa-web's catch-all.
 
 ## Documentation

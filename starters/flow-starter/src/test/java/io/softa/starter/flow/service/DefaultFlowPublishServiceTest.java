@@ -46,8 +46,7 @@ class DefaultFlowPublishServiceTest {
         assertEquals(2, v2.getRevision());
         // Revision reads live on the bundle registry (REST: /flow/bundles).
         assertEquals("v2", bundleRegistry.getActiveByFlowId(FLOW_ID).orElseThrow().getFlowName());
-        assertEquals(List.of(2, 1), bundleRegistry.listRevisionsByFlowId(FLOW_ID).stream()
-                .map(CompiledFlowDefinition::getRevision).toList());
+        assertEquals(1, bundleRegistry.getByBundleId(v1.getBundleId()).orElseThrow().getRevision());
         assertNotNull(v2.getPublishedAt());
     }
 

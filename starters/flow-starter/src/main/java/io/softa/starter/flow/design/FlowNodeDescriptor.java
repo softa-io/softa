@@ -48,10 +48,7 @@ public record FlowNodeDescriptor(
         Map<String, Object> defaultConfig,
 
         @Schema(description = "Flow scenarios that allow this node type")
-        Set<FlowScenario> allowedScenarios,
-
-        @Schema(description = "False = preview/stub node type, hidden from the default palette listing")
-        boolean productionReady
+        Set<FlowScenario> allowedScenarios
 ) {
 
     /** Edge-count constraints; a null bound means unbounded. */
@@ -78,15 +75,14 @@ public record FlowNodeDescriptor(
                                         String icon, int sortOrder, Ports ports,
                                         Map<String, Object> configSchema,
                                         Map<String, Object> defaultConfig,
-                                        Set<FlowScenario> allowedScenarios,
-                                        boolean productionReady) {
+                                        Set<FlowScenario> allowedScenarios) {
         return new FlowNodeDescriptor(type, type.getCategory(), label, description, icon, sortOrder,
-                ports, configSchema, defaultConfig, allowedScenarios, productionReady);
+                ports, configSchema, defaultConfig, allowedScenarios);
     }
 
     /** Copy with a different label/description (used for i18n at the REST boundary). */
     public FlowNodeDescriptor withText(String newLabel, String newDescription) {
         return new FlowNodeDescriptor(type, category, newLabel, newDescription, icon, sortOrder,
-                ports, configSchema, defaultConfig, allowedScenarios, productionReady);
+                ports, configSchema, defaultConfig, allowedScenarios);
     }
 }

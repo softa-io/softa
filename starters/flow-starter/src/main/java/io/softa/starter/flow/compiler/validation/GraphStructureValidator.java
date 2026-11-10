@@ -234,7 +234,7 @@ public class GraphStructureValidator implements FlowValidator {
         }
         validateCcRules(definition.getCc(), d);
         // An approval flow without an approval step approves a record as it is submitted: allowed — End and every step
-        // are optional — but rarely meant, so the designer says so where the flow starts (zingkey-hcm#2450).
+        // are optional — but rarely meant, so the designer says so where the flow starts.
         if (FlowScenario.APPROVAL.equals(scenario)
                 && nodes.stream().noneMatch(node -> FlowNodeType.APPROVAL.equals(node.getType()))) {
             String message = "This approval flow has no approval step: a submission is approved as soon as it is made.";

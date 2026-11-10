@@ -2,6 +2,8 @@ package io.softa.starter.flow.runtime.action;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -36,7 +38,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * A record's approval runs again only while the record still waits on it (zingkey-hcm#2385): not once its submitter
+ * A record's approval runs again only while the record still waits on it: not once its submitter
  * took it back — a draft again — nor once it was submitted again, its new approval the one it waits on. Otherwise
  * the steps after the approval would run on a record that moved on.
  */
@@ -110,8 +112,11 @@ class RetryActionHandlerRecordTest {
                 .build());
     }
 
+    /** The record's approvals: the newest of them is its latest. */
     private void approvals(FlowInstance... instances) {
-        when(instanceService.findByModelNameAndRowId(MODEL, ROW)).thenReturn(List.of(instances));
+        when(instanceService.findLatestRecordApproval(MODEL, ROW)).thenReturn(Arrays.stream(instances)
+                .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
+                .max(Comparator.comparing(FlowInstance::getCreatedTime, Comparator.nullsFirst(Comparator.naturalOrder()))));
     }
 
     private void record(String approvalStatus) {

@@ -30,7 +30,6 @@ class ExtractTransformTaskExecutorTest {
     @Test
     void extractsDeduplicatedValuesViaPlaceholderVariable() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.TRANSFORM)
                 .input(Map.of("collectionVariable", "{{ employeeList }}", "itemKey", "deptId"))
                 .build();
 
@@ -49,7 +48,6 @@ class ExtractTransformTaskExecutorTest {
     @Test
     void resolvesByDirectVariableKeyWhenNotAPlaceholder() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.TRANSFORM)
                 .input(Map.of("collectionVariable", "rows", "itemKey", "id"))
                 .build();
 
@@ -65,7 +63,6 @@ class ExtractTransformTaskExecutorTest {
     @Test
     void returnsEmptySetWhenVariableMissing() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.TRANSFORM)
                 .input(Map.of("collectionVariable", "absent", "itemKey", "deptId"))
                 .build();
 
@@ -77,7 +74,6 @@ class ExtractTransformTaskExecutorTest {
     @Test
     void rejectsMissingCollectionVariable() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.TRANSFORM)
                 .input(Map.of("itemKey", "deptId"))
                 .build();
 
@@ -89,7 +85,6 @@ class ExtractTransformTaskExecutorTest {
     @Test
     void rejectsMissingItemKey() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.TRANSFORM)
                 .input(Map.of("collectionVariable", "{{ employeeList }}"))
                 .build();
 

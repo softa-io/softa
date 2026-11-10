@@ -15,10 +15,12 @@ public sealed interface FlowNotificationEvent {
     FlowExecutionState state();
 
     record TaskAssigned(FlowExecutionState state, PendingApproval pendingApproval) implements FlowNotificationEvent {}
-    record TaskCompleted(FlowExecutionState state, PendingApproval pendingApproval, boolean approved) implements FlowNotificationEvent {}
+    /** An approver rejected the step, which ends the approval. */
+    record Rejected(FlowExecutionState state, PendingApproval pendingApproval) implements FlowNotificationEvent {}
     record TaskTransferred(FlowExecutionState state, PendingApproval pendingApproval, String newActorId) implements FlowNotificationEvent {}
     record TimeoutReminded(FlowExecutionState state, PendingApproval pendingApproval, int remindCount) implements FlowNotificationEvent {}
-    record FlowCompleted(FlowExecutionState state, boolean approved) implements FlowNotificationEvent {}
+    /** The approval completed approved. */
+    record FlowCompleted(FlowExecutionState state) implements FlowNotificationEvent {}
     record Urged(FlowExecutionState state, List<String> pendingActorIds, String urgerId, String message) implements FlowNotificationEvent {}
     record CcSent(FlowExecutionState state, String nodeId, List<String> recipientActorIds, String message) implements FlowNotificationEvent {}
     record Returned(FlowExecutionState state, PendingApproval pendingApproval, String actorId, String comment) implements FlowNotificationEvent {}

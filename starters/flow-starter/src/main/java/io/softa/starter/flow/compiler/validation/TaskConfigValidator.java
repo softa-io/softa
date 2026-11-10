@@ -1,10 +1,8 @@
 package io.softa.starter.flow.compiler.validation;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.util.StringUtils;
@@ -42,54 +40,35 @@ import io.softa.starter.flow.runtime.nodeconfig.WebHookConfig;
 /**
  * Validates task node config at compile (publish) time.
  * <p>
- * Three layers: (1) config presence for the message/service node types that require it,
- * (2) shape validation for the <em>typed</em> node types (those in {@link TaskConfigTypes}) —
- * their raw input is parsed into the executor's config DTO and its required fields are checked —
- * and (3) for the record nodes, the model they name and the field paths their query names, checked
- * against the model's metadata the way the query will use them ({@link FieldPaths}). So a
+ * Two layers: (1) shape validation for the <em>typed</em> node types (those in {@link TaskConfigTypes}) —
+ * their raw input is parsed into the executor's config DTO and its required fields are checked, a node with no
+ * input at all included — and (2) for the record nodes, the model they name and the field paths their query names,
+ * checked against the model's metadata the way the query will use them ({@link FieldPaths}). So a
  * misconfigured node fails at publish instead of mid-execution. The executor is otherwise fully
  * determined by {@link FlowNodeType}.
  */
 public class TaskConfigValidator implements FlowValidator {
 
-    private static final String MISSING_TASK_CONFIG = "MISSING_TASK_CONFIG";
     private static final String INVALID_TASK_CONFIG = "INVALID_TASK_CONFIG";
     private static final String MISSING_REQUIRED_INPUT = "MISSING_REQUIRED_INPUT";
     private static final String ARG_TYPES_ARITY = "ARG_TYPES_ARITY";
     private static final String UNKNOWN_MODEL = "UNKNOWN_MODEL";
     private static final String INVALID_FIELD_PATH = "INVALID_FIELD_PATH";
 
-    private static final Set<FlowNodeType> CONFIG_REQUIRED_NODE_TYPES = EnumSet.of(
-            FlowNodeType.CALL_SERVICE,
-            FlowNodeType.CALL_WEBHOOK,
-            FlowNodeType.SEND_EMAIL,
-            FlowNodeType.SEND_SMS,
-            FlowNodeType.SEND_INBOX_NOTIFICATION,
-            FlowNodeType.ASYNC_TASK
-    );
-
     @Override
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition, FlowGraphContext context) {
         List<CompileDiagnostic> d = new ArrayList<>();
         for (FlowGraphNode node : context.nodeMap().values()) {
-            validateConfigPresence(node, d);
             validateTypedConfig(node, d);
         }
         return d;
     }
 
-    private void validateConfigPresence(FlowGraphNode node, List<CompileDiagnostic> d) {
-        if (!CONFIG_REQUIRED_NODE_TYPES.contains(node.getType())) {
-            return;
-        }
-        if (node.getConfig() == null || node.getConfig().isEmpty()) {
-            d.add(CompileDiagnostic.nodeLevel(node.getId(), node.getType().getType(), MISSING_TASK_CONFIG,
-                    "Task node '" + node.displayName() + "' of type '" + node.getType().getType()
-                            + "' must define config"));
-        }
-    }
-
-    /** Parse a typed node type's raw input into its DTO and check required fields / arg-type arity. */
+    /**
+     * Parse a typed node type's raw input into its DTO and check required fields / arg-type arity. A node with no
+     * config, or with none beyond the node's own keys, is checked as an empty input: each required field it lacks is
+     * reported where the designer shows it, as for a node that filled in some of them.
+     */
     private void validateTypedConfig(FlowGraphNode node, List<CompileDiagnostic> d) {
         Class<?> configType = TaskConfigTypes.forNodeType(node.getType());
         if (configType == null) {
@@ -97,8 +76,7 @@ public class TaskConfigValidator implements FlowValidator {
         }
         Map<String, Object> input = extractInput(node);
         if (input == null) {
-            // Absent config is reported by validateConfigPresence (for the required-config types).
-            return;
+            input = Map.of();
         }
         String at = inputPath(node);
         Object dto;

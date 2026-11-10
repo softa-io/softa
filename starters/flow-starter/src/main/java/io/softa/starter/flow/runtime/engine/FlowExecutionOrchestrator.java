@@ -77,8 +77,8 @@ public class FlowExecutionOrchestrator {
 
     public void executeRoot(CompiledFlowDefinition definition, FlowExecutionState state) {
         FlowVariableContext ctx = buildContextFromState(state);
-        executeDefinition(definition, state, definition.getEntryNodeIds(), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
+        executeDefinition(definition, state, definition.getEntryNodeIds(),
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx);
     }
 
     /**
@@ -98,7 +98,7 @@ public class FlowExecutionOrchestrator {
 
     /**
      * Runs the steps after an approval step — those its approval resumes, or, on a retry, the same steps again —
-     * without letting anything that stops them undo the approval (zingkey-hcm#2385, #2382).
+     * without letting anything that stops them undo the approval.
      *
      * <p>The approver has done their part, and what stops the approval going on after it is not theirs to put right:
      * no route out of a step, nobody to approve the next one, branches meeting a step wrongly — or, on a revision
@@ -123,8 +123,8 @@ public class FlowExecutionOrchestrator {
         UndoableSteps steps = UndoableSteps.begin();
         try {
             FlowVariableContext ctx = buildContextFromState(state);
-            executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, approved, ctx), false,
-                    new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
+            executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, approved, ctx),
+                    new LinkedHashSet<>(List.of(definition.getFlowId())), ctx);
             steps.keep();
             state.setRetryAfterNodeId(null);
             return state;
@@ -173,8 +173,8 @@ public class FlowExecutionOrchestrator {
 
         FlowVariableContext ctx = buildContextFromState(state);
         CompiledFlowNode suspendedNode = contextService.requiredNode(definition, suspendedNodeId);
-        executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, suspendedNode, ctx), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
+        executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, suspendedNode, ctx),
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx);
     }
 
     public void failState(FlowExecutionState state,
@@ -226,10 +226,8 @@ public class FlowExecutionOrchestrator {
     private void executeDefinition(CompiledFlowDefinition definition,
                                    FlowExecutionState state,
                                    Collection<String> startingNodeIds,
-                                   boolean subflow,
                                    Set<String> flowStack,
-                                   FlowVariableContext ctx,
-                                   boolean notifyOnComplete) {
+                                   FlowVariableContext ctx) {
         ArrayDeque<String> queue = new ArrayDeque<>(startingNodeIds);
         execution:
         while (!queue.isEmpty()) {
@@ -314,8 +312,7 @@ public class FlowExecutionOrchestrator {
                     FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
                     continue;
                 }
-                case NodeOutcome.RunSubflow subflowCall ->
-                        executeSubflow(state, node, subflowCall, flowStack, ctx, notifyOnComplete);
+                case NodeOutcome.RunSubflow subflowCall -> executeSubflow(state, node, subflowCall, flowStack, ctx);
                 case NodeOutcome.Completed _ -> {
                     // nothing outcome-specific; completion tail below
                 }
@@ -328,9 +325,7 @@ public class FlowExecutionOrchestrator {
         }
 
         requireJoinsComplete(definition, state);
-        if (!subflow) {
-            finalizeRootState(definition, state, announcesCompletion(definition, notifyOnComplete));
-        }
+        finalizeRootState(definition, state);
     }
 
     /**
@@ -406,8 +401,8 @@ public class FlowExecutionOrchestrator {
      * The completion notice tells the initiator their approval went through, so only an Approval flow
      * sends one — an automation run is not something its triggering user asked to hear about.
      */
-    private static boolean announcesCompletion(CompiledFlowDefinition definition, boolean notifyOnComplete) {
-        return notifyOnComplete && FlowScenario.APPROVAL.equals(definition.getScenario());
+    private static boolean announcesCompletion(CompiledFlowDefinition definition) {
+        return FlowScenario.APPROVAL.equals(definition.getScenario());
     }
 
     // ── Subflow ───────────────────────────────────────────────────────────────
@@ -416,8 +411,7 @@ public class FlowExecutionOrchestrator {
                                 CompiledFlowNode parentNode,
                                 NodeOutcome.RunSubflow subflowCall,
                                 Set<String> flowStack,
-                                FlowVariableContext parentCtx,
-                                boolean notifyOnComplete) {
+                                FlowVariableContext parentCtx) {
         // A subflow is a step like any other: what stops it throws, and whoever runs the steps handles it as it handles
         // any failing step — an automation run failed.
         String subflowId = subflowCall.flowId();
@@ -449,7 +443,6 @@ public class FlowExecutionOrchestrator {
                 .flowName(subflowName)
                 .flowRevision(subflow.getRevision())
                 .status(FlowExecutionStatus.RUNNING)
-                .inputPayload(new LinkedHashMap<>(childCtx.getInput()))
                 .variables(new LinkedHashMap<>(childCtx.getVars()))
                 .completedNodeIds(new ArrayList<>())
                 .pendingApprovals(new ArrayList<>())
@@ -460,8 +453,7 @@ public class FlowExecutionOrchestrator {
 
         Set<String> childFlowStack = new LinkedHashSet<>(flowStack);
         childFlowStack.add(subflowId);
-        executeDefinition(subflow, childState, subflow.getEntryNodeIds(), true, childFlowStack, childCtx, notifyOnComplete);
-        finalizeRootState(subflow, childState, announcesCompletion(subflow, notifyOnComplete));
+        executeDefinition(subflow, childState, subflow.getEntryNodeIds(), childFlowStack, childCtx);
 
         // Publishing refuses a waiting step in a flow with a Subflow trigger (SUBFLOW_WAITS); this catches revisions
         // published before.
@@ -570,8 +562,7 @@ public class FlowExecutionOrchestrator {
      * approval, a retry, a timer or an async task resuming the instance, an administrator's reassignment: the notice
      * that it went through, and the flow's approval CCs, recorded on the step whose action ended it.
      */
-    private void finalizeRootState(CompiledFlowDefinition definition, FlowExecutionState state,
-                                   boolean notifyOnComplete) {
+    private void finalizeRootState(CompiledFlowDefinition definition, FlowExecutionState state) {
         // Still parked on any wait — a timer/async token or a pending approval.
         if (state.hasWaitTokens() || !state.getPendingApprovals().isEmpty()) {
             FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
@@ -587,8 +578,8 @@ public class FlowExecutionOrchestrator {
                 .eventTime(LocalDateTime.now())
                 .message("Flow execution completed")
                 .build());
-        if (notifyOnComplete) {
-            notificationService.notify(new FlowNotificationEvent.FlowCompleted(state, true));
+        if (announcesCompletion(definition)) {
+            notificationService.notify(new FlowNotificationEvent.FlowCompleted(state));
             autoCcService.processCc(state, approvalEndStep(definition, state), CcTiming.ON_APPROVED);
         }
     }
@@ -618,9 +609,12 @@ public class FlowExecutionOrchestrator {
 
     // ── Context construction ──────────────────────────────────────────────────
 
+    /**
+     * A run's context, from its variables. The input tier is a subflow's own — its parent's inputMapping, handed to
+     * it in memory (it runs in one go and is never resumed) — so a run loaded from its state has none.
+     */
     private FlowVariableContext buildContextFromState(FlowExecutionState state) {
-        Map<String, Object> input = state.getInputPayload() != null ? state.getInputPayload() : Map.of();
-        Map<String, Object> vars  = state.getVariables()    != null ? state.getVariables()    : Map.of();
-        return FlowVariableContextUtils.fromTriggerPayloadAndVars(input, vars);
+        Map<String, Object> vars = state.getVariables() != null ? state.getVariables() : Map.of();
+        return FlowVariableContextUtils.fromTriggerPayloadAndVars(Map.of(), vars);
     }
 }

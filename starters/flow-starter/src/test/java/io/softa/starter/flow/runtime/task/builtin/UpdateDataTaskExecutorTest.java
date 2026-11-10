@@ -55,7 +55,6 @@ class UpdateDataTaskExecutorTest {
                 .thenReturn(3);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.UPDATE_RECORD)
                 .input(Map.of(
                         "modelName", "Employee",
                         "pkVariable", "{{ employeeId }}",
@@ -76,7 +75,6 @@ class UpdateDataTaskExecutorTest {
     @Test
     void returnsZeroAffectedWhenNoPkAndNoFilters() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.UPDATE_RECORD)
                 .input(Map.of(
                         "modelName", "Employee",
                         "rowTemplate", Map.of("name", "Bob")))
@@ -95,7 +93,6 @@ class UpdateDataTaskExecutorTest {
         variables.put("employeeId", null);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.UPDATE_RECORD)
                 .input(Map.of(
                         "modelName", "Employee",
                         "pkVariable", "{{ employeeId }}",
@@ -111,7 +108,6 @@ class UpdateDataTaskExecutorTest {
     @Test
     void throwsWhenModelNameMissing() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.UPDATE_RECORD)
                 .input(Map.of("rowTemplate", Map.of("name", "Bob")))
                 .build();
 
@@ -123,7 +119,6 @@ class UpdateDataTaskExecutorTest {
     @Test
     void throwsWhenRowTemplateMissing() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.UPDATE_RECORD)
                 .input(Map.of("modelName", "Employee"))
                 .build();
 

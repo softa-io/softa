@@ -73,7 +73,6 @@ class ApprovalThresholdCapTest {
     void mergingTwoApproversCapsTheApprovalsTheStepNeeds() {
         PendingApproval pending = PendingApproval.builder()
                 .approvers(new ArrayList<>(List.of("A", "B", "C")))
-                .totalApproverCount(3)
                 .requiredApprovalCount(3)
                 .approvedActors(new ArrayList<>())
                 .build();

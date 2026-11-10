@@ -1,9 +1,7 @@
 package io.softa.starter.flow.runtime.handler;
 
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -19,14 +17,8 @@ import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
 import io.softa.starter.flow.runtime.task.TaskExecutor;
 
 /**
- * Delegates all executor-backed task nodes to registered {@link TaskExecutor} implementations.
- * <p>
- * Supported node types: {@code CREATE_RECORD}, {@code GET_RECORD}, {@code UPDATE_RECORD},
- * {@code DELETE_RECORD}, {@code QUERY_RECORDS}, {@code VALIDATE_DATA}, {@code TRANSFORM},
- * {@code CALL_SERVICE}, {@code CALL_WEBHOOK}, {@code SEND_EMAIL}, {@code SEND_SMS},
- * {@code SEND_INBOX_NOTIFICATION}, {@code QUERY_AI},
- * {@code ASYNC_TASK}, {@code GENERATE_FILE}.
- * </p>
+ * Delegates all executor-backed task nodes — the node types {@link TaskConfigTypes} lists — to registered
+ * {@link TaskExecutor} implementations.
  * <p>
  * For {@code ASYNC_TASK} nodes the result carries {@code waitForAsync=true} so the engine
  * suspends the instance until the task callback arrives.
@@ -34,24 +26,6 @@ import io.softa.starter.flow.runtime.task.TaskExecutor;
  */
 @Component
 public class TaskNodeExecutionHandler implements NodeExecutionHandler {
-
-    private static final Set<FlowNodeType> SUPPORTED_TYPES = EnumSet.of(
-            FlowNodeType.CREATE_RECORD,
-            FlowNodeType.GET_RECORD,
-            FlowNodeType.UPDATE_RECORD,
-            FlowNodeType.DELETE_RECORD,
-            FlowNodeType.QUERY_RECORDS,
-            FlowNodeType.VALIDATE_DATA,
-            FlowNodeType.TRANSFORM,
-            FlowNodeType.CALL_SERVICE,
-            FlowNodeType.CALL_WEBHOOK,
-            FlowNodeType.SEND_EMAIL,
-            FlowNodeType.SEND_SMS,
-            FlowNodeType.SEND_INBOX_NOTIFICATION,
-            FlowNodeType.QUERY_AI,
-            FlowNodeType.ASYNC_TASK,
-            FlowNodeType.GENERATE_FILE
-    );
 
     private final DefaultTaskExecutorRegistry taskExecutorRegistry;
 
@@ -61,7 +35,7 @@ public class TaskNodeExecutionHandler implements NodeExecutionHandler {
 
     @Override
     public boolean supports(FlowNodeType flowNodeType) {
-        return SUPPORTED_TYPES.contains(flowNodeType);
+        return TaskConfigTypes.forNodeType(flowNodeType) != null;
     }
 
     @Override
@@ -80,19 +54,15 @@ public class TaskNodeExecutionHandler implements NodeExecutionHandler {
         // additionally receive a parsed config DTO on the request.
         Map<String, Object> rawInput = taskConfig.getInput();
         Class<?> configType = TaskConfigTypes.forNodeType(node.getType());
-        Object typedConfig = configType == null || rawInput == null
-                ? null : BeanTool.objectToObject(rawInput, configType);
+        Object typedConfig = rawInput == null ? null : BeanTool.objectToObject(rawInput, configType);
         String outputVariable = taskConfig.getOutputVariable();
 
         String instanceId = scope.get("_instanceId") instanceof String s ? s : null;
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(node.getType())
                 .nodeId(node.getNodeId())
                 .instanceId(instanceId)
                 .input(rawInput == null ? Map.of() : rawInput)
                 .config(typedConfig)
-                .outputVariable(outputVariable)
-                .options(taskConfig.getOptions() == null ? Map.of() : taskConfig.getOptions())
                 .build();
 
         Map<String, Object> rawResult = executor.execute(request, scope);

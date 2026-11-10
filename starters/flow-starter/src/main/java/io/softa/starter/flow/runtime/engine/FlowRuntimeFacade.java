@@ -180,11 +180,12 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 .summary(request.getSummary())
                 .triggerEventId(request.getTriggerEventId())
                 .status(FlowExecutionStatus.RUNNING)
-                .inputPayload(Map.of())
                 .variables(vars)
                 .completedNodeIds(new ArrayList<>())
                 .pendingApprovals(new ArrayList<>())
                 .approvalAuditDelta(new ArrayList<>())
+                // A new instance has no audit rows yet: nothing to read.
+                .committedAudit(new ArrayList<>())
                 .joinArrivalCounts(new LinkedHashMap<>())
                 .trace(new ArrayList<>())
                 .build();

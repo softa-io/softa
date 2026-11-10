@@ -53,15 +53,6 @@ public class FlowOrgService implements OrganizationService {
     }
 
     @Override
-    public ApproverInfo getUserById(Long userId) {
-        if (userId == null) {
-            return null;
-        }
-        List<ApproverInfo> users = getUsersByIds(List.of(userId));
-        return users.isEmpty() ? null : users.getFirst();
-    }
-
-    @Override
     public List<ApproverInfo> getUsersByIds(List<Long> userIds) {
         if (userIds == null || userIds.isEmpty()) {
             return List.of();
@@ -547,7 +538,7 @@ public class FlowOrgService implements OrganizationService {
         }
         Object name = employee.get(props.getNameField());
         return new ApproverInfo(accountId, name == null ? null : name.toString(),
-                toLong(employee.get(props.getDeptIdField())), null);
+                toLong(employee.get(props.getDeptIdField())));
     }
 
     /** What the directory reads of a person: account, name, department, position, and the code where there is one. */

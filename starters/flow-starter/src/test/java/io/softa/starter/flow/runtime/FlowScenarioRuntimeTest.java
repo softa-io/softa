@@ -81,7 +81,7 @@ class FlowScenarioRuntimeTest {
         approve.setActorId("manager");
         engine.approve(approve);
 
-        assertTrue(notices.stream().anyMatch(n -> n instanceof FlowNotificationEvent.FlowCompleted c && c.approved()));
+        assertTrue(notices.stream().anyMatch(n -> n instanceof FlowNotificationEvent.FlowCompleted));
     }
 
     @Test
@@ -117,7 +117,7 @@ class FlowScenarioRuntimeTest {
                 () -> engine.startAutomation(start("parent", "user-1")));
 
         assertTrue(failure.getMessage().contains("Subflow trigger"), failure.getMessage());
-        FlowExecutionState parent = instanceStore.listByFlowId("parent").getFirst();
+        FlowExecutionState parent = instanceStore.listByStatus(FlowExecutionStatus.FAILED).getFirst();
         assertEquals(FlowExecutionStatus.FAILED, parent.getStatus());
         assertEquals("subflow", parent.getFailedNodeId());
         assertTrue(notices.stream().anyMatch(FlowNotificationEvent.FlowFailed.class::isInstance), "who is told");

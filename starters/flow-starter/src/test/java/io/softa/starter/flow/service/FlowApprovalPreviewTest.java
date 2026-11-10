@@ -60,6 +60,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
+import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.service.impl.FlowLaunchServiceImpl;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
@@ -97,7 +98,7 @@ class FlowApprovalPreviewTest {
     private final ApprovalAuditReader auditReader = new ApprovalAuditReader(ledger);
     private final FlowAuditService auditService = new FlowAuditService(auditReader);
     private final ApproverResolutionService approverResolution = new ApproverResolutionService();
-    private final PendingApprovalFactory pendingApprovalFactory = new PendingApprovalFactory(approverResolution, auditReader);
+    private final PendingApprovalFactory pendingApprovalFactory = new PendingApprovalFactory(approverResolution);
     private final FlowDelegationService delegations = mock(FlowDelegationService.class);
     private final ApprovalPathPreviewer previewer = new ApprovalPathPreviewer(new FlowGatewayRouter(),
             pendingApprovalFactory, approverResolution,
@@ -144,7 +145,10 @@ class FlowApprovalPreviewTest {
         // The submitter reads the record with their own permissions; the submit condition sees all of it.
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.of(Map.of("id", 42L)));
         when(modelService.getById(eq(MODEL), any())).thenAnswer(invocation -> Optional.of(record));
-        when(instanceService.findByModelNameAndRowId(MODEL, ROW)).thenReturn(instances);
+        // The record's latest approval: the last one added.
+        when(instanceService.findLatestRecordApproval(MODEL, ROW)).thenAnswer(invocation -> instances.stream()
+                .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
+                .reduce((earlier, later) -> later));
 
         launchService = new FlowLaunchServiceImpl(engine, bundleRegistry, compiler,
                 // No status writer: a preview writes nothing.
@@ -189,11 +193,6 @@ class FlowApprovalPreviewTest {
         design.setWithdrawPolicy(WithdrawPolicy.UNTIL_COMPLETED);
         CompiledFlowDefinition flow = publishService.publish("annual", design);
         record.put("approvalStatus", "Pending");
-        FlowInstance running = new FlowInstance();
-        running.setInstanceId("run-1");
-        running.setStatus(FlowExecutionStatus.WAITING);
-        running.setRecordApproval(true);
-        instances.add(running);
         FlowExecutionState state = FlowExecutionState.builder()
                 .instanceId("run-1").bundleId(flow.getBundleId()).flowId("annual")
                 .initiatorId(SUBMITTER).recordApproval(true).modelName(MODEL).rowId(ROW)
@@ -207,7 +206,8 @@ class FlowApprovalPreviewTest {
                 .approvalAuditDelta(new ArrayList<>())
                 .joinArrivalCounts(new HashMap<>())
                 .build();
-        when(engine.getInstance("run-1")).thenReturn(Optional.of(state));
+        // Its row as the instance table holds it, whole: the preview reads it from there.
+        instances.add(FlowExecutionStateMapper.toEntity(state, null));
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
@@ -266,7 +266,7 @@ class FlowApprovalPreviewTest {
         verify(handler, never()).afterSubmitted(any());
         verify(handler, never()).afterOutcome(any(), any());
         verifyNoInteractions(engine, ledger);
-        verify(instanceService).findByModelNameAndRowId(MODEL, ROW);
+        verify(instanceService).findLatestRecordApproval(MODEL, ROW);
         verifyNoMoreInteractions(instanceService);
     }
 
@@ -339,7 +339,7 @@ class FlowApprovalPreviewTest {
     }
 
     /**
-     * A record not saved yet previews from its values (zingkey-hcm#2354): a pay run's approval request, created as the
+     * A record not saved yet previews from its values: a pay run's approval request, created as the
      * run is submitted, shows its route on the run before it exists. Nothing is read, started or written.
      */
     @Test
@@ -532,8 +532,8 @@ class FlowApprovalPreviewTest {
 
         assertEquals(Status.SEVERAL_FLOWS, preview.getStatus());
         assertTrue(preview.getMessage().contains("Several approval flows"), preview.getMessage());
-        assertEquals(List.of("Flow A", "Flow B"), preview.getCandidates().stream()
-                .map(FlowApprovalPreview.Flow::getFlowName).sorted().toList());
+        assertTrue(preview.getMessage().contains("Flow A") && preview.getMessage().contains("Flow B"),
+                preview.getMessage());
         assertNull(preview.getSteps());
     }
 

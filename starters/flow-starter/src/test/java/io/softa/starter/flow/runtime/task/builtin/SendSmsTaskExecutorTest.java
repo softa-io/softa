@@ -40,7 +40,6 @@ class SendSmsTaskExecutorTest {
     @Test
     void directSendForwardsContentAndPhoneNumbersToService() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_SMS)
                 .input(Map.of(
                         "phoneNumbers", List.of("+1234567890"),
                         "content", "Your order has shipped."))
@@ -63,7 +62,6 @@ class SendSmsTaskExecutorTest {
     @Test
     void templateSendForwardsTemplateCodeToService() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_SMS)
                 .input(Map.of(
                         "phoneNumbers", List.of("+1234567890"),
                         "templateCode", "VERIFY_CODE",
@@ -89,7 +87,6 @@ class SendSmsTaskExecutorTest {
     @Test
     void missingPhoneNumbersThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_SMS)
                 .input(Map.of("content", "Hello"))
                 .build();
 
@@ -102,7 +99,6 @@ class SendSmsTaskExecutorTest {
     @Test
     void missingContentAndTemplateThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_SMS)
                 .input(Map.of("phoneNumbers", List.of("+1234567890")))
                 .build();
 
