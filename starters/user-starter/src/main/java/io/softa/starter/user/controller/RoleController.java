@@ -117,7 +117,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     @Transactional
     @Operation(summary = "Wizard create — insert Role + role_navigation + user_role rows (Manual + Dynamic) in one transaction; returns new role id")
     public ApiResponse<Long> createWithWizard(@RequestBody @Valid WizardSaveDTO body) {
-        roleTenantFacingGuard.assertTenantFacing(body.roleNavigations());
+        roleTenantFacingGuard.assertTenantFacing(null, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(null);
         Long newId = roleService.createOne(role);
@@ -141,7 +141,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         // Before anything is rewritten: when the caller holds this role, it is the role as it was that
         // bounds what the role may become.
         List<RoleGrantCeiling.Grants> callerBefore = roleGrantCeiling.callerGrants();
-        roleTenantFacingGuard.assertTenantFacing(body.roleNavigations());
+        roleTenantFacingGuard.assertTenantFacing(id, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         roleService.updateOne(role, true);

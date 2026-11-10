@@ -2,6 +2,7 @@ package io.softa.starter.user.service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
@@ -23,6 +25,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.EntitlementService;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.user.entity.RoleNavigation;
 
 /**
  * A role in a customer tenant grants only what faces that tenant: no navigation of the platform's own
@@ -36,6 +39,11 @@ import io.softa.framework.orm.service.ModelService;
  * tenant's rows. Refused here for everyone saving inside a customer tenant, the admin included. The
  * platform tenant's roles are the platform's own, and a deployment without tenants has no other tenant
  * to protect.
+ *
+ * <p>Only what a save adds is judged. A role saved before this check may already hold such a page; the
+ * permission snapshot ignores it, and the wizard, which lists only the tenant's own pages, cannot show it
+ * to be taken off — yet sends it back with every save. Refusing it would leave the role uneditable, so
+ * what the role already holds is let through, inert as it is.
  */
 @Component
 public class RoleTenantFacingGuard {
@@ -43,6 +51,7 @@ public class RoleTenantFacingGuard {
     private static final String M_PERMISSION = "Permission";
 
     private final ModelService<?> modelService;
+    private final RoleNavigationService roleNavigationService;
 
     @Value("${permission.platform-nav-prefixes:}")
     private String platformNavPrefixesCsv;
@@ -51,15 +60,19 @@ public class RoleTenantFacingGuard {
     @Autowired(required = false)
     private EntitlementService entitlementService;
 
-    public RoleTenantFacingGuard(ModelService<?> modelService) {
+    public RoleTenantFacingGuard(ModelService<?> modelService, @Lazy RoleNavigationService roleNavigationService) {
         this.modelService = modelService;
+        this.roleNavigationService = roleNavigationService;
     }
 
     /**
      * Refuse the wizard's navigation rows ({@code [{navigationId, permissionIds}]}) when one of them, or one
-     * of their permissions, does not face the current tenant.
+     * of their permissions, does not face the current tenant and is not already held by the role.
+     *
+     * @param roleId          the role being saved, or {@code null} for a new one
+     * @param roleNavigations the navigation rows the save writes
      */
-    public void assertTenantFacing(JsonNode roleNavigations) {
+    public void assertTenantFacing(Long roleId, JsonNode roleNavigations) {
         Context context = ContextHolder.getContext();
         Long tenantId = context == null ? null : context.getTenantId();
         if (context == null || context.isSkipPermissionCheck() || tenantId == null
@@ -80,6 +93,20 @@ public class RoleTenantFacingGuard {
             if (pids != null) {
                 pids.forEach(pid -> rowOf.putIfAbsent(pid, navId));
             }
+        }
+        if (roleId != null) {
+            Set<String> heldNavigations = new HashSet<>();
+            Set<String> heldPermissions = new HashSet<>();
+            for (RoleNavigation rn : roleNavigationService.searchList(
+                    new Filters().eq(RoleNavigation::getRoleId, roleId))) {
+                heldNavigations.add(rn.getNavigationId());
+                List<String> held = JsonUtils.toStringList(rn.getPermissionIds(), true);
+                if (held != null) {
+                    heldPermissions.addAll(held);
+                }
+            }
+            navigationIds.removeAll(heldNavigations);
+            rowOf.keySet().removeAll(heldPermissions);
         }
         Set<String> permissionIds = rowOf.keySet();
         Map<String, String> navigationOf = new HashMap<>();

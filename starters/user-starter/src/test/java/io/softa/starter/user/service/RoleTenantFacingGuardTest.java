@@ -16,9 +16,11 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.EntitlementService;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.user.entity.RoleNavigation;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,6 +34,8 @@ import static org.mockito.Mockito.when;
 class RoleTenantFacingGuardTest {
 
     private static final Long TENANT = 7L;
+
+    private static final Long ROLE = 42L;
 
     private RoleTenantFacingGuard guard;
 
@@ -52,7 +56,14 @@ class RoleTenantFacingGuardTest {
                 Map.of("id", "permission.payroll.run", "navigationId", "navigation.payroll.run"),
                 Map.of("id", "permission.system.tenant-info.view", "navigationId",
                         "navigation.system.tenant-data.tenant-info")));
-        guard = new RoleTenantFacingGuard(models);
+        // The stored role: it already holds a platform page, saved before the check existed.
+        RoleNavigation held = new RoleNavigation();
+        held.setRoleId(ROLE);
+        held.setNavigationId("navigation.system.tenant-data.tenant-info");
+        held.setPermissionIds(JsonUtils.stringToObject("[\"permission.system.tenant-info.view\"]", JsonNode.class));
+        RoleNavigationService stored = mock(RoleNavigationService.class);
+        when(stored.searchList(any(Filters.class))).thenReturn(List.of(held));
+        guard = new RoleTenantFacingGuard(models, stored);
         ReflectionTestUtils.setField(guard, "platformNavPrefixesCsv", "navigation.system.,navigation.studio.");
         EntitlementService entitlement = mock(EntitlementService.class);
         when(entitlement.entitledModules(anyLong())).thenReturn(Set.of("corehr"));
@@ -64,12 +75,16 @@ class RoleTenantFacingGuardTest {
     }
 
     private void saveIn(Long tenantId, boolean skipPermissionCheck, JsonNode navigations) {
+        saveIn(tenantId, skipPermissionCheck, null, navigations);
+    }
+
+    private void saveIn(Long tenantId, boolean skipPermissionCheck, Long roleId, JsonNode navigations) {
         Context ctx = new Context();
         ctx.setTenantId(tenantId);
         ctx.setUserId(2L);
         ctx.setSkipPermissionCheck(skipPermissionCheck);
         ContextHolder.callWith(ctx, () -> {
-            guard.assertTenantFacing(navigations);
+            guard.assertTenantFacing(roleId, navigations);
             return null;
         });
     }
@@ -118,6 +133,41 @@ class RoleTenantFacingGuardTest {
                 """))).doesNotThrowAnyException();
         assertThatThrownBy(() -> saveIn(TENANT, false, rows("""
                 [{"navigationId":"navigation.system.tenant-data.tenant-info","permissionIds":["permission.since.removed"]}]
+                """))).isInstanceOf(BusinessException.class);
+    }
+
+    /**
+     * A role saved before the check may already hold a platform page the wizard cannot show, and sends it
+     * back with every save; refusing it would leave the role uneditable. What it already holds passes.
+     */
+    @Test
+    void whatTheRoleAlreadyHoldsIsLetThrough() {
+        assertThatCode(() -> saveIn(TENANT, false, ROLE, rows("""
+                [{"navigationId":"navigation.corehr.employee","permissionIds":["permission.employee.view"]},
+                 {"navigationId":"navigation.system.tenant-data.tenant-info",
+                  "permissionIds":["permission.system.tenant-info.view"]}]
+                """))).doesNotThrowAnyException();
+    }
+
+    /** Only what the role already holds passes: a platform page the save adds is refused all the same. */
+    @Test
+    void aPlatformPageTheSaveAddsIsStillRefused() {
+        assertThatThrownBy(() -> saveIn(TENANT, false, ROLE, rows("""
+                [{"navigationId":"navigation.system.tenant-data.tenant-info",
+                  "permissionIds":["permission.system.tenant-info.view","permission.system.tenant-info.update"]},
+                 {"navigationId":"navigation.payroll.run","permissionIds":["permission.payroll.run"]}]
+                """))).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("permission.system.tenant-info.update")
+                .hasMessageContaining("navigation.payroll.run")
+                .hasMessageNotContaining("permission.system.tenant-info.view");
+    }
+
+    /** A new role holds nothing yet, so a platform page in it is refused. */
+    @Test
+    void aNewRoleHoldsNothing() {
+        assertThatThrownBy(() -> saveIn(TENANT, false, null, rows("""
+                [{"navigationId":"navigation.system.tenant-data.tenant-info",
+                  "permissionIds":["permission.system.tenant-info.view"]}]
                 """))).isInstanceOf(BusinessException.class);
     }
 
