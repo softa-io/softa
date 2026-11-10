@@ -22,6 +22,7 @@ import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.PatchType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
@@ -44,6 +45,21 @@ public class OneToManyProcessor extends BaseProcessor {
     private boolean changed = false;
 
     private record OneToManyPatchValues(List<?> createRows, List<?> updateRows, List<?> deleteIds) {}
+
+    /**
+     * A parent's children as a write finds them: the live ones it diffs against, and the soft-deleted ones kept
+     * apart, which a read no longer returns and so a caller can only send back from a stale copy.
+     */
+    private record ExistingChildren(Map<Serializable, Set<Serializable>> live,
+                                    Map<Serializable, Set<Serializable>> deleted) {
+        Set<Serializable> liveOf(Serializable parentId) {
+            return live.getOrDefault(parentId, Collections.emptySet());
+        }
+
+        Set<Serializable> deletedOf(Serializable parentId) {
+            return deleted.getOrDefault(parentId, Collections.emptySet());
+        }
+    }
 
     /**
      * Constructor of the OneToMany field processor object.
@@ -116,14 +132,14 @@ public class OneToManyProcessor extends BaseProcessor {
         List<Map<String, Object>> createRows = new ArrayList<>();
         List<Map<String, Object>> updateRows = new ArrayList<>();
         List<Serializable> deleteIds = new ArrayList<>();
-        // {mainModelId: Set<relatedModelIds>}: get the existing OneToMany ids mapping.
-        Map<Serializable, Set<Serializable>> existOneToManyIdsMap = this.getExistOneToManyMap(rows);
+        ExistingChildren existing = this.getExistingChildren(rows);
         for (Map<String, Object> row : rows) {
             Serializable id = (Serializable) row.get(ModelConstant.ID);
-            Set<Serializable> previousSubIds = existOneToManyIdsMap.getOrDefault(id, Collections.emptySet());
+            Set<Serializable> previousSubIds = existing.liveOf(id);
+            Set<Serializable> deletedSubIds = existing.deletedOf(id);
             Object value = row.get(fieldName);
             if (value instanceof Map<?, ?> patchMap) {
-                applyOneToManyUpdatePatch(id, patchMap, previousSubIds, createRows, updateRows, deleteIds);
+                applyOneToManyUpdatePatch(id, patchMap, previousSubIds, deletedSubIds, createRows, updateRows, deleteIds);
             } else if (value == null && row.containsKey(fieldName) && !previousSubIds.isEmpty()) {
                 deleteIds.addAll(previousSubIds);
             } else if (value instanceof List<?> valueList) {
@@ -134,6 +150,7 @@ public class OneToManyProcessor extends BaseProcessor {
                     }
                 } else {
                     List<Map<String, Object>> subRows = convertAndLinkSubRows(id, valueList);
+                    refuseDeletedRows(subRows, deletedSubIds);
                     if (!previousSubIds.isEmpty()) {
                         // Process related model rows, when update the OneToMany field from old value to a new list.
                         processOneToManyUpdate(subRows, previousSubIds, createRows, updateRows, deleteIds);
@@ -248,6 +265,7 @@ public class OneToManyProcessor extends BaseProcessor {
      * Apply OneToMany patch in update scene.
      */
     private void applyOneToManyUpdatePatch(Serializable mainId, Map<?, ?> patchMap, Set<Serializable> previousSubIds,
+                                           Set<Serializable> deletedSubIds,
                                            List<Map<String, Object>> createRows, List<Map<String, Object>> updateRows,
                                            List<Serializable> deleteIds) {
         OneToManyPatchValues patchValues = parseOneToManyPatchValues(patchMap);
@@ -256,11 +274,14 @@ public class OneToManyProcessor extends BaseProcessor {
         }
         if (!patchValues.updateRows().isEmpty()) {
             List<Map<String, Object>> patchUpdateRows = convertAndLinkSubRows(mainId, patchValues.updateRows());
+            refuseDeletedRows(patchUpdateRows, deletedSubIds);
             validatePatchUpdateRows(patchUpdateRows, previousSubIds);
             updateRows.addAll(patchUpdateRows);
         }
         if (!patchValues.deleteIds().isEmpty()) {
-            List<Serializable> patchDeleteIds = IdUtils.formatIds(metaField.getRelatedModel(), patchValues.deleteIds());
+            // A row already deleted is as the patch asks it to be: nothing is left to delete.
+            List<Serializable> patchDeleteIds = IdUtils.formatIds(metaField.getRelatedModel(), patchValues.deleteIds())
+                    .stream().filter(deleteId -> !deletedSubIds.contains(deleteId)).toList();
             validatePatchDeleteIds(patchDeleteIds, previousSubIds);
             deleteIds.addAll(patchDeleteIds);
         }
@@ -293,6 +314,21 @@ public class OneToManyProcessor extends BaseProcessor {
     }
 
     /**
+     * A row sent back that the parent once held but has since been deleted: read from a copy taken before the
+     * delete. It is not written back to life, nor re-created under its old id, so the write is refused.
+     */
+    private void refuseDeletedRows(List<Map<String, Object>> subRows, Set<Serializable> deletedSubIds) {
+        if (deletedSubIds.isEmpty()) {
+            return;
+        }
+        subRows.forEach(subRow -> {
+            Serializable subId = IdUtils.formatId(metaField.getRelatedModel(), (Serializable) subRow.get(ModelConstant.ID));
+            Assert.isTrue(subId == null || !deletedSubIds.contains(subId),
+                    "Model field {0}:{1} row {2} has been deleted.", modelName, fieldName, subId);
+        });
+    }
+
+    /**
      * Validate delete ids in OneToMany patch scene.
      */
     private void validatePatchDeleteIds(List<Serializable> patchDeleteIds, Set<Serializable> previousSubIds) {
@@ -301,23 +337,31 @@ public class OneToManyProcessor extends BaseProcessor {
     }
 
     /**
-     * Query the existing OneToMany rows and groupBy the main model id.
+     * The existing children of the rows being written, per parent. Read past soft-delete and active control, so
+     * an inactive child is diffed like any other; a soft-deleted one is kept apart. A read of the field no longer
+     * returns it, so a list sent back leaves it out — counted as existing, it would be deleted again on every
+     * save, which a caller without delete rights on the children, or without them in scope, is refused.
      *
      * @param rows Data list
-     * @return {mainModelId: Set<relatedModelId>}
+     * @return the live and the soft-deleted children, each as {mainModelId: Set<relatedModelId>}
      */
-    private Map<Serializable, Set<Serializable>> getExistOneToManyMap(Collection<Map<String, Object>> rows) {
+    private ExistingChildren getExistingChildren(Collection<Map<String, Object>> rows) {
         List<Serializable> ids = rows.stream().map(r -> (Serializable) r.get(ModelConstant.ID)).collect(Collectors.toList());
+        String relatedModel = metaField.getRelatedModel();
+        boolean softDeleted = ModelManager.isSoftDeleted(relatedModel);
         Set<String> fields = Sets.newHashSet(ModelConstant.ID, metaField.getRelatedField());
+        if (softDeleted) {
+            fields.add(ModelConstant.SOFT_DELETED_FIELD);
+        }
         FlexQuery previousFlexQuery = new FlexQuery(fields, Filters.of(metaField.getRelatedField(), Operator.IN, ids));
-        // Patch diffing must see soft-deleted / inactive children too, otherwise
-        // the computed createRows / deleteIds would be wrong.
         previousFlexQuery.setFilterControl(FilterControl.bypassAll());
-        List<Map<String, Object>> previousOToMRows = ReflectTool.searchListIgnoringRowScope(metaField.getRelatedModel(), previousFlexQuery);
-        return previousOToMRows.stream().collect(Collectors.groupingBy(
-                row -> (Serializable) row.get(metaField.getRelatedField()),
-                Collectors.mapping(row -> (Serializable) row.get(ModelConstant.ID), Collectors.toSet())
-        ));
+        List<Map<String, Object>> previousOToMRows = ReflectTool.searchListIgnoringRowScope(relatedModel, previousFlexQuery);
+        Map<Boolean, Map<Serializable, Set<Serializable>>> byDeleted = previousOToMRows.stream().collect(Collectors.partitioningBy(
+                row -> softDeleted && Boolean.TRUE.equals(row.get(ModelConstant.SOFT_DELETED_FIELD)),
+                Collectors.groupingBy(
+                        row -> (Serializable) row.get(metaField.getRelatedField()),
+                        Collectors.mapping(row -> (Serializable) row.get(ModelConstant.ID), Collectors.toSet()))));
+        return new ExistingChildren(byDeleted.get(false), byDeleted.get(true));
     }
 
     /**
