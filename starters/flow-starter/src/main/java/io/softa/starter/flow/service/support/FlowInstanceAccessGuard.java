@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
@@ -156,19 +157,29 @@ public class FlowInstanceAccessGuard {
     }
 
     /**
-     * Authorizes a caller to preview the approval a business record's submission would start: they
-     * can read the record with their own permissions. Taking part in the record's earlier approvals
-     * is not enough — the preview is about its next one.
+     * Authorizes a caller to preview a business record's approval: they can read the record with their own
+     * permissions, or the approval is in progress and they take part in it ({@link #isParticipant}) — its route is
+     * what its approvers and CC recipients are shown. Taking part in the record's earlier approvals is not enough:
+     * with none in progress the preview is about its next one.
      *
      * @param modelName   the record's model
      * @param rowId       the record
+     * @param running     the record's approval in progress, or null when it has none; asked only of an
+     *                    authenticated caller who cannot read the record
      * @param requesterId the authenticated caller's user id
-     * @throws FlowAuthorizationException if they cannot read the record
+     * @return the approval in progress the caller was let in on by taking part in it, or null when they read
+     *         the record themselves. A caller let in this way may be shown that approval and nothing else.
+     * @throws FlowAuthorizationException if neither holds
      */
-    public void requireRecordReader(String modelName, String rowId, String requesterId) {
+    public FlowExecutionState requirePreviewer(String modelName, String rowId, Supplier<FlowExecutionState> running,
+                                               String requesterId) {
         requireAuthenticated(requesterId, "preview the approval of " + modelName + " " + rowId);
         if (canReadRecord(modelName, rowId)) {
-            return;
+            return null;
+        }
+        FlowExecutionState approval = running.get();
+        if (approval != null && isParticipant(approval, requesterId)) {
+            return approval;
         }
         throw new FlowAuthorizationException("User may not preview the approval of " + modelName + " " + rowId);
     }

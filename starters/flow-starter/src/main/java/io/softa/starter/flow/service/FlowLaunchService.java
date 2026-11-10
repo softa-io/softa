@@ -67,7 +67,7 @@ public interface FlowLaunchService {
      * @param requesterId the user who would submit it
      * @return the preview, users named
      * @throws io.softa.starter.flow.runtime.exception.FlowAuthorizationException when the requester
-     *         cannot read the record with their own permissions
+     *         neither can read the record with their own permissions nor takes part in its approval in progress
      */
     FlowApprovalPreview previewRecord(String modelName, String rowId, String requesterId);
 

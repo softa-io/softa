@@ -183,7 +183,8 @@ public class FlowInstanceController {
                     + "by the record's own checks, an approval already in progress, no applicable flow or several "
                     + "are reported, not raised; a route that depends on data only known once the approval runs is "
                     + "reported as undecided, never guessed. Nothing is started or written. Allowed to whoever can "
-                    + "read the record with their own permissions.")
+                    + "read the record with their own permissions and, while its approval is in progress, to those "
+                    + "who take part in that approval.")
     public ApiResponse<FlowApprovalPreview> previewRecordApproval(@RequestParam String modelName,
                                                                  @RequestParam String rowId) {
         return ApiResponse.success(launchService.previewRecord(modelName, rowId, currentUserId()));

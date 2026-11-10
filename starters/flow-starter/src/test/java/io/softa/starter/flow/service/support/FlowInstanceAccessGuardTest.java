@@ -34,6 +34,8 @@ import io.softa.starter.flow.service.support.FlowInstanceAccessGuard.RecordAdmis
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -451,6 +453,40 @@ class FlowInstanceAccessGuardTest {
     void withoutAnyOfThemTheCallerIsDenied() {
         when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false));
+    }
+
+    @Test
+    void aReaderOfTheRecordPreviewsWithoutItsApprovalBeingAskedFor() {
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class);
+             MockedStatic<IdUtils> ids = mockStatic(IdUtils.class)) {
+            models.when(() -> ModelManager.existModel("LeaveRequest")).thenReturn(true);
+            ids.when(() -> IdUtils.formatId(anyString(), any(Serializable.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(1));
+            when(modelService.getById(eq("LeaveRequest"), any(), eq(List.of("id"))))
+                    .thenReturn(Optional.of(Map.of("id", 42L)));
+
+            assertNull(guard.requirePreviewer("LeaveRequest", "42", () -> {
+                throw new AssertionError("a reader needs no approval state");
+            }, "u1"));
+        }
+    }
+
+    @Test
+    void aParticipantPreviewsOnlyTheApprovalInProgress() {
+        FlowExecutionState running = FlowExecutionState.builder().instanceId("i1").initiatorId("u1").build();
+
+        assertSame(running, guard.requirePreviewer("LeaveRequest", "42", () -> running, "u1"));
+        assertThrows(FlowAuthorizationException.class,
+                () -> guard.requirePreviewer("LeaveRequest", "42", () -> running, "u2"));
+        assertThrows(FlowAuthorizationException.class,
+                () -> guard.requirePreviewer("LeaveRequest", "42", () -> null, "u1"));
+    }
+
+    @Test
+    void aBlankRequesterPreviewsNothingAndNoApprovalIsAskedFor() {
+        assertThrows(FlowAuthorizationException.class, () -> guard.requirePreviewer("LeaveRequest", "42", () -> {
+            throw new AssertionError("no approval state before authentication");
+        }, " "));
     }
 
     @Test
