@@ -387,9 +387,9 @@ public class OneToManyProcessor extends BaseProcessor {
                 createRows.add(subRow);
             }
         });
-        Set<Serializable> deletedSubIds = new HashSet<>(previousSubIds);
-        deletedSubIds.removeAll(currentSubIds);
-        deleteIds.addAll(deletedSubIds);
+        Set<Serializable> removedSubIds = new HashSet<>(previousSubIds);
+        removedSubIds.removeAll(currentSubIds);
+        deleteIds.addAll(removedSubIds);
     }
 
     /**
