@@ -4,10 +4,12 @@ import java.io.Serial;
 import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.message.sms.enums.SmsDeliveryStatus;
@@ -20,6 +22,13 @@ import io.softa.starter.message.sms.enums.SmsSendStatus;
  * Each record corresponds to a single phone number. For batch sends,
  * one record per recipient is created.
  * Written automatically by MessageService; not created manually via API.
+ * <p>
+ * Acceptance stores the request as the caller made it — the number, any explicit
+ * content, the template it named and its variables, the tier. The first delivery
+ * attempt renders the template, routes the number to a provider and charges the
+ * monthly quota, and writes the result back here; retries replay what that attempt
+ * prepared. A request that cannot be prepared (no provider for the country, no
+ * template, quota used up) still leaves its record, FAILED with the reason.
  */
 @Data
 @Model(label = "SMS Send Record", idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false, multiTenant = true)
@@ -42,10 +51,20 @@ public class SmsSendRecord extends AuditableModel {
                     + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
     private Long tenantId;
 
-    @Field(label = "Provider Config ID", description = "SMS provider config used to send this message")
+    @Field(description = "Tier policy of the send: true = PLATFORM scope (the platform tier renders the "
+            + "template and is charged), false = TENANT scope.")
+    private Boolean platformScope;
+
+    @Field(label = "Trace ID", description = "Trace id of the request that submitted the send; "
+            + "every delivery attempt runs and logs under it")
+    private String traceId;
+
+    @Field(label = "Provider Config ID", description = "SMS provider config that carries this message: the "
+            + "caller's choice, else the one the first delivery attempt routed the number to")
     private Long providerConfigId;
 
-    @Field(description = "Provider type used for this send (Twilio, Infobip, etc.)")
+    @Field(description = "Provider type used for this send (Twilio, Infobip, etc.); "
+            + "empty until the first delivery attempt routes the number")
     private SmsProvider providerType;
 
     @Field(description = "Recipient phone number", length = 50)
@@ -54,7 +73,11 @@ public class SmsSendRecord extends AuditableModel {
     @Field(description = "Template code if sent via template", length = 100)
     private String templateCode;
 
-    @Field(length = 2000, description = "Rendered SMS content")
+    @Field(fieldType = FieldType.JSON, description = "Template placeholder values the caller passed")
+    private JsonNode templateVariables;
+
+    @Field(length = 2000, description = "SMS content: the caller's text, or the template rendered "
+            + "by the first delivery attempt")
     private String content;
 
     @Field(description = "SMS signature (sign name) actually used at send time. "
@@ -91,9 +114,8 @@ public class SmsSendRecord extends AuditableModel {
     @Field(description = "Timestamp when the message was accepted by the provider")
     private LocalDateTime sentAt;
 
-    @Field(description = "When the latest delivery attempt started: a consumer claimed the record (status → "
-            + "Sending). The attempt's queue wait is this minus the publishedAt of the outbox row that "
-            + "delivered it.")
+    @Field(description = "When the latest delivery attempt started: the delivery loop claimed the record "
+            + "(status → Sending).")
     private LocalDateTime attemptStartedAt;
 
     @Field(label = "Send Duration (ms)", description = "How long the provider API call of the successful "

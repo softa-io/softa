@@ -5,10 +5,10 @@ import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
@@ -49,10 +49,10 @@ class ConfirmJoinAuthorizationTest {
 
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
-    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final MessageService messageService = mock(MessageService.class);
     /** The proof is JoinProofTest's subject; here it is waved through so the profileId tie is what decides. */
     private final UserInvitationServiceImpl service = spy(new UserInvitationServiceImpl(
-            accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
+            accountService, identityService, messageService, null, mock(JoinProofGuard.class),
             mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
     private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
             InvitationServiceTestSupport.quiet(service);

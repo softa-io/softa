@@ -5,16 +5,14 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.dto.FileInfo;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
-import io.softa.starter.message.mq.TopicRoute;
-import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
 import io.softa.starter.message.shared.AbstractCasSendRecordServiceImpl;
 
 /**
@@ -24,7 +22,7 @@ import io.softa.starter.message.shared.AbstractCasSendRecordServiceImpl;
  * markDeadLetter) is inherited from {@link AbstractCasSendRecordServiceImpl};
  * this class adds the mail-specific writes (sent / bounce / read-receipt) and
  * Message-ID lookups. All transitions use the framework {@code versionLock}
- * path so duplicate broker deliveries get {@code false} back and no-op.
+ * path, so a transition that lost a race gets {@code false} back and no-op.
  */
 @Service
 public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<MailSendRecord>
@@ -32,9 +30,6 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
 
     private static final String MANUAL_RETRY_CODE = "MANUAL_RETRY";
     private static final String MANUAL_RETRY_MESSAGE = "Manually requeued for delivery";
-
-    @Autowired
-    private OutboxRecordWriter outboxRecordWriter;
 
     @Override
     public boolean markSending(Long id, long expectedVersion) {
@@ -53,19 +48,34 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
             throw new BusinessException("This email is being sent right now. If it is stuck, "
                     + "stale SENDING records are requeued automatically after the zombie window.");
         }
-        // Same atomic primitive the zombie sweeper uses: CAS to RETRY + a fresh outbox
-        // row. retryCount keeps counting — a manual retry grants ONE new attempt and a
-        // failure returns the record to FAILED / DEAD_LETTER instead of silently
-        // re-arming the whole automatic retry budget.
-        LocalDateTime retryAt = LocalDateTime.now();
-        long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
-        boolean ok = outboxRecordWriter.transitionAndEnqueueAt(
-                () -> markRetry(id, expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE, retryAt),
-                id, "MailSendRecord", TopicRoute.MAIL_SEND, retryAt);
-        if (!ok) {
+        if (!requeue(record)) {
             throw new BusinessException("The record changed concurrently — refresh and retry again.");
         }
         return true;
+    }
+
+    @Override
+    public int retryByIds(List<Long> ids) {
+        int requeued = 0;
+        for (MailSendRecord record : getByIds(ids)) {
+            MailSendStatus status = record.getStatus();
+            if (status != MailSendStatus.SENT && status != MailSendStatus.SENDING && requeue(record)) {
+                requeued++;
+            }
+        }
+        return requeued;
+    }
+
+    /**
+     * Due now: the delivery loop picks it up on its next poll. retryCount keeps counting — a
+     * manual retry grants ONE new attempt and a failure returns the record to FAILED /
+     * DEAD_LETTER instead of silently re-arming the whole automatic retry budget.
+     * {@code false} when the record changed since it was read.
+     */
+    private boolean requeue(MailSendRecord record) {
+        long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
+        return markRetry(record.getId(), expectedVersion, MANUAL_RETRY_CODE, MANUAL_RETRY_MESSAGE,
+                LocalDateTime.now());
     }
 
     @Override
@@ -83,6 +93,24 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
             if (r.getMessageId() != null) out.put(r.getMessageId(), r);
         }
         return out;
+    }
+
+    @Override
+    public boolean markPrepared(MailSendRecord record, long expectedVersion) {
+        Map<String, Object> patch = versionedPatch(record.getId(), expectedVersion);
+        patch.put("subject", record.getSubject());
+        patch.put("bodyHtml", record.getBodyHtml());
+        patch.put("bodyText", record.getBodyText());
+        patch.put("bodyMode", record.getBodyMode());
+        // A MULTI_FILE column stores file ids; FileInfo is only its read shape.
+        patch.put("attachments", record.getAttachments() == null ? null
+                : record.getAttachments().stream().map(FileInfo::getFileId).toList());
+        patch.put("priority", record.getPriority());
+        patch.put("replyTo", record.getReplyTo());
+        patch.put("readReceiptRequested", record.getReadReceiptRequested());
+        patch.put("serverConfigId", record.getServerConfigId());
+        patch.put("fromAddress", record.getFromAddress());
+        return updateVersioned(patch);
     }
 
     @Override

@@ -7,11 +7,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.ApplicationEventPublisher;
 
-import io.softa.framework.base.message.MailRequestMessage;
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.message.SubscriptionExpiryReminderMessage;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.service.RoleService;
@@ -41,7 +43,7 @@ class SubscriptionExpiryReminderMailerTest {
     private static final long TENANT = 1001L;
     private static final long ADMIN_ROLE_ID = 55L;
 
-    private ApplicationEventPublisher eventPublisher;
+    private MessageService messageService;
     private UserAccountService accountService;
     private SubscriptionExpiryReminderMailer mailer;
 
@@ -50,7 +52,7 @@ class SubscriptionExpiryReminderMailerTest {
         RoleService roleService = mock(RoleService.class);
         UserRoleRelService userRoleRelService = mock(UserRoleRelService.class);
         accountService = mock(UserAccountService.class);
-        eventPublisher = mock(ApplicationEventPublisher.class);
+        messageService = mock(MessageService.class);
 
         Role adminRole = new Role();
         adminRole.setId(ADMIN_ROLE_ID);
@@ -59,7 +61,7 @@ class SubscriptionExpiryReminderMailerTest {
         when(accountService.getByIds(anyList())).thenReturn(List.of(account("admin@acme.test")));
 
         mailer = new SubscriptionExpiryReminderMailer(roleService, userRoleRelService, accountService,
-                eventPublisher);
+                messageService);
     }
 
     // ─── which template ───
@@ -69,7 +71,7 @@ class SubscriptionExpiryReminderMailerTest {
     void paidWithNoSuccessor_plainRenewal() {
         mailer.remindAdmins(message(false, null));
 
-        assertThat(captureMail().templateCode())
+        assertThat(captureMail().getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_EXPIRY_REMINDER);
     }
 
@@ -78,7 +80,7 @@ class SubscriptionExpiryReminderMailerTest {
     void trialWithNoSuccessor_upgradeAsk() {
         mailer.remindAdmins(message(true, null));
 
-        assertThat(captureMail().templateCode())
+        assertThat(captureMail().getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_TRIAL_EXPIRY_REMINDER);
     }
 
@@ -89,7 +91,7 @@ class SubscriptionExpiryReminderMailerTest {
         // telling a paying customer their payment did not arrive.
         mailer.remindAdmins(message(false, "2026-10-01"));
 
-        assertThat(captureMail().templateCode())
+        assertThat(captureMail().getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_GAP_REMINDER);
     }
 
@@ -102,7 +104,7 @@ class SubscriptionExpiryReminderMailerTest {
         // though the purchase had not registered.
         mailer.remindAdmins(message(true, "2026-10-01"));
 
-        assertThat(captureMail().templateCode())
+        assertThat(captureMail().getTemplateCode())
                 .as("gap is checked before trial, deliberately")
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_GAP_REMINDER);
     }
@@ -114,7 +116,7 @@ class SubscriptionExpiryReminderMailerTest {
         // gap would render the notice with a missing date — "resuming " with nothing after it.
         mailer.remindAdmins(message(false, "  "));
 
-        assertThat(captureMail().templateCode())
+        assertThat(captureMail().getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_EXPIRY_REMINDER);
     }
 
@@ -125,7 +127,7 @@ class SubscriptionExpiryReminderMailerTest {
     void gapNoticeCarriesTheResumeDate() {
         mailer.remindAdmins(message(false, "2026-10-01"));
 
-        assertThat(captureMail().variables())
+        assertThat(captureMail().getTemplateVariables())
                 .containsEntry("nextStartDate", "2026-10-01")
                 .containsEntry("tenantName", "Acme Corp")
                 .containsEntry("expiryDate", "2026-09-01");
@@ -137,24 +139,40 @@ class SubscriptionExpiryReminderMailerTest {
         // The templates are shared platform rows; an unbound variable renders as the raw placeholder.
         mailer.remindAdmins(message(false, null));
 
-        assertThat(captureMail().variables()).containsEntry("nextStartDate", "");
+        assertThat(captureMail().getTemplateVariables()).containsEntry("nextStartDate", "");
     }
 
     @Test
     @DisplayName("one mail per admin — a shared recipient list would leak addresses")
     void oneMailPerAdmin() {
-        // MailRequestMessage has no bcc, so every recipient on one message sees the others. Two tenant admins
-        // of the same customer are ordinary; two customers' addresses in one To: header is a data leak.
+        // Every recipient of one message sees the others in its To: header. Two tenant admins of the same
+        // customer are ordinary; two customers' addresses in one To: header is a data leak.
         when(accountService.getByIds(anyList()))
                 .thenReturn(List.of(account("one@acme.test"), account("two@acme.test")));
 
         mailer.remindAdmins(message(false, null));
 
-        ArgumentCaptor<MailRequestMessage> captor = ArgumentCaptor.forClass(MailRequestMessage.class);
-        verify(eventPublisher, times(2)).publishEvent(captor.capture());
-        assertThat(captor.getAllValues()).allSatisfy(mail -> assertThat(mail.to()).hasSize(1));
-        assertThat(captor.getAllValues()).flatExtracting(MailRequestMessage::to)
+        ArgumentCaptor<SendMailDTO> captor = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService, times(2)).sendMail(captor.capture());
+        assertThat(captor.getAllValues()).allSatisfy(mail -> assertThat(mail.getTo()).hasSize(1));
+        assertThat(captor.getAllValues()).flatExtracting(SendMailDTO::getTo)
                 .containsExactly("one@acme.test", "two@acme.test");
+        // The platform's wording, which a tenant must not re-word; the record stays in the tenant's books.
+        assertThat(captor.getAllValues()).extracting(SendMailDTO::getScope).containsOnly(MessageScope.PLATFORM);
+    }
+
+    @Test
+    @DisplayName("one admin's address that cannot be accepted does not cost the others their reminder")
+    void aRejectedAddress_doesNotStopTheOthers() {
+        when(accountService.getByIds(anyList()))
+                .thenReturn(List.of(account("not an address"), account("two@acme.test")));
+        when(messageService.sendMail(any()))
+                .thenThrow(new BusinessException("Mail send rejected: invalid to address"))
+                .thenReturn(1L);
+
+        mailer.remindAdmins(message(false, null));
+
+        verify(messageService, times(2)).sendMail(any());
     }
 
     @Test
@@ -165,23 +183,23 @@ class SubscriptionExpiryReminderMailerTest {
 
         mailer.remindAdmins(message(false, null));
 
-        verify(eventPublisher, never()).publishEvent(any());
+        verify(messageService, never()).sendMail(any());
     }
 
-    private MailRequestMessage captureMail() {
-        ArgumentCaptor<MailRequestMessage> captor = ArgumentCaptor.forClass(MailRequestMessage.class);
-        verify(eventPublisher).publishEvent(captor.capture());
+    private SendMailDTO captureMail() {
+        ArgumentCaptor<SendMailDTO> captor = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendMail(captor.capture());
         return captor.getValue();
     }
 
     @Test
     void downgrade_picksTheDowngradeTemplate() {
         mailer.remindAdmins(message(false, null, "plan.free"));
-        MailRequestMessage mail = captureMail();
+        SendMailDTO mail = captureMail();
 
-        assertThat(mail.templateCode())
+        assertThat(mail.getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_DOWNGRADE_REMINDER);
-        assertThat(mail.variables()).containsEntry("successorPlanId", "plan.free");
+        assertThat(mail.getTemplateVariables()).containsEntry("successorPlanId", "plan.free");
     }
 
     @Test
@@ -190,9 +208,9 @@ class SubscriptionExpiryReminderMailerTest {
         // tenant is not cut off for a single day, so the gap wording — which names an uncovered stretch —
         // would describe something that does not happen.
         mailer.remindAdmins(message(false, "2026-12-01", "plan.free"));
-        MailRequestMessage mail = captureMail();
+        SendMailDTO mail = captureMail();
 
-        assertThat(mail.templateCode())
+        assertThat(mail.getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_DOWNGRADE_REMINDER);
     }
 
@@ -200,18 +218,18 @@ class SubscriptionExpiryReminderMailerTest {
     void downgrade_outranksTheTrialWording() {
         // A trial that lapses onto the free plan has not "run out" — upgrade-or-lose-access is untrue.
         mailer.remindAdmins(message(true, null, "plan.free"));
-        MailRequestMessage mail = captureMail();
+        SendMailDTO mail = captureMail();
 
-        assertThat(mail.templateCode())
+        assertThat(mail.getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_DOWNGRADE_REMINDER);
     }
 
     @Test
     void blankSuccessor_isTreatedAsNoSuccessor() {
         mailer.remindAdmins(message(false, null, "  "));
-        MailRequestMessage mail = captureMail();
+        SendMailDTO mail = captureMail();
 
-        assertThat(mail.templateCode())
+        assertThat(mail.getTemplateCode())
                 .isEqualTo(SubscriptionExpiryReminderMailer.TEMPLATE_EXPIRY_REMINDER);
     }
 

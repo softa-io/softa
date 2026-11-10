@@ -2,22 +2,16 @@ package io.softa.starter.message.shared.maintenance;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
-import io.softa.starter.message.mq.TopicRoute;
-import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
-import io.softa.starter.message.mq.outbox.OutboxService;
 import io.softa.starter.message.shared.ErrorCategory;
-import io.softa.starter.message.shared.retry.RetryProperties;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsProvider;
@@ -25,7 +19,8 @@ import io.softa.starter.message.sms.enums.SmsSendStatus;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -42,7 +37,6 @@ class ZombieRecordSweeperTest {
 
     private MailSendRecordService mailService;
     private SmsSendRecordService smsService;
-    private OutboxRecordWriter outboxRecordWriter;
     private SendFailureHandler sendFailureHandler;
     private ZombieRecordSweeper sweeper;
 
@@ -50,22 +44,15 @@ class ZombieRecordSweeperTest {
     void setUp() {
         mailService = mock(MailSendRecordService.class);
         smsService = mock(SmsSendRecordService.class);
-        OutboxService outboxService = mock(OutboxService.class);
-        outboxRecordWriter = mock(OutboxRecordWriter.class);
         sendFailureHandler = mock(SendFailureHandler.class);
 
         sweeper = new ZombieRecordSweeper();
         ReflectionTestUtils.setField(sweeper, "mailSendRecordService", mailService);
         ReflectionTestUtils.setField(sweeper, "smsSendRecordService", smsService);
-        ReflectionTestUtils.setField(sweeper, "outboxService", outboxService);
-        ReflectionTestUtils.setField(sweeper, "outboxRecordWriter", outboxRecordWriter);
-        ReflectionTestUtils.setField(sweeper, "properties", new MessageProperties());
-        ReflectionTestUtils.setField(sweeper, "retryProperties", new RetryProperties());
         ReflectionTestUtils.setField(sweeper, "sendFailureHandler", sendFailureHandler);
 
         when(mailService.searchList(any(FlexQuery.class))).thenReturn(List.of());
         when(smsService.searchList(any(FlexQuery.class))).thenReturn(List.of());
-        when(outboxService.findStalePublishing(any(), anyInt())).thenReturn(List.of());
     }
 
     private static MailSendRecord stuckMail(int retryCount) {
@@ -79,15 +66,17 @@ class ZombieRecordSweeperTest {
     }
 
     @Test
-    void aStuckRecordWithRetriesLeftIsRevived() {
+    void aStuckRecordWithRetriesLeftIsRevivedAndDueAtOnce() {
         when(mailService.searchList(any(FlexQuery.class))).thenReturn(List.of(stuckMail(4)));
-        when(outboxRecordWriter.transitionAndEnqueueAt(any(BooleanSupplier.class), eq(5L),
-                eq("MailSendRecord"), eq(TopicRoute.MAIL_SEND), any(LocalDateTime.class))).thenReturn(true);
+        when(mailService.markRetry(eq(5L), eq(3L), eq("ZOMBIE_RECOVERED"), any(), any(LocalDateTime.class)))
+                .thenReturn(true);
+        LocalDateTime before = LocalDateTime.now();
 
         sweeper.sweep();
 
-        verify(outboxRecordWriter).transitionAndEnqueueAt(any(BooleanSupplier.class), eq(5L),
-                eq("MailSendRecord"), eq(TopicRoute.MAIL_SEND), any(LocalDateTime.class));
+        // RETRY with nextRetryAt = now: due for the delivery loop's next poll.
+        verify(mailService).markRetry(eq(5L), eq(3L), eq("ZOMBIE_RECOVERED"), any(),
+                argThat(at -> !at.isBefore(before) && !at.isAfter(LocalDateTime.now())));
         verifyNoInteractions(sendFailureHandler);
     }
 
@@ -100,7 +89,7 @@ class ZombieRecordSweeperTest {
 
         verify(sendFailureHandler).deadLetter(eq("mail"), eq(SmtpMailTransport.NAME), eq(5L), eq(3L), eq(5),
                 eq("ZOMBIE_EXHAUSTED"), any(), eq(ErrorCategory.UNKNOWN), any());
-        verify(outboxRecordWriter, never()).transitionAndEnqueueAt(any(), any(), any(), any(), any());
+        verify(mailService, never()).markRetry(any(), anyLong(), any(), any(), any());
     }
 
     @Test
@@ -118,6 +107,6 @@ class ZombieRecordSweeperTest {
 
         verify(sendFailureHandler).deadLetter(eq("sms"), eq("twilio"), eq(9L), eq(1L), eq(5),
                 eq("ZOMBIE_EXHAUSTED"), any(), eq(ErrorCategory.UNKNOWN), any());
-        verify(outboxRecordWriter, never()).transitionAndEnqueueAt(any(), any(), any(), any(), any());
+        verify(smsService, never()).markRetry(any(), anyLong(), any(), any(), any());
     }
 }

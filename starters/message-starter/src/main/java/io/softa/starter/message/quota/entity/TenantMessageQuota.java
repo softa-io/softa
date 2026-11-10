@@ -12,9 +12,10 @@ import io.softa.framework.orm.enums.IdStrategy;
 
 /**
  * Monthly send-volume quota for one tenant — a commercial ceiling, not rate
- * limiting: once the month's accepted sends reach the limit, further sends are
- * rejected at acceptance with a {@code BusinessException} (nothing queues or
- * delays). Complements — never replaces — the per-config infrastructure
+ * limiting. A send is charged when its record is prepared (its first delivery
+ * attempt); once the month's charged sends reach the limit, further records
+ * fail with {@code MONTHLY_QUOTA_EXCEEDED}, logged at ERROR — raise the limit
+ * and Retry them. Complements — never replaces — the per-config infrastructure
  * limits ({@code dailySendLimit} / {@code rateLimitPerMinute}), which protect
  * individual servers/providers at delivery time.
  * <p>
@@ -48,14 +49,16 @@ public class TenantMessageQuota extends AuditableModel {
     private Long tenantId;
 
     @Field(label = "Mail Monthly Limit",
-            description = "Maximum accepted mail sends per calendar month. "
-                    + "Null = use the deployment default (message.quota.mail-monthly-default; "
+            description = "Maximum mail sends charged per calendar month; a send is charged when its record "
+                    + "is prepared, at its first delivery attempt. "
+                    + "Null = use the deployment default (softa.message.quota.mail-monthly-default; "
                     + "null there = unlimited).")
     private Long mailMonthlyLimit;
 
     @Field(label = "SMS Monthly Limit",
-            description = "Maximum accepted SMS sends per calendar month. "
-                    + "Null = use the deployment default (message.quota.sms-monthly-default; "
+            description = "Maximum SMS sends charged per calendar month; a send is charged when its record "
+                    + "is prepared, at its first delivery attempt. "
+                    + "Null = use the deployment default (softa.message.quota.sms-monthly-default; "
                     + "null there = unlimited).")
     private Long smsMonthlyLimit;
 

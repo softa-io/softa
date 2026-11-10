@@ -24,7 +24,7 @@ import org.springframework.context.annotation.Configuration;
  * <ul>
  *   <li>{@code softa.message.dlq.topic} — required to enable. 
  *      Pulsar topic the broker forwards exhausted messages to.</li>
- *   <li>{@code softa.message.dlq.max-redeliver} — optional, default {@code 5}.
+ *   <li>{@code softa.message.dlq.max-redeliver} — optional, default {@code 2}.
  *       Max nack count before the broker dead-letters.</li>
  * </ul>
  */
@@ -35,7 +35,7 @@ public class DlqPolicyConfig {
     @Bean("commonDlqPolicy")
     public DeadLetterPolicy commonDlqPolicy(
             @Value("${softa.message.dlq.topic}") String dlqTopic, 
-            @Value("${softa.message.dlq.max-redeliver:5}") int maxRedeliver) {
+            @Value("${softa.message.dlq.max-redeliver:2}") int maxRedeliver) {
         return DeadLetterPolicy.builder()
                 .maxRedeliverCount(maxRedeliver)
                 .deadLetterTopic(dlqTopic)

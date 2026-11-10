@@ -13,9 +13,9 @@ import io.softa.framework.base.message.AdminProvisionedMessage;
  * Bridges the in-process {@link AdminProvisionedEvent} to MQ: on {@code AFTER_COMMIT} (so a rolled-back
  * admin creation never publishes), fans an {@link AdminProvisionedMessage} to Pulsar for business modules
  * to consume and attach their own per-admin record — e.g. corehr builds an {@code Employee} bound to the
- * account. Mirrors the framework {@code MailRequestPublisher} pattern — the {@code :}-empty-default topic
- * gate makes this a no-op when {@code mq.topics.admin-provisioned.topic} is unconfigured (e.g. tests / apps
- * that don't want a business record built for the admin).
+ * account. The {@code :}-empty-default topic gate makes this a no-op when
+ * {@code mq.topics.admin-provisioned.topic} is unconfigured (e.g. tests / apps that don't want a business
+ * record built for the admin).
  */
 @Slf4j
 @Component

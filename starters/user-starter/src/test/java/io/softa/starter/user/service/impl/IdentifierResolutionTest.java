@@ -11,6 +11,7 @@ import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.dto.AuthenticationResult;
 import io.softa.starter.user.dto.MembershipOption;
 import io.softa.starter.user.entity.UserAccount;
@@ -122,13 +123,12 @@ class IdentifierResolutionTest {
         // answer does not say so.
         person("hash");
         when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of());
-        org.springframework.context.ApplicationEventPublisher publisher =
-                mock(org.springframework.context.ApplicationEventPublisher.class);
-        ReflectionTestUtils.setField(loginService, "eventPublisher", publisher);
+        MessageService messageService = mock(MessageService.class);
+        ReflectionTestUtils.setField(loginService, "messageService", messageService);
 
         org.assertj.core.api.Assertions.assertThatCode(() -> loginService.sendEmailCode(EMAIL))
                 .doesNotThrowAnyException();
-        verify(publisher, never()).publishEvent(any(Object.class));
+        org.mockito.Mockito.verifyNoInteractions(messageService);
     }
 
     @Test

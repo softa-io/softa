@@ -1,6 +1,7 @@
 package io.softa.starter.message.shared;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
@@ -55,5 +56,27 @@ public final class TenantScopes {
     public static List<Long> currentPlusPlatform() {
         long tenant = currentTenantOrPlatform();
         return tenant == PLATFORM ? List.of(PLATFORM) : List.of(PLATFORM, tenant);
+    }
+
+    /**
+     * Run a send record's insert in the context that owns the record. The ORM stamps the
+     * record's tenant from the context, and only while the context is not cross-tenant, so the
+     * insert runs non-cross-tenant: the record belongs to the caller's tenant. A caller sending
+     * for another tenant pins that tenant first ({@code ContextUtils.inTenantContext}). A
+     * platform-scope send from a context with no tenant — a login code asked for before any
+     * session exists — is filed under the platform tier.
+     */
+    public static <T> T inRecordOwnerContext(boolean platformScope, Supplier<T> insert) {
+        Context current = ContextHolder.getContext();
+        boolean platformWithoutTenant = platformScope && current.getTenantId() == null;
+        if (!platformWithoutTenant && !current.isCrossTenant()) {
+            return insert.get();
+        }
+        Context owner = ContextHolder.cloneContext();
+        if (platformWithoutTenant) {
+            owner.setTenantId(PLATFORM);
+        }
+        owner.setCrossTenant(false);
+        return ContextHolder.callWith(owner, insert::get);
     }
 }

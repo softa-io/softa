@@ -10,22 +10,23 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MailRequestMessage;
 import io.softa.framework.base.message.MessageScope;
-import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.base.security.EncryptUtils;
 import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.dto.MembershipOption;
 import io.softa.starter.user.dto.MyAccountSummary;
@@ -107,7 +108,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
     private CacheService cacheService;
 
     @Autowired
-    private ApplicationEventPublisher eventPublisher;
+    private MessageService messageService;
 
     @Autowired
     private UserSessionService sessionService;
@@ -361,8 +362,9 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         List<Runnable> notices = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
             channels.add("sms");
-            notices.add(() -> eventPublisher.publishEvent(new SmsRequestMessage(
-                    List.of(oldMobile), TEMPLATE_LOGIN_MOBILE_CHANGED, vars)));
+            // The person is signed in: the notice goes out in their current tenant.
+            notices.add(() -> messageService.sendSms(SendSmsDTO.ofTemplate(
+                    oldMobile, TEMPLATE_LOGIN_MOBILE_CHANGED, vars, MessageScope.TENANT)));
         }
         // Joined (not merely invited) and not left: the mailboxes the person actually reads at work.
         // One per address — the same enterprise email on two accounts is one mailbox.
@@ -375,15 +377,16 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             }
             mailed.add(email);
             channels.add("email");
+            // Each company's mail is that company's: its template, and its send records.
             Long tenantId = membership.getTenantId();
-            notices.add(() -> eventPublisher.publishEvent(new MailRequestMessage(
-                    List.of(email), TEMPLATE_LOGIN_MOBILE_CHANGED, vars, tenantId, MessageScope.TENANT)));
+            notices.add(() -> ContextUtils.inTenantContext(tenantId, () -> messageService.sendMail(SendMailDTO.ofTemplate(
+                    List.of(email), TEMPLATE_LOGIN_MOBILE_CHANGED, vars, MessageScope.TENANT))));
         }
         row.setReminderChannels(String.join(",", channels));
         return notices;
     }
 
-    /** Hands each notice off; one that fails is logged and recorded, and never undoes the change. */
+    /** Sends each notice; one that fails is logged and recorded, and never undoes the change. */
     private static void send(List<Runnable> notices, UserSecurityLog row) {
         String[] channels = StringUtils.split(StringUtils.defaultString(row.getReminderChannels()), ',');
         List<String> results = new ArrayList<>();
@@ -402,7 +405,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             send.run();
             return "sent";
         } catch (RuntimeException e) {
-            log.warn("Login-mobile change notice could not be handed off: {}", e.getMessage());
+            log.error("Login-mobile change notice could not be sent: {}", e.getMessage());
             return "failed";
         }
     }
@@ -459,8 +462,10 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         codeGuard.beforeSend(number);
         String code = RandomStringUtils.secure().nextNumeric(VerificationCodeGuard.CODE_LENGTH);
         codeGuard.store(number, code);
-        eventPublisher.publishEvent(new SmsRequestMessage(List.of(number), TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", VerificationCodeGuard.CODE_TTL_SECONDS / 60)));
+        // A number message-starter rejects refuses the step, like any other refusal here.
+        messageService.sendSms(SendSmsDTO.ofTemplate(number, TEMPLATE_CODE,
+                Map.of("code", code, "expiryMinutes", VerificationCodeGuard.CODE_TTL_SECONDS / 60),
+                MessageScope.TENANT));
     }
 
     private String loginMobileOf(UserIdentity identity) {

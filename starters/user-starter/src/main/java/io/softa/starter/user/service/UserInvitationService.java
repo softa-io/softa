@@ -8,8 +8,8 @@ import io.softa.starter.user.entity.UserInvitation;
 
 /**
  * Issues + accepts password-set-by-email tokens (invitations + self-service resets). Generates a
- * high-entropy one-time token, stores only its SHA-256 hash, emails the raw token by publishing a
- * framework {@code MailRequestMessage} (delivered by message-starter when present), and on accept sets the password
+ * high-entropy one-time token, stores only its SHA-256 hash, emails the raw token through message-starter's
+ * {@code MessageService}, and on accept sets the password
  * (activating an INVITED account). Extends {@link EntityService} so the 明细 (records) are browsable
  * through the generic model APIs.
  */

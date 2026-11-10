@@ -64,8 +64,8 @@ public class SmsProviderConfigServiceImpl extends EntityServiceImpl<SmsProviderC
     @Override
     @CrossTenant
     public Optional<SmsProviderConfig> findVisibleById(Long id) {
-        // Disabled providers stay resolvable by id: an accepted record replays
-        // through the very provider it was routed to at acceptance.
+        // Disabled providers stay resolvable by id: a prepared record replays
+        // through the very provider it was routed to when it was prepared.
         FlexQuery flexQuery = new FlexQuery(new Filters()
                 .eq(SmsProviderConfig::getId, id)
                 .in(SmsProviderConfig::getTenantId, TenantScopes.currentPlusPlatform()));

@@ -12,12 +12,13 @@ import io.softa.starter.message.quota.service.TenantMessageQuotaService;
 import io.softa.starter.message.quota.service.TenantMessageUsageService;
 
 /**
- * Monthly send-volume quota gate, enforced at <b>acceptance</b> time (before
- * the record + outbox row are written) — a commercial ceiling, not rate
- * limiting: an over-quota send is rejected synchronously with a
- * {@link BusinessException}; nothing queues, delays or retries. Delivery-time
- * retries never touch the ledger, so one accepted message costs exactly one
- * unit regardless of how many SMTP/provider attempts it takes.
+ * Monthly send-volume quota gate, charged when a send record is <b>prepared</b>
+ * — its first delivery attempt, after the template rendered and the server or
+ * provider resolved, so a send that cannot go out costs nothing. A commercial
+ * ceiling, not rate limiting: an over-quota send fails its record with
+ * {@code MONTHLY_QUOTA_EXCEEDED}; nothing queues, delays or retries. Retries
+ * of a prepared record never touch the ledger, so one message costs exactly
+ * one unit regardless of how many SMTP/provider attempts it takes.
  * <p>
  * The counting bucket follows the send's {@link MessageScope}: {@code TENANT}
  * sends draw on the current tenant's quota, {@code PLATFORM} sends on the
@@ -61,7 +62,7 @@ public class MonthlyQuotaGuard {
         usageService.consume(channel, bucketTenantId, limit);
     }
 
-    /** The month's accepted-send count for one bucket (0 when never counted). */
+    /** The month's charged-send count for one bucket (0 when never counted). */
     public long usage(String channel, long tenantId, YearMonth month) {
         return usageService.findByBucketAndMonth(tenantId, month)
                 .map(row -> "mail".equals(channel) ? row.getMailUsed() : row.getSmsUsed())
@@ -69,7 +70,7 @@ public class MonthlyQuotaGuard {
                 .orElse(0L);
     }
 
-    /** The full ledger row for one bucket and month, if any sends were accepted. */
+    /** The full ledger row for one bucket and month, if any sends were charged. */
     public Optional<TenantMessageUsage> usageRow(long tenantId, YearMonth month) {
         return usageService.findByBucketAndMonth(tenantId, month);
     }

@@ -19,6 +19,12 @@ public enum ErrorCategory {
     INVALID_INPUT(false),
     /** Provider auth failed (bad API key, expired token). Usually needs ops, not retry. */
     AUTH(false),
+    /**
+     * The deployment cannot send this message as configured: no server or provider, a missing or
+     * broken template, the monthly quota used up. Never heals by retrying — fix the configuration,
+     * then Retry the record.
+     */
+    CONFIG(false),
     /** Daily / per-minute quota exhausted; retry later with extended back-off. */
     QUOTA(true),
     /** Anything we couldn't classify — retry conservatively. */

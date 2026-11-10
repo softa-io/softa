@@ -1,11 +1,11 @@
 package io.softa.starter.message.shared.maintenance;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -16,17 +16,12 @@ import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
-import io.softa.starter.message.mq.TopicRoute;
-import io.softa.starter.message.mq.outbox.OutboxEntry;
-import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
-import io.softa.starter.message.mq.outbox.OutboxService;
 import io.softa.starter.message.shared.ErrorCategory;
-import io.softa.starter.message.shared.retry.RetryProperties;
+import io.softa.starter.message.shared.retry.ExponentialBackoffPolicy;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
@@ -35,15 +30,15 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
 /**
  * Recovers records stuck in {@code SENDING} past the safe-send window.
  * <p>
- * A record enters {@code SENDING} when a consumer CAS-claims it. If the JVM
- * crashes between {@code SENDING} and the terminal CAS, the row stays locked
+ * A record enters {@code SENDING} when the delivery loop CAS-claims it. If the
+ * JVM crashes between {@code SENDING} and the terminal CAS, the row stays locked
  * forever without this sweep.
  * <p>
  * Strategy: every minute, find records in {@code SENDING} whose
- * {@code updated_time} is older than {@code softa.message.zombie.stale-seconds}
- * (default 300 = 5 minutes), transition them back to {@code RETRY} with
- * {@code next_retry_at = now}, and enqueue the matching retry outbox row in
- * the same transaction.
+ * {@code updated_time} is older than {@link #STALE_AFTER} (five minutes — far
+ * longer than any send, whose connect and read timeouts are seconds) and
+ * transition them back to {@code RETRY} with {@code next_retry_at = now}, which
+ * makes them due for the delivery loop again.
  * <p>
  * Each revival counts as a retry, and the budget is checked here too: a record
  * whose retries are already used up is dead-lettered instead of revived. An
@@ -51,17 +46,15 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
  * failure handler that normally enforces the budget, so without this check such
  * a record would be revived every stale window, forever.
  * <p>
- * It also reopens stale outbox {@code PUBLISHING} claims to {@code NEW}. Safety
- * comes from the framework {@code versionLock}; a concurrent legitimate
+ * Safety comes from the framework {@code versionLock}; a concurrent legitimate
  * completion wins and this sweep skips the stale snapshot.
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(
-        name = "softa.message.zombie.enabled",
-        havingValue = "true",
-        matchIfMissing = true)
 public class ZombieRecordSweeper {
+
+    /** A {@code SENDING} record untouched this long is stale. */
+    static final Duration STALE_AFTER = Duration.ofMinutes(5);
 
     private static final int BATCH_LIMIT = 200;
     private static final String ZOMBIE_CODE = "ZOMBIE_RECOVERED";
@@ -69,7 +62,6 @@ public class ZombieRecordSweeper {
     private static final String EXHAUSTED_CODE = "ZOMBIE_EXHAUSTED";
     private static final String EXHAUSTED_MESSAGE =
             "Stale SENDING with the retry budget used up; not revived again";
-    private static final String OUTBOX_ZOMBIE_MESSAGE = "Revived after stale PUBLISHING";
 
     @Autowired
     private MailSendRecordService mailSendRecordService;
@@ -78,36 +70,21 @@ public class ZombieRecordSweeper {
     private SmsSendRecordService smsSendRecordService;
 
     @Autowired
-    private OutboxService outboxService;
-
-    @Autowired
-    private OutboxRecordWriter outboxRecordWriter;
-
-    @Autowired
-    private MessageProperties properties;
-
-    @Autowired
-    private RetryProperties retryProperties;
-
-    @Autowired
     private SendFailureHandler sendFailureHandler;
 
     /**
      * The scan is {@code @CrossTenant} (one sweeper revives every tenant's
-     * records), but each revive runs inside the record's own tenant context so
-     * the retry outbox payload carries the owning tenant — the retry consumer
-     * restores it before re-driving the send.
+     * records), but each revive runs inside the record's own tenant context,
+     * where the versioned update finds its row.
      */
-    @Scheduled(cron = "${softa.message.zombie.cron:0 * * * * *}")
+    @Scheduled(cron = "0 * * * * *")
     @CrossTenant
     public void sweep() {
-        LocalDateTime threshold = LocalDateTime.now()
-                .minusSeconds(properties.getZombie().getStaleSeconds());
+        LocalDateTime threshold = LocalDateTime.now().minus(STALE_AFTER);
         int mail = sweepMail(threshold);
         int sms = sweepSms(threshold);
-        int outbox = sweepOutbox(threshold);
-        if (mail + sms + outbox > 0) {
-            log.info("ZombieRecordSweeper: revived mail={} sms={} outbox={}", mail, sms, outbox);
+        if (mail + sms > 0) {
+            log.info("ZombieRecordSweeper: revived mail={} sms={}", mail, sms);
         }
     }
 
@@ -116,19 +93,16 @@ public class ZombieRecordSweeper {
         int revived = 0;
         for (MailSendRecord row : rows) {
             int retries = attempts(row.getRetryCount());
-            if (retries >= retryProperties.getDefaultMaxAttempts()) {
+            if (retries >= ExponentialBackoffPolicy.MAX_ATTEMPTS) {
                 inTenantContext(row.getTenantId(), () -> sendFailureHandler.deadLetter(
                         "mail", SmtpMailTransport.NAME, row.getId(), version(row.getVersion()), retries,
                         EXHAUSTED_CODE, EXHAUSTED_MESSAGE, ErrorCategory.UNKNOWN,
                         mailSendRecordService::markDeadLetter));
                 continue;
             }
-            LocalDateTime retryAt = LocalDateTime.now();
             boolean ok = inTenantContext(row.getTenantId(),
-                    () -> outboxRecordWriter.transitionAndEnqueueAt(
-                            () -> mailSendRecordService.markRetry(row.getId(), version(row.getVersion()),
-                                    ZOMBIE_CODE, ZOMBIE_MESSAGE, retryAt),
-                            row.getId(), "MailSendRecord", TopicRoute.MAIL_SEND, retryAt));
+                    () -> mailSendRecordService.markRetry(row.getId(), version(row.getVersion()),
+                            ZOMBIE_CODE, ZOMBIE_MESSAGE, LocalDateTime.now()));
             if (ok) revived++;
         }
         return revived;
@@ -139,7 +113,7 @@ public class ZombieRecordSweeper {
         int revived = 0;
         for (SmsSendRecord row : rows) {
             int retries = attempts(row.getRetryCount());
-            if (retries >= retryProperties.getDefaultMaxAttempts()) {
+            if (retries >= ExponentialBackoffPolicy.MAX_ATTEMPTS) {
                 String provider = row.getProviderType() != null
                         ? row.getProviderType().name().toLowerCase() : null;
                 inTenantContext(row.getTenantId(), () -> sendFailureHandler.deadLetter(
@@ -148,12 +122,9 @@ public class ZombieRecordSweeper {
                         smsSendRecordService::markDeadLetter));
                 continue;
             }
-            LocalDateTime retryAt = LocalDateTime.now();
             boolean ok = inTenantContext(row.getTenantId(),
-                    () -> outboxRecordWriter.transitionAndEnqueueAt(
-                            () -> smsSendRecordService.markRetry(row.getId(), version(row.getVersion()),
-                                    ZOMBIE_CODE, ZOMBIE_MESSAGE, retryAt),
-                            row.getId(), "SmsSendRecord", TopicRoute.SMS_SEND, retryAt));
+                    () -> smsSendRecordService.markRetry(row.getId(), version(row.getVersion()),
+                            ZOMBIE_CODE, ZOMBIE_MESSAGE, LocalDateTime.now()));
             if (ok) revived++;
         }
         return revived;
@@ -168,18 +139,6 @@ public class ZombieRecordSweeper {
         boolean[] ok = new boolean[1];
         ContextHolder.runWith(ctx, () -> ok[0] = write.getAsBoolean());
         return ok[0];
-    }
-
-    private int sweepOutbox(LocalDateTime threshold) {
-        List<OutboxEntry> rows = outboxService.findStalePublishing(threshold, BATCH_LIMIT);
-        int revived = 0;
-        for (OutboxEntry row : rows) {
-            if (outboxService.markNew(row.getId(), version(row.getVersion()), attempts(row.getAttempts()),
-                    OUTBOX_ZOMBIE_MESSAGE, LocalDateTime.now())) {
-                revived++;
-            }
-        }
-        return revived;
     }
 
     private FlexQuery mailQuery(LocalDateTime threshold) {

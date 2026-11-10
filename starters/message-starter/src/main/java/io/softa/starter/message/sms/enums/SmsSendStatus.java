@@ -16,7 +16,7 @@ import lombok.Getter;
 public enum SmsSendStatus {
     @OptionItem(description = "Queued, not yet sent", itemTone = OptionItemTone.NEUTRAL)
     PENDING("Pending"),
-    @OptionItem(description = "In-flight: picked up by a consumer, provider call in progress",
+    @OptionItem(description = "In-flight: claimed by the delivery loop, provider call in progress",
             itemTone = OptionItemTone.INFO)
     SENDING("Sending"),
     @OptionItem(description = "Successfully delivered to the SMS provider",

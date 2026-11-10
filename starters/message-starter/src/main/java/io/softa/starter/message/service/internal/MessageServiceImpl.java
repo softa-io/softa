@@ -1,6 +1,5 @@
 package io.softa.starter.message.service.internal;
 
-import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,7 +10,13 @@ import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
 
-/** Public facade implementation; channel details remain in package-private handlers. */
+/**
+ * Public facade implementation; channel details remain in package-private handlers.
+ * <p>
+ * Mail and SMS acceptance validate every message before writing any, and do not roll back on a
+ * {@link BusinessException}: a rejected request leaves the caller's transaction usable, so a caller
+ * that notifies as a side effect can log the rejection and carry on with its own change.
+ */
 @Service
 @Transactional
 public class MessageServiceImpl implements MessageService {
@@ -31,29 +36,27 @@ public class MessageServiceImpl implements MessageService {
     }
 
     @Override
+    @Transactional(noRollbackFor = BusinessException.class)
     public Long sendMail(SendMailDTO message) {
         return mailHandler.send(requireMessage("mail", message));
     }
 
     @Override
+    @Transactional(noRollbackFor = BusinessException.class)
     public List<Long> sendMailBatch(List<SendMailDTO> messages) {
-        List<SendMailDTO> batch = requireBatch("mail", messages);
-        List<Long> ids = new ArrayList<>(batch.size());
-        batch.forEach(message -> ids.add(mailHandler.send(message)));
-        return List.copyOf(ids);
+        return mailHandler.sendBatch(requireBatch("mail", messages));
     }
 
     @Override
+    @Transactional(noRollbackFor = BusinessException.class)
     public Long sendSms(SendSmsDTO message) {
         return smsHandler.send(requireMessage("sms", message));
     }
 
     @Override
+    @Transactional(noRollbackFor = BusinessException.class)
     public List<Long> sendSmsBatch(List<SendSmsDTO> messages) {
-        List<SendSmsDTO> batch = requireBatch("sms", messages);
-        List<Long> ids = new ArrayList<>(batch.size());
-        batch.forEach(message -> ids.add(smsHandler.send(message)));
-        return List.copyOf(ids);
+        return smsHandler.sendBatch(requireBatch("sms", messages));
     }
 
     @Override

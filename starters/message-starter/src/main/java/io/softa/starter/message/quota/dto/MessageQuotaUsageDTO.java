@@ -17,13 +17,13 @@ public class MessageQuotaUsageDTO {
     @Schema(description = "Calendar month, yyyy-MM")
     private String month;
 
-    @Schema(description = "Accepted mail sends this month")
+    @Schema(description = "Mail sends charged this month")
     private Long mailUsed;
 
     @Schema(description = "Resolved mail ceiling (row value, else deployment default); null = unlimited")
     private Long mailMonthlyLimit;
 
-    @Schema(description = "Accepted SMS sends this month")
+    @Schema(description = "SMS sends charged this month")
     private Long smsUsed;
 
     @Schema(description = "Resolved SMS ceiling (row value, else deployment default); null = unlimited")

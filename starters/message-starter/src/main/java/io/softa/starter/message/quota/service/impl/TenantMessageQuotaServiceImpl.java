@@ -31,9 +31,9 @@ public class TenantMessageQuotaServiceImpl extends EntityServiceImpl<TenantMessa
 
     @Override
     public ResolvedLimits resolveLimits(long tenantId) {
-        // Skip permission checks: this read serves the send acceptance path in
-        // the caller's context, and the registry is platform-owned data no
-        // caller needs a grant for. The model is not multiTenant, so no tenant
+        // Skip permission checks: this read serves the preparation of a send
+        // record, in the record's context, and the registry is platform-owned
+        // data no caller needs a grant for. The model is not multiTenant, so no tenant
         // filter applies either way.
         Context ctx = ContextHolder.cloneContext();
         ctx.setSkipPermissionCheck(true);
