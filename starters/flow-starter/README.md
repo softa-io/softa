@@ -1326,9 +1326,9 @@ Nothing is written: no instance, task, ledger row or notification, and no delega
 preview is allowed to whoever can read the record with their own permissions and, while its approval is in
 progress, to those who take part in that approval — its submitter, approvers and CC recipients, who are shown its
 route past their own row permissions (`FlowInstanceAccessGuard.requirePreviewer`). Anyone else is never waived from
-row scope, and taking part in the record's earlier approvals is not enough. Users are named as in the approval history. It runs in no transaction of its
-own, and `FlowClient.previewRecord` should be called outside one: a refusal thrown through a transactional
-method marks the transaction it joins rollback-only.
+row scope, and taking part in the record's earlier approvals is not enough. Users are named as in the approval
+history. It runs in no transaction of its own, and `FlowClient.previewRecord` should be called outside one: a
+refusal thrown through a transactional method marks the transaction it joins rollback-only.
 
 ### Testing a draft
 
