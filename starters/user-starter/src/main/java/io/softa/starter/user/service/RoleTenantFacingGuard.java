@@ -106,7 +106,7 @@ public class RoleTenantFacingGuard {
         }
         if (!refused.isEmpty()) {
             throw new BusinessException("A role in this tenant cannot grant {0}: a platform page, or a module "
-                    + "the tenant's plan does not include.", String.join(", ", refused));
+                    + "the tenant''s plan does not include.", String.join(", ", refused));
         }
     }
 

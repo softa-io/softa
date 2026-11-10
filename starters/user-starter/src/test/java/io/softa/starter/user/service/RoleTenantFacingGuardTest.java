@@ -87,7 +87,9 @@ class RoleTenantFacingGuardTest {
                 [{"navigationId":"navigation.system.tenant-data.tenant-info",
                   "permissionIds":["permission.system.tenant-info.view"]}]
                 """))).isInstanceOf(BusinessException.class)
-                .hasMessageContaining("navigation.system.tenant-data.tenant-info");
+                .hasMessageContaining("navigation.system.tenant-data.tenant-info")
+                // The message goes through MessageFormat: a bare apostrophe would swallow itself.
+                .hasMessageContaining("the tenant's plan");
     }
 
     /** Filed under a page of the tenant's, a platform permission is still the platform's. */
