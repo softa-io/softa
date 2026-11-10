@@ -103,9 +103,10 @@ public class UiContextBuilder {
     @Value("${permission.platform-nav-prefixes:}")
     private String platformNavPrefixesCsv;
 
-    /** Prefixes a tenant AND the platform both work in (e.g. messaging, whose models are all
-     *  multiTenant so the platform reads the same menus on its own tier). Disjoint from the list
-     *  above: that one is what a tenant admin is kept out of, this is what both are let into. */
+    /** Prefixes a tenant AND the platform both work in (e.g. messaging's pages on multiTenant models,
+     *  which the platform reads on its own tier). A separate list from the one above: that one is what
+     *  a tenant admin is kept out of — and decides alone for it, so a platform prefix inside a shared
+     *  one carves that subtree out — this is what both are let into. */
     @Value("${permission.shared-nav-prefixes:}")
     private String sharedNavPrefixesCsv;
 

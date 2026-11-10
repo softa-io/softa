@@ -114,15 +114,20 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
      * Nav-id prefixes a tenant AND the platform both work in, e.g. {@code navigation.message.}. From
      * {@code permission.shared-nav-prefixes}.
      *
-     * <p>A second list rather than a longer first one, and the two are <b>disjoint</b>. They answer
-     * different questions: {@link #platformNavPrefixes} is what a tenant admin is kept OUT of, this is
-     * what both audiences are let into. Folding them together would name system and studio twice —
-     * once under each meaning — which is the shape that drifts.
+     * <p>A second list rather than a longer first one. They answer different questions:
+     * {@link #platformNavPrefixes} is what a tenant admin is kept OUT of, this is what both audiences are
+     * let into. Folding them together would name system and studio twice — once under each meaning —
+     * which is the shape that drifts. A platform prefix may sit inside a shared one: a tenant admin is
+     * tested against the platform list alone, so that subtree is carved out for it, while the platform
+     * admin, who reaches either list, keeps the whole module.
      *
-     * <p>Messaging is the case that needs it. Every model under it is multiTenant, so the platform is
-     * not looking at a different module: it is looking at the same menus on its own tier, where the
+     * <p>Messaging is the case that needs it, for its pages on multiTenant models: there the platform is
+     * not looking at a different module, it is looking at the same menus on its own tier, where the
      * verification-code and password-reset mails live. Take it away and nobody can edit the mail a
-     * consultant logs in with.
+     * consultant logs in with. Its operations pages are not like that — {@code DeadLetterMessage},
+     * {@code TenantMessageQuota}, {@code TenantMessageUsage} and the like are not multiTenant, one table
+     * holding every tenant's rows — so an application sharing messaging lists their subtree among the
+     * platform prefixes as well, or every tenant admin reads them whole.
      */
     private final List<String> sharedNavPrefixes;
 
