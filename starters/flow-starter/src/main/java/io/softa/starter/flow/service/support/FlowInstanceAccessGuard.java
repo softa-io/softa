@@ -167,17 +167,19 @@ public class FlowInstanceAccessGuard {
      * @param running     the record's approval in progress, or null when it has none; asked only of an
      *                    authenticated caller who cannot read the record
      * @param requesterId the authenticated caller's user id
+     * @return the approval in progress the caller was let in on by taking part in it, or null when they read
+     *         the record themselves. A caller let in this way may be shown that approval and nothing else.
      * @throws FlowAuthorizationException if neither holds
      */
-    public void requirePreviewer(String modelName, String rowId, Supplier<FlowExecutionState> running,
-                                 String requesterId) {
+    public FlowExecutionState requirePreviewer(String modelName, String rowId, Supplier<FlowExecutionState> running,
+                                               String requesterId) {
         requireAuthenticated(requesterId, "preview the approval of " + modelName + " " + rowId);
         if (canReadRecord(modelName, rowId)) {
-            return;
+            return null;
         }
         FlowExecutionState approval = running.get();
         if (approval != null && isParticipant(approval, requesterId)) {
-            return;
+            return approval;
         }
         throw new FlowAuthorizationException("User may not preview the approval of " + modelName + " " + rowId);
     }

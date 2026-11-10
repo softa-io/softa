@@ -246,6 +246,27 @@ class FlowApprovalPreviewTest {
     }
 
     @Test
+    void anApproverLetInOnTheApprovalInProgressIsShownItEvenShouldItEndInBetween() {
+        startApprovalWaitingOn(MANAGER);
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+        // Withdrawn right after the approver was let in: the record is a draft again, its next submission previewable.
+        when(instanceService.findByModelNameAndRowId(MODEL, ROW)).thenAnswer(invocation -> {
+            FlowInstance seen = new FlowInstance();
+            seen.setInstanceId("run-1");
+            seen.setStatus(FlowExecutionStatus.WAITING);
+            seen.setRecordApproval(true);
+            instances.getFirst().setStatus(FlowExecutionStatus.WITHDRAWN);
+            record.put("approvalStatus", "Draft");
+            return List.of(seen);
+        });
+
+        assertEquals(Status.IN_PROGRESS, launchService.previewRecord(MODEL, ROW, MANAGER).getStatus());
+
+        verify(instanceService).findByModelNameAndRowId(MODEL, ROW);
+        verify(modelService, never()).getById(eq(MODEL), any());
+    }
+
+    @Test
     void anOutsiderWhoCannotReadTheRecordIsRefusedTheRouteOfTheApprovalInProgress() {
         startApprovalWaitingOn(MANAGER);
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());

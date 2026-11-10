@@ -34,6 +34,8 @@ import io.softa.starter.flow.service.support.FlowInstanceAccessGuard.RecordAdmis
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -463,7 +465,7 @@ class FlowInstanceAccessGuardTest {
             when(modelService.getById(eq("LeaveRequest"), any(), eq(List.of("id"))))
                     .thenReturn(Optional.of(Map.of("id", 42L)));
 
-            assertDoesNotThrow(() -> guard.requirePreviewer("LeaveRequest", "42", () -> {
+            assertNull(guard.requirePreviewer("LeaveRequest", "42", () -> {
                 throw new AssertionError("a reader needs no approval state");
             }, "u1"));
         }
@@ -473,7 +475,7 @@ class FlowInstanceAccessGuardTest {
     void aParticipantPreviewsOnlyTheApprovalInProgress() {
         FlowExecutionState running = FlowExecutionState.builder().instanceId("i1").initiatorId("u1").build();
 
-        assertDoesNotThrow(() -> guard.requirePreviewer("LeaveRequest", "42", () -> running, "u1"));
+        assertSame(running, guard.requirePreviewer("LeaveRequest", "42", () -> running, "u1"));
         assertThrows(FlowAuthorizationException.class,
                 () -> guard.requirePreviewer("LeaveRequest", "42", () -> running, "u2"));
         assertThrows(FlowAuthorizationException.class,

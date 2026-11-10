@@ -298,8 +298,14 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     public FlowApprovalPreview previewRecord(String modelName, String rowId, String requesterId) {
         requireRecordKey(modelName, rowId, "preview");
         // The caller's own permissions or taking part in the approval in progress decide, before the record is read.
-        accessGuard.requirePreviewer(modelName, rowId, () -> approvalInProgress(modelName, rowId), requesterId);
-        FlowApprovalPreview preview = previewSubmission(modelName, rowId, requesterId);
+        FlowExecutionState takenPartIn = accessGuard.requirePreviewer(modelName, rowId,
+                () -> approvalInProgress(modelName, rowId), requesterId);
+        // Let in on that approval rather than on the record, they are shown its route and nothing else: were it to
+        // end in between, asking afresh would read the record past their permissions and could show them the route
+        // of its next submission.
+        FlowApprovalPreview preview = takenPartIn != null
+                ? previewRemaining(takenPartIn, requesterId)
+                : previewSubmission(modelName, rowId, requesterId);
         userNames.name(actorsOf(preview));
         return preview;
     }
@@ -392,7 +398,11 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * requester may withdraw it: its submitter, on a flow that lets them.
      */
     private FlowApprovalPreview previewInProgress(FlowInstance approval, String requesterId) {
-        FlowExecutionState state = runningState(approval);
+        return previewRemaining(runningState(approval), requesterId);
+    }
+
+    /** {@link #previewInProgress} on the approval's state, already read: null when it could not be. */
+    private FlowApprovalPreview previewRemaining(FlowExecutionState state, String requesterId) {
         CompiledFlowDefinition definition = state == null ? null
                 : flowBundleRegistry.getByBundleId(state.getBundleId()).orElse(null);
         if (definition == null) {
