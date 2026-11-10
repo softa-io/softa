@@ -76,12 +76,14 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  * every department: they resolve per holder, so nothing at save time says they stay inside the caller's. A
  * caller role bounded by such conditions itself is compared by what they resolve to for the caller when saving.
  *
- * <p>Those two are judged only where they are new. A save leaves in place what the role already held, so
- * editing a role that carries a condition or an exemption the caller could not grant does not make them drop
+ * <p>On a save those two are judged only where they are new. A save leaves in place what the role already held,
+ * so editing a role that carries a condition or an exemption the caller could not grant does not make them drop
  * it; adding one is what is refused. A role with no earlier state — created or cloned — holds nothing yet, so
- * everything on it is new. Assigning a role changes nothing about what the role holds, so neither is judged
- * there at all: the role pickers of the built-in roles view past the grant, and a manager bounded by department
- * could otherwise assign none of them. Pages, actions, companies and named departments are judged as ever.
+ * everything on it is new. Assigning a role is judged on the whole role, conditions and exemptions included:
+ * it hands all of it to someone new, and a caller bounded by department who could assign a role exempt from
+ * that bound — to themselves among others — would get round the bound. A save that adds members or changes
+ * the dynamic filter assigns too, and is judged the same way. Pages, actions, companies and named departments
+ * are judged as ever.
  */
 @Component
 public class RoleGrantCeiling {

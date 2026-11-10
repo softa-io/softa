@@ -360,6 +360,11 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     private void writeRoleDataScopes(Long roleId, JsonNode rowsJson) {
         if (rowsJson == null || !rowsJson.isArray() || rowsJson.isEmpty()) return;
         rejectUnboundedCompanyScope(rowsJson);
+        boolean holdsEmployee = false;
+        for (JsonNode row : rowsJson) {
+            JsonNode model = row.get("model");
+            holdsEmployee |= model != null && ModelConstant.EMPLOYEE_MODEL.equals(model.asString());
+        }
         List<RoleDataScope> rows = new ArrayList<>(rowsJson.size());
         for (JsonNode row : rowsJson) {
             JsonNode modelNode = row.get("model");
@@ -383,6 +388,15 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
                 if (!DepartmentGrants.bounds(rds.getModel())) {
                     throw new BusinessException("Only a model whose records belong to a department can be exempt "
                             + "from Department access.");
+                }
+                // Without a rule of its own such a model reads the rows of the employees the role reaches, so
+                // the exemption would show as set and change nothing.
+                JsonNode rules = row.get("dataScopes");
+                boolean ownRules = rules != null && rules.isArray() && !rules.isEmpty();
+                if (holdsEmployee && !ownRules && DepartmentGrants.followsEmployee(rds.getModel())) {
+                    throw new BusinessException(rds.getModel() + " follows the employee it belongs to, so exempting "
+                            + "it alone changes nothing. Exempt Employee instead, or give " + rds.getModel()
+                            + " a rule of its own.");
                 }
                 rds.setDepartmentGrantExempt(true);
             }

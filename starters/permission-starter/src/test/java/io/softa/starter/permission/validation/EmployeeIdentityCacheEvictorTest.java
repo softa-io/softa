@@ -6,6 +6,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
@@ -13,6 +14,8 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.validation.WriteContext;
@@ -22,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -105,6 +109,66 @@ class EmployeeIdentityCacheEvictorTest {
         TransactionSynchronizationManager.initSynchronization();
 
         update(Map.of("departmentId", 6L));
+        verify(cache, never()).clear(anyString());
+
+        TransactionSynchronizationUtils.triggerAfterCommit();
+        verify(cache).clear("emp-info:100");
+    }
+
+    @Test
+    void aRowReadWithoutItsTenantFallsBackToTheRequestsTenant() {
+        Map<String, Object> storedWithoutTenant = stored();
+        storedWithoutTenant.remove("tenantId");
+        Map<String, Object> patch = Map.of("departmentId", "6");
+        Map<String, Object> merged = new HashMap<>(storedWithoutTenant);
+        merged.putAll(patch);
+        Context context = new Context();
+        context.setTenantId(4L);
+
+        ContextHolder.runWith(context, () -> evictor.validateUpdate(
+                WriteContext.of("Employee", AccessType.UPDATE, merged, patch, storedWithoutTenant)));
+
+        verify(cache).clear("emp-info:100");
+        verify(cache).clear("perm:4:user:100");
+    }
+
+    @Test
+    void changingTheSourceOfAStoredCascadeMovesTheEmployee() {
+        MetaField company = mock(MetaField.class);
+        when(company.getCascadedField()).thenReturn("legalEntityId.id");
+        try (MockedStatic<ModelManager> manager = mockStatic(ModelManager.class)) {
+            manager.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            manager.when(() -> ModelManager.getModelFieldOrNull(eq("Employee"), anyString())).thenReturn(null);
+            manager.when(() -> ModelManager.getModelFieldOrNull("Employee", "companyId")).thenReturn(company);
+
+            update(Map.of("legalEntityId", 9L));
+        }
+
+        verify(cache).clear("emp-info:100");
+        verify(cache).clear("perm:1:user:100");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aDeletedEmployeeDropsTheCacheOfItsUser() {
+        when(modelService.searchList(eq("Employee"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 7L, "userId", 100L, "tenantId", 1L), Map.of("id", 8L)));
+
+        evictor.validateDelete("Employee", List.of(7L, 8L));
+
+        verify(cache).clear("emp-info:100");
+        verify(cache).clear("perm:1:user:100");
+        verify(cache, never()).clear("emp-info:null");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aDeletedEmployeeWaitsForTheCommitInsideATransaction() {
+        when(modelService.searchList(eq("Employee"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 7L, "userId", 100L, "tenantId", 1L)));
+        TransactionSynchronizationManager.initSynchronization();
+
+        evictor.validateDelete("Employee", List.of(7L));
         verify(cache, never()).clear(anyString());
 
         TransactionSynchronizationUtils.triggerAfterCommit();

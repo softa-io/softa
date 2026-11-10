@@ -32,8 +32,8 @@ import io.softa.framework.orm.service.validation.WriteContext;
  *       from "manages roles" to "bypasses every check in the tenant".</li>
  *   <li>any other role is bound by a caller without a built-in admin role only when it is within that
  *       caller's own grants ({@link RoleGrantCeiling}) — otherwise assigning an existing, wider role to
- *       oneself would do what the ceiling refuses on the role definition. Its department conditions and
- *       exemptions are not judged here: assigning a role does not change what the role holds.</li>
+ *       oneself would do what the ceiling refuses on the role definition. The whole role is judged, its
+ *       department conditions and exemptions included: assigning it hands all of them to someone new.</li>
  * </ul>
  * A bind is a create naming the role, or an update that moves an existing row onto the role or onto
  * another user — the second is the same grant handed to someone else.

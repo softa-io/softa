@@ -22,6 +22,8 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.validation.ModelWriteValidator;
@@ -37,6 +39,11 @@ import io.softa.starter.permission.spi.PermissionSnapshotProvider;
  * can evict it from a domain event on its own service path, but a write through {@code ModelService} — the generic
  * model routes, an import — never passes there, and left the person reading their old department until the entry
  * expired. Here is the one place every write to the model goes through.
+ *
+ * <p>Deleting an employee drops the cache of its user too: the person no longer sits anywhere, and an identity
+ * cached from the deleted row would keep placing them in its department for a month. A placing field the model
+ * stores as a cascade of another one ({@code companyId} cascaded from the legal entity) changes when that other
+ * field does, though the patch names only the source, so a change to the source counts as a change of placement.
  *
  * <p>The departments a person manages are in the same cache, read from the department's managing fields
  * ({@link EmployeeContextEnricher#MANAGING_FIELDS}). A department created, deleted or given another manager drops
@@ -78,7 +85,14 @@ public class EmployeeIdentityCacheEvictor implements ModelWriteValidator {
 
     @Override
     public void validateDelete(String modelName, List<? extends Serializable> ids) {
-        if (!ModelConstant.DEPARTMENT_MODEL.equals(modelName) || ids == null || ids.isEmpty()) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        if (ModelConstant.EMPLOYEE_MODEL.equals(modelName)) {
+            evictUsersOfEmployees(ids);
+            return;
+        }
+        if (!ModelConstant.DEPARTMENT_MODEL.equals(modelName)) {
             return;
         }
         List<String> fields = new ArrayList<>(EmployeeContextEnricher.MANAGING_FIELDS);
@@ -115,8 +129,40 @@ public class EmployeeIdentityCacheEvictor implements ModelWriteValidator {
         if (users.isEmpty()) {
             return;
         }
-        Long tenantId = CompanyReferenceGrantValidator.idOf(stored.get(ModelConstant.TENANT_ID));
+        Long tenantId = tenantOf(stored);
         afterCommit(() -> users.forEach(user -> evict(tenantId, user)));
+    }
+
+    /** Drops the caches of the users of employees about to be deleted, read now while the rows still exist. */
+    private void evictUsersOfEmployees(List<? extends Serializable> ids) {
+        Set<Long> users = new HashSet<>();
+        Long tenantId = null;
+        try {
+            FlexQuery query = new FlexQuery(List.of(ModelConstant.ID, USER_FIELD, ModelConstant.TENANT_ID),
+                    new Filters().in(ModelConstant.ID, ids));
+            query.setFilterControl(FilterControl.bypassActiveControl());
+            for (Map<String, Object> row : ContextUtils.withoutPermissionChecks(
+                    () -> modelService.searchList(ModelConstant.EMPLOYEE_MODEL, query))) {
+                addIfPresent(users, CompanyReferenceGrantValidator.idOf(row.get(USER_FIELD)));
+                if (tenantId == null) {
+                    tenantId = CompanyReferenceGrantValidator.idOf(row.get(ModelConstant.TENANT_ID));
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("EmployeeIdentityCacheEvictor — reading the users of employees {} failed; TTL will expire "
+                    + "their caches", ids, e);
+        }
+        if (users.isEmpty()) {
+            return;
+        }
+        Long tenant = tenantId != null ? tenantId : tenantOf(Map.of());
+        afterCommit(() -> users.forEach(user -> evict(tenant, user)));
+    }
+
+    /** The tenant of a stored row, else the request's: a row read without its tenant column still has one. */
+    private static Long tenantOf(Map<String, Object> row) {
+        Long rowTenant = CompanyReferenceGrantValidator.idOf(row.get(ModelConstant.TENANT_ID));
+        return rowTenant != null || !ContextHolder.existContext() ? rowTenant : ContextHolder.getContext().getTenantId();
     }
 
     private static Set<Long> managersOf(Map<String, Object> row) {
@@ -165,17 +211,30 @@ public class EmployeeIdentityCacheEvictor implements ModelWriteValidator {
         if (users.isEmpty()) {
             return;
         }
-        Long rowTenant = CompanyReferenceGrantValidator.idOf(departmentRow.get(ModelConstant.TENANT_ID));
-        Long tenantId = rowTenant != null || !ContextHolder.existContext()
-                ? rowTenant
-                : ContextHolder.getContext().getTenantId();
+        Long tenantId = tenantOf(departmentRow);
         afterCommit(() -> users.forEach(user -> evict(tenantId, user)));
     }
 
     private static boolean changesPlacement(Map<String, Object> patch, Map<String, Object> stored) {
-        return PLACING_FIELDS.stream().anyMatch(field -> patch.containsKey(field)
+        return PLACING_FIELDS.stream().anyMatch(field -> changes(patch, stored, field)
+                || changes(patch, stored, cascadeSourceOf(field)));
+    }
+
+    private static boolean changes(Map<String, Object> patch, Map<String, Object> stored, String field) {
+        return field != null && patch.containsKey(field)
                 && !Objects.equals(CompanyReferenceGrantValidator.idOf(patch.get(field)),
-                        CompanyReferenceGrantValidator.idOf(stored.get(field))));
+                        CompanyReferenceGrantValidator.idOf(stored.get(field)));
+    }
+
+    /** The field a stored cascade of this placing field is computed from, or null when it is not one. */
+    private static String cascadeSourceOf(String field) {
+        MetaField meta = ModelManager.existModel(ModelConstant.EMPLOYEE_MODEL)
+                ? ModelManager.getModelFieldOrNull(ModelConstant.EMPLOYEE_MODEL, field) : null;
+        if (meta == null || meta.isDynamic() || meta.getCascadedField() == null || meta.getCascadedField().isBlank()) {
+            return null;
+        }
+        String source = meta.getCascadedField().split("\\.", 2)[0];
+        return source.equals(field) ? null : source;
     }
 
     private static void addIfPresent(Set<Long> users, Long user) {
@@ -184,6 +243,11 @@ public class EmployeeIdentityCacheEvictor implements ModelWriteValidator {
         }
     }
 
+    /**
+     * Runs the eviction after commit. The validator chain runs only inside the transactional write roots of
+     * {@code ModelService}, so a synchronization is active; without one there is no commit to wait for, and the
+     * eviction runs at once — before the write, which a concurrent rebuild could then read past.
+     */
     private static void afterCommit(Runnable action) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             action.run();
