@@ -18,6 +18,7 @@ import tools.jackson.databind.JsonNode;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.NavIds;
@@ -97,8 +98,11 @@ public class RoleTenantFacingGuard {
         if (roleId != null) {
             Set<String> heldNavigations = new HashSet<>();
             Set<String> heldPermissions = new HashSet<>();
-            for (RoleNavigation rn : roleNavigationService.searchList(
-                    new Filters().eq(RoleNavigation::getRoleId, roleId))) {
+            // Read past the caller's own scope, as the grant ceiling reads a role: the question is what
+            // the role holds, not what the caller may see of it.
+            List<RoleNavigation> stored = ContextUtils.withoutPermissionChecks(() -> roleNavigationService.searchList(
+                    new Filters().eq(RoleNavigation::getRoleId, roleId)));
+            for (RoleNavigation rn : stored) {
                 heldNavigations.add(rn.getNavigationId());
                 List<String> held = JsonUtils.toStringList(rn.getPermissionIds(), true);
                 if (held != null) {
@@ -111,8 +115,10 @@ public class RoleTenantFacingGuard {
         Set<String> permissionIds = rowOf.keySet();
         Map<String, String> navigationOf = new HashMap<>();
         if (!permissionIds.isEmpty()) {
-            List<Map<String, Object>> rows = modelService.searchList(M_PERMISSION,
-                    new FlexQuery(List.of("id", "navigationId"), new Filters().in("id", permissionIds)));
+            // The catalog is shared and anchors to no tenant, so a role manager without the admin bypass
+            // reads none of it under their own scope — and every permission would fall back to its row.
+            List<Map<String, Object>> rows = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                    M_PERMISSION, new FlexQuery(List.of("id", "navigationId"), new Filters().in("id", permissionIds))));
             rows.forEach(r -> navigationOf.put(String.valueOf(r.get("id")), (String) r.get("navigationId")));
         }
         Set<String> entitled = entitlementService == null ? null : entitlementService.entitledModules(tenantId);

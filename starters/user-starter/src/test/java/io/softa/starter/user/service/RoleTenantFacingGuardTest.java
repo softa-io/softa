@@ -51,23 +51,30 @@ class RoleTenantFacingGuardTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         ModelService<Long> models = mock(ModelService.class);
-        when(models.searchList(eq("Permission"), any(FlexQuery.class))).thenReturn(List.of(
+        // Both reads answer only past the caller's scope, as they do for a role manager without the
+        // admin bypass: the catalog is shared and anchors to no tenant.
+        when(models.searchList(eq("Permission"), any(FlexQuery.class))).thenAnswer(inv -> unscoped() ? List.of(
                 Map.of("id", "permission.employee.view", "navigationId", "navigation.corehr.employee"),
                 Map.of("id", "permission.payroll.run", "navigationId", "navigation.payroll.run"),
                 Map.of("id", "permission.system.tenant-info.view", "navigationId",
-                        "navigation.system.tenant-data.tenant-info")));
+                        "navigation.system.tenant-data.tenant-info")) : List.of());
         // The stored role: it already holds a platform page, saved before the check existed.
         RoleNavigation held = new RoleNavigation();
         held.setRoleId(ROLE);
         held.setNavigationId("navigation.system.tenant-data.tenant-info");
         held.setPermissionIds(JsonUtils.stringToObject("[\"permission.system.tenant-info.view\"]", JsonNode.class));
         RoleNavigationService stored = mock(RoleNavigationService.class);
-        when(stored.searchList(any(Filters.class))).thenReturn(List.of(held));
+        when(stored.searchList(any(Filters.class))).thenAnswer(inv -> unscoped() ? List.of(held) : List.of());
         guard = new RoleTenantFacingGuard(models, stored);
         ReflectionTestUtils.setField(guard, "platformNavPrefixesCsv", "navigation.system.,navigation.studio.");
         EntitlementService entitlement = mock(EntitlementService.class);
         when(entitlement.entitledModules(anyLong())).thenReturn(Set.of("corehr"));
         ReflectionTestUtils.setField(guard, "entitlementService", entitlement);
+    }
+
+    private static boolean unscoped() {
+        Context ctx = ContextHolder.getContext();
+        return ctx != null && ctx.isSkipPermissionCheck();
     }
 
     private static JsonNode rows(String json) {
