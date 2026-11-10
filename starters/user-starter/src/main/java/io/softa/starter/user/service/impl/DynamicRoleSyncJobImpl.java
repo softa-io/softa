@@ -35,6 +35,7 @@ import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
+import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.starter.user.dto.DynamicMembersPreview;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
@@ -387,9 +388,13 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         if (filters == null || permissions == null) return;
         Set<String> unseen = permissions.conditionFieldsNotSeenEverywhere(EMPLOYEE, filters);
         if (!unseen.isEmpty()) {
-            throw new PermissionException(
-                    "The membership rule tests {0}, which you cannot see on every employee.",
-                    String.join(", ", unseen));
+            // A refused input, per field, each sentence naming its field by label: a client shows the
+            // sentences of a refusal that names fields, and a bare 403 only as "no access".
+            throw new WriteValidationException(unseen.stream()
+                    .map(field -> new WriteValidationException.FieldError(0, field,
+                            "The membership rule tests " + WriteValidationException.labelOf(EMPLOYEE, field)
+                                    + ", which you cannot see on every employee."))
+                    .toList());
         }
     }
 

@@ -86,9 +86,10 @@ public class WriteValidationException extends IllegalArgumentException {
     /**
      * The label of the field a path ends on, following relations — {@code employeeProfileId.residenceStatus}
      * reads as the profile's "Residence Status"; a row index in the path ({@code lines.0.amount}) is
-     * stepped over. The path itself when any step is unknown or the field has no label.
+     * stepped over. The path itself when any step is unknown or the field has no label. Public for a
+     * sentence that has to name the field itself — a toast shows a refusal's sentences, not its keys.
      */
-    static String labelOf(String modelName, String path) {
+    public static String labelOf(String modelName, String path) {
         String model = modelName;
         MetaField field = null;
         for (String segment : path.split("\\.")) {

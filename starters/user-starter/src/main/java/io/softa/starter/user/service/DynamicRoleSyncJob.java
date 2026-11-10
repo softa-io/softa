@@ -106,7 +106,8 @@ public interface DynamicRoleSyncJob {
      * field guards.
      *
      * @param dynamicFilter the rule, in the form {@code Role.dynamicFilter} stores it
-     * @throws io.softa.framework.base.exception.PermissionException naming the fields
+     * @throws io.softa.framework.orm.service.validation.WriteValidationException one sentence per field,
+     *         each naming the field by its label
      */
     void assertRuleSeenByCaller(JsonNode dynamicFilter);
 }

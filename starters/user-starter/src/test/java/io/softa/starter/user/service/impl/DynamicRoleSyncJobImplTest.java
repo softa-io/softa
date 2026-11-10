@@ -404,8 +404,9 @@ class DynamicRoleSyncJobImplTest {
 
         assertThatThrownBy(() -> ContextHolder.callWith(ctx(10L),
                 () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20)))
-                .isInstanceOf(io.softa.framework.base.exception.PermissionException.class)
-                .hasMessageContaining("basePay");
+                .isInstanceOf(io.softa.framework.orm.service.validation.WriteValidationException.class)
+                .satisfies(e -> assertThat(((io.softa.framework.orm.service.validation.WriteValidationException) e)
+                        .fieldErrors()).containsKey("basePay"));
         // Refused before any employee is matched: the refusal says nothing about the data.
         verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class));
