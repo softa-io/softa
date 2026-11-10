@@ -43,7 +43,6 @@ class CreateDataTaskExecutorTest {
     @Test
     void reportsSupportedNodeTypeAndExecutorKey() {
         assertEquals(FlowNodeType.CREATE_RECORD, executor.getSupportedNodeType());
-        assertEquals("CreateData", executor.getExecutor());
     }
 
     @Test

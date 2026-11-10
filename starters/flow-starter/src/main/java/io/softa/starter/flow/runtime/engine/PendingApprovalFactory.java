@@ -36,8 +36,8 @@ public class PendingApprovalFactory {
      * step's approvers: {@link ApproverDedupService} counts them as having approved.
      *
      * @return the pending approval — under AssignToRole, the holders of its roles when the node itself resolves to
-     *         nobody — or {@code null} when the node resolves to nobody and its empty-approver strategy skips or
-     *         auto-approves it — the caller tells which with {@link #resolveEmptyApproverStrategy}
+     *         nobody — or {@code null} when the node resolves to nobody and its empty-approver strategy
+     *         auto-approves it
      * @throws FlowNoApproverException when the node resolves to nobody and its strategy is ERROR, or AssignToRole and
      *         its roles leave nobody either: the action that reached it is refused
      */
@@ -50,8 +50,8 @@ public class PendingApprovalFactory {
                 case ERROR -> throw new FlowNoApproverException(node.getNodeId(), node.getLabel(), whyNobody(node, state));
                 case ASSIGN_TO_ROLE -> throw FlowNoApproverException.inRoles(node.getNodeId(), node.getLabel(),
                         approverResolutionService.emptyApproverRoleNames(node));
-                case SKIP, AUTO_APPROVE -> {
-                    // The caller skips or approves it.
+                case AUTO_APPROVE -> {
+                    // The caller approves it on record.
                 }
             }
         }

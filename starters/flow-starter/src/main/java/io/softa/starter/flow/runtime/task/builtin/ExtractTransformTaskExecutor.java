@@ -39,11 +39,6 @@ public class ExtractTransformTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "ExtractTransform";
-    }
-
-    @Override
     public String getName() {
         return "Extract Transform";
     }

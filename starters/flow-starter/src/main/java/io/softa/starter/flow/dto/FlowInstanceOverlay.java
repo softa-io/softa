@@ -14,7 +14,6 @@ import io.softa.starter.flow.runtime.state.FlowExecutionTraceEntry;
 import io.softa.starter.flow.runtime.state.FlowTraceEventType;
 import io.softa.starter.flow.runtime.state.FlowWaitToken;
 import io.softa.starter.flow.runtime.state.PendingApproval;
-import io.softa.starter.flow.runtime.state.WaitType;
 
 /**
  * Execution overlay for the canvas: per-node run state derived server-side from
@@ -75,9 +74,8 @@ public record FlowInstanceOverlay(
                     enteredAt.get(approval.getNodeId()), null));
         }
         for (FlowWaitToken token : orEmpty(state.getWaitTokens())) {
-            FlowNodeRunStatus waiting = token.getType() == WaitType.ASYNC
-                    ? FlowNodeRunStatus.WAITING_ASYNC : FlowNodeRunStatus.WAITING_TIMER;
-            nodes.put(token.getNodeId(), new NodeState(waiting, enteredAt.get(token.getNodeId()), null));
+            nodes.put(token.getNodeId(), new NodeState(FlowNodeRunStatus.WAITING_ASYNC,
+                    enteredAt.get(token.getNodeId()), null));
         }
         if (state.getFailedNodeId() != null) {
             nodes.put(state.getFailedNodeId(), new NodeState(FlowNodeRunStatus.FAILED,

@@ -52,7 +52,6 @@ class WebHookTaskExecutorTest {
     void getSupportedNodeTypeIsCallWebhook() {
         WebHookTaskExecutor executor = new WebHookTaskExecutor(mock(RestClient.class));
         assertEquals(FlowNodeType.CALL_WEBHOOK, executor.getSupportedNodeType());
-        assertEquals("WebHook", executor.getExecutor());
     }
 
     @Test

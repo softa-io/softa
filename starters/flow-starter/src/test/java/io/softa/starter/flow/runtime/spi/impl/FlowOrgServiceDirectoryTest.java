@@ -34,8 +34,7 @@ class FlowOrgServiceDirectoryTest {
 
     @SuppressWarnings("unchecked")
     private final ModelService<Long> modelService = mock(ModelService.class);
-    private final OrganizationServiceProperties props = new OrganizationServiceProperties();
-    private final FlowOrgService org = new FlowOrgService(modelService, props);
+    private FlowOrgService org = new FlowOrgService(modelService, null);
     private final Map<String, List<Map<String, Object>>> answers = new HashMap<>();
     private final List<FlexQuery> queries = new ArrayList<>();
     private final List<String> models = new ArrayList<>();
@@ -75,7 +74,7 @@ class FlowOrgServiceDirectoryTest {
 
     @Test
     void theDirectoryModelIsWhatThePickersReadAndApproverRulesDoNot() {
-        props.setDirectoryModel("EmployeeDirectory");
+        org = new FlowOrgService(modelService, "EmployeeDirectory");
         answers.put("EmployeeDirectory", List.of(employee(1001L, "Alice Tan", "E001", "Finance", null)));
 
         withModels(true, true, () -> {

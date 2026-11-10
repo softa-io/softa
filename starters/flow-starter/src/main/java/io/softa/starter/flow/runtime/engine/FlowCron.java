@@ -7,7 +7,7 @@ import io.softa.framework.orm.compute.CronPreview;
 import io.softa.framework.orm.compute.CronSchedule;
 
 /**
- * A flow's one cron dialect — a Cron trigger's schedule and a Timer node's wait alike — is the cron scheduler's, read
+ * A flow's cron dialect — a Cron trigger's schedule — is the cron scheduler's, read
  * by {@link CronSchedule}: Quartz, its times in the server's zone. Six or seven fields: second, minute, hour, day of
  * month, month, day of week ({@code 1}–{@code 7} = Sunday–Saturday, or {@code SUN}–{@code SAT}), an optional year; one
  * of the two day fields is {@code ?}.

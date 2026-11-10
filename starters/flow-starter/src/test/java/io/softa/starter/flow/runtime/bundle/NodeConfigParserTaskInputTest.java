@@ -20,14 +20,12 @@ class NodeConfigParserTaskInputTest {
         TaskNodeConfig config = parse(Map.of(
                 "url", "https://example.com/hook",
                 "method", "POST",
-                "outputVariable", "response",
-                "options", Map.of("timeoutSeconds", 5)));
+                "outputVariable", "response"));
 
         assertThat(config.getInput()).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "url", "https://example.com/hook",
                 "method", "POST"));
         assertThat(config.getOutputVariable()).isEqualTo("response");
-        assertThat(config.getOptions()).containsEntry("timeoutSeconds", 5);
     }
 
     @Test

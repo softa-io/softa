@@ -49,7 +49,6 @@ public class GraphStructureValidator implements FlowValidator {
      * trigger inside its caller's run — neither can wait.
      */
     private static final Set<FlowNodeType> WAITING_NODE_TYPES = EnumSet.of(
-            FlowNodeType.TIMER,
             FlowNodeType.ASYNC_TASK,
             FlowNodeType.APPROVAL
     );

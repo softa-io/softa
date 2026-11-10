@@ -118,7 +118,7 @@ class DefaultFlowCompilerTest {
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                node("service", FlowNodeType.CALL_SERVICE),  // no config
+                                node("service", FlowNodeType.CALL_WEBHOOK),  // no config
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
@@ -130,7 +130,7 @@ class DefaultFlowCompilerTest {
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
         assertTrue(exception.getDiagnostics().stream().anyMatch(d ->
-                "MISSING_REQUIRED_INPUT".equals(d.code()) && "config.beanName".equals(d.field())));
+                "MISSING_REQUIRED_INPUT".equals(d.code()) && "config.url".equals(d.field())));
     }
 
     @Test
@@ -441,38 +441,6 @@ class DefaultFlowCompilerTest {
         assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "config.input.modelName".equals(d.field())));
     }
 
-    @Test
-    void shouldRejectCallServiceWithMismatchedArgTypesArity() {
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Invalid ArgTypes")
-                .scenario(FlowScenario.AUTOMATION)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("svc")
-                                        .type(FlowNodeType.CALL_SERVICE)
-                                        .label("svc")
-                                        .config(Map.of("input", Map.of(
-                                                "beanName", "demoService",
-                                                "methodName", "run",
-                                                "args", List.of(1),
-                                                "argTypes", List.of("int", "long"))))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "svc"),
-                                edge("e2", "svc", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "ARG_TYPES_ARITY".equals(d.code())));
-    }
-
     // ==================== validate() — success-shaped diagnostics ====================
 
     @Test
@@ -742,7 +710,6 @@ class DefaultFlowCompilerTest {
                 .build();
     }
 
-    /** CALL_SERVICE is a typed node type — the compiler now requires beanName/methodName in its input. */
     private static FlowGraphEdge edge(String id, String source, String target) {
         return FlowGraphEdge.builder()
                 .id(id)

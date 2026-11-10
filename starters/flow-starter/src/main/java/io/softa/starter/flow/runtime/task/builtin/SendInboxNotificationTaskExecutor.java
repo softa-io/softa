@@ -53,11 +53,6 @@ public class SendInboxNotificationTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "SendInboxNotification";
-    }
-
-    @Override
     public String getName() {
         return "Send Inbox Notification";
     }

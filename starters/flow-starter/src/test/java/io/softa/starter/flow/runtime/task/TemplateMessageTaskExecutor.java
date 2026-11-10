@@ -17,11 +17,6 @@ public class TemplateMessageTaskExecutor implements TaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "templateMessage";
-    }
-
-    @Override
     public String getName() {
         return "Template Message";
     }

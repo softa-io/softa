@@ -37,7 +37,7 @@ public class OrmFlowBundleRegistryTest {
     @BeforeEach
     void setUp() {
         stubService = new StubBundleService();
-        registry = new OrmFlowBundleRegistry(stubService, 60);
+        registry = new OrmFlowBundleRegistry(stubService);
     }
 
     // ==================== FlowBundleMapper Tests ====================
@@ -192,7 +192,7 @@ public class OrmFlowBundleRegistryTest {
         entity.setFlowId(FLOW_A);
         stubService.savedBundles.put(1L, entity);
 
-        OrmFlowBundleRegistry freshRegistry = new OrmFlowBundleRegistry(stubService, 60);
+        OrmFlowBundleRegistry freshRegistry = new OrmFlowBundleRegistry(stubService);
 
         Optional<CompiledFlowDefinition> loaded = freshRegistry.getActiveByFlowId(FLOW_A);
         assertTrue(loaded.isPresent());
@@ -273,7 +273,7 @@ public class OrmFlowBundleRegistryTest {
                 return revision;
             }
         };
-        OrmFlowBundleRegistry racingRegistry = new OrmFlowBundleRegistry(racingStub, 60);
+        OrmFlowBundleRegistry racingRegistry = new OrmFlowBundleRegistry(racingStub);
 
         CompiledFlowDefinition result = racingRegistry.register(sampleDefinition("race-flow", null), null, FLOW_A);
 
@@ -319,7 +319,7 @@ public class OrmFlowBundleRegistryTest {
                 .entryNodeIds(List.of("start"))
                 .nodeIndex(Map.of(
                         "start", CompiledFlowNode.builder().nodeId("start").type(FlowNodeType.START).label("Start").build(),
-                        "task1", CompiledFlowNode.builder().nodeId("task1").type(FlowNodeType.CALL_SERVICE).label("Task 1").build(),
+                        "task1", CompiledFlowNode.builder().nodeId("task1").type(FlowNodeType.CALL_WEBHOOK).label("Task 1").build(),
                         "end", CompiledFlowNode.builder().nodeId("end").type(FlowNodeType.END).label("End").build()
                 ))
                 .transitionIndex(Map.of(

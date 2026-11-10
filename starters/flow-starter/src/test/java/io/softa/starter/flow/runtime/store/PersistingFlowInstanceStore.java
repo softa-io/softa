@@ -19,7 +19,14 @@ public class PersistingFlowInstanceStore implements FlowInstanceStore {
 
     @Override
     public FlowExecutionState save(FlowExecutionState state) {
-        rows.put(state.getInstanceId(), FlowExecutionStateMapper.toEntity(state, rows.get(state.getInstanceId())));
+        // As the ORM store writes it: what the state holds; a field written apart from it keeps its value.
+        FlowInstance row = FlowExecutionStateMapper.toEntity(state);
+        FlowInstance stored = rows.get(state.getInstanceId());
+        if (stored != null) {
+            row.setSuperseded(stored.getSuperseded());
+            row.setCreatedTime(stored.getCreatedTime());
+        }
+        rows.put(state.getInstanceId(), row);
         return state;
     }
 

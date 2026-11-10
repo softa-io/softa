@@ -11,8 +11,6 @@ public interface TaskExecutor {
 
     FlowNodeType getSupportedNodeType();
 
-    String getExecutor();
-
     String getName();
 
     String getDescription();

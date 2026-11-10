@@ -50,34 +50,28 @@ Under `io.softa.starter.flow`:
 | `runtime/bundle`, `runtime/store`, `runtime/state` | Compiled revisions and `OrmFlowBundleRegistry`; `OrmFlowInstanceStore` and the approval ledger; `FlowExecutionState` and its parts |
 | `runtime/trigger` | `DefaultFlowTriggerRegistry` — which flows an event or a submission starts — and `FlowAutomationService` |
 | `runtime/spi` (`impl`) | `ModelApprovalHandler`, `OrganizationService`, `ApprovalNotificationService` and their defaults |
-| `runtime/api`, `runtime/exception`, `runtime/context`, `runtime/descriptor`, `runtime/monitor` | Action requests; exceptions; the variable context and `RecordVariables`; descriptor providers; the timer sweep |
+| `runtime/api`, `runtime/exception`, `runtime/context`, `runtime/descriptor` | Action requests; exceptions; the variable context and `RecordVariables`; the node descriptors (`FlowNodeDescriptorRegistry`) |
 | `message` | Pulsar producers and consumers, `CronFlowJobProvider`, `FlowMaintenanceCronConsumer` |
 | `event` | `SeedFlowPublisher`; `TransactionListenerForFlow`, which runs sync Automation flows before a write commits |
-
-The contract packages — `api`, `design`, `dto`, `enums`, `runtime/api`, `runtime/exception`, `runtime/nodeconfig`,
-`runtime/state`, and the interfaces directly in `runtime/spi` and `runtime/task` — import nothing from Spring or the
-servlet API (`ContractPackageDisciplineTest`), so they can be extracted into an artifact of their own the day a remote
-consumer needs them.
 
 ## Wiring and configuration
 
 `FlowAutoConfiguration` (listed in `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`)
-component-scans the package and enables `OrganizationServiceProperties`. The beans it declares yield to the
-application's own:
+component-scans the package. The beans it declares:
 
 | Bean | Registered when |
 |---|---|
 | `FlowOrgService` | No `OrganizationService` bean |
-| `InProcessFlowClient` | No `FlowClient` bean |
+| `FlowClient` | Always: one class, nothing to replace |
 | `MessageApprovalNotificationService` (inbox and email, through message-starter) | No `ApprovalNotificationService` bean |
 | `InboxReadMarker` | Always |
 | `flowDeadLetterPolicy` | Pulsar on the classpath and no bean of that name: at most 3 redeliveries, then `<topic>-<subscription>-DLQ` |
 | `SeedFlowPublisher` | seed-starter on the classpath (`SeedFileLoadedEvent`, checked by name) |
 | `MetadataFieldDefinitions` | metadata-starter on the classpath (`MetadataDtoMapper`, checked by name) |
 
-The first three are `@Bean`s of the auto-configuration rather than scanned components on purpose: a scanned
-`@Component` with `@ConditionalOnMissingBean` can fail to register depending on scan order, which once left the dynamic
-approver sources resolving to nobody.
+`FlowOrgService` and `MessageApprovalNotificationService` yield to the application's own, and are `@Bean`s of the
+auto-configuration rather than scanned components on purpose: a scanned `@Component` with `@ConditionalOnMissingBean`
+can fail to register depending on scan order, which once left the dynamic approver sources resolving to nobody.
 
 Dependencies: softa-web; cron-starter, message-starter, file-starter and ai-starter at compile scope, whose executors
 and consumers register only when the bean they need exists (`MessageService`, `AiRobotService`,
@@ -85,28 +79,21 @@ and consumers register only when the bean they need exists (`MessageService`, `A
 
 | Property | Default | Read by |
 |---|---|---|
-| `flow.notification.failure-role-codes` | `TENANT_ADMIN` | `FlowAutoConfiguration`, for the default notifications |
-| `flow.trigger-cache-ttl-seconds` | `60` | `OrmFlowBundleRegistry` |
 | `flow.automation.retention-days` | `30` | `FlowAutomationPurgeService` |
-| `flow.task.builtin.call-service.enabled` | `false` | `CallServiceTaskExecutor`'s condition |
-| `flow.task.call-service.allow-list` | — | `CallServiceTaskExecutor`: the bean-name prefixes it may call, required once it is on |
-| `flow.task.builtin.query-records.enabled` | `true` | `QueryRecordsTaskExecutor`'s condition |
-| `softa.flow.org.*` | the HR conventions | `OrganizationServiceProperties`, for `FlowOrgService` |
+| `softa.flow.org.directory-model` | the employee model | `FlowOrgService`: the model the people pickers search, with the caller's row scope |
 | `system.site-url`, `system.enable-multi-tenancy` | — | The links in approval emails; the per-tenant fan-out of Cron flows |
 
 Each Pulsar component is `@ConditionalOnProperty` on its topic:
 
 | Topic | Components |
 |---|---|
-| `mq.topics.flow-event.topic` | `FlowEventProducer`, `FlowEventConsumer` — async trigger events |
-| `mq.topics.change-log.topic` | `ChangeLogFlowConsumer` — change logs into `EntityChange` events (`ChangeLogTriggerMapper`) |
+| `mq.topics.change-log.topic` | `ChangeLogFlowConsumer` — change logs into `EntityChange` events (`ChangeLogTriggerMapper`); runs the async flows they start in its own thread |
 | `mq.topics.cron-task.topic` | `CronFlowJobProvider`, `CronTaskFlowConsumer`, `FlowMaintenanceCronConsumer` |
-| `mq.topics.flow-timer.topic` | `FlowTimerProducer`, `FlowTimerConsumer` — a delayed wake-up per Timer node |
 | `mq.topics.flow-async-task.topic` | `FlowAsyncTaskProducer`, `FlowAsyncTaskConsumer` |
 
 The maintenance crons ship switched off in `data-system/SysCron.FlowMaintenance.json` — `flow_approval_timeout_handle`
-and `flow_timer_sweep` (`PerTenant`), `flow_automation_purge` (`CrossTenant`) — and `FlowMaintenanceCronConsumer`
-ignores every other cron name. A Cron-triggered flow writes no `SysCron` row: `CronFlowJobProvider` schedules one job
+(`PerTenant`), `flow_automation_purge` (`CrossTenant`) — and `FlowMaintenanceCronConsumer` ignores every other cron
+name. A Cron-triggered flow writes no `SysCron` row: `CronFlowJobProvider` schedules one job
 per active revision, `flow:<bundleId>`, and `CronTaskFlowConsumer` starts only a revision still active.
 
 ## Extension points
@@ -115,7 +102,7 @@ per active revision, `flow:<bundleId>`, and `CronTaskFlowConsumer` starts only a
 `ModelApprovalHandlerRegistry` once every singleton exists (a handler that also submits through `FlowClient` would
 otherwise close a construction cycle). The boot fails on two handlers for one model, on a model whose metadata lacks
 the approval fields `ApprovalModel` declares, and on a field for the employee the record is about that is not a
-many-to-one onto `softa.flow.org.employee-model`; `subject()` names that field (the instance's `subjectId`), and
+many-to-one onto `Employee`; `subject()` names that field (the instance's `subjectId`), and
 `null` — the default — means `employeeId`.
 `submission` (required) works from the record alone, and its `summary` names no sensitive field: everyone the
 approval reaches sees it. `validate` and `validateCancel` run as the user. `afterSubmitted`, `afterApproverEdit` and
@@ -127,7 +114,9 @@ guesses from dates.
 approves must not depend on what the submitter may see — except `searchPeople`, which reads the directory model with
 the caller's row scope. An implementation overrides the defaults that matter: `getUnusableAccounts` (none: every
 account counts as able to act), `getRoleNames` (none: a step handed to roles names them by id and code) and the five
-directory methods (empty: the pickers find nobody). `FlowOrgService` implements them all over `softa.flow.org.*`.
+directory methods (empty: the pickers find nobody). `FlowOrgService` implements them all over the HR models —
+`Employee`, `Department`, `UserRoleRel`, `Role`, `UserAccount` — by the field names permission-starter reads, fixed in
+the class; an application on other models implements `OrganizationService` itself.
 
 **`ApprovalNotificationService`** (`runtime/spi`) — `notify(FlowNotificationEvent)`, called inside the action's
 transaction. `ApprovalNotices` maps each event to its recipients, inbox text and mail template, once per event. The
@@ -138,7 +127,8 @@ a `MessageApprovalNotificationService` first, then sends yours.
 
 **`TaskExecutor`** (`runtime/task`) — one per `FlowNodeType`: two for one type, or a type without a typed config in
 `TaskConfigTypes`, fail the boot (`DefaultTaskExecutorRegistry`). `getConfigSchema` and `getDefaultConfig` feed the
-palette through `TaskExecutorDescriptorProvider`, which lists only the executors registered. Task nodes are
+palette through `FlowNodeDescriptorRegistry`, which lists only the executors registered and gives each node an
+`outputVariable` field after the executor's own. Task nodes are
 Automation-only. A new task node type is a `FlowNodeType` constant with its category and scenarios, a config DTO in
 `TaskConfigTypes` and an executor; any other node type needs a `NodeExecutionHandler` (one per type,
 `DefaultNodeHandlerRegistry`) and a descriptor in `BuiltinNodeDescriptorProvider` instead.
@@ -148,9 +138,9 @@ and the no-arg test path share, plus every host bean. A validator returns every 
 an `Error` stops a publish. Structural errors (missing or duplicate ids, unknown edge ends) are reported alone, before
 any validator runs.
 
-**`FlowClient`** (`api`) — the in-process port for what a business module does with a record's approval:
-`submitRecord`, `previewValues`, `withdrawRecord`, `cancelRecord`. Identity comes from the context, never from a
-parameter. Approver actions, task reads, a record's approval history, a saved record's preview and starting an
+**`FlowClient`** (`api`) — not an extension point but the in-process port, one class, for what a business module does
+with a record's approval: `submitRecord`, `previewValues`, `withdrawRecord`, `cancelRecord`. Identity comes from the
+context, never from a parameter. Approver actions, task reads, a record's approval history, a saved record's preview and starting an
 `Api`-triggered Automation flow stay on REST; a method joins the port when a business module calls it, not before.
 
 **`FlowStateChangeListener`** (`runtime/engine`) — called by `FlowProjectionPublisher` once an instance's state is
@@ -193,7 +183,10 @@ A change keeps these; each names the class that holds it.
   handler.
 - **Saves are optimistic.** `FlowInstance`, `FlowDesign` and `FlowBundle` are `versionLock` models: of two concurrent
   saves the later fails ("Data version does not match…"). `FlowActionReplayGuard` answers a repeated approve or reject
-  with the current state instead of a second vote.
+  with the current state instead of a second vote. An instance's save updates its row by id and version without
+  reading it first, and writes only the fields the state holds (`FlowExecutionStateMapper.STATE_FIELDS`, nulls
+  included): a column written apart from the state — `superseded`, by `markSuperseded` — keeps its value. A new
+  `FlowInstance` field the mapper writes goes into that set (`FlowExecutionStateMapperTest` checks it).
 - **Approvers are found from the employee a record is about, unless a source says the submitter.**
   `ApproverResolutionService` starts an organization lookup — supervisor, department — from the record's subject
   (`_subjectId`) by default, so a record filed on someone's behalf goes where theirs would; a source starts from the
@@ -205,7 +198,7 @@ A change keeps these; each names the class that holds it.
   refuses none and several; `SubmitConditions` refuses two flows with the same condition, two defaults included, at a
   publish while enabled, an enable and a rollback.
 - **A flow runs at most once a minute.** `FlowCron.refusal` refuses a cron whose second field is not a single value;
-  publishing (`TriggerConsistencyValidator`, `TimerConfigValidator`) and `GET /flow/cron/preview` both ask it.
+  publishing (`TriggerConsistencyValidator`) and `GET /flow/cron/preview` both ask it.
 - **Identity is the server's.** `actorId`, `initiatorId` and `tenantId` are `@JsonProperty(READ_ONLY)` on every request
   and resolved from the context; `FlowClient` takes none of them as a parameter.
 - **Bookkeeping runs past data permissions; reads are judged.** The instance store, the ledger and the projections
@@ -256,8 +249,7 @@ The softa-docs pages state each rule; this is where to change it.
   built-in validators alone.
 - `StoredDesignJsonTest` reads the designs in `src/test/resources/stored-designs` with the runtime's Jackson settings;
   add a fixture when a new design shape reaches a database.
-- `ContractPackageDisciplineTest` keeps the contract packages free of Spring, and `FlowExceptionHandlerOrderTest` keeps
-  `FlowExceptionHandler` ahead of softa-web's catch-all.
+- `FlowExceptionHandlerOrderTest` keeps `FlowExceptionHandler` ahead of softa-web's catch-all.
 
 ## Documentation
 

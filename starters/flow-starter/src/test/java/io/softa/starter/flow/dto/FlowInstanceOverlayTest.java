@@ -72,7 +72,7 @@ class FlowInstanceOverlayTest {
     private static FlowExecutionTraceEntry entry(String nodeId, FlowTraceEventType type, LocalDateTime time) {
         return FlowExecutionTraceEntry.builder()
                 .nodeId(nodeId)
-                .flowNodeType(FlowNodeType.CALL_SERVICE)
+                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .eventType(type)
                 .eventTime(time)
                 .build();

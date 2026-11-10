@@ -43,7 +43,6 @@ class GetDataTaskExecutorTest {
     @Test
     void supportsGetRecordNodeType() {
         assertEquals(FlowNodeType.GET_RECORD, executor.getSupportedNodeType());
-        assertEquals("GetData", executor.getExecutor());
     }
 
     @Test

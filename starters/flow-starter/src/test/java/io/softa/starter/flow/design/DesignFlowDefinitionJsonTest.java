@@ -68,7 +68,7 @@ class DesignFlowDefinitionJsonTest {
     void shouldDeserializeNodeTypeCaseInsensitively() throws Exception {
         assertEquals(FlowNodeType.START, objectMapper.readValue("\"Start\"", FlowNodeType.class));
         assertEquals(FlowNodeType.APPROVAL, objectMapper.readValue("\"Approval\"", FlowNodeType.class));
-        assertEquals(FlowNodeType.CALL_SERVICE, objectMapper.readValue("\"CallService\"", FlowNodeType.class));
+        assertEquals(FlowNodeType.CALL_WEBHOOK, objectMapper.readValue("\"CallWebhook\"", FlowNodeType.class));
     }
 
     @Test

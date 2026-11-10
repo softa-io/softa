@@ -44,7 +44,6 @@ class UpdateDataTaskExecutorTest {
     @Test
     void supportedNodeTypeIsUpdateRecord() {
         assertEquals(FlowNodeType.UPDATE_RECORD, executor.getSupportedNodeType());
-        assertEquals("UpdateData", executor.getExecutor());
     }
 
     @Test

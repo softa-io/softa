@@ -49,9 +49,9 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
     @Override
     public FlowExecutionState save(FlowExecutionState state) {
         return ContextUtils.withoutPermissionChecks(() -> {
-            FlowInstance existing = instanceService.findByInstanceId(state.getInstanceId()).orElse(null);
-            FlowInstance entity = FlowExecutionStateMapper.toEntity(state, existing);
-            FlowInstance saved = instanceService.saveInstance(entity);
+            // The row is the one the state was read from or first saved as: nothing to read before writing it.
+            FlowInstance saved = instanceService.saveInstance(FlowExecutionStateMapper.toEntity(state));
+            state.setPersistedId(saved.getId());
             state.setVersion(saved.getVersion());
             traceService.appendNewEntries(state);
             approvalLedger.appendNewEntries(state);

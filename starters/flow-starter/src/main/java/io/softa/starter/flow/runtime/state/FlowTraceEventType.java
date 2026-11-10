@@ -44,6 +44,7 @@ public enum FlowTraceEventType {
     FLOW_FAILED("FlowFailed"),
     /** An administrator ran the steps after an approval again, after they had failed. */
     FLOW_RETRIED("FlowRetried"),
+    /** A node retried after an error, on revisions from before node retries were removed: kept to read their traces. */
     NODE_ERROR_RETRIED("NodeErrorRetried"),
     FLOW_URGED("FlowUrged"),
     ;

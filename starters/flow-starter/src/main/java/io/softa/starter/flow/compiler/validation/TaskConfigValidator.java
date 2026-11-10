@@ -20,7 +20,6 @@ import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.bundle.NodeConfigParser;
 import io.softa.starter.flow.runtime.nodeconfig.AsyncTaskConfig;
-import io.softa.starter.flow.runtime.nodeconfig.CallServiceConfig;
 import io.softa.starter.flow.runtime.nodeconfig.CreateDataConfig;
 import io.softa.starter.flow.runtime.nodeconfig.DeleteDataConfig;
 import io.softa.starter.flow.runtime.nodeconfig.ExtractTransformConfig;
@@ -51,7 +50,6 @@ public class TaskConfigValidator implements FlowValidator {
 
     private static final String INVALID_TASK_CONFIG = "INVALID_TASK_CONFIG";
     private static final String MISSING_REQUIRED_INPUT = "MISSING_REQUIRED_INPUT";
-    private static final String ARG_TYPES_ARITY = "ARG_TYPES_ARITY";
     private static final String UNKNOWN_MODEL = "UNKNOWN_MODEL";
     private static final String INVALID_FIELD_PATH = "INVALID_FIELD_PATH";
 
@@ -111,11 +109,6 @@ public class TaskConfigValidator implements FlowValidator {
             case QueryRecordsConfig q -> {
                 requireText(node, at + "modelName", q.getModelName(), d);
                 checkQuery(node, at, q.getModelName(), q.getFields(), q.getFilters(), q.getOrders(), d);
-            }
-            case CallServiceConfig cs -> {
-                requireText(node, at + "beanName", cs.getBeanName(), d);
-                requireText(node, at + "methodName", cs.getMethodName(), d);
-                validateArgTypesArity(node, at, cs, d);
             }
             case SendSmsConfig sms -> {
                 requirePresent(node, at + "phoneNumbers", sms.getPhoneNumbers(), d);
@@ -218,18 +211,6 @@ public class TaskConfigValidator implements FlowValidator {
     private Map<String, Object> extractInput(FlowGraphNode node) {
         Object parsed = NodeConfigParser.parse(node.getType(), node.getConfig());
         return parsed instanceof TaskNodeConfig tnc ? tnc.getInput() : null;
-    }
-
-    private void validateArgTypesArity(FlowGraphNode node, String at, CallServiceConfig cs, List<CompileDiagnostic> d) {
-        if (cs.getArgTypes() == null) {
-            return;
-        }
-        int argCount = cs.getArgs() == null ? 0 : cs.getArgs().size();
-        if (cs.getArgTypes().size() != argCount) {
-            d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), at + "argTypes",
-                    ARG_TYPES_ARITY, "Task node '" + node.displayName() + "' argTypes length ("
-                            + cs.getArgTypes().size() + ") must match args length (" + argCount + ")"));
-        }
     }
 
     private void requireText(FlowGraphNode node, String field, String value, List<CompileDiagnostic> d) {

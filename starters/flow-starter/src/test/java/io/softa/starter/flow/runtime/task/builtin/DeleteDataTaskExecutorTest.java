@@ -45,7 +45,6 @@ class DeleteDataTaskExecutorTest {
     @Test
     void supportsDeleteRecordNodeType() {
         assertEquals(FlowNodeType.DELETE_RECORD, executor.getSupportedNodeType());
-        assertEquals("DeleteData", executor.getExecutor());
     }
 
     @Test

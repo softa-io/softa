@@ -334,8 +334,8 @@ class ApproverResolutionServiceOrgTest {
         CompiledFlowNode node = approvalNode(Map.of("type", "Users", "userIds", List.of("alice", " ", "bob", "alice")));
 
         assertEquals(List.of("alice", "bob"), service.resolveApprovers(node, Map.of(), "100"));
-        assertFalse(service.hasDynamicApproverSource(node), "named, not found when the step is reached");
-        assertTrue(service.hasDynamicApproverSource(approvalNode(Map.of("type", "Supervisor"))));
+        assertFalse(findsByRule(node), "named, not found when the step is reached");
+        assertTrue(findsByRule(approvalNode(Map.of("type", "Supervisor"))));
     }
 
     // ── Groups ──────────────────────────────────────────────────────────
@@ -349,8 +349,8 @@ class ApproverResolutionServiceOrgTest {
                 Map.of("type", "Users", "userIds", List.of("300", "200"))));
 
         assertEquals(List.of("200", "300"), service.resolveApprovers(node, varsWithSubject(5000L), "100"));
-        assertTrue(service.hasDynamicApproverSource(node), "one group finds its people when the step is reached");
-        assertFalse(service.hasDynamicApproverSource(approvalNode(List.of(
+        assertTrue(findsByRule(node), "one group finds its people when the step is reached");
+        assertFalse(findsByRule(approvalNode(List.of(
                 Map.of("type", "Users", "userIds", List.of("300")),
                 Map.of("type", "Users", "userIds", List.of("400"))))), "every group names its people");
     }
@@ -450,5 +450,10 @@ class ApproverResolutionServiceOrgTest {
         Map<String, Object> vars = new LinkedHashMap<>();
         vars.put(ApproverResolutionService.SUBJECT_ID_KEY, subjectId);
         return vars;
+    }
+
+    /** Whether a group of the step finds its people when the step is reached. */
+    private static boolean findsByRule(CompiledFlowNode node) {
+        return ((ApprovalNodeConfig) node.getParsedConfig()).findsApproversByRule();
     }
 }

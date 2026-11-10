@@ -40,7 +40,7 @@ class FlowOrgServiceTest {
         when(modelService.getById(anyString(), anyLong(), anyCollection())).thenAnswer(invocation ->
                 rows(invocation.getArgument(0), Filters.of("id", Operator.EQUAL, invocation.getArgument(1)))
                         .stream().findFirst());
-        org = new FlowOrgService(modelService, new OrganizationServiceProperties());
+        org = new FlowOrgService(modelService, null);
 
         employee(1L, 1001L, "Alice", 10L, 2L);
         employee(2L, 1002L, "Bob", 10L, 3L);

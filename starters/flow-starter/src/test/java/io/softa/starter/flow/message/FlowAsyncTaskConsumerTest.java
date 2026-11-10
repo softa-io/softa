@@ -14,7 +14,6 @@ import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.FlowWaitToken;
-import io.softa.starter.flow.runtime.state.WaitType;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -63,7 +62,7 @@ class FlowAsyncTaskConsumerTest {
 
         // Flow still parked on the async node → live wait token present.
         when(engine.getInstance("inst-1")).thenReturn(Optional.of(state(FlowExecutionStatus.WAITING,
-                List.of(FlowWaitToken.builder().nodeId("async-1").type(WaitType.ASYNC).build()))));
+                List.of(FlowWaitToken.builder().nodeId("async-1").build()))));
 
         consumer.onMessage(message());
 

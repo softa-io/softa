@@ -53,7 +53,7 @@ class CronTaskFlowConsumerTest {
     @BeforeEach
     void setUp() {
         bundleService = new StubBundleService();
-        registry = new OrmFlowBundleRegistry(bundleService, 60);
+        registry = new OrmFlowBundleRegistry(bundleService);
         FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
         when(engine.start(any())).thenAnswer(invocation -> {
             starts.add(new Start(invocation.getArgument(0), ContextHolder.getContext().getTenantId()));

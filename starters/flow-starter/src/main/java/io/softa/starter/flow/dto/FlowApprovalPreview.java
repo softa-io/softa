@@ -84,8 +84,6 @@ public class FlowApprovalPreview {
         AUTO_APPROVED("AutoApproved"),
         /** Nobody resolves to the step, which is approved on record (empty-approver strategy AutoApprove). */
         NO_APPROVER_APPROVED("NoApproverApproved"),
-        /** Nobody resolves to the step, which is skipped (empty-approver strategy Skip). */
-        NO_APPROVER_SKIPPED("NoApproverSkipped"),
         /** Nobody resolves to the step, and the approval stops there with an error (empty-approver strategy Error). */
         NO_APPROVER_FAILS("NoApproverFails"),
         /** Who approves the step, or whether it passes on its own, depends on data only known once the approval runs. */

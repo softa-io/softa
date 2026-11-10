@@ -1,6 +1,5 @@
 package io.softa.starter.flow.service;
 
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -19,14 +18,15 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 /**
  * Service interface for persistent flow instance operations.
  * <p>
- * Every method is abstract on purpose: core capabilities (timer sweeps, start-dedup,
+ * Every method is abstract on purpose: core capabilities (start-dedup,
  * monitoring) depend on these finders, so a replacement implementation that misses one
  * must fail to compile instead of silently returning empty results.
  */
 public interface FlowInstanceService {
 
     /**
-     * Save or update a flow instance entity.
+     * Save a flow instance: insert it when it has no id yet, else update its row by id and version — the fields the
+     * engine's state holds ({@code FlowExecutionStateMapper.STATE_FIELDS}), nulls included, and no other.
      *
      * @param instance the instance entity to persist
      * @return the saved entity
@@ -85,15 +85,6 @@ public interface FlowInstanceService {
      * @return the instance, if the event already started the flow
      */
     Optional<FlowInstance> findByTriggerEvent(String flowId, String eventId);
-
-    /**
-     * Find WAITING instances with a due timer whose {@code next_fire_at} is at or before {@code now}.
-     *
-     * @param now   cutoff timestamp
-     * @param limit maximum rows to return
-     * @return list of due timer instances
-     */
-    List<FlowInstance> findDueTimers(LocalDateTime now, int limit);
 
     /**
      * How many of the flow's instances have not ended — pending, running or waiting, a record's approval in progress

@@ -135,7 +135,7 @@ class FlowRecordSubmissionTest {
                     if (Objects.equals(state.getModelName(), invocation.getArgument(0))
                             && Objects.equals(state.getRowId(), invocation.getArgument(1))
                             && Boolean.TRUE.equals(state.getRecordApproval())) {
-                        FlowInstance instance = FlowExecutionStateMapper.toEntity(state, null);
+                        FlowInstance instance = FlowExecutionStateMapper.toEntity(state);
                         instance.setCreatedTime(createdAt.get(state.getInstanceId()));
                         instances.add(instance);
                     }

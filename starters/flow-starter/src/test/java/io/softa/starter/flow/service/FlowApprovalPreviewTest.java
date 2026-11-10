@@ -207,7 +207,7 @@ class FlowApprovalPreviewTest {
                 .joinArrivalCounts(new HashMap<>())
                 .build();
         // Its row as the instance table holds it, whole: the preview reads it from there.
-        instances.add(FlowExecutionStateMapper.toEntity(state, null));
+        instances.add(FlowExecutionStateMapper.toEntity(state));
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
@@ -297,14 +297,12 @@ class FlowApprovalPreviewTest {
         // No organization service resolves approvers here, so a supervisor source resolves to nobody.
         Map<String, Object> supervisor = Map.of("type", "Supervisor", "level", 1);
         publishService.publish("annual", chain("Annual leave", approval("auto", "Auto", Map.of("approverSources", List.of(supervisor), "emptyApproverStrategy", "AutoApprove")),
-                approval("skip", "Skip", Map.of("approverSources", List.of(supervisor), "emptyApproverStrategy", "Skip")),
                 approval("stop", "Stop", Map.of("approverSources", List.of(supervisor), "emptyApproverStrategy", "Error")),
                 approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
-        assertEquals(List.of(StepOutcome.NO_APPROVER_APPROVED, StepOutcome.NO_APPROVER_SKIPPED,
-                StepOutcome.NO_APPROVER_FAILS), outcomes(preview));
+        assertEquals(List.of(StepOutcome.NO_APPROVER_APPROVED, StepOutcome.NO_APPROVER_FAILS), outcomes(preview));
         // The submission would be refused there, with the message it would be refused with: the steps after it are
         // never reached.
         assertEquals(new Stop("stop", "Stop", "No approver was found for step 'Stop'. "

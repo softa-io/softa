@@ -1,4 +1,4 @@
-package io.softa.starter.flow.runtime.engine;
+package io.softa.starter.flow.api;
 
 import java.util.Map;
 import java.util.function.Supplier;
@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.starter.flow.api.FlowClient;
 import io.softa.starter.flow.dto.FlowApprovalPreview;
 import io.softa.starter.flow.service.FlowLaunchService;
 
@@ -18,13 +17,13 @@ import static org.mockito.Mockito.when;
  * The port makes the same service calls as {@code FlowInstanceController}, as the current user: the approval
  * preview of a record not saved yet is theirs.
  */
-class InProcessFlowClientInstanceReadsTest {
+class FlowClientTest {
 
     private static final String ACTOR = "100";
 
     private final FlowLaunchService launch = mock(FlowLaunchService.class);
 
-    private final FlowClient client = new InProcessFlowClient(launch);
+    private final FlowClient client = new FlowClient(launch);
 
     @Test
     void theApprovalPreviewOfUnsavedValuesIsTheCurrentUsers() {

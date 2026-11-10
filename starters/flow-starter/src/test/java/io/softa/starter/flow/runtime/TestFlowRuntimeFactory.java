@@ -179,14 +179,13 @@ public final class TestFlowRuntimeFactory {
         FlowActionContextService contextService = new FlowActionContextService(instanceStore, bundleRegistry, projectionPublisher);
 
         FlowGatewayRouter gatewayRouter = new FlowGatewayRouter();
-        NodeRetryExecutor retryExecutor = new NodeRetryExecutor(auditService);
         ApproverDedupService approverDedupService = new ApproverDedupService(lifecycleService, auditService, auditReader);
         FlowActionReplayGuard replayGuard = new FlowActionReplayGuard(auditReader);
         AutoCcService autoCcService = new AutoCcService(contextService, auditService, notificationService,
                 approverResolutionService);
         FlowExecutionOrchestrator orchestrator = new FlowExecutionOrchestrator(
                 bundleRegistry, nodeHandlerRegistry, contextService, auditService, pendingApprovalFactory, notificationService,
-                gatewayRouter, retryExecutor, approverDedupService, autoCcService);
+                gatewayRouter, approverDedupService, autoCcService);
         FlowInstanceService instanceService = Mockito.mock(FlowInstanceService.class);
         FlowInstanceAccessGuard accessGuard = new FlowInstanceAccessGuard(instanceService, auditReader, recordModelService);
 

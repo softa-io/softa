@@ -129,7 +129,7 @@ public class FlowActionContextService {
 
     /**
      * Persist state in its own transaction so the record survives when the caller's transaction
-     * rolls back. Used by failed starts and failed timer/async resumes: they rethrow to roll back
+     * rolls back. Used by failed starts and failed async resumes: they rethrow to roll back
      * the failed attempt's partial business writes, but the FAILED instance must still be recorded
      * for observability.
      */

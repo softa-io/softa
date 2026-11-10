@@ -2,7 +2,6 @@ package io.softa.starter.flow.entity;
 
 import java.io.Serial;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -29,7 +28,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 )
 @Index(indexName = "uk_instance_id", fields = {"instanceId"}, unique = true)
 @Index(indexName = "idx_tenant_flow_status", fields = {"tenantId", "flowId", "status"})
-@Index(indexName = "idx_tenant_status_fire", fields = {"tenantId", "status", "nextFireAt"})
+@Index(indexName = "idx_flow_instance_status", fields = {"tenantId", "status"})
 @Index(indexName = "idx_tenant_initiator_status", fields = {"tenantId", "initiatorId", "status"})
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
 @Index(indexName = "idx_flow_instance_dept", fields = {"tenantId", "departmentId"})
@@ -139,11 +138,8 @@ public class FlowInstance extends AuditableModel {
     @Field(fieldType = FieldType.TEXT, description = "Execution variables (JSON)")
     private String variables;
 
-    @Field(fieldType = FieldType.TEXT, description = "Active timer/async waits (JSON array); pending approvals are tracked separately")
+    @Field(fieldType = FieldType.TEXT, description = "AsyncTask nodes waiting for their callback (JSON array); pending approvals are tracked separately")
     private String waitTokens;
-
-    @Field(description = "Earliest due time across timer waits (denormalized from waitTokens for the sweep index)")
-    private LocalDateTime nextFireAt;
 
     @Field(label = "Completed Node IDs", fieldType = FieldType.TEXT, description = "Completed node ids (JSON array)")
     private String completedNodeIds;

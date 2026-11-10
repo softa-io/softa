@@ -168,9 +168,9 @@ public class ApproverResolutionService {
     /**
      * Who a step that found nobody goes to under {@code AssignToRole}: the holders of its empty-approver roles
      * ({@code emptyApproverRoleIds}, {@code emptyApproverRoleCodes}) who can act, found as a role query finds them —
-     * every company's — less the submitter and the employee the record is about. Otherwise the step would go back to
-     * them, and pass as their own: HR submitting their own leave with no manager would approve it themselves. Empty
-     * when the node names no role, or nobody is left.
+     * every company's. A holder who submitted the request, or whom it is about, stays among them like any other
+     * approver: the flow's {@code selfApproval} decides what their own step does, as at every step. Empty when the
+     * node names no role, or nobody holds them.
      *
      * @param variables   the instance's variables
      * @param initiatorId the submitter's account
@@ -184,18 +184,7 @@ public class ApproverResolutionService {
         source.put("type", "RoleQuery");
         source.put("roleIds", cfg.getEmptyApproverRoleIds());
         source.put("roleCodes", cfg.getEmptyApproverRoleCodes());
-        Set<String> leftOut = new HashSet<>();
-        if (StringUtils.hasText(initiatorId)) {
-            leftOut.add(initiatorId);
-        }
-        Long subject = parseLong(variables == null ? null : variables.get(SUBJECT_ID_KEY));
-        Long subjectUser = subject == null || organizationService == null ? null
-                : organizationService.getUserIdOfEmployee(subject);
-        if (subjectUser != null) {
-            leftOut.add(subjectUser.toString());
-        }
-        return resolveApprovers(asStep(source), variables, initiatorId).stream()
-                .filter(holder -> !leftOut.contains(holder)).toList();
+        return resolveApprovers(asStep(source), variables, initiatorId);
     }
 
     /**
@@ -224,14 +213,6 @@ public class ApproverResolutionService {
     private static boolean namesEmptyApproverRoles(ApprovalNodeConfig cfg) {
         return (cfg.getEmptyApproverRoleIds() != null && !cfg.getEmptyApproverRoleIds().isEmpty())
                 || (cfg.getEmptyApproverRoleCodes() != null && !cfg.getEmptyApproverRoleCodes().isEmpty());
-    }
-
-    /**
-     * Whether the step finds approvers when it is reached: a group of it is a source other than the specific people it
-     * names ({@link ApprovalNodeConfig#findsApproversByRule}).
-     */
-    public boolean hasDynamicApproverSource(CompiledFlowNode node) {
-        return node != null && node.getParsedConfig() instanceof ApprovalNodeConfig cfg && cfg.findsApproversByRule();
     }
 
     /** A step's groups of approvers, in order; none when it names none. */

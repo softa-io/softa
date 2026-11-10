@@ -26,9 +26,8 @@ public class FlowNoApproverException extends FlowActionValidationException {
      * The refusal for a step that went to roles and found nobody there either, translated: {0} is the step's label,
      * else its node id; {1} the roles.
      */
-    public static final String ROLES_MESSAGE = "No approver was found for step ''{0}'', and nobody in {1} can take it "
-            + "but the submitter or the employee the record is about. Ask your HR administrator to set one up, then "
-            + "try again.";
+    public static final String ROLES_MESSAGE = "No approver was found for step ''{0}'', and nobody in {1} can take it. "
+            + "Ask your HR administrator to set one up, then try again.";
 
     /** {@code reason}: why the step found nobody, null when its source cannot tell. */
     public FlowNoApproverException(String nodeId, String nodeLabel, String reason) {

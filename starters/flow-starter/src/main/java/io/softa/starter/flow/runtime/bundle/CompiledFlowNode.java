@@ -11,7 +11,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.runtime.nodeconfig.NodeErrorConfig;
 
 /**
  * Runtime node compiled from a design-time graph node.
@@ -20,8 +19,6 @@ import io.softa.starter.flow.runtime.nodeconfig.NodeErrorConfig;
  * <ul>
  *   <li>{@code type} ({@link FlowNodeType}) replaces the former {@code kind} ({@code FlowNodeKind}),
  *       serving as the single discriminator for both handler routing and palette rendering.</li>
- *   <li>{@code errorConfig} ({@link NodeErrorConfig}) replaces the former loose pair of
- *       {@code errorStrategy} + {@code retryCount} fields.</li>
  *   <li>Return policy ({@code returnEnabled}) is the flow's, on {@code CompiledFlowDefinition}, the same at every
  *       step.</li>
  * </ul>
@@ -52,10 +49,6 @@ public class CompiledFlowNode {
     @JsonIgnore
     @Schema(hidden = true)
     private Object parsedConfig;
-
-    @Schema(description = "Error handling configuration")
-    @Builder.Default
-    private NodeErrorConfig errorConfig = NodeErrorConfig.failFast();
 
     @Schema(description = "Incoming edge ids")
     private List<String> incomingEdgeIds;

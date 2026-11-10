@@ -8,13 +8,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.entity.FlowEvent;
-import io.softa.starter.flow.message.FlowEventProducer;
-import io.softa.starter.flow.message.dto.FlowEventMessage;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.context.RecordVariables;
@@ -51,9 +48,6 @@ public class FlowAutomationService {
     private FlowEventService eventService;
 
     @Autowired(required = false)
-    private FlowEventProducer flowEventProducer;
-
-    @Autowired(required = false)
     private FlowInstanceService instanceService;
 
     /** Reads what an edge's rule reads up to {@link RecordVariables#MAX_HOPS} relations on from the changed record. */
@@ -72,32 +66,6 @@ public class FlowAutomationService {
      */
     public boolean hasEntityChangeTrigger(String model) {
         return triggerRegistry.hasEntityChangeTrigger(model);
-    }
-
-    /**
-     * Publish the event to Pulsar for asynchronous fan-out via {@code mq.topics.flow-event}.
-     * <p>
-     * Preferred for high-cardinality producers (e.g. ChangeLog) so that flow matching
-     * and execution happen in the flow-event consumer's virtual-thread pool instead of
-     * blocking the upstream consumer thread. Falls back to in-thread {@link #fireAsyncOnly}
-     * when the producer bean is not available (topic not configured).
-     * </p>
-     */
-    public void fireAsync(FlowTriggerEvent event) {
-        if (flowEventProducer == null) {
-            fireAsyncOnly(event);
-            return;
-        }
-        FlowEventMessage message = new FlowEventMessage();
-        message.setTriggerType(event.getType());
-        message.setEventId(event.getEventId());
-        message.setSourceModel(event.getSourceModel());
-        message.setSourceRowId(event.getSourceRowId());
-        message.setActorId(event.getActorId());
-        message.setParameters(event.getParameters());
-        message.setEventTime(LocalDateTime.now());
-        message.setContext(ContextHolder.cloneContext());
-        flowEventProducer.sendFlowEvent(message);
     }
 
     /**

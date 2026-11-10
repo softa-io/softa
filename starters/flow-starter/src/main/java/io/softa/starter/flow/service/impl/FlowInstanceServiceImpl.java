@@ -1,10 +1,10 @@
 package io.softa.starter.flow.service.impl;
 
 import java.io.Serializable;
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -28,6 +28,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowInstanceRecordView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
@@ -109,13 +110,16 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     @Override
     public FlowInstance saveInstance(FlowInstance instance) {
         if (instance.getId() != null) {
-            if (this.updateOne(instance, false)) {
+            // What the state holds, nulls included; a column written apart from it (superseded) keeps its value.
+            Map<String, Object> row = BeanTool.objectToMap(instance, false);
+            row.keySet().retainAll(SAVED_FIELDS);
+            if (modelService.updateOne(modelName, row)) {
                 advanceVersion(instance);
             }
             return instance;
         }
-        // A row without an id is new: the store looked the instance up before mapping it, and its instance id is
-        // unique (uk_instance_id), so a second row for it is refused rather than looked for again here.
+        // A state never saved carries no row id: a new row. Its instance id is unique (uk_instance_id), so a second
+        // row for it is refused.
         Long id = this.createOne(instance);
         instance.setId(id);
         if (instance.getVersion() == null) {
@@ -123,6 +127,10 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         }
         return instance;
     }
+
+    /** The fields a save updates: the row's id and what the engine's state holds. */
+    private static final Set<String> SAVED_FIELDS = Stream.concat(Stream.of(ModelConstant.ID),
+            FlowExecutionStateMapper.STATE_FIELDS.stream()).collect(Collectors.toUnmodifiableSet());
 
     private static void advanceVersion(FlowInstance instance) {
         if (instance.getVersion() != null) {
@@ -187,17 +195,6 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                 .eq(FlowInstance::getFlowId, flowId)
                 .eq(FlowInstance::getTriggerEventId, eventId);
         return this.searchOne(filters);
-    }
-
-    @Override
-    public List<FlowInstance> findDueTimers(LocalDateTime now, int limit) {
-        Filters filters = new Filters()
-                .eq(FlowInstance::getStatus, FlowExecutionStatus.WAITING)
-                .le(FlowInstance::getNextFireAt, now);
-        Orders orders = Orders.ofAsc(FlowInstance::getNextFireAt);
-        FlexQuery query = new FlexQuery(filters, orders);
-        query.setLimitSize(limit);
-        return this.searchList(query);
     }
 
     @Override

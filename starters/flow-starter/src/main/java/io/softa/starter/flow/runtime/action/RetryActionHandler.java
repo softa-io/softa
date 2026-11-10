@@ -28,7 +28,7 @@ import io.softa.starter.flow.runtime.state.FlowTraceEventType;
  * and the tenant's administrators are told again.
  *
  * <p>Only an instance that failed after an approval remembers where to run again from; one that failed otherwise —
- * an automation run, a timer or a callback — is terminated instead. A record's approval runs again only while the
+ * an automation run or a callback — is terminated instead. A record's approval runs again only while the
  * record still waits on it: taken back by its submitter, the record is a draft; submitted again, it waits on its new
  * approval. The steps run with the caller's permission checks set aside, as they would after the approver's approval:
  * the flow authorized them.

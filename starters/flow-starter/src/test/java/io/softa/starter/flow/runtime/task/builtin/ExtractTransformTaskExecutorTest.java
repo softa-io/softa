@@ -24,7 +24,6 @@ class ExtractTransformTaskExecutorTest {
     @Test
     void supportsTransformNodeType() {
         assertEquals(FlowNodeType.TRANSFORM, executor.getSupportedNodeType());
-        assertEquals("ExtractTransform", executor.getExecutor());
     }
 
     @Test

@@ -29,7 +29,7 @@ import io.softa.starter.flow.runtime.state.FlowTraceEventType;
  * <p>
  * Each timing is run where its moment happens, once: the submission's as the instance starts, the rejection's by
  * the rejection, and the approval's where the instance completes approved ({@code FlowExecutionOrchestrator}) —
- * whichever run completed it, an approval, a retry, a timer or an async task resuming it, an administrator's
+ * whichever run completed it, an approval, a retry, an async task resuming it, an administrator's
  * reassignment. The entries join the instance the caller is about to save; nothing is saved here.
  * </p>
  */

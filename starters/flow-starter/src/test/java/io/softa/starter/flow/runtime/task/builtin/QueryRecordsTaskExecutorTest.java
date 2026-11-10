@@ -46,7 +46,6 @@ class QueryRecordsTaskExecutorTest {
     @Test
     void reportsSupportedNodeType() {
         assertSame(FlowNodeType.QUERY_RECORDS, executor.getSupportedNodeType());
-        assertEquals("QueryRecords", executor.getExecutor());
     }
 
     @SuppressWarnings("unchecked")

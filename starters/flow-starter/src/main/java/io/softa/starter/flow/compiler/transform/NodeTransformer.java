@@ -4,11 +4,9 @@ import java.util.*;
 
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
-import io.softa.starter.flow.enums.NodeErrorStrategy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.bundle.NodeConfigParser;
-import io.softa.starter.flow.runtime.nodeconfig.NodeErrorConfig;
 
 /**
  * Transforms design-time nodes and edges into compiled runtime structures.
@@ -28,7 +26,6 @@ public final class NodeTransformer {
                     .type(node.getType())
                     .label(node.getLabel())
                     .config(config)
-                    .errorConfig(extractErrorConfig(config))
                     .parsedConfig(NodeConfigParser.parse(node.getType(), config))
                     .incomingEdgeIds(defaultList(incomingEdgeIds.get(node.getId())))
                     .outgoingEdgeIds(defaultList(outgoingEdgeIds.get(node.getId())))
@@ -51,45 +48,6 @@ public final class NodeTransformer {
         }
         return compiled;
     }
-
-    private static NodeErrorConfig extractErrorConfig(Map<String, Object> config) {
-        if (config == null) {
-            return NodeErrorConfig.failFast();
-        }
-        NodeErrorStrategy strategy = extractErrorStrategy(config);
-        int retryCount = extractRetryCount(config);
-        return NodeErrorConfig.builder()
-                .strategy(strategy)
-                .retryCount(retryCount)
-                .build();
-    }
-
-    private static NodeErrorStrategy extractErrorStrategy(Map<String, Object> config) {
-        Object raw = config.get("errorStrategy");
-        if (raw instanceof NodeErrorStrategy strategy) {
-            return strategy;
-        }
-        if (raw instanceof String s) {
-            return NodeErrorStrategy.fromValue(s);
-        }
-        return NodeErrorStrategy.FAIL;
-    }
-
-    private static int extractRetryCount(Map<String, Object> config) {
-        Object raw = config.get("retryCount");
-        if (raw instanceof Number number) {
-            return Math.max(0, number.intValue());
-        }
-        if (raw instanceof String s) {
-            try {
-                return Math.max(0, Integer.parseInt(s));
-            } catch (NumberFormatException ignored) {
-                return 0;
-            }
-        }
-        return 0;
-    }
-
 
     private static <T> List<T> defaultList(List<T> values) {
         return values == null ? Collections.emptyList() : List.copyOf(values);

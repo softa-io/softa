@@ -46,7 +46,6 @@ public class DefaultFlowCompiler {
                 new TriggerConsistencyValidator(),
                 new TaskConfigValidator(),
                 new ApprovalConfigValidator(),
-                new TimerConfigValidator(),
                 new TemplatePlaceholderValidator(),
                 new GatewayValidator()
         );

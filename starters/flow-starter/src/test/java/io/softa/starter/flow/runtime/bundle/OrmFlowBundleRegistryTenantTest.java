@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.bundle;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +48,7 @@ class OrmFlowBundleRegistryTenantTest {
     @BeforeEach
     void setUp() {
         stubService = new StubBundleService();
-        registry = new OrmFlowBundleRegistry(stubService, 60);
+        registry = new OrmFlowBundleRegistry(stubService);
         triggers = new DefaultFlowTriggerRegistry(registry);
     }
 
@@ -80,7 +81,7 @@ class OrmFlowBundleRegistryTenantTest {
 
     @Test
     void expiredEntryIsLoadedAgain() {
-        DefaultFlowTriggerRegistry noTtl = new DefaultFlowTriggerRegistry(new OrmFlowBundleRegistry(stubService, 0));
+        DefaultFlowTriggerRegistry noTtl = new DefaultFlowTriggerRegistry(new OrmFlowBundleRegistry(stubService, Duration.ZERO));
 
         inTenant(TENANT_A, () -> noTtl.findMatchingFlows(orderCreated()));
         inTenant(TENANT_A, () -> noTtl.findMatchingFlows(orderCreated()));

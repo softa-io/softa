@@ -167,7 +167,7 @@ public class FlowVariableCatalogService {
             }
             String sourceLabel = StringUtils.hasText(upstream.getLabel()) ? upstream.getLabel() : upstreamId;
             String primaryOutput = primaryOutputVariable(upstream.getConfig());
-            for (String variable : declaredOutputs(upstream.getConfig())) {
+            for (String variable : declaredOutputs(upstream)) {
                 boolean isPrimary = variable.equals(primaryOutput);
                 byName.putIfAbsent(variable, new FlowVariableView(
                         variable, FlowVariableView.Source.NODE_OUTPUT, sourceLabel,
@@ -233,15 +233,17 @@ public class FlowVariableCatalogService {
 
     /**
      * Output variable names a node's raw config declares: {@code outputVariable}
-     * (Script/Subflow/Task, also nested under {@code task}) and the keys of
-     * {@code outputMapping} (Subflow/Task).
+     * (Script/Subflow/Task, also nested under {@code task}) and, on a Subflow, the keys of
+     * {@code outputMapping}.
      */
-    private static List<String> declaredOutputs(Map<String, Object> config) {
+    private static List<String> declaredOutputs(FlowGraphNode node) {
+        Map<String, Object> config = node.getConfig();
+        boolean subflow = FlowNodeType.SUBFLOW.equals(node.getType());
         List<String> outputs = new ArrayList<>();
-        collectOutputKeys(config, outputs);
+        collectOutputKeys(config, subflow, outputs);
         Object task = config.get("task");
         if (task instanceof Map<?, ?> taskMap) {
-            collectOutputKeys(taskMap, outputs);
+            collectOutputKeys(taskMap, false, outputs);
         }
         return outputs;
     }
@@ -258,11 +260,11 @@ public class FlowVariableCatalogService {
         return null;
     }
 
-    private static void collectOutputKeys(Map<?, ?> config, List<String> outputs) {
+    private static void collectOutputKeys(Map<?, ?> config, boolean subflow, List<String> outputs) {
         if (config.get("outputVariable") instanceof String name && !name.isBlank()) {
             outputs.add(name);
         }
-        if (config.get("outputMapping") instanceof Map<?, ?> mapping) {
+        if (subflow && config.get("outputMapping") instanceof Map<?, ?> mapping) {
             for (Object key : mapping.keySet()) {
                 if (key instanceof String name && !name.isBlank()) {
                     outputs.add(name);

@@ -1,12 +1,12 @@
 package io.softa.starter.flow.runtime.bundle;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
@@ -26,9 +26,10 @@ import io.softa.starter.flow.service.FlowBundleService;
  * <ul>
  *   <li><b>Trigger index</b> — per tenant, the active bundles of its enabled flows, bucketed by the model
  *       whose records they start on. Loaded in that tenant's own context the first time one of its events asks (an
- *       empty result is kept too) and reused for {@code flow.trigger-cache-ttl-seconds} (default 60).
- *       Publishing, activating, disabling or enabling on this instance drops the tenant's entry at once; other
- *       instances pick the change up within the TTL. Platform-shared bundles have an entry of
+ *       empty result is kept too) and reused for {@link #TRIGGER_INDEX_TTL}. Every write, change-log message,
+ *       submission and approval preview asks it, so it is not read from the database each time. Publishing,
+ *       activating, disabling or enabling on this instance drops the tenant's entry at once; other instances pick the
+ *       change up within the TTL. Platform-shared bundles have an entry of
  *       their own, merged into every tenant's candidates.</li>
  *   <li><b>Definitions</b> — {@code bundleId → definition}, a bounded LRU. A published revision
  *       never changes, so entries never go stale. Every read is checked against the current tenant.</li>
@@ -51,6 +52,12 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     private static final Comparator<CompiledFlowDefinition> BY_FLOW_NAME = Comparator.comparing(
             CompiledFlowDefinition::getFlowName, Comparator.nullsLast(Comparator.naturalOrder()));
 
+    /**
+     * How long a tenant's trigger index is reused. Publishing, activating, disabling or enabling drops it at once on
+     * the instance that does it; another instance sees the change within this.
+     */
+    static final Duration TRIGGER_INDEX_TTL = Duration.ofSeconds(60);
+
     private final FlowBundleService bundleService;
 
     private final long triggerCacheTtlNanos;
@@ -67,10 +74,15 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     /** tenantId → that tenant's active bundles, for trigger matching. */
     private final ConcurrentHashMap<Long, TenantFlows> triggerIndex = new ConcurrentHashMap<>();
 
-    public OrmFlowBundleRegistry(FlowBundleService bundleService,
-                                 @Value("${flow.trigger-cache-ttl-seconds:60}") long triggerCacheTtlSeconds) {
+    @Autowired
+    public OrmFlowBundleRegistry(FlowBundleService bundleService) {
+        this(bundleService, TRIGGER_INDEX_TTL);
+    }
+
+    /** With another trigger-index TTL: for tests. */
+    OrmFlowBundleRegistry(FlowBundleService bundleService, Duration triggerIndexTtl) {
         this.bundleService = bundleService;
-        this.triggerCacheTtlNanos = TimeUnit.SECONDS.toNanos(triggerCacheTtlSeconds);
+        this.triggerCacheTtlNanos = triggerIndexTtl.toNanos();
     }
 
     @Override

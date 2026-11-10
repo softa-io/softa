@@ -91,7 +91,6 @@ class TypedTaskConfigCompileTest {
             Map.entry(FlowNodeType.GET_RECORD, "config.modelName"),
             Map.entry(FlowNodeType.DELETE_RECORD, "config.modelName"),
             Map.entry(FlowNodeType.QUERY_RECORDS, "config.modelName"),
-            Map.entry(FlowNodeType.CALL_SERVICE, "config.beanName"),
             Map.entry(FlowNodeType.SEND_SMS, "config.phoneNumbers"),
             Map.entry(FlowNodeType.SEND_EMAIL, "config.to"),
             Map.entry(FlowNodeType.SEND_INBOX_NOTIFICATION, "config.recipientIds"),

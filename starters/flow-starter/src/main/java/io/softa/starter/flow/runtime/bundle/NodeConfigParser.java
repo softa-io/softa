@@ -20,7 +20,7 @@ import io.softa.starter.flow.runtime.nodeconfig.*;
 public final class NodeConfigParser {
 
     /** A task node's own keys. Whatever else a config without {@code input} holds is its executor's input. */
-    private static final Set<String> TASK_NODE_KEYS = Set.of("task", "input", "outputVariable", "outputMapping", "options");
+    private static final Set<String> TASK_NODE_KEYS = Set.of("task", "input", "outputVariable");
 
     private NodeConfigParser() {}
 
@@ -33,7 +33,6 @@ public final class NodeConfigParser {
             case SCRIPT        -> BeanTool.objectToObject(config, ScriptNodeConfig.class);
             case SUBFLOW       -> BeanTool.objectToObject(config, SubflowNodeConfig.class);
             case RETURN_VALUE  -> BeanTool.objectToObject(config, ReturnValueNodeConfig.class);
-            case TIMER         -> BeanTool.objectToObject(config, TimerNodeConfig.class);
             // Every executor-backed task node (TaskConfigTypes) shares TaskNodeConfig; structural and routing
             // nodes have no typed config.
             default -> TaskConfigTypes.forNodeType(type) != null ? taskConfig(config) : null;
