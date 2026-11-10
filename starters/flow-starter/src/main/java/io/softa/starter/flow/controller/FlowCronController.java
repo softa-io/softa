@@ -7,8 +7,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.softa.framework.orm.compute.CronPreview;
+import io.softa.framework.orm.compute.CronSchedule;
 import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.flow.dto.FlowCronPreview;
 import io.softa.starter.flow.runtime.engine.FlowCron;
 
 /**
@@ -23,10 +24,11 @@ public class FlowCronController {
     @GetMapping("/preview")
     @Operation(summary = "Preview a cron expression",
             description = "Whether publishing accepts it (Quartz: second minute hour day-of-month month day-of-week "
-                    + "[year], one day field `?`), what it means in words, and its next runs in the server's zone. "
-                    + "`count` is clamped to 1–" + FlowCron.MAX_PREVIEW_RUNS + ".")
-    public ApiResponse<FlowCronPreview> preview(@RequestParam String expression,
-                                                @RequestParam(defaultValue = "5") int count) {
+                    + "[year], one day field `?`; a single second, as a flow runs at most once a minute), what it "
+                    + "means in words, and its next runs in the server's zone. `count` is clamped to 1–"
+                    + CronSchedule.MAX_PREVIEW_RUNS + ".")
+    public ApiResponse<CronPreview> preview(@RequestParam String expression,
+                                            @RequestParam(defaultValue = "5") int count) {
         return ApiResponse.success(FlowCron.preview(expression, count));
     }
 }

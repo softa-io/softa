@@ -62,17 +62,10 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                         // A new step starts with one group on the first option, specific people, waiting for them to
                         // be picked.
                         Map.of("approverSources", List.of(Map.of("type", ApproverSourceType.USERS.getType())))),
-                // HUMAN_TASK is intentionally omitted: the runtime has no human-task wait
-                // (dedicated wait token, assignee resolution, completion API) and the node is
-                // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from
-                // version control when the runtime lands.
                 structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Takes every edge whose condition holds, else the edge without a condition", "git-merge", 21, null),
                 structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null),
                 structural(FlowNodeType.PARALLEL_JOIN,     "Join",             "Waits for the branches of a parallel fork, or those an inclusive gateway took, then goes on once", "git-pull-request", 23, null),
                 structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, scriptConfigSchema()),
-                // FOR_EACH is intentionally omitted: its runtime child-node iteration is not yet
-                // implemented and it is rejected at compile time. Restore this entry
-                // (+ forEachConfigSchema) from version control when the runtime lands.
                 structural(FlowNodeType.SUBFLOW,           "Subflow",          "Calls a flow with a Subflow trigger (synchronous-only: it must not wait on timers or async tasks)", "layers", 32, null, subflowConfigSchema()),
                 structural(FlowNodeType.RETURN_VALUE,      "Return Value",     "Returns named values from the flow",  "corner-down-left", 33, null, returnValueConfigSchema())
                 // GENERATE_FILE is deliberately NOT listed here: GenerateFileTaskExecutor

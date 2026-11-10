@@ -69,7 +69,7 @@ class CronTriggerValidationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = FlowScenario.class, names = {"AUTOMATION", "VALIDATION", "COMPUTE"})
+    @EnumSource(value = FlowScenario.class, names = {"AUTOMATION"})
     void everyFlowButAnApprovalMayRunOnASchedule(FlowScenario scenario) {
         assertFalse(codes(cronFlow(scenario, "0 0 9 ? * MON-FRI")).contains("TRIGGER_NOT_ALLOWED"));
     }

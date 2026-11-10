@@ -106,16 +106,6 @@ public interface FlowInstanceService {
     List<FlowInstance> findDueTimers(LocalDateTime now, int limit);
 
     /**
-     * Count WAITING instances with a due timer whose {@code next_fire_at} is at or before {@code now}.
-     */
-    long countDueTimers(LocalDateTime now);
-
-    /**
-     * Count instances currently in the given status.
-     */
-    long countByStatus(FlowExecutionStatus status);
-
-    /**
      * How many of the flow's instances have not ended — pending, running or waiting, a record's approval in progress
      * among them — whoever may see them.
      */
@@ -152,17 +142,6 @@ public interface FlowInstanceService {
      * cancelled for good, so a returned one no longer waits for the record to be edited.
      */
     void markSuperseded(String modelName, String rowId);
-
-    /**
-     * Find non-terminal instances (RUNNING / WAITING_*) whose last update time is before
-     * {@code threshold} — i.e. instances that have been silent longer than expected and may
-     * require operator attention.
-     *
-     * @param threshold updated-time cutoff
-     * @param limit     maximum rows to return
-     * @return list of candidate stuck instances
-     */
-    List<FlowInstance> findStuckInstances(LocalDateTime threshold, int limit);
 
     /**
      * A business record's approval history, for its approval panel: the record's approval instances

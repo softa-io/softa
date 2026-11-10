@@ -28,6 +28,12 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  * inbox, makes them a participant of the instance — they open it and comment on it — and is what they mark as
  * read. A recipient already CC'd on the same node and cycle is not CC'd again. The recipients CC'd now are told.
  * </p>
+ * <p>
+ * Each timing is run where its moment happens, once: the submission's as the instance starts, the rejection's by
+ * the rejection, and the approval's where the instance completes approved ({@code FlowExecutionOrchestrator}) —
+ * whichever run completed it, an approval, a retry, a timer or an async task resuming it, an administrator's
+ * reassignment. The entries join the instance the caller is about to save; nothing is saved here.
+ * </p>
  */
 @Slf4j
 @Component
@@ -56,7 +62,7 @@ public class AutoCcService {
     }
 
     /**
-     * Runs the flow's CC rules of a timing, and saves the instance when they CC'd anyone.
+     * Runs the flow's CC rules of a timing on the instance, for its caller to save.
      *
      * @param state  the instance
      * @param node   where it happens — the start node, or the step whose action ended the approval — which the
@@ -87,9 +93,7 @@ public class AutoCcService {
                         state.getInstanceId(), e.getMessage(), e);
             }
         }
-        if (cc(state, node, recipients, timing)) {
-            contextService.persistState(state);
-        }
+        cc(state, node, recipients, timing);
     }
 
     /** CCs the recipients not CC'd on the node and cycle yet; whether it CC'd anyone. */

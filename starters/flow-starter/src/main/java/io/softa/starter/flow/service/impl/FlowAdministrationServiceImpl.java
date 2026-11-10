@@ -16,10 +16,12 @@ import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.dto.FlowBatchActionResult;
 import io.softa.starter.flow.dto.FlowBatchActionResult.Item;
 import io.softa.starter.flow.dto.FlowBatchActionResult.Outcome;
+import io.softa.starter.flow.dto.FlowDelegationMonitorSearchRequest;
 import io.softa.starter.flow.dto.FlowReassignPreview;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowDelegation;
@@ -208,8 +210,8 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
     }
 
     @Override
-    public List<FlowDelegation> listDelegations() {
-        return ContextUtils.withoutPermissionChecks(delegationService::listAll);
+    public Page<FlowDelegation> searchDelegations(FlowDelegationMonitorSearchRequest request) {
+        return ContextUtils.withoutPermissionChecks(() -> delegationService.searchAll(request));
     }
 
     @Override

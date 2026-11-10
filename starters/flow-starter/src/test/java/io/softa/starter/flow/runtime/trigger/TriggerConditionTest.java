@@ -21,7 +21,6 @@ import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.entity.FlowEvent;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.message.ChangeLogTriggerMapper;
-import io.softa.starter.flow.runtime.api.FlowValidationRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.context.RecordModelFixture;
@@ -116,21 +115,6 @@ class TriggerConditionTest {
         FlowAutomationService automation = new FlowAutomationService(registryFor(guard), mock(FlowRuntimeEngine.class));
 
         assertThrows(FlowRuntimeException.class, () -> automation.fireSyncOnly(changeOf(Map.of("days", 5))));
-    }
-
-    @Test
-    void aValidationWhoseConditionCannotBeEvaluatedDoesNotReadAsPassed() {
-        CompiledFlowDefinition check = flow("check", null, "noSuchFunction(days)").toBuilder()
-                .scenario(FlowScenario.VALIDATION).build();
-        FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
-        FlowAutomationService automation = new FlowAutomationService(registryFor(check), engine);
-        FlowValidationRequest request = new FlowValidationRequest();
-        request.setSourceModel(MODEL);
-        request.setChangeType("CREATE");
-        request.setData(Map.of("days", 5));
-
-        assertThrows(FlowRuntimeException.class, () -> automation.evaluateValidation(request));
-        verify(engine, never()).evaluate(any());
     }
 
     @Test

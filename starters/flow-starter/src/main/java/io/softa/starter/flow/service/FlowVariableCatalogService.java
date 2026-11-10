@@ -88,7 +88,10 @@ public class FlowVariableCatalogService {
 
     /**
      * The record the flow starts on: an entity change's every field, an approval's the fields its
-     * approvals route on ({@link RecordVariables}) — what the instance carries, so what a rule may read.
+     * approvals route on ({@link RecordVariables}) — what the instance carries, so what a rule may read. A
+     * relation a rule reads through lists the fields of its record a rule may read through it, by their
+     * paths — up to {@link RecordVariables#MAX_HOPS} relations on; an edge's rule reads them, and an approval's
+     * submit condition.
      */
     private void collectTriggerVariables(DesignFlowDefinition definition,
                                          Map<String, FlowVariableView> byName) {
@@ -102,12 +105,36 @@ public class FlowVariableCatalogService {
         List<MetaField> fields = definition.getTrigger() instanceof SubmitTrigger
                 ? RecordVariables.routedFields(modelName)
                 : ModelManager.getModelFields(modelName);
+        Map<String, List<String>> throughRelations = new LinkedHashMap<>();
+        for (MetaField relation : RecordVariables.routedRelations(modelName)) {
+            List<String> reachable = ruleFieldsOf(relation.getRelatedModel(), RecordVariables.MAX_HOPS - 1);
+            if (!reachable.isEmpty()) {
+                throughRelations.put(relation.getFieldName(), reachable);
+            }
+        }
         for (MetaField field : fields) {
             String fieldType = field.getFieldType() == null ? null : field.getFieldType().getType();
             byName.putIfAbsent(field.getFieldName(), new FlowVariableView(
                     field.getFieldName(), FlowVariableView.Source.TRIGGER, null, modelName,
-                    fieldType, relatedModelOf(field)));
+                    fieldType, relatedModelOf(field), throughRelations.get(field.getFieldName())));
         }
+    }
+
+    /**
+     * The fields of {@code modelName} a rule reads once a relation has reached it, as the rule names them after that
+     * relation: its routed fields, and — with {@code hopsLeft} — those through its own routed relations,
+     * {@code departmentId.costCentreId}.
+     */
+    private static List<String> ruleFieldsOf(String modelName, int hopsLeft) {
+        List<String> fields = new ArrayList<>();
+        RecordVariables.routedFields(modelName).forEach(field -> fields.add(field.getFieldName()));
+        if (hopsLeft > 0) {
+            for (MetaField next : RecordVariables.routedRelations(modelName)) {
+                ruleFieldsOf(next.getRelatedModel(), hopsLeft - 1)
+                        .forEach(field -> fields.add(next.getFieldName() + "." + field));
+            }
+        }
+        return fields;
     }
 
     private static boolean isModel(String modelName) {

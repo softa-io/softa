@@ -212,20 +212,6 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
-    public long countDueTimers(LocalDateTime now) {
-        Filters filters = new Filters()
-                .eq(FlowInstance::getStatus, FlowExecutionStatus.WAITING)
-                .le(FlowInstance::getNextFireAt, now);
-        return this.count(filters);
-    }
-
-    @Override
-    public long countByStatus(FlowExecutionStatus status) {
-        Filters filters = new Filters().eq(FlowInstance::getStatus, status);
-        return this.count(filters);
-    }
-
-    @Override
     @SkipPermissionCheck
     public long countUnfinished(String flowId) {
         return this.count(new Filters().eq(FlowInstance::getFlowId, flowId).in(FlowInstance::getStatus, UNFINISHED));
@@ -659,18 +645,5 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         private static FlowRecordApprovalsView.Actor actor(String id) {
             return id == null ? null : new FlowRecordApprovalsView.Actor(id, null);
         }
-    }
-
-    @Override
-    public List<FlowInstance> findStuckInstances(LocalDateTime threshold, int limit) {
-        Filters filters = new Filters()
-                .in(FlowInstance::getStatus, List.of(
-                        FlowExecutionStatus.RUNNING,
-                        FlowExecutionStatus.WAITING))
-                .lt(FlowInstance::getUpdatedTime, threshold);
-        Orders orders = Orders.ofAsc(FlowInstance::getUpdatedTime);
-        FlexQuery query = new FlexQuery(filters, orders);
-        query.setLimitSize(limit);
-        return this.searchList(query);
     }
 }

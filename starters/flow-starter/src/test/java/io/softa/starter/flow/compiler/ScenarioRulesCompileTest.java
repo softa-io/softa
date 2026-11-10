@@ -13,7 +13,6 @@ import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.TriggerSource;
@@ -23,12 +22,13 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.WithdrawPolicy;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * What each scenario takes at compile time: the node types its flows may use, the trigger they must
- * declare — their start contract — and the settings that belong to it.
+ * What each scenario takes at compile time: the node types its flows may use — an approval flow people and routes
+ * only — the trigger they must declare — their start contract — and the settings that belong to it.
  */
 class ScenarioRulesCompileTest {
 
@@ -46,10 +46,26 @@ class ScenarioRulesCompileTest {
     }
 
     @Test
-    void stateNodesBelongToApprovalAndAutomationOnly() {
-        assertFalse(has(flow(FlowScenario.APPROVAL, submit(), TIMER), "INVALID_SCENARIO_NODE", "timer"));
-        assertFalse(has(flow(FlowScenario.AUTOMATION, new ApiTrigger(null), TIMER), "INVALID_SCENARIO_NODE", "timer"));
-        assertTrue(has(flow(FlowScenario.VALIDATION, change(), TIMER), "INVALID_SCENARIO_NODE", "timer"));
+    void anApprovalFlowHoldsPeopleAndRoutesOnly() {
+        FlowGraphNode script = FlowGraphNode.builder().id("script").type(FlowNodeType.SCRIPT).label("Weigh")
+                .config(Map.of("script", "days * 2", "outputVariable", "weight")).build();
+        FlowGraphNode webhook = FlowGraphNode.builder().id("webhook").type(FlowNodeType.CALL_WEBHOOK).label("Notify")
+                .config(Map.of("url", "https://example.com/hook")).build();
+        for (FlowGraphNode other : List.of(TIMER, script, webhook)) {
+            assertTrue(has(flow(FlowScenario.APPROVAL, submit(), APPROVAL, other), "INVALID_SCENARIO_NODE", other.getId()),
+                    other.getType().getType());
+            assertFalse(has(flow(FlowScenario.AUTOMATION, new ApiTrigger(null), other), "INVALID_SCENARIO_NODE",
+                    other.getId()), other.getType().getType());
+        }
+        for (FlowNodeType type : FlowNodeType.values()) {
+            boolean peopleOrRoute = switch (type) {
+                case START, END, APPROVAL, INCLUSIVE_GATEWAY, PARALLEL_FORK, PARALLEL_JOIN -> true;
+                default -> false;
+            };
+            assertEquals(peopleOrRoute, type.getScenarios().contains(FlowScenario.APPROVAL), type.getType());
+            assertEquals(!FlowNodeType.APPROVAL.equals(type), type.getScenarios().contains(FlowScenario.AUTOMATION),
+                    type.getType());
+        }
     }
 
     @Test
@@ -68,9 +84,7 @@ class ScenarioRulesCompileTest {
     void apiAndSubflowTriggersBelongToAutomation() {
         assertFalse(has(flow(FlowScenario.AUTOMATION, new ApiTrigger(null)), "TRIGGER_NOT_ALLOWED", null));
         assertFalse(has(flow(FlowScenario.AUTOMATION, new SubflowTrigger()), "TRIGGER_NOT_ALLOWED", null));
-        assertTrue(has(flow(FlowScenario.VALIDATION, new ApiTrigger(null)), "TRIGGER_NOT_ALLOWED", null));
-        assertTrue(has(flow(FlowScenario.COMPUTE, new SubflowTrigger()), "TRIGGER_NOT_ALLOWED", null));
-        assertFalse(has(flow(FlowScenario.COMPUTE, new FieldChangeTrigger("LeaveRequest", List.of())), "TRIGGER_NOT_ALLOWED", null));
+        assertTrue(has(flow(FlowScenario.APPROVAL, new SubflowTrigger()), "TRIGGER_NOT_ALLOWED", null));
     }
 
     @Test

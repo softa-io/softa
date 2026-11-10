@@ -6,8 +6,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.meta.FieldPathUse;
+import io.softa.framework.orm.meta.FieldPaths;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.starter.flow.api.CompileDiagnostic;
 import io.softa.starter.flow.compiler.FlowGraphContext;
@@ -36,11 +42,13 @@ import io.softa.starter.flow.runtime.nodeconfig.WebHookConfig;
 /**
  * Validates task node config at compile (publish) time.
  * <p>
- * Two layers: (1) config presence for the message/service node types that require it, and
+ * Three layers: (1) config presence for the message/service node types that require it,
  * (2) shape validation for the <em>typed</em> node types (those in {@link TaskConfigTypes}) —
- * their raw input is parsed into the executor's config DTO and its required fields are checked,
- * so a misconfigured node fails at publish instead of mid-execution. The executor is otherwise
- * fully determined by {@link FlowNodeType}.
+ * their raw input is parsed into the executor's config DTO and its required fields are checked —
+ * and (3) for the record nodes, the model they name and the field paths their query names, checked
+ * against the model's metadata the way the query will use them ({@link FieldPaths}). So a
+ * misconfigured node fails at publish instead of mid-execution. The executor is otherwise fully
+ * determined by {@link FlowNodeType}.
  */
 public class TaskConfigValidator implements FlowValidator {
 
@@ -48,6 +56,8 @@ public class TaskConfigValidator implements FlowValidator {
     private static final String INVALID_TASK_CONFIG = "INVALID_TASK_CONFIG";
     private static final String MISSING_REQUIRED_INPUT = "MISSING_REQUIRED_INPUT";
     private static final String ARG_TYPES_ARITY = "ARG_TYPES_ARITY";
+    private static final String UNKNOWN_MODEL = "UNKNOWN_MODEL";
+    private static final String INVALID_FIELD_PATH = "INVALID_FIELD_PATH";
 
     private static final Set<FlowNodeType> CONFIG_REQUIRED_NODE_TYPES = EnumSet.of(
             FlowNodeType.CALL_SERVICE,
@@ -104,17 +114,26 @@ public class TaskConfigValidator implements FlowValidator {
             case CreateDataConfig c -> {
                 requireText(node, at + "modelName", c.getModelName(), d);
                 requireMap(node, at + "rowTemplate", c.getRowTemplate(), d);
+                checkQuery(node, at, c.getModelName(), null, null, null, d);
             }
             case UpdateDataConfig u -> {
                 requireText(node, at + "modelName", u.getModelName(), d);
                 requireMap(node, at + "rowTemplate", u.getRowTemplate(), d);
+                checkQuery(node, at, u.getModelName(), null, u.getFilters(), null, d);
             }
             case GetDataConfig g -> {
                 requireText(node, at + "modelName", g.getModelName(), d);
                 requireText(node, at + "getDataType", g.getGetDataType(), d);
+                checkQuery(node, at, g.getModelName(), g.getFields(), g.getFilters(), g.getOrders(), d);
             }
-            case DeleteDataConfig del -> requireText(node, at + "modelName", del.getModelName(), d);
-            case QueryRecordsConfig q -> requireText(node, at + "modelName", q.getModelName(), d);
+            case DeleteDataConfig del -> {
+                requireText(node, at + "modelName", del.getModelName(), d);
+                checkQuery(node, at, del.getModelName(), null, del.getFilters(), null, d);
+            }
+            case QueryRecordsConfig q -> {
+                requireText(node, at + "modelName", q.getModelName(), d);
+                checkQuery(node, at, q.getModelName(), q.getFields(), q.getFilters(), q.getOrders(), d);
+            }
             case CallServiceConfig cs -> {
                 requireText(node, at + "beanName", cs.getBeanName(), d);
                 requireText(node, at + "methodName", cs.getMethodName(), d);
@@ -164,6 +183,58 @@ public class TaskConfigValidator implements FlowValidator {
             base = "config.task.";
         }
         return config != null && config.get("input") instanceof Map<?, ?> ? base + "input." : base;
+    }
+
+    /**
+     * A record node's model must be one of this application's, and what its query names must be paths that model's
+     * query can use: the filters as a WHERE takes them, the orders as an ORDER BY does, the fields as a read does —
+     * {@link FieldPaths}, the rules the query builders apply. The filters and orders are coerced as the executor
+     * coerces them ({@code AbstractTaskExecutor}), so one that cannot be read fails here as it would on the run;
+     * placeholders sit in values, which the run resolves, never in the paths checked here.
+     */
+    private void checkQuery(FlowGraphNode node, String at, @Nullable String modelName, @Nullable List<String> fields,
+                            @Nullable Object filters, @Nullable Object orders, List<CompileDiagnostic> d) {
+        if (!StringUtils.hasText(modelName)) {
+            // Reported as a missing required input.
+            return;
+        }
+        if (!ModelManager.existModel(modelName)) {
+            d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), at + "modelName",
+                    UNKNOWN_MODEL, "Task node '" + node.displayName() + "' names model '" + modelName
+                            + "', which is not a model of this application"));
+            return;
+        }
+        if (fields != null) {
+            for (String field : fields) {
+                String problem = FieldPaths.problem(modelName, field, FieldPathUse.READ);
+                if (problem != null) {
+                    pathProblem(node, at + "fields", FieldPaths.named(field, problem), d);
+                }
+            }
+        }
+        Filters filter = coerce(node, at + "filters", filters, Filters.class, d);
+        FieldPaths.filterProblems(modelName, filter).forEach(problem -> pathProblem(node, at + "filters", problem, d));
+        Orders order = coerce(node, at + "orders", orders, Orders.class, d);
+        FieldPaths.orderProblems(modelName, order).forEach(problem -> pathProblem(node, at + "orders", problem, d));
+    }
+
+    private static <T> @Nullable T coerce(FlowGraphNode node, String field, @Nullable Object raw, Class<T> type,
+                                          List<CompileDiagnostic> d) {
+        if (raw == null || type.isInstance(raw)) {
+            return type.cast(raw);
+        }
+        try {
+            return BeanTool.objectToObject(raw, type);
+        } catch (RuntimeException e) {
+            d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field, INVALID_TASK_CONFIG,
+                    "Task node '" + node.displayName() + "' has malformed " + field + ": " + e.getMessage()));
+            return null;
+        }
+    }
+
+    private static void pathProblem(FlowGraphNode node, String field, String problem, List<CompileDiagnostic> d) {
+        d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field, INVALID_FIELD_PATH,
+                "Task node '" + node.displayName() + "' has a path its query cannot use in " + field + " — " + problem));
     }
 
     private Map<String, Object> extractInput(FlowGraphNode node) {

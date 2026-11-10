@@ -21,8 +21,6 @@ public class DefaultApprovalNotificationService implements ApprovalNotificationS
                     + ", approved=" + e.approved();
             case FlowNotificationEvent.TaskTransferred e -> "task transferred: node=" + e.pendingApproval().getNodeId()
                     + ", newActor=" + e.newActorId();
-            case FlowNotificationEvent.TaskDelegated   e -> "task delegated: node=" + e.pendingApproval().getNodeId()
-                    + ", from=" + e.fromActorId() + ", to=" + e.toActorId();
             case FlowNotificationEvent.TimeoutReminded e -> "timeout reminder: node=" + e.pendingApproval().getNodeId()
                     + ", count=" + e.remindCount();
             case FlowNotificationEvent.FlowCompleted   e -> "flow completed: approved=" + e.approved();

@@ -17,7 +17,6 @@ import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowPublishService;
-import io.softa.starter.flow.service.support.ComputeOutputs;
 import io.softa.starter.flow.service.support.SubmitConditions;
 
 /**
@@ -98,12 +97,11 @@ public class FlowPublishServiceImpl implements FlowPublishService {
     }
 
     /**
-     * What {@code candidate} would run beside the enabled flows of its model: a Compute output nobody else declares,
-     * and an approval's records no other approval flow of its document takes by the same condition.
+     * What {@code candidate} would run beside the enabled flows of its model: an approval's records no other approval
+     * flow of its document takes by the same condition.
      */
     private void requireCompatible(String flowId, CompiledFlowDefinition candidate) {
         List<CompiledFlowDefinition> enabled = bundleRegistry.listTriggerCandidates(candidate.getModelName());
-        ComputeOutputs.requireOwn(flowId, candidate, enabled);
         SubmitConditions.requireDistinct(flowId, candidate, enabled);
     }
 

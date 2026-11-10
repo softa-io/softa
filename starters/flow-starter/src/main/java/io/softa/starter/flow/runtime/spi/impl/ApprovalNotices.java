@@ -54,8 +54,6 @@ final class ApprovalNotices {
                     new Notice(stillToAct(e.pendingApproval()), "Pending approval: {0}", null, TASK_ASSIGNED);
             case FlowNotificationEvent.TaskTransferred e ->
                     new Notice(List.of(e.newActorId()), "Pending approval: {0}", null, TASK_ASSIGNED);
-            case FlowNotificationEvent.TaskDelegated e ->
-                    new Notice(List.of(e.toActorId()), "Pending approval: {0}", null, TASK_ASSIGNED);
             case FlowNotificationEvent.CcSent e ->
                     new Notice(e.recipientActorIds(), "For your information: {0}", e.message(), null);
             case FlowNotificationEvent.Urged e ->

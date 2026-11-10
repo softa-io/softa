@@ -10,17 +10,14 @@ import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
-import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
-import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.handler.*;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
-import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.state.WaitType;
 import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
 import io.softa.starter.flow.runtime.task.TaskExecutor;
@@ -40,7 +37,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class FlowEndToEndExecutionTest {
 
     private static final String FLOW_ID = "7001";
-    private static final String APPROVER = "manager-1";
 
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
     private final StubFlowBundleRegistry bundleRegistry = new StubFlowBundleRegistry();
@@ -61,7 +57,6 @@ class FlowEndToEndExecutionTest {
                     new TaskNodeExecutionHandler(taskExecutorRegistry),
                     new SubflowNodeExecutionHandler(),
                     new ScriptNodeExecutionHandler(),
-                    new ForEachNodeExecutionHandler(),
                     new ReturnValueNodeExecutionHandler(),
                     new TimerNodeExecutionHandler(),
                     new PassThroughNodeExecutionHandler()
@@ -70,7 +65,7 @@ class FlowEndToEndExecutionTest {
     );
 
     @Test
-    void shouldSuspendOnApprovalAndResumeThroughCallServiceToEnd() {
+    void shouldSuspendOnATimerAndResumeThroughCallServiceToEnd() {
         publishService.publish(FLOW_ID, flowDefinition());
 
         FlowStartRequest startRequest = new FlowStartRequest();
@@ -80,56 +75,20 @@ class FlowEndToEndExecutionTest {
 
         FlowExecutionState afterStart = runtimeEngine.start(startRequest);
 
-        assertEquals(FlowExecutionStatus.WAITING, afterStart.getStatus(),
-                "Flow should suspend on the approval node");
-        assertNotNull(afterStart.getPendingApprovals(), "Pending approvals should be populated");
-        assertFalse(afterStart.getPendingApprovals().isEmpty(), "At least one approval must be pending");
-        PendingApproval pending = afterStart.getPendingApprovals().get(0);
-        assertEquals("approval", pending.getNodeId());
-        assertTrue(pending.getApprovers().contains(APPROVER),
-                "Configured approver must appear in the pending approval");
+        assertEquals(FlowExecutionStatus.WAITING, afterStart.getStatus(), "Flow should suspend on the timer");
+        assertTrue(afterStart.getWaitTokens().stream().anyMatch(t -> t.getType() == WaitType.TIMER),
+                "The timer parks the instance as a timer wait token");
 
-        FlowApproveRequest approveRequest = new FlowApproveRequest();
-        approveRequest.setInstanceId(afterStart.getInstanceId());
-        approveRequest.setNodeId(pending.getNodeId());
-        approveRequest.setActorId(APPROVER);
-        approveRequest.setComment("looks good");
+        FlowExecutionState afterResume = runtimeEngine.resumeTimer(afterStart.getInstanceId(), "wait");
 
-        FlowExecutionState afterApprove = runtimeEngine.approve(approveRequest);
-
-        assertEquals(FlowExecutionStatus.COMPLETED, afterApprove.getStatus(),
+        assertEquals(FlowExecutionStatus.COMPLETED, afterResume.getStatus(),
                 "Flow should run through the service task and complete");
-        Object serviceResult = afterApprove.getVariables().get("serviceResult");
+        Object serviceResult = afterResume.getVariables().get("serviceResult");
         assertTrue(serviceResult instanceof Map<?, ?>, "Service task must write its result under the output variable");
         assertEquals("e2e", ((Map<?, ?>) serviceResult).get("route"),
                 "Echo executor must reflect the configured input back into variables");
-
-        assertNotNull(afterApprove.getTrace(), "Execution trace must be present");
-        assertFalse(afterApprove.getTrace().isEmpty(), "Trace must record node executions");
-        assertNotNull(afterApprove.getApprovalAuditDelta(), "Approval action history must be present");
-        assertFalse(afterApprove.getApprovalAuditDelta().isEmpty(),
-                "Approval action history must record the approve action");
-    }
-
-    @Test
-    void parallelBranchesSuspendingOnDifferentWaitsParkTheInstanceWithoutFailing() {
-        String flowId = "7002";
-        publishService.publish(flowId, parallelMixedWaitFlow());
-
-        FlowStartRequest startRequest = new FlowStartRequest();
-        startRequest.setFlowId(flowId);
-        startRequest.setInitiatorId("initiator-1");
-
-        FlowExecutionState state = runtimeEngine.start(startRequest);
-
-        // Regression: before waits were modelled as a token list, one parallel branch suspending
-        // on an approval (WAITING_APPROVAL) and another on a timer (WAITING_TIMER) produced an
-        // illegal status transition that failed the whole instance. Both now share WAITING.
-        assertEquals(FlowExecutionStatus.WAITING, state.getStatus(), "instance parks, does not fail");
-        assertNull(state.getErrorMessage(), "no illegal-transition failure");
-        assertEquals(1, state.getPendingApprovals().size(), "approval branch parked as a pending approval");
-        assertTrue(state.getWaitTokens().stream().anyMatch(t -> t.getType() == WaitType.TIMER),
-                "timer branch parked as a timer wait token");
+        assertNotNull(afterResume.getTrace(), "Execution trace must be present");
+        assertFalse(afterResume.getTrace().isEmpty(), "Trace must record node executions");
     }
 
     @Test
@@ -176,32 +135,6 @@ class FlowEndToEndExecutionTest {
                 .type(FlowNodeType.RETURN_VALUE)
                 .label(id)
                 .config(Map.of("outputExpressions", outputExpressions))
-                .build();
-    }
-
-    private static DesignFlowDefinition parallelMixedWaitFlow() {
-        return DesignFlowDefinition.builder()
-                .name("E2E Parallel Mixed Wait")
-                .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest"))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                node("fork", FlowNodeType.PARALLEL_FORK),
-                                approvalNode("approval", APPROVER),
-                                timerNode("timer", 3600L),
-                                node("join", FlowNodeType.PARALLEL_JOIN),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "fork"),
-                                edge("e2", "fork", "approval"),
-                                edge("e3", "fork", "timer"),
-                                edge("e4", "approval", "join"),
-                                edge("e5", "timer", "join"),
-                                edge("e6", "join", "end")
-                        ))
-                        .build())
                 .build();
     }
 
@@ -295,21 +228,21 @@ class FlowEndToEndExecutionTest {
 
     private static DesignFlowDefinition flowDefinition() {
         return DesignFlowDefinition.builder()
-                .name("E2E Approval Then Service")
-                .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest"))
+                .name("E2E Wait Then Service")
+                .scenario(FlowScenario.AUTOMATION)
+                .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                approvalNode("approval", APPROVER),
+                                timerNode("wait", 3600L),
                                 taskNode("service", FlowNodeType.CALL_SERVICE,
                                         Map.of("beanName", "echoService", "methodName", "run", "route", "e2e"),
                                         "serviceResult"),
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
-                                edge("e1", "start", "approval"),
-                                edge("e2", "approval", "service"),
+                                edge("e1", "start", "wait"),
+                                edge("e2", "wait", "service"),
                                 edge("e3", "service", "end")
                         ))
                         .build())
@@ -318,15 +251,6 @@ class FlowEndToEndExecutionTest {
 
     private static FlowGraphNode node(String id, FlowNodeType type) {
         return FlowGraphNode.builder().id(id).type(type).label(id).build();
-    }
-
-    private static FlowGraphNode approvalNode(String id, String approverId) {
-        return FlowGraphNode.builder()
-                .id(id)
-                .type(FlowNodeType.APPROVAL)
-                .label(id)
-                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(approverId)))))
-                .build();
     }
 
     private static FlowGraphNode taskNode(String id, FlowNodeType type,

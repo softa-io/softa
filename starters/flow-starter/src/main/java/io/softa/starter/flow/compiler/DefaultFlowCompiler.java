@@ -45,7 +45,6 @@ public class DefaultFlowCompiler {
                 new GraphStructureValidator(),
                 new TriggerConsistencyValidator(),
                 new TaskConfigValidator(),
-                new UnsupportedNodeTypeValidator(),
                 new ApprovalConfigValidator(),
                 new TimerConfigValidator(),
                 new TemplatePlaceholderValidator(),
@@ -114,7 +113,6 @@ public class DefaultFlowCompiler {
                 .rollbackOnFail(Boolean.TRUE.equals(definition.getRollbackOnFail()))
                 .approverDedup(definition.getApproverDedup())
                 .selfApproval(definition.getSelfApproval())
-                .declaredOutputs(defaultList(definition.getDeclaredOutputs()))
                 .entryNodeIds(entryNodeIds)
                 .terminalNodeIds(terminalNodeIds)
                 .topologicalOrder(topologicalOrder)

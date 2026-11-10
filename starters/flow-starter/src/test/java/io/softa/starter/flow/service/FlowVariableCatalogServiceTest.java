@@ -1,5 +1,6 @@
 package io.softa.starter.flow.service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -107,6 +108,13 @@ class FlowVariableCatalogServiceTest {
             FlowVariableView days = trigger.getFirst();
             assertEquals("BigDecimal", days.type());
             assertEquals(RecordModelFixture.MODEL, days.sourceLabel());
+            assertNull(days.ruleFields());
+            // A relation lists what a rule reads through it: the department's own routed fields, then those of the
+            // department its parent relation points at — two hops from the record, no more.
+            FlowVariableView department = trigger.stream().filter(v -> v.name().equals("departmentId")).findFirst().orElseThrow();
+            List<String> through = new ArrayList<>(RecordModelFixture.RELATED_ROUTED);
+            RecordModelFixture.RELATED_ROUTED.forEach(field -> through.add("parentId." + field));
+            assertEquals(through, department.ruleFields());
         }
     }
 

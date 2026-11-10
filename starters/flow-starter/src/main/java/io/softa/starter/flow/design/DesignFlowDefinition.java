@@ -26,8 +26,6 @@ import io.softa.starter.flow.enums.FlowScenario;
  *   <li>{@code trigger} is a {@link TriggerSource} sealed-interface reference with a
  *       Jackson {@code @JsonTypeInfo} discriminator, replacing the former flat
  *       {@code FlowTriggerDefinition}.</li>
- *   <li>{@code declaredOutputs} lists the variable names this flow promises to produce
- *       (required for VALIDATION and COMPUTE scenarios).</li>
  * </ul>
  */
 @Data
@@ -92,14 +90,6 @@ public class DesignFlowDefinition implements DTOFieldObject {
             + "the record is about, when someone else submitted it, is always asked like anyone else. Default "
             + "AutoApprove when unset.")
     private SelfApprovalStrategy selfApproval;
-
-    /**
-     * Declared output variable names.
-     * Required for VALIDATION and COMPUTE scenarios — tells the compiler what keys
-     * to verify are produced by {@code ReturnValue} nodes.
-     */
-    @Schema(description = "Output variable names this flow promises to produce")
-    private List<String> declaredOutputs;
 
     @Schema(description = "Arbitrary metadata (ignored by the compiler)")
     private Map<String, Object> metadata;

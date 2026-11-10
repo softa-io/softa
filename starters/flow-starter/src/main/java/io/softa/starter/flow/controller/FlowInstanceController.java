@@ -365,13 +365,6 @@ public class FlowInstanceController {
         return ApiResponse.success(withoutRecordValues(runtimeEngine.transfer(request)));
     }
 
-    @PostMapping("/delegate")
-    @Operation(summary = "Delegate pending approval task", description = "Delegates a pending approval task from the current actor to another actor on the same node and cycle.")
-    public ApiResponse<FlowExecutionState> delegate(@Valid @RequestBody FlowDelegateRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(withoutRecordValues(runtimeEngine.delegate(request)));
-    }
-
     @PostMapping("/cc")
     @Operation(summary = "CC people on a pending approval", description = "The caller, an approver of the pending "
             + "step still to vote, CCs one or more people (`targetActorIds`): each gets a read-only copy of the approval "

@@ -70,7 +70,6 @@ class DefaultFlowPublishServiceTest {
                         new TaskNodeExecutionHandler(taskExecutorRegistry),
                         new SubflowNodeExecutionHandler(),
                         new ScriptNodeExecutionHandler(),
-                        new ForEachNodeExecutionHandler(),
                         new ReturnValueNodeExecutionHandler(),
                         new PassThroughNodeExecutionHandler()
                 )),

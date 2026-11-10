@@ -22,7 +22,4 @@ public class CompiledFlowCapabilitySummary {
 
     @Schema(description = "Whether the graph contains ParallelFork or ParallelJoin nodes")
     private boolean hasParallelGateway;
-
-    @Schema(description = "Whether the graph contains ForEach nodes")
-    private boolean hasLoop;
 }

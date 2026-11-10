@@ -62,8 +62,6 @@ class DesignFlowDefinitionJsonTest {
     void shouldDeserializeFlowScenarioCaseInsensitively() throws Exception {
         assertEquals(FlowScenario.APPROVAL, objectMapper.readValue("\"Approval\"", FlowScenario.class));
         assertEquals(FlowScenario.AUTOMATION, objectMapper.readValue("\"Automation\"", FlowScenario.class));
-        assertEquals(FlowScenario.VALIDATION, objectMapper.readValue("\"Validation\"", FlowScenario.class));
-        assertEquals(FlowScenario.COMPUTE, objectMapper.readValue("\"Compute\"", FlowScenario.class));
     }
 
     @Test

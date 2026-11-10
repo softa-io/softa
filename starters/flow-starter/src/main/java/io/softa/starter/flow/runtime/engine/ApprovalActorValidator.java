@@ -72,14 +72,6 @@ public class ApprovalActorValidator {
         requireUsable(List.of(targetActorId));
     }
 
-    public void validateDelegateActors(PendingApproval pendingApproval, FlowDelegateRequest request, CompiledFlowNode node) {
-        requireNonEmptyApprovers(pendingApproval, node);
-        requireActorIsApprover(pendingApproval, request.getActorId(), node);
-        requireTargetNotExisting(pendingApproval, request.getTargetActorId(), node);
-        requireNotVoted(pendingApproval, request.getActorId(), node);
-        requireUsable(List.of(request.getTargetActorId()));
-    }
-
     /**
      * The actor CC'ing on a step: one of its approvers, still to vote. Who they CC is the action's to sort out — it
      * skips the people who already see the approval.

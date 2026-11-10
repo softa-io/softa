@@ -1,6 +1,5 @@
 package io.softa.starter.flow.message;
 
-import java.time.Duration;
 import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.SubscriptionType;
@@ -13,7 +12,6 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.cron.message.dto.CronTaskMessage;
 import io.softa.starter.flow.runtime.engine.ApprovalTimeoutScheduler;
-import io.softa.starter.flow.runtime.engine.DelegationExpiryScheduler;
 import io.softa.starter.flow.runtime.monitor.FlowMonitorService;
 import io.softa.starter.flow.service.impl.FlowAutomationPurgeService;
 
@@ -31,22 +29,15 @@ import io.softa.starter.flow.service.impl.FlowAutomationPurgeService;
 public class FlowMaintenanceCronConsumer {
 
     static final String APPROVAL_TIMEOUT_HANDLE = "flow_approval_timeout_handle";
-    static final String DELEGATION_EXPIRY = "flow_delegation_expiry";
     static final String TIMER_SWEEP = "flow_timer_sweep";
-    static final String INSTANCE_STUCK_SCAN = "flow_instance_stuck_scan";
     static final String AUTOMATION_PURGE = "flow_automation_purge";
 
     private static final int TIMER_SWEEP_BATCH = 200;
-    private static final int STUCK_SCAN_BATCH = 200;
     private static final int AUTOMATION_PURGE_BATCH = 500;
     private static final int AUTOMATION_PURGE_MAX_BATCHES = 20;
-    private static final Duration STUCK_THRESHOLD = Duration.ofHours(24);
 
     @Autowired
     private ApprovalTimeoutScheduler approvalTimeoutScheduler;
-
-    @Autowired
-    private DelegationExpiryScheduler delegationExpiryScheduler;
 
     @Autowired(required = false)
     private FlowMonitorService flowMonitorService;
@@ -77,16 +68,9 @@ public class FlowMaintenanceCronConsumer {
         try {
             switch (message.getCronName()) {
                 case APPROVAL_TIMEOUT_HANDLE -> approvalTimeoutScheduler.handleTimedOutTasks();
-                case DELEGATION_EXPIRY -> delegationExpiryScheduler.expireDelegations();
                 case TIMER_SWEEP -> {
                     if (flowMonitorService != null) {
                         flowMonitorService.sweepDueTimers(Instant.now(), TIMER_SWEEP_BATCH);
-                    }
-                }
-                case INSTANCE_STUCK_SCAN -> {
-                    if (flowMonitorService != null) {
-                        flowMonitorService.sweepStuckInstances(
-                                Instant.now().minus(STUCK_THRESHOLD), STUCK_SCAN_BATCH);
                     }
                 }
                 case AUTOMATION_PURGE -> {

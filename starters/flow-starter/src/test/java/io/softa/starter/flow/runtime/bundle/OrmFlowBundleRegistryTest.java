@@ -262,20 +262,17 @@ public class OrmFlowBundleRegistryTest {
     }
 
     @Test
-    void register_preservesApproverDedupAndDeclaredOutputs() {
+    void register_preservesApproverDedup() {
         CompiledFlowDefinition def = sampleDefinition("dedup-flow", null);
         def.setApproverDedup(ApproverDedupStrategy.CONTIGUOUS);
-        def.setDeclaredOutputs(List.of("result"));
 
         CompiledFlowDefinition published = registry.register(def, null, FLOW_A);
 
         assertEquals(ApproverDedupStrategy.CONTIGUOUS, published.getApproverDedup());
-        assertEquals(List.of("result"), published.getDeclaredOutputs());
 
         CompiledFlowDefinition reloaded = FlowBundleMapper.toDefinition(
                 stubService.savedBundles.get(published.getBundleId()));
         assertEquals(ApproverDedupStrategy.CONTIGUOUS, reloaded.getApproverDedup());
-        assertEquals(List.of("result"), reloaded.getDeclaredOutputs());
     }
 
     @Test
@@ -355,7 +352,6 @@ public class OrmFlowBundleRegistryTest {
                 .capabilitySummary(CompiledFlowCapabilitySummary.builder()
                         .hasSubflow(false)
                         .hasParallelGateway(false)
-                        .hasLoop(false)
                         .build())
                 .build();
     }

@@ -13,8 +13,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
  * Listeners are auto-discovered by Spring DI (any bean implementing
  * {@code FlowStateChangeListener} is automatically included).
  * <p>
- * Listeners run past the caller's data permissions: the projections they keep — approval tasks,
- * parallel branches, the outcome written back onto an approved record — follow from an action the
+ * Listeners run past the caller's data permissions: the projections they keep — approval tasks, inbox
+ * notices marked read, the outcome written back onto an approved record — follow from an action the
  * engine has already authorized, and the actor rarely holds a grant on those tables.
  */
 @Component

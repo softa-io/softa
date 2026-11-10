@@ -19,9 +19,7 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.api.FlowClient;
 import io.softa.starter.flow.event.SeedFlowPublisher;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
-import io.softa.starter.flow.runtime.descriptor.FlowNodeDescriptorRegistry;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
-import io.softa.starter.flow.runtime.engine.FormPermissionService;
 import io.softa.starter.flow.runtime.engine.InProcessFlowClient;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
@@ -32,9 +30,6 @@ import io.softa.starter.flow.runtime.spi.impl.InboxReadMarker;
 import io.softa.starter.flow.runtime.spi.impl.MailApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.impl.FlowOrgService;
 import io.softa.starter.flow.runtime.spi.impl.OrganizationServiceProperties;
-import io.softa.starter.flow.service.FlowApprovalRecordQueryService;
-import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
-import io.softa.starter.flow.service.FlowInboxService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.FlowPublishService;
@@ -86,13 +81,10 @@ public class FlowAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(FlowClient.class)
-    public InProcessFlowClient flowInProcessFlowClient(
-            FlowRuntimeEngine engine, FlowLaunchService launch, FormPermissionService forms,
-            FlowApprovalTaskQueryService taskQuery, FlowApprovalRecordQueryService recordQuery,
-            FlowInboxService inbox, FlowInstanceService instances,
-            FlowNodeDescriptorRegistry descriptors, FlowInstanceAccessGuard accessGuard) {
-        return new InProcessFlowClient(engine, launch, forms, taskQuery, recordQuery, inbox,
-                instances, descriptors, accessGuard);
+    public InProcessFlowClient flowInProcessFlowClient(FlowRuntimeEngine engine, FlowLaunchService launch,
+                                                       FlowInstanceService instances,
+                                                       FlowInstanceAccessGuard accessGuard) {
+        return new InProcessFlowClient(engine, launch, instances, accessGuard);
     }
 
     /**

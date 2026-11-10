@@ -16,7 +16,6 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.design.trigger.CronTrigger;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.TriggerSource;
@@ -29,15 +28,15 @@ import io.softa.starter.flow.runtime.engine.FlowCron;
  * <p>
  * Every flow declares one, and the trigger is the flow's start contract: a {@code Submit} flow starts
  * only by record submission, an {@code Api} flow only by an explicit start, a {@code Subflow} flow only
- * from a parent's Subflow node, a {@code Cron} flow only on its own schedule, and {@code EntityChange} /
- * {@code FieldChange} flows only by their events. An explicit start and a Subflow call both run an
+ * from a parent's Subflow node, a {@code Cron} flow only on its own schedule, and an {@code EntityChange} flow only
+ * by its events. An explicit start and a Subflow call both run an
  * Automation flow, so {@code Api} and {@code Subflow} belong to Automation alone.
  * <p>
- * A trigger that starts the flow on a record (submit, change, field change) names that record's model; one that
- * starts on none (schedule, API call, parent flow) has none to name.
+ * A trigger that starts the flow on a record (submit, change) names that record's model; one that starts on none
+ * (schedule, API call, parent flow) has none to name.
  * <p>
  * What the trigger says about its model is checked against it: a change or submit trigger's condition — a rule over
- * the record, checked like an edge's, or an expression, never both — and the fields a field-change trigger watches.
+ * the record, checked like an edge's, or an expression, never both.
  * A schedule is one the cron scheduler runs and that fires again.
  */
 public class TriggerConsistencyValidator implements FlowValidator {
@@ -49,15 +48,12 @@ public class TriggerConsistencyValidator implements FlowValidator {
     private static final String CRON_INVALID_EXPRESSION = "CRON_INVALID_EXPRESSION";
     private static final String CONFLICTING_TRIGGER_CONDITIONS = "CONFLICTING_TRIGGER_CONDITIONS";
     private static final String INVALID_TRIGGER_CONDITION = "INVALID_TRIGGER_CONDITION";
-    private static final String UNKNOWN_TRIGGER_FIELD = "UNKNOWN_TRIGGER_FIELD";
 
     private static final Map<FlowScenario, List<Class<? extends TriggerSource>>> ALLOWED_TRIGGERS =
             new EnumMap<>(Map.of(
                     FlowScenario.APPROVAL, List.of(SubmitTrigger.class),
                     FlowScenario.AUTOMATION, List.of(
-                            EntityChangeTrigger.class, CronTrigger.class, ApiTrigger.class, SubflowTrigger.class),
-                    FlowScenario.VALIDATION, List.of(EntityChangeTrigger.class, CronTrigger.class),
-                    FlowScenario.COMPUTE, List.of(FieldChangeTrigger.class, EntityChangeTrigger.class, CronTrigger.class)));
+                            EntityChangeTrigger.class, CronTrigger.class, ApiTrigger.class, SubflowTrigger.class)));
 
     @Override
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition, FlowGraphContext context) {
@@ -86,7 +82,6 @@ public class TriggerConsistencyValidator implements FlowValidator {
                     validateCondition(change.modelName(), change.condition(), change.conditionExpression(), false, d);
             case SubmitTrigger submit ->
                     validateCondition(submit.modelName(), submit.condition(), submit.conditionExpression(), true, d);
-            case FieldChangeTrigger fieldChange -> validateWatchedFields(fieldChange.modelName(), fieldChange, d);
             case null, default -> {
             }
         }
@@ -145,7 +140,7 @@ public class TriggerConsistencyValidator implements FlowValidator {
                 if (approval) {
                     GatewayValidator.checkApprovalRule(condition, modelName, "The trigger's rule: ");
                 } else {
-                    GatewayValidator.checkRule(condition, modelName, "The trigger's rule: ");
+                    GatewayValidator.checkRule(condition, modelName, "The trigger's rule: ", false);
                 }
             } catch (IllegalStateException e) {
                 d.add(CompileDiagnostic.flowLevel(INVALID_TRIGGER_CONDITION, e.getMessage()));
@@ -153,20 +148,6 @@ public class TriggerConsistencyValidator implements FlowValidator {
         } else if (StringUtils.hasText(expression) && !ComputeUtils.validateExpression(expression)) {
             d.add(CompileDiagnostic.flowLevel(INVALID_TRIGGER_CONDITION,
                     "The trigger's condition expression does not compile: " + expression));
-        }
-    }
-
-    /** A field-change trigger watches fields its model has; a model the application does not hold is not checked. */
-    private static void validateWatchedFields(String modelName, FieldChangeTrigger trigger, List<CompileDiagnostic> d) {
-        if (trigger.fieldNames() == null || !StringUtils.hasText(modelName) || !ModelManager.existModel(modelName)) {
-            return;
-        }
-        List<String> unknown = trigger.fieldNames().stream()
-                .filter(field -> !ModelManager.existField(modelName, field))
-                .toList();
-        if (!unknown.isEmpty()) {
-            d.add(CompileDiagnostic.flowLevel(UNKNOWN_TRIGGER_FIELD, "The trigger watches fields '" + modelName
-                    + "' does not have: " + String.join(", ", unknown)));
         }
     }
 

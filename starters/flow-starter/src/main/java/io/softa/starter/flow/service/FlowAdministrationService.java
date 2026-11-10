@@ -2,7 +2,9 @@ package io.softa.starter.flow.service;
 
 import java.util.List;
 
+import io.softa.framework.orm.domain.Page;
 import io.softa.starter.flow.dto.FlowBatchActionResult;
+import io.softa.starter.flow.dto.FlowDelegationMonitorSearchRequest;
 import io.softa.starter.flow.dto.FlowReassignPreview;
 import io.softa.starter.flow.entity.FlowDelegation;
 
@@ -34,8 +36,11 @@ public interface FlowAdministrationService {
     /** A delegation rule for another approver: from then on their arriving tasks go to the delegate. */
     FlowDelegation delegateOnBehalf(FlowDelegation delegation);
 
-    /** Every delegation rule of the tenant, newest first. */
-    List<FlowDelegation> listDelegations();
+    /**
+     * One page of the tenant's delegation rules, whoever made them, as the request narrows and sorts it
+     * ({@link FlowDelegationService#searchAll}).
+     */
+    Page<FlowDelegation> searchDelegations(FlowDelegationMonitorSearchRequest request);
 
     /** Deactivates any delegation rule of the tenant. */
     void cancelDelegation(Long delegationId);

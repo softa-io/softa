@@ -20,6 +20,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowCcReadRequest;
 import io.softa.starter.flow.runtime.api.FlowCommentRequest;
+import io.softa.starter.flow.runtime.api.FlowReassignRequest;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
@@ -152,6 +153,45 @@ class AutoCcScenarioTest {
 
         assertEquals(List.of("5", "6"),
                 ccsOf(started).stream().map(ApprovalActionAuditEntry::getTargetActorId).toList());
+    }
+
+    @Test
+    void theApprovedRuleCcsWhenAnAdministratorsReassignmentCompletesTheApproval() {
+        // Both must approve; the first has. The second's place, merged into the first's, needs nobody new: the
+        // reassignment, not an approval, completes the approval — and its CC goes with it.
+        publish("Unanimous", rule(CcTiming.ON_APPROVED, "cc-5"));
+        FlowExecutionState started = start();
+        engine.approve(approve(started, FIRST));
+
+        FlowReassignRequest reassign = new FlowReassignRequest();
+        reassign.setInstanceId(started.getInstanceId());
+        reassign.setNodeId("approval");
+        reassign.setActorId(SECOND);
+        reassign.setTargetActorId(FIRST);
+        reassign.setOperatorId("hr-admin");
+        reassign.setComment("left the company");
+        FlowExecutionState completed = engine.reassign(reassign);
+
+        assertEquals(FlowExecutionStatus.COMPLETED, completed.getStatus());
+        List<ApprovalActionAuditEntry> ccs = ccsOf(completed);
+        assertEquals(List.of("cc-5"), ccs.stream().map(ApprovalActionAuditEntry::getTargetActorId).toList());
+        assertEquals("approval", ccs.getFirst().getNodeId(), "recorded on the step whose action ended the approval");
+        assertEquals(1, ccNotices().size());
+    }
+
+    @Test
+    void anApprovalEveryStepOfWhichPassedOnItsOwnCcsOnSubmitThenOnApproved() {
+        // The submitter is the step's only approver: their submission approves it, and the approval completes at once.
+        publish("AnyOne", rule(CcTiming.ON_SUBMIT, "cc-6"), rule(CcTiming.ON_APPROVED, "cc-7"));
+        FlowStartRequest start = new FlowStartRequest();
+        start.setFlowId(FLOW_ID);
+        start.setInitiatorId(FIRST);
+
+        FlowExecutionState completed = engine.start(start);
+
+        assertEquals(FlowExecutionStatus.COMPLETED, completed.getStatus());
+        assertEquals(List.of("cc-6", "cc-7"),
+                ccsOf(completed).stream().map(ApprovalActionAuditEntry::getTargetActorId).toList());
     }
 
     @Test

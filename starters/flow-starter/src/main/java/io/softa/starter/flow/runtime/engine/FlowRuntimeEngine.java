@@ -34,21 +34,11 @@ public interface FlowRuntimeEngine {
      */
     FlowExecutionState startRecordApproval(FlowStartRequest request);
 
-    /**
-     * Run a stateless Validation / Compute flow transiently: the same traversal as
-     * {@link #start}, but with zero flow footprint — no instance row, no trace rows,
-     * no notifications. Business writes made by task nodes still join the caller's
-     * transaction. Rejects Approval and Automation bundles.
-     */
-    FlowExecutionState evaluate(FlowStartRequest request);
-
     FlowExecutionState approve(FlowApproveRequest request);
 
     FlowExecutionState reject(FlowRejectRequest request);
 
     FlowExecutionState transfer(FlowTransferRequest request);
-
-    FlowExecutionState delegate(FlowDelegateRequest request);
 
     FlowExecutionState cc(FlowCcRequest request);
 

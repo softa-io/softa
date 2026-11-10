@@ -16,7 +16,6 @@ import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.TriggerSource;
@@ -173,49 +172,6 @@ class FlowDesignEnablementTest {
         assertThrows(FlowActionValidationException.class, () -> publishService.publish("copy",
                 approval("Leave Approval (copy)", "leaveRequestType == 'Leave'")), "a copy left as it was");
         publishService.publish("cancel", approval("Leave Cancellation Approval", "leaveRequestType == 'CancelLeave'"));
-    }
-
-    @Test
-    void aComputeFlowIsNotEnabledBesideOneComputingTheSameOutput() {
-        CompiledFlowDefinition dormant = publishService.publish("total-2",
-                compute("Order Total 2", "totalAmount"));
-        bundleRegistry.disable("total-2");
-        publishService.publish("total", compute("Order Total", "totalAmount"));
-        FlowDesign design = design("total-2", false);
-        design.setScenario(FlowScenario.COMPUTE);
-        doReturn(Optional.of(design)).when(service).getById("total-2");
-        FlowBundleService bundles = mock(FlowBundleService.class);
-        FlowBundle active = new FlowBundle();
-        active.setFlowId("total-2");
-        active.setCompiledJson(JsonUtils.objectToString(dormant));
-        when(bundles.findActiveByFlowId("total-2")).thenReturn(Optional.of(active));
-        ReflectionTestUtils.setField(service, "bundleService", bundles);
-
-        FlowActionValidationException refused = assertThrows(FlowActionValidationException.class,
-                () -> service.enable("total-2"));
-
-        assertTrue(refused.getMessage().contains("totalAmount"), refused.getMessage());
-        verify(service, never()).updateOne(any(FlowDesign.class));
-    }
-
-    /** start → a script computing {@code output} → end, a Compute flow of Order. */
-    private static DesignFlowDefinition compute(String name, String output) {
-        return DesignFlowDefinition.builder()
-                .name(name)
-                .scenario(FlowScenario.COMPUTE)
-                .trigger(new FieldChangeTrigger("Order", List.of()))
-                .declaredOutputs(List.of(output))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
-                                FlowGraphNode.builder().id("calc").type(FlowNodeType.SCRIPT).label("calc")
-                                        .config(Map.of("expression", "1", "outputVariable", output)).build(),
-                                FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
-                        .edges(List.of(
-                                FlowGraphEdge.builder().id("e1").source("start").target("calc").build(),
-                                FlowGraphEdge.builder().id("e2").source("calc").target("end").build()))
-                        .build())
-                .build();
     }
 
     /** start → an approval → end, an Approval flow of leave requests taking those {@code condition} holds for. */

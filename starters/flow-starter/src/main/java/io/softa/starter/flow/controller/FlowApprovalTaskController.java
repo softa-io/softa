@@ -12,9 +12,7 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowApprovalTaskSearchRequest;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.dto.FlowInboxCountView;
-import io.softa.starter.flow.dto.FlowInboxView;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
-import io.softa.starter.flow.service.FlowInboxService;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
@@ -39,14 +37,11 @@ import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 public class FlowApprovalTaskController {
 
     private final FlowApprovalTaskQueryService flowApprovalTaskService;
-    private final FlowInboxService flowInboxService;
     private final ObjectProvider<InboxNotificationService> inboxNotifications;
 
     public FlowApprovalTaskController(FlowApprovalTaskQueryService flowApprovalTaskService,
-                                             FlowInboxService flowInboxService,
                                              ObjectProvider<InboxNotificationService> inboxNotifications) {
         this.flowApprovalTaskService = flowApprovalTaskService;
-        this.flowInboxService = flowInboxService;
         this.inboxNotifications = inboxNotifications;
     }
 
@@ -76,19 +71,6 @@ public class FlowApprovalTaskController {
     @SkipPermissionCheck
     public ApiResponse<Page<FlowApprovalTaskView>> searchTasks(@RequestBody FlowApprovalTaskSearchRequest request) {
         return ApiResponse.success(flowApprovalTaskService.searchTasks(currentUserId(), request));
-    }
-
-    @GetMapping("/inbox")
-    @Operation(summary = "Get unified inbox for current user", description = "Aggregates approval pending tasks, unread CC tasks, read CC tasks, and optionally completed approval tasks for the current user.")
-    @SkipPermissionCheck
-    public ApiResponse<FlowInboxView> getInbox(@RequestParam(required = false) String flowId,
-                                                      @RequestParam(required = false) String instanceId,
-                                                      @RequestParam(required = false) String nodeId,
-                                                      @RequestParam(required = false) Boolean includeCompletedApprovals,
-                                                      @RequestParam(defaultValue = "1") Integer pageNumber,
-                                                      @RequestParam(defaultValue = "50") Integer pageSize) {
-        return ApiResponse.success(flowInboxService.getInbox(
-                currentUserId(), flowId, instanceId, nodeId, includeCompletedApprovals, pageNumber, pageSize));
     }
 
     @GetMapping("/instance/{instanceId}")

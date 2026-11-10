@@ -68,18 +68,15 @@ class InboxApprovalNotificationServiceTest {
     }
 
     @Test
-    void whoeverATaskIsTransferredOrDelegatedToIsToldTheyHaveIt() {
+    void whoeverATaskIsTransferredToIsToldTheyHaveIt() {
         PendingApproval step = PendingApproval.builder().nodeId("manager").approvers(List.of("2001")).build();
 
         notifications.notify(new FlowNotificationEvent.TaskTransferred(state(), step, "2003"));
-        notifications.notify(new FlowNotificationEvent.TaskDelegated(state(), step, "2001", "2004"));
 
         ArgumentCaptor<List<SendInboxDTO>> batches = captor();
-        verify(messageService, times(2)).sendInboxBatch(batches.capture());
-        assertEquals(2003L, batches.getAllValues().get(0).getFirst().getRecipientId());
-        assertEquals(2004L, batches.getAllValues().get(1).getFirst().getRecipientId());
-        batches.getAllValues().forEach(batch ->
-                assertEquals("Pending approval: Leave of Alice", batch.getFirst().getTitle()));
+        verify(messageService, times(1)).sendInboxBatch(batches.capture());
+        assertEquals(2003L, batches.getValue().getFirst().getRecipientId());
+        assertEquals("Pending approval: Leave of Alice", batches.getValue().getFirst().getTitle());
     }
 
     @Test

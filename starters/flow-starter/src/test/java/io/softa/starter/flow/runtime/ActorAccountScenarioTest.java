@@ -93,7 +93,6 @@ class ActorAccountScenarioTest {
 
         List<Function<String, FlowExecutionState>> actions = List.of(
                 target -> engine.transfer(targeted(new FlowTransferRequest(), instanceId, target)),
-                target -> engine.delegate(targeted(new FlowDelegateRequest(), instanceId, target)),
                 target -> {
                     FlowReassignRequest reassign = targeted(new FlowReassignRequest(), instanceId, target);
                     reassign.setOperatorId("admin-1");

@@ -19,7 +19,6 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowCommentRequest;
-import io.softa.starter.flow.runtime.api.FlowDelegateRequest;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowTransferRequest;
@@ -134,20 +133,6 @@ class FlowActionScenarioTest {
         approve.setNodeId("approval");
         approve.setActorId(OTHER);
         assertEquals(FlowExecutionStatus.COMPLETED, engine.approve(approve).getStatus());
-    }
-
-    @Test
-    void delegateKeepsFlowWaitingForDelegate() {
-        FlowExecutionState started = startAndExpectPending();
-        FlowDelegateRequest delegate = new FlowDelegateRequest();
-        delegate.setInstanceId(started.getInstanceId());
-        delegate.setNodeId("approval");
-        delegate.setActorId(APPROVER);
-        delegate.setTargetActorId(OTHER);
-
-        FlowExecutionState afterDelegate = engine.delegate(delegate);
-        assertEquals(FlowExecutionStatus.WAITING, afterDelegate.getStatus());
-        assertTrue(afterDelegate.getPendingApprovals().get(0).getApprovers().contains(OTHER));
     }
 
     @Test
