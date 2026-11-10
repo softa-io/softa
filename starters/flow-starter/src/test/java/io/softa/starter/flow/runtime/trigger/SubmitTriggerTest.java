@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.domain.Filters;
@@ -82,6 +83,29 @@ class SubmitTriggerTest {
                 "a flow without a condition takes every record");
     }
 
+    /**
+     * A submit condition may read through the document's relations, up to two on; the submission reads those values
+     * from the related records — the paths of every candidate's condition, so the choice sees them all.
+     */
+    @Test
+    void aSubmitConditionReadsThroughARelationOfTheDocument() {
+        DefaultFlowTriggerRegistry registry = registryFor(
+                submitFlow("sales", new SubmitTrigger("LeaveRequest", null,
+                        Filters.of(List.of("employeeId.departmentId", "=", 30)))),
+                submitFlow("seniors", new SubmitTrigger("LeaveRequest", null,
+                        Filters.of(List.of(List.of("employeeId.grade", "=", "Senior"), "AND", List.of("days", ">", 3))))),
+                submitFlow("default", "LeaveRequest"),
+                submitFlow("claims", new SubmitTrigger("ExpenseClaim", null,
+                        Filters.of(List.of("projectId.costCenter", "=", "CC1")))));
+
+        assertEquals(Set.of("employeeId.departmentId", "employeeId.grade"),
+                registry.submitConditionPaths("LeaveRequest"));
+        assertEquals(List.of("sales"), flowIds(registry.findSubmitFlows("LeaveRequest",
+                Map.of("employeeId", 5001L, "employeeId.departmentId", 30L))));
+        assertEquals(List.of("default"), flowIds(registry.findSubmitFlows("LeaveRequest",
+                Map.of("employeeId", 5001L, "employeeId.departmentId", 31L))));
+    }
+
     @Test
     void aSubmitConditionThatCannotBeEvaluatedIsAFault() {
         DefaultFlowTriggerRegistry registry = registryFor(
@@ -115,7 +139,7 @@ class SubmitTriggerTest {
         TriggerConsistencyValidator validator = new TriggerConsistencyValidator();
 
         List<CompileDiagnostic> wrongScenario = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.VALIDATION).trigger(new SubmitTrigger("LeaveRequest")).build(), null);
+                .scenario(FlowScenario.AUTOMATION).trigger(new SubmitTrigger("LeaveRequest")).build(), null);
         List<CompileDiagnostic> noModel = validator.validate(DesignFlowDefinition.builder()
                 .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger(" ")).build(), null);
         List<CompileDiagnostic> valid = validator.validate(DesignFlowDefinition.builder()

@@ -12,24 +12,9 @@ import io.softa.starter.flow.dto.FlowInboxCountView;
  */
 public interface FlowApprovalTaskQueryService {
 
-    List<FlowApprovalTaskView> getPendingTasks(String actorId, String flowId, String instanceId, String nodeId);
-
-    Page<FlowApprovalTaskView> pagePendingTasks(String actorId, String flowId, String instanceId, String nodeId,
-                                                Integer pageNumber, Integer pageSize);
-
-    List<FlowApprovalTaskView> getCompletedTasks(String actorId, String flowId, String instanceId, String nodeId);
-
-    Page<FlowApprovalTaskView> pageCompletedTasks(String actorId, String flowId, String instanceId, String nodeId,
-                                                  Integer pageNumber, Integer pageSize);
-
-    List<FlowApprovalTaskView> getCcTasks(String actorId, Boolean read, String flowId, String instanceId, String nodeId);
-
-    Page<FlowApprovalTaskView> pageCcTasks(String actorId, Boolean read, String flowId, String instanceId,
-                                           String nodeId, Integer pageNumber, Integer pageSize);
-
     /**
-     * One page of an actor's own tasks in a box of the approval center: the box selects them as the pending,
-     * completed and CC reads do (CC read and unread), the request's filters narrow them — ANDed on, never replacing
+     * One page of an actor's own tasks in a box of the approval center: the box selects the actor's pending,
+     * handled or CC tasks (CC read and unread), the request's filters narrow them — ANDed on, never replacing
      * the actor and the box — and its orders sort them, else the box's own order. Filters and orders may name only
      * fields a task stores; anything else is refused (400) by its name. Views enriched as the other reads'.
      *

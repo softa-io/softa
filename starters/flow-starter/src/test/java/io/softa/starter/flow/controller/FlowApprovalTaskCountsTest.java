@@ -8,7 +8,6 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.flow.dto.FlowInboxCountView;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
-import io.softa.starter.flow.service.FlowInboxService;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,7 +46,7 @@ class FlowApprovalTaskCountsTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<InboxNotificationService> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(available);
-        return new FlowApprovalTaskController(tasks, mock(FlowInboxService.class), provider);
+        return new FlowApprovalTaskController(tasks, provider);
     }
 
     private static <T> T as(Long userId, Supplier<T> call) {

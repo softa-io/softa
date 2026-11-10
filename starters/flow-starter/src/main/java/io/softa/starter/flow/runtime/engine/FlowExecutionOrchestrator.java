@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
+import io.softa.starter.flow.enums.CcTiming;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
@@ -48,6 +49,7 @@ public class FlowExecutionOrchestrator {
     private final FlowGatewayRouter gatewayRouter;
     private final NodeRetryExecutor retryExecutor;
     private final ApproverDedupService approverDedupService;
+    private final AutoCcService autoCcService;
 
     public FlowExecutionOrchestrator(FlowBundleRegistry bundleRegistry,
                                      DefaultNodeHandlerRegistry nodeHandlerRegistry,
@@ -57,7 +59,8 @@ public class FlowExecutionOrchestrator {
                                      ApprovalNotificationService notificationService,
                                      FlowGatewayRouter gatewayRouter,
                                      NodeRetryExecutor retryExecutor,
-                                     ApproverDedupService approverDedupService) {
+                                     ApproverDedupService approverDedupService,
+                                     AutoCcService autoCcService) {
         this.bundleRegistry = bundleRegistry;
         this.nodeHandlerRegistry = nodeHandlerRegistry;
         this.contextService = contextService;
@@ -67,6 +70,7 @@ public class FlowExecutionOrchestrator {
         this.gatewayRouter = gatewayRouter;
         this.retryExecutor = retryExecutor;
         this.approverDedupService = approverDedupService;
+        this.autoCcService = autoCcService;
     }
 
     // ── Public entry points ───────────────────────────────────────────────────
@@ -75,17 +79,6 @@ public class FlowExecutionOrchestrator {
         FlowVariableContext ctx = buildContextFromState(state);
         executeDefinition(definition, state, definition.getEntryNodeIds(), false,
                 new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
-    }
-
-    /**
-     * Transient variant of {@link #executeRoot} for stateless Validation / Compute evaluation:
-     * identical traversal, but completion notifications are suppressed — the run leaves no
-     * persisted instance, so listeners must not observe it.
-     */
-    public void evaluateRoot(CompiledFlowDefinition definition, FlowExecutionState state) {
-        FlowVariableContext ctx = buildContextFromState(state);
-        executeDefinition(definition, state, definition.getEntryNodeIds(), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, false);
     }
 
     /**
@@ -108,8 +101,8 @@ public class FlowExecutionOrchestrator {
      * without letting anything that stops them undo the approval (zingkey-hcm#2385, #2382).
      *
      * <p>The approver has done their part, and what stops the approval going on after it is not theirs to put right:
-     * an automated step failing — a webhook that does not answer, a record that will not save — no route out of a
-     * step, nobody to approve the next one, branches meeting a step wrongly. Whichever it is, the steps' writes are
+     * no route out of a step, nobody to approve the next one, branches meeting a step wrongly — or, on a revision
+     * published before approval flows held people and routes only, an automated step failing. Whichever it is, the steps' writes are
      * undone apart from the approval, with what they arranged for the commit (messages, change logs and the flows
      * those would start); the error is logged; and the instance, as the approval left it, fails at the step that
      * stopped it, remembering where to run again from — its initiator and the tenant's administrators are told. The
@@ -336,7 +329,7 @@ public class FlowExecutionOrchestrator {
 
         requireJoinsComplete(definition, state);
         if (!subflow) {
-            finalizeRootState(state, announcesCompletion(definition, notifyOnComplete));
+            finalizeRootState(definition, state, announcesCompletion(definition, notifyOnComplete));
         }
     }
 
@@ -426,7 +419,7 @@ public class FlowExecutionOrchestrator {
                                 FlowVariableContext parentCtx,
                                 boolean notifyOnComplete) {
         // A subflow is a step like any other: what stops it throws, and whoever runs the steps handles it as it handles
-        // any failing step — a submission refused, an approval kept with its instance failed, an automation run failed.
+        // any failing step — an automation run failed.
         String subflowId = subflowCall.flowId();
         CompiledFlowDefinition subflow = bundleRegistry.getActiveByFlowId(subflowId)
                 .orElseThrow(() -> new FlowRuntimeException("Subflow " + subflowId
@@ -468,7 +461,7 @@ public class FlowExecutionOrchestrator {
         Set<String> childFlowStack = new LinkedHashSet<>(flowStack);
         childFlowStack.add(subflowId);
         executeDefinition(subflow, childState, subflow.getEntryNodeIds(), true, childFlowStack, childCtx, notifyOnComplete);
-        finalizeRootState(childState, announcesCompletion(subflow, notifyOnComplete));
+        finalizeRootState(subflow, childState, announcesCompletion(subflow, notifyOnComplete));
 
         // Publishing refuses a waiting step in a flow with a Subflow trigger (SUBFLOW_WAITS); this catches revisions
         // published before.
@@ -572,8 +565,13 @@ public class FlowExecutionOrchestrator {
     /**
      * A run that got here did not fail: nothing in a run fails an instance but a step that throws, and the caller of the
      * run handles that ({@link #runAfterApproval}, or the facade around a start or a resume).
+     *
+     * <p>What an approval completing approved brings goes here, so that every run that completes one brings it — an
+     * approval, a retry, a timer or an async task resuming the instance, an administrator's reassignment: the notice
+     * that it went through, and the flow's approval CCs, recorded on the step whose action ended it.
      */
-    private void finalizeRootState(FlowExecutionState state, boolean notifyOnComplete) {
+    private void finalizeRootState(CompiledFlowDefinition definition, FlowExecutionState state,
+                                   boolean notifyOnComplete) {
         // Still parked on any wait — a timer/async token or a pending approval.
         if (state.hasWaitTokens() || !state.getPendingApprovals().isEmpty()) {
             FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
@@ -591,7 +589,25 @@ public class FlowExecutionOrchestrator {
                 .build());
         if (notifyOnComplete) {
             notificationService.notify(new FlowNotificationEvent.FlowCompleted(state, true));
+            autoCcService.processCc(state, approvalEndStep(definition, state), CcTiming.ON_APPROVED);
         }
+    }
+
+    /**
+     * The step whose action ended the approval: the approval step completed last — one that passed on its own as it
+     * opened counts too — else the start node, when no approval step was on the way.
+     */
+    private static CompiledFlowNode approvalEndStep(CompiledFlowDefinition definition, FlowExecutionState state) {
+        Map<String, CompiledFlowNode> nodes = definition.getNodeIndex() == null ? Map.of() : definition.getNodeIndex();
+        List<String> completed = state.getCompletedNodeIds();
+        for (int i = completed.size() - 1; i >= 0; i--) {
+            CompiledFlowNode node = nodes.get(completed.get(i));
+            if (node != null && FlowNodeType.APPROVAL.equals(node.getType())) {
+                return node;
+            }
+        }
+        List<String> entries = definition.getEntryNodeIds();
+        return entries == null || entries.isEmpty() ? null : nodes.get(entries.getFirst());
     }
 
     private void addCompletedNode(FlowExecutionState state, String nodeId) {

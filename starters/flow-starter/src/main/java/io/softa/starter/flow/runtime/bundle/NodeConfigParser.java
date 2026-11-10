@@ -33,8 +33,6 @@ public final class NodeConfigParser {
             case SCRIPT        -> BeanTool.objectToObject(config, ScriptNodeConfig.class);
             case SUBFLOW       -> BeanTool.objectToObject(config, SubflowNodeConfig.class);
             case RETURN_VALUE  -> BeanTool.objectToObject(config, ReturnValueNodeConfig.class);
-            case FOR_EACH      -> BeanTool.objectToObject(config, ForEachNodeConfig.class);
-            case HUMAN_TASK    -> BeanTool.objectToObject(config, HumanTaskNodeConfig.class);
             case TIMER         -> BeanTool.objectToObject(config, TimerNodeConfig.class);
             // All automated task nodes share TaskNodeConfig
             case CREATE_RECORD, GET_RECORD, UPDATE_RECORD, DELETE_RECORD,

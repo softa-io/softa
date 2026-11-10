@@ -38,6 +38,6 @@ class NodeDescriptorScenariosTest {
         FlowNodeDescriptor descriptor = new TaskExecutorDescriptorProvider(List.of(email)).getDescriptors().getFirst();
 
         assertEquals(FlowNodeType.SEND_EMAIL.getScenarios(), descriptor.allowedScenarios());
-        assertFalse(descriptor.allowedScenarios().contains(FlowScenario.VALIDATION));
+        assertFalse(descriptor.allowedScenarios().contains(FlowScenario.APPROVAL), "an approval flow sends nothing");
     }
 }

@@ -10,7 +10,6 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.action.*;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
-import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -32,7 +31,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     private final ApproveActionHandler approveHandler;
     private final RejectActionHandler rejectHandler;
     private final TransferActionHandler transferHandler;
-    private final DelegateActionHandler delegateHandler;
     private final CcActionHandler ccHandler;
     private final ReadCcActionHandler readCcHandler;
     private final ReturnApprovalActionHandler returnApprovalHandler;
@@ -50,7 +48,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                              ApproveActionHandler approveHandler,
                              RejectActionHandler rejectHandler,
                              TransferActionHandler transferHandler,
-                             DelegateActionHandler delegateHandler,
                              CcActionHandler ccHandler,
                              ReadCcActionHandler readCcHandler,
                              ReturnApprovalActionHandler returnApprovalHandler,
@@ -67,7 +64,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         this.approveHandler = approveHandler;
         this.rejectHandler = rejectHandler;
         this.transferHandler = transferHandler;
-        this.delegateHandler = delegateHandler;
         this.ccHandler = ccHandler;
         this.readCcHandler = readCcHandler;
         this.returnApprovalHandler = returnApprovalHandler;
@@ -107,6 +103,12 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     private FlowExecutionState startInstance(CompiledFlowDefinition definition, FlowStartRequest request,
                                              boolean recordApproval) {
         FlowExecutionState state = buildInitialState(definition, request, recordApproval);
+        // Submitting happens at the flow's start node: its CCs come first, before the steps the start runs through.
+        List<String> entryNodeIds = definition.getEntryNodeIds();
+        if (entryNodeIds != null && !entryNodeIds.isEmpty()) {
+            autoCcService.processCc(state, contextService.requiredNode(definition, entryNodeIds.getFirst()),
+                    CcTiming.ON_SUBMIT);
+        }
 
         try {
             orchestrator.executeRoot(definition, state);
@@ -124,30 +126,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
             throw e;
         }
         contextService.persistState(state);
-        // Submitting happens at the flow's start node; an approval every step of which passed on its own
-        // completes right there.
-        List<String> entryNodeIds = definition.getEntryNodeIds();
-        if (entryNodeIds != null && !entryNodeIds.isEmpty()) {
-            CompiledFlowNode startNode = contextService.requiredNode(definition, entryNodeIds.getFirst());
-            autoCcService.processCc(state, startNode, CcTiming.ON_SUBMIT);
-            if (FlowExecutionStatus.COMPLETED.equals(state.getStatus())) {
-                autoCcService.processCc(state, startNode, CcTiming.ON_APPROVED);
-            }
-        }
-        return state;
-    }
-
-    @Override
-    public FlowExecutionState evaluate(FlowStartRequest request) {
-        CompiledFlowDefinition definition = resolveRequestedDefinition(request);
-        if (definition.getScenario() == null || !definition.getScenario().isTransient()) {
-            throw new FlowActionValidationException("evaluate() only runs stateless Validation/Compute flows; "
-                    + "Approval and Automation flows start instances: " + definition.getFlowName());
-        }
-        FlowExecutionState state = buildInitialState(definition, request, false);
-        // Zero flow footprint: nothing is persisted on success or failure. A failure propagates
-        // so the caller's transaction rolls back any business writes made by task nodes.
-        orchestrator.evaluateRoot(definition, state);
         return state;
     }
 
@@ -214,37 +192,17 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
 
     @Override
     public FlowExecutionState approve(FlowApproveRequest request) {
-        FlowExecutionState state = approveHandler.handle(request);
-        // The approval's CC: once the approval ends approved, not at each step.
-        if (FlowExecutionStatus.COMPLETED.equals(state.getStatus())) {
-            autoCcService.processCc(state, actedStep(state, request.getNodeId()), CcTiming.ON_APPROVED);
-        }
-        return state;
+        return approveHandler.handle(request);
     }
 
     @Override
     public FlowExecutionState reject(FlowRejectRequest request) {
-        FlowExecutionState state = rejectHandler.handle(request);
-        // A rejection that the step's reject threshold does not yet carry leaves the approval waiting.
-        if (FlowExecutionStatus.REJECTED.equals(state.getStatus())) {
-            autoCcService.processCc(state, actedStep(state, request.getNodeId()), CcTiming.ON_REJECTED);
-        }
-        return state;
-    }
-
-    /** The step whose action ended the approval: the flow's CCs at that moment are recorded on it. */
-    private CompiledFlowNode actedStep(FlowExecutionState state, String nodeId) {
-        return contextService.requiredNode(contextService.resolveDefinition(state.getBundleId()), nodeId);
+        return rejectHandler.handle(request);
     }
 
     @Override
     public FlowExecutionState transfer(FlowTransferRequest request) {
         return transferHandler.handle(request);
-    }
-
-    @Override
-    public FlowExecutionState delegate(FlowDelegateRequest request) {
-        return delegateHandler.handle(request);
     }
 
     @Override
@@ -279,14 +237,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
 
     @Override
     public FlowExecutionState retry(FlowRetryRequest request) {
-        String approvedNodeId = request == null || request.getInstanceId() == null ? null
-                : instanceStore.get(request.getInstanceId()).map(FlowExecutionState::getRetryAfterNodeId).orElse(null);
-        FlowExecutionState state = retryHandler.handle(request);
-        // The approval's CC, as had the steps after its last approval run through the first time.
-        if (FlowExecutionStatus.COMPLETED.equals(state.getStatus()) && approvedNodeId != null) {
-            autoCcService.processCc(state, actedStep(state, approvedNodeId), CcTiming.ON_APPROVED);
-        }
-        return state;
+        return retryHandler.handle(request);
     }
 
     @Override

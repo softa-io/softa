@@ -187,14 +187,6 @@ public class FlowAuditService {
         return builder.toString();
     }
 
-    public String buildDelegateMessage(CompiledFlowNode node, FlowDelegateRequest request) {
-        StringBuilder builder = new StringBuilder("Approval delegated at node ")
-                .append(node.getNodeId()).append(" from ").append(request.getActorId())
-                .append(" to ").append(request.getTargetActorId());
-        appendComment(builder, request.getComment());
-        return builder.toString();
-    }
-
     public String buildCcReadMessage(CompiledFlowNode node, FlowCcReadRequest request, ApprovalActionAuditEntry ccAudit) {
         StringBuilder builder = new StringBuilder("Approval CC read at node ")
                 .append(node.getNodeId()).append(" by ").append(request.getActorId());

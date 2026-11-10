@@ -45,7 +45,6 @@ public class DefaultFlowCompiler {
                 new GraphStructureValidator(),
                 new TriggerConsistencyValidator(),
                 new TaskConfigValidator(),
-                new UnsupportedNodeTypeValidator(),
                 new ApprovalConfigValidator(),
                 new TimerConfigValidator(),
                 new TemplatePlaceholderValidator(),
@@ -106,7 +105,7 @@ public class DefaultFlowCompiler {
                 .withdrawPolicy(definition.getWithdrawPolicy() == null ? WithdrawPolicy.NEVER : definition.getWithdrawPolicy())
                 .returnEnabled(definition.getReturnEnabled())
                 .urgeEnabled(definition.getUrgeEnabled())
-                .urgeIntervalMinutes(definition.getUrgeIntervalMinutes())
+                .urgeIntervalHours(definition.getUrgeIntervalHours())
                 .remindAfterHours(definition.getRemindAfterHours())
                 .emailNotification(definition.getEmailNotification())
                 .cc(definition.getCc() == null ? List.of() : List.copyOf(definition.getCc()))
@@ -114,7 +113,6 @@ public class DefaultFlowCompiler {
                 .rollbackOnFail(Boolean.TRUE.equals(definition.getRollbackOnFail()))
                 .approverDedup(definition.getApproverDedup())
                 .selfApproval(definition.getSelfApproval())
-                .declaredOutputs(defaultList(definition.getDeclaredOutputs()))
                 .entryNodeIds(entryNodeIds)
                 .terminalNodeIds(terminalNodeIds)
                 .topologicalOrder(topologicalOrder)

@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 class FlowExecutionOrchestratorResumeTest {
 
     private final FlowExecutionOrchestrator orchestrator =
-            new FlowExecutionOrchestrator(null, null, null, null, null, null, null, null, null);
+            new FlowExecutionOrchestrator(null, null, null, null, null, null, null, null, null, null);
 
     @Test
     void resumeOfTerminalInstanceIsNoop() {

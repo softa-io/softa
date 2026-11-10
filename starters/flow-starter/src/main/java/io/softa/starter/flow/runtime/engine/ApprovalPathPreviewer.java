@@ -2,7 +2,6 @@ package io.softa.starter.flow.runtime.engine;
 
 import java.util.*;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -19,9 +18,6 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
-import io.softa.starter.flow.runtime.nodeconfig.ScriptNodeConfig;
-import io.softa.starter.flow.runtime.nodeconfig.SubflowNodeConfig;
-import io.softa.starter.flow.runtime.nodeconfig.TaskNodeConfig;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -37,10 +33,10 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  * which is never saved. No node runs; no instance, task, ledger row or notification is created, and
  * no delegation's use is counted.
  *
- * <p>Nothing is guessed. Once the walk passes a node it does not run — a script, a task, a subflow —
- * the variables that node writes are unknown, as is the instance id from the start: a route whose
- * conditions read one is undecided and not followed, and a step whose approvers come from the
- * variables (a dynamic approver source) is undetermined. With approver dedup on, so is a step whose
+ * <p>Nothing is guessed. An approval flow holds people and routes only, so the variables a route reads are the
+ * submission's — but the instance id, unknown before the start, and anything a node on a revision published before
+ * that rule may write: a route whose conditions read one is undecided and not followed, and a step whose approvers
+ * are found by a rule after such a node is undetermined. With approver dedup on, so is a step whose
  * approver may or may not have approved an earlier step, one of several there who could pass it.
  */
 @Component
@@ -245,37 +241,21 @@ public class ApprovalPathPreviewer {
             return FlowGatewayRouter.holds(definition, transition, state.getVariables());
         }
 
-        /** A node the preview does not run: the variables it writes are unknown from here on. */
+        /**
+         * A node the preview does not run. Start, end and the gateways write nothing — all an approval flow holds besides
+         * its steps. Any other node, on a revision published before approval flows held people and routes only, may
+         * write any variable: from there on, what reads one is undecided.
+         */
         private void passOver(CompiledFlowNode node) {
             switch (node.getType()) {
-                case START, END, PARALLEL_FORK, PARALLEL_JOIN, INCLUSIVE_GATEWAY, TIMER -> {
+                case START, END, PARALLEL_FORK, PARALLEL_JOIN, INCLUSIVE_GATEWAY -> {
                     // write no variable
                 }
                 default -> {
-                    Object config = node.getParsedConfig();
-                    if (config instanceof ScriptNodeConfig script) {
-                        written(declared(script.getOutputVariable()));
-                    } else if (config instanceof SubflowNodeConfig subflow) {
-                        Set<String> names = new HashSet<>(declared(subflow.getOutputVariable()));
-                        if (subflow.getOutputMapping() != null) {
-                            names.addAll(subflow.getOutputMapping().keySet());
-                        }
-                        written(names);
-                    } else if (config instanceof TaskNodeConfig task && StringUtils.hasText(task.getOutputVariable())
-                            && !FlowNodeType.ASYNC_TASK.equals(node.getType())) {
-                        written(Set.of(task.getOutputVariable()));
-                    } else {
-                        // A task without an output variable merges its whole result, an async task its callback's too.
-                        anyVariableUnknown = true;
-                        variablesWritten = true;
-                    }
+                    anyVariableUnknown = true;
+                    variablesWritten = true;
                 }
             }
-        }
-
-        private void written(Collection<String> names) {
-            unknownVariables.addAll(names);
-            variablesWritten |= !names.isEmpty();
         }
 
         private void previewStep(CompiledFlowNode node) {
@@ -373,14 +353,11 @@ public class ApprovalPathPreviewer {
 
         /** The automatic approvals {@link ApproverDedupService} recorded on a step, and why each. */
         private List<AutoApproval> autoApprovals(List<ApprovalActionAuditEntry> entries) {
-            Map<String, ApproverDedupService.SelfRole> self = approverDedupService.selfApprovers(definition, state);
+            String submitter = approverDedupService.selfApprover(definition, state);
             return entries.stream()
                     .filter(entry -> ApprovalActionType.AUTO_APPROVE.equals(entry.getAction()) && entry.getActorId() != null)
-                    .map(entry -> new AutoApproval(actor(entry.getActorId()), switch (self.get(entry.getActorId())) {
-                        case SUBMITTER -> AutoApprovalReason.SUBMITTER;
-                        case SUBJECT -> AutoApprovalReason.SUBJECT;
-                        case null -> AutoApprovalReason.EARLIER_APPROVAL;
-                    }))
+                    .map(entry -> new AutoApproval(actor(entry.getActorId()), entry.getActorId().equals(submitter)
+                            ? AutoApprovalReason.SUBMITTER : AutoApprovalReason.EARLIER_APPROVAL))
                     .toList();
         }
 
@@ -398,10 +375,6 @@ public class ApprovalPathPreviewer {
 
         private static FlowRecordApprovalsView.Actor actor(String userId) {
             return new FlowRecordApprovalsView.Actor(userId, null);
-        }
-
-        private static List<String> declared(String outputVariable) {
-            return StringUtils.hasText(outputVariable) ? List.of(outputVariable) : List.of();
         }
     }
 }

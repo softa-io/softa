@@ -146,7 +146,7 @@ class FlowApprovalPreviewTest {
         when(modelService.getById(eq(MODEL), any())).thenAnswer(invocation -> Optional.of(record));
         when(instanceService.findByModelNameAndRowId(MODEL, ROW)).thenReturn(instances);
 
-        launchService = new FlowLaunchServiceImpl(publishService, engine, bundleRegistry, compiler,
+        launchService = new FlowLaunchServiceImpl(engine, bundleRegistry, compiler,
                 // No status writer: a preview writes nothing.
                 ModelApprovalHandlerRegistry.of(List.of(handler)), null, new DefaultFlowTriggerRegistry(bundleRegistry),
                 instanceService, modelService, previewer,
@@ -330,7 +330,7 @@ class FlowApprovalPreviewTest {
 
     @Test
     void theRouteIsDecidedByWhatTheSubmissionSays() {
-        publishService.publish("annual", routedFlow("days > 5", null));
+        publishService.publish("annual", routedFlow("days > 5"));
 
         assertEquals(List.of("manager"), nodeIds(launchService.previewRecord(MODEL, ROW, SUBMITTER)));
 
@@ -344,7 +344,7 @@ class FlowApprovalPreviewTest {
      */
     @Test
     void aRecordNotSavedYetPreviewsFromItsValues() {
-        publishService.publish("annual", routedFlow("days > 5", null));
+        publishService.publish("annual", routedFlow("days > 5"));
         when(handler.submission(any())).thenAnswer(invocation -> new ApprovalSubmission("Leave of Alice",
                 Map.of("days", ((LeaveRequest) invocation.getArgument(0)).getDays())));
 
@@ -406,44 +406,6 @@ class FlowApprovalPreviewTest {
 
         record.put("days", 7);
         assertEquals(List.of("hr"), nodeIds(launchService.previewRecord(MODEL, ROW, SUBMITTER)));
-    }
-
-    @Test
-    void aRouteThatReadsWhatANodeComputesWhenTheApprovalRunsIsUndecided() {
-        publishService.publish("annual", routedFlow("weight > 5", script("weigh", "days * 2", "weight")));
-
-        FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
-
-        assertEquals(List.of(), preview.getSteps());
-        assertEquals(List.of(new Stop("weigh", "weigh", null)), preview.getUndecided());
-        assertNull(preview.getFailure());
-    }
-
-    @Test
-    void aRouteThatReadsOnlyWhatTheSubmissionSaysIsDecidedPastSuchANode() {
-        publishService.publish("annual", routedFlow("days > 5", script("weigh", "days * 2", "weight")));
-
-        FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
-
-        assertEquals(List.of("manager"), nodeIds(preview));
-        assertEquals(List.of(), preview.getUndecided());
-    }
-
-    @Test
-    void aStepWhoseApproversComeFromWhatANodeComputesIsUndetermined() {
-        DesignFlowDefinition design = chain("Annual leave", script("pick", "seq.list('" + HR + "')", "reviewers"),
-                approval("review", "Review", Map.of("approverSources", List.of(Map.of("type", "VariableList", "variable", "reviewers")))),
-                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))));
-        // Without dedup, whoever reviews has no bearing on the manager's step.
-        design.setApproverDedup(ApproverDedupStrategy.NONE);
-        publishService.publish("annual", design);
-
-        List<Step> steps = launchService.previewRecord(MODEL, ROW, SUBMITTER).getSteps();
-
-        assertEquals(StepOutcome.UNDETERMINED, steps.get(0).getOutcome());
-        assertEquals(List.of(), steps.get(0).getApprovers());
-        assertEquals(StepOutcome.WAITING, steps.get(1).getOutcome());
-        assertEquals(List.of(new Actor(MANAGER, "Bob")), steps.get(1).getApprovers());
     }
 
     @Test
@@ -688,30 +650,24 @@ class FlowApprovalPreviewTest {
     }
 
     /**
-     * start → [{@code before} →] a step for HR when {@code condition} holds, else one for the
-     * manager → end; the route is decided on the edges out of the node before the steps.
+     * start → a step for HR when {@code condition} holds, else one for the manager → end; the route is decided on the
+     * edges out of the start.
      */
-    private static DesignFlowDefinition routedFlow(String condition, FlowGraphNode before) {
+    private static DesignFlowDefinition routedFlow(String condition) {
         List<FlowGraphNode> nodes = new ArrayList<>(List.of(node("start", FlowNodeType.START),
                 approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))),
                 approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
                 node("end", FlowNodeType.END)));
         List<FlowGraphEdge> edges = new ArrayList<>(List.of(edge("e3", "hr", "end", null),
                 edge("e4", "manager", "end", null)));
-        String router = "start";
-        if (before != null) {
-            nodes.add(before);
-            edges.add(edge("e0", "start", before.getId(), null));
-            router = before.getId();
-        }
-        edges.add(edge("e1", router, "hr", condition));
-        edges.add(edge("e2", router, "manager", null));
+        edges.add(edge("e1", "start", "hr", condition));
+        edges.add(edge("e2", "start", "manager", null));
         return flow("Annual leave", nodes, edges);
     }
 
     /** {@link #routedFlow} whose HR edge holds a rule condition instead of an expression. */
     private static DesignFlowDefinition ruledFlow(Filters rule) {
-        DesignFlowDefinition design = routedFlow(null, null);
+        DesignFlowDefinition design = routedFlow(null);
         design.getGraph().getEdges().stream()
                 .filter(edge -> "e1".equals(edge.getId()))
                 .findFirst().orElseThrow()
@@ -746,12 +702,6 @@ class FlowApprovalPreviewTest {
 
     private static FlowGraphNode approval(String id, String label, Map<String, Object> config) {
         return FlowGraphNode.builder().id(id).type(FlowNodeType.APPROVAL).label(label).config(config).build();
-    }
-
-    private static FlowGraphNode script(String id, String expression, String outputVariable) {
-        return FlowGraphNode.builder().id(id).type(FlowNodeType.SCRIPT).label(id)
-                .config(Map.of("expression", expression, "outputVariable", outputVariable))
-                .build();
     }
 
     private static FlowGraphNode node(String id, FlowNodeType type) {

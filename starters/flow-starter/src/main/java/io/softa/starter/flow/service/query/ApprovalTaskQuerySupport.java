@@ -49,15 +49,6 @@ public final class ApprovalTaskQuerySupport {
                 .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC);
     }
 
-    /** Read CC copies: actor's own CC rows already acknowledged. */
-    public static Filters readCcFilters(String actorId) {
-        return new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
-                .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC)
-                .in(FlowApprovalTask::getStatus,
-                        List.of(FlowApprovalTaskStatus.READ, FlowApprovalTaskStatus.CC));
-    }
-
     private static final List<FlowApprovalTaskStatus> COMPLETED_STATUSES = List.of(
             FlowApprovalTaskStatus.APPROVED,
             FlowApprovalTaskStatus.REJECTED,

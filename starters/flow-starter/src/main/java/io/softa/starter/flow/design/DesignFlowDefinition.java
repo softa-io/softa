@@ -26,8 +26,6 @@ import io.softa.starter.flow.enums.FlowScenario;
  *   <li>{@code trigger} is a {@link TriggerSource} sealed-interface reference with a
  *       Jackson {@code @JsonTypeInfo} discriminator, replacing the former flat
  *       {@code FlowTriggerDefinition}.</li>
- *   <li>{@code declaredOutputs} lists the variable names this flow promises to produce
- *       (required for VALIDATION and COMPUTE scenarios).</li>
  * </ul>
  */
 @Data
@@ -62,9 +60,9 @@ public class DesignFlowDefinition implements DTOFieldObject {
             + "an administrator may either way. Unset = on")
     private Boolean urgeEnabled;
 
-    @Schema(description = "Approval flows only: how often, in minutes, each step an approval waits on may be urged, "
-            + "by its initiator or an administrator. Unset = 240")
-    private Integer urgeIntervalMinutes;
+    @Schema(description = "Approval flows only: how often, in hours, each step an approval waits on may be urged, "
+            + "by its initiator or an administrator. Unset = 4")
+    private Integer urgeIntervalHours;
 
     @Schema(description = "Approval flows only: hours after a step opens that its approvers still to act are reminded, "
             + "then again every as many hours, at most 3 times; the step is due then. Unset = no reminders. A reminder "
@@ -87,18 +85,11 @@ public class DesignFlowDefinition implements DTOFieldObject {
             + "actor who already approved this instance. Default GLOBAL when unset.")
     private ApproverDedupStrategy approverDedup;
 
-    @Schema(description = "What a step does when the record's submitter, or the employee it is about, is one of its "
-            + "approvers (本人是审批人时): AutoApprove counts them as having approved, RequireApproval asks them like "
-            + "anyone else. Default AutoApprove when unset.")
+    @Schema(description = "What a step does when the record's submitter is one of its approvers (提交人是审批人时): "
+            + "AutoApprove counts them as having approved, RequireApproval asks them like anyone else. The employee "
+            + "the record is about, when someone else submitted it, is always asked like anyone else. Default "
+            + "AutoApprove when unset.")
     private SelfApprovalStrategy selfApproval;
-
-    /**
-     * Declared output variable names.
-     * Required for VALIDATION and COMPUTE scenarios — tells the compiler what keys
-     * to verify are produced by {@code ReturnValue} nodes.
-     */
-    @Schema(description = "Output variable names this flow promises to produce")
-    private List<String> declaredOutputs;
 
     @Schema(description = "Arbitrary metadata (ignored by the compiler)")
     private Map<String, Object> metadata;

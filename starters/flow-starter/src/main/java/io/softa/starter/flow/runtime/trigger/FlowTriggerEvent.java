@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
  * Incoming trigger event that may cause one or more flows to start.
  * <p>
  * The {@code type} field holds the {@code TriggerSource} discriminator string
- * (e.g. {@code "EntityChange"}, {@code "FieldChange"}) so it can be
+ * (an event starts only {@code "EntityChange"} flows) so it can be
  * matched against registered flow bundles without deserialising the full
  * TriggerSource sub-type at the event level.
  */
@@ -26,7 +26,7 @@ import lombok.NoArgsConstructor;
 public class FlowTriggerEvent {
 
     @NotBlank(message = "type must not be blank")
-    @Schema(description = "Trigger type discriminator (EntityChange | FieldChange). Submit, Cron, Api and Subflow "
+    @Schema(description = "Trigger type discriminator (EntityChange). Submit, Cron, Api and Subflow "
             + "are refused: a submitted record starts its approval through record submission, a Cron flow starts "
             + "on its own schedule, an Api flow is started explicitly by its id, and a Subflow flow runs only "
             + "from a parent flow")

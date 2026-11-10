@@ -14,7 +14,10 @@ import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
@@ -30,6 +33,7 @@ import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.*;
 import io.softa.starter.flow.runtime.*;
 import io.softa.starter.flow.runtime.api.*;
+import io.softa.starter.flow.runtime.context.RecordModelFixture;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
@@ -93,7 +97,7 @@ class FlowRecordSubmissionTest {
     private final FlowInstanceService instanceService = mock(FlowInstanceService.class);
     // The preview's collaborators stay null: FlowApprovalPreviewTest covers it.
     private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
-            publishService, engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
+            engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
             new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null,
             new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger()),
                     new FailedApprovalRecords(instanceService, modelService)));
@@ -384,6 +388,30 @@ class FlowRecordSubmissionTest {
                 () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
         assertTrue(error.getMessage().contains("Several approval flows"), error.getMessage());
         verify(handler, never()).afterSubmitted(any());
+    }
+
+    @Test
+    void theFlowWithoutAConditionTakesWhatNoOtherFlowTakes() {
+        // The document's default, beside a copy for long leave: each record goes to exactly one of them.
+        publishService.publish("default", flow("Leave", new SubmitTrigger(MODEL), List.of(MANAGER)));
+        publishService.publish("long", flow("Long leave", new SubmitTrigger(MODEL, "days > 5"), List.of(MANAGER)));
+
+        assertEquals("default", launchService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
+
+        launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "make it two weeks");
+        when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 10)));
+        assertEquals("long", launchService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
+    }
+
+    @Test
+    void aDefaultFlowDoesNotSettleConditionsThatOverlap() {
+        publishService.publish("default", flow("Leave", new SubmitTrigger(MODEL), List.of(MANAGER)));
+        publishService.publish("a", flow("Flow A", new SubmitTrigger(MODEL, "true"), List.of(MANAGER)));
+        publishService.publish("b", flow("Flow B", new SubmitTrigger(MODEL, "1 == 1"), List.of(MANAGER)));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+        assertTrue(error.getMessage().contains("Several approval flows"), error.getMessage());
     }
 
     @Test
@@ -693,5 +721,41 @@ class FlowRecordSubmissionTest {
 
     private static FlowGraphEdge edge(String id, String source, String target) {
         return FlowGraphEdge.builder().id(id).source(source).target(target).build();
+    }
+
+    /**
+     * A submit condition and an edge may read through the document's relations, up to two on. The submission reads
+     * those values from the related record, chooses the flow on them, and keeps them with the record's own values,
+     * so every route of the instance decides on what they were at submission.
+     */
+    @Test
+    void aSubmissionChoosesAndRoutesOnWhatItsRelatedRecordSaysAtSubmission() {
+        try (MockedStatic<ModelManager> metadata = RecordModelFixture.mockModelManager()) {
+            record.put("departmentId", 30L);
+            when(modelService.searchList(eq(RecordModelFixture.RELATED), any(FlexQuery.class)))
+                    .thenReturn(List.of(Map.of("costCenter", "CC1", "level", 4)));
+            publishService.publish("sales", routedFlow("Sales leave", "CC1"));
+            publishService.publish("others", routedFlow("Other leave", "CC2"));
+
+            FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+            assertEquals("sales", state.getFlowId());
+            assertEquals("CC1", state.getVariables().get("departmentId.costCenter"));
+            assertEquals(4, state.getVariables().get("departmentId.level"));
+            // The edge reading departmentId.level >= 4 took the approval step, not the way straight to the end.
+            assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
+            assertEquals(List.of(MANAGER), state.getPendingApprovals().getFirst().getApprovers());
+        }
+    }
+
+    /** For departments of {@code costCenter}: start → approval when the department is level 4 or above, else → end. */
+    private static DesignFlowDefinition routedFlow(String name, String costCenter) {
+        DesignFlowDefinition design = flow(name, new SubmitTrigger(MODEL, null,
+                Filters.of(List.of("departmentId.costCenter", "=", costCenter))), List.of(MANAGER));
+        List<FlowGraphEdge> edges = design.getGraph().getEdges();
+        edges.set(0, FlowGraphEdge.builder().id("e1").source("start").target("approval")
+                .condition(Filters.of(List.of("departmentId.level", ">=", 4))).build());
+        edges.add(edge("e3", "start", "end"));
+        return design;
     }
 }

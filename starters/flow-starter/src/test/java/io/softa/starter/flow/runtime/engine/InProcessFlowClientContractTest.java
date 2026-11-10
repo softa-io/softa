@@ -20,7 +20,6 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
 import io.softa.starter.flow.runtime.StubFlowInstanceStore;
 import io.softa.starter.flow.runtime.TestFlowRuntimeFactory;
-import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
@@ -35,10 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * In-process {@code FlowClient} contract: the port delegates to the engine AND resolves the caller from
- * {@link ContextHolder}. {@code start} records the context's user as initiator; {@code approve} carries no
- * {@code actorId}, so it can only succeed because {@code FlowActors.currentUserId()} ("100") matches the
- * node's approver. Only the {@code engine} delegate is exercised here, so the other bean dependencies are
- * left null.
+ * {@link ContextHolder} — {@code start} records the context's user as initiator, and starts only an Automation flow.
+ * Only the {@code engine} delegate is exercised here, so the other bean dependencies are left null.
  */
 class InProcessFlowClientContractTest {
 
@@ -59,7 +56,7 @@ class InProcessFlowClientContractTest {
             approvalHandler);
 
     private final FlowClient client =
-            new InProcessFlowClient(engine, null, null, null, null, null, null, null, null);
+            new InProcessFlowClient(engine, null, null, null);
 
     @BeforeEach
     void publishFlows() {
@@ -87,25 +84,6 @@ class InProcessFlowClientContractTest {
             start.setFlowId(APPROVAL_FLOW_ID);
 
             assertThrows(FlowActionValidationException.class, () -> client.start(start));
-        });
-    }
-
-    @Test
-    void approveResolvesTheActorFromContext() {
-        // An approval starts by record submission, which needs a host model; the engine starts it directly here.
-        FlowStartRequest start = new FlowStartRequest();
-        start.setFlowId(APPROVAL_FLOW_ID);
-        start.setInitiatorId("initiator-1");
-        FlowExecutionState started = engine.start(start);
-        assertEquals(FlowExecutionStatus.WAITING, started.getStatus());
-
-        ContextHolder.runWith(userContext(), () -> {
-            FlowApproveRequest approve = new FlowApproveRequest();
-            approve.setInstanceId(started.getInstanceId());
-            approve.setNodeId("approval");
-            // actorId intentionally not set — resolved from context as "100", the node's approver
-            FlowExecutionState done = client.approve(approve);
-            assertEquals(FlowExecutionStatus.COMPLETED, done.getStatus());
         });
     }
 

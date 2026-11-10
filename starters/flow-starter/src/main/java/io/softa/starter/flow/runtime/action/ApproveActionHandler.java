@@ -77,7 +77,7 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
                                                 PendingApproval pendingApproval, CompiledFlowDefinition definition,
                                                 CompiledFlowNode node, FlowExecutionStatus statusBefore) {
         // Enforce form field permissions + write sanitized edits to the business row.
-        formWriteService.applyFormData(state, node, request.getFormData());
+        formWriteService.applyFormData(definition, state, node, request.getFormData());
         if (lifecycleService.requiresTrackedApprover(pendingApproval)) {
             if (!StringUtils.hasText(request.getActorId())) {
                 throw new FlowActionValidationException("actorId is required to approve this approval node: " + request.getNodeId());

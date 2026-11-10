@@ -134,28 +134,6 @@ class FlowScenarioRuntimeTest {
         assertTrue(failure.getMessage().contains("already running above it"), failure.getMessage());
     }
 
-    @Test
-    void aSubflowFailingAfterAnApprovalKeepsTheApprovalAndFailsTheInstanceToRunAgain() {
-        publishService.publish("child", flow(FlowScenario.AUTOMATION, new ApiTrigger(null)));
-        publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
-                FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build(),
-                subflowNode("child")));
-        FlowExecutionState started = engine.start(start("leave", "submitter"));
-
-        FlowApproveRequest approve = new FlowApproveRequest();
-        approve.setInstanceId(started.getInstanceId());
-        approve.setNodeId("approval");
-        approve.setActorId("manager");
-        FlowExecutionState approved = engine.approve(approve);
-
-        assertEquals(FlowExecutionStatus.FAILED, approved.getStatus(), "the approver gets the failed instance");
-        assertEquals("subflow", approved.getFailedNodeId());
-        assertEquals("approval", approved.getRetryAfterNodeId(), "an administrator can run the steps again");
-        assertTrue(approved.getCompletedNodeIds().contains("approval"), "the approval stands");
-        assertTrue(notices.stream().anyMatch(FlowNotificationEvent.FlowFailed.class::isInstance));
-    }
-
     private static FlowStartRequest start(String flowId, String initiatorId) {
         FlowStartRequest request = new FlowStartRequest();
         request.setFlowId(flowId);

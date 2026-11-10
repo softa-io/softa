@@ -63,7 +63,6 @@ public final class NodeTransformer {
                 .hasSubflow(nodes.stream().anyMatch(n -> FlowNodeType.SUBFLOW.equals(n.getType())))
                 .hasParallelGateway(nodes.stream().anyMatch(n ->
                         FlowNodeType.PARALLEL_FORK.equals(n.getType()) || FlowNodeType.PARALLEL_JOIN.equals(n.getType())))
-                .hasLoop(nodes.stream().anyMatch(n -> FlowNodeType.FOR_EACH.equals(n.getType())))
                 .build();
     }
 

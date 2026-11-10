@@ -250,6 +250,19 @@ The controller exposes endpoints for immediate execution:
 - `POST /SysCron/executeNow?id=123`
 - `POST /SysCron/executeMultipleNow?ids=1&ids=2`
 
+### 3. Preview an expression
+`GET /toolkit/previewCron?expression=&count=` (softa-web's toolkit, backed by `CronSchedule` in softa-orm) answers
+whether the scheduler accepts an expression — it parses, one of the two day fields is `?`, and it fires again — what
+it means in words (`CronUtils.cronSemantic`), and its next runs (`count`, 1–10, default 5) in the server's zone, the
+one the scheduler runs in. A page editing `SysCron.cronExpression` shows it beside the field; saving an expression the
+scheduler cannot run is refused anyway, as `cronSemantic` is computed from it on save. Nothing records past runs:
+`lastExecTime`, `nextExecTime` and `SysCronLog` are not written, so a page computes the next run from the expression
+this way. flow-starter's `GET /flow/cron/preview` gives the same answer with one rule of its own: a flow runs at most
+once a minute.
+
+A seed file that carries a `SysCron` row writes the fields it names whenever it is loaded again — after a release
+changes it — so an `active` flag or a `cronExpression` changed on a page since then goes back to the file's.
+
 ## Quartz Cron Expression
 Format:
 ```
@@ -257,7 +270,7 @@ Format:
 - - - - - -  -
 | | | | | |  |
 | | | | | |  +- Year              (OPTIONAL)
-| | | | | +---- Day of the Week   (range: 1-7 or SUN-SAT, 1 standing for Monday)
+| | | | | +---- Day of the Week   (range: 1-7 or SUN-SAT, 1 standing for Sunday)
 | | | | +------ Month             (range: 1-12 or JAN-DEC)
 | | | +-------- Day of the Month  (range: 1-31)
 | | +---------- Hour              (range: 0-23)

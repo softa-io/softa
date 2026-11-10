@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.jspecify.annotations.Nullable;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.compute.ComputeUtils;
@@ -290,7 +292,9 @@ public class GatewayValidator implements FlowValidator {
 
     /**
      * A rule condition reads the fields of the record the flow starts on, judged the way a field condition
-     * is: an approval's only by the fields its approvals route on, an entity change's by its model's.
+     * is: an approval's only by the fields its approvals route on, an entity change's by its model's. Either may
+     * also read up to two hops on through relations ({@code employeeId.departmentId.costCentreId}), which a start
+     * reads from the related records.
      */
     private static void validateRuleCondition(FlowGraphEdge edge, String edgeName, String nodeId, String nodeType,
                                               TriggerSource trigger, String modelName, List<CompileDiagnostic> d) {
@@ -305,7 +309,7 @@ public class GatewayValidator implements FlowValidator {
             if (trigger instanceof SubmitTrigger) {
                 checkApprovalRule(edge.getCondition(), modelName, prefix);
             } else {
-                checkRule(edge.getCondition(), modelName, prefix);
+                checkRule(edge.getCondition(), modelName, prefix, true);
             }
         } catch (IllegalStateException e) {
             d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, INVALID_RULE_CONDITION,
@@ -315,7 +319,8 @@ public class GatewayValidator implements FlowValidator {
 
     /**
      * Checks a rule of an Approval flow — an edge's, or its submit condition — over the fields of the document
-     * {@code modelName}: only the fields its approvals route on, then the way {@link #checkRule} does.
+     * {@code modelName}: only the fields its approvals route on, and those up to {@link RecordVariables#MAX_HOPS} hops
+     * on through relations they route on; then the way {@link #checkRule} does.
      *
      * @throws IllegalStateException naming what is wrong, after {@code prefix}
      */
@@ -324,26 +329,48 @@ public class GatewayValidator implements FlowValidator {
                 .map(MetaField::getFieldName)
                 .collect(Collectors.toSet());
         for (String field : rule.extractFields()) {
-            if (!routed.contains(field) && ModelManager.existField(modelName, field)) {
+            if (field.indexOf('.') < 0 && !routed.contains(field) && ModelManager.existField(modelName, field)) {
                 throw new IllegalStateException(prefix + "`" + field + "` is not one of the fields "
                         + modelName + "'s approvals route on; its identity, bookkeeping, approval"
                         + " state and fields declared sensitive are left out.");
             }
         }
-        checkRule(rule, modelName, prefix);
+        checkRule(rule, modelName, prefix, true);
     }
 
     /**
-     * Checks a rule over the fields of {@code modelName} the way the annotation scan checks a field condition.
+     * Checks a rule over the fields of {@code modelName} the way the annotation scan checks a field condition. With
+     * {@code throughRelations} it may also read a field through relations, by its path
+     * ({@link RecordVariables#routedPathField}); without, only the record's own fields.
      *
      * @throws IllegalStateException naming what is wrong, after {@code prefix}
      */
-    static void checkRule(Filters rule, String modelName, String prefix) {
-        FieldConstraints.checkCondition(rule, prefix,
-                field -> ModelManager.existField(modelName, field)
-                        ? FieldRef.of(ModelManager.getModelField(modelName, field))
-                        : null,
-                false);
+    static void checkRule(Filters rule, String modelName, String prefix, boolean throughRelations) {
+        for (String field : rule.extractFields()) {
+            if (field.indexOf('.') < 0) {
+                continue;
+            }
+            if (!throughRelations) {
+                throw new IllegalStateException(prefix + "`" + field + "` reads through a relation, and this"
+                        + " condition reads the record's own fields only.");
+            }
+            if (RecordVariables.routedPathField(modelName, field) == null) {
+                throw new IllegalStateException(prefix + "`" + field + "` is not a path a rule can read: up to "
+                        + RecordVariables.MAX_HOPS + " hops from " + modelName + ", each through a many-to-one or"
+                        + " one-to-one field that a route reads, to a field of a plain type — not a record's identity,"
+                        + " bookkeeping, approval state or a field declared sensitive.");
+            }
+        }
+        FieldConstraints.checkCondition(rule, prefix, field -> fieldRefOf(modelName, field), false);
+    }
+
+    /** What {@code field} reads: a field of the record, or of the related record a path reaches; null for neither. */
+    private static @Nullable FieldRef fieldRefOf(String modelName, String field) {
+        if (field.indexOf('.') > 0) {
+            MetaField leaf = RecordVariables.routedPathField(modelName, field);
+            return leaf == null ? null : FieldRef.of(leaf);
+        }
+        return ModelManager.existField(modelName, field) ? FieldRef.of(ModelManager.getModelField(modelName, field)) : null;
     }
 
     /** The model of the record the flow starts on, as its trigger names it; none when it starts on no record. */

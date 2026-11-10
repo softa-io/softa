@@ -13,7 +13,6 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.trigger.ChangeEvent;
 import io.softa.starter.flow.design.trigger.CronTrigger;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.message.ChangeLogTriggerMapper;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
@@ -51,13 +50,6 @@ class DefaultFlowTriggerRegistryTest {
                 .flowId(code)
                 .tenantId(tenantId)
                 .trigger(new EntityChangeTrigger(model, events, null))
-                .build();
-    }
-
-    private CompiledFlowDefinition fieldChangeFlow(String code, String model, List<String> fieldNames) {
-        return CompiledFlowDefinition.builder()
-                .flowId(code)
-                .trigger(new FieldChangeTrigger(model, fieldNames))
                 .build();
     }
 
@@ -145,35 +137,5 @@ class DefaultFlowTriggerRegistryTest {
 
         assertTrue(registry.findMatchingFlows(cronTick).isEmpty());
         assertTrue(registry.findMatchingFlows(entityEvent("Order", "CREATE")).isEmpty());
-    }
-
-    @Test
-    void fieldChangeTriggerMatchesConfiguredChangedField() {
-        DefaultFlowTriggerRegistry registry = registryFor(fieldChangeFlow("f", "Order", List.of("amount")));
-        FlowTriggerEvent event = FlowTriggerEvent.builder()
-                .type("FieldChange")
-                .sourceModel("Order")
-                .parameters(Map.of(DefaultFlowTriggerRegistry.PARAM_CHANGED_FIELDS, List.of("amount")))
-                .build();
-
-        assertEquals(1, registry.findMatchingFlows(event).size());
-    }
-
-    @Test
-    void fieldChangeTriggerDoesNotMatchOtherModelOrField() {
-        DefaultFlowTriggerRegistry registry = registryFor(fieldChangeFlow("f", "Order", List.of("amount")));
-        FlowTriggerEvent otherField = FlowTriggerEvent.builder()
-                .type("FieldChange")
-                .sourceModel("Order")
-                .parameters(Map.of(DefaultFlowTriggerRegistry.PARAM_CHANGED_FIELDS, List.of("status")))
-                .build();
-        FlowTriggerEvent otherModel = FlowTriggerEvent.builder()
-                .type("FieldChange")
-                .sourceModel("Customer")
-                .parameters(Map.of(DefaultFlowTriggerRegistry.PARAM_CHANGED_FIELDS, List.of("amount")))
-                .build();
-
-        assertTrue(registry.findMatchingFlows(otherField).isEmpty());
-        assertTrue(registry.findMatchingFlows(otherModel).isEmpty());
     }
 }

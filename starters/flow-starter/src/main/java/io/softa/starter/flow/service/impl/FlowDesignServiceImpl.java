@@ -42,7 +42,6 @@ import io.softa.starter.flow.runtime.nodeconfig.SubflowNodeConfig;
 import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowInstanceService;
-import io.softa.starter.flow.service.support.ComputeOutputs;
 import io.softa.starter.flow.service.support.SubmitConditions;
 import tools.jackson.core.type.TypeReference;
 
@@ -156,7 +155,6 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
             if (bundleService != null && bundleRegistry != null) {
                 bundleService.findActiveByFlowId(id).map(FlowBundleMapper::toDefinition).ifPresent(active -> {
                     List<CompiledFlowDefinition> enabled = bundleRegistry.listTriggerCandidates(active.getModelName());
-                    ComputeOutputs.requireOwn(id, active, enabled);
                     SubmitConditions.requireDistinct(id, active, enabled);
                 });
             }

@@ -103,8 +103,6 @@ public class FlowApprovalPreview {
     public enum AutoApprovalReason {
         /** The submitter is one of the step's approvers, and the flow approves for them. */
         SUBMITTER("Submitter"),
-        /** The employee the record is about is one of the step's approvers, and the flow approves for them. */
-        SUBJECT("Subject"),
         /** The approver approved an earlier step, and the flow's approver dedup counts that here too. */
         EARLIER_APPROVAL("EarlierApproval");
 

@@ -20,8 +20,8 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.compute.ComputeUtils;
+import io.softa.framework.orm.compute.CronSchedule;
 import io.softa.starter.flow.message.dto.FlowTimerMessage;
-import io.softa.starter.flow.runtime.engine.FlowCron;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.nodeconfig.TimerNodeConfig;
 
@@ -103,7 +103,7 @@ public class FlowTimerProducer {
             // The scheduler's dialect, as a Cron trigger's: one cron language in a flow
             List<ZonedDateTime> next;
             try {
-                next = FlowCron.nextRuns(config.getCronExpression(), ZonedDateTime.now(), 1);
+                next = CronSchedule.nextRuns(config.getCronExpression(), ZonedDateTime.now(), 1);
             } catch (IllegalArgumentException e) {
                 throw new FlowRuntimeException(
                         "Cron expression '" + config.getCronExpression() + "' is invalid: " + e.getMessage());

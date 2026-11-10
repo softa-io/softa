@@ -14,7 +14,6 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowCcReadRequest;
 import io.softa.starter.flow.runtime.api.FlowCcRequest;
-import io.softa.starter.flow.runtime.api.FlowDelegateRequest;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.api.FlowReturnRequest;
 import io.softa.starter.flow.runtime.api.FlowTransferRequest;
@@ -65,7 +64,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
         when(engine.approve(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.reject(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.transfer(any())).thenAnswer(invocation -> withRecordValues());
-        when(engine.delegate(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.cc(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.readCc(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.returnApproval(any())).thenAnswer(invocation -> withRecordValues());
@@ -75,7 +73,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
                 endpoint -> endpoint.approve(new FlowApproveRequest()),
                 endpoint -> endpoint.reject(new FlowRejectRequest()),
                 endpoint -> endpoint.transfer(new FlowTransferRequest()),
-                endpoint -> endpoint.delegate(new FlowDelegateRequest()),
                 endpoint -> endpoint.cc(new FlowCcRequest()),
                 endpoint -> endpoint.readCc(new FlowCcReadRequest()),
                 endpoint -> endpoint.returnApproval(new FlowReturnRequest()),

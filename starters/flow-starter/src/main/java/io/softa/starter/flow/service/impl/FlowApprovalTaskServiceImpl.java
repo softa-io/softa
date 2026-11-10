@@ -12,7 +12,6 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -73,70 +72,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     @Override
-    public List<FlowApprovalTaskView> getPendingTasks(String actorId, String flowId, String instanceId, String nodeId) {
-        return pagePendingTasks(actorId, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pagePendingTasks(String actorId,
-                                                       String flowId,
-                                                       String instanceId,
-                                                       String nodeId,
-                                                       Integer pageNumber,
-                                                       Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        return page(filters, newestStartedFirst(), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCompletedTasks(String actorId, String flowId, String instanceId, String nodeId) {
-        return pageCompletedTasks(actorId, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pageCompletedTasks(String actorId,
-                                                         String flowId,
-                                                         String instanceId,
-                                                         String nodeId,
-                                                         Integer pageNumber,
-                                                         Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        return page(filters, latestClosedFirst(), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCcTasks(String actorId, Boolean read, String flowId, String instanceId, String nodeId) {
-        return pageCcTasks(actorId, read, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pageCcTasks(String actorId,
-                                                  Boolean read,
-                                                  String flowId,
-                                                  String instanceId,
-                                                  String nodeId,
-                                                  Integer pageNumber,
-                                                  Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        // read=false shares the unread-CC badge-count definition; read=true its mirror.
-        Filters filters;
-        if (Boolean.FALSE.equals(read)) {
-            filters = ApprovalTaskQuerySupport.unreadCcFilters(actorId);
-        } else if (Boolean.TRUE.equals(read)) {
-            filters = ApprovalTaskQuerySupport.readCcFilters(actorId);
-        } else {
-            filters = ApprovalTaskQuerySupport.ccFilters(actorId);
-        }
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        Orders orders = Boolean.TRUE.equals(read) ? latestClosedFirst() : oldestStartedFirst();
-        return page(filters, orders, pageNumber, pageSize);
-    }
-
-    @Override
     public Page<FlowApprovalTaskView> searchTasks(String actorId, FlowApprovalTaskSearchRequest request) {
         ApprovalTaskQuerySupport.requireActorId(actorId);
         if (request == null || request.box() == null) {
@@ -190,18 +125,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                 .toList();
     }
 
-    private static void applyOptionalFilters(Filters filters, String flowId, String instanceId, String nodeId) {
-        if (StringUtils.hasText(flowId)) {
-            filters.eq(FlowApprovalTask::getFlowId, flowId);
-        }
-        if (StringUtils.hasText(instanceId)) {
-            filters.eq(FlowApprovalTask::getInstanceId, instanceId);
-        }
-        if (StringUtils.hasText(nodeId)) {
-            filters.eq(FlowApprovalTask::getNodeId, nodeId);
-        }
-    }
-
     private Page<FlowApprovalTaskView> page(Filters filters, Orders orders, Integer pageNumber, Integer pageSize) {
         return mapPage(this.searchPage(new FlexQuery(filters, orders), Page.of(pageNumber, pageSize)),
                 pageNumber, pageSize);
@@ -215,11 +138,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     /** Latest closed first. */
     private static Orders latestClosedFirst() {
         return Orders.ofDesc(FlowApprovalTask::getEndTime).addDesc(FlowApprovalTask::getId);
-    }
-
-    /** Oldest first, in the order they arrived. */
-    private static Orders oldestStartedFirst() {
-        return Orders.ofAsc(FlowApprovalTask::getStartTime).addAsc(FlowApprovalTask::getId);
     }
 
     private Page<FlowApprovalTaskView> mapPage(Page<FlowApprovalTask> source,

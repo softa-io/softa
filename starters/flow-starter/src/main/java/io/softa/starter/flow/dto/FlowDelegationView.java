@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import io.softa.starter.flow.enums.FlowDelegationStatus;
+
 /**
  * A delegation rule as the lists show it: its delegator and delegate named, not only their user ids.
  */
@@ -53,11 +55,9 @@ public class FlowDelegationView {
     @Schema(description = "Until when the rule applies; empty until it is cancelled")
     private LocalDateTime endTime;
 
-    @Schema(description = "Whether the rule is in force")
-    private Boolean active;
-
-    @Schema(description = "Whether the rule switches itself off once its end time passes")
-    private Boolean autoExpire;
+    @Schema(description = "Where the rule stands now: Scheduled — its start time ahead; Active — tasks arriving now go "
+            + "to the delegate; Ended — its end time passed; Cancelled")
+    private FlowDelegationStatus status;
 
     @Schema(description = "How many tasks the rule has routed")
     private Integer delegatedTaskCount;
@@ -67,4 +67,7 @@ public class FlowDelegationView {
 
     @Schema(description = "When the rule was created")
     private LocalDateTime createdTime;
+
+    @Schema(description = "Who set the rule up, by name: the delegator, or an administrator on their behalf")
+    private String createdBy;
 }

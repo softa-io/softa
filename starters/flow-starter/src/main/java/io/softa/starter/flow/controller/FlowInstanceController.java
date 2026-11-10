@@ -365,13 +365,6 @@ public class FlowInstanceController {
         return ApiResponse.success(withoutRecordValues(runtimeEngine.transfer(request)));
     }
 
-    @PostMapping("/delegate")
-    @Operation(summary = "Delegate pending approval task", description = "Delegates a pending approval task from the current actor to another actor on the same node and cycle.")
-    public ApiResponse<FlowExecutionState> delegate(@Valid @RequestBody FlowDelegateRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(withoutRecordValues(runtimeEngine.delegate(request)));
-    }
-
     @PostMapping("/cc")
     @Operation(summary = "CC people on a pending approval", description = "The caller, an approver of the pending "
             + "step still to vote, CCs one or more people (`targetActorIds`): each gets a read-only copy of the approval "
@@ -419,8 +412,8 @@ public class FlowInstanceController {
     @PostMapping("/urge")
     @Operation(summary = "Urge pending approvers",
             description = "The initiator reminds the approvers the approval waits on, on a flow that lets them "
-                    + "(urgeEnabled, default on). A step urged within the flow's interval (urgeIntervalMinutes, "
-                    + "default 240) — by the initiator or an administrator — is not urged again, and when every step "
+                    + "(urgeEnabled, default on). A step urged within the flow's interval (urgeIntervalHours, "
+                    + "default 4) — by the initiator or an administrator — is not urged again, and when every step "
                     + "is, the urge is refused. Returns when the approval may be urged next.")
     public ApiResponse<FlowUrgeStatus> urge(@Valid @RequestBody FlowUrgeRequest request) {
         request.setActorId(currentUserId());

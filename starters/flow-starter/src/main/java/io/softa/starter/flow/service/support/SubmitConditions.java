@@ -12,11 +12,12 @@ import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 
 /**
  * A document's approval flows are told apart by their submit conditions: a submission goes to the one whose
- * condition holds, and a record two of them take cannot be submitted. Two enabled approval flows of one document with
- * the same condition — neither having one, or the very same rule or expression — take exactly the same records,
- * which is what a copied approval flow does until its condition is changed. That much is refused when such a flow is
- * published while enabled, enabled, or rolled back to another revision; conditions that merely overlap show only when
- * a record is submitted or previewed.
+ * condition holds — else to the one without a condition, the document's default — and a record two of them take
+ * cannot be submitted. Two enabled approval flows of one document with the same condition — neither having one (two
+ * defaults), or the very same rule or expression — take exactly the same records, which is what a copied approval
+ * flow does until its condition is changed. That much is refused when such a flow is published while enabled,
+ * enabled, or rolled back to another revision; conditions that merely overlap show only when a record is submitted or
+ * previewed.
  */
 public final class SubmitConditions {
 

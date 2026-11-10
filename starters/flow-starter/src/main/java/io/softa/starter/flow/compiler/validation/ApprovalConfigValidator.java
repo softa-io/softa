@@ -257,7 +257,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                 }
             }
             case "Department" -> validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
-            default -> { /* VariableList, Expression, InitiatorManager, Role */ }
+            default -> { }
         }
     }
 

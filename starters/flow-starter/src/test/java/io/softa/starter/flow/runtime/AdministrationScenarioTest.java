@@ -55,6 +55,7 @@ class AdministrationScenarioTest {
     private static final String INITIATOR = "initiator-1";
     private static final String ALICE = "alice";
     private static final String BOB = "bob";
+    private static final String CAROL = "carol";
     private static final String ADMIN = "hr-admin";
 
     private final StubFlowBundleRegistry bundleRegistry = new StubFlowBundleRegistry();
@@ -194,6 +195,47 @@ class AdministrationScenarioTest {
         assertEquals(List.of(BOB), step.getApprovers());
         assertEquals(1, step.getTotalApproverCount());
         assertEquals(1, step.getRequiredApprovalCount(), "no more approvals than approvers");
+    }
+
+    @Test
+    void aMergeThatLeavesTheStepNobodyElseToWaitForPassesIt() {
+        // All three must approve; Alice and Bob have. Carol's place, merged into Alice's, needs nobody new.
+        FlowExecutionState started = start(List.of(ALICE, BOB, CAROL), "Unanimous");
+        engine.approve(approve(started.getInstanceId(), ALICE));
+        engine.approve(approve(started.getInstanceId(), BOB));
+
+        FlowExecutionState state = engine.reassign(reassign(started.getInstanceId(), CAROL, ALICE));
+
+        assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus(), "the step has every approval it needs");
+        assertTrue(state.getPendingApprovals().isEmpty());
+        assertTrue(state.getCompletedNodeIds().contains("approval"));
+        ApprovalActionAuditEntry transfer = state.getApprovalAuditDelta().stream()
+                .filter(entry -> ApprovalActionType.TRANSFER.equals(entry.getAction()))
+                .reduce((first, second) -> second).orElseThrow();
+        assertEquals(CAROL, transfer.getActorId());
+        assertEquals(ALICE, transfer.getTargetActorId());
+        assertEquals(ADMIN, transfer.getOperatorId());
+    }
+
+    @Test
+    void aMergeThatStillLeavesSomeoneToApproveWaitsForThem() {
+        FlowExecutionState started = start(List.of(ALICE, BOB, CAROL), "Unanimous");
+        engine.approve(approve(started.getInstanceId(), ALICE));
+
+        FlowExecutionState state = engine.reassign(reassign(started.getInstanceId(), CAROL, ALICE));
+
+        assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
+        PendingApproval step = state.getPendingApprovals().getFirst();
+        assertEquals(List.of(ALICE, BOB), step.getApprovers());
+        assertEquals(2, step.getRequiredApprovalCount());
+    }
+
+    private static FlowApproveRequest approve(String instanceId, String actorId) {
+        FlowApproveRequest request = new FlowApproveRequest();
+        request.setInstanceId(instanceId);
+        request.setNodeId("approval");
+        request.setActorId(actorId);
+        return request;
     }
 
     private static DesignFlowDefinition flow(List<String> approvers, String approvalMode) {

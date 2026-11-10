@@ -8,17 +8,16 @@ import io.softa.starter.flow.design.trigger.*;
 import io.softa.starter.flow.message.ChangeLogTriggerMapper;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
+import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.engine.FlowGatewayRouter;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 
 /**
  * Default trigger registry that matches the bundles the registry offers for an event's
- * model by trigger type, source model, change events and fields, and the trigger's condition.
+ * model by trigger type, source model, change events, and the trigger's condition.
  */
 @Component
 public class DefaultFlowTriggerRegistry {
-
-    static final String PARAM_CHANGED_FIELDS = "_changedFields";
 
     /**
      * A flow an event starts: its trigger fits the event and its condition holds — or the condition could not be
@@ -86,9 +85,10 @@ public class DefaultFlowTriggerRegistry {
     }
 
     /**
-     * The current tenant's enabled approval flows (plus platform-shared ones) of {@code modelName} whose submit
-     * condition holds for the submitted record — a flow without a condition takes every record. A document may have
-     * several approval flows, told apart by their conditions; the caller decides what none, or several, mean.
+     * The current tenant's enabled approval flows (plus platform-shared ones) of {@code modelName} that take the
+     * submitted record: those whose submit condition holds for it — else, when none does, the flow without a condition,
+     * the document's default. A document may have several approval flows, told apart by their conditions: one per
+     * country, say, beside the default for everyone else. The caller decides what none, or several, mean.
      *
      * @param modelName the submitted record's model
      * @param variables what the approval would start with — the record's fields and its handler's variables — and
@@ -97,17 +97,43 @@ public class DefaultFlowTriggerRegistry {
      *                              configuration fault to report, not a "does not apply"
      */
     public List<CompiledFlowDefinition> findSubmitFlows(String modelName, Map<String, Object> variables) {
-        Long currentTenant = ContextHolder.existContext() ? ContextHolder.getContext().getTenantId() : null;
         List<CompiledFlowDefinition> matches = new ArrayList<>();
-        for (CompiledFlowDefinition definition : bundleRegistry.listTriggerCandidates(modelName)) {
-            if (tenantMatches(definition, currentTenant)
-                    && definition.getTrigger() instanceof SubmitTrigger trigger
-                    && Objects.equals(definition.getModelName(), modelName)
-                    && submitConditionHolds(definition, trigger, variables)) {
+        List<CompiledFlowDefinition> defaults = new ArrayList<>();
+        for (CompiledFlowDefinition definition : submitFlowsOf(modelName)) {
+            SubmitTrigger trigger = (SubmitTrigger) definition.getTrigger();
+            if (!trigger.hasCondition()) {
+                defaults.add(definition);
+            } else if (submitConditionHolds(definition, trigger, variables)) {
                 matches.add(definition);
             }
         }
-        return matches;
+        return matches.isEmpty() ? defaults : matches;
+    }
+
+    /**
+     * The paths the submit conditions of {@code modelName}'s approval flows read through a relation of the record —
+     * {@code employeeId.departmentId} — which {@link #findSubmitFlows} needs among its variables to choose.
+     */
+    public Set<String> submitConditionPaths(String modelName) {
+        Set<String> paths = new TreeSet<>();
+        for (CompiledFlowDefinition definition : submitFlowsOf(modelName)) {
+            paths.addAll(RecordVariables.pathsIn(((SubmitTrigger) definition.getTrigger()).condition()));
+        }
+        return paths;
+    }
+
+    /** The current tenant's enabled approval flows of {@code modelName}, plus platform-shared ones. */
+    private List<CompiledFlowDefinition> submitFlowsOf(String modelName) {
+        Long currentTenant = ContextHolder.existContext() ? ContextHolder.getContext().getTenantId() : null;
+        List<CompiledFlowDefinition> flows = new ArrayList<>();
+        for (CompiledFlowDefinition definition : bundleRegistry.listTriggerCandidates(modelName)) {
+            if (tenantMatches(definition, currentTenant)
+                    && definition.getTrigger() instanceof SubmitTrigger
+                    && Objects.equals(definition.getModelName(), modelName)) {
+                flows.add(definition);
+            }
+        }
+        return flows;
     }
 
     /**
@@ -185,26 +211,8 @@ public class DefaultFlowTriggerRegistry {
         if (!Objects.equals(definition.getModelName(), event.getSourceModel())) {
             return false;
         }
-        if (trigger instanceof FieldChangeTrigger fieldTrigger) {
-            return matchesFieldChange(fieldTrigger, event);
-        }
         // An entity change also matches its change events
         return !(trigger instanceof EntityChangeTrigger change) || matchesChangeEvents(change.events(), event);
-    }
-
-    private boolean matchesFieldChange(FieldChangeTrigger trigger, FlowTriggerEvent event) {
-        if (trigger.fieldNames() == null || trigger.fieldNames().isEmpty()) {
-            return true;
-        }
-        Map<String, Object> params = event.getParameters();
-        Object rawChangedFields = params == null ? null : params.get(PARAM_CHANGED_FIELDS);
-        if (rawChangedFields instanceof Collection<?> changedFields) {
-            return trigger.fieldNames().stream().anyMatch(changedFields::contains);
-        }
-        if (rawChangedFields instanceof String changedField) {
-            return trigger.fieldNames().contains(changedField);
-        }
-        return false;
     }
 
     /**
@@ -243,7 +251,6 @@ public class DefaultFlowTriggerRegistry {
             case ApiTrigger t          -> "Api";
             case CronTrigger t         -> "Cron";
             case SubflowTrigger t      -> "Subflow";
-            case FieldChangeTrigger t  -> "FieldChange";
             case SubmitTrigger t       -> "Submit";
         };
     }

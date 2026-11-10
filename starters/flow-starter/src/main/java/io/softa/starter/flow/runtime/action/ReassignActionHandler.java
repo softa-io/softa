@@ -3,12 +3,14 @@ package io.softa.starter.flow.runtime.action;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.runtime.api.FlowReassignRequest;
 import io.softa.starter.flow.runtime.engine.ApprovalActorValidator;
 import io.softa.starter.flow.runtime.engine.ApprovalContext;
 import io.softa.starter.flow.runtime.engine.ApprovalLifecycleService;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
+import io.softa.starter.flow.runtime.engine.FlowExecutionOrchestrator;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
@@ -23,6 +25,11 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  * a new approver already on the step merges with the old one's place, and one who cannot act is refused. The new
  * approver is given the task and the initiator is told who now holds it.
  *
+ * <p>Merged into an approver who already approved, the step may need nobody else: the place merged away was the
+ * last one still to approve — an all-approve step whose other approvers all approved, say. The step then passes
+ * there and then, as the approval that met its threshold would have passed it, and the instance goes on; the new
+ * approver has no task to be given.
+ *
  * <p>Only the step the instance waits on now moves: a later step resolves its approvers when it is reached.
  */
 @Component
@@ -33,17 +40,20 @@ public class ReassignActionHandler implements FlowActionHandler<FlowReassignRequ
     private final ApprovalLifecycleService lifecycleService;
     private final FlowAuditService auditService;
     private final ApprovalNotificationService notificationService;
+    private final FlowExecutionOrchestrator orchestrator;
 
     public ReassignActionHandler(FlowActionContextService contextService,
                                  ApprovalActorValidator actorValidator,
                                  ApprovalLifecycleService lifecycleService,
                                  FlowAuditService auditService,
-                                 ApprovalNotificationService notificationService) {
+                                 ApprovalNotificationService notificationService,
+                                 FlowExecutionOrchestrator orchestrator) {
         this.contextService = contextService;
         this.actorValidator = actorValidator;
         this.lifecycleService = lifecycleService;
         this.auditService = auditService;
         this.notificationService = notificationService;
+        this.orchestrator = orchestrator;
     }
 
     @Override
@@ -78,6 +88,18 @@ public class ReassignActionHandler implements FlowActionHandler<FlowReassignRequ
                 .operatorId(request.getOperatorId())
                 .comment(request.getComment())
                 .build());
+        if (lifecycleService.requiresTrackedApprover(pendingApproval)
+                && lifecycleService.canCompleteApproval(pendingApproval)) {
+            // The steps after it run as after any approval: past the administrator's own permissions — the flow's
+            // writes, not theirs — and failing without undoing the step's approval.
+            FlowExecutionState resumed = ContextUtils.withoutPermissionChecks(
+                    () -> orchestrator.resumeApprovedNode(state, pendingApproval, ctx.definition(), ctx.node()));
+            contextService.persistState(resumed);
+            notificationService.notify(new FlowNotificationEvent.TaskCompleted(resumed, pendingApproval, true));
+            notificationService.notify(new FlowNotificationEvent.Reassigned(resumed, pendingApproval,
+                    request.getActorId(), request.getTargetActorId(), request.getComment()));
+            return resumed;
+        }
         contextService.persistState(state);
         notificationService.notify(new FlowNotificationEvent.TaskTransferred(state, pendingApproval, request.getTargetActorId()));
         notificationService.notify(new FlowNotificationEvent.Reassigned(state, pendingApproval, request.getActorId(),

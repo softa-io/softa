@@ -8,7 +8,8 @@ import io.softa.framework.orm.domain.Filters;
  * Trigger fired when a record of the document {@code modelName} is submitted for approval: the trigger of every
  * Approval flow, and of no other. A document may have several approval flows — one per country or company, a leave
  * and its cancellation — told apart by their conditions: a submission goes to the document's enabled approval flow
- * whose condition holds for the record (no condition holds for every record), and exactly one must hold. The
+ * whose condition holds for the record, and exactly one must hold; the flow without a condition takes the records
+ * none of the others' conditions hold for — the default, which a copy for one country or company leaves in place. The
  * condition is one of the two kinds an edge takes, never both: a rule over the record's fields, or an expression.
  * The document is the system's, not the designer's: chosen when the flow is created ({@code FlowDesign#getModelName()})
  * and put back on every save, which keeps the condition. Only the record-submission path
@@ -39,6 +40,11 @@ public record SubmitTrigger(
     /** A submission of {@code modelName}'s records, those {@code conditionExpression} holds for. */
     public SubmitTrigger(String modelName, String conditionExpression) {
         this(modelName, conditionExpression, null);
+    }
+
+    /** Whether the flow takes only the records a condition holds for — else it is its document's default flow. */
+    public boolean hasCondition() {
+        return (conditionExpression != null && !conditionExpression.isBlank()) || !Filters.isEmpty(condition);
     }
 
     /** The same condition on {@code document}'s records. */

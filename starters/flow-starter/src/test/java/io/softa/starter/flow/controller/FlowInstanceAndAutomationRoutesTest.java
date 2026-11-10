@@ -29,7 +29,6 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/instances/batch/return",
                         "POST /flow/instances/batch/reject",
                         "POST /flow/instances/transfer",
-                        "POST /flow/instances/delegate",
                         "POST /flow/instances/cc",
                         "POST /flow/instances/cc/read",
                         "POST /flow/instances/return",
@@ -51,7 +50,6 @@ class FlowInstanceAndAutomationRoutesTest {
     @Test
     void monitorEndpoints() {
         assertEquals(new TreeSet<>(Set.of(
-                        "GET /flow/monitor/health",
                         "POST /flow/monitor/instances/search",
                         "POST /flow/monitor/instances/urge",
                         "POST /flow/monitor/instances/retry",
@@ -59,7 +57,7 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/monitor/approvers/reassign/preview",
                         "POST /flow/monitor/approvers/reassign",
                         "POST /flow/monitor/delegations",
-                        "GET /flow/monitor/delegations",
+                        "POST /flow/monitor/delegations/search",
                         "POST /flow/monitor/delegations/{id}/cancel")),
                 routes(FlowMonitorController.class));
     }
@@ -71,7 +69,6 @@ class FlowInstanceAndAutomationRoutesTest {
         assertEquals(new TreeSet<>(Set.of(
                         "GET /flow/approvalTasks/counts",
                         "POST /flow/approvalTasks/search",
-                        "GET /flow/approvalTasks/inbox",
                         "GET /flow/approvalTasks/instance/{instanceId}")),
                 routes(FlowApprovalTaskController.class));
     }
@@ -79,9 +76,7 @@ class FlowInstanceAndAutomationRoutesTest {
     @Test
     void automationEndpoints() {
         assertEquals(new TreeSet<>(Set.of(
-                        "POST /flow/automation/trigger",
-                        "POST /flow/automation/onchange",
-                        "POST /flow/automation/validate")),
+                        "POST /flow/automation/trigger")),
                 routes(FlowAutomationController.class));
     }
 
