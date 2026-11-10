@@ -176,8 +176,10 @@ public class RoleGrantCeiling {
 
     /**
      * Why assigning the role is out of the caller's reach, or empty when it is within it (or no ceiling
-     * applies). An assignment does not change the role, so its department conditions and exemptions are not
-     * judged; everything else is, as on a save.
+     * applies). The whole role is judged, its department conditions and exemptions included: an assignment
+     * hands all of it to someone new, and a caller bounded by department who could assign a role exempt from
+     * that bound — to themselves or anyone else — would reach past their own departments through it. Only a
+     * save that keeps the members as they were judges just what it adds.
      */
     public Optional<String> assignmentViolation(Long roleId) {
         Set<Long> cleared = CLEARED.get();
@@ -225,7 +227,7 @@ public class RoleGrantCeiling {
         EmpInfo employee = context.getEmpInfo();
         return inTenantContext(tenantId, () -> {
             Grants stored = load(List.of(roleId), null).getOrDefault(roleId, Grants.empty());
-            Grants target = stored.addedTo(assignment ? stored : roleBefore);
+            Grants target = assignment ? stored : stored.addedTo(roleBefore);
             List<Grants> caller = callerBefore != null ? callerBefore
                     : new ArrayList<>(load(callerRoleIds(userId), employee).values());
             Set<String> permissions = new HashSet<>(target.permissions());
@@ -326,8 +328,14 @@ public class RoleGrantCeiling {
         if (!reachesEveryDepartment && !target.departmentConditions().isEmpty()) {
             return Optional.of(new Violation(Violation.Kind.DEPARTMENT_CONDITIONS, target.departmentConditions().iterator().next()));
         }
-        if (!reachesEveryDepartment && !target.departmentExempt().isEmpty()) {
-            return Optional.of(new Violation(Violation.Kind.DEPARTMENTS, target.departmentExempt().iterator().next()));
+        // An exemption shows every department's rows of one model. A caller role exempt on the same model sees
+        // them too, so it may pass the exemption on; whether it also reaches the rows is judged per model below.
+        if (!reachesEveryDepartment) {
+            for (String model : target.departmentExempt()) {
+                if (caller.stream().noneMatch(c -> c.departmentExempt().contains(model))) {
+                    return Optional.of(new Violation(Violation.Kind.DEPARTMENTS, model));
+                }
+            }
         }
         Set<String> navigations = union(caller, Grants::navigations);
         for (String navigation : target.navigations()) {
@@ -548,7 +556,12 @@ public class RoleGrantCeiling {
             return true;
         }
         Set<String> theirs = target.departmentPaths();
-        if (theirs == null || !target.departmentConditions().isEmpty() || target.departmentExempt().contains(model)) {
+        if (theirs == null || !target.departmentConditions().isEmpty()) {
+            return false;
+        }
+        // Exempt, the target views every department's rows of the model and still changes only its own: the
+        // caller role has to view them all too — exempt on the model as well — and reach the departments below.
+        if (target.departmentExempt().contains(model) && !c.departmentExempt().contains(model)) {
             return false;
         }
         return theirs.stream().allMatch(path -> mine.stream().anyMatch(root -> DepartmentGrants.within(path, root)));

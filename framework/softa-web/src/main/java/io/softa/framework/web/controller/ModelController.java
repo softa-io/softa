@@ -533,8 +533,9 @@ public class ModelController<K extends Serializable> {
     public ApiResponse<List<Map<String, Object>>> searchList(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchListParams searchListParams) {
         FlexQuery flexQuery = SearchListParams.convertParamsToFlexQuery(searchListParams);
-        narrowToWritableDepartments(modelName, searchListParams == null ? null : searchListParams.getSourceRecord(),
-                flexQuery);
+        SourceRecord source = searchListParams == null ? null : searchListParams.getSourceRecord();
+        narrowToWritableCompanies(modelName, source, flexQuery);
+        narrowToWritableDepartments(modelName, source, flexQuery);
         return ApiResponse.success(modelService.searchList(modelName, flexQuery));
     }
 
@@ -554,13 +555,18 @@ public class ModelController<K extends Serializable> {
                                                              @RequestBody(required = false) SearchNameParams searchNameParams) {
         SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
         FlexQuery flexQuery = params.toFlexQuery();
-        Set<Long> writable = writableCompanies(modelName, searchNameParams, permissionService);
+        SourceRecord source = searchNameParams == null ? null : searchNameParams.getSourceRecord();
+        narrowToWritableCompanies(modelName, source, flexQuery);
+        narrowToWritableDepartments(modelName, source, flexQuery);
+        return ApiResponse.success(modelService.searchName(modelName, flexQuery, params.toPage()));
+    }
+
+    /** ANDs {@link #writableCompanies} onto a read of the options, when it narrows them. */
+    private void narrowToWritableCompanies(String modelName, SourceRecord source, FlexQuery flexQuery) {
+        Set<Long> writable = writableCompanies(modelName, source, permissionService);
         if (writable != null) {
             flexQuery.setFilters(Filters.and(flexQuery.getFilters(), new Filters().in(ModelConstant.ID, writable)));
         }
-        narrowToWritableDepartments(modelName, searchNameParams == null ? null : searchNameParams.getSourceRecord(),
-                flexQuery);
-        return ApiResponse.success(modelService.searchName(modelName, flexQuery, params.toPage()));
     }
 
     /** ANDs {@link #writableDepartments} onto a read of the options, when it narrows them. */
@@ -578,7 +584,9 @@ public class ModelController<K extends Serializable> {
      * reads it answers for what they may view, and an exemption from the department grant shows them all of it,
      * so a form offered departments the save would then refuse. Its read says which record it is for, and the
      * department grants of the roles holding that write answer instead — create when the record has no id yet,
-     * update when it has ({@link PermissionService#getWritableDepartmentScope}). A picker that names its field,
+     * update when it has, then by the roles reaching that record
+     * ({@link PermissionService#getWritableDepartmentScope(String, AccessType, java.io.Serializable)}), as the
+     * save judges it. A picker that names its field,
      * and the field does not place the record ({@link PermissionService#placesInDepartment}), reads as any other.
      */
     static Filters writableDepartments(String modelName, SourceRecord source, PermissionService permissionService) {
@@ -592,8 +600,10 @@ public class ModelController<K extends Serializable> {
             return null;
         }
         boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
-        return permissionService.getWritableDepartmentScope(source.getModel(),
-                creating ? AccessType.CREATE : AccessType.UPDATE);
+        return creating
+                ? permissionService.getWritableDepartmentScope(source.getModel(), AccessType.CREATE)
+                : permissionService.getWritableDepartmentScope(source.getModel(), AccessType.UPDATE,
+                        source.getRecordId());
     }
 
     /**
@@ -608,13 +618,18 @@ public class ModelController<K extends Serializable> {
      * yet, update when it has, then by the roles reaching that record
      * ({@link PermissionService#getGrantedCompanyIds(String, AccessType, java.io.Serializable)}).
      *
-     * <p>A write granted no company offers none: every company the picker could list would be refused.
+     * <p>A write granted no company offers none: every company the picker could list would be refused. The
+     * name search and the list read a tree or list picker loads through answer alike.
      */
     static Set<Long> writableCompanies(String modelName, SearchNameParams params, PermissionService permissionService) {
-        if (!ModelConstant.COMPANY_MODEL.equals(modelName) || params == null || params.getSourceRecord() == null) {
+        return writableCompanies(modelName, params == null ? null : params.getSourceRecord(), permissionService);
+    }
+
+    /** {@link #writableCompanies(String, SearchNameParams, PermissionService)} for the record a read is for. */
+    static Set<Long> writableCompanies(String modelName, SourceRecord source, PermissionService permissionService) {
+        if (!ModelConstant.COMPANY_MODEL.equals(modelName) || source == null) {
             return null;
         }
-        SourceRecord source = params.getSourceRecord();
         if (source.getModel() == null || source.getModel().isBlank() || !ModelManager.existModel(source.getModel())) {
             return null;
         }

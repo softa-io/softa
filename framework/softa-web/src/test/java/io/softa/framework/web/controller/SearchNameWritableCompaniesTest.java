@@ -57,6 +57,18 @@ class SearchNameWritableCompaniesTest {
     }
 
     @Test
+    void aListReadForARecordIsNarrowedAlike() {
+        // A tree or list picker loads through searchList, which carries the record the same way.
+        when(permissionService.getGrantedCompanyIds("Employee", AccessType.UPDATE, "7")).thenReturn(Set.of(20L));
+
+        try (MockedStatic<ModelManager> mm = mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            assertThat(ModelController.writableCompanies("Company", from("Employee", 7L).getSourceRecord(),
+                    permissionService)).containsExactly(20L);
+        }
+    }
+
+    @Test
     void aWriteGrantedNoCompanyOffersNone() {
         // Every company the picker could list would be refused by the save.
         when(permissionService.getGrantedCompanyIds("Employee", AccessType.CREATE)).thenReturn(Set.of());

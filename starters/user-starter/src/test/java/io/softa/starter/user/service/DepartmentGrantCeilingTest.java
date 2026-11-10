@@ -236,20 +236,57 @@ class DepartmentGrantCeilingTest {
                 new LinkedHashSet<>(holdsThePage ? Set.of(LEAVE_ACTION) : Set.of()), new LinkedHashSet<>(), scopes, DIVISION);
     }
 
+    /** An assignment, which judges the whole role: its conditions and exemptions are handed on too. */
     private static Optional<Violation> assign(Grants role, Grants... callers) {
-        return RoleGrantCeiling.firstViolation(role.addedTo(role), List.of(callers), ACTIONS, Map.of(), NO_COMPANY, ALL_BOUND);
+        return RoleGrantCeiling.firstViolation(role, List.of(callers), ACTIONS, Map.of(), NO_COMPANY, ALL_BOUND);
     }
 
     @Test
-    void assigningSelfServiceStopsAtAPageABoundedManagerLacks() {
+    void assigningSelfServiceStopsAtTheDirectoryExemptionABoundedManagerLacks() {
         assertThat(assign(selfServiceShape(true), boundedManager(false)))
-                .contains(new Violation(Violation.Kind.NAVIGATION, LEAVE_PAGE));
+                .contains(new Violation(Violation.Kind.DEPARTMENTS, DIRECTORY));
+    }
+
+    @Test
+    void assigningARoleWorkedOutForItsHolderTakesACallerReachingEveryDepartment() {
+        Grants managerShape = boundedManager(false).withDepartmentPaths(Set.of())
+                .withDepartmentConditions(Set.of("MANAGED_DEPARTMENTS"));
+
+        assertThat(assign(managerShape, boundedManager(false)))
+                .contains(new Violation(Violation.Kind.DEPARTMENT_CONDITIONS, "MANAGED_DEPARTMENTS"));
+    }
+
+    @Test
+    void anExemptionTheCallerHoldsOnTheSameModelMayBeHandedOnWithinTheCallersDepartments() {
+        Grants caller = boundedManager(false);
+        caller.departmentExempt().add(DIRECTORY);
+        Grants team = boundedManager(false).withDepartmentPaths(Set.of("/1/5"));
+        team.departmentExempt().add(DIRECTORY);
+        Grants elsewhere = boundedManager(false).withDepartmentPaths(Set.of("/15"));
+        elsewhere.departmentExempt().add(DIRECTORY);
+
+        assertThat(assign(team, caller)).isEmpty();
+        assertThat(assign(elsewhere, caller)).isPresent();
+    }
+
+    @Test
+    void anUnboundedRoleReadingEveryDepartmentLendsNoActionItDoesNotHold() {
+        // A payroll role: no department grant, every department readable, but not the action handed on.
+        Map<String, Scope> payrollScopes = new LinkedHashMap<>();
+        payrollScopes.put(ModelConstant.DEPARTMENT_MODEL, scope(Rule.ALL));
+        Grants payroll = new Grants(new LinkedHashSet<>(), new LinkedHashSet<>(), new LinkedHashSet<>(), payrollScopes);
+        Grants holderWise = boundedManager(true).withDepartmentPaths(Set.of())
+                .withDepartmentConditions(Set.of("OWN_DEPARTMENT"));
+
+        assertThat(RoleGrantCeiling.firstViolation(holderWise, List.of(boundedManager(true), payroll), ACTIONS,
+                Map.of(), NO_COMPANY, ALL_BOUND)).isPresent();
     }
 
     @Test
     void assigningSelfServiceWithThePageStopsAtItsMissingDepartmentGrant() {
         // No department grant reads as wider than a bounded caller, whatever the rules on the model say.
-        assertThat(assign(selfServiceShape(true), boundedManager(true)))
+        // Without the directory exemption, so the department grant is what stops it.
+        assertThat(assign(selfServiceShape(false), boundedManager(true)))
                 .contains(new Violation(Violation.Kind.DEPARTMENTS, LEAVE));
     }
 

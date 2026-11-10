@@ -47,6 +47,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * Role controller — mapped under {@code /Role} to share the generic model
@@ -151,6 +153,9 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         List<RoleGrantCeiling.Grants> callerBefore = roleGrantCeiling.callerGrants();
         // The role as it was too: what the save merely keeps on it is not judged as something new it grants.
         RoleGrantCeiling.Grants roleBefore = roleGrantCeiling.roleGrants(id);
+        // Who holds it now, and by what rule: a save that gives the role to anyone new is an assignment.
+        Set<Long> membersBefore = memberIdsOf(id);
+        JsonNode dynamicFilterBefore = roleService.getById(id).map(Role::getDynamicFilter).orElse(null);
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         roleService.updateOne(role, true);
@@ -183,8 +188,13 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         writeRoleDataScopes(id, body.roleDataScopes());
         roleSensitiveFieldSetService.deleteByFilters(new Filters().eq(RoleSensitiveFieldSet::getRoleId, id));
         writeRoleSensitiveFieldSets(id, body.roleSensitiveFieldSetIds());
-        // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
-        roleGrantCeiling.assertWithinCaller(id, callerBefore, roleBefore);
+        // Judged on what was written, inside this transaction: a refusal rolls the whole save back. A save that
+        // keeps the members judges only what it adds to the role; one that gives the role to someone new — a
+        // member named, or the rule picking members changed — judges all of it, as an assignment does.
+        boolean newMembers = !membersBefore.containsAll(JsonArrayUtils.toLongList(body.userIds()))
+                || !Objects.equals(dynamicFilterBefore,
+                        roleService.getById(id).map(Role::getDynamicFilter).orElse(null));
+        roleGrantCeiling.assertWithinCaller(id, callerBefore, newMembers ? null : roleBefore);
         assertSaveAllowed(id, false);
         // Wipe ALL existing user_role rows for this role — both Manual and
         // Dynamic — then rebuild from scratch. By application convention
@@ -295,6 +305,17 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
      *  UserAccount ids arrive as JSON strings (frontend serializes all ids as
      *  string per type convention) but may be numbers in tests — {@link
      *  JsonArrayUtils#toLongList} accepts both. */
+    /** The users holding {@code roleId}, by any source. */
+    private Set<Long> memberIdsOf(Long roleId) {
+        Set<Long> members = new java.util.HashSet<>();
+        for (UserRoleRel rel : userRoleRelService.searchList(new Filters().eq(UserRoleRel::getRoleId, roleId))) {
+            if (rel.getUserId() != null) {
+                members.add(rel.getUserId());
+            }
+        }
+        return members;
+    }
+
     private void writeManualUserRoleRels(Long roleId, JsonNode idsJson) {
         java.util.Set<Long> userIds = new java.util.LinkedHashSet<>(JsonArrayUtils.toLongList(idsJson));
         if (userIds.isEmpty()) return;

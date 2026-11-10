@@ -261,8 +261,16 @@ class DepartmentGrantConditionsTest {
     private static final String NO_MANAGER = "DepartmentNote";
 
     /** The scope a picker gets, with these roles and the ticket's update held by {@code EDIT_TICKET}. */
-    @SuppressWarnings("unchecked")
     private Filters writable(String model, RoleGrant... roles) {
+        return writable(model, null, null, roles);
+    }
+
+    /**
+     * {@link #writable(String, RoleGrant...)} for stored row {@code recordId}, which a role reaches when its row scope
+     * names {@code reachedBy}; a null id asks for the write as a whole.
+     */
+    @SuppressWarnings("unchecked")
+    private Filters writable(String model, Long recordId, String reachedBy, RoleGrant... roles) {
         modelManager.when(() -> ModelManager.existModel(ModelConstant.DEPARTMENT_MODEL)).thenReturn(true);
         PermissionInfo pi = new PermissionInfo();
         pi.setRoleGrants(List.of(roles));
@@ -281,14 +289,51 @@ class DepartmentGrantConditionsTest {
             java.util.Collection<Long> ids = inv.getArgument(0);
             return ids.stream().map(id -> "1/" + id).toList();
         });
-        PermissionServiceImpl service = new PermissionServiceImpl(provider, mock(ScopeRuleCompiler.class), null,
-                (ModelService<Long>) mock(ModelService.class), applicability, () -> index,
+        ModelService<Long> models = (ModelService<Long>) mock(ModelService.class);
+        if (reachedBy != null) {
+            when(models.count(eq(model), any(Filters.class))).thenAnswer(inv ->
+                    inv.<Filters>getArgument(1).toString().contains(reachedBy) ? 1L : 0L);
+        }
+        // A custom rule reaches the rows its expression names; any other rule reaches every row.
+        ScopeRuleCompiler compiler = mock(ScopeRuleCompiler.class);
+        when(compiler.compile(anyList(), eq(model))).thenAnswer(inv -> {
+            List<ScopeRule> rules = inv.getArgument(0);
+            ScopeRule rule = rules.getFirst();
+            return rule.getScopeType() == ScopeType.CUSTOM
+                    ? Filters.of(rule.getScopeExpr().asString(), Operator.EQUAL, 1L) : null;
+        });
+        PermissionServiceImpl service = new PermissionServiceImpl(provider, compiler, null,
+                models, applicability, () -> index,
                 () -> null, () -> null, () -> paths);
         Context ctx = new Context();
         ctx.setTenantId(1L);
         ctx.setUserId(2L);
         ctx.setEmpInfo(employee);
-        return ContextHolder.callWith(ctx, () -> service.getWritableDepartmentScope(model, AccessType.UPDATE));
+        return ContextHolder.callWith(ctx, () -> recordId == null
+                ? service.getWritableDepartmentScope(model, AccessType.UPDATE)
+                : service.getWritableDepartmentScope(model, AccessType.UPDATE, recordId));
+    }
+
+    @Test
+    @DisplayName("a stored record offers only the departments of the writers reaching it, as its save judges")
+    void aStoredRecordOffersTheReachingWritersDepartments() {
+        RoleGrant teamA = writer(Set.of("1/10"), Set.of(), Set.of());
+        // Not bounded by department, but its rows are another team's.
+        RoleGrant everyone = writer(null, Set.of(), Set.of());
+        everyone.setModelScopeMap(Map.of(TICKET, List.of(
+                new ScopeRule(ScopeType.CUSTOM, tools.jackson.databind.node.JsonNodeFactory.instance.stringNode("teamB")))));
+
+        // The unbounded writer does not reach this row, so it lends the picker nothing.
+        assertThat(writable(TICKET, 7L, "1/10", teamA, everyone).toString()).contains("1/10");
+        // Asked for the write as a whole, it still opens the picker.
+        assertThat(writable(TICKET, teamA, everyone)).isNull();
+    }
+
+    @Test
+    @DisplayName("a stored record no writer reaches offers no department")
+    void aStoredRecordNoWriterReachesOffersNone() {
+        assertThat(writable(TICKET, 7L, "nobody", writer(Set.of("1/10"), Set.of(), Set.of()),
+                writer(Set.of("1/20"), Set.of(), Set.of())).toString()).doesNotContain("1/10", "1/20");
     }
 
     private static RoleGrant writer(Set<String> paths, Set<String> conditions, Set<String> exempt) {

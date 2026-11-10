@@ -45,7 +45,8 @@ class WritableDepartmentsTest {
     void aNewRecordAsksTheCreateAndAStoredOneTheUpdate() {
         when(permissionService.getWritableDepartmentScope("Employee", AccessType.CREATE)).thenReturn(WITHIN);
         Filters onUpdate = Filters.of("idPath", Operator.EQUAL, "1/20");
-        when(permissionService.getWritableDepartmentScope("Employee", AccessType.UPDATE)).thenReturn(onUpdate);
+        // A stored record asks by its id, so only the writers reaching it answer, as its save is judged.
+        when(permissionService.getWritableDepartmentScope("Employee", AccessType.UPDATE, "7")).thenReturn(onUpdate);
 
         assertThat(writable("Department", from("Employee", null))).isSameAs(WITHIN);
         assertThat(writable("Department", from("Employee", 7L))).isSameAs(onUpdate);
@@ -62,7 +63,7 @@ class WritableDepartmentsTest {
 
     @Test
     void theFieldThatPlacesTheRecordIsNarrowed() {
-        when(permissionService.getWritableDepartmentScope("Employee", AccessType.UPDATE)).thenReturn(WITHIN);
+        when(permissionService.getWritableDepartmentScope("Employee", AccessType.UPDATE, "7")).thenReturn(WITHIN);
         SourceRecord source = from("Employee", 7L);
         source.setFieldName("departmentId");
 

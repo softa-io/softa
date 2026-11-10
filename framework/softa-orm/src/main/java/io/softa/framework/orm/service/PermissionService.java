@@ -445,6 +445,21 @@ public interface PermissionService {
     }
 
     /**
+     * {@link #getWritableDepartmentScope(String, AccessType)} for a write to one stored row: the department grants
+     * of the holding roles that reach that row, since the save of that row is judged by them alone. A holding role
+     * the row is beyond — another company's, say — would otherwise widen the choice past what the save allows.
+     *
+     * <p>Default: the scope for the write as a whole.
+     *
+     * @param id the stored row; {@code null}, or a create, reads as the write as a whole
+     * @return as {@link #getWritableDepartmentScope(String, AccessType)}; a filter matching nothing when no holding
+     *         role reaches the row
+     */
+    default Filters getWritableDepartmentScope(String model, AccessType accessType, Serializable id) {
+        return getWritableDepartmentScope(model, accessType);
+    }
+
+    /**
      * Whether {@code fieldName} is what places a record of {@code model} in a department: its
      * {@code departmentId}, or the parent of a department. Only such a field is bounded by
      * {@link #getWritableDepartmentScope}. Any other field naming a department (where a person is being moved

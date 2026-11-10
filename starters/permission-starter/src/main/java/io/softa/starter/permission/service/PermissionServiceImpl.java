@@ -1611,8 +1611,30 @@ public class PermissionServiceImpl implements PermissionService {
         PermissionInfo pi = currentPi();
         if (pi == null) return ScopeRuleCompiler.matchNone();
         if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        return writableDepartments(model, companyHolders(pi, model, accessType));
+    }
+
+    @Override
+    public Filters getWritableDepartmentScope(String model, AccessType accessType, Serializable id) {
+        if (id == null || AccessType.CREATE.equals(accessType)) {
+            return getWritableDepartmentScope(model, accessType);
+        }
+        if (shouldBypass() || !placesRowsByDepartment(model)) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return ScopeRuleCompiler.matchNone();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        List<Grant> holders = companyHolders(pi, model, accessType);
+        // One holder answers alone, as the save would; several are narrowed to those reaching the row, as
+        // getGrantedCompanyIds narrows them — a holder the row is beyond would widen the choice past the save.
+        List<Grant> reaching = holders.size() <= 1 ? holders
+                : holders.stream().filter(g -> reachesRow(g, model, id, accessType)).toList();
+        return writableDepartments(model, reaching);
+    }
+
+    /** The departments {@code holders} may put a record of {@code model} in, together; see getWritableDepartmentScope. */
+    private Filters writableDepartments(String model, List<Grant> holders) {
         boolean reportsApply = applicability.applicableFor(model).contains(ScopeType.DIRECT_REPORTS);
-        return anyOf(companyHolders(pi, model, accessType).stream()
+        return anyOf(holders.stream()
                 .map(g -> reportsApply && g.departmentConditions().contains(CONDITION_DIRECT_REPORTS)
                         ? null
                         : departmentAxis(ModelConstant.DEPARTMENT_MODEL, g, true))

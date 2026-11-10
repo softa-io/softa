@@ -170,11 +170,17 @@ class RoleGrantCeilingOnStoredRolesTest {
     }
 
     @Test
-    void assigningARoleDoesNotJudgeItsConditionsOrExemptions() {
+    void assigningARoleJudgesItsConditions() {
         targetRole.setDepartmentGrant(json("[{\"scopeType\":\"MANAGED_DEPARTMENTS\"}]"));
+
+        assertThat(assignment()).isPresent();
+    }
+
+    @Test
+    void assigningARoleJudgesItsExemptions() {
         targetScope.setDepartmentGrantExempt(true);
 
-        assertThat(assignment()).isEmpty();
+        assertThat(assignment()).isPresent();
     }
 
     @Test

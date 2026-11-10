@@ -123,6 +123,57 @@ class RoleControllerTest {
         order.verify(roleGrantCeiling).assertWithinCaller(5L, before, roleBefore);
     }
 
+    @Test
+    void wizardUpdate_givingTheRoleToSomeoneNew_isJudgedAsAnAssignment() {
+        // Member 7 holds the role; the save adds member 8.
+        UserRoleRel existing = new UserRoleRel();
+        existing.setUserId(7L);
+        when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of(existing));
+        List<RoleGrantCeiling.Grants> before = List.of();
+        when(roleGrantCeiling.callerGrants()).thenReturn(before);
+        when(roleGrantCeiling.roleGrants(5L)).thenReturn(new RoleGrantCeiling.Grants(
+                java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), java.util.Map.of()));
+        tools.jackson.databind.node.ArrayNode members = JsonNodeFactory.instance.arrayNode().add("7").add("8");
+
+        controller.saveWizard(5L, new WizardSaveDTO(JsonNodeFactory.instance.objectNode(), null, null, null, members));
+
+        // No earlier state: the whole role is judged, its conditions and exemptions included.
+        verify(roleGrantCeiling).assertWithinCaller(5L, before, null);
+    }
+
+    @Test
+    void wizardUpdate_keepingTheMembers_judgesOnlyWhatItAdds() {
+        UserRoleRel existing = new UserRoleRel();
+        existing.setUserId(7L);
+        when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of(existing));
+        List<RoleGrantCeiling.Grants> before = List.of();
+        when(roleGrantCeiling.callerGrants()).thenReturn(before);
+        RoleGrantCeiling.Grants roleBefore = new RoleGrantCeiling.Grants(
+                java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), java.util.Map.of());
+        when(roleGrantCeiling.roleGrants(5L)).thenReturn(roleBefore);
+
+        controller.saveWizard(5L, new WizardSaveDTO(JsonNodeFactory.instance.objectNode(), null, null, null,
+                JsonNodeFactory.instance.arrayNode().add("7")));
+
+        verify(roleGrantCeiling).assertWithinCaller(5L, before, roleBefore);
+    }
+
+    @Test
+    void wizardUpdate_changingTheMembershipRule_isJudgedAsAnAssignment() {
+        Role stored = new Role();
+        Role changed = new Role();
+        changed.setDynamicFilter(JsonNodeFactory.instance.arrayNode().add("status"));
+        when(roleService.getById(5L)).thenReturn(java.util.Optional.of(stored), java.util.Optional.of(changed));
+        List<RoleGrantCeiling.Grants> before = List.of();
+        when(roleGrantCeiling.callerGrants()).thenReturn(before);
+        when(roleGrantCeiling.roleGrants(5L)).thenReturn(new RoleGrantCeiling.Grants(
+                java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), java.util.Map.of()));
+
+        controller.saveWizard(5L, new WizardSaveDTO(JsonNodeFactory.instance.objectNode(), null, null, null, null));
+
+        verify(roleGrantCeiling).assertWithinCaller(5L, before, null);
+    }
+
     // ─── createWithWizard ───
 
     @Test
