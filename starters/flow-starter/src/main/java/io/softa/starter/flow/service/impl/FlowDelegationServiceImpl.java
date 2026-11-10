@@ -1,6 +1,8 @@
 package io.softa.starter.flow.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -34,6 +36,7 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
@@ -165,16 +168,38 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
         return names;
     }
 
-    /** The revision's approval steps in flow order. */
+    /**
+     * The revision's approval steps in flow order — a step after every step that leads to it, as its edges run (the
+     * published graph has no cycle) — whatever order they were drawn in.
+     */
     private static List<FlowDelegationFlowView.Node> approvalSteps(CompiledFlowDefinition definition) {
         Map<String, CompiledFlowNode> nodes = definition.getNodeIndex() == null ? Map.of() : definition.getNodeIndex();
-        List<String> order = definition.getTopologicalOrder() != null && !definition.getTopologicalOrder().isEmpty()
-                ? definition.getTopologicalOrder() : List.copyOf(nodes.keySet());
-        return order.stream()
-                .map(nodes::get)
-                .filter(node -> node != null && FlowNodeType.APPROVAL.equals(node.getType()))
-                .map(node -> new FlowDelegationFlowView.Node(node.getNodeId(), node.displayName()))
-                .toList();
+        Map<String, CompiledFlowTransition> edges =
+                definition.getTransitionIndex() == null ? Map.of() : definition.getTransitionIndex();
+        Map<String, Integer> waiting = new HashMap<>();
+        ArrayDeque<CompiledFlowNode> ready = new ArrayDeque<>();
+        for (CompiledFlowNode node : nodes.values()) {
+            int incoming = node.getIncomingEdgeIds() == null ? 0 : node.getIncomingEdgeIds().size();
+            waiting.put(node.getNodeId(), incoming);
+            if (incoming == 0) {
+                ready.add(node);
+            }
+        }
+        List<FlowDelegationFlowView.Node> steps = new ArrayList<>();
+        while (!ready.isEmpty()) {
+            CompiledFlowNode node = ready.removeFirst();
+            if (FlowNodeType.APPROVAL.equals(node.getType())) {
+                steps.add(new FlowDelegationFlowView.Node(node.getNodeId(), node.displayName()));
+            }
+            for (String edgeId : node.getOutgoingEdgeIds() == null ? List.<String>of() : node.getOutgoingEdgeIds()) {
+                CompiledFlowTransition edge = edges.get(edgeId);
+                if (edge != null && nodes.containsKey(edge.getTarget())
+                        && waiting.merge(edge.getTarget(), -1, Integer::sum) == 0) {
+                    ready.add(nodes.get(edge.getTarget()));
+                }
+            }
+        }
+        return steps;
     }
 
     /** One delegator's rules in force at {@code now} — feeds the scope-aware single lookup below. */

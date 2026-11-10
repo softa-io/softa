@@ -18,11 +18,11 @@ import lombok.Getter;
  * flows may use it — the palette and the compiler both read {@link #getScenarios()}.
  *
  * <ul>
- *   <li><b>Control</b>: Start, End, Timer</li>
+ *   <li><b>Control</b>: Start, End</li>
  *   <li><b>Routing</b>: InclusiveGateway, ParallelFork, ParallelJoin</li>
  *   <li><b>Human</b>: Approval</li>
  *   <li><b>Task</b>: Script, CreateRecord, GetRecord, UpdateRecord, DeleteRecord,
- *       QueryRecords, ValidateData, Transform, CallService, CallWebhook,
+ *       QueryRecords, ValidateData, Transform, CallWebhook,
  *       SendEmail, SendSms, SendInboxNotification, QueryAI, AsyncTask, GenerateFile</li>
  *   <li><b>Subflow</b>: Subflow</li>
  *   <li><b>Data</b>: ReturnValue</li>
@@ -36,8 +36,6 @@ public enum FlowNodeType {
     // ── 控制流
     START("Start", FlowNodeCategory.CONTROL, Scenarios.BOTH),
     END("End", FlowNodeCategory.CONTROL, Scenarios.BOTH),
-    /** 定时等待节点：挂起实例直到指定时长或时刻，由调度器唤醒 */
-    TIMER("Timer", FlowNodeCategory.CONTROL, Scenarios.AUTOMATION_ONLY),
 
     // ── 路由
     /** OR 网关：从所有出口边中选择所有满足条件的边（N≥1） */
@@ -62,8 +60,6 @@ public enum FlowNodeType {
     VALIDATE_DATA("ValidateData", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
     /** 数据提取 / 映射 / ETL */
     TRANSFORM("Transform", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
-    /** 调用内部 Spring Bean 方法 */
-    CALL_SERVICE("CallService", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
     /** 调用外部 HTTP Webhook */
     CALL_WEBHOOK("CallWebhook", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
     /** 发送邮件通知 */

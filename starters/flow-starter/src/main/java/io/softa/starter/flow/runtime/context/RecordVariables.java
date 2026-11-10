@@ -238,7 +238,7 @@ public final class RecordVariables {
      * The routed fields' numbers back as numbers, in {@code variables} as an instance stored them — the record's own and
      * those its paths reach. Kept as JSON, an instance's variables come back with every {@code Long} and {@code BigDecimal} as
      * text — the app writes those as strings, so a browser does not round them. Read so, a step after an approval
-     * compared an amount with a number and failed, and compared an id with one and never matched (zingkey-hcm#2382). An
+     * compared an amount with a number and failed, and compared an id with one and never matched. An
      * id stays text where the related model's id is a code. Returns {@code variables}, changed in place.
      */
     public static Map<String, Object> restoreNumbers(String modelName, Map<String, Object> variables) {

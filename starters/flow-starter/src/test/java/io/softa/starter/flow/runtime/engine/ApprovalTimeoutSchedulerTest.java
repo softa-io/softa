@@ -134,6 +134,22 @@ class ApprovalTimeoutSchedulerTest {
                 PendingApproval.builder().remindCount(3).lastRemindTime(now.minusHours(4)).build(), 4, now));
     }
 
+    /**
+     * The job runs on the hour, and each run reads a moment past it: a reminder stamped a little later past the hour
+     * than the run an interval on still goes out with that run, not an hour later.
+     */
+    @Test
+    void theRunOnTheHourSendsAReminderStampedALittleLaterPastTheHour() {
+        LocalDateTime now = LocalDateTime.of(2026, 11, 10, 12, 0, 0, 100_000_000);
+        PendingApproval remindedJustPastEleven = PendingApproval.builder().remindCount(1)
+                .lastRemindTime(LocalDateTime.of(2026, 11, 10, 11, 0, 0, 300_000_000)).build();
+        PendingApproval remindedTwenty = PendingApproval.builder().remindCount(1)
+                .lastRemindTime(LocalDateTime.of(2026, 11, 10, 11, 20)).build();
+
+        assertTrue(ApprovalTimeoutScheduler.remindsNow(remindedJustPastEleven, 1, now));
+        assertFalse(ApprovalTimeoutScheduler.remindsNow(remindedTwenty, 1, now), "not an hour since, by far");
+    }
+
     /** The approval's only step, as the instance store holds it. */
     private PendingApproval stepOf(FlowExecutionState started) {
         return instanceStore.get(started.getInstanceId()).orElseThrow().getPendingApprovals().getFirst();

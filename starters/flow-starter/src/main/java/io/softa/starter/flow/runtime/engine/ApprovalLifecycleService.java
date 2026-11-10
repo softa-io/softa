@@ -29,7 +29,6 @@ public class ApprovalLifecycleService {
             if (sourceActorId.equals(approvers.get(i))) {
                 approvers.set(i, targetActorId);
                 pendingApproval.setApprovers(approvers);
-                pendingApproval.setTotalApproverCount(approvers.size());
                 return;
             }
         }
@@ -52,7 +51,6 @@ public class ApprovalLifecycleService {
             throw new FlowRuntimeException("Approver not found during reassignment: " + sourceActorId);
         }
         pendingApproval.setApprovers(approvers);
-        pendingApproval.setTotalApproverCount(approvers.size());
         if (pendingApproval.getRequiredApprovalCount() != null) {
             pendingApproval.setRequiredApprovalCount(ApproverResolutionService.capRequiredApprovals(
                     pendingApproval.getRequiredApprovalCount(), approvers.size()));

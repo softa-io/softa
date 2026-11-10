@@ -1,20 +1,17 @@
 package io.softa.starter.flow.runtime.engine;
 
-import java.util.List;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
-import io.softa.starter.flow.runtime.state.PendingApproval;
 
 /**
  * Detects an at-least-once REPLAY of a once-only vote (approve / reject) so the engine can return
  * the current state idempotently instead of throwing or double-applying (idempotency
- * via domain state). A replay = the actor already recorded that vote for this node's CURRENT cycle;
- * a fresh action on a later cycle of the node is correctly NOT a replay.
+ * via domain state). A replay = the actor already recorded that vote on this node: an instance reaches
+ * each of its approval nodes once — a return or a withdrawal ends it, and a resubmission is a new instance.
  *
  * <p>Application-level on purpose (not a blanket unique on the audit log, which would wrongly forbid
  * legitimately repeatable actions — comment / urge / cc / read). It covers the replay of both an
@@ -49,36 +46,9 @@ public class FlowActionReplayGuard {
         if (state == null || nodeId == null || actorId == null) {
             return false;
         }
-        List<ApprovalActionAuditEntry> history = auditReader.fullHistory(state);
-        int currentCycle = currentCycleForNode(state, history, nodeId);
-        return history.stream().anyMatch(e ->
+        return auditReader.fullHistory(state).stream().anyMatch(e ->
                 actions.contains(e.getAction())
                         && nodeId.equals(e.getNodeId())
-                        && actorId.equals(e.getActorId())
-                        && currentCycle == cycleOrZero(e.getCycleNumber()));
-    }
-
-    /** The latest cycle the node has run (max over its history + any live pending), default 0. */
-    private static int currentCycleForNode(FlowExecutionState state,
-                                           List<ApprovalActionAuditEntry> history,
-                                           String nodeId) {
-        int max = 0;
-        for (ApprovalActionAuditEntry e : history) {
-            if (nodeId.equals(e.getNodeId())) {
-                max = Math.max(max, cycleOrZero(e.getCycleNumber()));
-            }
-        }
-        if (state.getPendingApprovals() != null) {
-            for (PendingApproval p : state.getPendingApprovals()) {
-                if (nodeId.equals(p.getNodeId())) {
-                    max = Math.max(max, cycleOrZero(p.getCycleNumber()));
-                }
-            }
-        }
-        return max;
-    }
-
-    private static int cycleOrZero(Integer cycle) {
-        return cycle == null ? 0 : cycle;
+                        && actorId.equals(e.getActorId()));
     }
 }

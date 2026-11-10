@@ -119,12 +119,6 @@ mq:
 #    flow-async-task:
 #      topic: dev_demo_flow_async_task
 #      sub: dev_demo_flow_async_task_sub
-#    flow-event:
-#      topic: dev_demo_flow_event
-#      sub: dev_demo_flow_event_sub
-#    flow-timer:
-#      topic: dev_demo_flow_timer
-#      sub: dev_demo_flow_timer_sub
 #    inner-broadcast:
 #      topic: dev_demo_inner_broadcast
 #      sub: dev_demo_inner_broadcast_sub

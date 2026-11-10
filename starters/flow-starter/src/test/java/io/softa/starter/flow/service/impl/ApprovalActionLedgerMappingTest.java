@@ -30,7 +30,6 @@ class ApprovalActionLedgerMappingTest {
                 .build();
         ApprovalActionAuditEntry entry = ApprovalActionAuditEntry.builder()
                 .action(ApprovalActionType.RETURN)
-                .cycleNumber(2)
                 .eventTime(eventTime)
                 .flowId("leave-flow")
                 .flowRevision(5)
@@ -56,7 +55,6 @@ class ApprovalActionLedgerMappingTest {
         assertEquals(5, restored.getFlowRevision());
         assertEquals("managerApproval", restored.getNodeId());
         assertEquals("Manager Approval", restored.getNodeLabel());
-        assertEquals(2, restored.getCycleNumber());
         assertEquals("manager", restored.getActorId());
         assertEquals("initiator-1", restored.getTargetActorId());
         assertEquals("fix it", restored.getComment());

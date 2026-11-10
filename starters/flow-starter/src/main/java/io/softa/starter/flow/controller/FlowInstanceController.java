@@ -42,9 +42,8 @@ import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
  * actions. Every endpoint acts as
  * the authenticated user. The per-instance reads are ruled on by {@link FlowInstanceAccessGuard}, not by
  * the caller's permissions on the flow models, so an approval page reads everything it shows here.
- * Trigger evaluation lives on {@link FlowAutomationController},
- * published-revision reads on {@code FlowBundleController}; engine-internal callbacks are handled
- * in-process by consumers.
+ * Published-revision reads live on {@code FlowBundleController}; trigger events are evaluated
+ * in-process, by the change-log and cron consumers.
  */
 @Tag(name = "Flow Instances")
 @Validated
@@ -101,15 +100,12 @@ public class FlowInstanceController {
 
     @GetMapping("/{instanceId}")
     @Operation(summary = "Get flow instance",
-            description = "Gets the current runtime state of a flow instance. The trace is excluded "
-                    + "by default (poll it incrementally via the trace endpoint); pass includeTrace=true "
-                    + "for the full event list. The initiator comes named. The record's values — inputPayload, "
+            description = "Gets the current runtime state of a flow instance, without its trace: the event list is "
+                    + "read through the trace endpoint. The initiator comes named. The record's values — "
                     + "variables, returnData — are left out, here and in every approval action's answer: the "
                     + "record is read through /record, with the field permissions of the caller's step.")
-    public ApiResponse<FlowExecutionState> getInstance(@PathVariable String instanceId,
-                                                       @RequestParam(defaultValue = "false") boolean includeTrace) {
-        // Trace-free load by default; the full history is only fetched when asked for.
-        return (includeTrace ? runtimeEngine.getInstanceWithTrace(instanceId) : runtimeEngine.getInstance(instanceId))
+    public ApiResponse<FlowExecutionState> getInstance(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
                 .map(state -> {
                     accessGuard.requireInstanceViewer(state, currentUserId());
                     if (state.getInitiatorId() != null) {
@@ -125,7 +121,7 @@ public class FlowInstanceController {
     @GetMapping("/{instanceId}/overlay")
     @Operation(summary = "Get execution overlay",
             description = "Per-node run state derived server-side for painting the canvas: completed / "
-                    + "waiting / failed per node id, with timestamps and pending-approval details.")
+                    + "waiting / failed per node id, with when each was entered and a failed one's error.")
     public ApiResponse<FlowInstanceOverlay> getOverlay(@PathVariable String instanceId) {
         return runtimeEngine.getInstanceWithTrace(instanceId)
                 .map(state -> {
@@ -168,10 +164,8 @@ public class FlowInstanceController {
     public ApiResponse<FlowRecordApprovalsView> getRecordApprovals(@RequestParam String modelName,
                                                                   @RequestParam String rowId) {
         String requesterId = currentUserId();
-        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId, history -> {
-            accessGuard.requireRecordViewer(modelName, rowId, history, requesterId);
-            accessGuard.markViewable(modelName, rowId, history, requesterId);
-        }));
+        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId, (history, approvals) ->
+                accessGuard.authorizeRecordApprovals(modelName, rowId, history, approvals, requesterId)));
     }
 
     @GetMapping("/preview")
@@ -271,7 +265,7 @@ public class FlowInstanceController {
                     // Allowed to see the instance, so its row — composed past the row scope the guard just ruled
                     // on, as the caller's own search composes its rows.
                     return ContextUtils.withoutPermissionChecks(() -> summaryComposer
-                            .summarize(instanceService.findByInstanceIds(List.of(instanceId)), userId)
+                            .summarize(instanceService.findByInstanceIds(List.of(instanceId)), userId, List.of(state))
                             .stream()
                             .findFirst());
                 })
@@ -306,9 +300,9 @@ public class FlowInstanceController {
 
     @PostMapping("/search")
     @Operation(summary = "Search my flow instances",
-            description = "Paged summaries of the caller's own instances — the initiator filter is always "
-                    + "the authenticated user (any requested initiatorId is overridden), and the request's filters "
-                    + "and orders, on stored fields of FlowInstance only, narrow and sort within them. Heavy JSON "
+            description = "Paged summaries of the caller's own record approvals — pinned to the authenticated "
+                    + "user, which the request's filters and orders, on stored fields of FlowInstance only, narrow "
+                    + "and sort within, never widen. Heavy JSON "
                     + "state columns and the trace are excluded; fetch a single instance or its overlay for detail. "
                     + "Cross-initiator monitoring lives on POST /flow/monitor/instances/search.")
     // Pinned to the caller, so row scope could only empty it: FlowInstance is granted to no business role.
@@ -482,11 +476,11 @@ public class FlowInstanceController {
      * The state as an approval's participants read it — the instance, and every action's answer: without the record's
      * values. The start payload and the variables hold the record's fields as submitted and what later steps worked
      * out, past the field permissions the record's own read applies ({@code /record}, which leaves out what the
-     * caller's step hides), so a field a step hid could be read here (zingkey-hcm#2402); an automation's result goes
+     * caller's step hides), so a field a step hid could be read here; an automation's result goes
      * with them. Nothing that shows an approval reads them from the state. A copy: the engine's state is left as it
      * is.
      */
     private static FlowExecutionState withoutRecordValues(FlowExecutionState state) {
-        return state.toBuilder().inputPayload(null).variables(null).returnData(null).build();
+        return state.toBuilder().variables(null).returnData(null).build();
     }
 }

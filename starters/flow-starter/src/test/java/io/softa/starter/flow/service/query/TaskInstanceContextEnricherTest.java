@@ -107,7 +107,7 @@ class TaskInstanceContextEnricherTest {
     }
 
     /**
-     * What a list of tasks says of each request (zingkey-hcm#2350): the line its handler wrote, whether a later
+     * What a list of tasks says of each request: the line its handler wrote, whether a later
      * submission replaced it, and — while it still waits — the steps it waits on now, with whom, named in one lookup.
      */
     @Test
@@ -198,27 +198,33 @@ class TaskInstanceContextEnricherTest {
         assertFalse(task.getBatchable());
     }
 
-    // #2316: the task drawer listed the step's candidates and who approved by account id.
+    // The lists name a task's holder and who closed it — the people they show — in one lookup for the page.
     @Test
     void everyAccountATaskNamesIsNamedInOneLookup() {
         when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("i1")))).thenReturn(List.of());
         when(names.namesOf(argThat(ids -> ids != null && ids.contains("u1")))).thenReturn(Map.of(
-                "u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei"));
+                "u1", "Ann Lee", "u2", "Bob Tan"));
         FlowApprovalTaskView task = FlowApprovalTaskView.builder()
                 .instanceId("i1")
                 .actorId("u1")
-                .candidateActors(List.of("u1", "u2", "u-unknown"))
                 .approvedActors(List.of("u3"))
                 .closedByActorId("u2")
                 .build();
+        FlowApprovalTaskView closedByAStranger = FlowApprovalTaskView.builder()
+                .instanceId("i1")
+                .actorId("u1")
+                .closedByActorId("u-unknown")
+                .build();
 
-        enricher.enrich(List.of(task));
+        enricher.enrich(List.of(task, closedByAStranger));
 
         verify(names, times(1)).namesOf(argThat(ids ->
-                ids.containsAll(List.of("u1", "u2", "u3", "u-unknown")) && ids.size() == 4));
+                ids.containsAll(List.of("u1", "u2", "u-unknown")) && ids.size() == 3));
         assertEquals("Ann Lee", task.getActorName());
+        assertEquals(Map.of("u1", "Ann Lee", "u2", "Bob Tan"), task.getActorNames(),
+                "who approved is counted, not named");
         // An account the lookup cannot name is left out, for the client to show as it is.
-        assertEquals(Map.of("u1", "Ann Lee", "u2", "Bob Tan", "u3", "Cai Wei"), task.getActorNames());
+        assertEquals(Map.of("u1", "Ann Lee"), closedByAStranger.getActorNames());
     }
 
     @Test

@@ -34,16 +34,12 @@ public class FlowNodeDescriptorController {
 
     @GetMapping
     @Operation(summary = "List available node types",
-            description = "Node descriptors for the editor palette, optionally filtered by scenario. "
-                    + "Preview/stub node types are hidden unless includePreview=true.")
-    public ApiResponse<List<FlowNodeDescriptor>> list(
-            @RequestParam(required = false) FlowScenario scenario,
-            @RequestParam(defaultValue = "false") boolean includePreview) {
+            description = "Node descriptors for the editor palette, optionally filtered by scenario.")
+    public ApiResponse<List<FlowNodeDescriptor>> list(@RequestParam(required = false) FlowScenario scenario) {
         Collection<FlowNodeDescriptor> descriptors = scenario != null
                 ? registry.listByScenario(scenario)
                 : registry.list();
         List<FlowNodeDescriptor> result = descriptors.stream()
-                .filter(d -> includePreview || d.productionReady())
                 // labels/descriptions are English source text; translate per request language
                 .map(d -> d.withText(I18n.get(d.label()), I18n.get(d.description())))
                 .toList();

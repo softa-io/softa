@@ -59,11 +59,6 @@ public class WebHookTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "WebHook";
-    }
-
-    @Override
     public String getName() {
         return "WebHook";
     }

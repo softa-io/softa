@@ -180,11 +180,12 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 .summary(request.getSummary())
                 .triggerEventId(request.getTriggerEventId())
                 .status(FlowExecutionStatus.RUNNING)
-                .inputPayload(Map.of())
                 .variables(vars)
                 .completedNodeIds(new ArrayList<>())
                 .pendingApprovals(new ArrayList<>())
                 .approvalAuditDelta(new ArrayList<>())
+                // A new instance has no audit rows yet: nothing to read.
+                .committedAudit(new ArrayList<>())
                 .joinArrivalCounts(new LinkedHashMap<>())
                 .trace(new ArrayList<>())
                 .build();
@@ -271,13 +272,8 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         return resumeSuspended(instanceId, nodeId, callbackOutputs == null ? Map.of() : callbackOutputs);
     }
 
-    @Override
-    public FlowExecutionState resumeTimer(String instanceId, String nodeId) {
-        return resumeSuspended(instanceId, nodeId, Map.of());
-    }
-
     /**
-     * Shared timer/async resume template with the same failure semantics as {@link #start}:
+     * Resumes an instance at the async-task node it waits on, with the same failure semantics as {@link #start}:
      * record the FAILED instance in its own transaction (the consumed wait token is already
      * removed in memory, so redeliveries no-op against the terminal state), then rethrow so
      * the failed attempt's partial business writes roll back with this transaction instead

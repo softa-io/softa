@@ -134,12 +134,11 @@ public class UrgeThrottle {
                 .toList();
     }
 
-    /** When the step was last urged: its newest URGE entry on the same node and cycle. */
+    /** When the step was last urged: its newest URGE entry on the same node. */
     private static LocalDateTime lastUrge(List<ApprovalActionAuditEntry> urges, PendingApproval step) {
         LocalDateTime last = null;
         for (ApprovalActionAuditEntry urge : urges) {
             if (Objects.equals(step.getNodeId(), urge.getNodeId())
-                    && Objects.equals(step.getCycleNumber(), urge.getCycleNumber())
                     && urge.getEventTime() != null
                     && (last == null || urge.getEventTime().isAfter(last))) {
                 last = urge.getEventTime();

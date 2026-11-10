@@ -173,25 +173,24 @@ public final class TestFlowRuntimeFactory {
         if (organization != null) {
             ReflectionTestUtils.setField(approverResolutionService, "organizationService", organization);
         }
-        PendingApprovalFactory pendingApprovalFactory = new PendingApprovalFactory(approverResolutionService, auditReader);
+        PendingApprovalFactory pendingApprovalFactory = new PendingApprovalFactory(approverResolutionService);
         ApprovalLifecycleService lifecycleService = new ApprovalLifecycleService();
         ApprovalActorValidator actorValidator = new ApprovalActorValidator(accounts);
         FlowActionContextService contextService = new FlowActionContextService(instanceStore, bundleRegistry, projectionPublisher);
 
         FlowGatewayRouter gatewayRouter = new FlowGatewayRouter();
-        NodeRetryExecutor retryExecutor = new NodeRetryExecutor(auditService);
         ApproverDedupService approverDedupService = new ApproverDedupService(lifecycleService, auditService, auditReader);
         FlowActionReplayGuard replayGuard = new FlowActionReplayGuard(auditReader);
-        AutoCcService autoCcService = new AutoCcService(contextService, auditService, auditReader, notificationService,
+        AutoCcService autoCcService = new AutoCcService(contextService, auditService, notificationService,
                 approverResolutionService);
         FlowExecutionOrchestrator orchestrator = new FlowExecutionOrchestrator(
                 bundleRegistry, nodeHandlerRegistry, contextService, auditService, pendingApprovalFactory, notificationService,
-                gatewayRouter, retryExecutor, approverDedupService, autoCcService);
+                gatewayRouter, approverDedupService, autoCcService);
         FlowInstanceService instanceService = Mockito.mock(FlowInstanceService.class);
         FlowInstanceAccessGuard accessGuard = new FlowInstanceAccessGuard(instanceService, auditReader, recordModelService);
 
         return new FlowRuntimeFacade(contextService, orchestrator, instanceStore, autoCcService,
-                new ApproveActionHandler(contextService, actorValidator, lifecycleService, auditService, orchestrator, notificationService,
+                new ApproveActionHandler(contextService, actorValidator, lifecycleService, auditService, orchestrator,
                         new ApprovalFormWriteService(recordModelService, ModelApprovalHandlerRegistry.of(List.of())), replayGuard),
                 new RejectActionHandler(contextService, actorValidator, auditService, notificationService, replayGuard,
                         autoCcService),

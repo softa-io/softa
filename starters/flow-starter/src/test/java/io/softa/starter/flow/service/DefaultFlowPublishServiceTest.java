@@ -22,7 +22,7 @@ import io.softa.starter.flow.runtime.handler.*;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.task.builtin.DefaultTaskExecutorRegistry;
-import io.softa.starter.flow.runtime.task.EchoServiceTaskExecutor;
+import io.softa.starter.flow.runtime.task.EchoWebhookTaskExecutor;
 import io.softa.starter.flow.runtime.task.RecordLookupDataTaskExecutor;
 import io.softa.starter.flow.runtime.task.TemplateMessageTaskExecutor;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
@@ -46,8 +46,7 @@ class DefaultFlowPublishServiceTest {
         assertEquals(2, v2.getRevision());
         // Revision reads live on the bundle registry (REST: /flow/bundles).
         assertEquals("v2", bundleRegistry.getActiveByFlowId(FLOW_ID).orElseThrow().getFlowName());
-        assertEquals(List.of(2, 1), bundleRegistry.listRevisionsByFlowId(FLOW_ID).stream()
-                .map(CompiledFlowDefinition::getRevision).toList());
+        assertEquals(1, bundleRegistry.getByBundleId(v1.getBundleId()).orElseThrow().getRevision());
         assertNotNull(v2.getPublishedAt());
     }
 
@@ -57,7 +56,7 @@ class DefaultFlowPublishServiceTest {
         publishService.publish(FLOW_ID, flowDefinition("latest-flow", Map.of("route", "latest")));
 
         DefaultTaskExecutorRegistry taskExecutorRegistry = new DefaultTaskExecutorRegistry(List.of(
-                new EchoServiceTaskExecutor(),
+                new EchoWebhookTaskExecutor(),
                 new RecordLookupDataTaskExecutor(),
                 new TemplateMessageTaskExecutor()
         ));
@@ -87,9 +86,8 @@ class DefaultFlowPublishServiceTest {
 
     private static DesignFlowDefinition flowDefinition(String code, Map<String, Object> taskInput) {
         String flowName = taskInput.get("route").toString();
-        // CALL_SERVICE requires beanName/methodName at compile; the echo stub ignores them.
-        Map<String, Object> serviceInput = Map.of(
-                "beanName", "echoService", "methodName", "run", "route", taskInput.get("route"));
+        // CALL_WEBHOOK requires a url at compile; the echo stub calls nothing.
+        Map<String, Object> serviceInput = Map.of("url", "https://example.com/hook", "route", taskInput.get("route"));
         return DesignFlowDefinition.builder()
                 .name(flowName)
                 .scenario(FlowScenario.AUTOMATION)
@@ -97,7 +95,7 @@ class DefaultFlowPublishServiceTest {
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                taskNode("service", FlowNodeType.CALL_SERVICE, serviceInput, "routeResult"),
+                                taskNode("service", FlowNodeType.CALL_WEBHOOK, serviceInput, "routeResult"),
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(

@@ -1,7 +1,6 @@
 package io.softa.starter.flow.runtime.engine;
 
 import java.io.Serializable;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -17,7 +16,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowInstanceService;
 
 /**
- * Where a record stands against an approval of it that failed (zingkey-hcm#2385): still waiting on it — in approval,
+ * Where a record stands against an approval of it that failed: still waiting on it — in approval,
  * that approval its latest — or moved on, taken back by its submitter (a draft again) or submitted again (waiting on
  * its new approval). Only while the record waits may the steps after the approval run again, or its submitter take it
  * back: otherwise they would act on a record that moved on. Read past the caller's permissions: the question is what
@@ -47,12 +46,8 @@ public class FailedApprovalRecords {
 
     /** Where the record of {@code state} — a record's approval — stands against it. */
     public Standing standingOf(FlowExecutionState state) {
-        List<FlowInstance> approvals = ContextUtils.withoutPermissionChecks(
-                () -> instanceService.findByModelNameAndRowId(state.getModelName(), state.getRowId()));
-        FlowInstance latest = approvals.stream()
-                .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
-                .max(Comparator.comparing(FlowInstance::getCreatedTime, Comparator.nullsFirst(Comparator.naturalOrder())))
-                .orElse(null);
+        FlowInstance latest = ContextUtils.withoutPermissionChecks(
+                () -> instanceService.findLatestRecordApproval(state.getModelName(), state.getRowId())).orElse(null);
         if (latest != null && !Objects.equals(latest.getInstanceId(), state.getInstanceId())) {
             return Standing.SUBMITTED_AGAIN;
         }

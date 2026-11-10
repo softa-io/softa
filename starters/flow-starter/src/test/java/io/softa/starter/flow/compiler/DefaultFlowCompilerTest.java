@@ -48,11 +48,7 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
         assertEquals(List.of("start"), compiled.getEntryNodeIds());
-        assertEquals(List.of("end"), compiled.getTerminalNodeIds());
-        assertEquals(List.of("start", "managerApproval", "hrApproval", "end"), compiled.getTopologicalOrder());
         assertEquals(FlowScenario.APPROVAL, compiled.getScenario());
-        assertFalse(compiled.getCapabilitySummary().isHasSubflow());
-        assertFalse(compiled.getCapabilitySummary().isHasParallelGateway());
     }
 
     @Test
@@ -85,8 +81,6 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
         assertEquals(List.of("start"), compiled.getEntryNodeIds());
-        assertTrue(compiled.getCapabilitySummary().isHasSubflow());
-        assertTrue(compiled.getCapabilitySummary().isHasParallelGateway());
         assertEquals(6, compiled.getNodeIndex().size());
         assertEquals(6, compiled.getTransitionIndex().size());
     }
@@ -124,7 +118,7 @@ class DefaultFlowCompilerTest {
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                node("service", FlowNodeType.CALL_SERVICE),  // no config
+                                node("service", FlowNodeType.CALL_WEBHOOK),  // no config
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
@@ -135,7 +129,8 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> d.message().contains("must define config")));
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d ->
+                "MISSING_REQUIRED_INPUT".equals(d.code()) && "config.url".equals(d.field())));
     }
 
     @Test
@@ -279,7 +274,7 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        // Naming nobody is what is wrong, whatever the mode: said once, as for any approval step (zingkey-hcm#2450).
+        // Naming nobody is what is wrong, whatever the mode: said once, as for any approval step.
         assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())));
     }
 
@@ -444,38 +439,6 @@ class DefaultFlowCompilerTest {
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
         assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "config.input.modelName".equals(d.field())));
-    }
-
-    @Test
-    void shouldRejectCallServiceWithMismatchedArgTypesArity() {
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Invalid ArgTypes")
-                .scenario(FlowScenario.AUTOMATION)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("svc")
-                                        .type(FlowNodeType.CALL_SERVICE)
-                                        .label("svc")
-                                        .config(Map.of("input", Map.of(
-                                                "beanName", "demoService",
-                                                "methodName", "run",
-                                                "args", List.of(1),
-                                                "argTypes", List.of("int", "long"))))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "svc"),
-                                edge("e2", "svc", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "ARG_TYPES_ARITY".equals(d.code())));
     }
 
     // ==================== validate() — success-shaped diagnostics ====================
@@ -747,7 +710,6 @@ class DefaultFlowCompilerTest {
                 .build();
     }
 
-    /** CALL_SERVICE is a typed node type — the compiler now requires beanName/methodName in its input. */
     private static FlowGraphEdge edge(String id, String source, String target) {
         return FlowGraphEdge.builder()
                 .id(id)

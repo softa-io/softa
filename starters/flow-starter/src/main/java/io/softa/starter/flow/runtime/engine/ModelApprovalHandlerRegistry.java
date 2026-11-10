@@ -19,7 +19,7 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.flow.entity.ApprovalModel;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
-import io.softa.starter.flow.runtime.spi.impl.OrganizationServiceProperties;
+import io.softa.starter.flow.runtime.spi.impl.FlowOrgService;
 
 /**
  * The application's {@link ModelApprovalHandler}s, by the model they serve — the models whose records
@@ -39,24 +39,20 @@ public class ModelApprovalHandlerRegistry implements SmartInitializingSingleton 
     public static final String DEFAULT_SUBJECT_FIELD = "employeeId";
 
     private final Supplier<List<ModelApprovalHandler<?>>> handlers;
-    private final OrganizationServiceProperties organization;
     private volatile Map<String, ModelApprovalHandler<?>> handlersByModel;
 
     @Autowired
-    public ModelApprovalHandlerRegistry(ObjectProvider<ModelApprovalHandler<?>> handlers,
-                                        OrganizationServiceProperties organization) {
+    public ModelApprovalHandlerRegistry(ObjectProvider<ModelApprovalHandler<?>> handlers) {
         this.handlers = () -> handlers.orderedStream().toList();
-        this.organization = organization;
     }
 
-    /** A registry over a fixed set of handlers, on the default organization models. */
+    /** A registry over a fixed set of handlers. */
     public static ModelApprovalHandlerRegistry of(List<? extends ModelApprovalHandler<?>> handlers) {
         return new ModelApprovalHandlerRegistry(List.copyOf(handlers));
     }
 
     private ModelApprovalHandlerRegistry(List<ModelApprovalHandler<?>> handlers) {
         this.handlers = () -> handlers;
-        this.organization = new OrganizationServiceProperties();
     }
 
     /** Metadata is loaded by now ({@code AppStartup} is a singleton's initialization). */
@@ -147,7 +143,7 @@ public class ModelApprovalHandlerRegistry implements SmartInitializingSingleton 
 
     private void requireSubjectField(String modelName, ModelApprovalHandler<?> handler) {
         String field = subjectFieldOf(handler);
-        String employeeModel = organization.getEmployeeModel();
+        String employeeModel = FlowOrgService.EMPLOYEE_MODEL;
         if (!ModelManager.existField(modelName, field)) {
             throw new IllegalStateException("Model " + modelName + " is approved by " + handler.getClass().getName()
                     + " but has no " + field + " field to name the employee its records are about: give it one,"

@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * An approval's participants read its state — the instance, and every action's answer — without the record's
- * values (zingkey-hcm#2402). The variables hold the record's fields as submitted and what later steps worked out,
+ * values. The variables hold the record's fields as submitted and what later steps worked out,
  * past the field permissions the record's own read applies: a field a step hid could be read off the instance. The
  * engine's state keeps them.
  */
@@ -51,7 +51,7 @@ class FlowInstanceStateWithoutRecordValuesTest {
         when(engine.getInstance("i1")).thenReturn(Optional.of(state));
         when(names.namesOf(anyList())).thenReturn(Map.of("1001", "Ann Lee"));
 
-        FlowExecutionState read = as(APPROVER, () -> controller.getInstance("i1", false)).getData();
+        FlowExecutionState read = as(APPROVER, () -> controller.getInstance("i1")).getData();
 
         assertWithoutRecordValues(read);
         assertThat(read.getInitiatorName()).isEqualTo("Ann Lee");
@@ -91,7 +91,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
         return FlowExecutionState.builder()
                 .instanceId("i1").modelName("ExpenseClaim").rowId("7").recordApproval(true)
                 .status(FlowExecutionStatus.WAITING).initiatorId("1001").title("Taxi to client")
-                .inputPayload(Map.of("totalAmount", 6000))
                 .variables(variables)
                 .returnData(Map.of("ok", true))
                 .build();
@@ -99,7 +98,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
 
     private static void assertWithoutRecordValues(FlowExecutionState state) {
         assertThat(state.getVariables()).isNull();
-        assertThat(state.getInputPayload()).isNull();
         assertThat(state.getReturnData()).isNull();
         // What shows the approval stays.
         assertThat(state.getInstanceId()).isEqualTo("i1");

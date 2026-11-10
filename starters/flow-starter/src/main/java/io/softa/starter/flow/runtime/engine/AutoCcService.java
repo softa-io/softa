@@ -12,10 +12,8 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowTraceEventType;
-import io.softa.starter.flow.runtime.state.PendingApproval;
 
 /**
  * Runs an approval flow's CC rules ({@link FlowCcRule}, part of the revision the instance runs on): as the approval
@@ -31,7 +29,7 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  * <p>
  * Each timing is run where its moment happens, once: the submission's as the instance starts, the rejection's by
  * the rejection, and the approval's where the instance completes approved ({@code FlowExecutionOrchestrator}) —
- * whichever run completed it, an approval, a retry, a timer or an async task resuming it, an administrator's
+ * whichever run completed it, an approval, a retry, an async task resuming it, an administrator's
  * reassignment. The entries join the instance the caller is about to save; nothing is saved here.
  * </p>
  */
@@ -43,20 +41,16 @@ public class AutoCcService {
 
     private final FlowAuditService auditService;
 
-    private final ApprovalAuditReader auditReader;
-
     private final ApprovalNotificationService notificationService;
 
     private final ApproverResolutionService approverResolution;
 
     public AutoCcService(FlowActionContextService contextService,
                          FlowAuditService auditService,
-                         ApprovalAuditReader auditReader,
                          ApprovalNotificationService notificationService,
                          ApproverResolutionService approverResolution) {
         this.contextService = contextService;
         this.auditService = auditService;
-        this.auditReader = auditReader;
         this.notificationService = notificationService;
         this.approverResolution = approverResolution;
     }
@@ -96,14 +90,13 @@ public class AutoCcService {
         cc(state, node, recipients, timing);
     }
 
-    /** CCs the recipients not CC'd on the node and cycle yet; whether it CC'd anyone. */
+    /** CCs the recipients not CC'd on the node yet; whether it CC'd anyone. */
     private boolean cc(FlowExecutionState state, CompiledFlowNode node, List<String> recipients, CcTiming timing) {
         String message = "You have been CC'd on: " + (state.getTitle() != null ? state.getTitle() : state.getInstanceId());
-        int cycleNumber = currentCycle(state, node.getNodeId());
         List<String> ccdActorIds = new ArrayList<>();
         for (String recipient : recipients) {
-            if (auditService.findCcAudit(state, node.getNodeId(), cycleNumber, recipient).isEmpty()) {
-                auditService.appendAutoCcAudit(state, node, cycleNumber, recipient, message);
+            if (auditService.findCcAudit(state, node.getNodeId(), recipient).isEmpty()) {
+                auditService.appendAutoCcAudit(state, node, recipient, message);
                 ccdActorIds.add(recipient);
             }
         }
@@ -116,23 +109,5 @@ public class AutoCcService {
                 "Auto-CC at " + timing.getType() + " sent to " + ccdActorIds);
         notificationService.notify(new FlowNotificationEvent.CcSent(state, node.getNodeId(), ccdActorIds, message));
         return true;
-    }
-
-    /** The node's current cycle: the latest it waits on or has recorded, the first when it has neither. */
-    private int currentCycle(FlowExecutionState state, String nodeId) {
-        int cycle = 1;
-        if (state.getPendingApprovals() != null) {
-            for (PendingApproval pending : state.getPendingApprovals()) {
-                if (nodeId.equals(pending.getNodeId()) && pending.getCycleNumber() != null) {
-                    cycle = Math.max(cycle, pending.getCycleNumber());
-                }
-            }
-        }
-        for (ApprovalActionAuditEntry entry : auditReader.fullHistory(state)) {
-            if (nodeId.equals(entry.getNodeId()) && entry.getCycleNumber() != null) {
-                cycle = Math.max(cycle, entry.getCycleNumber());
-            }
-        }
-        return cycle;
     }
 }

@@ -101,13 +101,5 @@ public interface FlowRuntimeEngine {
      */
     FlowExecutionState resumeAsyncTask(String instanceId, String nodeId, Map<String, Object> callbackOutputs);
 
-    /**
-     * Resume a flow instance that is suspended waiting for a timer to fire.
-     *
-     * @param instanceId the suspended instance id
-     * @param nodeId     the timer node that triggered the suspension
-     */
-    FlowExecutionState resumeTimer(String instanceId, String nodeId);
 }
-
 

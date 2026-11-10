@@ -32,7 +32,6 @@ class DefaultFlowTriggerRegistryTest {
             @Override public CompiledFlowDefinition register(CompiledFlowDefinition d, DesignFlowDefinition design, String flowId) { return d; }
             @Override public Optional<CompiledFlowDefinition> getByBundleId(Long bundleId) { return Optional.empty(); }
             @Override public Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId) { return Optional.empty(); }
-            @Override public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) { return List.of(); }
             @Override public Collection<CompiledFlowDefinition> list() { return List.of(flows); }
         };
         return new DefaultFlowTriggerRegistry(bundleRegistry);

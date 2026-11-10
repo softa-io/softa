@@ -9,8 +9,6 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
-import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
-import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
 
 /**
@@ -24,7 +22,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
     private final ApprovalLifecycleService lifecycleService;
     private final FlowAuditService auditService;
     private final FlowExecutionOrchestrator orchestrator;
-    private final ApprovalNotificationService notificationService;
     private final ApprovalFormWriteService formWriteService;
     private final FlowActionReplayGuard replayGuard;
 
@@ -33,7 +30,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
                                 ApprovalLifecycleService lifecycleService,
                                 FlowAuditService auditService,
                                 FlowExecutionOrchestrator orchestrator,
-                                ApprovalNotificationService notificationService,
                                 ApprovalFormWriteService formWriteService,
                                 FlowActionReplayGuard replayGuard) {
         this.contextService = contextService;
@@ -41,7 +37,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         this.lifecycleService = lifecycleService;
         this.auditService = auditService;
         this.orchestrator = orchestrator;
-        this.notificationService = notificationService;
         this.formWriteService = formWriteService;
         this.replayGuard = replayGuard;
     }
@@ -107,7 +102,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         // The steps after the approval may fail without undoing it: the instance then comes back failed.
         FlowExecutionState resumed = orchestrator.resumeApprovedNode(state, pendingApproval, definition, node);
         contextService.persistState(resumed);
-        notificationService.notify(new FlowNotificationEvent.TaskCompleted(resumed, pendingApproval, true));
         return resumed;
     }
 

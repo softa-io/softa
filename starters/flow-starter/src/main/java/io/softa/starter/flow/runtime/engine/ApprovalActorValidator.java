@@ -4,7 +4,6 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -32,11 +31,6 @@ public class ApprovalActorValidator {
     /** Names people and tells who can act; without it people are named by their ids and anyone can act. */
     private final ActorAccounts actorAccounts;
 
-    public ApprovalActorValidator() {
-        this(null);
-    }
-
-    @Autowired
     public ApprovalActorValidator(ActorAccounts actorAccounts) {
         this.actorAccounts = actorAccounts;
     }

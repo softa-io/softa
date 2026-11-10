@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * A step that resolves to nobody under its {@code Error} empty-approver strategy — one message whatever the step's
  * source. A record's submission that reaches it is refused ({@code 400}) and changes nothing: no failed instance, nobody
  * told. Reached after an approval, the approval stands and the instance fails with the message, its initiator and the
- * administrators told (zingkey-hcm#2385): the approver cannot set up an approver. Starts that are not a record's
+ * administrators told: the approver cannot set up an approver. Starts that are not a record's
  * approval keep recording the failed instance.
  */
 class NoApproverScenarioTest {
@@ -74,7 +74,6 @@ class NoApproverScenarioTest {
 
         assertInstanceOf(FlowActionValidationException.class, refused, "answered 400");
         assertEquals(MESSAGE, refused.getMessage());
-        assertEquals("hr", refused.getNodeId());
         assertEquals(0, saves.get(), "no failed instance is kept");
         assertTrue(notices.isEmpty(), "nobody is told: " + notices);
     }

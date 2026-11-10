@@ -46,7 +46,6 @@ class QueryRecordsTaskExecutorTest {
     @Test
     void reportsSupportedNodeType() {
         assertSame(FlowNodeType.QUERY_RECORDS, executor.getSupportedNodeType());
-        assertEquals("QueryRecords", executor.getExecutor());
     }
 
     @SuppressWarnings("unchecked")
@@ -62,7 +61,6 @@ class QueryRecordsTaskExecutorTest {
                 .thenReturn(resultPage);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.QUERY_RECORDS)
                 .input(Map.of(
                         "modelName", "Employee",
                         "fields", List.of("name", "deptId"),
@@ -92,7 +90,6 @@ class QueryRecordsTaskExecutorTest {
                 .thenReturn(resultPage);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.QUERY_RECORDS)
                 .input(Map.of("modelName", "Employee"))
                 .build();
 
@@ -107,7 +104,6 @@ class QueryRecordsTaskExecutorTest {
     @Test
     void rejectsMissingModelName() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.QUERY_RECORDS)
                 .input(Map.of("fields", List.of("name")))
                 .build();
 
@@ -119,7 +115,6 @@ class QueryRecordsTaskExecutorTest {
     @Test
     void rejectsBlankModelName() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.QUERY_RECORDS)
                 .input(Map.of("modelName", "   "))
                 .build();
 

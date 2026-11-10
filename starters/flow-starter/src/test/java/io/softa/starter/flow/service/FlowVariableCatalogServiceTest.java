@@ -63,7 +63,7 @@ class FlowVariableCatalogServiceTest {
 
         FlowVariableView sum = variables.stream().filter(v -> "sum".equals(v.name())).findFirst().orElseThrow();
         assertEquals(FlowVariableView.Source.NODE_OUTPUT, sum.source());
-        assertEquals("script1", sum.sourceNodeId());
+        assertEquals("script1", sum.sourceLabel(), "named after the node that produces it");
     }
 
     @Test

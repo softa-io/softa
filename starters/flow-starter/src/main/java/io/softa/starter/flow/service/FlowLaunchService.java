@@ -98,9 +98,8 @@ public interface FlowLaunchService {
      *
      * @param modelName the record's model
      * @param rowId     the record
-     * @param actorId   the cancelling applicant
      * @throws io.softa.framework.base.exception.BusinessException when the record is not a draft, or its
      *         handler refuses
      */
-    void cancelRecord(String modelName, String rowId, String actorId);
+    void cancelRecord(String modelName, String rowId);
 }

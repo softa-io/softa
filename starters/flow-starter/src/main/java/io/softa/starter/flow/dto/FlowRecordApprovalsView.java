@@ -51,9 +51,6 @@ public class FlowRecordApprovalsView {
         @Schema(description = "When the instance started")
         private LocalDateTime startedAt;
 
-        @Schema(description = "When the instance last changed")
-        private LocalDateTime updatedAt;
-
         @Schema(description = "Steps waiting for approval, with the approvers yet to act; empty once the instance ended or was returned")
         private List<PendingStep> pending;
 

@@ -59,11 +59,6 @@ public class GetDataTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "GetData";
-    }
-
-    @Override
     public String getName() {
         return "Get Data";
     }
@@ -158,5 +153,4 @@ public class GetDataTaskExecutor extends AbstractTaskExecutor {
         return rows;
     }
 }
-
 

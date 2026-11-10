@@ -36,9 +36,6 @@ public class FlowApprovalPreview {
     @Schema(description = "The flow that would approve the record (Ready), or approves it now (InProgress)")
     private Flow flow;
 
-    @Schema(description = "The flows that apply to the record, of which exactly one must (SeveralFlows)")
-    private List<Flow> candidates;
-
     @Schema(description = "The approval steps in the order the approval reaches them, every step assumed approved (Ready); "
             + "the step it waits on now, then those after it (InProgress)")
     private List<Step> steps;
@@ -87,8 +84,6 @@ public class FlowApprovalPreview {
         AUTO_APPROVED("AutoApproved"),
         /** Nobody resolves to the step, which is approved on record (empty-approver strategy AutoApprove). */
         NO_APPROVER_APPROVED("NoApproverApproved"),
-        /** Nobody resolves to the step, which is skipped (empty-approver strategy Skip). */
-        NO_APPROVER_SKIPPED("NoApproverSkipped"),
         /** Nobody resolves to the step, and the approval stops there with an error (empty-approver strategy Error). */
         NO_APPROVER_FAILS("NoApproverFails"),
         /** Who approves the step, or whether it passes on its own, depends on data only known once the approval runs. */

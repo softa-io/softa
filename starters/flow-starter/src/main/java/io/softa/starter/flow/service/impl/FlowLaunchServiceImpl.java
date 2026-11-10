@@ -48,13 +48,13 @@ import io.softa.starter.flow.runtime.engine.ModelApprovalHandlerRegistry;
 import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.spi.ApprovalOutcome;
 import io.softa.starter.flow.runtime.spi.ApprovalSubmission;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
 import io.softa.starter.flow.service.FlowDesignService;
@@ -159,10 +159,11 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
             return new FlowDesignPreview(false, submitter,
                     notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage()));
         }
-        boolean chosen = DefaultFlowTriggerRegistry.submitConditionHolds(definition, trigger,
-                submitVariables(modelName, null, submission, definition.rulePaths()));
+        // The draft's own rules decide both whether it would be chosen and its route: its variables are read once.
+        Map<String, Object> variables = submitVariables(modelName, null, submission, definition.rulePaths());
+        boolean chosen = DefaultFlowTriggerRegistry.submitConditionHolds(definition, trigger, variables);
         FlowApprovalPreview route = pathPreviewer.preview(definition,
-                submitStartRequest(definition, modelName, null, submitterId, submission));
+                submitStartRequest(definition, modelName, null, submitterId, submission, variables));
         List<FlowRecordApprovalsView.Actor> actors = actorsOf(route);
         actors.add(submitter);
         userNames.name(actors);
@@ -354,12 +355,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
             return notReady(FlowApprovalPreview.Status.NO_FLOW, I18n.get(NO_SUBMIT_FLOW, modelName));
         }
         if (flows.size() > 1) {
-            FlowApprovalPreview preview = notReady(FlowApprovalPreview.Status.SEVERAL_FLOWS,
+            return notReady(FlowApprovalPreview.Status.SEVERAL_FLOWS,
                     I18n.get(SEVERAL_SUBMIT_FLOWS, modelName, flowNames(flows)));
-            preview.setCandidates(flows.stream()
-                    .map(flow -> new FlowApprovalPreview.Flow(flow.getFlowId(), flow.getFlowName()))
-                    .toList());
-            return preview;
         }
         CompiledFlowDefinition definition = flows.getFirst();
         return pathPreviewer.preview(definition, submitStartRequest(definition, modelName, rowId, submitterId,
@@ -371,9 +368,9 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * requester may withdraw it: its submitter, on a flow that lets them.
      */
     private FlowApprovalPreview previewInProgress(FlowInstance approval, String requesterId) {
-        FlowExecutionState state = ContextUtils.withoutPermissionChecks(
-                () -> flowRuntimeEngine.getInstance(approval.getInstanceId())).orElse(null);
-        CompiledFlowDefinition definition = state == null ? null
+        // The whole row is in hand (latestApproval): its state needs no second read.
+        FlowExecutionState state = FlowExecutionStateMapper.toState(approval);
+        CompiledFlowDefinition definition = state.getBundleId() == null ? null
                 : flowBundleRegistry.getByBundleId(state.getBundleId()).orElse(null);
         if (definition == null) {
             return notReady(FlowApprovalPreview.Status.REFUSED, I18n.get(ALREADY_IN_APPROVAL));
@@ -406,7 +403,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
         FlowInstance latest = latestApproval(modelName, rowId);
         if (latest != null && FlowExecutionStatus.FAILED.equals(latest.getStatus())) {
-            return takeBackFailed(handler, latest, rowId, actorId, comment);
+            return takeBackFailed(handler, latest, rowId, actorId);
         }
         if (latest == null || latest.getStatus() == null || latest.getStatus().isTerminal()) {
             throw new BusinessException("This record has no approval in progress to withdraw.");
@@ -421,18 +418,17 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void cancelRecord(String modelName, String rowId, String actorId) {
+    public void cancelRecord(String modelName, String rowId) {
         requireRecordKey(modelName, rowId, "cancel");
         ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
         // Nothing moves for a record the applicant could not change with their own permissions.
         if (!withinCallersEditRange(modelName, rowId)) {
             throw new BusinessException(NO_SUCH_RECORD, modelName, rowId);
         }
-        cancel(handler, modelName, rowId, actorId);
+        cancel(handler, modelName, rowId);
     }
 
-    private <T extends ApprovalModel> void cancel(ModelApprovalHandler<T> handler, String modelName, String rowId,
-                                                  String actorId) {
+    private <T extends ApprovalModel> void cancel(ModelApprovalHandler<T> handler, String modelName, String rowId) {
         Map<String, Object> row = readRecord(modelName, rowId);
         ApprovalStatus status = ApprovalStatus.from(row.get(ApprovalModel.APPROVAL_STATUS));
         if (status == ApprovalStatus.PENDING || inProgress(latestApproval(modelName, rowId))) {
@@ -443,7 +439,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         }
         T record = BeanTool.mapToObject(row, handler.modelClass());
         handler.validateCancel(record);
-        statusWriter.cancelled(handler, rowId, record, actorId);
+        statusWriter.cancelled(handler, rowId, record);
         // Closed for good: an approval of it that was returned no longer waits for the record to be edited.
         instanceService.markSuperseded(modelName, rowId);
     }
@@ -460,10 +456,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * count.
      */
     private FlowInstance latestApproval(String modelName, String rowId) {
-        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByModelNameAndRowId(modelName, rowId))
-                .stream()
-                .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
-                .max(Comparator.comparing(FlowInstance::getCreatedTime, Comparator.nullsFirst(Comparator.naturalOrder())))
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findLatestRecordApproval(modelName, rowId))
                 .orElse(null);
     }
 
@@ -478,15 +471,14 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
      * flow monitoring.
      */
     private FlowExecutionState takeBackFailed(ModelApprovalHandler<?> handler, FlowInstance failed, String rowId,
-                                             String actorId, String comment) {
+                                             String actorId) {
         if (!Objects.equals(actorId, failed.getInitiatorId())) {
             throw new FlowAuthorizationException("Only the submitter can withdraw the record after its approval failed: "
                     + failed.getModelName() + " " + rowId);
         }
-        statusWriter.concluded(handler, rowId,
-                new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, failed.getInstanceId(), actorId, comment));
-        return ContextUtils.withoutPermissionChecks(() -> flowRuntimeEngine.getInstance(failed.getInstanceId()))
-                .orElseThrow(() -> new FlowRuntimeException("Flow instance not found: " + failed.getInstanceId()));
+        statusWriter.concluded(handler, rowId, new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, failed.getInstanceId()));
+        // Taking the record back writes the record only: the failed instance is the whole row already in hand.
+        return FlowExecutionStateMapper.toState(failed);
     }
 
     /** The whole record, read past the submitter's field and row checks: submit conditions see every field. */
@@ -548,8 +540,15 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
 
     private FlowStartRequest submitStartRequest(CompiledFlowDefinition definition, String modelName,
                                                 String rowId, String initiatorId, Submission<?> submission) {
+        return submitStartRequest(definition, modelName, rowId, initiatorId, submission,
+                submitVariables(modelName, rowId, submission, definition.rulePaths()));
+    }
+
+    /** The start of {@code definition} for the submission, with the variables already worked out for its rules. */
+    private FlowStartRequest submitStartRequest(CompiledFlowDefinition definition, String modelName, String rowId,
+                                                String initiatorId, Submission<?> submission,
+                                                Map<String, Object> variables) {
         ApprovalSubmission approval = submission.approval();
-        Map<String, Object> variables = submitVariables(modelName, rowId, submission, definition.rulePaths());
         FlowStartRequest request = new FlowStartRequest();
         request.setBundleId(definition.getBundleId());
         request.setInitiatorId(initiatorId);

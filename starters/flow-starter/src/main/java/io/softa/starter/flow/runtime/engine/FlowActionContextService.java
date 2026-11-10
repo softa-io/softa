@@ -88,17 +88,6 @@ public class FlowActionContextService {
     }
 
     /**
-     * Loads the shared approval context for a node-scoped action without a waiting-approval
-     * gate: resolves the state, pending approval, compiled definition, and node, and snapshots
-     * the status before the action. Used by handlers (e.g. approve / reject) that do not require
-     * the instance to be in {@link FlowExecutionStatus#WAITING}.
-     */
-    public ApprovalContext loadApprovalContext(String instanceId, String nodeId) {
-        FlowExecutionState state = requireState(instanceId);
-        return loadApprovalContext(state, nodeId);
-    }
-
-    /**
      * Loads the shared approval context after asserting the instance is in
      * {@link FlowExecutionStatus#WAITING}. The waiting-approval gate is applied
      * immediately after state resolution and before the pending-approval lookup, preserving
@@ -116,7 +105,7 @@ public class FlowActionContextService {
     /**
      * Loads the shared approval context from an already-resolved state, for callers (e.g. approve and
      * reject) that check the state themselves before the pending-approval lookup. Equivalent to the tail
-     * of the {@code instanceId} overloads.
+     * of the {@code instanceId} overload.
      */
     public ApprovalContext loadApprovalContext(FlowExecutionState state, String nodeId) {
         PendingApproval pendingApproval = requirePendingApproval(state, nodeId);
@@ -140,7 +129,7 @@ public class FlowActionContextService {
 
     /**
      * Persist state in its own transaction so the record survives when the caller's transaction
-     * rolls back. Used by failed starts and failed timer/async resumes: they rethrow to roll back
+     * rolls back. Used by failed starts and failed async resumes: they rethrow to roll back
      * the failed attempt's partial business writes, but the FAILED instance must still be recorded
      * for observability.
      */

@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A node that chooses among several edges by their conditions has a default, so a request no condition fits has
- * somewhere to go (zingkey-hcm#2382): without one it would stop there — its submission refused or, after an approval,
+ * somewhere to go: without one it would stop there — its submission refused or, after an approval,
  * the instance failed. Publishing refuses the gap. A node whose only edge has a condition is not one: a request that
  * does not fit ends its branch there.
  */

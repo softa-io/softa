@@ -153,7 +153,7 @@ class FlowInstanceSummaryComposerTest {
 
     @Test
     void theRequestersOwnRecordWhoseApprovalFailedSaysWhetherTheyMayTakeItBack() {
-        // Nobody is left to act on it: its submitter takes the record back from My Requests (zingkey-hcm#2385).
+        // Nobody is left to act on it: its submitter takes the record back from My Requests.
         FlowInstance failed = instance("i1", FlowExecutionStatus.FAILED);
         failed.setScenario(FlowScenario.APPROVAL);
         FlowExecutionState state = FlowExecutionState.builder().instanceId("i1").build();

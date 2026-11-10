@@ -13,8 +13,8 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.runtime.engine.FlowCron;
 
 /**
- * Previews a cron expression for the designer — a Cron trigger's schedule or a Timer node's — the way publishing
- * and the scheduler read it.
+ * Previews a cron expression for the designer — a Cron trigger's schedule — the way publishing and the scheduler
+ * read it.
  */
 @Tag(name = "Flow Cron")
 @RestController

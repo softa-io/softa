@@ -18,11 +18,11 @@ import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.handler.*;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
-import io.softa.starter.flow.runtime.state.WaitType;
+import io.softa.starter.flow.runtime.task.builtin.DefaultTaskExecutorRegistry;
+import io.softa.starter.flow.runtime.task.DispatchOnlyAsyncTaskExecutor;
 import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
 import io.softa.starter.flow.runtime.task.TaskExecutor;
-import io.softa.starter.flow.runtime.task.builtin.DefaultTaskExecutorRegistry;
-import io.softa.starter.flow.runtime.task.EchoServiceTaskExecutor;
+import io.softa.starter.flow.runtime.task.EchoWebhookTaskExecutor;
 import io.softa.starter.flow.runtime.task.RecordLookupDataTaskExecutor;
 import io.softa.starter.flow.runtime.task.TemplateMessageTaskExecutor;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
@@ -30,9 +30,9 @@ import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * End-to-end coverage of a simple flow: START → Approval (single approver) → CALL_SERVICE → END.
+ * End-to-end coverage of a simple flow: START → AsyncTask → CALL_WEBHOOK → END.
  * Validates the full engine wiring without Spring context:
- * suspend on approval, resume on approve, task execution with echo stub, final COMPLETED status.
+ * suspend on the async task, resume on its callback, task execution with echo stub, final COMPLETED status.
  */
 class FlowEndToEndExecutionTest {
 
@@ -43,9 +43,10 @@ class FlowEndToEndExecutionTest {
     private final FlowPublishServiceImpl publishService = new FlowPublishServiceImpl(compiler, bundleRegistry);
 
     private final DefaultTaskExecutorRegistry taskExecutorRegistry = new DefaultTaskExecutorRegistry(List.of(
-            new EchoServiceTaskExecutor(),
+            new EchoWebhookTaskExecutor(),
             new RecordLookupDataTaskExecutor(),
-            new TemplateMessageTaskExecutor()
+            new TemplateMessageTaskExecutor(),
+            new DispatchOnlyAsyncTaskExecutor()
     ));
     private final ApprovalNodeExecutionHandler approvalHandler = new ApprovalNodeExecutionHandler();
 
@@ -58,14 +59,13 @@ class FlowEndToEndExecutionTest {
                     new SubflowNodeExecutionHandler(),
                     new ScriptNodeExecutionHandler(),
                     new ReturnValueNodeExecutionHandler(),
-                    new TimerNodeExecutionHandler(),
                     new PassThroughNodeExecutionHandler()
             )),
             approvalHandler
     );
 
     @Test
-    void shouldSuspendOnATimerAndResumeThroughCallServiceToEnd() {
+    void shouldSuspendOnAnAsyncTaskAndResumeThroughAWebhookToEnd() {
         publishService.publish(FLOW_ID, flowDefinition());
 
         FlowStartRequest startRequest = new FlowStartRequest();
@@ -75,11 +75,10 @@ class FlowEndToEndExecutionTest {
 
         FlowExecutionState afterStart = runtimeEngine.start(startRequest);
 
-        assertEquals(FlowExecutionStatus.WAITING, afterStart.getStatus(), "Flow should suspend on the timer");
-        assertTrue(afterStart.getWaitTokens().stream().anyMatch(t -> t.getType() == WaitType.TIMER),
-                "The timer parks the instance as a timer wait token");
+        assertEquals(FlowExecutionStatus.WAITING, afterStart.getStatus(), "Flow should suspend on the async task");
+        assertNotNull(afterStart.findWaitToken("wait"), "The async task parks the instance as a wait token");
 
-        FlowExecutionState afterResume = runtimeEngine.resumeTimer(afterStart.getInstanceId(), "wait");
+        FlowExecutionState afterResume = runtimeEngine.resumeAsyncTask(afterStart.getInstanceId(), "wait", Map.of());
 
         assertEquals(FlowExecutionStatus.COMPLETED, afterResume.getStatus(),
                 "Flow should run through the service task and complete");
@@ -138,15 +137,6 @@ class FlowEndToEndExecutionTest {
                 .build();
     }
 
-    private static FlowGraphNode timerNode(String id, long durationSeconds) {
-        return FlowGraphNode.builder()
-                .id(id)
-                .type(FlowNodeType.TIMER)
-                .label(id)
-                .config(Map.of("durationSeconds", durationSeconds))
-                .build();
-    }
-
     @Test
     void failedStartRecordsFailedInstanceAndRethrows() {
         String flowId = "7004";
@@ -183,11 +173,6 @@ class FlowEndToEndExecutionTest {
         @Override
         public FlowNodeType getSupportedNodeType() {
             return FlowNodeType.CALL_WEBHOOK;
-        }
-
-        @Override
-        public String getExecutor() {
-            return "throwing";
         }
 
         @Override
@@ -234,9 +219,10 @@ class FlowEndToEndExecutionTest {
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                timerNode("wait", 3600L),
-                                taskNode("service", FlowNodeType.CALL_SERVICE,
-                                        Map.of("beanName", "echoService", "methodName", "run", "route", "e2e"),
+                                taskNode("wait", FlowNodeType.ASYNC_TASK,
+                                        Map.of("asyncTaskHandlerCode", "notify"), "dispatch"),
+                                taskNode("service", FlowNodeType.CALL_WEBHOOK,
+                                        Map.of("url", "https://example.com/hook", "route", "e2e"),
                                         "serviceResult"),
                                 node("end", FlowNodeType.END)
                         ))

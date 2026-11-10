@@ -1,6 +1,5 @@
 package io.softa.starter.flow.runtime.action;
 
-import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -69,8 +68,6 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
         FlowExecutionStatus statusBefore = state.getStatus();
         state.getPendingApprovals().clear();
         FlowStatusTransitions.apply(state, FlowExecutionStatus.RETURNED);
-        contextService.mergeVariables(state, Map.of("returnDecision",
-                auditService.buildReturnDecisionPayload(request, node, state.getInitiatorId())));
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RETURNED,
                 auditService.buildReturnMessage(node, request, state.getInitiatorId()));
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()

@@ -78,15 +78,6 @@ public class StubFlowBundleRegistry implements FlowBundleRegistry {
     }
 
     @Override
-    public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) {
-        NavigableMap<Integer, CompiledFlowDefinition> revisions = revisionsByDesign.get(flowId);
-        if (revisions == null || revisions.isEmpty()) {
-            return List.of();
-        }
-        return revisions.descendingMap().values().stream().toList();
-    }
-
-    @Override
     public Collection<CompiledFlowDefinition> list() {
         return activeBundleIndex.entrySet().stream()
                 .filter(entry -> !disabledFlows.contains(entry.getKey()))

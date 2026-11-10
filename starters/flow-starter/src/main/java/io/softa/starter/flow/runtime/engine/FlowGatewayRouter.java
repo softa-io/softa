@@ -190,7 +190,7 @@ public class FlowGatewayRouter {
 
     /**
      * No route out of {@code node} fits the request, and none is the default: a gap in the flow, told in words its
-     * reader can act on rather than as an unexpected error (zingkey-hcm#2382). At submission the submitter is refused;
+     * reader can act on rather than as an unexpected error. At submission the submitter is refused;
      * after an approval the instance fails with it, the approval kept, and its initiator and administrators are told
      * ({@link FlowExecutionOrchestrator#runAfterApproval}).
      */

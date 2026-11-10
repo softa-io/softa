@@ -1,15 +1,8 @@
 package io.softa.starter.flow.service.support;
 
 import java.io.Serializable;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
-
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -25,9 +18,9 @@ import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowInstance;
-import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.engine.FlowParticipants;
+import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowInstanceService;
 
@@ -87,72 +80,51 @@ public class FlowInstanceAccessGuard {
     }
 
     /**
-     * Authorizes a caller to view a business record's approval history: they take part in one of
-     * its approvals — submitted it, wait to approve it, acted on it other than as an administrator, were
-     * its target, or hold a task of it, an approver it closed without them included — or they can read
-     * the record with their own permissions, as anyone who sees a record also sees its history. The same
-     * people {@link #requireRecordAccess(String, String, String)} lends the record to, or lets read it.
+     * Authorizes a caller to view a business record's approval history, and marks each of its approvals they may open.
+     *
+     * <p>They see the history when they take part in one of its approvals — submitted it, wait to approve it, acted on
+     * it other than as an administrator, were its target ({@link FlowParticipants}), or hold a task of it, an approver
+     * it closed without them included — or can read the record with their own permissions, as anyone who sees a record
+     * also sees its history. The same people {@link #requireRecordAccess(String, String, String)} lends the record to,
+     * or lets read it.
+     *
+     * <p>They may open — its detail, progress diagram and trace, which
+     * {@link #requireInstanceViewer(FlowExecutionState, String)} guards — every approval when they can read the record;
+     * otherwise the ones they take part in, and the ones whose {@code FlowInstance} row their own permissions read.
+     * Seeing the history is wider: an approver of an earlier submission sees the approval in progress listed, but may
+     * not open it. The approvals and their histories come as the history was built from them; the record, the tasks
+     * and the instance rows are asked once each, however many approvals.
      *
      * @param modelName   the record's model
      * @param rowId       the record
-     * @param history     the record's approval history, already loaded
+     * @param view        the history as it is shown, whose approvals are marked {@code viewable}
+     * @param approvals   the record's approvals, each with its whole approval history
      * @param requesterId the authenticated caller's user id
-     * @throws FlowAuthorizationException if neither holds
+     * @throws FlowAuthorizationException if the caller may not see the history
      */
-    public void requireRecordViewer(String modelName, String rowId, FlowRecordApprovalsView history,
-                                    String requesterId) {
+    public void authorizeRecordApprovals(String modelName, String rowId, FlowRecordApprovalsView view,
+                                         List<FlowInstanceService.RecordApproval> approvals, String requesterId) {
         requireAuthenticated(requesterId, "view the approvals of " + modelName + " " + rowId);
-        if (participatesIn(history, requesterId)
-                || holdsTaskIn(instanceIdsOf(history), requesterId)
-                || canReadRecord(modelName, rowId)) {
-            return;
-        }
-        throw new FlowAuthorizationException("User may not view the approvals of " + modelName + " " + rowId);
-    }
-
-    /**
-     * Marks each approval of a record's history the caller may open — its detail, progress diagram and trace, which
-     * {@link #requireInstanceViewer(FlowExecutionState, String)} guards — as {@code viewable}: every one for whoever
-     * can read the record; otherwise the ones they take part in, as {@link #isParticipant} rules, and the ones whose
-     * {@code FlowInstance} row their own permissions read. Seeing the history is wider: an approver of an earlier
-     * submission sees the approval in progress listed, but may not open it. The approvals are read past the caller's
-     * permissions; the record, the instance rows and the tasks are asked once each, however many approvals.
-     *
-     * @param modelName   the record's model
-     * @param rowId       the record
-     * @param history     the record's approval history, the caller already allowed to see it
-     * @param requesterId the authenticated caller's user id
-     */
-    public void markViewable(String modelName, String rowId, FlowRecordApprovalsView history, String requesterId) {
-        if (history == null || history.getInstances() == null || history.getInstances().isEmpty()) {
-            return;
-        }
-        Set<String> viewable = viewableApprovals(modelName, rowId, requesterId);
-        history.getInstances().forEach(instance -> instance.setViewable(viewable.contains(instance.getInstanceId())));
-    }
-
-    /** Of a record's approvals, the ids of those the caller may open: see {@link #markViewable}. */
-    private Set<String> viewableApprovals(String modelName, String rowId, String requesterId) {
-        if (!StringUtils.hasText(requesterId)) {
-            return Set.of();
-        }
-        List<FlowExecutionState> approvals = ContextUtils.withoutPermissionChecks(
-                () -> instanceService.recordApprovalStates(modelName, rowId));
-        List<String> ids = presentIds(approvals.stream().map(FlowExecutionState::getInstanceId).toList());
-        if (ids.isEmpty()) {
-            return Set.of();
-        }
+        List<String> ids = presentIds(approvals.stream().map(approval -> approval.state().getInstanceId()).toList());
+        Set<String> viewable;
         if (canReadRecord(modelName, rowId)) {
-            return Set.copyOf(ids);
-        }
-        Set<String> viewable = new HashSet<>(administrableInstanceIds(ids));
-        viewable.addAll(instancesGivingTaskTo(ids, requesterId));
-        for (FlowExecutionState approval : approvals) {
-            if (!viewable.contains(approval.getInstanceId()) && namedByInstance(approval, requesterId)) {
-                viewable.add(approval.getInstanceId());
+            viewable = Set.copyOf(ids);
+        } else {
+            Set<String> takenPart = approvals.stream()
+                    .filter(approval -> FlowParticipants.isParticipant(approval.state(), approval.history(), requesterId))
+                    .map(approval -> approval.state().getInstanceId())
+                    .collect(Collectors.toCollection(HashSet::new));
+            takenPart.addAll(instancesGivingTaskTo(ids.stream().filter(id -> !takenPart.contains(id)).toList(),
+                    requesterId));
+            if (takenPart.isEmpty()) {
+                throw new FlowAuthorizationException("User may not view the approvals of " + modelName + " " + rowId);
             }
+            viewable = new HashSet<>(takenPart);
+            viewable.addAll(administrableInstanceIds(ids));
         }
-        return viewable;
+        if (view != null && view.getInstances() != null) {
+            view.getInstances().forEach(instance -> instance.setViewable(viewable.contains(instance.getInstanceId())));
+        }
     }
 
     /**
@@ -288,7 +260,7 @@ public class FlowInstanceAccessGuard {
      * by the rule above, not by the caller's grants on {@code FlowInstance}. Their states and histories are asked
      * first; then, in one query, the tasks of the approvals newer than the first of them that names the caller — of
      * all of them when none does — since a terminated approval's cleared approver, say, is named by nothing else.
-     * Whoever this lends the record to, or lets read it, sees its approval history ({@link #requireRecordViewer}).
+     * Whoever this lends the record to, or lets read it, sees its approval history requireRecordViewer.
      *
      * @param modelName   the record's model
      * @param rowId       the record
@@ -349,9 +321,13 @@ public class FlowInstanceAccessGuard {
                 || holdsTaskIn(Collections.singletonList(state == null ? null : state.getInstanceId()), userId);
     }
 
-    /** Whether the instance's state and approval history name the user a participant: no query of its tasks. */
+    /**
+     * Whether the instance's state and approval history name the user a participant: no query of its tasks, and none of
+     * its history when the state already names them — its initiator, an approver of the step it waits on.
+     */
     private boolean namedByInstance(FlowExecutionState state, String userId) {
-        return FlowParticipants.isParticipant(state, auditReader.fullHistory(state), userId);
+        return FlowParticipants.namedByState(state, userId)
+                || FlowParticipants.isParticipant(state, auditReader.fullHistory(state), userId);
     }
 
     /**
@@ -466,42 +442,4 @@ public class FlowInstanceAccessGuard {
         }
     }
 
-    /**
-     * Whether a record's approval history names the user a participant of one of its approvals: its initiator, an
-     * approver it waits on, the actor of an action of it — an urge or a termination aside, as
-     * {@link FlowParticipants} rules — or its target. No query of their tasks.
-     */
-    private static boolean participatesIn(FlowRecordApprovalsView history, String requesterId) {
-        if (history == null || history.getInstances() == null) {
-            return false;
-        }
-        for (FlowRecordApprovalsView.Instance instance : history.getInstances()) {
-            if (isActor(instance.getInitiator(), requesterId)
-                    || (instance.getPending() != null && instance.getPending().stream()
-                            .anyMatch(step -> step.getApprovers() != null
-                                    && step.getApprovers().stream().anyMatch(a -> isActor(a, requesterId))))
-                    || (instance.getActions() != null && instance.getActions().stream()
-                            .anyMatch(a -> (FlowParticipants.actorTakesPart(a.getAction())
-                                    && isActor(a.getActor(), requesterId))
-                                    || isActor(a.getTarget(), requesterId)))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** The approvals a record's approval history lists. */
-    private static List<String> instanceIdsOf(FlowRecordApprovalsView history) {
-        if (history == null || history.getInstances() == null) {
-            return List.of();
-        }
-        return history.getInstances().stream()
-                .filter(Objects::nonNull)
-                .map(FlowRecordApprovalsView.Instance::getInstanceId)
-                .toList();
-    }
-
-    private static boolean isActor(FlowRecordApprovalsView.Actor actor, String requesterId) {
-        return actor != null && requesterId.equals(actor.getId());
-    }
 }

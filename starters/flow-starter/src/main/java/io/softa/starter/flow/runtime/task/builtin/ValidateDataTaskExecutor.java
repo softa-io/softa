@@ -39,11 +39,6 @@ public class ValidateDataTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "ValidateData";
-    }
-
-    @Override
     public String getName() {
         return "Validate Data";
     }

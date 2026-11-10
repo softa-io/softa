@@ -32,8 +32,8 @@ import static org.mockito.Mockito.verify;
 
 /**
  * Tests for {@link FlowInstanceServiceImpl#searchSummaries} — the filter and
- * projection builder shared by the caller's "my instances" reads (REST and
- * {@code FlowClient}) and the cross-initiator monitor endpoint.
+ * projection builder shared by the caller's "my instances" read and the
+ * cross-initiator monitor endpoint.
  */
 class FlowInstanceServiceImplSearchTest {
 
@@ -45,11 +45,8 @@ class FlowInstanceServiceImplSearchTest {
     private final ArgumentCaptor<Page<FlowInstance>> pageCaptor =
             ArgumentCaptor.forClass((Class<Page<FlowInstance>>) (Class<?>) Page.class);
 
-    private static FlowInstanceSearchRequest request(String initiatorId,
-                                                     LocalDateTime createdFrom, LocalDateTime createdTo,
-                                                     Integer pageNumber, Integer pageSize) {
-        return new FlowInstanceSearchRequest(null, null, initiatorId, null, null,
-                createdFrom, createdTo, null, null, null, null, null, null, null, null, pageNumber, pageSize);
+    private static FlowInstanceSearchRequest request(Integer pageNumber, Integer pageSize) {
+        return new FlowInstanceSearchRequest(null, null, null, pageNumber, pageSize);
     }
 
     private void runSearch(FlowInstanceSearchRequest request, String forcedInitiatorId) {
@@ -59,73 +56,51 @@ class FlowInstanceServiceImplSearchTest {
     }
 
     @Test
-    void forcedInitiatorOverridesRequestedInitiator() {
-        runSearch(request("someoneElse", null, null, null, null), "me");
-        String filters = queryCaptor.getValue().getFilters().toString();
-        assertTrue(filters.contains("\"me\"") || filters.contains("me"));
-        assertFalse(filters.contains("someoneElse"));
+    void theCallersOwnSearchIsPinnedToThem() {
+        runSearch(request(null, null), "me");
+        assertTrue(queryCaptor.getValue().getFilters().toString().contains("me"));
     }
 
     @Test
-    void monitorSearchHonorsRequestedInitiator() {
-        runSearch(request("targetUser", null, null, null, null), null);
-        assertTrue(queryCaptor.getValue().getFilters().toString().contains("targetUser"));
-    }
-
-    @Test
-    void monitorSearchWithoutInitiatorAppliesNoInitiatorFilter() {
-        runSearch(request(null, null, null, null, null), null);
+    void monitorSearchWithoutFiltersAppliesNoInitiatorFilter() {
+        runSearch(request(null, null), null);
         assertFalse(queryCaptor.getValue().getFilters().toString().contains("initiatorId"));
     }
 
     @Test
-    void createdRangeBoundsAreApplied() {
-        runSearch(request(null,
-                LocalDateTime.of(2026, 7, 1, 0, 0),
-                LocalDateTime.of(2026, 7, 14, 0, 0), null, null), null);
-        String filters = queryCaptor.getValue().getFilters().toString();
-        assertTrue(filters.contains("createdTime"));
-        assertTrue(filters.indexOf("createdTime") != filters.lastIndexOf("createdTime"),
-                "both bounds should produce a createdTime filter each");
-    }
-
-    @Test
     void theCallersOwnListKeepsTheirRecordApprovalsOnly() {
-        runSearch(request(null, null, null, null, null), "u1");
+        runSearch(request(null, null), "u1");
         assertTrue(queryCaptor.getValue().getFilters().toString().contains("recordApproval"));
     }
 
     @Test
     void theMonitorListKeepsEveryInstance() {
-        runSearch(request("u1", null, null, null, null), null);
+        runSearch(request(null, null), null);
         assertFalse(queryCaptor.getValue().getFilters().toString().contains("recordApproval"));
     }
 
     @Test
     void awaitingRevisionKeepsTheReturnedApprovalsNoLaterSubmissionReplaced() {
-        FlowInstanceSearchRequest request = new FlowInstanceSearchRequest(null, null, null, null, null, null, null,
-                null, null, null, null, null, true, null, null, null, null);
-        runSearch(request, "u1");
+        runSearch(new FlowInstanceSearchRequest(true, null, null, null, null), "u1");
         String filters = queryCaptor.getValue().getFilters().toString();
         assertTrue(filters.contains("Returned") && filters.contains("superseded"), filters);
     }
 
     @Test
     void summaryProjectionExcludesJsonStateColumns() {
-        runSearch(request(null, null, null, null, null), null);
+        runSearch(request(null, null), null);
         List<String> fields = queryCaptor.getValue().getFields();
-        assertEquals(24, fields.size());
+        assertEquals(23, fields.size());
         assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName", "scenario",
                 "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "status",
-                "failedNodeId", "retryAfterNodeId", "nextFireAt", "createdTime", "updatedTime",
+                "failedNodeId", "retryAfterNodeId", "createdTime", "updatedTime",
                 "subjectId", "departmentId", "effectiveDate", "recordCode", "summary", "superseded")));
         assertFalse(fields.contains("variables"));
-        assertFalse(fields.contains("inputPayload"));
         assertFalse(fields.contains("pendingApprovals"));
         assertFalse(fields.contains("waitTokens"));
     }
 
-    /** The task lists name each task's request from its instance, the summary line among it (zingkey-hcm#2350). */
+    /** The task lists name each task's request from its instance, the summary line among it. */
     @Test
     void theInstancesTheTaskListsReadCarryTheirSummary() {
         doReturn(List.of()).when(service).searchList(any(FlexQuery.class));
@@ -137,11 +112,11 @@ class FlowInstanceServiceImplSearchTest {
     }
 
     @Test
-    void theCallersOwnSearchAndsTheirFiltersOntoTheirPinAndTheTypedFilters() {
+    void theCallersOwnSearchAndsTheirFiltersOntoTheirPin() {
         try (MockedStatic<ModelManager> ignored = StoredFieldsFixture.mockModelManager(FlowInstance.class)) {
             runSearch(read("""
-                    {"recordCode": "EXP",
-                     "filters": [["title", "CONTAINS", "Taxi"], "OR", ["initiatorId", "=", "boss"]]}
+                    {"filters": [["recordCode", "CONTAINS", "EXP"], "AND",
+                                 [["title", "CONTAINS", "Taxi"], "OR", ["initiatorId", "=", "boss"]]]}
                     """), "me");
         }
         assertEquals(List.of("my taxi claim"), matched(),
@@ -153,7 +128,7 @@ class FlowInstanceServiceImplSearchTest {
     void theMonitorSearchAndsTheCallersFiltersOntoItsOwn() {
         try (MockedStatic<ModelManager> ignored = StoredFieldsFixture.mockModelManager(FlowInstance.class)) {
             runSearch(read("""
-                    {"initiatorId": "boss", "filters": ["title", "CONTAINS", "Taxi"],
+                    {"filters": [["initiatorId", "=", "boss"], "AND", ["title", "CONTAINS", "Taxi"]],
                      "orders": [["effectiveDate", "ASC"]]}
                     """), null);
         }
@@ -211,14 +186,14 @@ class FlowInstanceServiceImplSearchTest {
 
     @Test
     void pagingDefaultsToFirstPageOfFifty() {
-        runSearch(request(null, null, null, null, null), null);
+        runSearch(request(null, null), null);
         assertEquals(1, pageCaptor.getValue().getPageNumber());
         assertEquals(50, pageCaptor.getValue().getPageSize());
     }
 
     @Test
     void explicitPagingIsHonored() {
-        runSearch(request(null, null, null, 3, 20), null);
+        runSearch(request(3, 20), null);
         assertEquals(3, pageCaptor.getValue().getPageNumber());
         assertEquals(20, pageCaptor.getValue().getPageSize());
     }

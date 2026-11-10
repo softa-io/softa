@@ -17,11 +17,6 @@ public class RecordLookupDataTaskExecutor implements TaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "recordLookup";
-    }
-
-    @Override
     public String getName() {
         return "Record Lookup";
     }
@@ -36,7 +31,7 @@ public class RecordLookupDataTaskExecutor implements TaskExecutor {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("recordId", request.getInput().getOrDefault("id", variables.get("id")));
         result.put("found", true);
-        result.put("source", getExecutor());
+        result.put("source", "recordLookup");
         return result;
     }
 }

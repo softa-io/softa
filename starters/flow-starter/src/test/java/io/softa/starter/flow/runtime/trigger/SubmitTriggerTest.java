@@ -17,9 +17,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
-import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.ModelApprovalHandlerRegistry;
-import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 
@@ -38,7 +36,6 @@ class SubmitTriggerTest {
             @Override public CompiledFlowDefinition register(CompiledFlowDefinition d, DesignFlowDefinition design, String flowId) { return d; }
             @Override public Optional<CompiledFlowDefinition> getByBundleId(Long bundleId) { return Optional.empty(); }
             @Override public Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId) { return Optional.empty(); }
-            @Override public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) { return List.of(); }
             @Override public Collection<CompiledFlowDefinition> list() { return List.of(flows); }
         };
         return new DefaultFlowTriggerRegistry(bundleRegistry);
@@ -124,14 +121,6 @@ class SubmitTriggerTest {
         FlowTriggerEvent event = FlowTriggerEvent.builder().type("Submit").sourceModel("LeaveRequest").build();
 
         assertTrue(registry.findMatchingFlows(event).isEmpty());
-    }
-
-    @Test
-    void theTriggerEndpointRefusesTheSubmitType() {
-        FlowAutomationService automation = new FlowAutomationService(registryFor(), mock(FlowRuntimeEngine.class));
-        FlowTriggerEvent event = FlowTriggerEvent.builder().type("Submit").sourceModel("LeaveRequest").build();
-
-        assertThrows(FlowActionValidationException.class, () -> automation.fire(event));
     }
 
     @Test

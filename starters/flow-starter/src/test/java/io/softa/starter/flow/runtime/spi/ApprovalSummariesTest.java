@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-/** The pieces of an approval's summary line, written one way in every list (zingkey-hcm#2350). */
+/** The pieces of an approval's summary line, written one way in every list. */
 class ApprovalSummariesTest {
 
     @Test

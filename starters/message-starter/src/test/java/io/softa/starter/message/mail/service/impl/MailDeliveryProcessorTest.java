@@ -9,6 +9,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.mail.entity.MailSendRecord;
@@ -304,6 +305,24 @@ class MailDeliveryProcessorTest {
 
         verify(sendFailureHandler).handle(eq("mail"), eq(SmtpMailTransport.NAME), eq(5L), eq(4L), eq(0),
                 eq("MONTHLY_QUOTA_EXCEEDED"), contains("quota"), any(SendFailureHandler.RecordTransitions.class));
+        verify(recordService, never()).markPrepared(any(), anyLong());
+        verifyNoInteractions(smtpMailTransport);
+    }
+
+    @Test
+    void quotaCounterContention_isLeftToTheRetryPolicy() {
+        // Other sends of the bucket kept winning the counter's race: not "quota used up", so no
+        // MONTHLY_QUOTA_EXCEEDED marker that would fail the record for good.
+        MailTemplate template = template("WELCOME");
+        when(templateService.resolve("WELCOME", MessageScope.TENANT)).thenReturn(template);
+        when(dispatcher.resolveSend(MessageScope.TENANT)).thenReturn(config(10L));
+        doThrow(new VersionException("The usage counter kept changing; try again."))
+                .when(quotaGuard).consume(eq("mail"), anyLong());
+
+        processor.deliver(fresh("WELCOME"), 4L);
+
+        verify(sendFailureHandler).handle(eq("mail"), eq(SmtpMailTransport.NAME), eq(5L), eq(4L), eq(0),
+                isNull(), contains("try again"), any(SendFailureHandler.RecordTransitions.class));
         verify(recordService, never()).markPrepared(any(), anyLong());
         verifyNoInteractions(smtpMailTransport);
     }

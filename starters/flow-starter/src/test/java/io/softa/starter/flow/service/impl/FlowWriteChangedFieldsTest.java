@@ -13,7 +13,6 @@ import io.softa.starter.flow.dto.FlowDesignSaveRequest;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.entity.FlowDesign;
-import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.service.FlowBundleService;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -57,12 +56,12 @@ class FlowWriteChangedFieldsTest {
         FlowDesignServiceImpl service = designService();
         DesignFlowDefinition document = DesignFlowDefinition.builder().build();
 
-        service.saveDraft(FLOW, new FlowDesignSaveRequest(document, null, FlowScenario.APPROVAL, 3));
+        service.saveDraft(FLOW, new FlowDesignSaveRequest(document, null, 3));
 
         FlowDesign patch = written(service);
         assertEquals(FLOW, patch.getId());
         assertEquals(3, patch.getVersion());
-        assertEquals(FlowScenario.APPROVAL, patch.getScenario());
+        assertNull(patch.getScenario(), "the scenario, fixed when the flow was created, is not written");
         assertSame(document, patch.getDesignJson());
         assertNull(patch.getFlowName(), "a name the request leaves out is not written");
         assertNull(patch.getPublishedRevision());

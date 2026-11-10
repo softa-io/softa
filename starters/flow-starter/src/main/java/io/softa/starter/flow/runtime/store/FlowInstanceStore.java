@@ -38,11 +38,6 @@ public interface FlowInstanceStore {
     }
 
     /**
-     * List all instances of the given flow (trace not hydrated).
-     */
-    List<FlowExecutionState> listByFlowId(String flowId);
-
-    /**
      * List all instances matching the given execution status (trace not hydrated).
      * Abstract on purpose: timeout reminders and timer sweeps depend on it, so a
      * store that misses it must fail to compile instead of silently sweeping nothing.

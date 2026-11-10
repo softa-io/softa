@@ -95,7 +95,6 @@ public class ReassignActionHandler implements FlowActionHandler<FlowReassignRequ
             FlowExecutionState resumed = ContextUtils.withoutPermissionChecks(
                     () -> orchestrator.resumeApprovedNode(state, pendingApproval, ctx.definition(), ctx.node()));
             contextService.persistState(resumed);
-            notificationService.notify(new FlowNotificationEvent.TaskCompleted(resumed, pendingApproval, true));
             notificationService.notify(new FlowNotificationEvent.Reassigned(resumed, pendingApproval,
                     request.getActorId(), request.getTargetActorId(), request.getComment()));
             return resumed;

@@ -1,6 +1,5 @@
 package io.softa.starter.flow.runtime.handler;
 
-import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -34,14 +33,6 @@ public sealed interface NodeOutcome {
 
     /** APPROVAL: suspend the instance until an approval decision arrives. */
     record WaitApproval() implements NodeOutcome {
-        @Override
-        public Map<String, Object> outputs() {
-            return Map.of();
-        }
-    }
-
-    /** TIMER: suspend until {@code dueAt} fires ({@code null} = recovered by the timer sweep only). */
-    record WaitTimer(Instant dueAt) implements NodeOutcome {
         @Override
         public Map<String, Object> outputs() {
             return Map.of();

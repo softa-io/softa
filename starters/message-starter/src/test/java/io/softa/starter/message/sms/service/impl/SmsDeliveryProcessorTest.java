@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.shared.MonthlyQuotaGuard;
@@ -255,6 +256,27 @@ class SmsDeliveryProcessorTest {
 
         verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
                 eq("MONTHLY_QUOTA_EXCEEDED"), contains("quota"), any(SendFailureHandler.RecordTransitions.class));
+        verify(recordService, never()).markPrepared(any(), anyLong());
+        verifyNoInteractions(adapterFactory);
+    }
+
+    @Test
+    void quotaCounterContention_isLeftToTheRetryPolicy() {
+        // Other sends of the bucket kept winning the counter's race: not "quota used up", so no
+        // MONTHLY_QUOTA_EXCEEDED marker that would fail the record for good.
+        SmsTemplate template = new SmsTemplate();
+        template.setCode("user.verification-code");
+        when(templateService.resolve("user.verification-code", MessageScope.PLATFORM)).thenReturn(template);
+        when(templateService.renderContent(eq(template), any())).thenReturn("Your code is 123456");
+        when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
+                .thenReturn(new SmsRoutingPlanner.Plan(config(), null, null, "CN", null));
+        doThrow(new VersionException("The usage counter kept changing; try again."))
+                .when(quotaGuard).consume(eq("sms"), anyLong());
+
+        processor.deliver(fresh(), 3L);
+
+        verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
+                isNull(), contains("try again"), any(SendFailureHandler.RecordTransitions.class));
         verify(recordService, never()).markPrepared(any(), anyLong());
         verifyNoInteractions(adapterFactory);
     }

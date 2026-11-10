@@ -36,8 +36,8 @@ class ScenarioRulesCompileTest {
 
     private static final FlowGraphNode APPROVAL = FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL)
             .label("Manager").config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build();
-    private static final FlowGraphNode TIMER = FlowGraphNode.builder().id("timer").type(FlowNodeType.TIMER)
-            .label("Wait").config(Map.of("durationSeconds", 3600L)).build();
+    private static final FlowGraphNode ASYNC = FlowGraphNode.builder().id("async").type(FlowNodeType.ASYNC_TASK)
+            .label("Dispatch").config(Map.of("asyncTaskHandlerCode", "notify")).build();
 
     @Test
     void anApprovalNodeIsRefusedOutsideAnApprovalFlow() {
@@ -51,7 +51,7 @@ class ScenarioRulesCompileTest {
                 .config(Map.of("script", "days * 2", "outputVariable", "weight")).build();
         FlowGraphNode webhook = FlowGraphNode.builder().id("webhook").type(FlowNodeType.CALL_WEBHOOK).label("Notify")
                 .config(Map.of("url", "https://example.com/hook")).build();
-        for (FlowGraphNode other : List.of(TIMER, script, webhook)) {
+        for (FlowGraphNode other : List.of(ASYNC, script, webhook)) {
             assertTrue(has(flow(FlowScenario.APPROVAL, submit(), APPROVAL, other), "INVALID_SCENARIO_NODE", other.getId()),
                     other.getType().getType());
             assertFalse(has(flow(FlowScenario.AUTOMATION, new ApiTrigger(null), other), "INVALID_SCENARIO_NODE",
@@ -140,15 +140,15 @@ class ScenarioRulesCompileTest {
     void syncBelongsToAutomationFlowsThatDoNotWait() {
         assertTrue(has(builder(FlowScenario.APPROVAL, submit()).sync(true).build(), "SYNC_OUTSIDE_AUTOMATION", null));
         assertFalse(has(builder(FlowScenario.AUTOMATION, change()).sync(true).build(), "SYNC_OUTSIDE_AUTOMATION", null));
-        assertTrue(has(builder(FlowScenario.AUTOMATION, change(), TIMER).sync(true).build(), "SYNC_FLOW_WAITS", "timer"));
+        assertTrue(has(builder(FlowScenario.AUTOMATION, change(), ASYNC).sync(true).build(), "SYNC_FLOW_WAITS", "async"));
     }
 
     @Test
     void aFlowWithASubflowTriggerRunsInOneGoAndCannotWait() {
-        assertTrue(has(builder(FlowScenario.AUTOMATION, new SubflowTrigger(), TIMER).build(), "SUBFLOW_WAITS", "timer"));
+        assertTrue(has(builder(FlowScenario.AUTOMATION, new SubflowTrigger(), ASYNC).build(), "SUBFLOW_WAITS", "async"));
         assertFalse(has(builder(FlowScenario.AUTOMATION, new SubflowTrigger()).build(), "SUBFLOW_WAITS", null));
         // Started another way, an Automation flow may wait.
-        assertFalse(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null), TIMER).build(), "SUBFLOW_WAITS", null));
+        assertFalse(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null), ASYNC).build(), "SUBFLOW_WAITS", null));
     }
 
     private boolean has(DesignFlowDefinition definition, String code, String nodeId) {

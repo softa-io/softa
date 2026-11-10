@@ -66,16 +66,6 @@ public class FormPermissionService {
         return new HashMap<>(cfg.getFormPermissions());
     }
 
-    /** Check if a field is editable (editable or required). */
-    public static boolean isFieldEditable(CompiledFlowNode node, String fieldName) {
-        return isEditable(getFieldPermissions(node).get(fieldName));
-    }
-
-    /** Check if a field is required. */
-    public static boolean isFieldRequired(CompiledFlowNode node, String fieldName) {
-        return getFieldPermissions(node).get(fieldName) == FormFieldPermission.REQUIRED;
-    }
-
     /** The fields a node marks REQUIRED. */
     public static List<String> requiredFields(CompiledFlowNode node) {
         return getFieldPermissions(node).entrySet().stream()
@@ -83,11 +73,6 @@ public class FormPermissionService {
                 .map(Map.Entry::getKey)
                 .sorted()
                 .toList();
-    }
-
-    /** Check if a field is hidden. */
-    public static boolean isFieldHidden(CompiledFlowNode node, String fieldName) {
-        return getFieldPermissions(node).get(fieldName) == FormFieldPermission.HIDDEN;
     }
 
     /**

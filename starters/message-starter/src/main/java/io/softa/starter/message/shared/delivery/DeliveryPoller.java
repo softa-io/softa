@@ -3,6 +3,7 @@ package io.softa.starter.message.shared.delivery;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -12,8 +13,10 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -49,6 +52,14 @@ import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
  * leaving the worker idle. A record whose instance dies after claiming it stays SENDING until the
  * {@code ZombieRecordSweeper} revives it.
  * <p>
+ * A scan runs after every send, so its cost must not grow with the send log. It is two reads: PENDING
+ * oldest first by {@code updatedTime} (its write time — nothing touches a PENDING record before its
+ * claim) and due RETRY by {@code nextRetryAt}, each following the index that starts with its status and
+ * reading only the rows it returns. One query for both — {@code status = ? OR (status = ? AND …)}
+ * ordered by id — follows neither index: on PostgreSQL the generic plan a prepared statement settles on
+ * after a few executions walks the primary key from the oldest record and filters out the whole
+ * history, idle or not.
+ * <p>
  * The scan reads every tenant's records; each claim and each delivery runs in the record's own tenant
  * context, under the trace id of the request that submitted it, with permission checks skipped
  * (system work).
@@ -57,7 +68,7 @@ import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
 @Component
 public class DeliveryPoller implements DisposableBean {
 
-    /** Due records a scan reads per worker: enough that a lost claim has somewhere else to go. */
+    /** Due records a scan hands out per worker: enough that a lost claim has somewhere else to go. */
     static final int CANDIDATES_PER_WORKER = 4;
 
     /**
@@ -97,14 +108,16 @@ public class DeliveryPoller implements DisposableBean {
     }
 
     private List<Candidate> dueMail(int limit) {
-        Filters due = Filters.or(
-                new Filters().eq(MailSendRecord::getStatus, MailSendStatus.PENDING),
-                new Filters().eq(MailSendRecord::getStatus, MailSendStatus.RETRY)
-                        .le(MailSendRecord::getNextRetryAt, LocalDateTime.now()));
-        FlexQuery query = new FlexQuery(due, Orders.ofAsc(MailSendRecord::getId));
-        query.setLimitSize(limit);
+        FlexQuery pending = oldestFirst(new Filters().eq(MailSendRecord::getStatus, MailSendStatus.PENDING),
+                Orders.ofAsc(MailSendRecord::getUpdatedTime), limit);
+        FlexQuery retries = oldestFirst(new Filters().eq(MailSendRecord::getStatus, MailSendStatus.RETRY)
+                        .le(MailSendRecord::getNextRetryAt, LocalDateTime.now()),
+                Orders.ofAsc(MailSendRecord::getNextRetryAt), limit);
+        List<MailSendRecord> due = scan(() -> longestDue(mailRecords.searchList(pending),
+                mailRecords.searchList(retries),
+                r -> r.getStatus() == MailSendStatus.RETRY ? r.getNextRetryAt() : r.getUpdatedTime(), limit));
         List<Candidate> candidates = new ArrayList<>();
-        for (MailSendRecord record : scan(() -> mailRecords.searchList(query))) {
+        for (MailSendRecord record : due) {
             long version = record.getVersion() != null ? record.getVersion() : 0L;
             Context ctx = recordContext(record.getTenantId(), record.getTraceId());
             candidates.add(new Candidate(
@@ -115,14 +128,16 @@ public class DeliveryPoller implements DisposableBean {
     }
 
     private List<Candidate> dueSms(int limit) {
-        Filters due = Filters.or(
-                new Filters().eq(SmsSendRecord::getStatus, SmsSendStatus.PENDING),
-                new Filters().eq(SmsSendRecord::getStatus, SmsSendStatus.RETRY)
-                        .le(SmsSendRecord::getNextRetryAt, LocalDateTime.now()));
-        FlexQuery query = new FlexQuery(due, Orders.ofAsc(SmsSendRecord::getId));
-        query.setLimitSize(limit);
+        FlexQuery pending = oldestFirst(new Filters().eq(SmsSendRecord::getStatus, SmsSendStatus.PENDING),
+                Orders.ofAsc(SmsSendRecord::getUpdatedTime), limit);
+        FlexQuery retries = oldestFirst(new Filters().eq(SmsSendRecord::getStatus, SmsSendStatus.RETRY)
+                        .le(SmsSendRecord::getNextRetryAt, LocalDateTime.now()),
+                Orders.ofAsc(SmsSendRecord::getNextRetryAt), limit);
+        List<SmsSendRecord> due = scan(() -> longestDue(smsRecords.searchList(pending),
+                smsRecords.searchList(retries),
+                r -> r.getStatus() == SmsSendStatus.RETRY ? r.getNextRetryAt() : r.getUpdatedTime(), limit));
         List<Candidate> candidates = new ArrayList<>();
-        for (SmsSendRecord record : scan(() -> smsRecords.searchList(query))) {
+        for (SmsSendRecord record : due) {
             long version = record.getVersion() != null ? record.getVersion() : 0L;
             Context ctx = recordContext(record.getTenantId(), record.getTraceId());
             candidates.add(new Candidate(
@@ -130,6 +145,26 @@ public class DeliveryPoller implements DisposableBean {
                     () -> ContextHolder.runWith(ctx, () -> smsProcessor.deliver(record, version + 1))));
         }
         return candidates;
+    }
+
+    /** One read of a scan: a single status, oldest first along the index that starts with it. */
+    private static FlexQuery oldestFirst(Filters filters, Orders order, int limit) {
+        FlexQuery query = new FlexQuery(filters, order);
+        query.setLimitSize(limit);
+        return query;
+    }
+
+    /**
+     * The {@code limit} records that have been due longest, out of the PENDING read and the due RETRY
+     * read: a PENDING record has been due since it was written, a RETRY one since its
+     * {@code nextRetryAt}.
+     */
+    private static <R> List<R> longestDue(List<R> pending, List<R> retries,
+                                          Function<R, LocalDateTime> dueSince, int limit) {
+        return Stream.concat(pending.stream(), retries.stream())
+                .sorted(Comparator.comparing(dueSince, Comparator.nullsFirst(Comparator.naturalOrder())))
+                .limit(limit)
+                .toList();
     }
 
     /** Reads due records across tenants, from the scheduler thread or from a worker alike. */

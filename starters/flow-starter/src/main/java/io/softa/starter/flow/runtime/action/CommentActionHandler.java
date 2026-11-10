@@ -63,7 +63,6 @@ public class CommentActionHandler implements FlowActionHandler<FlowCommentReques
                 .flowRevision(definition.getRevision())
                 .actorId(request.getActorId())
                 .comment(request.getComment())
-                .nodeId(request.getNodeId())
                 .statusBefore(statusBefore)
                 .statusAfter(statusBefore)
                 .build());

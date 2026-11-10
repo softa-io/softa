@@ -64,10 +64,10 @@ class FlowDesignTriggerModelTest {
         doReturn(Optional.of(automation("Employee"))).when(service).getById("flow-1");
 
         service.saveDraft("flow-1", new FlowDesignSaveRequest(
-                definition(new EntityChangeTrigger("Department", List.of(), null)), null, null, 1));
+                definition(new EntityChangeTrigger("Department", List.of(), null)), null, 1));
         assertEquals("Department", saved().getModelName());
 
-        service.saveDraft("flow-1", new FlowDesignSaveRequest(definition(new ApiTrigger(null)), null, null, 2));
+        service.saveDraft("flow-1", new FlowDesignSaveRequest(definition(new ApiTrigger(null)), null, 2));
         // a trigger that starts on no record clears the model, which a patch alone cannot say
         verify(rows).updateOne(eq(FlowDesign.class.getSimpleName()), argThat(row -> row.containsKey("modelName")
                 && row.get("modelName") == null && Integer.valueOf(2).equals(row.get("version"))));
@@ -78,7 +78,7 @@ class FlowDesignTriggerModelTest {
         doReturn(Optional.of(approval("LeaveRequest"))).when(service).getById("flow-1");
 
         service.saveDraft("flow-1", new FlowDesignSaveRequest(
-                definition(new SubmitTrigger("ExpenseClaim", "leaveRequestType == 'Leave'")), null, null, 1));
+                definition(new SubmitTrigger("ExpenseClaim", "leaveRequestType == 'Leave'")), null, 1));
 
         FlowDesign saved = saved();
         assertEquals("LeaveRequest", saved.getModelName());

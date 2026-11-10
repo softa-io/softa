@@ -34,8 +34,7 @@ import static org.mockito.Mockito.mockStatic;
  * <p>
  * <b>A failing fixture means the change needs a migration SQL that rewrites the stored rows, shipped with it — never
  * edit the fixture to match the code.</b> Add a fixture when a new shape reaches a database.
- * {@code flow_bundle.compiled_json} repeats these codes and adds its own (each node's {@code errorConfig.strategy});
- * it has no fixture here.
+ * {@code flow_bundle.compiled_json} repeats these codes; it has no fixture here.
  */
 class StoredDesignJsonTest {
 
@@ -45,7 +44,9 @@ class StoredDesignJsonTest {
     /**
      * Each fixture is the {@code designJson} of a zingkey-hcm seed some database has loaded:
      * {@code expense-claim-2026-10-27} is 9663e026's with {@code scenario} rewritten Process → Approval, as the
-     * hand-written SQL did — its {@code allowInitiatorWithdraw} is no longer a property and reads as absent
+     * hand-written SQL did, and its one {@code Skip} empty-approver strategy rewritten to {@code AutoApprove}, as
+     * Release-20261113's {@code 02-before-jar-skip-to-auto-approve.sql} does — its {@code allowInitiatorWithdraw} is
+     * no longer a property and reads as absent
      * (Release-20261030's {@code 01-before-jar-withdraw-policy.sql} moves it to {@code withdrawPolicy}); the two of
      * 2026-10-31 are 58127bc7's. The approval steps of those three name one {@code approverSource}, no longer a
      * property either and read as absent: Release-20261113's {@code 01-before-jar-approvers-to-source.sql} moves it

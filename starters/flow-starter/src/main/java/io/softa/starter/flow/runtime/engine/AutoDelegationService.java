@@ -78,7 +78,6 @@ public class AutoDelegationService {
 
         if (changed) {
             pending.setApprovers(approvers);
-            pending.setTotalApproverCount(approvers.size());
         }
     }
 

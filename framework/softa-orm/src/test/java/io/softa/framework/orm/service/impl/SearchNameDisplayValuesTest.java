@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
  * A name search reads its display fields as references, so a relation or an option among them comes back as a
  * {@link ModelReference} or an {@link OptionReference}; the name it composes takes their names and labels.
  * Joined as they came, a salary item's version read "ModelReference(id=…, displayName=Basic Monthly Salary) /
- * 2026-10-01" in every picker and table that named it (#2315).
+ * 2026-10-01" in every picker and table that named it.
  */
 class SearchNameDisplayValuesTest {
 

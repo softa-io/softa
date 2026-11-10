@@ -11,8 +11,5 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @Schema(name = "FlowCommentRequest")
 public class FlowCommentRequest extends AbstractFlowInstanceRequest {
-
-    @Schema(description = "Optional node id this comment relates to")
-    private String nodeId;
 }
 

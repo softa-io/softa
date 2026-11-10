@@ -179,7 +179,10 @@ the ORM's optimistic-lock CAS — the same `versionLock` pattern as the
 delivery state machine — with each attempt in its own `REQUIRES_NEW`
 transaction (a lost race retries on a fresh read and can never poison the
 delivery attempt; consequence: a preparation that is not written back keeps its
-increment — a rare, reconcilable over-count). There is no reset job — a new
+increment — a rare, reconcilable over-count). Every delivery worker of every
+instance charges the same row while one bucket's sends are being prepared, so a
+lost race is ordinary: after five in a row the attempt gives up as transient
+and the record goes to `RETRY` — never `FAILED` as over quota. There is no reset job — a new
 month simply starts a new row — and rows are never expired, so per-tenant
 consumption history is a plain model query, with the ceiling in force
 snapshotted onto each row. `GET /TenantMessageQuota/usage?tenantId=` serves
@@ -212,7 +215,11 @@ Every `MessageService.sendMail(...)` / `sendSms(...)` call follows the same path
    server's limit on concurrent connections per account (each mail worker holds
    one). Each scan reads a few due records per worker and tries them in random
    order, so a claim lost to another worker or instance moves on to the next
-   record.
+   record. A scan is two reads — `PENDING` oldest first by `updated_time`, due
+   `RETRY` by `next_retry_at` — each along the index that starts with its status,
+   so its cost does not grow with the send log. One `status = … OR …` query
+   ordered by id would: on PostgreSQL the generic plan a prepared statement
+   settles on walks the primary key through the whole history, idle or not.
 3. The channel's `DeliveryProcessor` **prepares** a record on its first attempt:
    it renders the template and applies its defaults, chooses the server (mail)
    or routes the number to a provider (SMS), and charges the monthly quota, last.
@@ -276,8 +283,9 @@ Earlier releases delivered through a `message_outbox` table and the `mail-send` 
 - Remove those four topic entries from the application config; nothing reads
   them any more.
 - These properties are gone; their values are constants now, or the behaviour
-  is always on: `softa.message.delivery.*` (every instance with message-starter
-  runs the delivery loop and the stale-send sweep), `softa.message.zombie.*`,
+  is always on: `softa.message.outbox.*` (`enabled`, `poll-interval-ms`; every
+  instance with message-starter runs the delivery loop and the stale-send sweep),
+  `softa.message.zombie.*`,
   `softa.message.retry.*`, `softa.message.mail.max-body-chars`,
   `softa.message.mail.smtp-pool.*` (connection reuse is a switch on each
   server config now, see below), and `softa.message.mail.fetch.*`. Remove them
@@ -310,9 +318,10 @@ Earlier releases delivered through a `message_outbox` table and the `mail-send` 
   record whose server config had no from address was stored with an empty
   `from_address` and is prepared again on its first attempt here, which charges
   the monthly quota a second time.
-- The scanner adds the new record columns (`platform_scope`, `template_id`,
-  `template_code`, `template_variables`, `trace_id`) and makes
-  `mail_send_record.body_mode` nullable. It never drops a removed model's table,
+- The scanner adds the new record columns — `platform_scope`, `template_id`,
+  `template_code`, `template_variables`, `trace_id` on `mail_send_record`;
+  `platform_scope`, `template_variables`, `trace_id` on `sms_send_record` — and
+  makes `mail_send_record.body_mode` nullable. It never drops a removed model's table,
   so `message_outbox` and the `OutboxEntry` / `OutboxStatus` / `TopicRoute`
   catalog rows stay until the deploying application removes them with a release
   script, after the new jar is up. Rows still `NEW` in `message_outbox` at that

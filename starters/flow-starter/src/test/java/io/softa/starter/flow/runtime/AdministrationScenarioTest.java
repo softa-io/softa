@@ -193,7 +193,6 @@ class AdministrationScenarioTest {
 
         PendingApproval step = state.getPendingApprovals().getFirst();
         assertEquals(List.of(BOB), step.getApprovers());
-        assertEquals(1, step.getTotalApproverCount());
         assertEquals(1, step.getRequiredApprovalCount(), "no more approvals than approvers");
     }
 

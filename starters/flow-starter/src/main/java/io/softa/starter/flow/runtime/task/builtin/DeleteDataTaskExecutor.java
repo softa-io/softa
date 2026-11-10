@@ -43,11 +43,6 @@ public class DeleteDataTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "DeleteData";
-    }
-
-    @Override
     public String getName() {
         return "Delete Data";
     }

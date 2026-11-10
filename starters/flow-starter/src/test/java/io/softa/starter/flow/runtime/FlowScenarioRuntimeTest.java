@@ -26,10 +26,12 @@ import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.SubflowNodeExecutionHandler;
-import io.softa.starter.flow.runtime.handler.TimerNodeExecutionHandler;
+import io.softa.starter.flow.runtime.handler.TaskNodeExecutionHandler;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.task.DispatchOnlyAsyncTaskExecutor;
+import io.softa.starter.flow.runtime.task.builtin.DefaultTaskExecutorRegistry;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -55,7 +57,7 @@ class FlowScenarioRuntimeTest {
             new DefaultNodeHandlerRegistry(List.of(
                     approvalHandler,
                     new SubflowNodeExecutionHandler(),
-                    new TimerNodeExecutionHandler(),
+                    new TaskNodeExecutionHandler(new DefaultTaskExecutorRegistry(List.of(new DispatchOnlyAsyncTaskExecutor()))),
                     new PassThroughNodeExecutionHandler())),
             approvalHandler,
             notices::add);
@@ -81,14 +83,14 @@ class FlowScenarioRuntimeTest {
         approve.setActorId("manager");
         engine.approve(approve);
 
-        assertTrue(notices.stream().anyMatch(n -> n instanceof FlowNotificationEvent.FlowCompleted c && c.approved()));
+        assertTrue(notices.stream().anyMatch(n -> n instanceof FlowNotificationEvent.FlowCompleted));
     }
 
     @Test
     void onlyAnApprovalCanBeWithdrawn() {
         publishService.publish("delayed", flow(FlowScenario.AUTOMATION, new ApiTrigger(null),
-                FlowGraphNode.builder().id("timer").type(FlowNodeType.TIMER).label("Wait")
-                        .config(Map.of("durationSeconds", 3600L)).build()));
+                FlowGraphNode.builder().id("dispatch").type(FlowNodeType.ASYNC_TASK).label("Dispatch")
+                        .config(Map.of("asyncTaskHandlerCode", "notify")).build()));
         FlowExecutionState waiting = engine.startAutomation(start("delayed", "user-1"));
         assertEquals(FlowExecutionStatus.WAITING, waiting.getStatus());
 
@@ -117,7 +119,7 @@ class FlowScenarioRuntimeTest {
                 () -> engine.startAutomation(start("parent", "user-1")));
 
         assertTrue(failure.getMessage().contains("Subflow trigger"), failure.getMessage());
-        FlowExecutionState parent = instanceStore.listByFlowId("parent").getFirst();
+        FlowExecutionState parent = instanceStore.listByStatus(FlowExecutionStatus.FAILED).getFirst();
         assertEquals(FlowExecutionStatus.FAILED, parent.getStatus());
         assertEquals("subflow", parent.getFailedNodeId());
         assertTrue(notices.stream().anyMatch(FlowNotificationEvent.FlowFailed.class::isInstance), "who is told");

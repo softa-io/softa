@@ -196,7 +196,7 @@ class ApprovalFormWriteServiceTest {
 
     /**
      * A table holds a value while it keeps a row. Before any write, an empty one — stored, or sent whole — is refused
-     * like a blank field (zingkey-hcm#2449).
+     * like a blank field.
      */
     @Test
     void anEmptyRequiredTableIsRefusedBeforeAnyWrite() {
@@ -250,7 +250,7 @@ class ApprovalFormWriteServiceTest {
 
     /**
      * An approver's edits meet the model's own rules, as its page applies them on save: the handler sees the record as
-     * the edits left it and the fields they wrote — after the write, before the flow routes on it (zingkey-hcm#2323).
+     * the edits left it and the fields they wrote — after the write, before the flow routes on it.
      */
     @Test
     void anApproversEditsAreHeldToTheModelsOwnRules() {

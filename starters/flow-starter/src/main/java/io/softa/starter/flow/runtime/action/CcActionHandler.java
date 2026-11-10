@@ -66,8 +66,7 @@ public class CcActionHandler implements FlowActionHandler<FlowCcRequest> {
         actorValidator.validateCcRecipients(chosen);
         List<String> recipients = chosen.stream()
                 .filter(recipient -> !pendingApproval.getApprovers().contains(recipient))
-                .filter(recipient -> auditService.findCcAudit(state, node.getNodeId(), pendingApproval.getCycleNumber(),
-                        recipient).isEmpty())
+                .filter(recipient -> auditService.findCcAudit(state, node.getNodeId(), recipient).isEmpty())
                 .toList();
         if (recipients.isEmpty()) {
             throw new FlowActionValidationException(

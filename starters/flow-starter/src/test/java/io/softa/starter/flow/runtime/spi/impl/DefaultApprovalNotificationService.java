@@ -6,8 +6,8 @@ import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 
 /**
- * Log-only implementation that records each event with its key fields — for tests and demos. The
- * registered default is {@link InboxApprovalNotificationService}.
+ * Log-only implementation that records each event with its key fields — for the engine's tests. The
+ * registered default is {@link MessageApprovalNotificationService}.
  */
 @Slf4j
 public class DefaultApprovalNotificationService implements ApprovalNotificationService {
@@ -17,13 +17,12 @@ public class DefaultApprovalNotificationService implements ApprovalNotificationS
         String summary = switch (event) {
             case FlowNotificationEvent.TaskAssigned    e -> "task assigned: node=" + e.pendingApproval().getNodeId()
                     + ", approvers=" + e.pendingApproval().getApprovers();
-            case FlowNotificationEvent.TaskCompleted   e -> "task completed: node=" + e.pendingApproval().getNodeId()
-                    + ", approved=" + e.approved();
+            case FlowNotificationEvent.Rejected        e -> "rejected: node=" + e.pendingApproval().getNodeId();
             case FlowNotificationEvent.TaskTransferred e -> "task transferred: node=" + e.pendingApproval().getNodeId()
                     + ", newActor=" + e.newActorId();
             case FlowNotificationEvent.TimeoutReminded e -> "timeout reminder: node=" + e.pendingApproval().getNodeId()
                     + ", count=" + e.remindCount();
-            case FlowNotificationEvent.FlowCompleted   e -> "flow completed: approved=" + e.approved();
+            case FlowNotificationEvent.FlowCompleted   e -> "flow completed";
             case FlowNotificationEvent.Urged           e -> "urged: urger=" + e.urgerId()
                     + ", recipients=" + e.pendingActorIds();
             case FlowNotificationEvent.CcSent          e -> "CC sent: node=" + e.nodeId()

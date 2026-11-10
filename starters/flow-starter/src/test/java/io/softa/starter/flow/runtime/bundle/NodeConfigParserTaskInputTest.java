@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * A task node's input, however its config holds it: the designer writes the executor's fields at the top, as the
  * executor's descriptor lists them; a hand-written design may nest them under {@code input}; either may sit inside
- * {@code task}. Read only from {@code input}, a designed node ran with none (zingkey-hcm#2384).
+ * {@code task}. Read only from {@code input}, a designed node ran with none.
  */
 class NodeConfigParserTaskInputTest {
 
@@ -20,14 +20,12 @@ class NodeConfigParserTaskInputTest {
         TaskNodeConfig config = parse(Map.of(
                 "url", "https://example.com/hook",
                 "method", "POST",
-                "outputVariable", "response",
-                "options", Map.of("timeoutSeconds", 5)));
+                "outputVariable", "response"));
 
         assertThat(config.getInput()).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "url", "https://example.com/hook",
                 "method", "POST"));
         assertThat(config.getOutputVariable()).isEqualTo("response");
-        assertThat(config.getOptions()).containsEntry("timeoutSeconds", 5);
     }
 
     @Test

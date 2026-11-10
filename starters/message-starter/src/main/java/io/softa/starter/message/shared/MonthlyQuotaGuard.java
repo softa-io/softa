@@ -55,6 +55,8 @@ public class MonthlyQuotaGuard {
      * ("mail" / "sms") from {@code bucketTenantId}, or reject.
      *
      * @throws BusinessException when the bucket's monthly limit is exhausted
+     * @throws io.softa.framework.base.exception.VersionException when concurrent
+     *         sends of the bucket kept winning the counter's race (transient)
      */
     public void consume(String channel, long bucketTenantId) {
         TenantMessageQuotaService.ResolvedLimits limits = quotaService.resolveLimits(bucketTenantId);

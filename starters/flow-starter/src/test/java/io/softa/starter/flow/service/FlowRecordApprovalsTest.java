@@ -143,7 +143,7 @@ class FlowRecordApprovalsTest {
         when(organization.getUsersByIds(anyList())).thenReturn(List.of(
                 new ApproverInfo(1001L, "Alice"), new ApproverInfo(2001L, "Bob"), new ApproverInfo(2002L, "Carol")));
 
-        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, (view, approvals) -> {});
 
         assertEquals(List.of("new", "old"),
                 history.getInstances().stream().map(FlowRecordApprovalsView.Instance::getInstanceId).toList());
@@ -166,7 +166,7 @@ class FlowRecordApprovalsTest {
         instances.getLast().setErrorMessage("Approval node 'approval' resolved an empty approver list (strategy=ERROR)");
         instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
 
-        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, (view, approvals) -> {});
 
         // Not after an approval: nothing to run again — its submitter takes the record back.
         assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager",
@@ -183,7 +183,7 @@ class FlowRecordApprovalsTest {
         instances.getLast().setRetryAfterNodeId("approval");
         instances.getLast().setErrorMessage("Webhook answered 502");
 
-        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, (view, approvals) -> {});
 
         assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager", "Webhook answered 502", true),
                 history.getInstances().getFirst().getFailure());
@@ -194,7 +194,7 @@ class FlowRecordApprovalsTest {
         CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
         instance("i1", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
 
-        assertThrows(FlowAuthorizationException.class, () -> service.recordApprovals(MODEL, ROW, view -> {
+        assertThrows(FlowAuthorizationException.class, () -> service.recordApprovals(MODEL, ROW, (view, approvals) -> {
             throw new FlowAuthorizationException("no");
         }));
         verify(organization, never()).getUsersByIds(anyList());
@@ -421,17 +421,22 @@ class FlowRecordApprovalsTest {
                 .instanceId("i1")
                 .initiator(new FlowRecordApprovalsView.Actor("1001", "Alice"))
                 .pending(List.of())
-                .actions(List.of(FlowRecordApprovalsView.Action.builder()
-                        .action(ApprovalActionType.APPROVE).actor(new FlowRecordApprovalsView.Actor("2001", "Bob")).build()))
                 .build()));
+        // The approval the history was built from: Alice submitted it, Bob approved it.
+        List<FlowInstanceService.RecordApproval> approvals = List.of(new FlowInstanceService.RecordApproval(
+                FlowExecutionState.builder().instanceId("i1").initiatorId("1001").pendingApprovals(List.of()).build(),
+                List.of(ApprovalActionAuditEntry.builder().action(ApprovalActionType.APPROVE).actorId("2001").build())));
         when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.empty());
 
-        assertDoesNotThrow(() -> guard.requireRecordViewer(MODEL, ROW, history, "1001"));
-        assertDoesNotThrow(() -> guard.requireRecordViewer(MODEL, ROW, history, "2001"));
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordViewer(MODEL, ROW, history, "9999"));
+        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "1001"));
+        assertTrue(history.getInstances().getFirst().isViewable(), "a participant opens it");
+        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "2001"));
+        assertThrows(FlowAuthorizationException.class,
+                () -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "9999"));
 
         when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.of(Map.of("id", 7L)));
-        assertDoesNotThrow(() -> guard.requireRecordViewer(MODEL, ROW, history, "9999"));
+        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "9999"));
+        assertTrue(history.getInstances().getFirst().isViewable(), "a reader of the record opens it");
     }
 
     @Test

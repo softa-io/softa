@@ -43,7 +43,6 @@ public class GatewayValidator implements FlowValidator {
     private static final String INSUFFICIENT_GATEWAY_EDGES = "INSUFFICIENT_GATEWAY_EDGES";
     private static final String MULTIPLE_DEFAULT_EDGES     = "MULTIPLE_DEFAULT_EDGES";
     private static final String INVALID_CONDITION_EXPR     = "INVALID_CONDITION_EXPR";
-    private static final String UNKNOWN_ROUTING_EDGE       = "UNKNOWN_ROUTING_EDGE";
     private static final String CONFLICTING_EDGE_CONDITIONS = "CONFLICTING_EDGE_CONDITIONS";
     private static final String RULE_WITHOUT_RECORD        = "RULE_WITHOUT_RECORD";
     private static final String INVALID_RULE_CONDITION     = "INVALID_RULE_CONDITION";
@@ -131,13 +130,9 @@ public class GatewayValidator implements FlowValidator {
                                                 TriggerSource trigger,
                                                 String modelName,
                                                 List<CompileDiagnostic> d) {
+        // Outgoing edge ids come from the edge map itself (FlowGraphContext), so each names an edge.
         for (String edgeId : outgoingEdgeIds == null ? Collections.<String>emptyList() : outgoingEdgeIds) {
             FlowGraphEdge edge = context.edgeMap().get(edgeId);
-            if (edge == null) {
-                d.add(CompileDiagnostic.nodeLevel(nodeId, nodeType, UNKNOWN_ROUTING_EDGE,
-                        "Node '" + context.nodeName(nodeId) + "' references unknown outgoing edge '" + edgeId + "'"));
-                continue;
-            }
             String edgeName = context.edgeName(edge.getId());
             boolean rule = !Filters.isEmpty(edge.getCondition());
             if (rule && StringUtils.hasText(edge.getConditionExpression())) {
@@ -182,7 +177,7 @@ public class GatewayValidator implements FlowValidator {
     /**
      * A node that picks one of several edges by their conditions has a default — an edge without a condition, taken
      * when none holds. Without one, a request no condition fits has nowhere to go: its submission is refused, or,
-     * after an approval, the instance fails (zingkey-hcm#2382). A node whose only edge has a condition is not one: a
+     * after an approval, the instance fails. A node whose only edge has a condition is not one: a
      * request that does not fit ends its branch there. An inclusive gateway is not held to it — its branches, the
      * default included, are paired with a join — and stops the same way when none of its conditions holds.
      */

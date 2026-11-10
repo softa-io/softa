@@ -28,18 +28,7 @@ public final class ChangeLogTriggerMapper {
     }
 
     /**
-     * Map a list of change logs to trigger events.
-     *
-     * @param changeLogs the change logs from a transaction or MQ message
-     * @param actorId    the actor id (user who initiated the change)
-     * @return list of trigger events, one per change log
-     */
-    public static List<FlowTriggerEvent> mapChangeLogs(List<ChangeLog> changeLogs, String actorId) {
-        return mapChangeLogs(changeLogs, actorId, model -> true);
-    }
-
-    /**
-     * Map only the change logs of models {@code watchedModel} accepts; it is asked once per model.
+     * Map the change logs of models {@code watchedModel} accepts; it is asked once per model.
      *
      * @param changeLogs   the change logs from a transaction or MQ message
      * @param actorId      the actor id (user who initiated the change)
