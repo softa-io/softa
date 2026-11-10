@@ -298,7 +298,10 @@ public interface PermissionService {
     /**
      * Whether the caller holds the export of {@code model}. The export endpoints are shared by every model,
      * so the endpoint gate admits anyone holding the export of some model; the export asks here, naming
-     * the model, before it reads a row. A model with no export permission registered is granted.
+     * the model, before it reads a row. A tenant admin is asked the same way, against its own permission
+     * set; only the platform administrator passes outright. A model with no export permission registered
+     * is granted when its rows are a tenant's own — under multi-tenancy a shared model's rows are every
+     * tenant's, and inside a tenant it is refused.
      *
      * <p>Default: granted.
      *
@@ -315,8 +318,8 @@ public interface PermissionService {
      * <p>The import endpoints are shared by every model — the model rides in a template or a request
      * part — so the endpoint gate admits anyone holding the import of <em>some</em> model and cannot
      * have authorized this one. The import service asks here, naming the model, before it reads a row.
-     * A model with no import permission registered is granted, as {@link #hasModelActionGrant} grants
-     * an unregistered model.
+     * Answered as {@link #hasModelExportGrant} is: a tenant admin is asked too, and a model with no
+     * import permission registered is granted only when its rows are a tenant's own.
      *
      * <p>Default: granted.
      *

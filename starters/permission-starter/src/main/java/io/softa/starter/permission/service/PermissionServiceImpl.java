@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
@@ -2137,22 +2138,40 @@ public class PermissionServiceImpl implements PermissionService {
      */
     @Override
     public boolean hasModelExportGrant(String model) {
-        if (shouldBypass() || model == null) return true;
-        EndpointIndex endpointIndex = endpointIndexSupplier.get();
-        if (endpointIndex == null) return true;
-        PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return true;
-        return holdsAny(pi, endpointIndex.actionPermissions(model, "export"));
+        return hasModelTransferGrant(model, "export");
     }
 
     @Override
     public boolean hasModelImportGrant(String model) {
+        return hasModelTransferGrant(model, "import");
+    }
+
+    /**
+     * Whether the caller may export or import {@code model}.
+     *
+     * <p>Only the platform administrator passes outright. A tenant admin is asked like everyone else,
+     * against its own permission set: the import and export endpoints serve every model, the model
+     * rides in a parameter that no platform-only pattern matches, and a tenant admin reads with no row
+     * scope — so waving it through handed every tenant's admin the rows of the platform's shared
+     * models: each person's credentials, every tenant's record, the seed ledger. Its permission set
+     * already leaves out the platform's navigations and the modules the plan does not entitle, which
+     * is exactly what it may move in and out.
+     *
+     * <p>A model with no such permission registered is granted only when its rows are a tenant's own.
+     * Under multi-tenancy a shared model's rows are every tenant's, and inside a tenant nothing would
+     * narrow them; a single-tenant deployment has no other tenant to keep them from.
+     */
+    private boolean hasModelTransferGrant(String model, String action) {
         if (shouldBypass() || model == null) return true;
         EndpointIndex endpointIndex = endpointIndexSupplier.get();
         if (endpointIndex == null) return true;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return true;
-        return holdsAny(pi, endpointIndex.actionPermissions(model, "import"));
+        if (PermissionInfo.isSuperAdmin(pi)) return true;
+        Set<String> candidates = endpointIndex.actionPermissions(model, action);
+        if (candidates.isEmpty()) {
+            return !SystemConfig.env.isEnableMultiTenancy() || ModelManager.isMultiTenantModel(model);
+        }
+        return holdsAny(pi, candidates);
     }
 
     /** Whether the caller holds one of {@code candidates}; an empty set — nothing registered — grants. */
