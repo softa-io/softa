@@ -14,6 +14,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.domain.SubQuery;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
@@ -92,6 +93,31 @@ class OneToManyDeletedRowsTest {
         subQuery.setCount(true);
 
         FlexQuery sent = expansionQueryFor(subQuery);
+
+        assertThat(sent.getFilterControl().isSkipSoftDelete()).isFalse();
+        assertThat(sent.getFilterControl().isSkipActiveControl()).isTrue();
+    }
+
+    /** A read that does not expand the field: it shows the children by their display names. */
+    private static FlexQuery displayNameQuery() {
+        try (MockedStatic<ReflectTool> reflect = mockStatic(ReflectTool.class);
+             MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
+            reflect.when(() -> ReflectTool.searchNameIgnoringRowScope(eq(RELATED), any(FlexQuery.class)))
+                    .thenReturn(List.of());
+            FlexQuery mainQuery = new FlexQuery();
+            mainQuery.setConvertType(ConvertType.DISPLAY);
+
+            new OneToManyProcessor(oneToMany(), AccessType.READ, mainQuery).batchProcessOutputRows(mainRows());
+
+            ArgumentCaptor<FlexQuery> sent = ArgumentCaptor.forClass(FlexQuery.class);
+            reflect.verify(() -> ReflectTool.searchNameIgnoringRowScope(eq(RELATED), sent.capture()));
+            return sent.getValue();
+        }
+    }
+
+    @Test
+    void theDisplayNamesLeaveOutTheDeleted() {
+        FlexQuery sent = displayNameQuery();
 
         assertThat(sent.getFilterControl().isSkipSoftDelete()).isFalse();
         assertThat(sent.getFilterControl().isSkipActiveControl()).isTrue();
