@@ -1,13 +1,12 @@
 package io.softa.starter.user.spi;
 
 /**
- * Push-device registrations, owned by whichever module sends APP push notifications.
+ * What the account flows need of the push-device registrations, implemented by {@code AppPushDeviceServiceImpl}.
  *
  * <p>The account flows only need to drop registrations — on logout (this device), on Reset User and
  * password reset (every device of the person), and when an account is frozen or closed (its
- * devices) — so that is all this asks. Optional: without a push module there is
- * nothing registered and nothing to drop. A module that also wants registrations gone whenever a
- * session ends listens for {@code SessionRevokedEvent} instead.
+ * devices) — so that is all this asks. Registrations also go whenever a session ends, through
+ * {@code SessionRevokedEvent}.
  */
 public interface PushDeviceRegistry {
 

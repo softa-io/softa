@@ -9,6 +9,19 @@
       "tenantJobMode": "PerTenant",
       "active": true,
       "description": "Re-evaluate each role's dynamic_filter and refresh the DYNAMIC user_role rows. PerTenant: the scheduler fans out one message per active tenant; user-starter's UserMaintenanceCronConsumer runs syncAll under that tenant context."
+    },
+    {
+      "id": "DropStalePushDevices",
+      "name": "DropStalePushDevices",
+      "cronExpression": "0 40 3 * * ?",
+      "cronSemantic": "Every day at 03:40",
+      "tenantJobMode": "CrossTenant",
+      "limitExecution": false,
+      "remainingCount": -1,
+      "redoMisfire": true,
+      "priority": 5,
+      "active": true,
+      "description": "Nightly. Removes APP push-device registrations not seen for a session's lifetime (seven days): their session has ended on its own, which announces nothing. Senders already skip them; this only keeps the table small."
     }
   ]
 }

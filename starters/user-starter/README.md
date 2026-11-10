@@ -66,6 +66,7 @@ hops through `profileId` first.
 | `UserLoginHistory` | Login audit | `userId`, `loginMethod`, `ipAddress`, `userAgent`, `location`, `status` |
 | `UserAuthFailure` | Failed-auth audit | `userId`, `failureReason`, `ipAddress`, `userAgent` |
 | `UserListViewPreference` | One person's arrangement of one list (see [List arrangements](#list-arrangements)) | `userId`, `viewStateKey`, `modelName`, `columns`, `exportFields`, `exportObjectFields`, `viewSettings` |
+| `AppPushDevice` | A device the APP registered for push notifications (see [Push devices](#push-devices)) | `tenantId`, `deviceToken` (unique), `platform`, `accountId`, `profileId`, `sessionKey`, `lastSeenAt`, `appVersion`, `deviceModel`, `locale` |
 
 Wherever another row references an account or a picker lists accounts, the account
 shows as `nickname / username` (`@Model(displayName)`): the person's name and the
@@ -182,6 +183,26 @@ entitlement is installed. `modelHiddenFieldsMap` and `empId` are computed per re
 the cached snapshot. A field hidden only on some records is not in `modelHiddenFieldsMap`; ask
 `POST /{model}/getRecordAccess` for those. The same fields are left out of what
 `GET /metadata/getMetaModel` serves this caller (metadata-starter README).
+
+## Push devices
+
+`AppDeviceController` (`/app/devices`) — the APP registers after signing in, after switching company, when its push
+token changes and when the person allows notifications: `POST /app/devices` with `platform` (`ios` / `android`),
+`deviceToken`, `appVersion`, `deviceModel`, `locale`. It drops the registration when the person turns notifications
+off: `DELETE /app/devices/{deviceToken}`, only the caller's own. An application with an APP version floor lists
+`DELETE /app/devices/*` in `app.upgrade-exempt-paths` (softa-web README) so an APP stuck on the upgrade screen can
+still stop notifications.
+
+A registration belongs to the account and the session it was made under, never to the request: one token is one
+row, moved to whoever registers it next (a token moving to another tenant gets a new row, since a row's tenant is
+fixed once written). It goes when its session does — signed out, revoked (`SessionRevokedEvent`), the account
+frozen or closed, the person reset — and a session that simply runs out announces nothing, so `lastSeenAt` moves on
+with each renewal (`SessionRenewedEvent`) and a row not seen for `SessionStore.TTL_SECONDS` is dead: `liveDevices`
+skips it and the `DropStalePushDevices` cron (CrossTenant, nightly, in `SysCron.UserMaintenance.json`) removes it.
+
+A sender reads `AppPushDeviceService.liveDevices(accountIds)` and, when a push service says a token no longer
+exists, calls `dropInvalid(token, accountId)`, which only removes the row while it is still that account's — the
+token may just have moved to whoever signed in on the device.
 
 ## Consultants
 
