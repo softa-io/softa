@@ -858,6 +858,23 @@ Every skip is silent by design: an over-eager condition empties a list the user 
 
 The set is on the context before the first read — one Redis round trip for the permission snapshot, which the interceptor pays anyway. The affiliation fallback costs `CompanyCountryEnricher` one company → country lookup per request for callers with an employee record, cached in Redis for five minutes — short deliberately, because the country is an editable field on the company's own form and there is no eviction hook on the generic write path. If it cannot be resolved (a deleted company, a row with no country, an application with no company model), the fallback is simply absent and the narrowing skips for that caller.
 
+## A company's today (`CompanyClock`)
+
+Whether a dated record has started, which assignment is in effect, which change is due — each is a question about
+the company's own calendar, and a server in another zone answers it with a different date for hours every day.
+`CompanyClock` reads the date in the company's time zone:
+
+- `today(companyId)` / `zoneOf(companyId)` — the company's `timeZone` (declared on `BaseCompany`), else the tenant's
+  default time zone (`TenantInfoService.getDefaultTimezone`), else the server's zone.
+- `companiesByToday()` — every company of the tenant, disabled ones included, grouped by the day it is there now,
+  for a list that compares dates across companies in one query. Usually one day, two for the hours the zones
+  straddle.
+- `resolveZone(companyTimeZone, tenantDefault)` — the three tiers on their own.
+
+The company is read past the caller's scope: a time zone is configuration, and a caller who may not see the company
+must not be handed another calendar because of it. An application with no `Company` model, or one without its
+`timeZone`, gets the tenant's calendar.
+
 ## Startup snapshots
 
 Some rows are read on every request and change only with the build — the permission and navigation catalogue, the sensitive field sets, the data scope types. A starter keeps them in memory as a **`StartupSnapshot`** (`io.softa.framework.orm.startup`): it names the models it is built from (`sourceModels()`) and builds itself from their rows (`build()`).
