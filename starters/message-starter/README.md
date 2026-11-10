@@ -378,6 +378,36 @@ deploying application moves the data; in zingkey-hcm it is
   platform's pages are new models (`PlatformMail*`, the platform's `MailSendRecord`)
   while a tenant's send log is `TenantMailSendRecord`: menus and role grants follow.
 
+### Push notifications
+
+`PushSender` sends one notification to one device through APNs (HTTP/2, token authentication) or FCM (HTTP v1). It
+knows nothing of which devices exist or what a notification is about; that belongs to the application, which usually
+listens for `InboxNotificationsCreated` (published in the transaction that wrote the inbox rows), decides which
+messages to carry to a phone, and queues and retries the sends itself.
+
+Each platform is on when its credentials are configured, and off otherwise; with neither, `anyAvailable()` is false and
+an application should skip the work. An unusable key logs an ERROR and leaves that platform off: it never stops startup.
+
+| `softa.message.push.` | Meaning |
+| --- | --- |
+| `log-only` | Log each notification instead of sending it, on both platforms |
+| `concurrency` | Most requests in flight per platform, per instance (default 100) |
+| `apns.private-key`, `apns.key-id`, `apns.team-id`, `apns.topic` | The `.p8` key (PEM, or PEM base64-encoded), its ids, the bundle id |
+| `apns.environment` | `production` (default; TestFlight and store builds) or `sandbox` (builds installed from Xcode) |
+| `apns.sandbox-fallback` | Try `sandbox` when `production` calls a token bad, for an environment with both kinds of build |
+| `fcm.service-account-json` | The service account key (JSON, or JSON base64-encoded) |
+| `fcm.android-channel-id` | The Android notification channel; blank leaves it to the app's default |
+| `apns.proxy-host`, `apns.proxy-port`, `fcm.proxy-host`, `fcm.proxy-port` | An HTTP CONNECT proxy for that platform, for a server that cannot reach the service directly |
+| `apns.base-url`, `apns.sandbox-base-url`, `fcm.base-url`, `fcm.token-url` | Override the service addresses, for testing |
+
+`send` returns a result and never throws for a failed send: `SENT`, `TOKEN_INVALID` (stop sending to this token;
+only APNs 410 `Unregistered` and FCM `UNREGISTERED`, the two answers that say so for certain — APNs `BadDeviceToken` is
+also what a token of the other APNs environment gets, so it is `REJECTED`),
+`RETRY` (service or network trouble), `CONFIG_ERROR` (credentials or target are wrong; the token says nothing) or
+`REJECTED`. After 10 network failures in a row, or when a service says `Retry-After`, that platform pauses and sends
+return `RETRY` at once, so a blocked network costs one timeout per minute rather than one per device. The other platform
+is not affected.
+
 ### Message-starter properties
 
 Bound under `softa.message` from `MessageProperties` and the DLQ `@Value` keys.

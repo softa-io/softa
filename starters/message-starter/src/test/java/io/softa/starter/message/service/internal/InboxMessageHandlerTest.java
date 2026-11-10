@@ -4,11 +4,15 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.message.inbox.dto.SendInboxDTO;
 import io.softa.starter.message.inbox.entity.InboxNotification;
 import io.softa.starter.message.inbox.enums.NotificationType;
+import io.softa.starter.message.inbox.event.InboxNotificationsCreated;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,12 +28,41 @@ import static org.mockito.Mockito.when;
 class InboxMessageHandlerTest {
 
     private InboxNotificationService notificationService;
+    private ApplicationEventPublisher eventPublisher;
     private InboxMessageHandler handler;
 
     @BeforeEach
     void setUp() {
         notificationService = mock(InboxNotificationService.class);
-        handler = new InboxMessageHandler(notificationService);
+        eventPublisher = mock(ApplicationEventPublisher.class);
+        handler = new InboxMessageHandler(notificationService, eventPublisher);
+    }
+
+    @Test
+    void sendBatchPublishesEachNotificationWithItsOwnId() {
+        when(notificationService.createList(any())).thenReturn(List.of(81L, 82L));
+        SendInboxDTO first = message(10L, "First", "A");
+        first.setNotificationType(NotificationType.WORKFLOW);
+        first.setSourceModel("Order");
+        first.setSourceId("9");
+
+        Context context = new Context();
+        context.setTenantId(5L);
+        ContextHolder.runWith(context, () -> handler.sendBatch(List.of(first, message(20L, "Second", "B"))));
+
+        ArgumentCaptor<InboxNotificationsCreated> captor = ArgumentCaptor.forClass(InboxNotificationsCreated.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals(List.of(
+                new InboxNotificationsCreated.Created(81L, 5L, NotificationType.WORKFLOW, "Order"),
+                new InboxNotificationsCreated.Created(82L, 5L, NotificationType.SYSTEM, null)),
+                captor.getValue().items());
+    }
+
+    @Test
+    void aRejectedBatchPublishesNothing() {
+        assertThrows(BusinessException.class, () -> handler.sendBatch(List.of(message(null, "T", "C"))));
+
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
