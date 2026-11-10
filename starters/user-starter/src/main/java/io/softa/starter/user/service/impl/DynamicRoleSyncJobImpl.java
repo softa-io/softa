@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -32,6 +34,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.user.dto.DynamicMembersPreview;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
@@ -75,6 +78,8 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
     private final RoleService roleService;
     private final UserRoleRelService userRoleRelService;
     private final ModelService<?> modelService;
+    /** Absent in an application without the permission starter: nothing is guarded there. */
+    private final ObjectProvider<PermissionService> permissionService;
     /** Explicit tx boundary for {@link #syncRoleInternal} — see the method's
      *  Javadoc for why this doesn't rely on Spring's {@code @Transactional}
      *  proxy interception.
@@ -89,10 +94,12 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
             RoleService roleService,
             UserRoleRelService userRoleRelService,
             ModelService<?> modelService,
+            ObjectProvider<PermissionService> permissionService,
             PlatformTransactionManager transactionManager) {
         this.roleService = roleService;
         this.userRoleRelService = userRoleRelService;
         this.modelService = modelService;
+        this.permissionService = permissionService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -341,20 +348,13 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
     public DynamicMembersPreview previewMembers(JsonNode dynamicFilter, List<String> fields,
                                                 Integer pageNumber, Integer pageSize) {
         assertActiveTenantContext("previewMembers");
+        assertRuleSeenByCaller(dynamicFilter);
         Page<Map<String, Object>> page = Page.of(pageNumber, pageSize);
         Filters filters = ruleFilters(dynamicFilter);
         List<Long> memberIds = filters == null ? List.of() : new ArrayList<>(members(filters).keySet());
 
         // The members the caller may see, in member order.
-        Set<Long> visibleSet = new HashSet<>();
-        if (!memberIds.isEmpty()) {
-            for (Map<String, Object> row : modelService.searchList(EMPLOYEE,
-                    new FlexQuery(List.of(ModelConstant.ID), new Filters().in(ModelConstant.ID, memberIds)))) {
-                Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
-                if (id != null) visibleSet.add(id);
-            }
-        }
-        List<Long> visible = memberIds.stream().filter(visibleSet::contains).toList();
+        List<Long> visible = memberIds.isEmpty() ? List.of() : readableEmployees(memberIds);
         page.setTotalCount(visible.size());
         int from = Math.min((page.getPageNumber() - 1) * page.getPageSize(), visible.size());
         List<Long> pageIds = visible.subList(from, Math.min(from + page.getPageSize(), visible.size()));
@@ -374,6 +374,45 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         return new DynamicMembersPreview(memberIds.size(), memberIds.size() - visible.size(), page);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Asked of the caller's grants, never of the data, so a refusal says nothing about who would
+     * match.
+     */
+    @Override
+    public void assertRuleSeenByCaller(JsonNode dynamicFilter) {
+        Filters filters = ruleFilters(dynamicFilter);
+        PermissionService permissions = permissionService.getIfAvailable();
+        if (filters == null || permissions == null) return;
+        Set<String> unseen = permissions.conditionFieldsNotSeenEverywhere(EMPLOYEE, filters);
+        if (!unseen.isEmpty()) {
+            throw new PermissionException(
+                    "The membership rule tests {0}, which you cannot see on every employee.",
+                    String.join(", ", unseen));
+        }
+    }
+
+    /**
+     * Of {@code employeeIds}, those the caller may read, in the order given. None when the caller may
+     * not read employees at all: they still see how many the rule grants, only not who.
+     */
+    private List<Long> readableEmployees(List<Long> employeeIds) {
+        List<Map<String, Object>> rows;
+        try {
+            rows = modelService.searchList(EMPLOYEE,
+                    new FlexQuery(List.of(ModelConstant.ID), new Filters().in(ModelConstant.ID, employeeIds)));
+        } catch (PermissionException e) {
+            return List.of();
+        }
+        Set<Long> readable = new HashSet<>();
+        for (Map<String, Object> row : rows) {
+            Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
+            if (id != null) readable.add(id);
+        }
+        return employeeIds.stream().filter(readable::contains).toList();
+    }
+
     /** The rule as filters, or null when the role has none (no rule, or not the Filters array form). */
     private static Filters ruleFilters(JsonNode rule) {
         if (rule == null || rule.isNull() || !rule.isArray()) return null;
@@ -385,7 +424,7 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
     /**
      * Who a rule grants: each employee it matches, mapped to their account, where the employee has
      * an account and the account is Active — pure-employee rows and disabled accounts never get a
-     * dynamic grant. In the employees' code order, one entry per account.
+     * dynamic grant. In employee id order, one entry per account; {@code rule} is left as it was.
      *
      * <p>The account's status is asked of the account itself: Employee.userId is a plain id, not a
      * relation to path through.
@@ -397,9 +436,9 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      * role is saved; the tenant still applies.
      */
     private Map<Long, Long> members(Filters rule) {
-        Filters filters = rule.and(Filters.of("userId", Operator.IS_SET, null));
+        Filters filters = Filters.and(rule, Filters.of("userId", Operator.IS_SET, null));
         List<Map<String, Object>> employees = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
-                EMPLOYEE, new FlexQuery(List.of(ModelConstant.ID, "userId"), filters, Orders.ofAsc("code"))));
+                EMPLOYEE, new FlexQuery(List.of(ModelConstant.ID, "userId"), filters, Orders.ofAsc(ModelConstant.ID))));
         Map<Long, Long> accountByEmployee = new LinkedHashMap<>();
         for (Map<String, Object> employee : employees) {
             Long employeeId = ModelRefIds.extractLongId(employee.get(ModelConstant.ID));

@@ -212,6 +212,41 @@ public class PermissionServiceImpl implements PermissionService {
         return false;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The fields {@link #guardSensitiveConditions} would guard, judged the same way: aliases expanded
+     * first, a path judged by the model its leaf is on.
+     */
+    @Override
+    public Set<String> conditionFieldsNotSeenEverywhere(String model, Filters filters) {
+        if (filters == null || Filters.isEmpty(filters) || sfsCache == null || shouldBypass()) return Set.of();
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return Set.of();
+        Set<String> found = new LinkedHashSet<>();
+        collectMasked(pi, model, readAccess(model, AccessType.READ), expandConditionFields(model, filters),
+                new java.util.HashMap<>(), found);
+        return found;
+    }
+
+    private void collectMasked(PermissionInfo pi, String model, AccessType read, Filters node,
+                               Map<String, FieldPlan> plans, Set<String> found) {
+        if (node == null) return;
+        if (node.getType() == FilterType.LEAF) {
+            FilterUnit unit = node.getFilterUnit();
+            if (unit == null) return;
+            for (String field : unit.getEffectiveFields()) {
+                if (maskedTarget(pi, model, field, read, plans) != null) found.add(field);
+            }
+            return;
+        }
+        if (node.getType() == FilterType.TREE && node.getChildren() != null) {
+            for (Filters child : node.getChildren()) {
+                collectMasked(pi, model, read, child, plans, found);
+            }
+        }
+    }
+
     /** Rebuilt rather than mutated: the caller's filters may be shared. */
     private Filters guardNode(PermissionInfo pi, String model, AccessType read, Filters node,
                               Map<String, FieldPlan> plans) {

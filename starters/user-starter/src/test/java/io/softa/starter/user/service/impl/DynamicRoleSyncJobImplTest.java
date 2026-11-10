@@ -34,6 +34,7 @@ class DynamicRoleSyncJobImplTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private ModelService modelService;
     private PlatformTransactionManager tm;
+    private io.softa.framework.orm.service.PermissionService permissionService;
     private DynamicRoleSyncJobImpl job;
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -43,7 +44,12 @@ class DynamicRoleSyncJobImplTest {
         userRoleRelService = mock(UserRoleRelService.class);
         modelService = mock(ModelService.class);
         tm = mock(PlatformTransactionManager.class);
-        job = new DynamicRoleSyncJobImpl(roleService, userRoleRelService, modelService, tm) {
+        permissionService = mock(io.softa.framework.orm.service.PermissionService.class);
+        when(permissionService.conditionFieldsNotSeenEverywhere(any(), any())).thenReturn(java.util.Set.of());
+        org.springframework.beans.factory.ObjectProvider<io.softa.framework.orm.service.PermissionService> provider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(permissionService);
+        job = new DynamicRoleSyncJobImpl(roleService, userRoleRelService, modelService, provider, tm) {
             // Force the TransactionTemplate to inline-execute (no real tx manager).
             {
                 org.springframework.test.util.ReflectionTestUtils.setField(
@@ -389,6 +395,57 @@ class DynamicRoleSyncJobImplTest {
         assertThat(preview.visible().getRows()).extracting(row -> row.get("id")).containsExactly(105L);
         verify(userRoleRelService, never()).createList(any());
         verify(userRoleRelService, never()).deleteByFilters(any());
+    }
+
+    @Test
+    void previewMembers_ruleOnAFieldTheCallerCannotSeeEverywhere_isRefused() {
+        when(permissionService.conditionFieldsNotSeenEverywhere(org.mockito.ArgumentMatchers.eq("Employee"), any()))
+                .thenReturn(java.util.Set.of("basePay"));
+
+        assertThatThrownBy(() -> ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20)))
+                .isInstanceOf(io.softa.framework.base.exception.PermissionException.class)
+                .hasMessageContaining("basePay");
+        // Refused before any employee is matched: the refusal says nothing about the data.
+        verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class));
+    }
+
+    @Test
+    void previewMembers_callerWhoMayNotReadEmployees_seesTheCountsAndNobodyListed() {
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    if (ContextHolder.getContext().isSkipPermissionCheck()) {
+                        return List.of(java.util.Map.of("id", 101L, "userId", 1L),
+                                java.util.Map.of("id", 105L, "userId", 5L));
+                    }
+                    throw new io.softa.framework.base.exception.PermissionException("No read on Employee");
+                });
+
+        io.softa.starter.user.dto.DynamicMembersPreview preview = ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20));
+
+        assertThat(preview.memberCount()).isEqualTo(2);
+        assertThat(preview.outsideScopeCount()).isEqualTo(2);
+        assertThat(preview.visible().getRows()).isEmpty();
+    }
+
+    @Test
+    void previewMembers_matchesInEmployeeIdOrder_notByAnAppField() {
+        java.util.List<io.softa.framework.orm.domain.FlexQuery> matched = new java.util.ArrayList<>();
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    if (ContextHolder.getContext().isSkipPermissionCheck()) matched.add(inv.getArgument(1));
+                    return List.of();
+                });
+
+        ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20));
+
+        assertThat(matched).hasSize(1);
+        assertThat(matched.getFirst().getOrders().toString()).contains("id").doesNotContain("code");
     }
 
     @Test

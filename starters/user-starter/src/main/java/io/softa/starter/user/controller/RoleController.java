@@ -133,6 +133,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     public ApiResponse<Long> createWithWizard(@RequestBody @Valid WizardSaveDTO body) {
         Role role = parseRole(body.roleUpdate());
         role.setId(null);
+        dynamicRoleSyncJob.assertRuleSeenByCaller(role.getDynamicFilter());
         Long newId = roleService.createOne(role);
         writeRoleNavigations(newId, body.roleNavigations());
         writeRoleDataScopes(newId, body.roleDataScopes());
@@ -156,6 +157,12 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         List<RoleGrantCeiling.Grants> callerBefore = roleGrantCeiling.callerGrants();
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
+        // A rule left as it was passes: it was judged when it was written, and a narrower manager
+        // editing the role's name must not be stopped by a condition they did not write.
+        if (role.getDynamicFilter() != null && !role.getDynamicFilter().equals(
+                roleService.getById(id).map(Role::getDynamicFilter).orElse(null))) {
+            dynamicRoleSyncJob.assertRuleSeenByCaller(role.getDynamicFilter());
+        }
         roleService.updateOne(role, true);
         // Wizard "Clear" on the dynamic membership rule sends
         // {"dynamicFilter": null} explicitly. The entity-based updateOne

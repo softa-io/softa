@@ -329,6 +329,38 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
+    @DisplayName("a condition on pay, seen on some rows only, is named as not seen everywhere")
+    void aConditionOnAPerRowFieldIsNotSeenEverywhere() {
+        holdTheExampleRoles();
+        Filters condition = Filters.and(
+                Filters.of("name", Operator.EQUAL, "E1"),
+                Filters.of("basePay", Operator.GREATER_THAN, 5000));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee", condition)))
+                .containsExactly("basePay");
+    }
+
+    @Test
+    @DisplayName("a condition on a field no role grants is named as not seen everywhere")
+    void aConditionOnAnUngrantedFieldIsNotSeenEverywhere() {
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee",
+                Filters.of("basePay", Operator.GREATER_THAN, 5000)))).containsExactly("basePay");
+    }
+
+    @Test
+    @DisplayName("conditions on pay granted on every row, and on ordinary fields, are seen everywhere")
+    void conditionsSeenOnEveryRowAreNotNamed() {
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, true)));
+        Filters condition = Filters.and(
+                Filters.of("name", Operator.EQUAL, "E1"),
+                Filters.of("basePay", Operator.GREATER_THAN, 5000));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee", condition))).isEmpty();
+    }
+
+    @Test
     @DisplayName("rows read elsewhere — a change log's values — are masked the same way")
     void rowsFromElsewhereAreMaskedByTheirId() {
         holdTheExampleRoles();
