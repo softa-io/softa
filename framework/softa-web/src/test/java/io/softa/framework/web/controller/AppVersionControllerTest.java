@@ -33,4 +33,10 @@ class AppVersionControllerTest {
     void anUnknownPlatform_isRefused() {
         assertThatThrownBy(() -> controller.version("symbian")).isInstanceOf(BusinessException.class);
     }
+
+    @Test
+    void aMissingPlatform_isABadRequest_notAServerError() {
+        assertThatThrownBy(() -> controller.version(null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> controller.version(" ")).isInstanceOf(IllegalArgumentException.class);
+    }
 }

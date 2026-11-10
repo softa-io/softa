@@ -3,6 +3,7 @@ package io.softa.framework.web.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,7 +35,11 @@ public class AppVersionController {
 
     @GetMapping
     @Operation(summary = "The minimum and latest APP versions of a platform, and where to get it")
-    public ApiResponse<VersionView> version(@RequestParam String platform) {
+    public ApiResponse<VersionView> version(@RequestParam(required = false) String platform) {
+        // Asked for here rather than by the binding: a missing parameter there ends as a server error.
+        if (StringUtils.isBlank(platform)) {
+            throw new IllegalArgumentException("The platform parameter is required.");
+        }
         AppVersionProperties.Release release = versions.of(platform);
         if (release == null) {
             throw new BusinessException("Unknown platform: {0}", platform);
