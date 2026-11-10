@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
@@ -22,6 +23,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.SharedModelTenantBinding;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.permission.index.EndpointIndex;
 import io.softa.starter.permission.scope.*;
@@ -157,6 +159,9 @@ public class PermissionServiceImpl implements PermissionService {
         // admin, and anything running under @SkipPermissionCheck, asks the same question and needs
         // the same answer — placing it after the bypass would leave exactly them with the broken one.
         originalFilters = rewriteScopeFilters(model, originalFilters);
+        // Also before the bypass, and for the opposite reason: this one IS a restriction, and the
+        // tenant admin, who bypasses everything below, is exactly who it has to reach.
+        originalFilters = tenantBound(model, originalFilters);
         if (shouldBypass()) return originalFilters;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
@@ -675,6 +680,8 @@ public class PermissionServiceImpl implements PermissionService {
     @Override
     public Filters appendScopeAccessFiltersIgnoringRowScope(String model, Filters originalFilters) {
         originalFilters = rewriteScopeFilters(model, originalFilters);
+        // Not part of the row range: like tenant isolation, it holds where the range is ignored.
+        originalFilters = tenantBound(model, originalFilters);
         if (shouldBypass()) return originalFilters;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
@@ -998,6 +1005,49 @@ public class PermissionServiceImpl implements PermissionService {
             return Filters.and(byId, Filters.of(ModelConstant.ACTIVE_CONTROL_FIELD, Operator.IN, List.of(true, false)));
         }
         return byId;
+    }
+
+    /** Shared models bound to the tenants that use them, by model name. */
+    private Map<String, List<SharedModelTenantBinding>> tenantBindings = Map.of();
+
+    /** The {@link SharedModelTenantBinding}s declared in the application context. */
+    public void setTenantBindings(Collection<SharedModelTenantBinding> bindings) {
+        Map<String, List<SharedModelTenantBinding>> byModel = new HashMap<>();
+        if (bindings != null) {
+            bindings.forEach(b -> byModel.computeIfAbsent(b.model(), k -> new ArrayList<>()).add(b));
+        }
+        this.tenantBindings = Map.copyOf(byModel);
+    }
+
+    /**
+     * A shared model bound to its tenants, read inside a customer tenant, keeps only the rows a record of
+     * that tenant points at.
+     *
+     * <p>Tenant isolation narrows by a tenant column, and a shared model has none: a person's profile is
+     * one row for every tenant that employs them. Read from inside one tenant — by anyone, the tenant
+     * admin included, whose own reads pass every check below — it answered with the whole platform's
+     * people. Not applied to system work, to the platform tenant or a deployment without tenants, nor
+     * to the platform administrator, whose reach spans tenants by definition.
+     */
+    private Filters tenantBound(String model, Filters filters) {
+        List<SharedModelTenantBinding> bindings = tenantBindings.get(model);
+        if (bindings == null) return filters;
+        Context context = ContextHolder.getContext();
+        if (context == null || context.isSkipPermissionCheck()) return filters;
+        Long tenantId = context.getTenantId();
+        if (tenantId == null || BaseConstant.PLATFORM_TENANT_ID.equals(tenantId)) return filters;
+        if (context.getUserId() != null && PermissionInfo.isSuperAdmin(currentPi())) return filters;
+        Set<Serializable> ids = new LinkedHashSet<>();
+        for (SharedModelTenantBinding binding : bindings) {
+            for (String field : binding.referencingFields()) {
+                ids.addAll(unscoped(() -> modelService.<Serializable>getRelatedIds(
+                        binding.referencingModel(), new Filters(), field)));
+            }
+        }
+        Filters bound = ids.isEmpty()
+                ? ScopeRuleCompiler.matchNone()
+                : Filters.of(ModelConstant.ID, Operator.IN, new ArrayList<>(ids));
+        return combineAnd(filters, bound);
     }
 
     private static <T> T unscoped(Supplier<T> read) {

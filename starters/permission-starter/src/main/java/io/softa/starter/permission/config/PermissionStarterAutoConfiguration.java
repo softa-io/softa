@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Lazy;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
+import io.softa.framework.orm.service.SharedModelTenantBinding;
 import io.softa.starter.permission.spi.PermissionEndpointSource;
 import io.softa.starter.permission.spi.PermissionSnapshotProvider;
 import io.softa.starter.permission.spi.SensitiveFieldSetSource;
@@ -80,10 +81,14 @@ public class PermissionStarterAutoConfiguration {
             // Same lazy treatment again: the registry reads its rows through ModelService, which is
             // not usable while this bean is built. Absent it, no model declares a fallback scope —
             // the behaviour that predates the mechanism.
-            ObjectProvider<ModelDefaultScopeRegistry> defaultScopes) {
-        return new PermissionServiceImpl(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability,
-                endpointIndex::getIfAvailable, subtreeRewriter::getIfAvailable,
+            ObjectProvider<ModelDefaultScopeRegistry> defaultScopes,
+            // Plain values declared by the modules owning a shared model; none is the default.
+            ObjectProvider<SharedModelTenantBinding> tenantBindings) {
+        PermissionServiceImpl service = new PermissionServiceImpl(snapshotProvider, scopeCompiler, sfsCache,
+                modelService, applicability, endpointIndex::getIfAvailable, subtreeRewriter::getIfAvailable,
                 defaultScopes::getIfAvailable);
+        service.setTenantBindings(tenantBindings.orderedStream().toList());
+        return service;
     }
 
     /**
