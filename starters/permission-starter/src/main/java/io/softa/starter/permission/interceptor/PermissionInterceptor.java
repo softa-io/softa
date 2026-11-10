@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.BuiltinRole;
@@ -189,6 +190,16 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // /Department/searchList used by both the Department admin page and
         // the Employee page's dept-tree panel) get reachable from multiple
         // business permissions.
+        // The platform's own endpoints stay the platform's for an ordinary user of a customer tenant
+        // too, whatever their roles name. Those roles are the tenant's to write, and a grant naming a
+        // platform permission would otherwise open shared models — every tenant's rows — to them; the
+        // snapshot already drops such grants, this refuses by URL in case one slips past it. Users of
+        // the platform tenant are the platform's staff and keep what their roles grant.
+        if (inCustomerTenant(ctx) && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied to a tenant user — userId={}, uri={} {}",
+                    ctx.getUserId(), method, uri);
+            throw new PermissionException("Platform-admin only: " + method + " " + uri);
+        }
         Set<String> candidatePermissions = endpointIndex.lookup(uri, method);
         if (candidatePermissions == null || candidatePermissions.isEmpty()) {
             throw new PermissionException("Endpoint not registered: " + method + " " + uri);
@@ -334,6 +345,12 @@ public class PermissionInterceptor implements HandlerInterceptor {
      */
     static boolean deniedPlatformOnly(BuiltinRole principal) {
         return principal != BuiltinRole.SUPER_ADMIN;
+    }
+
+    /** Whether the request runs inside a customer tenant — not the platform tenant, and not untenanted. */
+    static boolean inCustomerTenant(Context ctx) {
+        Long tenantId = ctx.getTenantId();
+        return tenantId != null && !BaseConstant.PLATFORM_TENANT_ID.equals(tenantId);
     }
 
     /**

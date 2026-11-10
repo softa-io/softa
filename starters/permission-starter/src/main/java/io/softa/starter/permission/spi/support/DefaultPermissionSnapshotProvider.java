@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -20,6 +21,7 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.enums.BuiltinRole;
@@ -432,13 +434,16 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         List<RoleNavigationView> navGrants = modelService.searchList(M_ROLE_NAV,
                 new FlexQuery(List.of("roleId", "navigationId", "permissionIds"), new Filters().in("roleId", roleIds)),
                 RoleNavigationView.class);
+        TenantFacing tenantFacing = tenantFacing(tenantId, navGrants);
         for (RoleNavigationView rn : navGrants) {
-            if (rn.getNavigationId() == null) {
+            if (rn.getNavigationId() == null || !tenantFacing.allowsNavigation(rn.getNavigationId())) {
                 continue;
             }
             navigations.add(rn.getNavigationId());
             List<String> pids = JsonUtils.toStringList(rn.getPermissionIds(), true);
             if (pids != null) {
+                String rowNavigation = rn.getNavigationId();
+                pids = pids.stream().filter(pid -> tenantFacing.allowsPermission(pid, rowNavigation)).toList();
                 permissions.addAll(pids);
                 RoleGrant grant = grantsByRole.get(rn.getRoleId());
                 if (grant != null) {
@@ -733,6 +738,61 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         // Unrestricted grant, so every company of the tenant — and the countries of all of them.
         info.setGrantedCountries(readGrantedCountries(null));
         return info;
+    }
+
+    /**
+     * Which of a role's stored grants a customer tenant's user may hold: navigations that are not the
+     * platform's own and that the tenant's plan entitles, and permissions under such navigations.
+     *
+     * <p>Role grants are written by the tenant, and nothing stored is trusted to stay inside it: a grant
+     * naming a platform navigation — written before saving refused it, or straight into the table —
+     * would otherwise open the platform's endpoints to an ordinary user of one tenant, and those act on
+     * shared models, every tenant's rows. The same two tests a tenant admin's own set is built by. The
+     * platform tenant and a deployment without tenants keep every grant: their roles are the
+     * platform's own.
+     */
+    private TenantFacing tenantFacing(Long tenantId, List<RoleNavigationView> navGrants) {
+        if (tenantId == null || BaseConstant.PLATFORM_TENANT_ID.equals(tenantId)) {
+            return TenantFacing.ALL;
+        }
+        Set<String> entitled = (entitlementService != null)
+                ? entitlementService.entitledModules(tenantId)
+                : null;
+        Set<String> permissionIds = new HashSet<>();
+        for (RoleNavigationView rn : navGrants) {
+            List<String> pids = JsonUtils.toStringList(rn.getPermissionIds(), true);
+            if (pids != null) {
+                permissionIds.addAll(pids);
+            }
+        }
+        Map<String, String> navigationOf = new HashMap<>();
+        if (!permissionIds.isEmpty()) {
+            modelService.searchList(M_PERMISSION, new FlexQuery(List.of("id", "navigationId"),
+                            new Filters().in("id", permissionIds)), PermissionView.class)
+                    .forEach(p -> navigationOf.put(p.getId(), p.getNavigationId()));
+        }
+        Predicate<String> allowed = navId ->
+                navId != null && !isPlatformNav(navId) && isEntitled(navId, entitled);
+        return new TenantFacing(allowed, navigationOf);
+    }
+
+    /**
+     * The grants a tenant's user may hold; {@link #ALL} where every stored grant stands. A permission is
+     * judged by the navigation it is registered under, wherever the role row filed it; one the catalog
+     * does not know is judged by its row's navigation — it names no endpoint either way, since the
+     * endpoint index is built from the same catalog.
+     */
+    private record TenantFacing(Predicate<String> navigation, Map<String, String> navigationOf) {
+        static final TenantFacing ALL = new TenantFacing(n -> true, Map.of());
+
+        boolean allowsNavigation(String navId) {
+            return navigation.test(navId);
+        }
+
+        boolean allowsPermission(String permissionId, String rowNavigation) {
+            String registered = navigationOf.get(permissionId);
+            return navigation.test(registered != null ? registered : rowNavigation);
+        }
     }
 
     /** Plan narrowing — mirrors the FE {@code navModuleOf} gating. Null set (no gate installed, or no

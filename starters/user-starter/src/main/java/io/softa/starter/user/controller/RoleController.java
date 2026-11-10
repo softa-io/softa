@@ -19,6 +19,7 @@ import io.softa.starter.user.enums.UserRoleSource;
 import io.softa.starter.user.service.DynamicRoleSyncJob;
 import io.softa.starter.user.service.RoleDataScopeService;
 import io.softa.starter.user.service.RoleGrantCeiling;
+import io.softa.starter.user.service.RoleTenantFacingGuard;
 import io.softa.starter.user.service.RoleNavigationService;
 import io.softa.starter.user.service.RoleSensitiveFieldSetService;
 import io.softa.starter.user.service.RoleService;
@@ -76,6 +77,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     private final DynamicRoleSyncJob dynamicRoleSyncJob;
     private final UiContextBuilder uiContextBuilder;
     private final RoleGrantCeiling roleGrantCeiling;
+    private final RoleTenantFacingGuard roleTenantFacingGuard;
 
     @Override
     protected String modelName() {
@@ -115,6 +117,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     @Transactional
     @Operation(summary = "Wizard create — insert Role + role_navigation + user_role rows (Manual + Dynamic) in one transaction; returns new role id")
     public ApiResponse<Long> createWithWizard(@RequestBody @Valid WizardSaveDTO body) {
+        roleTenantFacingGuard.assertTenantFacing(body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(null);
         Long newId = roleService.createOne(role);
@@ -138,6 +141,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         // Before anything is rewritten: when the caller holds this role, it is the role as it was that
         // bounds what the role may become.
         List<RoleGrantCeiling.Grants> callerBefore = roleGrantCeiling.callerGrants();
+        roleTenantFacingGuard.assertTenantFacing(body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         roleService.updateOne(role, true);
