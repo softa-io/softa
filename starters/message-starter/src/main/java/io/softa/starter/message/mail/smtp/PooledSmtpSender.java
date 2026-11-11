@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 
-import io.softa.starter.message.mail.entity.MailSendServerConfig;
+import io.softa.starter.message.mail.entity.AbstractMailSendServer;
 import io.softa.starter.message.mail.enums.SendProtocol;
 
 /**
@@ -142,7 +142,7 @@ class PooledSmtpSender extends JavaMailSenderImpl {
     record Key(SendProtocol protocol, String host, Integer port, String username, String password,
                boolean sslEnabled, boolean starttlsEnabled) {
 
-        static Key of(MailSendServerConfig config) {
+        static Key of(AbstractMailSendServer config) {
             return new Key(config.getProtocol(), config.getHost(), config.getPort(),
                     config.getUsername(), config.getPassword(),
                     Boolean.TRUE.equals(config.getSslEnabled()),

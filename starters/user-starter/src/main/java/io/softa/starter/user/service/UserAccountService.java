@@ -30,6 +30,13 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     List<UserAccount> listMembershipsOf(Long profileId);
 
     /**
+     * The one company this person has joined (Active / Frozen / Locked), or empty when they have
+     * joined several or none. Names whom a platform message about the person — a sign-in code, a
+     * password reset — is filed under and counted against: with two companies it is neither one's.
+     */
+    Optional<Long> soleJoinedTenantOf(Long profileId);
+
+    /**
      * Get user by email
      *
      * @param email email

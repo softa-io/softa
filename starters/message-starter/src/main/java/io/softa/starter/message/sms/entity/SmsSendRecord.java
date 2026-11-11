@@ -29,9 +29,16 @@ import io.softa.starter.message.sms.enums.SmsSendStatus;
  * monthly quota, and writes the result back here; retries replay what that attempt
  * prepared. A request that cannot be prepared (no provider for the country, no
  * template, quota used up) still leaves its record, FAILED with the reason.
+ * <p>
+ * Platform-owned and not multi-tenant: the table is the SMS delivery queue, and
+ * SMS is a platform service, so there is no tenant view of it. {@code tenantId}
+ * only records whom a send is filed under — the tenant it is made for, whatever
+ * the scope, {@code -1} when no tenant can be named — and picks the monthly
+ * quota bucket it draws on. Acceptance writes it explicitly; the ORM neither
+ * stamps nor filters it.
  */
 @Data
-@Model(label = "SMS Send Record", idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false, multiTenant = true)
+@Model(label = "SMS Send Record", idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false)
 @Index(indexName = "idx_sms_send_tenant_status", fields = {"tenantId", "status"})
 @Index(indexName = "idx_sms_send_sent_at", fields = {"sentAt"})
 @Index(indexName = "idx_sms_send_status_updated", fields = {"status", "updatedTime"})
@@ -47,12 +54,13 @@ public class SmsSendRecord extends AuditableModel {
     private Long id;
 
     @Field(label = "Tenant ID",
-            description = "-1 = platform-tier (invisible to tenants); >0 = tenant-level. "
-                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
+            description = "Whom the send is filed under: the tenant it is made for, whatever the scope; -1 "
+                    + "when no tenant can be named. Also the monthly quota bucket the send draws on.")
     private Long tenantId;
 
-    @Field(description = "Tier policy of the send: true = PLATFORM scope (the platform tier renders the "
-            + "template and is charged), false = TENANT scope.")
+    @Field(description = "Scope the caller declared: true = PLATFORM, false = TENANT. Templates and providers "
+            + "are the platform's either way and the record is filed under the tenant the send is made for, "
+            + "so for SMS it only records what the caller asked for.")
     private Boolean platformScope;
 
     @Field(label = "Trace ID", description = "Trace id of the request that submitted the send; "

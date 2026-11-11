@@ -50,7 +50,7 @@ final class MailMessageHandler {
     }
 
     private Long insert(MailSendRecord record) {
-        return TenantScopes.inRecordOwnerContext(record.getPlatformScope(), () -> recordService.createOne(record));
+        return recordService.createOne(record);
     }
 
     /** Validate one request and build its PENDING record, without writing anything. */
@@ -78,6 +78,13 @@ final class MailMessageHandler {
 
         MailSendRecord record = new MailSendRecord();
         record.setPlatformScope(dto.getScope() == MessageScope.PLATFORM);
+        // The table is not multi-tenant, so the owner is written here, not stamped by the ORM. A send
+        // belongs to the tenant it is made for, whatever its scope — the scope picks the template and
+        // the servers, not the owner: a platform notice about a tenant's account, or a login code for
+        // someone in one company, is that tenant's send, counted and limited by its quota. A sender
+        // acting for a tenant other than the caller's runs inside ContextUtils.inTenantContext; a send
+        // no tenant can be named for (no context, or the platform's own) is filed under the platform.
+        record.setTenantId(TenantScopes.currentTenantOrPlatform());
         // templateId addresses the exact row (editor test sends: what you preview is what goes out,
         // enabled or not) and wins over templateCode, which resolves in the scope's tier.
         record.setTemplateId(dto.getTemplateId());

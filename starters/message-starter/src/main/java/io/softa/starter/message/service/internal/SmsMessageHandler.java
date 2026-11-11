@@ -48,7 +48,7 @@ final class SmsMessageHandler {
     }
 
     private Long insert(SmsSendRecord record) {
-        return TenantScopes.inRecordOwnerContext(record.getPlatformScope(), () -> recordService.createOne(record));
+        return recordService.createOne(record);
     }
 
     /** Validate one request and build its PENDING record, without writing anything. */
@@ -66,6 +66,10 @@ final class SmsMessageHandler {
 
         SmsSendRecord record = new SmsSendRecord();
         record.setPlatformScope(dto.getScope() == MessageScope.PLATFORM);
+        // The table is not multi-tenant, so the owner is written here, not stamped by the ORM: the
+        // tenant the send is made for whatever its scope (see MailMessageHandler), the platform when
+        // no tenant can be named.
+        record.setTenantId(TenantScopes.currentTenantOrPlatform());
         record.setTraceId(ContextHolder.getContext().getTraceId());
         record.setPhoneNumber(dto.getPhoneNumber());
         record.setTemplateCode(StringUtils.hasText(dto.getTemplateCode()) ? dto.getTemplateCode() : null);

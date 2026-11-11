@@ -3,7 +3,7 @@ package io.softa.starter.message.mail.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import io.softa.starter.message.mail.entity.MailTemplate;
+import io.softa.starter.message.mail.entity.AbstractMailTemplate;
 import io.softa.starter.message.mail.enums.MailPriority;
 
 /**
@@ -14,7 +14,7 @@ import io.softa.starter.message.mail.enums.MailPriority;
 @Schema(name = "MailTemplateSummaryDTO")
 public class MailTemplateSummaryDTO {
 
-    public static MailTemplateSummaryDTO from(MailTemplate template) {
+    public static MailTemplateSummaryDTO from(AbstractMailTemplate template) {
         MailTemplateSummaryDTO dto = new MailTemplateSummaryDTO();
         dto.setId(template.getId());
         dto.setCode(template.getCode());

@@ -1,17 +1,19 @@
 package io.softa.starter.message.sms.service.impl;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import tools.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MessageScope;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.shared.ErrorClassifier;
-import io.softa.starter.message.shared.MonthlyQuotaGuard;
+import io.softa.starter.message.shared.SendQuotaGuard;
 import io.softa.starter.message.shared.RateLimiter;
 import io.softa.starter.message.shared.SendRejection;
 import io.softa.starter.message.shared.metrics.MessageMetrics;
@@ -55,7 +57,7 @@ public class SmsDeliveryProcessor {
     private SmsRoutingPlanner routingPlanner;
 
     @Autowired
-    private MonthlyQuotaGuard quotaGuard;
+    private SendQuotaGuard quotaGuard;
 
     @Autowired
     private SmsAdapterFactory adapterFactory;
@@ -113,12 +115,10 @@ public class SmsDeliveryProcessor {
 
     /** Fix on {@code record} what the first attempt decides: the content and the provider route. */
     private SmsProviderConfig prepare(SmsSendRecord record) {
-        MessageScope scope = Boolean.TRUE.equals(record.getPlatformScope())
-                ? MessageScope.PLATFORM : MessageScope.TENANT;
         SmsTemplate template = null;
         if (StringUtils.hasText(record.getTemplateCode())) {
             try {
-                template = templateService.resolve(record.getTemplateCode(), scope);
+                template = templateService.resolve(record.getTemplateCode());
             } catch (BusinessException e) {
                 throw new SendRejection(ErrorClassifier.TEMPLATE_NOT_RESOLVABLE, e.getMessage());
             }
@@ -137,6 +137,12 @@ public class SmsDeliveryProcessor {
         if (!StringUtils.hasText(record.getContent())) {
             throw new SendRejection(ErrorClassifier.CONTENT_INVALID, "No content: the template rendered an empty text.");
         }
+        // A provider sending a template registered with it (Aliyun by name, Tencent by position) is sent
+        // the variables, not the rendered text. Positions follow the order the template's own content
+        // names them — a caller's Map.of has none — fixed here, so a retry replays the same order.
+        if (template != null && record.getTemplateVariables() != null) {
+            record.setTemplateVariables(inTemplateOrder(template.getContent(), record.getTemplateVariables()));
+        }
         SmsRoutingPlanner.Plan plan;
         try {
             plan = routingPlanner.plan(new SmsRoutingPlanner.RoutingRequest(record.getPhoneNumber(),
@@ -145,11 +151,9 @@ public class SmsDeliveryProcessor {
         } catch (BusinessException e) {
             throw new SendRejection(ErrorClassifier.CONFIG_NOT_RESOLVABLE, e.getMessage());
         }
-        try {
-            quotaGuard.consume("sms", MonthlyQuotaGuard.bucketFor(scope));
-        } catch (BusinessException e) {
-            throw new SendRejection(ErrorClassifier.MONTHLY_QUOTA_EXCEEDED, e.getMessage());
-        }
+        // Drawn from the tenant the record is filed under, platform notices included: the day first,
+        // then the month; a refusal is a SendRejection naming which.
+        quotaGuard.consume("sms", SendQuotaGuard.bucketOf(record.getTenantId()));
         SmsProviderConfig config = plan.providerConfig();
         record.setProviderConfigId(config.getId());
         record.setProviderType(config.getProviderType());
@@ -237,12 +241,39 @@ public class SmsDeliveryProcessor {
         dto.setPhoneNumber(record.getPhoneNumber());
         dto.setContent(record.getContent());
         dto.setTemplateCode(record.getTemplateCode());
+        // What a provider's registered template is filled with: without it Aliyun and Tencent send the
+        // template with empty parameters.
+        dto.setTemplateVariables(record.getTemplateVariables() == null
+                ? null : JsonUtils.jsonNodeToMap(record.getTemplateVariables()));
         dto.setProviderConfigId(record.getProviderConfigId());
         // Retry fidelity: replay the exact signName / externalTemplateId fixed when
         // the record was prepared, not whatever the binding currently says.
         dto.setSignName(record.getSignName());
         dto.setExternalTemplateId(record.getExternalTemplateId());
         return dto;
+    }
+
+    /**
+     * {@code variables} in the order {@code content} names them as placeholders, the rest after them in
+     * their own order.
+     */
+    static JsonNode inTemplateOrder(String content, JsonNode variables) {
+        if (!StringUtils.hasText(content) || !variables.isObject()) {
+            return variables;
+        }
+        Map<String, Object> given = JsonUtils.jsonNodeToMap(variables);
+        Map<String, Object> ordered = new LinkedHashMap<>();
+        for (String name : PlaceholderUtils.extractVariables(content)) {
+            if (given.containsKey(name) && !ordered.containsKey(name)) {
+                ordered.put(name, given.get(name));
+            }
+        }
+        given.forEach((name, value) -> {
+            if (!ordered.containsKey(name)) {
+                ordered.put(name, value);
+            }
+        });
+        return JsonUtils.objectToJsonNode(ordered);
     }
 
     /** Internal result holder for a single provider attempt. */

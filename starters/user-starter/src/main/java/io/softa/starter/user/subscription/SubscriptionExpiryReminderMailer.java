@@ -37,8 +37,9 @@ import io.softa.starter.user.service.UserRoleRelService;
 @Service
 public class SubscriptionExpiryReminderMailer {
 
-    /** Platform ({@code tenantId=0}) mail template codes, seeded in {@code MailTemplate.System.json}.
-     *  A purchased plan gets renewal wording; a trial gets upgrade wording. */
+    /** The platform's mail template codes ({@code PlatformMailTemplate}), seeded by the host app — hcm's
+     *  {@code data-system/PlatformMailTemplate.Default.json}. A purchased plan gets renewal wording; a trial
+     *  gets upgrade wording. */
     static final String TEMPLATE_EXPIRY_REMINDER = "subscription.expiry-reminder";
     static final String TEMPLATE_TRIAL_EXPIRY_REMINDER = "subscription.trial-expiry-reminder";
     /**
@@ -124,9 +125,9 @@ public class SubscriptionExpiryReminderMailer {
         int queued = 0;
         for (String email : emails) {
             // Platform-owned mail about the tenant's contract: the PLATFORM tier
-            // renders it (a tenant must not re-word its own expiry notices) and
-            // the platform quota bucket absorbs it; the send record lands in the
-            // tenant's books, since this runs in the tenant's context.
+            // renders it (a tenant must not re-word its own expiry notices) and the
+            // platform's servers carry it. It is still this tenant's mail — sent in
+            // its context, filed under it and counted against its monthly quota.
             try {
                 messageService.sendMail(SendMailDTO.ofTemplate(List.of(email), templateCode, variables,
                         MessageScope.PLATFORM));

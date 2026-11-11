@@ -1,11 +1,7 @@
 package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,30 +21,21 @@ import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
+import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.dto.InvitationInfo;
 import io.softa.starter.user.dto.JoinContacts;
 import io.softa.starter.user.dto.JoinEntry;
-import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
-import io.softa.starter.user.enums.AccountStatus;
-import io.softa.starter.user.enums.InvitationPurpose;
-import io.softa.starter.user.enums.InvitationStatus;
-import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.entity.UserSecurityLog;
-import io.softa.starter.user.enums.SecurityAction;
-import io.softa.starter.user.enums.SecurityLogSource;
-import io.softa.starter.user.service.UserSecurityLogService;
-import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.enums.*;
+import io.softa.starter.user.service.*;
 import io.softa.starter.user.spi.PushDeviceRegistry;
-import io.softa.framework.web.session.SessionRevokeReason;
-import io.softa.starter.user.service.UserAccountService;
-import io.softa.starter.user.service.UserIdentityService;
-import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.util.LoginIdentifiers;
 
 /**
@@ -67,12 +54,13 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     private static final int TOKEN_BYTES = 32;
     /** Cap on the unbind reason. Long enough for a sentence, short enough to stay readable. */
     private static final int MAX_REASON_LENGTH = 500;
-    /** Template codes, seeded as system ({@code tenantId=0}) rows by the host app.
-     *  {@code MailTemplate} and {@code SmsTemplate} are separate models, so one code names
-     *  the invitation in BOTH channels — same message, different transport. */
+    /** The invitation's template code, in both channels — same message, different transport: a tenant
+     *  template ({@code MailTemplate}, each tenant's own copy, the platform tenant's included) and the
+     *  platform's one {@code SmsTemplate}. Both are seeded by the host app. */
     private static final String TEMPLATE_INVITE = "user.invitation";
-    /** Mail only. A password reset starts from the login screen by typing an email, so the
-     *  address is known and an SMS counterpart would add cost without reach. */
+    /** Mail only, and a platform template ({@code PlatformMailTemplate}). A password reset starts from the
+     *  login screen by typing an email, so the address is known and an SMS counterpart would add cost
+     *  without reach. */
     private static final String TEMPLATE_RESET = "user.password-reset";
 
     private final UserAccountService accountService;
@@ -511,10 +499,11 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // inbox they check first. Both carry the SAME link — it is one invitation, so accepting
         // from either channel consumes the same token.
         //
-        // Tier of the render: with a tenant context (invite / authed reset) the tenant's own template
-        // + wording; the public forgotPassword path has no tenant context, so it renders the
-        // platform-tier template — the platform row doubles as the copy source for tenants AND the
-        // platform's own sender.
+        // Tier of the render: an invitation in a tenant context is the tenant's mail — its own
+        // template and wording, its own server or the platform's relay. A password reset is the
+        // platform's whatever the context (an account credential: the platform's template through
+        // the platform's servers), and so is anything sent with no tenant context, such as the public
+        // forgotPassword path.
         //
         // WHICH tenant, though, is the account's — not the ambient one. They differ exactly when an
         // operator who can see across tenants clicks Invite: the ambient context is then the
@@ -523,23 +512,28 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // theirs. On every other path the two already agree, since provisioning creates the account
         // inside inTenantContext(newTenantId) before inviting.
         //
-        // The no-context path deliberately stays platform-tier rather than reaching for the
-        // account's tenant: template resolution has no fallback across tiers any more, so a tenant
-        // whose copy of this template is missing or disabled would get an exception where the
-        // platform row always resolves.
+        // The no-context path stays the platform's rather than reaching for the account's tenant:
+        // it is the public forgotPassword path, a reset, and the reset template is the platform's.
         Long tenantId = ContextHolder.getContext().getTenantId() != null ? account.getTenantId() : null;
-        MessageScope scope = tenantId != null ? MessageScope.TENANT : MessageScope.PLATFORM;
+        MessageScope scope = tenantId != null && purpose != InvitationPurpose.PASSWORD_RESET
+                ? MessageScope.TENANT : MessageScope.PLATFORM;
+        // Whom the send is filed under and counted against — a different question from the tier. In
+        // a tenant context it is the account's company. The public reset has no context, and a reset
+        // sets the person's one password rather than one account's: it is a company's when the person
+        // has joined only that one, and the platform's when they have joined several.
+        Long sendFor = tenantId != null || purpose != InvitationPurpose.PASSWORD_RESET ? tenantId
+                : accountService.soleJoinedTenantOf(account.getProfileId()).orElse(null);
         Map<String, Object> variables = Map.of("link", link, "expiryDays", EXPIRY_DAYS);
         String mailTo = pinned ? deliverTo : account.getEmail();
         if (StringUtils.isNotBlank(mailTo)) {
             String template = purpose == InvitationPurpose.PASSWORD_RESET ? TEMPLATE_RESET : TEMPLATE_INVITE;
-            sendIn(tenantId, () -> messageService.sendMail(
+            sendIn(sendFor, () -> messageService.sendMail(
                     SendMailDTO.ofTemplate(List.of(mailTo), template, variables, scope)));
         }
         // Invitations only. A password reset is started from the login screen by typing an email,
         // so the address is known and SMS adds nothing but cost. Same tier as the mail above.
         if (!pinned && purpose != InvitationPurpose.PASSWORD_RESET && StringUtils.isNotBlank(account.getMobile())) {
-            sendIn(tenantId, () -> messageService.sendSms(
+            sendIn(sendFor, () -> messageService.sendSms(
                     SendSmsDTO.ofTemplate(account.getMobile(), TEMPLATE_INVITE, variables, scope)));
         }
         // Dev aid: surface the set-password / reset link so it can be copied from the logs when SMTP
@@ -549,9 +543,10 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     }
 
     /**
-     * Send in the account's tenant, or — with none named — in the caller's own context, where a
-     * platform-scope send is filed under the platform tier. A send message-starter rejects (an address
-     * on file that does not parse) is logged at ERROR: the invitation stands either way.
+     * Send in the tenant named — the send is filed under it and counted against its quota — or, with
+     * none, in the caller's own context: the public reset of someone in several companies, filed under
+     * the platform. A send message-starter rejects (an address on file that does not parse) is logged
+     * at ERROR: the invitation stands either way.
      */
     private static void sendIn(Long tenantId, Runnable send) {
         try {

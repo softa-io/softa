@@ -17,6 +17,7 @@ import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.support.MailBodies;
+import io.softa.starter.message.shared.TenantScopes;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -157,8 +158,8 @@ class MailMessageHandlerTest {
     }
 
     @Test
-    void aPlatformSendFromATenantStaysInThatTenantsBooks() {
-        // A subscription reminder: the platform's template and server, the tenant's record.
+    void aPlatformSendFromATenantIsFiledUnderThatTenant() {
+        // A subscription reminder: the platform's template and server, the tenant's record and quota.
         List<Long> insertedFor = new ArrayList<>();
         when(recordService.createOne(any(MailSendRecord.class))).thenAnswer(invocation -> {
             insertedFor.add(ContextHolder.getContext().getTenantId());
@@ -174,7 +175,22 @@ class MailMessageHandlerTest {
         ContextHolder.runWith(tenant, () -> handler.send(dto));
 
         assertEquals(List.of(42L), insertedFor);
-        assertTrue(capturedRecord().getPlatformScope());
+        MailSendRecord record = capturedRecord();
+        assertEquals(42L, record.getTenantId());
+        assertTrue(record.getPlatformScope());
+    }
+
+    @Test
+    void aSendWithNoTenantIsFiledUnderThePlatform() {
+        // A login code for someone in several companies: asked for before any session exists.
+        SendMailDTO dto = new SendMailDTO();
+        dto.setTo(List.of("ada@example.com"));
+        dto.setTemplateCode("user.verification-code");
+        dto.setScope(MessageScope.PLATFORM);
+
+        ContextHolder.runWith(new Context("trace-1"), () -> handler.send(dto));
+
+        assertEquals(TenantScopes.PLATFORM, capturedRecord().getTenantId());
     }
 
     private MailSendRecord capturedRecord() {

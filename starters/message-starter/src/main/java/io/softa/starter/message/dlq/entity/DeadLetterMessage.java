@@ -69,7 +69,7 @@ public class DeadLetterMessage extends AuditableModel {
     @Field(description = "Processing status of this dead-letter row")
     private DeadLetterStatus status;
 
-    @Field(label = "Last Error Msg", description = "Last error captured when archiving / resolving")
+    @Field(label = "Last Error Msg", length = 1000, description = "Last error captured when archiving / resolving")
     private String lastErrorMsg;
 
     @Field(label = "Resolved Remark", description = "Operator note when marking resolved")

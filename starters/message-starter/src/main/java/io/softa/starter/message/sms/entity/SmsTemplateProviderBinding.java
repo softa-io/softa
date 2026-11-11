@@ -24,15 +24,15 @@ import io.softa.starter.referencedata.entity.CountryRegion;
  * regions served by that provider, while a concrete ISO country code overrides
  * the generic binding for that region.
  * <p>
- * tenant_id = -1 — platform-tier binding, used by PLATFORM-scoped sends only.
- * tenant_id > 0  — tenant-level binding, ORM auto-fills and isolates.
+ * Platform-owned, like the templates and providers it joins: the table is not
+ * multi-tenant and has no tenant column.
  */
 @Data
 @Model(label = "SMS Template Provider Binding", idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        multiTenant = true, activeControl = true,
+        activeControl = true,
         defaultOrder = {"templateId", "priority"})
 @Index(indexName = "idx_template_priority", fields = {"templateId", "priority"})
-@Index(indexName = "uk_tenant_tmpl_provider_region", fields = {"tenantId", "templateId", "providerConfigId", "regionCode"}, unique = true)
+@Index(indexName = "uk_sms_tmpl_provider_region", fields = {"templateId", "providerConfigId", "regionCode"}, unique = true)
 @Index(indexName = "idx_template_region", fields = {"templateId", "regionCode"})
 @EqualsAndHashCode(callSuper = true)
 public class SmsTemplateProviderBinding extends AuditableModel {
@@ -42,11 +42,6 @@ public class SmsTemplateProviderBinding extends AuditableModel {
 
     @Field(label = "ID")
     private Long id;
-
-    @Field(label = "Tenant ID",
-            description = "-1 = platform-tier (invisible to tenants); >0 = tenant-level. "
-                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
-    private Long tenantId;
 
     @Field(label = "Template ID", required = true, description = "FK → sms_template.id")
     private Long templateId;

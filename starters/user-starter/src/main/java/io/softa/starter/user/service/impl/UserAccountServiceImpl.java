@@ -1,13 +1,7 @@
 package io.softa.starter.user.service.impl;
 
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import jakarta.validation.constraints.NotNull;
@@ -15,7 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
-import java.time.LocalDateTime;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,45 +16,37 @@ import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
-import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
-import io.softa.framework.base.security.PasswordUtils;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.SFunction;
 import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
+import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.dto.UserAccountDTO;
 import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.dto.WorkContacts;
-import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.AccountStatus;
-import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
-import io.softa.starter.user.entity.UserSecurityLog;
-import io.softa.starter.user.service.UserAccountService;
-import io.softa.starter.user.service.UserInvitationService;
-import io.softa.starter.user.service.UserSecurityLogService;
-import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.service.*;
 import io.softa.starter.user.spi.PushDeviceRegistry;
-import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.util.ClientInfo;
-import io.softa.starter.user.service.UserIdentityService;
-import io.softa.starter.user.service.UserRoleRelService;
-import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.util.LoginIdentifiers;
-import io.softa.framework.orm.service.TenantInfoService;
-import io.softa.starter.user.service.LoginService;
 
 /**
  * UserAccount Model Service Implementation
@@ -209,6 +194,19 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     static final Set<AccountStatus> JOINED_STATUSES =
             EnumSet.of(AccountStatus.ACTIVE, AccountStatus.FROZEN, AccountStatus.LOCKED);
 
+    @Override
+    @CrossTenant
+    @SkipPermissionCheck
+    public Optional<Long> soleJoinedTenantOf(Long profileId) {
+        List<Long> tenants = this.listMembershipsOf(profileId).stream()
+                .filter(account -> JOINED_STATUSES.contains(account.getStatus()))
+                .map(UserAccount::getTenantId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        return tenants.size() == 1 ? Optional.of(tenants.getFirst()) : Optional.empty();
+    }
+
     /** One address: something before and after a single {@code @}, a dot in the domain, no spaces. */
     private static final java.util.regex.Pattern EMAIL_SHAPE =
             java.util.regex.Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
@@ -346,7 +344,6 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      *
      * @param email Email
      * @param mobile Mobile
-     * @param password Password
      * @return UserInfo
      */
     // @SkipPermissionCheck: the path that pairs an employee with a login. Without it, a role granted
@@ -872,7 +869,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
 
         // Tell the OLD number (it may be lost, but if not, the person learns of it) and the
-        // enterprise email; a failed send does not undo the reset, it is recorded with it.
+        // enterprise email; a failed send does not undo the reset, it is recorded with it. A
+        // platform notice: the platform's template through the platform's servers, so a company
+        // can neither rewrite nor swallow the warning that its HR changed someone's login. Sent in
+        // the account's company all the same: filed under it and counted against its quota.
         Long tenantId = account.getTenantId();
         Map<String, Object> vars = Map.of(
                 "employeeName", StringUtils.defaultString(account.getNickname()),
@@ -882,12 +882,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (StringUtils.isNotBlank(oldMobile)) {
             channels.add("sms");
             results.add("sms:" + this.remind(tenantId, () -> messageService.sendSms(SendSmsDTO.ofTemplate(
-                    oldMobile, TEMPLATE_RESET_USER, vars, MessageScope.TENANT))));
+                    oldMobile, TEMPLATE_RESET_USER, vars, MessageScope.PLATFORM))));
         }
         if (StringUtils.isNotBlank(account.getEmail())) {
             channels.add("email");
             results.add("email:" + this.remind(tenantId, () -> messageService.sendMail(SendMailDTO.ofTemplate(
-                    List.of(account.getEmail()), TEMPLATE_RESET_USER, vars, MessageScope.TENANT))));
+                    List.of(account.getEmail()), TEMPLATE_RESET_USER, vars, MessageScope.PLATFORM))));
         }
         UserSecurityLog row = securityLog.entry(SecurityAction.RESET_USER, SecurityLogSource.USER_ACCOUNTS, account, null);
         row.setReason(reason.trim());
@@ -944,7 +944,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             return;
         }
         // The old address (whoever holds it should know it no longer signs in) and the person's
-        // login mobile; a failed send is recorded, it does not undo the change.
+        // login mobile; a failed send is recorded, it does not undo the change. A platform notice,
+        // like the reset-user one: the company cannot rewrite or swallow it.
         Map<String, Object> vars = Map.of(
                 "employeeName", StringUtils.defaultString(account.getNickname()),
                 "time", LocalDateTime.now().toString());
@@ -953,14 +954,14 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (StringUtils.isNotBlank(previous)) {
             channels.add("email");
             results.add("email:" + this.remind(account.getTenantId(), () -> messageService.sendMail(SendMailDTO.ofTemplate(
-                    List.of(previous), TEMPLATE_EMAIL_CHANGED, vars, MessageScope.TENANT))));
+                    List.of(previous), TEMPLATE_EMAIL_CHANGED, vars, MessageScope.PLATFORM))));
         }
         String loginMobile = identityService.findByProfile(account.getProfileId())
                 .map(UserIdentity::getLoginMobile).orElse(null);
         if (StringUtils.isNotBlank(loginMobile)) {
             channels.add("sms");
             results.add("sms:" + this.remind(account.getTenantId(), () -> messageService.sendSms(SendSmsDTO.ofTemplate(
-                    loginMobile, TEMPLATE_EMAIL_CHANGED, vars, MessageScope.TENANT))));
+                    loginMobile, TEMPLATE_EMAIL_CHANGED, vars, MessageScope.PLATFORM))));
         }
         UserSecurityLog row = securityLog.entry(SecurityAction.ENTERPRISE_EMAIL_CHANGED,
                 SecurityLogSource.EMPLOYEE_PROFILE, account, null);

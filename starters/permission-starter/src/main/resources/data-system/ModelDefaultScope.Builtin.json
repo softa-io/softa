@@ -7,6 +7,9 @@
     { "id": "SmsTemplate", "scopeType": "ALL", "description": "SMS templates hold placeholder copy, no recipient and no credential" },
     { "id": "MailSendServerConfig", "scopeType": "ALL", "description": "SMTP settings; the password is masked on read" },
     { "id": "MailReceiveServerConfig", "scopeType": "ALL", "description": "IMAP settings; the password is masked on read" },
+    { "id": "PlatformMailTemplate", "scopeType": "ALL", "description": "The platform's mail templates hold placeholder copy, no recipient and no credential" },
+    { "id": "PlatformMailSendServer", "scopeType": "ALL", "description": "The platform's SMTP settings; the password is masked on read" },
+    { "id": "PlatformMailReceiveServer", "scopeType": "ALL", "description": "The platform's IMAP settings; the password is masked on read" },
     { "id": "ImportHistory", "scopeType": "CREATED_BY_SELF", "description": "Each run belongs to whoever started it" },
     { "id": "ExportHistory", "scopeType": "CREATED_BY_SELF", "description": "Each run belongs to whoever started it" }
   ]

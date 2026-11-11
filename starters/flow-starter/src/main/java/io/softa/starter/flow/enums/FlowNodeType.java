@@ -23,7 +23,7 @@ import lombok.Getter;
  *   <li><b>Human</b>: Approval</li>
  *   <li><b>Task</b>: Script, CreateRecord, GetRecord, UpdateRecord, DeleteRecord,
  *       QueryRecords, ValidateData, Transform, CallWebhook,
- *       SendEmail, SendSms, SendInboxNotification, QueryAI, AsyncTask, GenerateFile</li>
+ *       SendEmail, SendInboxNotification, QueryAI, AsyncTask, GenerateFile</li>
  *   <li><b>Subflow</b>: Subflow</li>
  *   <li><b>Data</b>: ReturnValue</li>
  * </ul>
@@ -64,9 +64,6 @@ public enum FlowNodeType {
     CALL_WEBHOOK("CallWebhook", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
     /** 发送邮件通知 */
     SEND_EMAIL("SendEmail", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
-    /** 发送短信通知 */
-    @OptionItem(label = "Send SMS")
-    SEND_SMS("SendSms", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
     /** 发送站内通知 */
     SEND_INBOX_NOTIFICATION("SendInboxNotification", FlowNodeCategory.TASK, Scenarios.AUTOMATION_ONLY),
     @OptionItem(label = "Query AI")

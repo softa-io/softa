@@ -16,7 +16,9 @@ import io.softa.framework.web.onchange.OnChangeContext;
 import io.softa.starter.message.mail.enums.BodyMode;
 
 /**
- * Editor linkage for {@code MailTemplate.bodyMode}: when the author switches
+ * Editor linkage for {@code MailTemplate.bodyMode} (and, through
+ * {@link PlatformMailTemplateBodyModeOnChangeHandler}, the platform's template
+ * editor): when the author switches
  * mode, migrate the existing body into the editor that the new mode actually
  * sends, and clear the column the new mode ignores — so the form state (and
  * therefore the saved row) always matches the {@link BodyMode} storage

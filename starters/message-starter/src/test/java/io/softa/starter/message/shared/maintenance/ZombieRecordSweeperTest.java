@@ -1,12 +1,13 @@
 package io.softa.starter.message.shared.maintenance;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
@@ -18,6 +19,9 @@ import io.softa.starter.message.sms.enums.SmsProvider;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -46,13 +50,14 @@ class ZombieRecordSweeperTest {
         smsService = mock(SmsSendRecordService.class);
         sendFailureHandler = mock(SendFailureHandler.class);
 
-        sweeper = new ZombieRecordSweeper();
-        ReflectionTestUtils.setField(sweeper, "mailSendRecordService", mailService);
-        ReflectionTestUtils.setField(sweeper, "smsSendRecordService", smsService);
-        ReflectionTestUtils.setField(sweeper, "sendFailureHandler", sendFailureHandler);
+        sweeper = sweeperWith(new MessageProperties());
 
         when(mailService.searchList(any(FlexQuery.class))).thenReturn(List.of());
         when(smsService.searchList(any(FlexQuery.class))).thenReturn(List.of());
+    }
+
+    private ZombieRecordSweeper sweeperWith(MessageProperties properties) {
+        return new ZombieRecordSweeper(mailService, smsService, sendFailureHandler, properties);
     }
 
     private static MailSendRecord stuckMail(int retryCount) {
@@ -108,5 +113,41 @@ class ZombieRecordSweeperTest {
         verify(sendFailureHandler).deadLetter(eq("sms"), eq("twilio"), eq(9L), eq(1L), eq(5),
                 eq("ZOMBIE_EXHAUSTED"), any(), eq(ErrorCategory.UNKNOWN), any());
         verify(smsService, never()).markRetry(any(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void theDefaultTimeoutsFitTheStaleWindow() {
+        // 5s connect + 30s read on both channels: well inside the five minutes.
+        assertDoesNotThrow(() -> sweeperWith(new MessageProperties()));
+    }
+
+    @Test
+    void startupRefusesTimeoutsASlowSendCouldOutlastTheWindowWith() {
+        // 5s + 3min: a send that is only slow could still be SENDING when the sweep takes it for a crashed one.
+        MessageProperties properties = new MessageProperties();
+        properties.getMail().getTransport().setReadTimeout(Duration.ofMinutes(3));
+
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> sweeperWith(properties));
+        assertTrue(e.getMessage().contains("softa.message.mail.transport"), e.getMessage());
+    }
+
+    @Test
+    void halfTheWindowIsTheLimitOnEachChannel() {
+        MessageProperties properties = new MessageProperties();
+        properties.getSms().getTransport().setConnectionTimeout(Duration.ofSeconds(30));
+        properties.getSms().getTransport().setReadTimeout(Duration.ofMinutes(2));
+        assertDoesNotThrow(() -> sweeperWith(properties));   // exactly 2m30s
+
+        properties.getSms().getTransport().setReadTimeout(Duration.ofMinutes(2).plusSeconds(1));
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> sweeperWith(properties));
+        assertTrue(e.getMessage().contains("softa.message.sms.transport"), e.getMessage());
+    }
+
+    @Test
+    void aZeroTimeoutIsNoTimeoutAndIsRefused() {
+        MessageProperties properties = new MessageProperties();
+        properties.getMail().getTransport().setReadTimeout(Duration.ZERO);
+
+        assertThrows(IllegalStateException.class, () -> sweeperWith(properties));
     }
 }

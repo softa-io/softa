@@ -22,7 +22,7 @@ import io.softa.starter.referencedata.entity.CountryRegion;
  * <p>
  * <b>Catchall behavior is NOT expressed here.</b> Use
  * {@code SmsProviderConfig.isDefault=true} to mark providers that should be
-     * eligible when no precise routing matches. Keeping the two concerns in
+ * eligible when no precise routing matches. Keeping the two concerns in
  * different fields means {@code region_code} is always a real ISO 3166-1
  * alpha-2 code (no {@code "*"} magic value).
  * <p>
@@ -38,14 +38,13 @@ import io.softa.starter.referencedata.entity.CountryRegion;
  *       Implicit "any enabled provider" fallback is intentionally absent.</li>
  * </ol>
  *
- * <p><b>Tenant scoping</b>: {@code tenant_id = -1} for platform-tier routing (invisible to tenants; per-country fallback only)
- * shared by all tenants; {@code tenant_id > 0} for per-tenant overrides
- * (auto-filled by the ORM tenant filter).
+ * <p><b>Platform-owned</b>: routing exists once, for every tenant — SMS is a
+ * platform service. The table is not multi-tenant and has no tenant column.
  *
-     * <p><b>Precise match wins fully</b> — once the precise tier yields an
-     * enabled provider, the dispatcher does NOT merge in the catchall tier.
-     * To make a global provider eligible for TW traffic, explicitly add a TW
-     * row for that provider too. Explicit
+ * <p><b>Precise match wins fully</b> — once the precise tier yields an
+ * enabled provider, the dispatcher does NOT merge in the catchall tier.
+ * To make a global provider eligible for TW traffic, explicitly add a TW
+ * row for that provider too. Explicit
  * configuration over implicit fallback prevents routing to the wrong
  * provider (e.g. accidentally sending TW traffic through a mainland-CN line).
  */
@@ -53,12 +52,11 @@ import io.softa.starter.referencedata.entity.CountryRegion;
 @Model(
         label = "SMS Provider Region",
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        multiTenant = true,
         activeControl = true,
         defaultOrder = {"regionCode", "priority"}
 )
 @Index(indexName = "idx_region_active", fields = {"regionCode", "active"})
-@Index(indexName = "uk_tenant_provider_region", fields = {"tenantId", "providerConfigId", "regionCode"}, unique = true)
+@Index(indexName = "uk_sms_provider_region", fields = {"providerConfigId", "regionCode"}, unique = true)
 @EqualsAndHashCode(callSuper = true)
 public class SmsProviderRegion extends AuditableModel {
 
@@ -67,11 +65,6 @@ public class SmsProviderRegion extends AuditableModel {
 
     @Field(label = "ID")
     private Long id;
-
-    @Field(label = "Tenant ID",
-            description = "-1 = platform-tier (invisible to tenants); >0 = tenant-level. "
-                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
-    private Long tenantId;
 
     @Field(label = "Provider Config ID", required = true, description = "FK → sms_provider_config.id")
     private Long providerConfigId;

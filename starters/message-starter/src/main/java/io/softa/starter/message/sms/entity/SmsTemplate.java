@@ -14,27 +14,21 @@ import io.softa.framework.orm.entity.AuditableModel;
 /**
  * SMS template.
  * <p>
- * Templates are identified by {@code code}. Resolution prefers a tenant
- * template, falling back to the platform template:
- * <ol>
- *   <li>{@code scope = TENANT}: the current tenant's template only (rows
- *       arrive at provisioning via the application's per-tenant seed files)</li>
- *   <li>{@code scope = PLATFORM}: the platform tier (tenant_id = -1) only</li>
- * </ol>
- * No overlay or fallback between the tiers.
+ * Templates are identified by {@code code}, unique across the table.
+ * <p>
+ * Platform-owned: SMS is a platform service, so each template exists once, for
+ * every tenant. The table is not multi-tenant and has no tenant column; the
+ * tenant a send is made for decides whom its record is filed under and whose
+ * monthly quota it draws on, never which template it renders.
  * <p>
  * Content supports {@code {{ variable }}} placeholders rendered by
  * {@link io.softa.framework.base.placeholder.PlaceholderUtils}.
- * <p>
- * tenant_id = -1 — platform-tier, owned by the platform operator,
- * invisible to tenant-scoped reads.
- * tenant_id > 0  — tenant-level, ORM auto-fills and isolates.
  */
 @Data
-@Model(label = "SMS Template", idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true,
+@Model(label = "SMS Template", idStrategy = IdStrategy.DISTRIBUTED_LONG,
         activeControl = true,
         defaultOrder = {"name"})
-@Index(indexName = "uk_sms_template_tenant_code", fields = {"tenantId", "code"}, unique = true)
+@Index(indexName = "uk_sms_template_code", fields = {"code"}, unique = true)
 @EqualsAndHashCode(callSuper = true)
 public class SmsTemplate extends AuditableModel {
 
@@ -43,11 +37,6 @@ public class SmsTemplate extends AuditableModel {
 
     @Field(label = "ID")
     private Long id;
-
-    @Field(label = "Tenant ID",
-            description = "-1 = platform-tier (owned by the platform operator, invisible to tenants); "
-                    + ">0 = tenant-level. Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
-    private Long tenantId;
 
     @Field(required = true, length = 100,
             description = "Unique template code used for programmatic lookup, e.g. VERIFY_CODE")

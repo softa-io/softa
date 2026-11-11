@@ -6,12 +6,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.starter.message.shared.TenantScopes;
 import io.softa.starter.message.sms.entity.SmsProviderRegion;
 import io.softa.starter.message.sms.service.SmsProviderRegionService;
 import io.softa.starter.referencedata.service.CountryRegionService;
@@ -45,24 +43,10 @@ public class SmsProviderRegionServiceImpl extends EntityServiceImpl<SmsProviderR
     }
 
     @Override
-    @CrossTenant
     public List<SmsProviderRegion> findEnabledByRegion(String regionCode) {
-        // Per-country, tenant-first: the tenant's own routing rows for this
-        // country win outright; only a country the tenant has not routed falls
-        // back to the (invisible) platform-tier rows. Both tiers organize
-        // routing by country; they never interleave within one country.
-        List<SmsProviderRegion> own = searchList(new FlexQuery(
-                new Filters()
-                        .eq(SmsProviderRegion::getRegionCode, regionCode)
-                        .eq(SmsProviderRegion::getTenantId, TenantScopes.currentTenantOrPlatform()),
-                Orders.ofAsc(SmsProviderRegion::getPriority)));
-        if (!own.isEmpty()) {
-            return own;
-        }
+        // active = true is appended by the framework's active control.
         return searchList(new FlexQuery(
-                new Filters()
-                        .eq(SmsProviderRegion::getRegionCode, regionCode)
-                        .eq(SmsProviderRegion::getTenantId, TenantScopes.PLATFORM),
+                new Filters().eq(SmsProviderRegion::getRegionCode, regionCode),
                 Orders.ofAsc(SmsProviderRegion::getPriority)));
     }
 

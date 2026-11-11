@@ -31,11 +31,6 @@ class TypedTaskConfigCompileTest {
     private record RejectionCase(FlowNodeType nodeType, Map<String, Object> partialInput, String expectedField) {}
 
     private static final List<RejectionCase> CASES = List.of(
-            new RejectionCase(FlowNodeType.SEND_SMS,
-                    Map.of("content", "hi"), "config.input.phoneNumbers"),
-            // phoneNumbers present but neither content nor templateCode
-            new RejectionCase(FlowNodeType.SEND_SMS,
-                    Map.of("phoneNumbers", List.of("13800000000")), "config.input.content"),
             new RejectionCase(FlowNodeType.SEND_EMAIL,
                     Map.of("subject", "hello"), "config.input.to"),
             new RejectionCase(FlowNodeType.SEND_INBOX_NOTIFICATION,
@@ -91,7 +86,6 @@ class TypedTaskConfigCompileTest {
             Map.entry(FlowNodeType.GET_RECORD, "config.modelName"),
             Map.entry(FlowNodeType.DELETE_RECORD, "config.modelName"),
             Map.entry(FlowNodeType.QUERY_RECORDS, "config.modelName"),
-            Map.entry(FlowNodeType.SEND_SMS, "config.phoneNumbers"),
             Map.entry(FlowNodeType.SEND_EMAIL, "config.to"),
             Map.entry(FlowNodeType.SEND_INBOX_NOTIFICATION, "config.recipientIds"),
             Map.entry(FlowNodeType.GENERATE_FILE, "config.templateId"),
