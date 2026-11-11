@@ -11,6 +11,9 @@ import io.softa.framework.orm.domain.CreateAccess;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.RecordAccess;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 
 /**
  * Permission check service interface
@@ -469,6 +472,24 @@ public interface PermissionService {
     static boolean placesInDepartment(String model, String fieldName) {
         return ModelConstant.DEPARTMENT_FIELD.equals(fieldName)
                 || (ModelConstant.DEPARTMENT_MODEL.equals(model) && "parentId".equals(fieldName));
+    }
+
+    /**
+     * Whether {@code fieldName} names a company a write of {@code model} is bounded by: a stored to-one field onto the
+     * company model — the {@code companyId} the record belongs to, bounded by row scope, or another company it names,
+     * judged on save against {@link #getGrantedCompanyIds}. A projection is never written, a {@code dynamic} field is
+     * not stored, and a cascaded field copies the company of the record it follows rather than naming one: nothing
+     * bounds what those name, and a picker for one reads as any other.
+     */
+    static boolean namesCompany(String model, String fieldName) {
+        if (!ModelManager.existModel(model) || ModelManager.isProjectionModel(model)) {
+            return false;
+        }
+        MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+        return field != null
+                && FieldType.TO_ONE_TYPES.contains(field.getFieldType())
+                && ModelConstant.COMPANY_MODEL.equals(field.getRelatedModel())
+                && !field.isDynamic() && field.getCascadedField() == null;
     }
 
 }

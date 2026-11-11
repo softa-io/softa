@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -565,7 +566,7 @@ public class ModelController<K extends Serializable> {
     private void narrowToWritableCompanies(String modelName, SourceRecord source, FlexQuery flexQuery) {
         Set<Long> writable = writableCompanies(modelName, source, permissionService);
         if (writable != null) {
-            flexQuery.setFilters(Filters.and(flexQuery.getFilters(), new Filters().in(ModelConstant.ID, writable)));
+            narrowTo(new Filters().in(ModelConstant.ID, writable), source, flexQuery);
         }
     }
 
@@ -573,8 +574,39 @@ public class ModelController<K extends Serializable> {
     private void narrowToWritableDepartments(String modelName, SourceRecord source, FlexQuery flexQuery) {
         Filters writable = writableDepartments(modelName, source, permissionService);
         if (writable != null) {
-            flexQuery.setFilters(Filters.and(flexQuery.getFilters(), writable));
+            narrowTo(writable, source, flexQuery);
         }
+    }
+
+    /**
+     * ANDs {@code writable} onto the options, the value the edited record holds now kept among them.
+     *
+     * <p>A record may already name a company or department the write could not choose — set by an administrator or by
+     * the system — and its save keeps it while the field is left alone. Narrowed without it, the picker would show a
+     * value it does not offer, as if the record were broken.
+     */
+    private void narrowTo(Filters writable, SourceRecord source, FlexQuery flexQuery) {
+        Object current = currentValue(source);
+        Filters offered = current == null ? writable
+                : Filters.or(writable, Filters.of(ModelConstant.ID, Operator.EQUAL, current));
+        flexQuery.setFilters(Filters.and(flexQuery.getFilters(), offered));
+    }
+
+    /**
+     * The id the edited record's picked field holds now, read as the caller reads the record; null for a new record, a
+     * search naming no field, an empty field, or a record the caller cannot read.
+     */
+    private Object currentValue(SourceRecord source) {
+        if (source == null || source.getFieldName() == null || source.getFieldName().isBlank()
+                || source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank()) {
+            return null;
+        }
+        String field = source.getFieldName();
+        K id = IdUtils.formatId(source.getModel(), source.getRecordId());
+        Object value = modelService.getById(source.getModel(), id, List.of(field))
+                .map(row -> row.get(field)).orElse(null);
+        Object referenced = value instanceof Map<?, ?> reference ? reference.get(ModelConstant.ID) : value;
+        return referenced == null || String.valueOf(referenced).isBlank() ? null : referenced;
     }
 
     /**
@@ -619,7 +651,9 @@ public class ModelController<K extends Serializable> {
      * ({@link PermissionService#getGrantedCompanyIds(String, AccessType, java.io.Serializable)}).
      *
      * <p>A write granted no company offers none: every company the picker could list would be refused. The
-     * name search and the list read a tree or list picker loads through answer alike.
+     * name search and the list read a tree or list picker loads through answer alike. A picker that names its field,
+     * and the field names no company the save judges ({@link PermissionService#namesCompany}) — one not stored, say,
+     * that only filters another picker — reads as any other.
      */
     static Set<Long> writableCompanies(String modelName, SearchNameParams params, PermissionService permissionService) {
         return writableCompanies(modelName, params == null ? null : params.getSourceRecord(), permissionService);
@@ -631,6 +665,10 @@ public class ModelController<K extends Serializable> {
             return null;
         }
         if (source.getModel() == null || source.getModel().isBlank() || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        if (source.getFieldName() != null && !source.getFieldName().isBlank()
+                && !PermissionService.namesCompany(source.getModel(), source.getFieldName())) {
             return null;
         }
         boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();

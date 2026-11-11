@@ -16,7 +16,6 @@ import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.AccessType;
-import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -87,21 +86,18 @@ public class CompanyReferenceGrantValidator implements ModelWriteValidator {
     }
 
     /**
-     * The stored to-one fields of {@code modelName} onto the company model, the company axis left out.
-     * A projection is never written, a {@code dynamic} field is not stored, and a cascaded field copies
-     * the company of the record it follows rather than naming one.
+     * The fields of {@code modelName} that name a company ({@link PermissionService#namesCompany}), the company
+     * axis left out: row scope bounds that one.
      */
     List<String> referencesOf(String modelName) {
         return referencesByModel.computeIfAbsent(modelName, model -> {
-            if (!ModelManager.existModel(model) || ModelManager.isProjectionModel(model)) {
+            if (!ModelManager.existModel(model)) {
                 return List.of();
             }
             return ModelManager.getModelFields(model).stream()
-                    .filter(field -> FieldType.TO_ONE_TYPES.contains(field.getFieldType()))
-                    .filter(field -> ModelConstant.COMPANY_MODEL.equals(field.getRelatedModel()))
-                    .filter(field -> !field.isDynamic() && field.getCascadedField() == null)
                     .map(MetaField::getFieldName)
                     .filter(name -> !ModelConstant.COMPANY_FIELD.equals(name))
+                    .filter(name -> PermissionService.namesCompany(model, name))
                     .sorted()
                     .toList();
         });
