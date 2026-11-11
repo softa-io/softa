@@ -59,12 +59,6 @@ public class FlowApprovalRecord extends AuditableModel {
     @Field(length = 200, description = "Primary node label")
     private String nodeLabel;
 
-    @Field(description = "Approval task cycle number associated with the record when applicable")
-    private Integer cycleNumber;
-
-    @Field(label = "Task ID", description = "Task id when the record is attached to one task row")
-    private Long taskId;
-
     @Field(required = true, description = "Monotonic runtime sequence within one instance")
     private Integer sequence;
 

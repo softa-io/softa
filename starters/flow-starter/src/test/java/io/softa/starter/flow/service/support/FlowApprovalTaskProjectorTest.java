@@ -31,18 +31,14 @@ class FlowApprovalTaskProjectorTest {
                         .flowRevision(3)
                         .nodeId("managerApproval")
                         .nodeLabel("Manager Approval")
-                        .cycleNumber(2)
                         .approvers(List.of("manager", "hr"))
-                        .dynamicApprovers(true)
                         .approvalMode(VoteThresholdMode.UNANIMOUS)
                         .requiredApprovalCount(2)
-                        .totalApproverCount(2)
                         .approvedActors(List.of("manager"))
                         .dueTime(LocalDateTime.of(2026, 11, 6, 18, 0))
                         .build()))
                 .approvalAuditDelta(List.of(ApprovalActionAuditEntry.builder()
                         .action(ApprovalActionType.APPROVE)
-                        .cycleNumber(2)
                         .nodeId("managerApproval")
                         .actorId("manager")
                         .comment("approved")
@@ -55,10 +51,9 @@ class FlowApprovalTaskProjectorTest {
         assertEquals(2, tasks.size());
 
         var managerTask = tasks.stream().filter(task -> "manager".equals(task.getActorId())).findFirst().orElseThrow();
-        // The step's deadline goes on its tasks: what the inbox says is due (zingkey-hcm#2350).
+        // The step's deadline goes on its tasks: what the inbox says is due.
         assertEquals(LocalDateTime.of(2026, 11, 6, 18, 0), managerTask.getDueTime());
         assertEquals(FlowApprovalTaskStatus.APPROVED, managerTask.getStatus());
-        assertEquals(2, managerTask.getCycleNumber());
         assertEquals(ApprovalActionType.APPROVE, managerTask.getAction());
         assertEquals("approved", managerTask.getComment());
         assertEquals(List.of("manager"), managerTask.getApprovedActors());
@@ -67,8 +62,6 @@ class FlowApprovalTaskProjectorTest {
         var hrTask = tasks.stream().filter(task -> "hr".equals(task.getActorId())).findFirst().orElseThrow();
         assertEquals(FlowApprovalTaskStatus.PENDING, hrTask.getStatus());
         assertNull(hrTask.getEndTime());
-        assertEquals(List.of("manager", "hr"), hrTask.getCandidateActors());
-        assertEquals(VoteThresholdMode.UNANIMOUS, hrTask.getApprovalMode());
         assertEquals(2, hrTask.getRequiredApprovalCount());
     }
 
@@ -84,18 +77,15 @@ class FlowApprovalTaskProjectorTest {
                         .flowRevision(3)
                         .nodeId("managerApproval")
                         .nodeLabel("Manager Approval")
-                        .cycleNumber(1)
                         .approvers(List.of("manager"))
                         .approvalMode(VoteThresholdMode.ANY_ONE)
                         .requiredApprovalCount(1)
-                        .totalApproverCount(1)
                         .approvedActors(List.of())
                         .build()))
                 .approvalAuditDelta(List.of(ApprovalActionAuditEntry.builder()
                         .action(ApprovalActionType.CC)
                         .nodeId("managerApproval")
                         .nodeLabel("Manager Approval")
-                        .cycleNumber(1)
                         .actorId("manager")
                         .targetActorId("observer")
                         .comment("FYI")

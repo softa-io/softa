@@ -2,6 +2,7 @@ package io.softa.starter.flow.runtime.store;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.type.TypeReference;
 
@@ -28,10 +29,10 @@ public final class FlowExecutionStateMapper {
     /**
      * {@code state} as a save would keep it and a load give it back — through the same mapping — with what a save is
      * yet to write, its new trace and approval audit entries, and where their numbering stands: the point the steps
-     * after an approval are undone to, should one fail (zingkey-hcm#2385). Nothing is saved.
+     * after an approval are undone to, should one fail. Nothing is saved.
      */
     public static FlowExecutionState copyOf(FlowExecutionState state) {
-        FlowExecutionState copy = toState(toEntity(state, null));
+        FlowExecutionState copy = toState(toEntity(state));
         copy.setFlowName(state.getFlowName());
         copy.setInitiatorName(state.getInitiatorName());
         copy.setTrace(state.getTrace() == null ? new ArrayList<>() : new ArrayList<>(state.getTrace()));
@@ -41,14 +42,27 @@ public final class FlowExecutionStateMapper {
                 ? new ArrayList<>() : new ArrayList<>(state.getApprovalAuditDelta()));
         copy.setPersistedAuditCount(state.getPersistedAuditCount());
         copy.setAuditSequenceBase(state.getAuditSequenceBase());
+        copy.setCommittedAudit(state.getCommittedAudit() == null ? null : new ArrayList<>(state.getCommittedAudit()));
         return copy;
     }
 
     /**
-     * Convert runtime state to persistence entity.
+     * The FlowInstance fields a state holds — every one {@link #toEntity} sets — which a save writes, nulls included,
+     * and no other: a column written apart from the state ({@code superseded}) keeps its value.
      */
-    static FlowInstance toEntity(FlowExecutionState state, FlowInstance existing) {
-        FlowInstance entity = existing != null ? existing : new FlowInstance();
+    public static final Set<String> STATE_FIELDS = Set.of("instanceId", "version", "bundleId", "flowId",
+            "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "subjectId", "departmentId",
+            "effectiveDate", "recordCode", "summary", "triggerEventId", "openRecordId", "status", "errorMessage",
+            "failedNodeId", "retryAfterNodeId", "variables", "waitTokens", "completedNodeIds", "pendingApprovals",
+            "joinArrivalCounts", "returnData");
+
+    /**
+     * Convert runtime state to persistence entity: the row it was read from or saved as ({@code persistedId}), else a
+     * new one.
+     */
+    public static FlowInstance toEntity(FlowExecutionState state) {
+        FlowInstance entity = new FlowInstance();
+        entity.setId(state.getPersistedId());
         entity.setInstanceId(state.getInstanceId());
         entity.setVersion(state.getVersion());
         entity.setBundleId(state.getBundleId());
@@ -73,10 +87,8 @@ public final class FlowExecutionStateMapper {
         entity.setErrorMessage(state.getErrorMessage());
         entity.setFailedNodeId(state.getFailedNodeId());
         entity.setRetryAfterNodeId(state.getRetryAfterNodeId());
-        entity.setInputPayload(JsonUtils.objectToString(state.getInputPayload()));
         entity.setVariables(JsonUtils.objectToString(state.getVariables()));
         entity.setWaitTokens(JsonUtils.objectToString(state.getWaitTokens()));
-        entity.setNextFireAt(state.earliestTimerDueAt());
         entity.setCompletedNodeIds(JsonUtils.objectToString(state.getCompletedNodeIds()));
         entity.setPendingApprovals(JsonUtils.objectToString(state.getPendingApprovals()));
         entity.setJoinArrivalCounts(JsonUtils.objectToString(state.getJoinArrivalCounts()));
@@ -93,6 +105,7 @@ public final class FlowExecutionStateMapper {
         return FlowExecutionState.builder()
                 .instanceId(entity.getInstanceId())
                 .version(entity.getVersion())
+                .persistedId(entity.getId())
                 .bundleId(entity.getBundleId())
                 .flowId(entity.getFlowId())
                 .flowName(entity.getFlowName())
@@ -112,7 +125,6 @@ public final class FlowExecutionStateMapper {
                 .errorMessage(entity.getErrorMessage())
                 .failedNodeId(entity.getFailedNodeId())
                 .retryAfterNodeId(entity.getRetryAfterNodeId())
-                .inputPayload(JsonUtils.stringToObject(entity.getInputPayload(), new TypeReference<>() {}, new LinkedHashMap<>()))
                 // The record's numbers come back as text from the JSON; the routes compare them as numbers.
                 .variables(RecordVariables.restoreNumbers(entity.getModelName(),
                         JsonUtils.stringToObject(entity.getVariables(), new TypeReference<>() {}, new LinkedHashMap<>())))

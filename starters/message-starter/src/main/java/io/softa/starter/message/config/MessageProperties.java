@@ -3,29 +3,27 @@ package io.softa.starter.message.config;
 import java.time.Duration;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.util.unit.DataSize;
 
 /**
- * Centralised properties for {@code message-starter} infrastructure behaviour
- * that isn't part of the MQ topic map (which lives in
- * {@link io.softa.starter.message.mq.MqTopicsProperties}).
+ * Centralised properties for {@code message-starter} infrastructure behaviour.
  * <p>
- * Bound under prefix {@code softa.message}. Each nested section corresponds
- * to one infrastructure concern. Defaults aim to be safe for production
- * single-node deployments; tune {@code outbox.poll-interval-ms} down to
-     * raise throughput, raise {@code zombie.stale-seconds} if the broker or
-     * provider can legitimately take longer than five minutes to complete.
+ * Bound under prefix {@code softa.message}. Only what differs between deployments is configurable:
+ * how many sends an instance runs at once, the default monthly quotas, transport timeouts and the
+ * protocol debug log. Retry back-off, the stale-send window, polling, the SMTP pool's limits and
+ * mail-fetch limits are constants in the code that uses them; connection reuse is switched per server
+ * config ({@code MailSendServerConfig.connectionReuseEnabled}). Raise {@code mail.send-concurrency} /
+ * {@code sms.send-concurrency} for throughput, within what the mail server or SMS provider allows.
  *
  * <pre>{@code
  * softa:
  *   message:
- *     outbox:
- *       enabled: true              # default; set false on read-only replicas
- *       poll-interval-ms: 500      # publisher polling cadence
- *     zombie:
- *       enabled: true
-     *       stale-seconds: 300         # stale SENDING / PUBLISHING claims are revived
- *       cron: "0 * * * * *"        # sweep cadence (every minute)
+ *     mail:
+ *       send-concurrency: 4        # mails one instance sends at once (each worker holds an SMTP connection)
+ *     sms:
+ *       send-concurrency: 10       # SMS one instance sends at once
+ *     quota:
+ *       mail-monthly-default: 10000
+ *       sms-monthly-default: 10000
  * }</pre>
  *
  * <h3>Why some keys still appear as {@code @Value} / {@code @ConditionalOnProperty} literals</h3>
@@ -40,8 +38,6 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties(prefix = "softa.message")
 public class MessageProperties {
 
-    private final Outbox outbox = new Outbox();
-    private final Zombie zombie = new Zombie();
     private final Mail mail = new Mail();
     private final Sms sms = new Sms();
     private final Quota quota = new Quota();
@@ -54,45 +50,15 @@ public class MessageProperties {
      */
     @Data
     public static class Quota {
-        /** Default maximum accepted mail sends per bucket per calendar month; null = unlimited. */
+        /** Default maximum mail sends charged per bucket per calendar month; null = unlimited. */
         private Long mailMonthlyDefault;
-        /** Default maximum accepted SMS sends per bucket per calendar month; null = unlimited. */
+        /** Default maximum SMS sends charged per bucket per calendar month; null = unlimited. */
         private Long smsMonthlyDefault;
     }
 
     @Data
-    public static class Outbox {
-        /** Whether the {@code OutboxPublisher} scheduled job is enabled. */
-        private boolean enabled = true;
-        /** Polling interval in milliseconds. Lower = faster publish, higher DB load. */
-        private long pollIntervalMs = 500;
-    }
-
-    @Data
-    public static class Zombie {
-        /** Whether the {@code ZombieRecordSweeper} scheduled job is enabled. */
-        private boolean enabled = true;
-        /** Cron expression for the sweep cadence (default: every minute). */
-        private String cron = "0 * * * * *";
-        /** Stale {@code SENDING} records and {@code PUBLISHING} outbox claims are revived. */
-        private long staleSeconds = 300;
-    }
-
-    @Data
     public static class Mail {
-        private final Fetch fetch = new Fetch();
         private final Transport transport = new Transport();
-        private final SmtpPool smtpPool = new SmtpPool();
-
-        /**
-         * Maximum accepted length (in characters) for a single outbound mail
-         * body field ({@code htmlBody} or {@code textBody}) at acceptance
-         * time. A guard against runaway payloads (e.g. base64 images inlined
-         * into the HTML), not a storage bound — the columns are unbounded
-         * TEXT-class. Raise deliberately for deployments that legitimately
-         * send larger bodies.
-         */
-        private int maxBodyChars = 1_048_576;
 
         /**
          * Enable Jakarta Mail's full SMTP/IMAP protocol debug log
@@ -112,102 +78,12 @@ public class MessageProperties {
         private boolean debug = false;
 
         /**
-         * Delivery consumers per instance on the Shared mail-send subscription:
-         * how many mails one instance sends in parallel. Each consumer holds its
-         * own SMTP connection, so stay within the server's limit on concurrent
-         * connections per account. Read by {@code MailSendConsumer} as
-         * {@code softa.message.mail.send-concurrency}.
+         * How many mails one instance sends in parallel: the size of its mail
+         * worker pool in the delivery loop. Each worker holds its own SMTP
+         * connection, so stay within the server's limit on concurrent connections
+         * per account; lower it for a server that allows fewer than four.
          */
-        private int sendConcurrency = 1;
-    }
-
-    @Data
-    public static class Fetch {
-        /**
-         * Maximum number of messages to process per cron tick per (config, folder).
-         * Server-side IMAP returns the full UID list cheaply; this caps how many
-         * bodies we fetch and persist in one batch. The remainder is picked up by
-         * the next cron tick.
-         */
-        private int batchLimit = 100;
-
-        /**
-         * Stale-lease threshold for {@code mail_fetch_imap_watermark.in_progress_since}.
-         * If a worker holds the lease longer than this without releasing it, the
-         * lease is considered abandoned (worker likely crashed) and another worker
-         * may take over. Default is intentionally conservative — any legitimate
-         * fetch should finish well within this window.
-         */
-        private Duration leaseTimeout = Duration.ofHours(1);
-
-        /**
-         * Total RFC822 size cap per email. Sourced from {@code message.getSize()}
-         * (IMAP {@code RFC822.SIZE} / POP3 {@code LIST}), measured by the receiving
-         * mail server — the sender cannot forge it. Above this limit the body is
-         * never fetched; an envelope-only record is persisted with
-         * {@code truncationReason=BodyTooLarge}.
-         */
-        private DataSize maxMessageSize = DataSize.ofMegabytes(100);
-
-        /**
-         * Per-attachment size cap. Sourced from MIME {@code BODYSTRUCTURE.size}
-         * (no extra fetch). Attachments above this limit are skipped during upload
-         * and do not appear in {@code MailReceiveRecord.attachments}; the first
-         * occurrence sets {@code truncationReason=AttachmentTooLarge} so audit
-         * can find emails whose attachments were truncated.
-         */
-        private DataSize maxAttachmentSize = DataSize.ofMegabytes(20);
-
-        /**
-         * Whether to archive the raw EML stream to {@link io.softa.framework.orm.service.FileService}.
-         * Disabled by default — opt in for compliance / audit deployments. When
-         * enabled, archive is bounded by {@code maxMessageSize} (oversized emails
-         * are filtered before reaching this path).
-         */
-        private boolean archiveEml = false;
-
-        /**
-         * Maximum MIME nesting depth. Real-world emails rarely exceed 6 even with
-         * S/MIME-signed-encrypted-alternative compositions; values beyond this are
-         * treated as suspicious (potential MIME zip-bomb) and abort body extraction
-         * with {@code truncationReason=MimeDepthExceeded}.
-         */
-        private int maxMimeDepth = 10;
-
-        /**
-         * Maximum total MIME parts walked per email. Defends against attachment-storm
-         * attacks (a flat email with thousands of small parts that would each trigger
-         * a {@link io.softa.framework.orm.service.FileService} upload). Normal emails
-         * stay below 30; a hit aborts body extraction with
-         * {@code truncationReason=MimePartsExceeded}.
-         */
-        private int maxMimeParts = 100;
-    }
-
-    /**
-     * Reuse of authenticated SMTP connections across sends, one small pool per
-     * {@code MailSendServerConfig}. Without it every mail pays a TCP connect, TLS
-     * handshake and AUTH exchange, which is most of a small mail's send time.
-     */
-    @Data
-    public static class SmtpPool {
-        /** Reuse connections; {@code false} opens and closes one connection per send. */
-        private boolean enabled = true;
-
-        /**
-         * An idle connection older than this is closed instead of reused. Keep it
-         * well below the idle cut-off of any NAT or load balancer on the path to
-         * the SMTP server (typically minutes): a connection one of those dropped
-         * silently would only answer the reuse probe with a read timeout.
-         */
-        private Duration idleTimeout = Duration.ofSeconds(30);
-
-        /**
-         * Close a connection after it has carried this many messages. Some servers
-         * cap messages per session; closing first avoids a failed send, and the
-         * retry it would cost, when the cap is hit.
-         */
-        private int maxMessagesPerConnection = 100;
+        private int sendConcurrency = 4;
     }
 
     @Data
@@ -215,10 +91,10 @@ public class MessageProperties {
         private final Transport transport = new Transport();
 
         /**
-         * Delivery consumers per instance on the Shared sms-send subscription.
-         * Read by {@code SmsSendConsumer} as {@code softa.message.sms.send-concurrency}.
+         * How many SMS one instance sends in parallel: the size of its SMS worker pool. Each send is
+         * one HTTPS call, so ten stays well below the request rates SMS providers allow.
          */
-        private int sendConcurrency = 1;
+        private int sendConcurrency = 10;
     }
 
     /**

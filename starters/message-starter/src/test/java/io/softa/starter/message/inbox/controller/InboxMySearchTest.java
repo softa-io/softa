@@ -29,7 +29,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * The Notifications page reads the caller's own notifications, past row scope: what the request adds narrows and
- * sorts them, and may name only what the model stores (zingkey-hcm#2451).
+ * sorts them, and may name only what the model stores.
  */
 class InboxMySearchTest {
 

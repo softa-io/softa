@@ -4,17 +4,13 @@ import java.util.Map;
 
 import io.softa.starter.flow.dto.FlowApprovalPreview;
 import io.softa.starter.flow.dto.FlowDesignPreview;
-import io.softa.starter.flow.runtime.engine.FlowLaunchResponse;
-import io.softa.starter.flow.runtime.api.PublishAndStartRequest;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
- * Launch facade: the editor's publish-and-start and the test run of a draft, and the submission (and
- * withdrawal) of business records for approval, with its preview.
+ * Launch facade: the editor's test run of a draft, and the submission (and withdrawal) of business records for
+ * approval, with its preview.
  */
 public interface FlowLaunchService {
-
-    FlowLaunchResponse publishAndStart(PublishAndStartRequest request);
 
     /**
      * The editor's test run of an approval flow: what submitting a request with {@code values} as
@@ -102,9 +98,8 @@ public interface FlowLaunchService {
      *
      * @param modelName the record's model
      * @param rowId     the record
-     * @param actorId   the cancelling applicant
      * @throws io.softa.framework.base.exception.BusinessException when the record is not a draft, or its
      *         handler refuses
      */
-    void cancelRecord(String modelName, String rowId, String actorId);
+    void cancelRecord(String modelName, String rowId);
 }

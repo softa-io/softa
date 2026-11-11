@@ -67,6 +67,12 @@ public class MailSendServerConfig extends AuditableModel {
                     + "Choose this when the provider's docs say 'STARTTLS' or list port 587.")
     private Boolean starttlsEnabled;
 
+    @Field(defaultValue = "true",
+            description = "Reuse authenticated connections across sends (default on): a run of mails pays the "
+                    + "TCP connect, TLS handshake and AUTH once. Turn it off for a server that does not take a "
+                    + "second message on one connection; every send then opens and closes its own.")
+    private Boolean connectionReuseEnabled;
+
     @Field(label = "Auth Username", length = 255)
     private String username;
 

@@ -43,7 +43,6 @@ import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.FileUtils;
@@ -62,6 +61,7 @@ import io.softa.starter.file.excel.export.support.OptionDropdownHandler;
 import io.softa.starter.file.excel.style.TemporalColumnFormatHandler;
 import io.softa.starter.file.excel.export.support.OptionDropdownResolver;
 import io.softa.starter.file.excel.imports.ImportFieldAccess;
+import io.softa.starter.file.excel.imports.ImportFieldPaths;
 import io.softa.starter.file.excel.imports.ImportHeaderMatcher;
 import io.softa.starter.file.excel.imports.ImportRowPipeline;
 import io.softa.starter.file.excel.style.ImportSheetStyleHandler;
@@ -669,7 +669,7 @@ public class ImportServiceImpl implements ImportService {
         importFieldDTO.setDescription(importTemplateField.getDescription());
         importFieldDTO.setNoDropdown(importTemplateField.getNoDropdown());
         // Get the metaField object of the last field in cascading `fieldName`.
-        MetaField lastField = resolveLastImportField(importTemplateDTO.getModelName(), importTemplateField.getFieldName());
+        MetaField lastField = ImportFieldPaths.lastField(importTemplateDTO.getModelName(), importTemplateField.getFieldName());
         // Set the default value of the imported field
         if (StringUtils.isNotBlank(importTemplateField.getDefaultValue())) {
             Object defaultValue = this.getDefaultValue(lastField.getFieldType(), importTemplateField.getDefaultValue(), importTemplateDTO.getEnv());
@@ -682,37 +682,6 @@ public class ImportServiceImpl implements ImportService {
             importFieldDTO.setHeader(lastField.getLabel());
         }
         return importFieldDTO;
-    }
-
-    /**
-     * Resolve the last field for import template field names.
-     *
-     * <p>Unlike generic cascaded-field resolution, import lookup supports to-many relation roots
-     * such as {@code roleIds.code} and {@code additionalProjectTeamIds.code}.
-     */
-    private MetaField resolveLastImportField(String modelName, String fullFieldName) {
-        String[] fieldsArray = StringUtils.split(fullFieldName, ".");
-        Assert.isTrue(fieldsArray != null && fieldsArray.length > 0,
-                "Import field `{0}` cannot be empty.", fullFieldName);
-
-        MetaField metaField = null;
-        for (int i = 0; i < fieldsArray.length; i++) {
-            metaField = ModelManager.getModelField(modelName, fieldsArray[i]);
-            if (i < fieldsArray.length - 1) {
-                Assert.isTrue(FieldType.RELATED_TYPES.contains(metaField.getFieldType()),
-                        "The field {0} in import lookup field {1} must be relation field!",
-                        metaField.getFieldName(), fullFieldName);
-                Assert.notBlank(metaField.getRelatedModel(),
-                        "The field {0} in import lookup field {1} has no related model configured!",
-                        metaField.getFieldName(), fullFieldName);
-                modelName = metaField.getRelatedModel();
-            } else {
-                Assert.notTrue(metaField.isDynamic(),
-                        "The last field {0} in import field {1} must be a stored field in model {2}!",
-                        metaField.getFieldName(), fullFieldName, metaField.getModelName());
-            }
-        }
-        return metaField;
     }
 
     /**

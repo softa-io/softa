@@ -54,11 +54,6 @@ public class SendSmsTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "SendSms";
-    }
-
-    @Override
     public String getName() {
         return "Send SMS";
     }

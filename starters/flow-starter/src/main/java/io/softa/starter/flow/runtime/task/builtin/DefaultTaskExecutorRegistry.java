@@ -28,8 +28,8 @@ public class DefaultTaskExecutorRegistry {
     public DefaultTaskExecutorRegistry(List<TaskExecutor> executors) {
         for (TaskExecutor executor : executors) {
             if (TaskConfigTypes.forNodeType(executor.getSupportedNodeType()) == null) {
-                throw new IllegalStateException("TaskExecutor '" + executor.getExecutor()
-                        + "' targets node type " + executor.getSupportedNodeType()
+                throw new IllegalStateException("TaskExecutor " + executor.getClass().getName()
+                        + " targets node type " + executor.getSupportedNodeType()
                         + " which has no TaskConfigTypes entry — register its typed config DTO"
                         + " so compile-time validation covers it");
             }
@@ -41,8 +41,8 @@ public class DefaultTaskExecutorRegistry {
                         (a, b) -> {
                             throw new IllegalStateException(
                                     "Duplicate TaskExecutor registered for FlowNodeType '"
-                                            + a.getSupportedNodeType() + "': '"
-                                            + a.getExecutor() + "' and '" + b.getExecutor() + "'");
+                                            + a.getSupportedNodeType() + "': "
+                                            + a.getClass().getName() + " and " + b.getClass().getName());
                         }));
     }
 

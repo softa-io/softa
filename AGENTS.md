@@ -60,7 +60,7 @@ softa-parent (root pom.xml)
 │   ├── cron-starter             # Scheduled task execution
 │   ├── es-starter               # Elasticsearch CRUDQ
 │   ├── file-starter             # File management
-│   ├── message-starter          # SMS / Mail + Pulsar MQ producers/consumers
+│   ├── message-starter          # Mail / SMS / Inbox: send records, delivery loop, templates
 │   ├── reference-data-starter   # ISO 3166-1 countries, ISO 4217 currencies, ISO 3166-2 subdivisions
 │   ├── studio-starter           # Metadata control plane: cross-env governance + DDL rendering (Pebble)
 │   ├── user-starter             # User management
@@ -261,14 +261,17 @@ were planned but removed. AI agents use `Read` / `Edit` / `Write` directly
 - [starters/metadata-starter/README.md](starters/metadata-starter/README.md) — annotation API, scanner-scope behavior matrix, `renamedFrom`, DDL auto-execute policy
 - [framework/softa-orm/README.md](framework/softa-orm/README.md) — full `@Model` / `@Field` / `@Index` property reference
 - [starters/studio-starter/README.md](starters/studio-starter/README.md) — metadata control plane: publish / merge / drift / import, connectors, `DesignAggregate`
-- [starters/flow-starter/README.md](starters/flow-starter/README.md) — flow engine: scenarios and triggers, the approval model, approving business records, notifications, APIs
+- [starters/flow-starter/README.md](starters/flow-starter/README.md) — flow engine maintainer reference: wiring and configuration, extension points, the invariants a change must keep; the engine's behaviour is documented in the softa-docs Flow pages
 
 A change to behaviour in `flow-starter` — the record or instance state machine,
 approval actions, flow or node settings, triggers and automation runs,
-notifications, permissions, configuration keys — updates
-`starters/flow-starter/README.md` and the softa-docs Flow pages
-(`content/{zh-CN,en-US}/docs/features/flow/`, zh-CN first: it is the translation
-source) in the same change; when neither needs to change, the summary says why.
+notifications, permissions, configuration keys — updates the softa-docs Flow pages
+(`content/{zh-CN,en-US}/docs/features/flow/`, zh-CN first — it is the source — then
+the en-US mirror, kept by hand) in the same change: they are the one complete
+description of the engine. `starters/flow-starter/README.md` is the maintainer
+reference and changes only when what it lists changes — wiring and configuration,
+extension points and their contracts, the invariants. When none needs to change,
+the summary says why.
 
 ## Coding Conventions
 

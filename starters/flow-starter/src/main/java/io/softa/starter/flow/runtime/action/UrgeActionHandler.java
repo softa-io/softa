@@ -80,8 +80,8 @@ public class UrgeActionHandler implements FlowActionHandler<FlowUrgeRequest> {
                             + " were urged recently and may be urged again after " + next);
         }
 
-        String message = StringUtils.hasText(request.getMessage())
-                ? request.getMessage()
+        String message = StringUtils.hasText(request.getComment())
+                ? request.getComment()
                 : "Please process as soon as possible";
 
         List<String> urgedActorIds = new ArrayList<>();

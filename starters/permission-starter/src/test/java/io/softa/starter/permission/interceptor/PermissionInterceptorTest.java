@@ -736,10 +736,10 @@ class PermissionInterceptorTest {
     @Test
     void platformAdmin_reachesASharedModule() {
         // Messaging is in shared-nav-prefixes, not platform-nav-prefixes, and the difference matters:
-        // every model under it is multiTenant, so a tenant admin keeps its own menus while the
-        // platform reads the same ones on its own tier — where the verification-code and
-        // password-reset mails live, including the one a consultant logs in with. Locking the
-        // platform out of those was the first version of this narrowing's bug.
+        // its pages on multiTenant models — the mail templates here — are one set of menus on two tiers,
+        // so a tenant admin keeps its own while the platform reads the same ones on its own tier — where
+        // the verification-code and password-reset mails live, including the one a consultant logs in
+        // with. Locking the platform out of those was the first version of this narrowing's bug.
         PermissionInfo pi = PermissionInfo.builder()
                 .roleCodes(Set.of(PermissionInfo.CODE_SUPER_ADMIN))
                 .permissions(Set.of("message.mail-template.view"))

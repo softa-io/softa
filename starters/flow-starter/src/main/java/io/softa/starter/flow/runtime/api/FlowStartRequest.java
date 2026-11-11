@@ -1,10 +1,10 @@
 package io.softa.starter.flow.runtime.api;
 
 import java.time.LocalDate;
+import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 
 /**
  * Request for starting an execution from a registered flow bundle.
@@ -17,11 +17,21 @@ import lombok.EqualsAndHashCode;
  * {@code flowId} is the {@link io.softa.starter.flow.entity.FlowDesign#getId()} distributed ID,
  * which is globally unique and tenant-collision-free. To start a specific historical revision,
  * look up its {@code bundleId} via the revisions listing endpoint and pass that instead.
+ * <p>
+ * {@code initiatorId} is resolved server-side from the authenticated user context
+ * and cannot be set via the REST API request body.
  */
 @Data
-@EqualsAndHashCode(callSuper = true)
 @Schema(name = "FlowStartRequest")
-public class FlowStartRequest extends AbstractFlowLaunchContextRequest {
+public class FlowStartRequest {
+
+    @Schema(description = "Initiator id — resolved from login context, ignored if sent in request body",
+            accessMode = Schema.AccessMode.READ_ONLY)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String initiatorId;
+
+    @Schema(description = "Initial runtime variables")
+    private Map<String, Object> variables;
 
     @Schema(description = "Flow id (stable flow identity, globally unique)")
     private String flowId;

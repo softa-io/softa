@@ -1,7 +1,6 @@
 package io.softa.starter.flow.runtime.action;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -68,7 +67,6 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
 
         state.getPendingApprovals().clear();
         FlowStatusTransitions.apply(state, FlowExecutionStatus.WITHDRAWN);
-        contextService.mergeVariables(state, Map.of("withdrawalDecision", auditService.buildWithdrawalDecisionPayload(request)));
         state.getTrace().add(FlowExecutionTraceEntry.builder()
                 .flowId(definition.getFlowId())
                 .eventType(FlowTraceEventType.FLOW_WITHDRAWN)

@@ -1,6 +1,7 @@
 package io.softa.starter.message.mail.service.impl;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -40,6 +41,18 @@ import io.softa.starter.message.mail.support.MailServerDispatcher;
 @Slf4j
 @Service
 public class MailReceiveServiceImpl implements MailReceiveService {
+
+    /**
+     * Messages fetched and persisted per scheduled run per (config, folder). Listing the folder is
+     * cheap; this caps how many bodies one run fetches. The rest wait for the next run.
+     */
+    static final int BATCH_LIMIT = 100;
+
+    /**
+     * An IMAP fetch lease held longer than this is abandoned (its worker most likely died) and another
+     * worker may take it over. Conservative: a legitimate fetch finishes well within it.
+     */
+    static final Duration LEASE_TIMEOUT = Duration.ofHours(1);
 
     @Autowired
     private MailServerDispatcher dispatcher;
@@ -136,7 +149,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
     private int fetchFromImapFolder(Store store, String folderName, MailReceiveServerConfig config) {
         Optional<MailFetchImapWatermark> leaseOpt = watermarkService.tryAcquireLease(
                 config.getId(), folderName,
-                messageProperties.getMail().getFetch().getLeaseTimeout());
+                LEASE_TIMEOUT);
         if (leaseOpt.isEmpty()) {
             return 0;
         }
@@ -180,7 +193,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
                 }
 
                 Message[] all = uidFolder.getMessagesByUID(startUid, UIDFolder.LASTUID);
-                int batchLimit = messageProperties.getMail().getFetch().getBatchLimit();
+                int batchLimit = BATCH_LIMIT;
                 int sliceLength = Math.min(all.length, batchLimit);
                 if (sliceLength > 0) {
                     Message[] slice = Arrays.copyOfRange(all, 0, sliceLength);
@@ -247,7 +260,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
             }
             folder.open(Folder.READ_WRITE);
             try {
-                int batchLimit = messageProperties.getMail().getFetch().getBatchLimit();
+                int batchLimit = BATCH_LIMIT;
                 Message[] messages = folder.getMessages();
                 List<MailReceiveRecord> classified = new ArrayList<>();
                 int processed = 0;
@@ -314,11 +327,6 @@ public class MailReceiveServiceImpl implements MailReceiveService {
         MailReceiveRecord record = mailMessageParser.parse(message, config, folderName);
         if (isDuplicate(record.getMessageId(), config.getId())) {
             return null;
-        }
-        // Don't archive truncated records (oversized / MIME-limit) — there's no
-        // faithful body to keep. archiveEml is itself a no-op when disabled.
-        if (record.getTruncationReason() == null) {
-            mailMessageParser.archiveEml(message, record);
         }
         recordService.createOne(record);
         return record;

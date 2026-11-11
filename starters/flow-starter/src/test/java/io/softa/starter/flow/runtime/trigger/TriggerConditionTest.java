@@ -21,7 +21,6 @@ import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.entity.FlowEvent;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.message.ChangeLogTriggerMapper;
-import io.softa.starter.flow.runtime.api.FlowValidationRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.context.RecordModelFixture;
@@ -98,10 +97,7 @@ class TriggerConditionTest {
                 registryFor(flow("broken", null, "noSuchFunction(days)")), engine);
         ReflectionTestUtils.setField(automation, "eventService", events);
 
-        List<FlowTriggerResult> results = automation.fireAsyncOnly(changeOf(Map.of("days", 5)));
-
-        assertEquals(1, results.size());
-        assertFalse(results.getFirst().isSuccess());
+        automation.fireAsyncOnly(changeOf(Map.of("days", 5)));
         verify(engine, never()).start(any());
         ArgumentCaptor<FlowEvent> logged = ArgumentCaptor.forClass(FlowEvent.class);
         verify(events).recordEvent(logged.capture());
@@ -119,30 +115,14 @@ class TriggerConditionTest {
     }
 
     @Test
-    void aValidationWhoseConditionCannotBeEvaluatedDoesNotReadAsPassed() {
-        CompiledFlowDefinition check = flow("check", null, "noSuchFunction(days)").toBuilder()
-                .scenario(FlowScenario.VALIDATION).build();
-        FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
-        FlowAutomationService automation = new FlowAutomationService(registryFor(check), engine);
-        FlowValidationRequest request = new FlowValidationRequest();
-        request.setSourceModel(MODEL);
-        request.setChangeType("CREATE");
-        request.setData(Map.of("days", 5));
-
-        assertThrows(FlowRuntimeException.class, () -> automation.evaluateValidation(request));
-        verify(engine, never()).evaluate(any());
-    }
-
-    @Test
     void aHoldingConditionStartsTheRunWithTheSameVariables() {
         FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
         when(engine.start(any())).thenReturn(new FlowExecutionState());
         FlowAutomationService automation = new FlowAutomationService(
                 registryFor(flow("long-leave", Filters.of(List.of("days", ">", 3)), null)), engine);
 
-        List<FlowTriggerResult> results = automation.fireAsyncOnly(changeOf(Map.of("days", new BigDecimal("5"))));
+        automation.fireAsyncOnly(changeOf(Map.of("days", new BigDecimal("5"))));
 
-        assertTrue(results.getFirst().isSuccess());
         verify(engine).start(any());
     }
 
@@ -170,7 +150,6 @@ class TriggerConditionTest {
             @Override public CompiledFlowDefinition register(CompiledFlowDefinition d, DesignFlowDefinition design, String flowId) { return d; }
             @Override public Optional<CompiledFlowDefinition> getByBundleId(Long bundleId) { return Optional.empty(); }
             @Override public Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId) { return Optional.empty(); }
-            @Override public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) { return List.of(); }
             @Override public Collection<CompiledFlowDefinition> list() { return List.of(flows); }
         });
     }

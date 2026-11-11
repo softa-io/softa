@@ -9,7 +9,6 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,7 +16,6 @@ import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MailRequestMessage;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.security.EncryptUtils;
 import io.softa.framework.base.utils.Assert;
@@ -25,9 +23,11 @@ import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.annotation.CrossTenant;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.dto.InvitationInfo;
 import io.softa.starter.user.dto.JoinContacts;
 import io.softa.starter.user.dto.JoinEntry;
@@ -77,7 +77,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
     private final UserAccountService accountService;
     private final UserIdentityService identityService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final MessageService messageService;
     /** Optional: the join screens show the inviting company's name; absent tenant-starter → null. */
     private final TenantInfoService tenantInfoService;
     /** The "code was passed" proof that confirmJoin demands and spends. */
@@ -103,14 +103,14 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
 
     public UserInvitationServiceImpl(UserAccountService accountService,
                                      UserIdentityService identityService,
-                                     ApplicationEventPublisher eventPublisher,
+                                     MessageService messageService,
                                      @Autowired(required = false) TenantInfoService tenantInfoService,
                                      JoinProofGuard proofGuard,
                                      VerificationCodeGuard codeGuard,
                                      SystemConfig systemConfig) {
         this.accountService = accountService;
         this.identityService = identityService;
-        this.eventPublisher = eventPublisher;
+        this.messageService = messageService;
         this.tenantInfoService = tenantInfoService;
         this.proofGuard = proofGuard;
         this.codeGuard = codeGuard;
@@ -496,10 +496,8 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // come from Context.userId / Context.name, which it carries over.
         ContextUtils.inTenantContext(owningTenant, () -> this.createOne(invitation));
 
-        // Request the set-password / reset email. A framework MailRequestedEvent that message-starter
-        // renders (its MailTemplate) + delivers (its outbox/MQ) — no message-starter dependency here
-        // (user-starter ⊥ message-starter). The listener runs AFTER_COMMIT, so the mail only goes out
-        // once this invitation has committed; if no message-starter is present it is a graceful no-op.
+        // Send the set-password / reset email. The send record joins this transaction, so the mail
+        // only goes out once this invitation has committed.
         // The two purposes land on DIFFERENT pages, and must. A password reset is exactly one
         // action — set a credential — while an invitation has to check the link, verify identity,
         // set a password if the person is new, and then confirm joining, because that confirmation
@@ -531,27 +529,40 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // platform row always resolves.
         Long tenantId = ContextHolder.getContext().getTenantId() != null ? account.getTenantId() : null;
         MessageScope scope = tenantId != null ? MessageScope.TENANT : MessageScope.PLATFORM;
+        Map<String, Object> variables = Map.of("link", link, "expiryDays", EXPIRY_DAYS);
         String mailTo = pinned ? deliverTo : account.getEmail();
         if (StringUtils.isNotBlank(mailTo)) {
             String template = purpose == InvitationPurpose.PASSWORD_RESET ? TEMPLATE_RESET : TEMPLATE_INVITE;
-            eventPublisher.publishEvent(new MailRequestMessage(
-                    List.of(mailTo), template, Map.of("link", link, "expiryDays", EXPIRY_DAYS),
-                    tenantId, scope));
+            sendIn(tenantId, () -> messageService.sendMail(
+                    SendMailDTO.ofTemplate(List.of(mailTo), template, variables, scope)));
         }
         // Invitations only. A password reset is started from the login screen by typing an email,
-        // so the address is known and SMS adds nothing but cost.
-        //
-        // SmsRequestMessage carries no tenant/scope tier of its own — the SMS consumer resolves the
-        // sender from the request context — so the tier above applies to the mail render only.
+        // so the address is known and SMS adds nothing but cost. Same tier as the mail above.
         if (!pinned && purpose != InvitationPurpose.PASSWORD_RESET && StringUtils.isNotBlank(account.getMobile())) {
-            eventPublisher.publishEvent(new SmsRequestMessage(
-                    List.of(account.getMobile()), TEMPLATE_INVITE,
-                    Map.of("link", link, "expiryDays", EXPIRY_DAYS)));
+            sendIn(tenantId, () -> messageService.sendSms(
+                    SendSmsDTO.ofTemplate(account.getMobile(), TEMPLATE_INVITE, variables, scope)));
         }
-        // Dev aid: surface the set-password / reset link so it can be copied from the logs when SMTP / MQ
+        // Dev aid: surface the set-password / reset link so it can be copied from the logs when SMTP
         // is not wired locally. ⚠️ The link carries a one-time credential token — lower this to debug or
         // remove it before production so the token is not leaked into prod logs.
         log.debug("Invitation link ({}) for {}: {}", purpose, mailTo, link);
+    }
+
+    /**
+     * Send in the account's tenant, or — with none named — in the caller's own context, where a
+     * platform-scope send is filed under the platform tier. A send message-starter rejects (an address
+     * on file that does not parse) is logged at ERROR: the invitation stands either way.
+     */
+    private static void sendIn(Long tenantId, Runnable send) {
+        try {
+            if (tenantId == null) {
+                send.run();
+            } else {
+                ContextUtils.inTenantContext(tenantId, send);
+            }
+        } catch (BusinessException e) {
+            log.error("Invitation message not sent: {}", e.getMessage());
+        }
     }
 
     @Override

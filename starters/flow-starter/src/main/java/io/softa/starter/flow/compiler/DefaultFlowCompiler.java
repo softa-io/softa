@@ -45,9 +45,7 @@ public class DefaultFlowCompiler {
                 new GraphStructureValidator(),
                 new TriggerConsistencyValidator(),
                 new TaskConfigValidator(),
-                new UnsupportedNodeTypeValidator(),
                 new ApprovalConfigValidator(),
-                new TimerConfigValidator(),
                 new TemplatePlaceholderValidator(),
                 new GatewayValidator()
         );
@@ -95,8 +93,6 @@ public class DefaultFlowCompiler {
         Map<String, CompiledFlowTransition> compiledTransitionIndex =
                 NodeTransformer.compileTransitions(context.edgeMap().values());
         List<String> entryNodeIds = context.entryNodeIds();
-        List<String> terminalNodeIds = context.terminalNodeIds();
-        List<String> topologicalOrder = analysis.topologicalOrder;
 
         return CompiledFlowDefinition.builder()
                 .flowName(definition.getName())
@@ -106,7 +102,7 @@ public class DefaultFlowCompiler {
                 .withdrawPolicy(definition.getWithdrawPolicy() == null ? WithdrawPolicy.NEVER : definition.getWithdrawPolicy())
                 .returnEnabled(definition.getReturnEnabled())
                 .urgeEnabled(definition.getUrgeEnabled())
-                .urgeIntervalMinutes(definition.getUrgeIntervalMinutes())
+                .urgeIntervalHours(definition.getUrgeIntervalHours())
                 .remindAfterHours(definition.getRemindAfterHours())
                 .emailNotification(definition.getEmailNotification())
                 .cc(definition.getCc() == null ? List.of() : List.copyOf(definition.getCc()))
@@ -114,13 +110,9 @@ public class DefaultFlowCompiler {
                 .rollbackOnFail(Boolean.TRUE.equals(definition.getRollbackOnFail()))
                 .approverDedup(definition.getApproverDedup())
                 .selfApproval(definition.getSelfApproval())
-                .declaredOutputs(defaultList(definition.getDeclaredOutputs()))
                 .entryNodeIds(entryNodeIds)
-                .terminalNodeIds(terminalNodeIds)
-                .topologicalOrder(topologicalOrder)
                 .nodeIndex(compiledNodeIndex)
                 .transitionIndex(compiledTransitionIndex)
-                .capabilitySummary(NodeTransformer.buildCapabilitySummary(context.nodeMap().values()))
                 .build();
     }
 
@@ -136,29 +128,25 @@ public class DefaultFlowCompiler {
         Map<String, List<String>> incomingEdgeIds = GraphIndexBuilder.buildIncomingEdgeIds(edgeMap.values());
         Map<String, List<String>> outgoingEdgeIds = GraphIndexBuilder.buildOutgoingEdgeIds(edgeMap.values());
         List<String> entryNodeIds = GraphIndexBuilder.resolveEntryNodes(nodeMap.values());
-        List<String> terminalNodeIds = GraphIndexBuilder.resolveTerminalNodes(nodeMap.values(), outgoingEdgeIds);
 
-        FlowGraphContext context = new FlowGraphContext(
-                nodeMap, edgeMap, incomingEdgeIds, outgoingEdgeIds, entryNodeIds, terminalNodeIds);
+        FlowGraphContext context = new FlowGraphContext(nodeMap, edgeMap, incomingEdgeIds, outgoingEdgeIds, entryNodeIds);
 
         // Defective entries were skipped from the indexes, so running validators on top
         // would produce misleading follow-on errors — report the structural set alone.
         if (!structural.isEmpty()) {
-            return new Analysis(context, structural, List.of());
+            return new Analysis(context, structural);
         }
 
         List<CompileDiagnostic> diagnostics = new ArrayList<>();
         for (FlowValidator validator : validators) {
             diagnostics.addAll(validator.validate(definition, context));
         }
-        List<String> topologicalOrder =
-                TopologicalSorter.topologicalSort(nodeMap.values(), edgeMap.values(), diagnostics);
-        return new Analysis(context, diagnostics, topologicalOrder);
+        // A cycle is reported on each node it leaves unsortable; the order itself is not kept.
+        TopologicalSorter.topologicalSort(nodeMap.values(), edgeMap.values(), diagnostics);
+        return new Analysis(context, diagnostics);
     }
 
-    private record Analysis(FlowGraphContext context,
-                            List<CompileDiagnostic> diagnostics,
-                            List<String> topologicalOrder) {
+    private record Analysis(FlowGraphContext context, List<CompileDiagnostic> diagnostics) {
     }
 
     private static <T> List<T> defaultList(List<T> values) {

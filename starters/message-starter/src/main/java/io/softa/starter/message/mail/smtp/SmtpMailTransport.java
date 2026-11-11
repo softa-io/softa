@@ -1,6 +1,7 @@
 package io.softa.starter.message.mail.smtp;
 
 import java.io.UnsupportedEncodingException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,8 +33,11 @@ import io.softa.starter.message.mail.enums.MailPriority;
  * Authenticated connections are reused across sends, one small pool per
  * {@link MailSendServerConfig} ({@code PooledSmtpSender}), so a run of mails
  * through one server pays the TCP connect, TLS handshake and AUTH once rather
- * than per message. {@code softa.message.mail.smtp-pool.enabled=false} goes
- * back to a fresh, single-use sender per send.
+ * than per message. A connection that cannot be reused is found and replaced
+ * by itself: it is probed with {@code NOOP} before it is lent, and closed after
+ * any failure, after 100 messages or after 30 seconds idle. A server whose
+ * {@code connectionReuseEnabled} is off sends every mail on a connection of
+ * its own.
  * <p>
  * The pools need no eviction hook on config writes: each is keyed by the
  * settings its connections were opened with, so an edited config opens fresh
@@ -49,6 +53,9 @@ public class SmtpMailTransport {
 
     /** One pool per server config id, replaced when that config's connection settings change. */
     private final Map<Long, PooledSmtpSender> pools = new ConcurrentHashMap<>();
+
+    /** {@link PooledSmtpSender#IDLE_TIMEOUT}; a field only so a test can make every connection idle at once. */
+    private Duration poolIdleTimeout = PooledSmtpSender.IDLE_TIMEOUT;
 
     @Autowired(required = false)
     private FileService fileService;
@@ -82,12 +89,20 @@ public class SmtpMailTransport {
     }
 
     /**
-     * The pooled sender for {@code config}, or a fresh single-use one when
-     * pooling is off or the config is unsaved (no id to key a pool by).
+     * The pooled sender for {@code config}, or a fresh single-use one when the
+     * config is unsaved (no id to key a pool by — a connectivity test) or has
+     * connection reuse turned off.
      */
     private JavaMailSenderImpl senderFor(MailSendServerConfig config) {
-        MessageProperties.SmtpPool settings = messageProperties.getMail().getSmtpPool();
-        if (!settings.isEnabled() || config.getId() == null) {
+        if (config.getId() == null) {
+            return buildSender(config);
+        }
+        if (Boolean.FALSE.equals(config.getConnectionReuseEnabled())) {
+            // Reuse turned off for this server: close the pool it may still have.
+            PooledSmtpSender stale = pools.remove(config.getId());
+            if (stale != null) {
+                stale.shutdown();
+            }
             return buildSender(config);
         }
         PooledSmtpSender.Key key = PooledSmtpSender.Key.of(config);
@@ -97,8 +112,8 @@ public class SmtpMailTransport {
                 return current;
             }
             replaced[0] = current;
-            return configure(new PooledSmtpSender(key, settings.getIdleTimeout(),
-                    settings.getMaxMessagesPerConnection()), config);
+            return configure(new PooledSmtpSender(key, poolIdleTimeout,
+                    PooledSmtpSender.MAX_MESSAGES_PER_CONNECTION), config);
         });
         if (replaced[0] != null) {
             // Outside compute(): closing sends QUIT over the network.
@@ -107,7 +122,7 @@ public class SmtpMailTransport {
         return sender;
     }
 
-    /** Close pooled connections idle past {@code softa.message.mail.smtp-pool.idle-timeout}. */
+    /** Close pooled connections idle past {@link PooledSmtpSender#IDLE_TIMEOUT}. */
     @Scheduled(fixedDelay = 30, timeUnit = TimeUnit.SECONDS)
     public void evictIdleConnections() {
         pools.values().forEach(PooledSmtpSender::evictIdle);

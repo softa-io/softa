@@ -18,10 +18,9 @@ import io.softa.framework.base.annotation.OptionSet;
  *       trigger), approval steps, the outcome written back to the record. Persisted instances.</li>
  *   <li>{@link #AUTOMATION} — started by a change, a cron, an API call or a parent flow, with no approval
  *       steps. Persisted runs, purged once the retention period has passed.</li>
- *   <li>{@link #VALIDATION} — stateless, synchronous, returns a list of validation
- *       errors. No instance is persisted.</li>
- *   <li>{@link #COMPUTE} — stateless, synchronous, returns variable diffs. No instance is persisted.</li>
  * </ul>
+ * A record's validation belongs to its model (field constraints, a {@code ModelWriteValidator}) and a value worked
+ * out from others to a computed field; a flow is for an approval or for what follows a change.
  */
 @Getter
 @AllArgsConstructor
@@ -32,17 +31,8 @@ public enum FlowScenario {
     APPROVAL("Approval"),
     @OptionItem(label = "Automation Flow")
     AUTOMATION("Automation"),
-    @OptionItem(label = "Validation Flow")
-    VALIDATION("Validation"),
-    @OptionItem(label = "Compute Flow")
-    COMPUTE("Compute"),
     ;
 
     @JsonValue
     private final String type;
-
-    /** Validation and Compute flows evaluate transiently: no instance row, no trace, no event log. */
-    public boolean isTransient() {
-        return this == VALIDATION || this == COMPUTE;
-    }
 }

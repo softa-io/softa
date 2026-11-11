@@ -11,7 +11,6 @@ import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
@@ -26,7 +25,7 @@ class DefaultFlowCompilerTest {
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
 
     @Test
-    void shouldCompileApprovalFlowWithPostApprovalAutomation() {
+    void shouldCompileApprovalFlowOfTwoSteps() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Leave Approval")
                 .scenario(FlowScenario.APPROVAL)
@@ -35,13 +34,13 @@ class DefaultFlowCompilerTest {
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
                                 node("managerApproval", FlowNodeType.APPROVAL),
-                                callServiceNode("syncLeaveBalance"),
+                                node("hrApproval", FlowNodeType.APPROVAL),
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
                                 edge("e1", "start", "managerApproval"),
-                                edge("e2", "managerApproval", "syncLeaveBalance"),
-                                edge("e3", "syncLeaveBalance", "end")
+                                edge("e2", "managerApproval", "hrApproval"),
+                                edge("e3", "hrApproval", "end")
                         ))
                         .build())
                 .build();
@@ -49,11 +48,7 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
         assertEquals(List.of("start"), compiled.getEntryNodeIds());
-        assertEquals(List.of("end"), compiled.getTerminalNodeIds());
-        assertEquals(List.of("start", "managerApproval", "syncLeaveBalance", "end"), compiled.getTopologicalOrder());
         assertEquals(FlowScenario.APPROVAL, compiled.getScenario());
-        assertFalse(compiled.getCapabilitySummary().isHasSubflow());
-        assertFalse(compiled.getCapabilitySummary().isHasParallelGateway());
     }
 
     @Test
@@ -86,18 +81,16 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
         assertEquals(List.of("start"), compiled.getEntryNodeIds());
-        assertTrue(compiled.getCapabilitySummary().isHasSubflow());
-        assertTrue(compiled.getCapabilitySummary().isHasParallelGateway());
         assertEquals(6, compiled.getNodeIndex().size());
         assertEquals(6, compiled.getTransitionIndex().size());
     }
 
     @Test
-    void shouldRejectApprovalNodeInComputeScenario() {
+    void shouldRejectApprovalNodeInAutomationScenario() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Compute With Approval")
-                .scenario(FlowScenario.COMPUTE)
-                .trigger(new FieldChangeTrigger("Order", List.of()))
+                .name("Automation With Approval")
+                .scenario(FlowScenario.AUTOMATION)
+                .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -125,7 +118,7 @@ class DefaultFlowCompilerTest {
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                node("service", FlowNodeType.CALL_SERVICE),  // no config
+                                node("service", FlowNodeType.CALL_WEBHOOK),  // no config
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
@@ -136,7 +129,8 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> d.message().contains("must define config")));
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d ->
+                "MISSING_REQUIRED_INPUT".equals(d.code()) && "config.url".equals(d.field())));
     }
 
     @Test
@@ -169,17 +163,17 @@ class DefaultFlowCompilerTest {
                 .scenario(FlowScenario.APPROVAL)
                 .withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
                 .urgeEnabled(false)
-                .urgeIntervalMinutes(60)
+                .urgeIntervalHours(2)
                 .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                callServiceNode("service"),
+                                node("approval", FlowNodeType.APPROVAL),
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
-                                edge("e1", "start", "service"),
-                                edge("e2", "service", "end")
+                                edge("e1", "start", "approval"),
+                                edge("e2", "approval", "end")
                         ))
                         .build())
                 .build();
@@ -187,7 +181,7 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
         assertEquals(WithdrawPolicy.BEFORE_FIRST_ACTION, compiled.getWithdrawPolicy());
         assertEquals(false, compiled.getUrgeEnabled());
-        assertEquals(60, compiled.getUrgeIntervalMinutes());
+        assertEquals(2, compiled.getUrgeIntervalHours());
     }
 
     @Test
@@ -280,7 +274,7 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        // Naming nobody is what is wrong, whatever the mode: said once, as for any approval step (zingkey-hcm#2450).
+        // Naming nobody is what is wrong, whatever the mode: said once, as for any approval step.
         assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())));
     }
 
@@ -332,8 +326,8 @@ class DefaultFlowCompilerTest {
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
                                                 "approverSources", List.of(Map.of(
-                                                        "type", "VariableList",
-                                                        "variable", "managerIds"))))
+                                                        "type", "RoleQuery",
+                                                        "roleCodes", List.of("MANAGER")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -348,7 +342,7 @@ class DefaultFlowCompilerTest {
 
         assertEquals(VoteThresholdMode.MIN_COUNT, compiled.getNodeIndex().get("approval").getConfig().get("approvalMode"));
         assertEquals(2, compiled.getNodeIndex().get("approval").getConfig().get("minCount"));
-        assertEquals("VariableList",
+        assertEquals("RoleQuery",
                 ((Map<?, ?>) ((List<?>) compiled.getNodeIndex().get("approval").getConfig().get("approverSources")).getFirst())
                         .get("type"));
     }
@@ -420,69 +414,6 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldRejectForEachNodeAsUnsupported() {
-        // FOR_EACH child-node iteration is not implemented by the runtime;
-        // it must be rejected at compile time so it can never publish and silently no-op.
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("ForEach Flow")
-                .scenario(FlowScenario.AUTOMATION)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("loop")
-                                        .type(FlowNodeType.FOR_EACH)
-                                        .label("loop")
-                                        .config(Map.of(
-                                                "collectionExpression", "{{ items }}",
-                                                "itemVariable", "item",
-                                                "childNodeIds", List.of("end")))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "loop"),
-                                edge("e2", "loop", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "UNSUPPORTED_NODE_TYPE".equals(d.code())));
-    }
-
-    @Test
-    void shouldRejectHumanTaskNodeAsUnsupported() {
-        // The runtime has no human-task wait (assignee resolution, completion API); the node
-        // must be rejected at compile time so it can never publish and fail at execution.
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Human Task Flow")
-                .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest"))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("confirm")
-                                        .type(FlowNodeType.HUMAN_TASK)
-                                        .label("confirm")
-                                        .config(Map.of("assigneeExpression", "{{ initiatorId }}"))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "confirm"),
-                                edge("e2", "confirm", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "UNSUPPORTED_NODE_TYPE".equals(d.code())));
-    }
-
-    @Test
     void shouldRejectCreateRecordWithoutModelName() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Create")
@@ -508,38 +439,6 @@ class DefaultFlowCompilerTest {
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
         assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "config.input.modelName".equals(d.field())));
-    }
-
-    @Test
-    void shouldRejectCallServiceWithMismatchedArgTypesArity() {
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Invalid ArgTypes")
-                .scenario(FlowScenario.AUTOMATION)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("svc")
-                                        .type(FlowNodeType.CALL_SERVICE)
-                                        .label("svc")
-                                        .config(Map.of("input", Map.of(
-                                                "beanName", "demoService",
-                                                "methodName", "run",
-                                                "args", List.of(1),
-                                                "argTypes", List.of("int", "long"))))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "svc"),
-                                edge("e2", "svc", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "ARG_TYPES_ARITY".equals(d.code())));
     }
 
     // ==================== validate() — success-shaped diagnostics ====================
@@ -808,16 +707,6 @@ class DefaultFlowCompilerTest {
                 .type(type)
                 .label(id)
                 .config(Map.of("input", input))
-                .build();
-    }
-
-    /** CALL_SERVICE is a typed node type — the compiler now requires beanName/methodName in its input. */
-    private static FlowGraphNode callServiceNode(String id) {
-        return FlowGraphNode.builder()
-                .id(id)
-                .type(FlowNodeType.CALL_SERVICE)
-                .label(id)
-                .config(Map.of("input", Map.of("beanName", "demoService", "methodName", "run")))
                 .build();
     }
 

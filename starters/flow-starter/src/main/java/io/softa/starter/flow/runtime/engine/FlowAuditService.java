@@ -2,9 +2,7 @@ package io.softa.starter.flow.runtime.engine;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -92,11 +90,10 @@ public class FlowAuditService {
 
     /**
      * Record that a CC rule CC'd a recipient: a {@code CC} entry like a manual CC's, with no actor — no person
-     * sent it — on the node and cycle the rule fired at.
+     * sent it — on the node the rule fired at.
      */
     public void appendAutoCcAudit(FlowExecutionState state,
                                   CompiledFlowNode node,
-                                  Integer cycleNumber,
                                   String targetActorId,
                                   String comment) {
         appendApprovalAudit(state, ApprovalActionAuditEntry.builder()
@@ -105,7 +102,6 @@ public class FlowAuditService {
                 .flowRevision(state.getFlowRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())
-                .cycleNumber(cycleNumber)
                 .targetActorId(targetActorId)
                 .comment(comment)
                 .statusBefore(state.getStatus())
@@ -115,14 +111,12 @@ public class FlowAuditService {
 
     public Optional<ApprovalActionAuditEntry> findCcAudit(FlowExecutionState state,
                                                           String nodeId,
-                                                          Integer cycleNumber,
                                                           String actorId) {
         var history = auditReader.fullHistory(state);
         for (int i = history.size() - 1; i >= 0; i--) {
             var entry = history.get(i);
             if (ApprovalActionType.CC.equals(entry.getAction())
                     && Objects.equals(nodeId, entry.getNodeId())
-                    && Objects.equals(cycleNumber, entry.getCycleNumber())
                     && Objects.equals(actorId, entry.getTargetActorId())) {
                 return Optional.of(entry);
             }
@@ -132,12 +126,10 @@ public class FlowAuditService {
 
     public boolean hasReadCcAudit(FlowExecutionState state,
                                   String nodeId,
-                                  Integer cycleNumber,
                                   String actorId) {
         return auditReader.fullHistory(state).stream()
                 .anyMatch(entry -> ApprovalActionType.READ.equals(entry.getAction())
                         && Objects.equals(nodeId, entry.getNodeId())
-                        && Objects.equals(cycleNumber, entry.getCycleNumber())
                         && Objects.equals(actorId, entry.getActorId()));
     }
 
@@ -161,14 +153,10 @@ public class FlowAuditService {
                 .flowRevision(definition.getRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())
-                .cycleNumber(pendingApproval.getCycleNumber())
                 .statusBefore(statusBefore)
                 .statusAfter(statusAfter)
-                .approvalMode(pendingApproval.getApprovalMode())
                 .approvedActors(List.copyOf(pendingApproval.getApprovedActors()))
                 .requiredApprovalCount(pendingApproval.getRequiredApprovalCount())
-                .totalApproverCount(pendingApproval.getTotalApproverCount())
-                .dynamicApprovers(pendingApproval.getDynamicApprovers())
                 .build();
     }
 
@@ -187,14 +175,6 @@ public class FlowAuditService {
         return builder.toString();
     }
 
-    public String buildDelegateMessage(CompiledFlowNode node, FlowDelegateRequest request) {
-        StringBuilder builder = new StringBuilder("Approval delegated at node ")
-                .append(node.getNodeId()).append(" from ").append(request.getActorId())
-                .append(" to ").append(request.getTargetActorId());
-        appendComment(builder, request.getComment());
-        return builder.toString();
-    }
-
     public String buildCcReadMessage(CompiledFlowNode node, FlowCcReadRequest request, ApprovalActionAuditEntry ccAudit) {
         StringBuilder builder = new StringBuilder("Approval CC read at node ")
                 .append(node.getNodeId()).append(" by ").append(request.getActorId());
@@ -203,16 +183,6 @@ public class FlowAuditService {
         }
         appendComment(builder, request.getComment());
         return builder.toString();
-    }
-
-    public Map<String, Object> buildApprovalDecisionPayload(String outcome, FlowRejectRequest request) {
-        var payload = new LinkedHashMap<String, Object>();
-        payload.put("outcome", outcome);
-        payload.put("nodeId", request.getNodeId());
-        payload.put("comment", request.getComment());
-        payload.put("actor", request.getActorId());
-        payload.put("time", LocalDateTime.now().toString());
-        return payload;
     }
 
     public String buildRejectionMessage(CompiledFlowNode node, FlowRejectRequest request) {
@@ -224,34 +194,12 @@ public class FlowAuditService {
         return builder.toString();
     }
 
-    public Map<String, Object> buildReturnDecisionPayload(FlowReturnRequest request,
-                                                          CompiledFlowNode node,
-                                                          String initiatorId) {
-        var payload = new LinkedHashMap<String, Object>();
-        payload.put("outcome", "Returned");
-        payload.put("nodeId", node.getNodeId());
-        payload.put("targetActorId", initiatorId);
-        payload.put("actorId", request.getActorId());
-        payload.put("comment", request.getComment());
-        payload.put("time", LocalDateTime.now().toString());
-        return payload;
-    }
-
     public String buildReturnMessage(CompiledFlowNode node, FlowReturnRequest request, String initiatorId) {
         StringBuilder builder = new StringBuilder("Approval returned at node ")
                 .append(node.getNodeId()).append(" by ").append(request.getActorId())
                 .append(" to initiator ").append(initiatorId);
         appendComment(builder, request.getComment());
         return builder.toString();
-    }
-
-    public Map<String, Object> buildWithdrawalDecisionPayload(FlowWithdrawRequest request) {
-        var payload = new LinkedHashMap<String, Object>();
-        payload.put("outcome", "Withdrawn");
-        payload.put("actorId", request.getActorId());
-        payload.put("comment", request.getComment());
-        payload.put("time", LocalDateTime.now().toString());
-        return payload;
     }
 
     public String buildWithdrawalMessage(FlowWithdrawRequest request) {

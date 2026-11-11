@@ -271,7 +271,7 @@ class FlowInstanceApprovalPageReadsTest {
 
         FlowInstanceSummaryView summary = as(INITIATOR, () -> controller.getInstanceSummary("i1")).getData();
         FlowInstanceSummaryView searched = as(INITIATOR,
-                () -> controller.searchInstances(FlowInstanceSearchRequest.of(null, null))).getData().getRows().getFirst();
+                () -> controller.searchInstances(new FlowInstanceSearchRequest(null, null, null, null, null))).getData().getRows().getFirst();
 
         assertEquals(searched, summary);
         assertEquals("EC-0007", summary.getRecordCode());

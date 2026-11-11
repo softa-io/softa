@@ -1,6 +1,9 @@
 package io.softa.starter.flow.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -14,24 +17,33 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextUtils;
+import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.LambdaUtils;
+import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
+import io.softa.framework.orm.enums.FilterType;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.dto.FlowDelegationFlowView;
+import io.softa.starter.flow.dto.FlowDelegationMonitorSearchRequest;
+import io.softa.starter.flow.dto.FlowDelegationSearchRequest;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.entity.FlowDesign;
+import io.softa.starter.flow.enums.FlowDelegationStatus;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.service.FlowDelegationService;
 import io.softa.starter.flow.service.FlowDesignService;
+import io.softa.starter.flow.service.support.CallerConditions;
 
 /**
  * ORM-backed delegation service.
@@ -43,6 +55,9 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     private static final String DESIGN_ID = LambdaUtils.getAttributeName(FlowDesign::getId);
 
     private static final String DESIGN_NAME = LambdaUtils.getAttributeName(FlowDesign::getFlowName);
+
+    /** What the administrators' list filters a rule's status by: no column holds it ({@link FlowDelegationStatus}). */
+    private static final String STATUS = "status";
 
     /** Whether the delegate can act; without it, anyone can. */
     @Autowired(required = false)
@@ -56,10 +71,10 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     private ObjectProvider<FlowDesignService> designService;
 
     /**
-     * A rule in force from its creation — it ends when cancelled, or expires at its end time — routing the
-     * delegator's tasks to someone else who can act, over a period that ends after it starts when it has both times,
-     * scoped to a flow or one of its approval steps that is in use. One the delegator makes and one an administrator
-     * makes for them alike.
+     * A rule routing the delegator's tasks to someone else who can act over its period — from its start time, or its
+     * creation without one, until its end time or its cancellation ({@link FlowDelegationStatus}) — a period that
+     * ends after it starts when it has both times, scoped to a flow or one of its approval steps that is in use. One
+     * the delegator makes and one an administrator makes for them alike.
      */
     @Override
     public FlowDelegation createDelegation(FlowDelegation delegation) {
@@ -153,25 +168,47 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
         return names;
     }
 
-    /** The revision's approval steps in flow order. */
+    /**
+     * The revision's approval steps in flow order — a step after every step that leads to it, as its edges run (the
+     * published graph has no cycle) — whatever order they were drawn in.
+     */
     private static List<FlowDelegationFlowView.Node> approvalSteps(CompiledFlowDefinition definition) {
         Map<String, CompiledFlowNode> nodes = definition.getNodeIndex() == null ? Map.of() : definition.getNodeIndex();
-        List<String> order = definition.getTopologicalOrder() != null && !definition.getTopologicalOrder().isEmpty()
-                ? definition.getTopologicalOrder() : List.copyOf(nodes.keySet());
-        return order.stream()
-                .map(nodes::get)
-                .filter(node -> node != null && FlowNodeType.APPROVAL.equals(node.getType()))
-                .map(node -> new FlowDelegationFlowView.Node(node.getNodeId(), node.displayName()))
-                .toList();
+        Map<String, CompiledFlowTransition> edges =
+                definition.getTransitionIndex() == null ? Map.of() : definition.getTransitionIndex();
+        Map<String, Integer> waiting = new HashMap<>();
+        ArrayDeque<CompiledFlowNode> ready = new ArrayDeque<>();
+        for (CompiledFlowNode node : nodes.values()) {
+            int incoming = node.getIncomingEdgeIds() == null ? 0 : node.getIncomingEdgeIds().size();
+            waiting.put(node.getNodeId(), incoming);
+            if (incoming == 0) {
+                ready.add(node);
+            }
+        }
+        List<FlowDelegationFlowView.Node> steps = new ArrayList<>();
+        while (!ready.isEmpty()) {
+            CompiledFlowNode node = ready.removeFirst();
+            if (FlowNodeType.APPROVAL.equals(node.getType())) {
+                steps.add(new FlowDelegationFlowView.Node(node.getNodeId(), node.displayName()));
+            }
+            for (String edgeId : node.getOutgoingEdgeIds() == null ? List.<String>of() : node.getOutgoingEdgeIds()) {
+                CompiledFlowTransition edge = edges.get(edgeId);
+                if (edge != null && nodes.containsKey(edge.getTarget())
+                        && waiting.merge(edge.getTarget(), -1, Integer::sum) == 0) {
+                    ready.add(nodes.get(edge.getTarget()));
+                }
+            }
+        }
+        return steps;
     }
 
-    /** Active rules for one delegator at {@code now} — feeds the scope-aware single lookup below. */
+    /** One delegator's rules in force at {@code now} — feeds the scope-aware single lookup below. */
     private List<FlowDelegation> findActiveDelegations(String delegatorId, LocalDateTime now) {
         Filters filters = new Filters()
                 .eq(FlowDelegation::getDelegatorId, delegatorId)
                 .eq(FlowDelegation::getActive, true);
         return this.searchList(filters).stream()
-                .filter(d -> isWithinDateRange(d, now))
+                .filter(d -> FlowDelegationStatus.of(d, now) == FlowDelegationStatus.ACTIVE)
                 .toList();
     }
 
@@ -185,22 +222,6 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     }
 
     @Override
-    public int expireDelegations(LocalDateTime now) {
-        Filters filters = new Filters()
-                .eq(FlowDelegation::getActive, true)
-                .eq(FlowDelegation::getAutoExpire, true);
-        List<FlowDelegation> candidates = this.searchList(filters);
-        int count = 0;
-        for (FlowDelegation d : candidates) {
-            if (d.getEndTime() != null && d.getEndTime().isBefore(now)) {
-                writeInactive(d);
-                count++;
-            }
-        }
-        return count;
-    }
-
-    @Override
     public void cancelDelegation(Long delegationId, String requesterId) {
         FlowDelegation delegation = this.getById(delegationId)
                 .filter(d -> requesterId != null && requesterId.equals(d.getDelegatorId()))
@@ -210,8 +231,42 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     }
 
     @Override
-    public List<FlowDelegation> listAll() {
-        return this.searchList(new FlexQuery(new Filters(), Orders.ofDesc(FlowDelegation::getId)));
+    public Page<FlowDelegation> searchAll(FlowDelegationMonitorSearchRequest request) {
+        FlowDelegationMonitorSearchRequest query = request != null ? request
+                : new FlowDelegationMonitorSearchRequest(null, null, null, null);
+        Filters filters = withStatusConditions(query.filters(), LocalDateTime.now());
+        CallerConditions.requireStoredFields(modelName, filters, query.orders());
+        Orders orders = CallerConditions.ordersOr(query.orders(), Orders.ofDesc(FlowDelegation::getId));
+        return this.searchPage(new FlexQuery(Filters.isEmpty(filters) ? new Filters() : filters, orders),
+                Page.of(query.pageNumber(), query.pageSize()));
+    }
+
+    /**
+     * The filters with each condition on {@link #STATUS} replaced, where it stands, by the condition on the stored
+     * fields that gives that status at {@code now} ({@link FlowDelegationStatus#condition}); the rest as they are.
+     */
+    private static Filters withStatusConditions(Filters filters, LocalDateTime now) {
+        if (filters == null) {
+            return null;
+        }
+        if (FilterType.TREE.equals(filters.getType())) {
+            filters.getChildren().replaceAll(child -> withStatusConditions(child, now));
+            return filters;
+        }
+        FilterUnit unit = filters.getFilterUnit();
+        if (!FilterType.LEAF.equals(filters.getType()) || unit.isTuple() || !STATUS.equals(unit.getField())) {
+            return filters;
+        }
+        if (unit.getOperator() != Operator.EQUAL) {
+            throw new FlowActionValidationException("Filter by 'status' with =");
+        }
+        Object value = unit.getValue();
+        return Arrays.stream(FlowDelegationStatus.values())
+                .filter(status -> status.getType().equals(value))
+                .findFirst()
+                .orElseThrow(() -> new FlowActionValidationException("No delegation status '" + value
+                        + "': Scheduled, Active, Ended or Cancelled"))
+                .condition(now);
     }
 
     @Override
@@ -222,17 +277,35 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     }
 
     @Override
-    public List<FlowDelegation> getMyDelegations(String delegatorId) {
-        Filters filters = new Filters().eq(FlowDelegation::getDelegatorId, delegatorId);
-        return this.searchList(new FlexQuery(filters, Orders.ofDesc(FlowDelegation::getId)));
+    public Page<FlowDelegation> searchDelegations(String userId, FlowDelegationSearchRequest request) {
+        if (!StringUtils.hasText(userId)) {
+            throw new IllegalArgumentException("userId is required for a delegation search");
+        }
+        if (request == null || request.box() == null) {
+            throw new FlowActionValidationException("Choose the delegations to search: Mine or ToMe");
+        }
+        CallerConditions.requireStoredFields(modelName, request.filters(), request.orders());
+        // The box pins the rows to the user; the caller's filters only narrow them.
+        Filters own = switch (request.box()) {
+            case MINE -> new Filters().eq(FlowDelegation::getDelegatorId, userId);
+            case TO_ME -> toMeFilters(userId, LocalDateTime.now());
+        };
+        Orders orders = CallerConditions.ordersOr(request.orders(), Orders.ofDesc(FlowDelegation::getId));
+        return this.searchPage(new FlexQuery(CallerConditions.and(own, request.filters()), orders),
+                Page.of(request.pageNumber(), request.pageSize()));
     }
 
-    @Override
-    public List<FlowDelegation> getDelegationsToMe(String delegateId) {
-        Filters filters = new Filters()
+    /**
+     * The rules routing others' tasks to the delegate, now or later — every status but {@code Ended} and
+     * {@code Cancelled} ({@link FlowDelegationStatus#of}), as a condition, so the page holds what the box lists.
+     */
+    private static Filters toMeFilters(String delegateId, LocalDateTime now) {
+        Filters notEnded = Filters.or(new Filters().isNotSet(FlowDelegation::getEndTime),
+                new Filters().ge(FlowDelegation::getEndTime, now));
+        return new Filters()
                 .eq(FlowDelegation::getDelegateId, delegateId)
-                .eq(FlowDelegation::getActive, true);
-        return this.searchList(new FlexQuery(filters, Orders.ofDesc(FlowDelegation::getId)));
+                .eq(FlowDelegation::getActive, true)
+                .and(notEnded);
     }
 
     @Override
@@ -261,13 +334,6 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
         FlowDelegation patch = patchOf(delegation);
         patch.setActive(false);
         this.updateOne(patch);
-    }
-
-    private boolean isWithinDateRange(FlowDelegation d, LocalDateTime now) {
-        if (d.getStartTime() != null && now.isBefore(d.getStartTime())) {
-            return false;
-        }
-        return d.getEndTime() == null || !now.isAfter(d.getEndTime());
     }
 
     private boolean matchesScope(FlowDelegation d, String flowId, String nodeId) {

@@ -1,10 +1,7 @@
 package io.softa.starter.flow.service.impl;
 
-import java.util.Optional;
 import org.springframework.stereotype.Service;
 
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowEvent;
 import io.softa.starter.flow.service.FlowEventService;
@@ -21,16 +18,4 @@ public class FlowEventServiceImpl extends EntityServiceImpl<FlowEvent, Long>
         Long id = this.createOne(event);
         event.setId(id);
     }
-
-    @Override
-    public Page<FlowEvent> searchEvents(FlexQuery query, Page<FlowEvent> page) {
-        return this.searchPage(query, page);
-    }
-
-    @Override
-    public Optional<FlowEvent> findEventById(Long id) {
-        return this.getById(id);
-    }
-
 }
-

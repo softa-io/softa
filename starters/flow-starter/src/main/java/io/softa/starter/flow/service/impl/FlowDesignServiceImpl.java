@@ -42,7 +42,6 @@ import io.softa.starter.flow.runtime.nodeconfig.SubflowNodeConfig;
 import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowInstanceService;
-import io.softa.starter.flow.service.support.ComputeOutputs;
 import io.softa.starter.flow.service.support.SubmitConditions;
 import tools.jackson.core.type.TypeReference;
 
@@ -87,15 +86,11 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
         if (request.flowName() != null) {
             design.setFlowName(request.flowName());
         }
-        if (request.scenario() != null) {
-            design.setScenario(request.scenario());
-        }
         String storedModel = design.getModelName();
         FlowDesign patch = patchOf(id);
         // optimistic lock: echo the version the editor loaded; a mismatch is rejected
         patch.setVersion(request.version());
         patch.setFlowName(request.flowName());
-        patch.setScenario(request.scenario());
         patch.setDesignJson(alignedDefinition(request.designJson(), design));
         writeWithModel(patch, design.getModelName(), storedModel);
         return requireDesign(id);
@@ -121,12 +116,14 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
 
     @Override
     public FlowDesignStatusView getStatus(String id) {
-        FlowDesign design = requireDesign(id);
-        Long activeBundleId = bundleService == null ? null
-                : bundleService.findActiveByFlowId(id).map(FlowBundle::getId).orElse(null);
+        return statusOf(requireDesign(id));
+    }
+
+    /** The status of {@code design} as it is in hand — kept current by {@link #switchTo}, so not read again. */
+    private FlowDesignStatusView statusOf(FlowDesign design) {
         boolean dirty = design.getPublishedChecksum() == null
                 || !design.getPublishedChecksum().equals(checksumOf(design.getDesignJson()));
-        return new FlowDesignStatusView(design.getPublishedRevision(), activeBundleId, dirty, isEnabled(design));
+        return new FlowDesignStatusView(design.getPublishedRevision(), dirty, isEnabled(design));
     }
 
     @Override
@@ -146,7 +143,7 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
             }
             switchTo(design, false);
         }
-        return getStatus(id);
+        return statusOf(design);
     }
 
     @Override
@@ -156,13 +153,12 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
             if (bundleService != null && bundleRegistry != null) {
                 bundleService.findActiveByFlowId(id).map(FlowBundleMapper::toDefinition).ifPresent(active -> {
                     List<CompiledFlowDefinition> enabled = bundleRegistry.listTriggerCandidates(active.getModelName());
-                    ComputeOutputs.requireOwn(id, active, enabled);
                     SubmitConditions.requireDistinct(id, active, enabled);
                 });
             }
             switchTo(design, true);
         }
-        return getStatus(id);
+        return statusOf(design);
     }
 
     @Override

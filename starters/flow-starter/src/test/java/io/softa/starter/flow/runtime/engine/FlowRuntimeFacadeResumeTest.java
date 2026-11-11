@@ -13,7 +13,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Failure semantics of the timer/async resume paths, mirroring {@code start}: the FAILED
+ * Failure semantics of the async-task resume path, mirroring {@code start}: the FAILED
  * record is persisted in its own transaction and the exception rethrown so the failed
  * attempt's partial business writes roll back instead of committing alongside the failure.
  */
@@ -25,7 +25,7 @@ class FlowRuntimeFacadeResumeTest {
 
     private FlowRuntimeFacade facade() {
         return new FlowRuntimeFacade(contextService, orchestrator, instanceStore, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private FlowExecutionState waitingState() {
@@ -61,7 +61,7 @@ class FlowRuntimeFacadeResumeTest {
         when(contextService.resolveDefinition(7L))
                 .thenReturn(CompiledFlowDefinition.builder().flowId("leave").build());
 
-        FlowExecutionState result = facade().resumeTimer("inst-1", "timer-1");
+        FlowExecutionState result = facade().resumeAsyncTask("inst-1", "async-1", Map.of());
 
         assertSame(state, result);
         verify(contextService).persistState(state);

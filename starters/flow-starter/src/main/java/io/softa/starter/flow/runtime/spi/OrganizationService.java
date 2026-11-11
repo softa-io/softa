@@ -20,11 +20,6 @@ import java.util.Map;
 public interface OrganizationService {
 
     /**
-     * Get user info by user ID.
-     */
-    ApproverInfo getUserById(Long userId);
-
-    /**
      * Get users by user IDs.
      */
     List<ApproverInfo> getUsersByIds(List<Long> userIds);

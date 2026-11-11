@@ -39,9 +39,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * A step that finds nobody, under {@code AssignToRole}, goes to the holders of its roles who can act — the submitter
- * and the employee the record is about left out — and any one of them decides it, whatever its own modes say. With
- * nobody left it refuses the action that reached it, naming the roles.
+ * A step that finds nobody, under {@code AssignToRole}, goes to the holders of its roles who can act, and any one of
+ * them decides it, whatever its own modes say. A holder who submitted the request, or whom it is about, is an approver
+ * like any other: the flow's {@code selfApproval} decides the submitter's own step, as at every step. With nobody
+ * holding the roles it refuses the action that reached it, naming them.
  */
 class AssignToRoleTest {
 
@@ -70,12 +71,12 @@ class AssignToRoleTest {
 
     @Test
     void aStepThatFindsNobodyGoesToTheRolesHoldersAnyOneOfWhomDecides() {
-        holders(SUBMITTER, "3001", SUBJECT_USER, "3002");
+        holders("3001", "3002");
 
         FlowExecutionState state = engine.startRecordApproval(start());
 
         PendingApproval step = state.getPendingApprovals().getFirst();
-        assertEquals(List.of("3001", "3002"), step.getApprovers(), "the submitter and the subject are left out");
+        assertEquals(List.of("3001", "3002"), step.getApprovers());
         assertEquals(1, step.getRequiredApprovalCount(), "any one, though the node asks all");
         assertEquals(List.of("HR Admin"), step.getAssignedRoles());
 
@@ -84,16 +85,35 @@ class AssignToRoleTest {
         assertEquals(FlowExecutionStatus.COMPLETED, instanceStore.get(state.getInstanceId()).orElseThrow().getStatus());
     }
 
+    /** The submitter holding the roles approves their own step as the flow's selfApproval has it: by default, done. */
     @Test
-    void withNobodyLeftInTheRolesTheSubmissionIsRefusedNamingThem() {
-        holders(SUBMITTER, SUBJECT_USER);
+    void aSubmitterWhoHoldsTheRolesIsAnApproverLikeAnyOther() {
+        holders(SUBMITTER, "3001");
+
+        FlowExecutionState state = engine.startRecordApproval(start());
+
+        assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus(), "one approval passes it, and theirs counts");
+    }
+
+    /** The employee the request is about, submitted for by someone else, approves it as any approver does. */
+    @Test
+    void theEmployeeTheRequestIsAboutIsAskedLikeAnyOther() {
+        holders(SUBJECT_USER);
+
+        PendingApproval step = engine.startRecordApproval(start()).getPendingApprovals().getFirst();
+
+        assertEquals(List.of(SUBJECT_USER), step.getApprovers());
+    }
+
+    @Test
+    void withNobodyHoldingTheRolesTheSubmissionIsRefusedNamingThem() {
+        holders();
 
         FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
                 () -> engine.startRecordApproval(start()));
 
-        assertEquals("No approver was found for step 'HR approval', and nobody in HR Admin can take it but the "
-                + "submitter or the employee the record is about. Ask your HR administrator to set one up, then try "
-                + "again.", refused.getMessage());
+        assertEquals("No approver was found for step 'HR approval', and nobody in HR Admin can take it. Ask your HR "
+                + "administrator to set one up, then try again.", refused.getMessage());
     }
 
     @Test

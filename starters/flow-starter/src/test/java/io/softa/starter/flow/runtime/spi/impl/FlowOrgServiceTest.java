@@ -40,7 +40,7 @@ class FlowOrgServiceTest {
         when(modelService.getById(anyString(), anyLong(), anyCollection())).thenAnswer(invocation ->
                 rows(invocation.getArgument(0), Filters.of("id", Operator.EQUAL, invocation.getArgument(1)))
                         .stream().findFirst());
-        org = new FlowOrgService(modelService, new OrganizationServiceProperties());
+        org = new FlowOrgService(modelService, null);
 
         employee(1L, 1001L, "Alice", 10L, 2L);
         employee(2L, 1002L, "Bob", 10L, 3L);
@@ -72,7 +72,7 @@ class FlowOrgServiceTest {
     @Test
     void aLeaderOrHrbpIsLookedForUpTheDepartmentTree() {
         // Department 10's leader has no account and it has no HRBP: both defer to department 1.
-        assertEquals(new ApproverInfo(1004L, "Dora", 1L, null), org.getDeptLeader(10L));
+        assertEquals(new ApproverInfo(1004L, "Dora", 1L), org.getDeptLeader(10L));
         assertEquals(1004L, org.getDeptHrbp(10L).getUserId());
     }
 

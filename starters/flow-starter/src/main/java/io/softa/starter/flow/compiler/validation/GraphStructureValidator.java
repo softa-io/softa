@@ -49,7 +49,6 @@ public class GraphStructureValidator implements FlowValidator {
      * trigger inside its caller's run — neither can wait.
      */
     private static final Set<FlowNodeType> WAITING_NODE_TYPES = EnumSet.of(
-            FlowNodeType.TIMER,
             FlowNodeType.ASYNC_TASK,
             FlowNodeType.APPROVAL
     );
@@ -195,6 +194,9 @@ public class GraphStructureValidator implements FlowValidator {
                     && (!ApproverSourceType.USERS.getType().equals(type) || !ApproverSourceType.namedUsers(source).isEmpty());
             if (!names) {
                 d.add(CompileDiagnostic.flowLevel(INVALID_CC_RULE, which + " names no recipients"));
+            } else if (ApproverSourceType.lookup(type) == null) {
+                // A source this version does not know finds nobody: refused, as a step's group is.
+                d.add(CompileDiagnostic.flowLevel(INVALID_CC_RULE, which + " has an unknown recipient source: " + type));
             }
         }
     }
@@ -212,18 +214,18 @@ public class GraphStructureValidator implements FlowValidator {
         if (!FlowScenario.APPROVAL.equals(scenario)
                 && ((definition.getWithdrawPolicy() != null && definition.getWithdrawPolicy() != WithdrawPolicy.NEVER)
                     || definition.getReturnEnabled() != null
-                    || definition.getUrgeEnabled() != null || definition.getUrgeIntervalMinutes() != null
+                    || definition.getUrgeEnabled() != null || definition.getUrgeIntervalHours() != null
                     || definition.getRemindAfterHours() != null
                     || definition.getApproverDedup() != null || definition.getSelfApproval() != null
                     || definition.getEmailNotification() != null
                     || (definition.getCc() != null && !definition.getCc().isEmpty()))) {
             d.add(CompileDiagnostic.flowLevel(APPROVAL_SETTING_OUTSIDE_APPROVAL,
-                    "withdrawPolicy, returnEnabled, urgeEnabled, urgeIntervalMinutes, remindAfterHours, approverDedup, "
+                    "withdrawPolicy, returnEnabled, urgeEnabled, urgeIntervalHours, remindAfterHours, approverDedup, "
                             + "selfApproval, emailNotification and cc apply only to Approval flows"));
         }
-        if (definition.getUrgeIntervalMinutes() != null && definition.getUrgeIntervalMinutes() < 1) {
+        if (definition.getUrgeIntervalHours() != null && definition.getUrgeIntervalHours() < 1) {
             d.add(CompileDiagnostic.flowLevel(INVALID_URGE_INTERVAL,
-                    "urgeIntervalMinutes must be at least 1, but is " + definition.getUrgeIntervalMinutes()));
+                    "urgeIntervalHours must be at least 1, but is " + definition.getUrgeIntervalHours()));
         }
         if (definition.getRemindAfterHours() != null && definition.getRemindAfterHours() < 1) {
             d.add(CompileDiagnostic.flowLevel(INVALID_REMIND_AFTER_HOURS,
@@ -231,7 +233,7 @@ public class GraphStructureValidator implements FlowValidator {
         }
         validateCcRules(definition.getCc(), d);
         // An approval flow without an approval step approves a record as it is submitted: allowed — End and every step
-        // are optional — but rarely meant, so the designer says so where the flow starts (zingkey-hcm#2450).
+        // are optional — but rarely meant, so the designer says so where the flow starts.
         if (FlowScenario.APPROVAL.equals(scenario)
                 && nodes.stream().noneMatch(node -> FlowNodeType.APPROVAL.equals(node.getType()))) {
             String message = "This approval flow has no approval step: a submission is approved as soon as it is made.";

@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.jspecify.annotations.Nullable;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.compute.ComputeUtils;
@@ -41,7 +43,6 @@ public class GatewayValidator implements FlowValidator {
     private static final String INSUFFICIENT_GATEWAY_EDGES = "INSUFFICIENT_GATEWAY_EDGES";
     private static final String MULTIPLE_DEFAULT_EDGES     = "MULTIPLE_DEFAULT_EDGES";
     private static final String INVALID_CONDITION_EXPR     = "INVALID_CONDITION_EXPR";
-    private static final String UNKNOWN_ROUTING_EDGE       = "UNKNOWN_ROUTING_EDGE";
     private static final String CONFLICTING_EDGE_CONDITIONS = "CONFLICTING_EDGE_CONDITIONS";
     private static final String RULE_WITHOUT_RECORD        = "RULE_WITHOUT_RECORD";
     private static final String INVALID_RULE_CONDITION     = "INVALID_RULE_CONDITION";
@@ -129,13 +130,9 @@ public class GatewayValidator implements FlowValidator {
                                                 TriggerSource trigger,
                                                 String modelName,
                                                 List<CompileDiagnostic> d) {
+        // Outgoing edge ids come from the edge map itself (FlowGraphContext), so each names an edge.
         for (String edgeId : outgoingEdgeIds == null ? Collections.<String>emptyList() : outgoingEdgeIds) {
             FlowGraphEdge edge = context.edgeMap().get(edgeId);
-            if (edge == null) {
-                d.add(CompileDiagnostic.nodeLevel(nodeId, nodeType, UNKNOWN_ROUTING_EDGE,
-                        "Node '" + context.nodeName(nodeId) + "' references unknown outgoing edge '" + edgeId + "'"));
-                continue;
-            }
             String edgeName = context.edgeName(edge.getId());
             boolean rule = !Filters.isEmpty(edge.getCondition());
             if (rule && StringUtils.hasText(edge.getConditionExpression())) {
@@ -180,7 +177,7 @@ public class GatewayValidator implements FlowValidator {
     /**
      * A node that picks one of several edges by their conditions has a default — an edge without a condition, taken
      * when none holds. Without one, a request no condition fits has nowhere to go: its submission is refused, or,
-     * after an approval, the instance fails (zingkey-hcm#2382). A node whose only edge has a condition is not one: a
+     * after an approval, the instance fails. A node whose only edge has a condition is not one: a
      * request that does not fit ends its branch there. An inclusive gateway is not held to it — its branches, the
      * default included, are paired with a join — and stops the same way when none of its conditions holds.
      */
@@ -290,7 +287,9 @@ public class GatewayValidator implements FlowValidator {
 
     /**
      * A rule condition reads the fields of the record the flow starts on, judged the way a field condition
-     * is: an approval's only by the fields its approvals route on, an entity change's by its model's.
+     * is: an approval's only by the fields its approvals route on, an entity change's by its model's. Either may
+     * also read up to two hops on through relations ({@code employeeId.departmentId.costCentreId}), which a start
+     * reads from the related records.
      */
     private static void validateRuleCondition(FlowGraphEdge edge, String edgeName, String nodeId, String nodeType,
                                               TriggerSource trigger, String modelName, List<CompileDiagnostic> d) {
@@ -305,7 +304,7 @@ public class GatewayValidator implements FlowValidator {
             if (trigger instanceof SubmitTrigger) {
                 checkApprovalRule(edge.getCondition(), modelName, prefix);
             } else {
-                checkRule(edge.getCondition(), modelName, prefix);
+                checkRule(edge.getCondition(), modelName, prefix, true);
             }
         } catch (IllegalStateException e) {
             d.add(CompileDiagnostic.edgeLevel(edge.getId(), nodeId, nodeType, INVALID_RULE_CONDITION,
@@ -315,7 +314,8 @@ public class GatewayValidator implements FlowValidator {
 
     /**
      * Checks a rule of an Approval flow — an edge's, or its submit condition — over the fields of the document
-     * {@code modelName}: only the fields its approvals route on, then the way {@link #checkRule} does.
+     * {@code modelName}: only the fields its approvals route on, and those up to {@link RecordVariables#MAX_HOPS} hops
+     * on through relations they route on; then the way {@link #checkRule} does.
      *
      * @throws IllegalStateException naming what is wrong, after {@code prefix}
      */
@@ -324,26 +324,48 @@ public class GatewayValidator implements FlowValidator {
                 .map(MetaField::getFieldName)
                 .collect(Collectors.toSet());
         for (String field : rule.extractFields()) {
-            if (!routed.contains(field) && ModelManager.existField(modelName, field)) {
+            if (field.indexOf('.') < 0 && !routed.contains(field) && ModelManager.existField(modelName, field)) {
                 throw new IllegalStateException(prefix + "`" + field + "` is not one of the fields "
                         + modelName + "'s approvals route on; its identity, bookkeeping, approval"
                         + " state and fields declared sensitive are left out.");
             }
         }
-        checkRule(rule, modelName, prefix);
+        checkRule(rule, modelName, prefix, true);
     }
 
     /**
-     * Checks a rule over the fields of {@code modelName} the way the annotation scan checks a field condition.
+     * Checks a rule over the fields of {@code modelName} the way the annotation scan checks a field condition. With
+     * {@code throughRelations} it may also read a field through relations, by its path
+     * ({@link RecordVariables#routedPathField}); without, only the record's own fields.
      *
      * @throws IllegalStateException naming what is wrong, after {@code prefix}
      */
-    static void checkRule(Filters rule, String modelName, String prefix) {
-        FieldConstraints.checkCondition(rule, prefix,
-                field -> ModelManager.existField(modelName, field)
-                        ? FieldRef.of(ModelManager.getModelField(modelName, field))
-                        : null,
-                false);
+    static void checkRule(Filters rule, String modelName, String prefix, boolean throughRelations) {
+        for (String field : rule.extractFields()) {
+            if (field.indexOf('.') < 0) {
+                continue;
+            }
+            if (!throughRelations) {
+                throw new IllegalStateException(prefix + "`" + field + "` reads through a relation, and this"
+                        + " condition reads the record's own fields only.");
+            }
+            if (RecordVariables.routedPathField(modelName, field) == null) {
+                throw new IllegalStateException(prefix + "`" + field + "` is not a path a rule can read: up to "
+                        + RecordVariables.MAX_HOPS + " hops from " + modelName + ", each through a many-to-one or"
+                        + " one-to-one field that a route reads, to a field of a plain type — not a record's identity,"
+                        + " bookkeeping, approval state or a field declared sensitive.");
+            }
+        }
+        FieldConstraints.checkCondition(rule, prefix, field -> fieldRefOf(modelName, field), false);
+    }
+
+    /** What {@code field} reads: a field of the record, or of the related record a path reaches; null for neither. */
+    private static @Nullable FieldRef fieldRefOf(String modelName, String field) {
+        if (field.indexOf('.') > 0) {
+            MetaField leaf = RecordVariables.routedPathField(modelName, field);
+            return leaf == null ? null : FieldRef.of(leaf);
+        }
+        return ModelManager.existField(modelName, field) ? FieldRef.of(ModelManager.getModelField(modelName, field)) : null;
     }
 
     /** The model of the record the flow starts on, as its trigger names it; none when it starts on no record. */

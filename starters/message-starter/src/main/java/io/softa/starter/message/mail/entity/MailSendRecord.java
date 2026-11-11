@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
@@ -20,6 +21,12 @@ import io.softa.starter.message.mail.enums.MailSendStatus;
 /**
  * Outgoing mail record.
  * Written automatically by MessageService; not created manually via API.
+ *
+ * <p>Acceptance stores the request as the caller made it — recipients, any explicit content, the
+ * template it named and its variables, the tier. The first delivery attempt renders the template,
+ * chooses the server and charges the monthly quota, and writes the result back here; retries replay
+ * what that attempt prepared. A request that cannot be prepared (no server, no template, quota used
+ * up) still leaves its record, FAILED with the reason.
  *
  * <p>Searched by recipient and subject: the send log is where "this user never got the email" is
  * looked into, and the recipient is what the person investigating has in hand.
@@ -46,10 +53,30 @@ public class MailSendRecord extends AuditableModel {
                     + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
     private Long tenantId;
 
-    @Field(label = "Server Config ID", description = "Mail server config used to send this email")
+    @Field(description = "Tier policy of the send: true = PLATFORM scope (the platform tier renders the "
+            + "template, carries the mail and is charged), false = TENANT scope.")
+    private Boolean platformScope;
+
+    @Field(label = "Template ID", description = "Template row the caller addressed (editor test sends); "
+            + "takes precedence over templateCode")
+    private Long templateId;
+
+    @Field(length = 100, description = "Template code the caller asked for")
+    private String templateCode;
+
+    @Field(fieldType = FieldType.JSON, description = "Template placeholder values the caller passed")
+    private JsonNode templateVariables;
+
+    @Field(label = "Trace ID", description = "Trace id of the request that submitted the send; "
+            + "every delivery attempt runs and logs under it")
+    private String traceId;
+
+    @Field(label = "Server Config ID", description = "Mail server config that carries this email: the "
+            + "caller's or template's choice, else the default the first delivery attempt resolved")
     private Long serverConfigId;
 
-    @Field(length = 255)
+    @Field(length = 255, description = "Sender address, fixed by the first delivery attempt from the "
+            + "server config; empty until then")
     private String fromAddress;
 
     @Field
@@ -64,12 +91,13 @@ public class MailSendRecord extends AuditableModel {
     @Field(length = 500)
     private String subject;
 
-    @Field(required = true, description = "Body shape used to send. "
+    @Field(description = "Body shape used to send. "
             + "HTML — bodyHtml only. "
             + "PLAIN — bodyText only. "
             + "HTML_WITH_DERIVED_PLAIN — bodyHtml + bodyText (plain derived at send time). "
             + "HTML_WITH_AUTHORED_PLAIN — bodyHtml + bodyText (plain hand-authored). "
-            + "DERIVED vs AUTHORED tells audit whether the plain text was human-reviewed.")
+            + "DERIVED vs AUTHORED tells audit whether the plain text was human-reviewed. "
+            + "Empty until the first delivery attempt renders a template.")
     private BodyMode bodyMode;
 
     @Field(label = "Body HTML", fieldType = FieldType.TEXT,
@@ -107,9 +135,8 @@ public class MailSendRecord extends AuditableModel {
     @Field(description = "Timestamp when the email was accepted by the SMTP server")
     private LocalDateTime sentAt;
 
-    @Field(description = "When the latest delivery attempt started: a consumer claimed the record (status → "
-            + "Sending). The attempt's queue wait is this minus the publishedAt of the outbox row that "
-            + "delivered it.")
+    @Field(description = "When the latest delivery attempt started: the delivery loop claimed the record "
+            + "(status → Sending).")
     private LocalDateTime attemptStartedAt;
 
     @Field(label = "Send Duration (ms)", description = "How long the SMTP call of the successful attempt took, "

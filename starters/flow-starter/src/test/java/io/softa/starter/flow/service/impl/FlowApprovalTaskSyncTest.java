@@ -189,7 +189,6 @@ class FlowApprovalTaskSyncTest {
         FlowApprovalTask earlier = new FlowApprovalTask();
         earlier.setInstanceId("i1");
         earlier.setNodeId("manager");
-        earlier.setCycleNumber(1);
         earlier.setActorId("mgr");
         earlier.setTaskType(FlowApprovalTaskType.APPROVAL);
         earlier.setStatus(FlowApprovalTaskStatus.PENDING);
@@ -255,7 +254,6 @@ class FlowApprovalTaskSyncTest {
         return PendingApproval.builder()
                 .nodeId("manager")
                 .nodeLabel("Direct Manager")
-                .cycleNumber(1)
                 .approvers(new ArrayList<>(approvers))
                 .approvalMode(VoteThresholdMode.ANY_ONE)
                 .build();
@@ -268,7 +266,6 @@ class FlowApprovalTaskSyncTest {
                 .eventTime(T0)
                 .nodeId("manager")
                 .nodeLabel("Direct Manager")
-                .cycleNumber(1)
                 .actorId(actorId)
                 .targetActorId(targetActorId)
                 .comment(comment)

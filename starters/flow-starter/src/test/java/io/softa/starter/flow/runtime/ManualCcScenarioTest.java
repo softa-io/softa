@@ -66,7 +66,7 @@ class ManualCcScenarioTest {
 
         List<ApprovalActionAuditEntry> ccs = ccsBy(state, FIRST);
         assertEquals(List.of("cc-1", "cc-2"), targets(ccs));
-        assertTrue(ccs.stream().allMatch(entry -> "approval".equals(entry.getNodeId()) && entry.getCycleNumber() == 1));
+        assertTrue(ccs.stream().allMatch(entry -> "approval".equals(entry.getNodeId())));
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus(), "a CC changes nobody's task");
         assertTrue(FlowParticipants.isParticipant(state, state.getApprovalAuditDelta(), "cc-2"));
         assertEquals(List.of(List.of("cc-1", "cc-2")),

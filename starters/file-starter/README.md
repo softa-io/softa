@@ -101,6 +101,17 @@ File Starter supports two import modes:
 | `defaultValue` | String | `null` | Default value (supports `{{ expr }}`) |
 | `description` | String | `null` | Description text |
 
+### Checked when saved
+
+An import template is checked against its `modelName` when it is written — by the generic endpoints, the API, a seed or an import of the template itself (`TemplateFieldWriteValidator`, a `ModelWriteValidator`). Before this the fields were strings until someone ran the template, and a wrong one failed the whole import or the template download for whoever ran it:
+
+- `modelName` must be a model of the metadata;
+- each `uniqueConstraints` entry is looked up in the target table, so it must be able to stand in a WHERE (`FieldPaths`, `FieldPathUse.FILTER`);
+- each column's `fieldName` must pass the importer's own rules (`ImportFieldPaths` — the class the import itself builds its columns with): every segment exists, every one before the last is a relation, the last is stored, at most three segments, and a third only through the row's own one-to-one sub-record;
+- the columns taken together (`ImportFieldPaths.checkColumns`, which the import also runs): a relation is imported directly or by lookup, not both (`deptId` beside `deptId.code`), and a sub-record's field is written by one column (`employeeProfileId.idType` beside `employeeProfileId.idType.name`, or `deptId.code` twice).
+
+A field is checked when the write sets it. Moving a template to another model re-checks its unique key and the columns the write keeps — a write that restates the columns as a list has each checked as it is written. A template already broken by a later metadata change can still be edited; its wrong fields are named when they are next set. The columns are checked together whenever a write of the template sets `importFields` — a list or a patch, as the template page saves them — on the columns as the write leaves them: what is stored, with the list or patch laid on top. That is decided before any column is written, because the columns are then created, updated and deleted one batch after another and may pass through a combination neither the old nor the new columns are (a relation imported directly while it is turned into a lookup). A column written on its own — a seed file that lists `ImportTemplateField` rows apart from their template, a direct API call — is checked alone when saved; the combination is checked when the import runs, as it is for a dynamic import, whose columns are chosen then.
+
 ### 1. Import By Template (Configured)
 1. Configure ImportTemplate and ImportTemplateField
 
@@ -499,6 +510,17 @@ masked and checked as the caller.
 | `customHeader` | String | `null` | Custom column header |
 | `sequence` | Integer | `null` | Field order in export |
 | `ignored` | Boolean | `null` | Whether to ignore the field in output |
+
+### Checked when saved
+
+An export template is checked against its `modelName` when it is written (`TemplateFieldWriteValidator`), by the rules the export applies when it runs — `FieldPaths` in softa-orm, which states what the WHERE builder, the ORDER BY builder and the cascaded read accept:
+
+- `modelName` must be a model of the metadata;
+- every field of `filters` must be able to stand in a WHERE (`FieldPathUse.FILTER`): through to-one relations, or a to-many one by a sub-query, ending on a stored field;
+- every field of `orders` must be able to stand in an ORDER BY (`FieldPathUse.SORT`): through to-one relations only, ending on a stored field;
+- each column's `fieldName` must be readable (`FieldPathUse.READ`): through to-one relations only, up to four levels — what the export resolves its headers and values with.
+
+As for import templates, a field is checked when the write sets it, and moving a template to another model re-checks its filters, orders and the columns the write keeps.
 
 ### Cascaded Field Export
 All three export modes support **cascaded field references** using dotted-path syntax (e.g. `deptId.name`, `deptId.companyId.code`).

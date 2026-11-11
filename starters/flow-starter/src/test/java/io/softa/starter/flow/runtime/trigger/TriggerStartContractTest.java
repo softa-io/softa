@@ -12,12 +12,8 @@ import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
-import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
-import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
 
 /**
  * A trigger is its flow's start contract: an Api flow is started explicitly by id and a Subflow flow only
@@ -31,7 +27,6 @@ class TriggerStartContractTest {
             @Override public CompiledFlowDefinition register(CompiledFlowDefinition d, DesignFlowDefinition design, String flowId) { return d; }
             @Override public Optional<CompiledFlowDefinition> getByBundleId(Long bundleId) { return Optional.empty(); }
             @Override public Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId) { return Optional.empty(); }
-            @Override public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) { return List.of(); }
             @Override public Collection<CompiledFlowDefinition> list() { return List.of(flows); }
         };
         return new DefaultFlowTriggerRegistry(bundleRegistry);
@@ -53,15 +48,5 @@ class TriggerStartContractTest {
 
         assertTrue(registry.findMatchingFlows(FlowTriggerEvent.builder().type("Api").build()).isEmpty());
         assertTrue(registry.findMatchingFlows(FlowTriggerEvent.builder().type("Subflow").build()).isEmpty());
-    }
-
-    @Test
-    void theTriggerEntryRefusesApiAndSubflowEvents() {
-        FlowAutomationService automation = new FlowAutomationService(registryFor(), mock(FlowRuntimeEngine.class));
-
-        assertThrows(FlowActionValidationException.class,
-                () -> automation.fire(FlowTriggerEvent.builder().type("Api").build()));
-        assertThrows(FlowActionValidationException.class,
-                () -> automation.fire(FlowTriggerEvent.builder().type("Subflow").build()));
     }
 }

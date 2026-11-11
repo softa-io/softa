@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * <p>
  * The active revision of a Cron-triggered flow is a job of cron-starter's scheduler, started in the flow's tenant
  * — a platform-shared flow once in every active tenant — at each execution of {@code cronExpression}. Trigger
- * events never start it: neither another cron job's tick nor {@code POST /flow/automation/trigger}.
+ * events never start it, nor does another cron job's tick.
  */
 @Schema(name = "CronTrigger")
 public record CronTrigger(

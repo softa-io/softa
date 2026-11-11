@@ -56,7 +56,7 @@ class FlowAutomationStartDedupTest {
         changeLog.setUuid(uuid);
         changeLog.setModel("ExpenseClaim");
         changeLog.setRowId(rowId);
-        return ChangeLogTriggerMapper.mapChangeLogs(List.of(changeLog), "user-1").getFirst();
+        return ChangeLogTriggerMapper.mapChangeLogs(List.of(changeLog), "user-1", model -> true).getFirst();
     }
 
     @Test

@@ -43,12 +43,18 @@ public final class FlowParticipants {
      */
     public static boolean isParticipant(FlowExecutionState state, List<ApprovalActionAuditEntry> history,
                                         String userId) {
+        return namedByState(state, userId) || (state != null && userId != null && auditHistoryParticipant(history, userId));
+    }
+
+    /**
+     * Whether the instance's state alone names the user: its initiator, or an approver of a step it waits on — the
+     * half of {@link #isParticipant} that needs no history, asked first so that most callers never read it.
+     */
+    public static boolean namedByState(FlowExecutionState state, String userId) {
         if (state == null || userId == null) {
             return false;
         }
-        return userId.equals(state.getInitiatorId())
-                || pendingApprovalParticipant(state.getPendingApprovals(), userId)
-                || auditHistoryParticipant(history, userId);
+        return userId.equals(state.getInitiatorId()) || pendingApprovalParticipant(state.getPendingApprovals(), userId);
     }
 
     /**

@@ -14,12 +14,14 @@ import io.softa.framework.orm.domain.FilterEvaluator;
 import io.softa.framework.orm.domain.FilterEvaluator.EvalContext;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.context.FlowVariableContext;
+import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 
@@ -74,10 +76,16 @@ public class FlowGatewayRouter {
         return !StringUtils.hasText(expression) || ComputeUtils.executeBoolean(expression, new LinkedHashMap<>(variables));
     }
 
+    /** The type of what {@code field} reads: a field of the record, or one a path reaches through a relation. */
     private static FieldType fieldTypeOf(String modelName, String field) {
-        return modelName != null && ModelManager.existModel(modelName) && ModelManager.existField(modelName, field)
-                ? ModelManager.getModelField(modelName, field).getFieldType()
-                : null;
+        if (modelName == null || !ModelManager.existModel(modelName)) {
+            return null;
+        }
+        if (field.indexOf('.') > 0) {
+            MetaField leaf = RecordVariables.routedPathField(modelName, field);
+            return leaf == null ? null : leaf.getFieldType();
+        }
+        return ModelManager.existField(modelName, field) ? ModelManager.getModelField(modelName, field).getFieldType() : null;
     }
 
     /**
@@ -182,7 +190,7 @@ public class FlowGatewayRouter {
 
     /**
      * No route out of {@code node} fits the request, and none is the default: a gap in the flow, told in words its
-     * reader can act on rather than as an unexpected error (zingkey-hcm#2382). At submission the submitter is refused;
+     * reader can act on rather than as an unexpected error. At submission the submitter is refused;
      * after an approval the instance fails with it, the approval kept, and its initiator and administrators are told
      * ({@link FlowExecutionOrchestrator#runAfterApproval}).
      */

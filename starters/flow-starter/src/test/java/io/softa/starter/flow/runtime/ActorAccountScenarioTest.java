@@ -67,7 +67,7 @@ class ActorAccountScenarioTest {
 
     @Test
     void approversAndCcRecipientsWhoCannotActArePassedOver() {
-        FlowExecutionState state = start(List.of(ANN, BOB, CAT), "Skip", List.of(DEE, EVE));
+        FlowExecutionState state = start(List.of(ANN, BOB, CAT), "AutoApprove", List.of(DEE, EVE));
 
         assertEquals(List.of(ANN, CAT), state.getPendingApprovals().getFirst().getApprovers());
         assertEquals(List.of(DEE), ccTargets(state), "the CC rule copies in only who can act");
@@ -79,7 +79,7 @@ class ActorAccountScenarioTest {
      */
     @Test
     void aStepNamingOnlyPeopleWhoCannotActStopsWhateverItsStrategy() {
-        for (String strategy : List.of("Skip", "AutoApprove", "AssignToRole")) {
+        for (String strategy : List.of("AutoApprove", "AssignToRole")) {
             FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
                     () -> start(List.of(BOB), strategy, List.of()), strategy);
             assertEquals("No approver was found for step 'Manager approval': none of its approvers can approve. "
@@ -93,7 +93,6 @@ class ActorAccountScenarioTest {
 
         List<Function<String, FlowExecutionState>> actions = List.of(
                 target -> engine.transfer(targeted(new FlowTransferRequest(), instanceId, target)),
-                target -> engine.delegate(targeted(new FlowDelegateRequest(), instanceId, target)),
                 target -> {
                     FlowReassignRequest reassign = targeted(new FlowReassignRequest(), instanceId, target);
                     reassign.setOperatorId("admin-1");

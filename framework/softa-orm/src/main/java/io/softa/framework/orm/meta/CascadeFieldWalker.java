@@ -30,7 +30,7 @@ public final class CascadeFieldWalker {
     public enum ErrorKind {
         /** A segment does not exist on the model being traversed. */
         FIELD_NOT_FOUND,
-        /** A non-last segment is OneToMany / ManyToMany; cascading through is not allowed. */
+        /** A non-last segment is OneToMany / ManyToMany; only a walk with {@code throughToMany} goes through one. */
         TRAVERSE_TO_MANY,
         /** A non-last segment is a non-relational type (e.g. String). */
         TRAVERSE_NON_RELATION,
@@ -56,11 +56,13 @@ public final class CascadeFieldWalker {
         default void onSegment(int index, String currentModel, MetaField field) { }
 
         /**
-         * Invoked after a non-last ToOne segment, once the walker has decided to advance
-         * into {@code nextModel}. SQL builders use this to register left joins / aliases.
+         * Invoked after a non-last relation segment, once the walker has decided to advance
+         * into {@code nextModel}: a ToOne, or a ToMany when the walk goes through one
+         * ({@code throughToMany}). SQL builders use this to register left joins / aliases,
+         * which only a ToOne takes.
          *
          * @param index     zero-based segment index that triggered the advance
-         * @param field     the ToOne field being traversed
+         * @param field     the relation field being traversed
          * @param nextModel the related model the walker advances into
          */
         default void onAdvance(int index, MetaField field, String nextModel) { }
@@ -80,6 +82,22 @@ public final class CascadeFieldWalker {
      * @return walk outcome
      */
     public static Result walk(String rootModel, String path, int maxLevels, Visitor visitor) {
+        return walk(rootModel, path, maxLevels, false, visitor);
+    }
+
+    /**
+     * Walk a cascaded path as {@link #walk(String, String, int, Visitor)} does, optionally through a
+     * to-many relation as well.
+     *
+     * <p>Only a condition crosses one: the WHERE builder answers the rest of the path in a sub-query
+     * on the related model ({@code projectIds.code = X} is "some project of this row has code X").
+     * A join, an order and a read cannot — each needs one value per row.
+     *
+     * @param throughToMany whether a segment before the last may be a one-to-many or many-to-many
+     *                      relation; when false it fails with {@link ErrorKind#TRAVERSE_TO_MANY}
+     */
+    public static Result walk(String rootModel, String path, int maxLevels, boolean throughToMany,
+                              Visitor visitor) {
         String[] segments = StringUtils.split(path, ".");
         if (segments == null || segments.length == 0) {
             return new Result.Failure(ErrorKind.FIELD_NOT_FOUND, 0, "Path is empty");
@@ -103,11 +121,11 @@ public final class CascadeFieldWalker {
             boolean isLast = (i == segments.length - 1);
             if (!isLast) {
                 FieldType fieldType = field.getFieldType();
-                if (FieldType.TO_MANY_TYPES.contains(fieldType)) {
+                if (FieldType.TO_MANY_TYPES.contains(fieldType) && !throughToMany) {
                     return new Result.Failure(ErrorKind.TRAVERSE_TO_MANY, i,
                             "Cannot cascade through '" + segment + "' (" + fieldType.getType() + ")");
                 }
-                if (!FieldType.TO_ONE_TYPES.contains(fieldType)) {
+                if (!FieldType.RELATED_TYPES.contains(fieldType)) {
                     return new Result.Failure(ErrorKind.TRAVERSE_NON_RELATION, i,
                             "Cannot cascade through '" + segment + "' (" + fieldType.getType() + ")");
                 }

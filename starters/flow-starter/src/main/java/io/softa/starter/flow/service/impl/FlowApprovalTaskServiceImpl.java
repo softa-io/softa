@@ -12,7 +12,6 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -73,70 +72,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     @Override
-    public List<FlowApprovalTaskView> getPendingTasks(String actorId, String flowId, String instanceId, String nodeId) {
-        return pagePendingTasks(actorId, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pagePendingTasks(String actorId,
-                                                       String flowId,
-                                                       String instanceId,
-                                                       String nodeId,
-                                                       Integer pageNumber,
-                                                       Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        return page(filters, newestStartedFirst(), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCompletedTasks(String actorId, String flowId, String instanceId, String nodeId) {
-        return pageCompletedTasks(actorId, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pageCompletedTasks(String actorId,
-                                                         String flowId,
-                                                         String instanceId,
-                                                         String nodeId,
-                                                         Integer pageNumber,
-                                                         Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        return page(filters, latestClosedFirst(), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCcTasks(String actorId, Boolean read, String flowId, String instanceId, String nodeId) {
-        return pageCcTasks(actorId, read, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pageCcTasks(String actorId,
-                                                  Boolean read,
-                                                  String flowId,
-                                                  String instanceId,
-                                                  String nodeId,
-                                                  Integer pageNumber,
-                                                  Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        // read=false shares the unread-CC badge-count definition; read=true its mirror.
-        Filters filters;
-        if (Boolean.FALSE.equals(read)) {
-            filters = ApprovalTaskQuerySupport.unreadCcFilters(actorId);
-        } else if (Boolean.TRUE.equals(read)) {
-            filters = ApprovalTaskQuerySupport.readCcFilters(actorId);
-        } else {
-            filters = ApprovalTaskQuerySupport.ccFilters(actorId);
-        }
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        Orders orders = Boolean.TRUE.equals(read) ? latestClosedFirst() : oldestStartedFirst();
-        return page(filters, orders, pageNumber, pageSize);
-    }
-
-    @Override
     public Page<FlowApprovalTaskView> searchTasks(String actorId, FlowApprovalTaskSearchRequest request) {
         ApprovalTaskQuerySupport.requireActorId(actorId);
         if (request == null || request.box() == null) {
@@ -174,9 +109,9 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         boolean participant = tasks.stream()
                 .anyMatch(task -> requesterId != null && requesterId.equals(task.getActorId()));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
-        List<FlowApprovalTaskView> views = FlowApprovalTaskViewMapper.toViews(tasks);
-        instanceContextEnricher.enrich(views);
-        return views;
+        // The tasks of one instance, read on its own page: the instance is already in hand there, so the tasks carry
+        // none of its context — what the lists of many instances' tasks add.
+        return FlowApprovalTaskViewMapper.toViews(tasks);
     }
 
     /**
@@ -188,18 +123,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return ContextUtils.withoutPermissionChecks(() -> this.searchList(filters)).stream()
                 .sorted(ApprovalTaskQuerySupport.pendingTaskComparator())
                 .toList();
-    }
-
-    private static void applyOptionalFilters(Filters filters, String flowId, String instanceId, String nodeId) {
-        if (StringUtils.hasText(flowId)) {
-            filters.eq(FlowApprovalTask::getFlowId, flowId);
-        }
-        if (StringUtils.hasText(instanceId)) {
-            filters.eq(FlowApprovalTask::getInstanceId, instanceId);
-        }
-        if (StringUtils.hasText(nodeId)) {
-            filters.eq(FlowApprovalTask::getNodeId, nodeId);
-        }
     }
 
     private Page<FlowApprovalTaskView> page(Filters filters, Orders orders, Integer pageNumber, Integer pageSize) {
@@ -215,11 +138,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     /** Latest closed first. */
     private static Orders latestClosedFirst() {
         return Orders.ofDesc(FlowApprovalTask::getEndTime).addDesc(FlowApprovalTask::getId);
-    }
-
-    /** Oldest first, in the order they arrived. */
-    private static Orders oldestStartedFirst() {
-        return Orders.ofAsc(FlowApprovalTask::getStartTime).addAsc(FlowApprovalTask::getId);
     }
 
     private Page<FlowApprovalTaskView> mapPage(Page<FlowApprovalTask> source,
@@ -243,7 +161,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         Map<String, FlowApprovalTask> openTasksByKey = new LinkedHashMap<>();
         Map<String, FlowApprovalTask> latestTasksByKey = new LinkedHashMap<>();
         for (FlowApprovalTask task : existingTasks) {
-            String key = keyOf(task.getNodeId(), task.getCycleNumber(), task.getActorId(), task.getTaskType());
+            String key = keyOf(task.getNodeId(), task.getActorId(), task.getTaskType());
             latestTasksByKey.merge(key, task, FlowApprovalTaskServiceImpl::latestTask);
             if (isOpen(task)) {
                 openTasksByKey.putIfAbsent(key, task);
@@ -255,7 +173,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         List<FlowApprovalTask> toUpdate = new ArrayList<>();
 
         for (FlowApprovalTask desired : desiredTasks) {
-            String key = keyOf(desired.getNodeId(), desired.getCycleNumber(), desired.getActorId(), desired.getTaskType());
+            String key = keyOf(desired.getNodeId(), desired.getActorId(), desired.getTaskType());
             FlowApprovalTask openTask = openTasksByKey.remove(key);
             if (openTask != null) {
                 copyMutableFields(openTask, desired);
@@ -344,11 +262,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         target.setTaskType(source.getTaskType());
         target.setAction(source.getAction());
         target.setComment(source.getComment());
-        target.setDynamicApprovers(source.getDynamicApprovers());
-        target.setApprovalMode(source.getApprovalMode());
         target.setRequiredApprovalCount(source.getRequiredApprovalCount());
-        target.setTotalApproverCount(source.getTotalApproverCount());
-        target.setCandidateActors(source.getCandidateActors());
         target.setApprovedActors(source.getApprovedActors());
         target.setClosedByActorId(source.getClosedByActorId());
         // An escalation sets a new deadline on the step it hands on.
@@ -379,7 +293,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     /**
-     * The task holder's latest decision on its step and cycle among the entries the current action recorded, or null.
+     * The task holder's latest decision on its step among the entries the current action recorded, or null.
      * Only this action's: an earlier decision of theirs on the step — before a transfer came back to them — did not
      * close this task.
      */
@@ -392,7 +306,6 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             ApprovalActionAuditEntry entry = delta.get(i);
             if (HOLDER_DECISIONS.contains(entry.getAction())
                     && Objects.equals(task.getNodeId(), entry.getNodeId())
-                    && Objects.equals(task.getCycleNumber(), entry.getCycleNumber())
                     && Objects.equals(task.getActorId(), entry.getActorId())) {
                 return entry;
             }
@@ -448,11 +361,8 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return FlowApprovalTaskStatus.CANCELED;
     }
 
-    private static String keyOf(String nodeId,
-                                Integer cycleNumber,
-                                String actorId,
-                                FlowApprovalTaskType taskType) {
-        return nodeId + "::" + cycleNumber + "::" + actorId + "::" + taskType;
+    private static String keyOf(String nodeId, String actorId, FlowApprovalTaskType taskType) {
+        return nodeId + "::" + actorId + "::" + taskType;
     }
 
     /**

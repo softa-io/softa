@@ -302,12 +302,17 @@ public interface PermissionService {
     /**
      * Whether the caller holds the export of {@code model}. The export endpoints are shared by every model,
      * so the endpoint gate admits anyone holding the export of some model; the export asks here, naming
-     * the model, before it reads a row. A model with no export permission registered is granted.
+     * the model, before it reads a row. Only the platform administrator passes on its role — a tenant
+     * administrator is answered from the permissions its menus give it, like everybody else.
+     *
+     * <p>A model with no export permission registered is granted, its rows bounded by the caller's row
+     * scope — except to a caller who reads past row scope (a tenant administrator, a consultant) when the
+     * model is not multiTenant: its one table holds every tenant's rows.
      *
      * <p>Default: granted.
      *
      * @param model the model being exported
-     * @return true when the caller may export it, or when no permission covers it
+     * @return true when the caller may export it, or when no permission covers it and the read stays bounded
      */
     default boolean hasModelExportGrant(String model) {
         return true;
@@ -319,13 +324,14 @@ public interface PermissionService {
      * <p>The import endpoints are shared by every model — the model rides in a template or a request
      * part — so the endpoint gate admits anyone holding the import of <em>some</em> model and cannot
      * have authorized this one. The import service asks here, naming the model, before it reads a row.
-     * A model with no import permission registered is granted, as {@link #hasModelActionGrant} grants
-     * an unregistered model.
+     * Answered as {@link #hasModelExportGrant} is: from the caller's permissions for everyone but the
+     * platform administrator, an unregistered model granted unless the caller reads past row scope and
+     * the model is not multiTenant.
      *
      * <p>Default: granted.
      *
      * @param model the model being imported
-     * @return true when the caller may import it, or when no permission covers it
+     * @return true when the caller may import it, or when no permission covers it and the write stays bounded
      */
     default boolean hasModelImportGrant(String model) {
         return true;

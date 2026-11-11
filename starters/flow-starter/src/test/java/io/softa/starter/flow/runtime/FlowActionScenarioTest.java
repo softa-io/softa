@@ -19,7 +19,6 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowCommentRequest;
-import io.softa.starter.flow.runtime.api.FlowDelegateRequest;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowTransferRequest;
@@ -137,26 +136,11 @@ class FlowActionScenarioTest {
     }
 
     @Test
-    void delegateKeepsFlowWaitingForDelegate() {
-        FlowExecutionState started = startAndExpectPending();
-        FlowDelegateRequest delegate = new FlowDelegateRequest();
-        delegate.setInstanceId(started.getInstanceId());
-        delegate.setNodeId("approval");
-        delegate.setActorId(APPROVER);
-        delegate.setTargetActorId(OTHER);
-
-        FlowExecutionState afterDelegate = engine.delegate(delegate);
-        assertEquals(FlowExecutionStatus.WAITING, afterDelegate.getStatus());
-        assertTrue(afterDelegate.getPendingApprovals().get(0).getApprovers().contains(OTHER));
-    }
-
-    @Test
     void commentLeavesFlowWaitingAndRecordsHistory() {
         FlowExecutionState started = startAndExpectPending();
         int historyBefore = started.getApprovalAuditDelta().size();
         FlowCommentRequest comment = new FlowCommentRequest();
         comment.setInstanceId(started.getInstanceId());
-        comment.setNodeId("approval");
         comment.setActorId(APPROVER);
         comment.setComment("please clarify");
 
@@ -272,17 +256,17 @@ class FlowActionScenarioTest {
     @Test
     void eachStepIsUrgedOncePerItsFlowsInterval() {
         publishService.publish("9102", flowDefinition().trigger(new SubmitTrigger("LeaveRequest", "true"))
-                .urgeIntervalMinutes(30).build());
+                .urgeIntervalHours(1).build());
         FlowExecutionState started = startAndExpectPending("9102");
         LocalDateTime urgedAt = LocalDateTime.now();
         FlowExecutionState afterUrge = engine.urge(urge(started, INITIATOR));
 
         LocalDateTime next = throttle.status(afterUrge, LocalDateTime.now()).nextUrgeAt();
-        assertFalse(next.isBefore(urgedAt.plusMinutes(30)));
-        assertTrue(next.isBefore(urgedAt.plusMinutes(UrgeThrottle.DEFAULT_INTERVAL_MINUTES)));
+        assertFalse(next.isBefore(urgedAt.plusHours(1)));
+        assertTrue(next.isBefore(urgedAt.plusHours(UrgeThrottle.DEFAULT_INTERVAL_HOURS)));
 
         entries(afterUrge, ApprovalActionType.URGE)
-                .forEach(entry -> entry.setEventTime(entry.getEventTime().minusMinutes(31)));
+                .forEach(entry -> entry.setEventTime(entry.getEventTime().minusMinutes(61)));
         assertTrue(throttle.status(afterUrge, INITIATOR, LocalDateTime.now()).urgeable());
     }
 

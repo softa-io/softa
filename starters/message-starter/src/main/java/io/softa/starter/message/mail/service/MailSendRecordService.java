@@ -2,6 +2,7 @@ package io.softa.starter.message.mail.service;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 import io.softa.framework.orm.service.EntityService;
@@ -24,10 +25,16 @@ public interface MailSendRecordService extends EntityService<MailSendRecord, Lon
      * Claim a record for a send attempt: compare-and-set PENDING/RETRY → SENDING
      * and stamp {@code attemptStartedAt}. Returns true iff the row was updated
      * (current {@code version} matched {@code expectedVersion}); a losing
-     * concurrent attempt gets {@code false} and must treat its delivery as a
-     * duplicate.
+     * concurrent claim gets {@code false} and must leave the record alone.
      */
     boolean markSending(Long id, long expectedVersion);
+
+    /**
+     * Write back what the first delivery attempt prepared — rendered subject and
+     * bodies, template defaults, the chosen server and sender — so retries replay
+     * it. Bumps version; {@code false} if the version did not match.
+     */
+    boolean markPrepared(MailSendRecord record, long expectedVersion);
 
     /**
      * Mark a record as terminally SENT with the SMTP Message-ID, transport name,
@@ -44,13 +51,22 @@ public interface MailSendRecordService extends EntityService<MailSendRecord, Lon
 
     /**
      * Manually requeue one record for delivery: {@code PENDING} / {@code RETRY} /
-     * {@code FAILED} / {@code DEAD_LETTER} → {@code RETRY} plus a fresh outbox row,
-     * atomically. The fresh row also rescues records whose original outbox row died
-     * (broker outage), the case the automatic machinery never recovers. {@code SENT}
-     * and in-flight {@code SENDING} records are rejected with a business error —
-     * stuck SENDING is the zombie sweeper's job.
+     * {@code FAILED} / {@code DEAD_LETTER} → {@code RETRY}, due now, so the delivery
+     * loop takes it on its next poll. A record that failed before it was prepared
+     * (no server, no template, quota used up) is prepared afresh, so fixing the
+     * configuration and retrying is enough. {@code SENT} and in-flight
+     * {@code SENDING} records are rejected with a business error — stuck SENDING
+     * is the zombie sweeper's job.
      */
     boolean retry(Long id);
+
+    /**
+     * Requeue the selected records the way {@link #retry} does, skipping what it
+     * would reject instead of failing: {@code SENT} and in-flight {@code SENDING}
+     * records, a record that changed while being requeued (a worker claimed it),
+     * and ids that are not found. Returns how many were requeued.
+     */
+    int retryByIds(List<Long> ids);
 
     /**
      * Terminally fail a record with no more retries. Bumps version.

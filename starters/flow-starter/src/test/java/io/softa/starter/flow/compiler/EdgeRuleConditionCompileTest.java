@@ -1,6 +1,7 @@
 package io.softa.starter.flow.compiler;
 
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,8 @@ import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.ChangeEvent;
+import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.FlowNodeType;
@@ -87,6 +90,37 @@ class EdgeRuleConditionCompileTest {
                 "INVALID_RULE_CONDITION", "has no order"));
         assertTrue(hasDiagnostic(compiler.validate(approval(Filters.of(List.of("departmentId", "PARENT OF", List.of("7"))), null)),
                 "INVALID_RULE_CONDITION", "needs a query"));
+    }
+
+    @Test
+    void aRuleReadsOneHopThroughARelationToAFieldTheRelatedRecordWouldRouteOn() {
+        Filters rule = Filters.of(List.of(List.of("departmentId.costCenter", "=", "CC1"), "AND",
+                List.of("departmentId.level", ">=", 4)));
+
+        assertTrue(compiler.validate(approval(rule, null)).stream().noneMatch(d -> "long".equals(d.edgeId())));
+        // What a start reads from the related record, beside the record's own fields.
+        assertEquals(Set.of("departmentId.costCenter", "departmentId.level"),
+                compiler.compile(approval(rule, null)).rulePaths());
+        // An entity change's edges read through a relation of the changed record as well.
+        DesignFlowDefinition onChange = flow(FlowScenario.AUTOMATION,
+                new EntityChangeTrigger(MODEL, List.of(ChangeEvent.UPDATE), null, null), rule, null);
+        assertTrue(compiler.validate(onChange).stream().noneMatch(d -> "long".equals(d.edgeId())));
+    }
+
+    @Test
+    void aPathEndsOnAFieldARouteMayReadAtMostTwoHopsOn() {
+        // Two hops: through the department, then its parent.
+        assertTrue(compiler.validate(approval(Filters.of(List.of("departmentId.parentId.costCenter", "=", "CC1")), null))
+                .stream().noneMatch(d -> "long".equals(d.edgeId())));
+        // A sensitive field on the way is no more routed than on the record itself; and two hops are all.
+        assertTrue(hasDiagnostic(compiler.validate(approval(Filters.of(List.of("departmentId.budget", ">", 1)), null)),
+                "INVALID_RULE_CONDITION", "is not a path a rule can read"));
+        assertTrue(hasDiagnostic(compiler.validate(approval(
+                        Filters.of(List.of("departmentId.parentId.parentId.costCenter", "=", "CC1")), null)),
+                "INVALID_RULE_CONDITION", "is not a path a rule can read: up to 2 hops"));
+        // The field it reaches is checked as the record's own are: a relation has no order.
+        assertTrue(hasDiagnostic(compiler.validate(approval(Filters.of(List.of("departmentId.parentId", ">", "7")), null)),
+                "INVALID_RULE_CONDITION", "has no order"));
     }
 
     private static boolean hasDiagnostic(List<CompileDiagnostic> diagnostics, String code, String text) {

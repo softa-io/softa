@@ -23,13 +23,15 @@ import io.softa.starter.flow.runtime.spi.OrganizationService;
 /**
  * Default {@link OrganizationService}: reads the organization through the metadata-driven
  * {@link ModelService}, by the HR conventions permission-starter reads — {@code Employee},
- * {@code Department}, and user-starter's {@code UserRoleRel}, {@code Role} and {@code UserAccount}. Model and field
- * names can be overridden through {@link OrganizationServiceProperties}.
+ * {@code Department}, and user-starter's {@code UserRoleRel}, {@code Role} and {@code UserAccount}. The model and field
+ * names are fixed: permission-starter and the applications read the same ones, so an application on other models
+ * implements {@link OrganizationService} itself. Only the people pickers' model is set per application
+ * ({@code softa.flow.org.directory-model}).
  *
  * <p>Approvers are login accounts that sign in. An employee takes part through the account on
  * {@code Employee.userId}; an employee without an account counts as nobody, and so does one whose
  * account does not sign in — not yet invited, invited but not accepted, frozen, or ended because they
- * left ({@code approverAccountStatuses}) — so a step resolving only to such employees is empty and
+ * left ({@link #APPROVER_ACCOUNT_STATUSES}) — so a step resolving only to such employees is empty and
  * follows its empty-approver strategy. A role holder is an account, and approves even without an
  * employee profile, provided it signs in. Supervisors, department leaders and HRBPs are stored as
  * employee ids and translated to their accounts; a department without a leader (or HRBP) who can
@@ -38,27 +40,84 @@ import io.softa.starter.flow.runtime.spi.OrganizationService;
  *
  * <p>Every read skips row-scope and field checks, the tenant still applying: who approves a
  * submission must not depend on what the submitter may see. The one exception is the people pickers' search
- * ({@link #searchPeople}): what a caller may pick is theirs to see, so it reads the directory model
- * ({@code directoryModel}) with their own row scope.
+ * ({@link #searchPeople}): what a caller may pick is theirs to see, so it reads the directory model with their own
+ * row scope.
  */
 public class FlowOrgService implements OrganizationService {
 
+    /** Employee model. */
+    public static final String EMPLOYEE_MODEL = "Employee";
+    /** Field on the employee model that holds the employee's login account id — the approver id. */
+    private static final String ACCOUNT_ID_FIELD = "userId";
+    /** Field on the employee model that holds the display name. */
+    private static final String NAME_FIELD = "fullName";
+    /** Field on the employee model that holds the employee code, shown beside the name in the directory. */
+    private static final String CODE_FIELD = "code";
+    /** Field on the employee model that holds the department id. */
+    private static final String DEPT_ID_FIELD = "departmentId";
+    /** Field on the employee model that holds the job position id. */
+    private static final String POSITION_ID_FIELD = "jobPositionId";
+    /** Field on the employee model that holds the direct supervisor's employee id. */
+    private static final String SUPERVISOR_ID_FIELD = "piEmployeeId";
+
+    /** Department model. */
+    private static final String DEPARTMENT_MODEL = "Department";
+    /** Field on the department model that holds its name. */
+    private static final String DEPT_NAME_FIELD = "name";
+    /** Field on the department model that holds its code, shown beside the name in the directory. */
+    private static final String DEPT_CODE_FIELD = "code";
+    /** Field on the department model that holds the department leader's employee id. */
+    private static final String DEPT_LEADER_ID_FIELD = "picEmpId";
+    /** Field on the department model that holds the department HRBP's employee id. */
+    private static final String DEPT_HRBP_ID_FIELD = "hrbpEmpId";
+    /** Field on the department model that holds the parent department id. */
+    private static final String PARENT_DEPT_ID_FIELD = "parentId";
+
+    /** User-role assignment model. */
+    private static final String ROLE_MODEL = "UserRoleRel";
+    /** Field on the assignment model that holds the role id. */
+    private static final String ROLE_ID_FIELD = "roleId";
+    /** Field on the assignment model that holds the login account id. */
+    private static final String ROLE_USER_ID_FIELD = "userId";
+    /** Role model, for looking roles up by code. */
+    private static final String ROLE_DEFINITION_MODEL = "Role";
+    /** Field on the role model that holds the role code. */
+    private static final String ROLE_CODE_FIELD = "code";
+    /** Field on the role model that holds the role name. */
+    private static final String ROLE_NAME_FIELD = "name";
+
+    /** Login account model (user-starter's), whose status says whether an account signs in. */
+    private static final String ACCOUNT_MODEL = "UserAccount";
+    /** Field on the account model that holds its status. */
+    private static final String ACCOUNT_STATUS_FIELD = "status";
+    /**
+     * The account statuses that sign in — user-starter's — one of which an approver's account must hold. An account
+     * in any other — not yet invited, invited but not accepted, frozen, its membership ended — counts as nobody, as an
+     * employee without an account does. Not applied when the application has no account model.
+     */
+    private static final List<String> APPROVER_ACCOUNT_STATUSES = List.of("Active");
+
+    /** Maximum depth of department traversal, up or down (guards against cycles). */
+    private static final int MAX_DEPT_DEPTH = 10;
+
     private final ModelService<Long> modelService;
-    private final OrganizationServiceProperties props;
+    /**
+     * The model the people pickers search: a directory of the employees — typically a read-only projection of the
+     * employee model with only what a directory shows — whose row scope, granted per role, decides whom each caller
+     * may pick. Its fields go by the employee model's names. The employee model itself, its row scope included, when
+     * none is set. Finding approvers by rule never reads it: a supervisor or a department leader is found whatever
+     * the submitter may see.
+     */
+    private final String directoryModel;
 
+    /**
+     * @param directoryModel the people pickers' model ({@code softa.flow.org.directory-model}); blank for the employee
+     *                       model
+     */
     @SuppressWarnings("unchecked")
-    public FlowOrgService(ModelService<?> modelService, OrganizationServiceProperties props) {
+    public FlowOrgService(ModelService<?> modelService, String directoryModel) {
         this.modelService = (ModelService<Long>) modelService;
-        this.props = props;
-    }
-
-    @Override
-    public ApproverInfo getUserById(Long userId) {
-        if (userId == null) {
-            return null;
-        }
-        List<ApproverInfo> users = getUsersByIds(List.of(userId));
-        return users.isEmpty() ? null : users.getFirst();
+        this.directoryModel = StringUtils.hasText(directoryModel) ? directoryModel : EMPLOYEE_MODEL;
     }
 
     @Override
@@ -67,7 +126,7 @@ public class FlowOrgService implements OrganizationService {
             return List.of();
         }
         // Every account asked for, whether it can approve now or not: these name people.
-        return employees(Filters.of(props.getAccountIdField(), Operator.IN, userIds)).stream()
+        return employees(Filters.of(ACCOUNT_ID_FIELD, Operator.IN, userIds)).stream()
                 .map(this::toUser)
                 .filter(Objects::nonNull)
                 .toList();
@@ -78,10 +137,10 @@ public class FlowOrgService implements OrganizationService {
         if (roleIds == null || roleIds.isEmpty()) {
             return List.of();
         }
-        FlexQuery query = new FlexQuery(Filters.of(props.getRoleIdField(), Operator.IN, roleIds));
-        query.setFields(List.of(props.getRoleUserIdField()));
-        List<Long> holders = read(() -> modelService.searchList(props.getRoleModel(), query)).stream()
-                .map(row -> toLong(row.get(props.getRoleUserIdField())))
+        FlexQuery query = new FlexQuery(Filters.of(ROLE_ID_FIELD, Operator.IN, roleIds));
+        query.setFields(List.of(ROLE_USER_ID_FIELD));
+        List<Long> holders = read(() -> modelService.searchList(ROLE_MODEL, query)).stream()
+                .map(row -> toLong(row.get(ROLE_USER_ID_FIELD)))
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
@@ -99,9 +158,9 @@ public class FlowOrgService implements OrganizationService {
         if (roleCodes == null || roleCodes.isEmpty()) {
             return List.of();
         }
-        FlexQuery query = new FlexQuery(Filters.of(props.getRoleCodeField(), Operator.IN, roleCodes));
+        FlexQuery query = new FlexQuery(Filters.of(ROLE_CODE_FIELD, Operator.IN, roleCodes));
         query.setFields(List.of(ModelConstant.ID));
-        List<Long> roleIds = read(() -> modelService.searchList(props.getRoleDefinitionModel(), query)).stream()
+        List<Long> roleIds = read(() -> modelService.searchList(ROLE_DEFINITION_MODEL, query)).stream()
                 .map(row -> toLong(row.get(ModelConstant.ID)))
                 .filter(Objects::nonNull)
                 .toList();
@@ -117,7 +176,7 @@ public class FlowOrgService implements OrganizationService {
         if (includeSubDepts) {
             deptIds.forEach(deptId -> targets.addAll(getSubDeptIds(deptId)));
         }
-        return toApprovers(employees(Filters.of(props.getDeptIdField(), Operator.IN, List.copyOf(targets))));
+        return toApprovers(employees(Filters.of(DEPT_ID_FIELD, Operator.IN, List.copyOf(targets))));
     }
 
     @Override
@@ -125,7 +184,7 @@ public class FlowOrgService implements OrganizationService {
         if (positionIds == null || positionIds.isEmpty()) {
             return List.of();
         }
-        return toApprovers(employees(Filters.of(props.getPositionIdField(), Operator.IN, positionIds)));
+        return toApprovers(employees(Filters.of(POSITION_ID_FIELD, Operator.IN, positionIds)));
     }
 
     @Override
@@ -143,7 +202,7 @@ public class FlowOrgService implements OrganizationService {
             return null;
         }
         Map<String, Object> employee = employeeById(employeeId);
-        return employee == null ? null : toLong(employee.get(props.getAccountIdField()));
+        return employee == null ? null : toLong(employee.get(ACCOUNT_ID_FIELD));
     }
 
     @Override
@@ -171,28 +230,28 @@ public class FlowOrgService implements OrganizationService {
 
     /** The employee's supervisor, or null at the top of the chain or where it would loop back to one walked. */
     private Map<String, Object> supervisorOf(Map<String, Object> employee, Set<Long> walked) {
-        Long supervisorId = toLong(employee.get(props.getSupervisorIdField()));
+        Long supervisorId = toLong(employee.get(SUPERVISOR_ID_FIELD));
         return supervisorId == null || !walked.add(supervisorId) ? null : employeeById(supervisorId);
     }
 
     @Override
     public ApproverInfo getDeptLeader(Long deptId) {
-        return nearestDeptMember(deptId, props.getDeptLeaderIdField());
+        return nearestDeptMember(deptId, DEPT_LEADER_ID_FIELD);
     }
 
     @Override
     public ApproverInfo getDeptHrbp(Long deptId) {
-        return nearestDeptMember(deptId, props.getDeptHrbpIdField());
+        return nearestDeptMember(deptId, DEPT_HRBP_ID_FIELD);
     }
 
     @Override
     public Map<Long, String> getEmployeeNames(Collection<Long> employeeIds) {
-        return namesOf(props.getEmployeeModel(), props.getNameField(), employeeIds);
+        return namesOf(EMPLOYEE_MODEL, NAME_FIELD, employeeIds);
     }
 
     @Override
     public Map<Long, String> getDeptNames(Collection<Long> deptIds) {
-        return namesOf(props.getDepartmentModel(), props.getDeptNameField(), deptIds);
+        return namesOf(DEPARTMENT_MODEL, DEPT_NAME_FIELD, deptIds);
     }
 
     /**
@@ -202,7 +261,7 @@ public class FlowOrgService implements OrganizationService {
     @Override
     public Map<Long, String> getUnusableAccounts(Collection<Long> userIds) {
         List<Long> ids = userIds == null ? List.of() : userIds.stream().filter(Objects::nonNull).distinct().toList();
-        if (ids.isEmpty() || !ModelManager.existModel(props.getAccountModel())) {
+        if (ids.isEmpty() || !ModelManager.existModel(ACCOUNT_MODEL)) {
             return Map.of();
         }
         Map<Long, String> statuses = accountStatuses(ids);
@@ -225,7 +284,7 @@ public class FlowOrgService implements OrganizationService {
      */
     @Override
     public List<DirectoryPerson> searchPeople(String keyword, int limit) {
-        return toPeople(modelService.searchList(props.getDirectoryModel(), peopleQuery(keyword, true, limit)), false);
+        return toPeople(modelService.searchList(directoryModel, peopleQuery(keyword, true, limit)), false);
     }
 
     /**
@@ -238,7 +297,7 @@ public class FlowOrgService implements OrganizationService {
     @Override
     public List<DirectoryPerson> searchAllPeople(String keyword, boolean includeInactive, int limit) {
         Map<Long, DirectoryPerson> people = new LinkedHashMap<>();
-        toPeople(read(() -> modelService.searchList(props.getDirectoryModel(), peopleQuery(keyword, !includeInactive,
+        toPeople(read(() -> modelService.searchList(directoryModel, peopleQuery(keyword, !includeInactive,
                 limit))), includeInactive).forEach(person -> people.put(person.id(), person));
         List<DirectoryPerson> accounts = accountsMatching(keyword, includeInactive, limit);
         Map<Long, DirectoryPerson> employees = new HashMap<>();
@@ -262,10 +321,10 @@ public class FlowOrgService implements OrganizationService {
         if (ids.isEmpty()) {
             return List.of();
         }
-        FlexQuery query = new FlexQuery(personFields(), Filters.of(props.getAccountIdField(), Operator.IN, ids));
+        FlexQuery query = new FlexQuery(personFields(), Filters.of(ACCOUNT_ID_FIELD, Operator.IN, ids));
         query.setConvertType(ConvertType.REFERENCE);
         Map<Long, DirectoryPerson> people = new HashMap<>();
-        for (DirectoryPerson person : toPeople(read(() -> modelService.searchList(props.getDirectoryModel(), query)), true)) {
+        for (DirectoryPerson person : toPeople(read(() -> modelService.searchList(directoryModel, query)), true)) {
             people.put(person.id(), person);
         }
         return ids.stream().map(people::get).filter(Objects::nonNull).toList();
@@ -276,17 +335,17 @@ public class FlowOrgService implements OrganizationService {
      * by name; with {@code signingIn}, only those whose account signs in.
      */
     private FlexQuery peopleQuery(String keyword, boolean signingIn, int limit) {
-        Filters filters = Filters.of(props.getAccountIdField(), Operator.IS_SET, null);
+        Filters filters = Filters.of(ACCOUNT_ID_FIELD, Operator.IS_SET, null);
         if (StringUtils.hasText(keyword)) {
             filters = Filters.and(filters, Filters.of(ModelConstant.SEARCH_NAME, Operator.CONTAINS, keyword.trim()));
         }
-        if (signingIn && ModelManager.existModel(props.getAccountModel())) {
-            filters = Filters.and(filters, Filters.of(props.getAccountIdField() + "." + props.getAccountStatusField(),
-                    Operator.IN, props.getApproverAccountStatuses()));
+        if (signingIn && ModelManager.existModel(ACCOUNT_MODEL)) {
+            filters = Filters.and(filters, Filters.of(ACCOUNT_ID_FIELD + "." + ACCOUNT_STATUS_FIELD,
+                    Operator.IN, APPROVER_ACCOUNT_STATUSES));
         }
         // Then by id: two people of one name keep their places when a picker asks again for more.
         FlexQuery query = new FlexQuery(personFields(), filters,
-                Orders.ofAsc(props.getNameField()).addAsc(ModelConstant.ID));
+                Orders.ofAsc(NAME_FIELD).addAsc(ModelConstant.ID));
         query.setConvertType(ConvertType.REFERENCE);
         query.setLimitSize(limit);
         return query;
@@ -299,16 +358,16 @@ public class FlowOrgService implements OrganizationService {
      * that do unless {@code includeInactive}. None when the application has no account model.
      */
     private List<DirectoryPerson> accountsMatching(String keyword, boolean includeInactive, int limit) {
-        if (!ModelManager.existModel(props.getAccountModel())) {
+        if (!ModelManager.existModel(ACCOUNT_MODEL)) {
             return List.of();
         }
         Filters filters = includeInactive ? new Filters()
-                : Filters.of(props.getAccountStatusField(), Operator.IN, props.getApproverAccountStatuses());
+                : Filters.of(ACCOUNT_STATUS_FIELD, Operator.IN, APPROVER_ACCOUNT_STATUSES);
         if (StringUtils.hasText(keyword)) {
             filters = Filters.and(filters, Filters.of(ModelConstant.SEARCH_NAME, Operator.CONTAINS, keyword.trim()));
         }
         FlexQuery query = new FlexQuery(filters, Orders.ofAsc(ModelConstant.ID));
-        List<Map<String, Object>> rows = read(() -> modelService.searchName(props.getAccountModel(), query,
+        List<Map<String, Object>> rows = read(() -> modelService.searchName(ACCOUNT_MODEL, query,
                 Page.ofCursorPage(limit)));
         if (rows.isEmpty()) {
             return List.of();
@@ -338,13 +397,13 @@ public class FlowOrgService implements OrganizationService {
             return List.of();
         }
         Filters byId = ids.isEmpty() ? null : Filters.of(ModelConstant.ID, Operator.IN, ids);
-        Filters byCode = codes.isEmpty() ? null : Filters.of(props.getRoleCodeField(), Operator.IN, codes);
+        Filters byCode = codes.isEmpty() ? null : Filters.of(ROLE_CODE_FIELD, Operator.IN, codes);
         FlexQuery query = new FlexQuery(byId == null ? byCode : byCode == null ? byId : Filters.or(byId, byCode));
-        query.setFields(List.of(ModelConstant.ID, props.getRoleCodeField(), props.getRoleNameField()));
+        query.setFields(List.of(ModelConstant.ID, ROLE_CODE_FIELD, ROLE_NAME_FIELD));
         Map<Long, String> namesById = new HashMap<>();
         Map<String, String> namesByCode = new HashMap<>();
-        for (Map<String, Object> role : read(() -> modelService.searchList(props.getRoleDefinitionModel(), query))) {
-            String name = textOf(role.get(props.getRoleNameField()));
+        for (Map<String, Object> role : read(() -> modelService.searchList(ROLE_DEFINITION_MODEL, query))) {
+            String name = textOf(role.get(ROLE_NAME_FIELD));
             if (name == null) {
                 continue;
             }
@@ -352,7 +411,7 @@ public class FlowOrgService implements OrganizationService {
             if (id != null) {
                 namesById.put(id, name);
             }
-            String code = textOf(role.get(props.getRoleCodeField()));
+            String code = textOf(role.get(ROLE_CODE_FIELD));
             if (code != null) {
                 namesByCode.put(code, name);
             }
@@ -368,10 +427,10 @@ public class FlowOrgService implements OrganizationService {
         Filters filters = StringUtils.hasText(keyword)
                 ? Filters.of(ModelConstant.SEARCH_NAME, Operator.CONTAINS, keyword.trim()) : null;
         FlexQuery query = new FlexQuery(departmentFields(), filters,
-                Orders.ofAsc(props.getDeptNameField()).addAsc(ModelConstant.ID));
+                Orders.ofAsc(DEPT_NAME_FIELD).addAsc(ModelConstant.ID));
         query.setConvertType(ConvertType.REFERENCE);
         query.setLimitSize(limit);
-        return read(() -> modelService.searchList(props.getDepartmentModel(), query)).stream()
+        return read(() -> modelService.searchList(DEPARTMENT_MODEL, query)).stream()
                 .map(this::toDepartment)
                 .toList();
     }
@@ -387,7 +446,7 @@ public class FlowOrgService implements OrganizationService {
         // A department closed since a flow named it still names it.
         query.getFilterControl().setSkipActiveControl(true);
         Map<Long, DirectoryDepartment> departments = new HashMap<>();
-        for (Map<String, Object> row : read(() -> modelService.searchList(props.getDepartmentModel(), query))) {
+        for (Map<String, Object> row : read(() -> modelService.searchList(DEPARTMENT_MODEL, query))) {
             DirectoryDepartment department = toDepartment(row);
             if (department.id() != null) {
                 departments.put(department.id(), department);
@@ -419,7 +478,7 @@ public class FlowOrgService implements OrganizationService {
             return null;
         }
         Map<String, Object> employee = employeeById(employeeId);
-        return employee == null ? null : toLong(employee.get(props.getDeptIdField()));
+        return employee == null ? null : toLong(employee.get(DEPT_ID_FIELD));
     }
 
     @Override
@@ -429,10 +488,10 @@ public class FlowOrgService implements OrganizationService {
         }
         List<Long> result = new ArrayList<>();
         List<Long> level = List.of(deptId);
-        for (int depth = 0; !level.isEmpty() && depth < props.getMaxDeptDepth(); depth++) {
-            FlexQuery query = new FlexQuery(Filters.of(props.getParentDeptIdField(), Operator.IN, level));
+        for (int depth = 0; !level.isEmpty() && depth < MAX_DEPT_DEPTH; depth++) {
+            FlexQuery query = new FlexQuery(Filters.of(PARENT_DEPT_ID_FIELD, Operator.IN, level));
             query.setFields(List.of(ModelConstant.ID));
-            List<Long> children = read(() -> modelService.searchList(props.getDepartmentModel(), query)).stream()
+            List<Long> children = read(() -> modelService.searchList(DEPARTMENT_MODEL, query)).stream()
                     .map(row -> toLong(row.get(ModelConstant.ID)))
                     .filter(id -> id != null && !id.equals(deptId) && !result.contains(id))
                     .toList();
@@ -451,10 +510,10 @@ public class FlowOrgService implements OrganizationService {
     private ApproverInfo nearestDeptMember(Long deptId, String field) {
         Set<Long> visited = new HashSet<>();
         Long current = deptId;
-        for (int depth = 0; current != null && depth < props.getMaxDeptDepth() && visited.add(current); depth++) {
+        for (int depth = 0; current != null && depth < MAX_DEPT_DEPTH && visited.add(current); depth++) {
             Long id = current;
-            Map<String, Object> dept = read(() -> modelService.getById(props.getDepartmentModel(), id,
-                    List.of(field, props.getParentDeptIdField()))).orElse(null);
+            Map<String, Object> dept = read(() -> modelService.getById(DEPARTMENT_MODEL, id,
+                    List.of(field, PARENT_DEPT_ID_FIELD))).orElse(null);
             if (dept == null) {
                 return null;
             }
@@ -464,7 +523,7 @@ public class FlowOrgService implements OrganizationService {
             if (member != null) {
                 return member;
             }
-            current = toLong(dept.get(props.getParentDeptIdField()));
+            current = toLong(dept.get(PARENT_DEPT_ID_FIELD));
         }
         return null;
     }
@@ -472,21 +531,21 @@ public class FlowOrgService implements OrganizationService {
     private List<Map<String, Object>> employees(Filters filters) {
         FlexQuery query = new FlexQuery(filters);
         query.setFields(employeeFields());
-        return read(() -> modelService.searchList(props.getEmployeeModel(), query));
+        return read(() -> modelService.searchList(EMPLOYEE_MODEL, query));
     }
 
     private Map<String, Object> employeeOfAccount(Long accountId) {
-        List<Map<String, Object>> rows = employees(Filters.of(props.getAccountIdField(), Operator.EQUAL, accountId));
+        List<Map<String, Object>> rows = employees(Filters.of(ACCOUNT_ID_FIELD, Operator.EQUAL, accountId));
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
     private Map<String, Object> employeeById(Long employeeId) {
-        return read(() -> modelService.getById(props.getEmployeeModel(), employeeId, employeeFields())).orElse(null);
+        return read(() -> modelService.getById(EMPLOYEE_MODEL, employeeId, employeeFields())).orElse(null);
     }
 
     private List<String> employeeFields() {
-        return List.of(ModelConstant.ID, props.getAccountIdField(), props.getNameField(), props.getDeptIdField(),
-                props.getPositionIdField(), props.getSupervisorIdField());
+        return List.of(ModelConstant.ID, ACCOUNT_ID_FIELD, NAME_FIELD, DEPT_ID_FIELD,
+                POSITION_ID_FIELD, SUPERVISOR_ID_FIELD);
     }
 
     /** The employees as approvers: those whose account signs in. */
@@ -507,7 +566,7 @@ public class FlowOrgService implements OrganizationService {
      * when the application has no account model to ask.
      */
     private Set<Long> signingIn(Collection<Long> accountIds) {
-        if (accountIds.isEmpty() || !ModelManager.existModel(props.getAccountModel())) {
+        if (accountIds.isEmpty() || !ModelManager.existModel(ACCOUNT_MODEL)) {
             return new HashSet<>(accountIds);
         }
         Set<Long> signingIn = new HashSet<>();
@@ -522,11 +581,11 @@ public class FlowOrgService implements OrganizationService {
     /** The status of each of these accounts the tenant has, by account id; null for one without a status. */
     private Map<Long, String> accountStatuses(Collection<Long> accountIds) {
         FlexQuery query = new FlexQuery(Filters.of(ModelConstant.ID, Operator.IN, List.copyOf(accountIds)));
-        query.setFields(List.of(ModelConstant.ID, props.getAccountStatusField()));
+        query.setFields(List.of(ModelConstant.ID, ACCOUNT_STATUS_FIELD));
         Map<Long, String> statuses = new HashMap<>();
-        for (Map<String, Object> account : read(() -> modelService.searchList(props.getAccountModel(), query))) {
+        for (Map<String, Object> account : read(() -> modelService.searchList(ACCOUNT_MODEL, query))) {
             Long id = toLong(account.get(ModelConstant.ID));
-            Object status = account.get(props.getAccountStatusField());
+            Object status = account.get(ACCOUNT_STATUS_FIELD);
             if (id != null) {
                 statuses.put(id, status == null ? null : status.toString());
             }
@@ -536,36 +595,36 @@ public class FlowOrgService implements OrganizationService {
 
     /** Whether an account of this status signs in: it is one of {@code approverAccountStatuses}. */
     private boolean signsIn(String status) {
-        return status != null && props.getApproverAccountStatuses().contains(status);
+        return status != null && APPROVER_ACCOUNT_STATUSES.contains(status);
     }
 
     /** The employee as a user, by their login account; null without one. */
     private ApproverInfo toUser(Map<String, Object> employee) {
-        Long accountId = toLong(employee.get(props.getAccountIdField()));
+        Long accountId = toLong(employee.get(ACCOUNT_ID_FIELD));
         if (accountId == null) {
             return null;
         }
-        Object name = employee.get(props.getNameField());
+        Object name = employee.get(NAME_FIELD);
         return new ApproverInfo(accountId, name == null ? null : name.toString(),
-                toLong(employee.get(props.getDeptIdField())), null);
+                toLong(employee.get(DEPT_ID_FIELD)));
     }
 
     /** What the directory reads of a person: account, name, department, position, and the code where there is one. */
     private List<String> personFields() {
-        List<String> fields = new ArrayList<>(List.of(ModelConstant.ID, props.getAccountIdField(), props.getNameField(),
-                props.getDeptIdField(), props.getPositionIdField()));
-        if (ModelManager.existField(props.getDirectoryModel(), props.getCodeField())) {
-            fields.add(props.getCodeField());
+        List<String> fields = new ArrayList<>(List.of(ModelConstant.ID, ACCOUNT_ID_FIELD, NAME_FIELD,
+                DEPT_ID_FIELD, POSITION_ID_FIELD));
+        if (ModelManager.existField(directoryModel, CODE_FIELD)) {
+            fields.add(CODE_FIELD);
         }
         return fields;
     }
 
     /** What the directory reads of a department: name, parent, and the code where there is one. */
     private List<String> departmentFields() {
-        List<String> fields = new ArrayList<>(List.of(ModelConstant.ID, props.getDeptNameField(),
-                props.getParentDeptIdField()));
-        if (ModelManager.existField(props.getDepartmentModel(), props.getDeptCodeField())) {
-            fields.add(props.getDeptCodeField());
+        List<String> fields = new ArrayList<>(List.of(ModelConstant.ID, DEPT_NAME_FIELD,
+                PARENT_DEPT_ID_FIELD));
+        if (ModelManager.existField(DEPARTMENT_MODEL, DEPT_CODE_FIELD)) {
+            fields.add(DEPT_CODE_FIELD);
         }
         return fields;
     }
@@ -577,7 +636,7 @@ public class FlowOrgService implements OrganizationService {
     private List<DirectoryPerson> toPeople(List<Map<String, Object>> employees, boolean askStatuses) {
         Map<Long, Map<String, Object>> byAccount = new LinkedHashMap<>();
         for (Map<String, Object> employee : employees) {
-            Long accountId = idOf(employee.get(props.getAccountIdField()));
+            Long accountId = idOf(employee.get(ACCOUNT_ID_FIELD));
             if (accountId != null) {
                 byAccount.putIfAbsent(accountId, employee);
             }
@@ -585,16 +644,16 @@ public class FlowOrgService implements OrganizationService {
         Set<Long> signingIn = askStatuses ? signingIn(byAccount.keySet()) : byAccount.keySet();
         List<DirectoryPerson> people = new ArrayList<>(byAccount.size());
         byAccount.forEach((accountId, employee) -> people.add(new DirectoryPerson(accountId,
-                textOf(employee.get(props.getNameField())), textOf(employee.get(props.getCodeField())),
-                labelOf(employee.get(props.getDeptIdField())), labelOf(employee.get(props.getPositionIdField())),
+                textOf(employee.get(NAME_FIELD)), textOf(employee.get(CODE_FIELD)),
+                labelOf(employee.get(DEPT_ID_FIELD)), labelOf(employee.get(POSITION_ID_FIELD)),
                 signingIn.contains(accountId))));
         return people;
     }
 
     private DirectoryDepartment toDepartment(Map<String, Object> department) {
         return new DirectoryDepartment(idOf(department.get(ModelConstant.ID)),
-                textOf(department.get(props.getDeptNameField())), textOf(department.get(props.getDeptCodeField())),
-                labelOf(department.get(props.getParentDeptIdField())));
+                textOf(department.get(DEPT_NAME_FIELD)), textOf(department.get(DEPT_CODE_FIELD)),
+                labelOf(department.get(PARENT_DEPT_ID_FIELD)));
     }
 
     private static List<Long> distinct(Collection<Long> ids) {
