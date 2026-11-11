@@ -172,6 +172,28 @@ class FlowApprovalTaskSyncTest {
         assertEquals(FlowApprovalTaskStatus.CANCELED, mgrs.getStatus(), "closed by someone else's vote, not theirs");
     }
 
+    /** The CC an approval's result sends comes after the vote that closed the step: the task says the vote. */
+    @Test
+    void aTaskAnotherApproverClosedSaysTheirVoteNotTheCcTheResultSent() {
+        PendingApproval anyOne = step(List.of("mgr", "deputy"));
+        FlowExecutionState state = waitingOn(anyOne);
+        service.onStateChanged(state);
+
+        state.setPendingApprovals(new ArrayList<>());
+        state.setStatus(FlowExecutionStatus.COMPLETED);
+        state.getApprovalAuditDelta().add(entry(ApprovalActionType.APPROVE, "deputy", null, "done"));
+        state.getApprovalAuditDelta().add(entry(ApprovalActionType.CC, null, "hr", "You have been CC'd on: Leave"));
+        service.onStateChanged(state);
+
+        FlowApprovalTask mgrs = stored.stream()
+                .filter(row -> "mgr".equals(row.getActorId()) && row.getTaskType() == FlowApprovalTaskType.APPROVAL)
+                .findFirst().orElseThrow();
+        assertEquals(FlowApprovalTaskStatus.CANCELED, mgrs.getStatus());
+        assertEquals(ApprovalActionType.APPROVE, mgrs.getAction());
+        assertEquals("done", mgrs.getComment());
+        assertEquals("deputy", mgrs.getClosedByActorId());
+    }
+
     @Test
     void aTaskIsWrittenWithTheListFieldsOfItsInstanceAsItsRowHoldsThem() {
         when(instanceService.findByInstanceIds(List.of("i1"))).thenReturn(List.of(submittedClaim()));

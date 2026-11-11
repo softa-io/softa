@@ -38,6 +38,7 @@ import io.softa.starter.flow.enums.ApprovalStatus;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowWithdrawRequest;
 import io.softa.starter.flow.runtime.context.RecordVariables;
+import io.softa.starter.flow.runtime.context.SubmittedValues;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.ApprovalPathPreviewer;
@@ -153,7 +154,9 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         Submission<?> submission;
         try {
             ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
-            submission = checkValues(handler, withSubject(handler, values, submitterId), false);
+            // The form's values as the browser sent them, typed as the record would hold them once saved.
+            submission = checkValues(handler, withSubject(handler, SubmittedValues.typed(modelName, values), submitterId),
+                    false);
         } catch (BusinessException refusal) {
             userNames.name(List.of(submitter));
             return new FlowDesignPreview(false, submitter,

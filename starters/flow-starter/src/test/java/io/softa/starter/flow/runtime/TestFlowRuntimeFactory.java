@@ -35,7 +35,7 @@ public final class TestFlowRuntimeFactory {
                                     FlowInstanceStore instanceStore,
                                     DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                     ApprovalNodeExecutionHandler approvalHandler) {
-        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {});
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, (state, from) -> {});
     }
 
     public static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
@@ -43,7 +43,8 @@ public final class TestFlowRuntimeFactory {
                                     DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                     ApprovalNodeExecutionHandler approvalHandler,
                                     FlowStateChangeListener taskSyncListener) {
-        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener, state -> {});
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
+                (state, from) -> {});
     }
 
     public static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
@@ -51,7 +52,7 @@ public final class TestFlowRuntimeFactory {
                                     DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                     ApprovalNodeExecutionHandler approvalHandler,
                                     FlowStateChangeListener taskSyncListener,
-                                    FlowStateChangeListener recordSyncListener) {
+                                    FlowStatusChangeListener recordSyncListener) {
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
                 recordSyncListener, Mockito.mock(ModelService.class));
     }
@@ -65,7 +66,7 @@ public final class TestFlowRuntimeFactory {
                                     DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                     ApprovalNodeExecutionHandler approvalHandler,
                                     FlowStateChangeListener taskSyncListener,
-                                    FlowStateChangeListener recordSyncListener,
+                                    FlowStatusChangeListener recordSyncListener,
                                     ModelService<?> recordModelService) {
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
                 recordSyncListener, recordModelService, new DefaultApprovalNotificationService());
@@ -85,8 +86,8 @@ public final class TestFlowRuntimeFactory {
                 new ApprovalAuditReader(new NoopApprovalActionLedger()));
         FlowStateChangeListener taskSync = state -> projector.project(state).forEach(task -> taskHolders
                 .computeIfAbsent(task.getInstanceId(), instanceId -> new LinkedHashSet<>()).add(task.getActorId()));
-        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSync, state -> {},
-                taskRows(taskHolders));
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSync,
+                (state, from) -> {}, taskRows(taskHolders));
     }
 
     /**
@@ -111,7 +112,7 @@ public final class TestFlowRuntimeFactory {
                                                      DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                                      ApprovalNodeExecutionHandler approvalHandler,
                                                      ApprovalNotificationService notificationService) {
-        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, (state, from) -> {},
                 Mockito.mock(ModelService.class), notificationService, null, null);
     }
 
@@ -125,7 +126,7 @@ public final class TestFlowRuntimeFactory {
                                                 ApprovalNodeExecutionHandler approvalHandler,
                                                 ApprovalNotificationService notificationService,
                                                 ActorAccounts accounts) {
-        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, (state, from) -> {},
                 Mockito.mock(ModelService.class), notificationService, accounts, null);
     }
 
@@ -135,7 +136,7 @@ public final class TestFlowRuntimeFactory {
                                                            DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                                            ApprovalNodeExecutionHandler approvalHandler,
                                                            OrganizationService organization) {
-        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, (state, from) -> {},
                 Mockito.mock(ModelService.class), event -> {}, null, organization);
     }
 
@@ -144,7 +145,7 @@ public final class TestFlowRuntimeFactory {
                                     DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                     ApprovalNodeExecutionHandler approvalHandler,
                                     FlowStateChangeListener taskSyncListener,
-                                    FlowStateChangeListener recordSyncListener,
+                                    FlowStatusChangeListener recordSyncListener,
                                     ModelService<?> recordModelService,
                                     ApprovalNotificationService notificationService) {
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
@@ -156,13 +157,13 @@ public final class TestFlowRuntimeFactory {
                                     DefaultNodeHandlerRegistry nodeHandlerRegistry,
                                     ApprovalNodeExecutionHandler approvalHandler,
                                     FlowStateChangeListener taskSyncListener,
-                                    FlowStateChangeListener recordSyncListener,
+                                    FlowStatusChangeListener recordSyncListener,
                                     ModelService<?> recordModelService,
                                     ApprovalNotificationService notificationService,
                                     ActorAccounts accounts,
                                     OrganizationService organization) {
         FlowProjectionPublisher projectionPublisher =
-                new FlowProjectionPublisher(List.of(taskSyncListener, recordSyncListener));
+                new FlowProjectionPublisher(List.of(taskSyncListener), List.of(recordSyncListener));
 
         ApprovalAuditReader auditReader = new ApprovalAuditReader(new NoopApprovalActionLedger());
         FlowAuditService auditService = new FlowAuditService(auditReader);

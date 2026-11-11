@@ -43,6 +43,8 @@ public final class FlowExecutionStateMapper {
         copy.setPersistedAuditCount(state.getPersistedAuditCount());
         copy.setAuditSequenceBase(state.getAuditSequenceBase());
         copy.setCommittedAudit(state.getCommittedAudit() == null ? null : new ArrayList<>(state.getCommittedAudit()));
+        // The copy stands in for the instance the action read: a save of it announces a move from what that read.
+        copy.setLoadedStatus(state.getLoadedStatus());
         return copy;
     }
 
@@ -99,7 +101,7 @@ public final class FlowExecutionStateMapper {
 
     /**
      * Convert persistence entity to runtime state — the state {@link FlowInstanceStore#get} loads: the trace and
-     * the approval audit stay empty delta buffers.
+     * the approval audit stay empty delta buffers, and the status it is read in is kept as the one the action found.
      */
     public static FlowExecutionState toState(FlowInstance entity) {
         return FlowExecutionState.builder()
@@ -122,6 +124,7 @@ public final class FlowExecutionStateMapper {
                 .summary(entity.getSummary())
                 .triggerEventId(entity.getTriggerEventId())
                 .status(entity.getStatus())
+                .loadedStatus(entity.getStatus())
                 .errorMessage(entity.getErrorMessage())
                 .failedNodeId(entity.getFailedNodeId())
                 .retryAfterNodeId(entity.getRetryAfterNodeId())
