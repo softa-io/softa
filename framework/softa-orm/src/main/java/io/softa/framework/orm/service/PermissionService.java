@@ -482,10 +482,12 @@ public interface PermissionService {
      * bounds what those name, and a picker for one reads as any other.
      */
     static boolean namesCompany(String model, String fieldName) {
-        if (!ModelManager.existModel(model) || ModelManager.isProjectionModel(model)) {
-            return false;
-        }
-        MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+        return ModelManager.existModel(model) && !ModelManager.isProjectionModel(model)
+                && namesCompany(ModelManager.getModelFieldOrNull(model, fieldName));
+    }
+
+    /** {@link #namesCompany(String, String)} for a field of a model that is written, already looked up. */
+    static boolean namesCompany(MetaField field) {
         return field != null
                 && FieldType.TO_ONE_TYPES.contains(field.getFieldType())
                 && ModelConstant.COMPANY_MODEL.equals(field.getRelatedModel())

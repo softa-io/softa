@@ -91,13 +91,13 @@ public class CompanyReferenceGrantValidator implements ModelWriteValidator {
      */
     List<String> referencesOf(String modelName) {
         return referencesByModel.computeIfAbsent(modelName, model -> {
-            if (!ModelManager.existModel(model)) {
+            if (!ModelManager.existModel(model) || ModelManager.isProjectionModel(model)) {
                 return List.of();
             }
             return ModelManager.getModelFields(model).stream()
+                    .filter(PermissionService::namesCompany)
                     .map(MetaField::getFieldName)
                     .filter(name -> !ModelConstant.COMPANY_FIELD.equals(name))
-                    .filter(name -> PermissionService.namesCompany(model, name))
                     .sorted()
                     .toList();
         });
