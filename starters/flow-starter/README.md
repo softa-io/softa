@@ -143,10 +143,14 @@ with a record's approval: `submitRecord`, `previewValues`, `withdrawRecord`, `ca
 context, never from a parameter. Approver actions, task reads, a record's approval history, a saved record's preview and starting an
 `Api`-triggered Automation flow stay on REST; a method joins the port when a business module calls it, not before.
 
-**`FlowStateChangeListener`** (`runtime/engine`) — called by `FlowProjectionPublisher` once an instance's state is
-saved, in the same transaction, with permission checks off. The projections are such listeners: the task projection
-(`FlowApprovalTaskServiceImpl`), the record write-back (`ApprovalOutcomeListener`, through `ApprovalStatusWriter`) and
-`InboxReadMarker`. A listener that throws rolls the action back.
+**`FlowStateChangeListener`** (`runtime/engine`) — called by `FlowProjectionPublisher` after every save of an
+instance's state, in the same transaction, with permission checks off: the projections that follow each action are
+such listeners — the task projection (`FlowApprovalTaskServiceImpl`) and `InboxReadMarker`. **`FlowStatusChangeListener`**
+— called after those, only when the save moved the instance's status, with the status the action found it in
+(`FlowExecutionState.loadedStatus`, set when the state is read; `null` for a new instance). The publisher decides this
+once, from the state, never from what the action recorded — an approval records the CCs its result sends after the
+entry that ended it — and announces a move once. The record write-back (`ApprovalOutcomeListener`, through
+`ApprovalStatusWriter`) is one. A listener of either kind that throws rolls the action back.
 
 **`FlowNodeDescriptorProvider`** (`design`) — contributes palette descriptors; `BuiltinNodeDescriptorProvider` and
 `TaskExecutorDescriptorProvider` are the bundled ones.
@@ -163,8 +167,8 @@ A change keeps these; each names the class that holds it.
 - **A record's approval state belongs to the framework.** `ApprovalLockValidator` (a `ModelWriteValidator`, order 10,
   at the write roots) freezes a record that is not a draft, and the records its to-one cascade owns, and keeps the
   approval fields out of every write; writes made with permission checks off are exempt. Results reach the record only
-  through `ApprovalOutcomeListener` and `ApprovalStatusWriter`, only onto a record still `Pending`, so `afterOutcome`
-  runs once per result. An instance's status moves only by `FlowStatusTransitions`.
+  through `ApprovalOutcomeListener` and `ApprovalStatusWriter`: on the save that moved the instance into its result,
+  only onto a record still `Pending`, so `afterOutcome` runs once per result. An instance's status moves only by `FlowStatusTransitions`.
 - **One approval in progress per record.** `FlowInstance.openRecordId` holds the record's id while its approval is
   unfinished (`FlowExecutionStateMapper`), under the unique index `uk_flow_instance_open_record` (tenant, model,
   record): a second submission fails even when two arrive at once.

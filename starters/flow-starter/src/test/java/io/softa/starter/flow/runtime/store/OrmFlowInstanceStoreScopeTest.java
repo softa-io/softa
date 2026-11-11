@@ -11,6 +11,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.engine.FlowProjectionPublisher;
 import io.softa.starter.flow.runtime.engine.FlowStateChangeListener;
+import io.softa.starter.flow.runtime.engine.FlowStatusChangeListener;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
@@ -76,14 +77,19 @@ class OrmFlowInstanceStoreScopeTest {
     @Test
     void projectionsRunPastTheCallersRowScope() {
         FlowStateChangeListener listener = state -> skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
-        FlowProjectionPublisher publisher = new FlowProjectionPublisher(List.of(listener));
+        FlowStatusChangeListener statusListener =
+                (state, from) -> skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
+        FlowProjectionPublisher publisher = new FlowProjectionPublisher(List.of(listener), List.of(statusListener));
+        // A new instance saved in its first status: both kinds of listener are told.
+        FlowExecutionState saved = new FlowExecutionState();
+        saved.setStatus(FlowExecutionStatus.RUNNING);
 
         asRequest(() -> {
-            publisher.publish(new FlowExecutionState());
+            publisher.publish(saved);
             return null;
         });
 
-        assertEquals(List.of(true), skipped);
+        assertEquals(List.of(true, true), skipped);
     }
 
     @Test

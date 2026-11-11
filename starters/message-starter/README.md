@@ -1116,6 +1116,11 @@ inboxNotificationService.markAsRead(notificationId);
 inboxNotificationService.markAllAsRead(userId);
 ```
 
+A recipient, a title and content are required. The content has no width (`TEXT`): it is free text — an approval's
+comment, an automation's template, the error that stopped a step. A title longer than its column (200) is cut to fit,
+ending in "…", rather than refused: senders tell users past the action that sends, where a refusal is only logged
+and the message was lost.
+
 ## Operations
 
 ### Metrics

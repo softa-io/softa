@@ -53,6 +53,13 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             ApprovalActionType.REJECT, ApprovalActionType.RETURN, ApprovalActionType.TRANSFER,
             ApprovalActionType.DELEGATE);
 
+    /**
+     * What an approval records that closes nobody's task — it only adds to the approval: a CC (those an approval's
+     * result sends come after the entry that ended it), a CC read, a comment, an urge.
+     */
+    private static final Set<ApprovalActionType> CLOSES_NO_TASK = EnumSet.of(ApprovalActionType.CC,
+            ApprovalActionType.READ, ApprovalActionType.COMMENT, ApprovalActionType.URGE);
+
     private final FlowApprovalTaskProjector projector;
     private final FlowInstanceAccessGuard accessGuard;
     private final ApprovalAuditReader auditReader;
@@ -276,7 +283,8 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     private void closeStaleTask(FlowApprovalTask task, FlowExecutionState state) {
         // What closed it: its holder's own decision in this action when they made one — approving a step the next one
         // then auto-approves ends the action on the next step's entry, which says nothing of theirs — else the latest
-        // entry of the approval (another approver's vote, a withdrawal, a termination).
+        // entry of the approval that closes tasks (another approver's vote, a withdrawal, a termination), never the
+        // CCs its result sends after it.
         ApprovalActionAuditEntry latestAudit = ownDecision(task, state);
         if (latestAudit == null) {
             latestAudit = lastAudit(state);
@@ -313,9 +321,15 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return null;
     }
 
+    /** The approval's latest entry that can close a task, past those that only add to it ({@link #CLOSES_NO_TASK}). */
     private ApprovalActionAuditEntry lastAudit(FlowExecutionState state) {
         List<ApprovalActionAuditEntry> history = auditReader.fullHistory(state);
-        return history.isEmpty() ? null : history.getLast();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            if (!CLOSES_NO_TASK.contains(history.get(i).getAction())) {
+                return history.get(i);
+            }
+        }
+        return null;
     }
 
     private static FlowApprovalTaskStatus resolveTerminalStatus(FlowApprovalTask task,

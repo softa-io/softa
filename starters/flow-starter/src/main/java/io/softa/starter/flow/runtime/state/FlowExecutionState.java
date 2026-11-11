@@ -139,6 +139,15 @@ public class FlowExecutionState {
     @Schema(hidden = true)
     private List<ApprovalActionAuditEntry> committedAudit;
 
+    /**
+     * The status the instance had when this action read it; {@code null} for an instance not saved yet. A save that
+     * leaves {@link #status} as this found it moved nothing a status listener follows ({@code FlowProjectionPublisher}),
+     * which then moves it on to the status it announced. Excluded from JSON / persistence.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private FlowExecutionStatus loadedStatus;
+
     @Schema(description = "Parallel join arrival counts")
     private Map<String, Integer> joinArrivalCounts;
 

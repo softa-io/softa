@@ -23,6 +23,7 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.FlowCcRule;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
@@ -493,6 +494,87 @@ class FlowRecordSubmissionTest {
         assertEquals("Rejected", record.get("approvalStatus"));
     }
 
+    /**
+     * The CCs an approval's result sends are recorded after the entry that ended it, in the status it ended in:
+     * the result still reaches the record, once (zingkey-hcm#2584 — the record stayed Pending).
+     */
+    @Test
+    void anApprovalThatCcsOnItsResultStillWritesApprovedBack() {
+        publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_APPROVED, "3001")));
+        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        FlowExecutionState completed = engine.approve(
+                nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, "enjoy"));
+
+        assertEquals(FlowExecutionStatus.COMPLETED, completed.getStatus());
+        assertEquals(ApprovalActionType.CC, completed.getApprovalAuditDelta().getLast().getAction(),
+                "the approval's CC is the last entry it recorded");
+        assertEquals("Approved", record.get("approvalStatus"));
+        verify(handler, times(1)).afterOutcome(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.APPROVED),
+                eq(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, started.getInstanceId())));
+    }
+
+    @Test
+    void aRejectionThatCcsOnItsResultStillWritesRejectedBack() {
+        publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_REJECTED, "3001")));
+        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        FlowExecutionState rejected = engine.reject(
+                nodeRequest(new FlowRejectRequest(), started.getInstanceId(), MANAGER, "busy week"));
+
+        assertEquals(ApprovalActionType.CC, rejected.getApprovalAuditDelta().getLast().getAction());
+        assertEquals("Rejected", record.get("approvalStatus"));
+        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.REJECTED, started.getInstanceId()), capturedOutcome());
+        verify(handler, times(1)).afterOutcome(any(), any());
+    }
+
+    /** A step nobody resolves to that passes on its own, then the approval CCs: approved as it is submitted. */
+    @Test
+    void anApprovalThatPassesOnItsOwnAndCcsWritesApprovedBackAsItIsSubmitted() {
+        DesignFlowDefinition design = withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_APPROVED, "3001"));
+        // No organization service here: the supervisor source finds nobody, and the step passes.
+        design.getGraph().getNodes().set(1, FlowGraphNode.builder()
+                .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
+                .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor")),
+                        "emptyApproverStrategy", "AutoApprove"))
+                .build());
+        publishService.publish("annual", design);
+
+        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
+        assertEquals("Approved", record.get("approvalStatus"));
+        verify(handler, times(1)).afterOutcome(any(),
+                eq(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, state.getInstanceId())));
+    }
+
+    /**
+     * A CC read changes no status: read on an approval returned before the record was submitted again, it writes
+     * nothing — the record stays in its new approval.
+     */
+    @Test
+    void aCcReadOnAReturnedApprovalLeavesTheRecordsNewApprovalPending() {
+        publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_SUBMIT, "3001")));
+        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        engine.returnApproval(nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "fix the dates"));
+        launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        assertEquals("Pending", record.get("approvalStatus"));
+
+        FlowCcReadRequest read = new FlowCcReadRequest();
+        read.setInstanceId(started.getInstanceId());
+        read.setNodeId("start");
+        read.setActorId("3001");
+        engine.readCc(read);
+
+        assertEquals("Pending", record.get("approvalStatus"));
+        // The return alone reached the record.
+        verify(handler, times(1)).afterOutcome(any(), any());
+    }
+
     @Test
     void aReturnEndsTheApprovalAndTheNextSubmissionStartsANewOneFromTheStart() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
@@ -680,6 +762,16 @@ class FlowRecordSubmissionTest {
 
     private static DesignFlowDefinition approvalFlow(String name, List<String> approvers) {
         return flow(name, new SubmitTrigger(MODEL), approvers);
+    }
+
+    private static DesignFlowDefinition withCc(DesignFlowDefinition design, FlowCcRule... rules) {
+        design.setCc(List.of(rules));
+        return design;
+    }
+
+    private static FlowCcRule ccRule(CcTiming timing, String recipient) {
+        return FlowCcRule.builder().timing(timing)
+                .recipientSource(Map.of("type", "Users", "userIds", List.of(recipient))).build();
     }
 
     /** start → approval → end, or start → end when {@code approvers} is null. */
