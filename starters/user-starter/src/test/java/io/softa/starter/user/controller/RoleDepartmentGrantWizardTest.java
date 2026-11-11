@@ -1,6 +1,8 @@
 package io.softa.starter.user.controller;
 
+import java.lang.reflect.Constructor;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,16 +24,10 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.dto.WizardSaveDTO;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.service.DepartmentGrants;
-import io.softa.starter.user.service.DynamicRoleSyncJob;
-import io.softa.starter.user.service.RoleDataScopeService;
 import io.softa.starter.user.service.RoleGrantCeiling;
-import io.softa.starter.user.service.RoleNavigationService;
 import io.softa.starter.user.service.RoleSaveValidator;
-import io.softa.starter.user.service.RoleSensitiveFieldSetService;
 import io.softa.starter.user.service.RoleService;
 import io.softa.starter.user.service.SystemRoleWriteGuard;
-import io.softa.starter.user.service.UserRoleRelService;
-import io.softa.starter.user.service.impl.UiContextBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -69,11 +65,27 @@ class RoleDepartmentGrantWizardTest {
         when(roleService.createOne(any(Role.class))).thenReturn(42L);
         ceiling = mock(RoleGrantCeiling.class);
         modelService = mock(ModelService.class);
-        controller = new RoleController(roleService, mock(RoleNavigationService.class),
-                mock(RoleDataScopeService.class), mock(RoleSensitiveFieldSetService.class),
-                mock(UserRoleRelService.class), mock(DynamicRoleSyncJob.class), mock(UiContextBuilder.class), ceiling);
+        controller = controllerWith(roleService, ceiling);
         controller.modelService = modelService;
         controller.writeGuard = mock(SystemRoleWriteGuard.class);
+    }
+
+    /**
+     * The controller over its one constructor, every collaborator a mock but the two the tests drive. Built
+     * from the constructor's own parameters, so a collaborator added to it later needs no change here.
+     */
+    private static RoleController controllerWith(RoleService roleService, RoleGrantCeiling ceiling) {
+        Constructor<?> constructor = RoleController.class.getConstructors()[0];
+        Object[] args = Arrays.stream(constructor.getParameterTypes())
+                .map(type -> type == RoleService.class ? roleService
+                        : type == RoleGrantCeiling.class ? ceiling
+                        : mock(type))
+                .toArray();
+        try {
+            return (RoleController) constructor.newInstance(args);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @AfterEach
