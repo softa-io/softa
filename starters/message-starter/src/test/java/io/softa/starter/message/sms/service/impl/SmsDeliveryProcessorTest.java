@@ -7,11 +7,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.VersionException;
-import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.starter.message.shared.MonthlyQuotaGuard;
+import io.softa.starter.message.shared.ErrorClassifier;
 import io.softa.starter.message.shared.RateLimiter;
-import io.softa.starter.message.shared.TenantScopes;
+import io.softa.starter.message.shared.SendQuotaGuard;
+import io.softa.starter.message.shared.SendRejection;
 import io.softa.starter.message.shared.metrics.MessageMetrics;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.dto.SmsAdapterRequest;
@@ -30,18 +30,8 @@ import io.softa.starter.message.sms.support.adapter.SmsProviderAdapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Delivery contract for {@link SmsDeliveryProcessor#deliver}: a claimed record is prepared once —
@@ -54,7 +44,7 @@ class SmsDeliveryProcessorTest {
     private SmsProviderDispatcher dispatcher;
     private SmsTemplateService templateService;
     private SmsRoutingPlanner routingPlanner;
-    private MonthlyQuotaGuard quotaGuard;
+    private SendQuotaGuard quotaGuard;
     private SmsAdapterFactory adapterFactory;
     private SmsProviderAdapter adapter;
     private SmsSendRecordService recordService;
@@ -68,7 +58,7 @@ class SmsDeliveryProcessorTest {
         dispatcher = mock(SmsProviderDispatcher.class);
         templateService = mock(SmsTemplateService.class);
         routingPlanner = mock(SmsRoutingPlanner.class);
-        quotaGuard = mock(MonthlyQuotaGuard.class);
+        quotaGuard = mock(SendQuotaGuard.class);
         adapterFactory = mock(SmsAdapterFactory.class);
         adapter = mock(SmsProviderAdapter.class);
         recordService = mock(SmsSendRecordService.class);
@@ -192,12 +182,14 @@ class SmsDeliveryProcessorTest {
     void theFirstAttemptRendersRoutesChargesWritesBackThenSends() {
         SmsTemplate template = new SmsTemplate();
         template.setCode("user.verification-code");
-        when(templateService.resolve("user.verification-code", MessageScope.PLATFORM)).thenReturn(template);
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
         when(templateService.renderContent(eq(template), eq(Map.of("code", "123456")))).thenReturn("Your code is 123456");
         when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
                 .thenReturn(new SmsRoutingPlanner.Plan(config(), "TPL-1", "SIGN", "CN", null));
         when(adapter.send(any(), any(SmsAdapterRequest.class))).thenReturn(SmsSendResult.success("SID-1"));
         SmsSendRecord record = fresh();
+        // A platform-scope code filed under the one company its person belongs to.
+        record.setTenantId(5L);
 
         processor.deliver(record, 3L);
 
@@ -208,7 +200,7 @@ class SmsDeliveryProcessorTest {
         assertThat(record.getExternalTemplateId()).isEqualTo("TPL-1");
         verify(routingPlanner).plan(new SmsRoutingPlanner.RoutingRequest(
                 "+8613800138000", null, "user.verification-code", null, null, template));
-        verify(quotaGuard).consume("sms", TenantScopes.PLATFORM);
+        verify(quotaGuard).consume("sms", 5L);
         verify(recordService).markPrepared(record, 3L);
         verify(recordService).markSent(eq(7L), eq(4L), eq("SID-1"), eq(20L), eq(SmsProvider.TWILIO), anyInt());
     }
@@ -217,7 +209,7 @@ class SmsDeliveryProcessorTest {
     void noProviderForTheCountry_failsTheRecordWithoutChargingQuota() {
         SmsTemplate template = new SmsTemplate();
         template.setCode("user.verification-code");
-        when(templateService.resolve("user.verification-code", MessageScope.PLATFORM)).thenReturn(template);
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
         when(templateService.renderContent(eq(template), any())).thenReturn("Your code is 123456");
         when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
                 .thenThrow(new BusinessException("No SMS provider configured for region CN."));
@@ -232,7 +224,7 @@ class SmsDeliveryProcessorTest {
 
     @Test
     void missingTemplate_failsTheRecord() {
-        when(templateService.resolve("user.verification-code", MessageScope.PLATFORM))
+        when(templateService.resolve("user.verification-code"))
                 .thenThrow(new BusinessException("No SMS template found for code user.verification-code"));
 
         processor.deliver(fresh(), 3L);
@@ -243,14 +235,63 @@ class SmsDeliveryProcessorTest {
     }
 
     @Test
+    void theProviderIsSentTheVariablesInTheOrderTheTemplateNamesThem() {
+        // Tencent fills a registered template by position, Aliyun by name: both need the variables, and
+        // a caller's Map.of has no order of its own, so the template's content decides it.
+        SmsTemplate template = new SmsTemplate();
+        template.setCode("user.verification-code");
+        template.setContent("Your code is {{ code }}, valid for {{ expiryMinutes }} minutes.");
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
+        when(templateService.renderContent(eq(template), any())).thenReturn("Your code is 123456, valid for 5 minutes.");
+        when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
+                .thenReturn(new SmsRoutingPlanner.Plan(config(), "TPL-1", "SIGN", "CN", null));
+        when(adapter.send(any(), any(SmsAdapterRequest.class))).thenReturn(SmsSendResult.success("SID-1"));
+        SmsSendRecord record = fresh();
+        java.util.LinkedHashMap<String, Object> given = new java.util.LinkedHashMap<>();
+        given.put("expiryMinutes", 5);
+        given.put("code", "123456");
+        record.setTemplateVariables(JsonUtils.objectToJsonNode(given));
+
+        processor.deliver(record, 3L);
+
+        org.mockito.ArgumentCaptor<SmsAdapterRequest> sent = org.mockito.ArgumentCaptor.forClass(SmsAdapterRequest.class);
+        verify(adapter).send(any(), sent.capture());
+        assertThat(sent.getValue().getTemplateVariables()).containsExactly(
+                java.util.Map.entry("code", "123456"), java.util.Map.entry("expiryMinutes", 5));
+        // Written back with the order, so a retry sends the same positions.
+        assertThat(JsonUtils.jsonNodeToMap(record.getTemplateVariables()).keySet())
+                .containsExactly("code", "expiryMinutes");
+        verify(recordService).markPrepared(record, 3L);
+    }
+
+    @Test
+    void aRetryOfAPreparedRecordStillSendsItsVariables() {
+        // rebuildDTO used to leave them out: Aliyun and Tencent got their templates with no parameters.
+        SmsSendRecord record = fresh();
+        record.setContent("Your code is 123456");
+        record.setProviderConfigId(20L);
+        record.setProviderType(SmsProvider.TWILIO);
+        record.setExternalTemplateId("TPL-1");
+        when(dispatcher.resolveProviderById(20L)).thenReturn(config());
+        when(adapter.send(any(), any(SmsAdapterRequest.class))).thenReturn(SmsSendResult.success("SID-1"));
+
+        processor.deliver(record, 3L);
+
+        org.mockito.ArgumentCaptor<SmsAdapterRequest> sent = org.mockito.ArgumentCaptor.forClass(SmsAdapterRequest.class);
+        verify(adapter).send(any(), sent.capture());
+        assertThat(sent.getValue().getTemplateVariables()).containsEntry("code", "123456");
+    }
+
+    @Test
     void quotaUsedUp_failsTheRecordWithoutSending() {
         SmsTemplate template = new SmsTemplate();
         template.setCode("user.verification-code");
-        when(templateService.resolve("user.verification-code", MessageScope.PLATFORM)).thenReturn(template);
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
         when(templateService.renderContent(eq(template), any())).thenReturn("Your code is 123456");
         when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
                 .thenReturn(new SmsRoutingPlanner.Plan(config(), null, null, "CN", null));
-        doThrow(new BusinessException("The monthly SMS quota is used up.")).when(quotaGuard).consume(eq("sms"), anyLong());
+        doThrow(new SendRejection(ErrorClassifier.MONTHLY_QUOTA_EXCEEDED, "The monthly SMS quota is used up."))
+                .when(quotaGuard).consume(eq("sms"), anyLong());
 
         processor.deliver(fresh(), 3L);
 
@@ -261,12 +302,31 @@ class SmsDeliveryProcessorTest {
     }
 
     @Test
+    void todaysCapReached_failsTheRecordWithTheDailyCode() {
+        SmsTemplate template = new SmsTemplate();
+        template.setCode("user.verification-code");
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
+        when(templateService.renderContent(eq(template), any())).thenReturn("Your code is 123456");
+        when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
+                .thenReturn(new SmsRoutingPlanner.Plan(config(), null, null, "CN", null));
+        doThrow(new SendRejection(ErrorClassifier.DAILY_QUOTA_EXCEEDED, "Daily sms send quota (2000) is used up for today."))
+                .when(quotaGuard).consume(eq("sms"), anyLong());
+
+        processor.deliver(fresh(), 3L);
+
+        verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
+                eq("DAILY_QUOTA_EXCEEDED"), contains("today"), any(SendFailureHandler.RecordTransitions.class));
+        verify(recordService, never()).markPrepared(any(), anyLong());
+        verifyNoInteractions(adapterFactory);
+    }
+
+    @Test
     void quotaCounterContention_isLeftToTheRetryPolicy() {
         // Other sends of the bucket kept winning the counter's race: not "quota used up", so no
         // MONTHLY_QUOTA_EXCEEDED marker that would fail the record for good.
         SmsTemplate template = new SmsTemplate();
         template.setCode("user.verification-code");
-        when(templateService.resolve("user.verification-code", MessageScope.PLATFORM)).thenReturn(template);
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
         when(templateService.renderContent(eq(template), any())).thenReturn("Your code is 123456");
         when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
                 .thenReturn(new SmsRoutingPlanner.Plan(config(), null, null, "CN", null));
@@ -285,7 +345,7 @@ class SmsDeliveryProcessorTest {
     void callerTextWinsOverTheTemplate() {
         SmsTemplate template = new SmsTemplate();
         template.setCode("user.verification-code");
-        when(templateService.resolve("user.verification-code", MessageScope.PLATFORM)).thenReturn(template);
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
         when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
                 .thenReturn(new SmsRoutingPlanner.Plan(config(), null, null, "CN", null));
         when(adapter.send(any(), any(SmsAdapterRequest.class))).thenReturn(SmsSendResult.success("SID-1"));

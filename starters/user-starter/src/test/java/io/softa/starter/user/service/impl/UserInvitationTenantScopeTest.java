@@ -157,16 +157,42 @@ class UserInvitationTenantScopeTest {
     }
 
     @Test
-    void forgotPasswordStaysPlatformTier() {
+    void forgotPasswordStaysPlatformTierWhileFiledUnderThePersonsOnlyCompany() {
         // /login/forgetPassword is in public-uri-patterns: no session, no tenant context. It stays
         // platform-tier deliberately — template resolution has no fallback across tiers, so reaching
         // for the account's tenant would turn a missing or disabled tenant copy into "No mail
-        // template found" on a path with no operator around to see it.
+        // template found" on a path with no operator around to see it. Whom it is filed under is a
+        // separate question: someone in one company is that company's send, counted against its quota.
+        when(accountService.soleJoinedTenantOf(7L)).thenReturn(Optional.of(ACCOUNT_TENANT));
+
         service.forgotPassword("invitee@example.test");
 
         SendMailDTO mail = captureMail();
-        assertThat(tenantSeenByMail.get()).isNull();
         assertThat(mail.getScope()).isEqualTo(MessageScope.PLATFORM);
+        assertThat(tenantSeenByMail.get()).isEqualTo(ACCOUNT_TENANT);
+    }
+
+    @Test
+    void forgotPasswordOfSomeoneInSeveralCompaniesIsThePlatformsSend() {
+        // The reset sets the person's one password: with two companies it is neither one's, so it is
+        // sent with no tenant context and message-starter files it under the platform.
+        when(accountService.soleJoinedTenantOf(7L)).thenReturn(Optional.empty());
+
+        service.forgotPassword("invitee@example.test");
+
+        assertThat(captureMail().getScope()).isEqualTo(MessageScope.PLATFORM);
+        assertThat(tenantSeenByMail.get()).isNull();
+    }
+
+    @Test
+    void aResetIsThePlatformsMailEvenInsideATenant() {
+        // A password reset is an account credential: the platform's template through the platform's
+        // servers whatever the context, so no company can rewrite or swallow it.
+        Context ctx = new Context();
+        ctx.setTenantId(OPERATOR_TENANT);
+        ContextHolder.runWith(ctx, () -> service.forgotPassword("invitee@example.test"));
+
+        assertThat(captureMail().getScope()).isEqualTo(MessageScope.PLATFORM);
     }
 
     @Test

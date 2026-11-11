@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 /**
  * Shared config for all automated task nodes (CREATE_RECORD, GET_RECORD, UPDATE_RECORD,
  * DELETE_RECORD, QUERY_RECORDS, VALIDATE_DATA, TRANSFORM, CALL_WEBHOOK,
- * SEND_EMAIL, SEND_SMS, SEND_INBOX_NOTIFICATION, QUERY_AI, ASYNC_TASK, GENERATE_FILE).
+ * SEND_EMAIL, SEND_INBOX_NOTIFICATION, QUERY_AI, ASYNC_TASK, GENERATE_FILE).
  * <p>
  * The {@code executor} field has been removed — the {@code FlowNodeType} itself now
  * identifies which {@code TaskExecutor} handles the node, eliminating the

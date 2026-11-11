@@ -80,12 +80,13 @@ public class MailApiController {
     // -------------------------------------------------
 
     /**
-     * Query the send status of a mail record by its ID.
+     * Query the send status of a mail record by its ID. The table is not multi-tenant: a tenant only
+     * finds the records filed under it, the platform every record.
      */
     @Operation(summary = "Query send status by record ID")
     @GetMapping("/status")
     public ApiResponse<MailSendStatusDTO> getStatus(@RequestParam Long id) {
-        return sendRecordService.getById(id)
+        return sendRecordService.findVisibleById(id)
                 .map(MailSendStatusDTO::from)
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.success(null));
@@ -96,9 +97,9 @@ public class MailApiController {
     // -------------------------------------------------
 
     /**
-     * List the current scope's own enabled sending configs. Platform configs
-     * are invisible to tenants — they are reached only by the dispatcher's
-     * default fallback, never selected explicitly.
+     * List the current tenant's own enabled send servers. The platform's are not
+     * among them — a tenant reaches them only as the relay for a tenant with no
+     * default of its own, never by choice.
      */
     @Operation(summary = "List available mail senders")
     @GetMapping("/senders")
@@ -117,9 +118,10 @@ public class MailApiController {
     // -------------------------------------------------
 
     /**
-     * List the current scope's own enabled templates — exactly the set a
+     * List the current tenant's own enabled templates — exactly the set a
      * TENANT-scoped {@code templateCode} send can reach (tenants receive
-     * their copies at provisioning; there is no cross-tier fallback).
+     * their copies at provisioning; there is no cross-tier fallback). The
+     * platform's templates are listed under {@code /PlatformMailTemplate}.
      */
     @Operation(summary = "List available mail templates")
     @GetMapping("/templates")

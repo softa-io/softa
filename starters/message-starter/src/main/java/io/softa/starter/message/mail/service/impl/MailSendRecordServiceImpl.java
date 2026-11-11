@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.exception.BusinessException;
@@ -12,8 +13,10 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
+import io.softa.starter.message.mail.enums.MailServerOwner;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.shared.AbstractCasSendRecordServiceImpl;
+import io.softa.starter.message.shared.TenantScopes;
 
 /**
  * MailSendRecord service implementation.
@@ -38,8 +41,23 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
 
     @Override
     public boolean retry(Long id) {
-        MailSendRecord record = getById(id).orElseThrow(() ->
-                new BusinessException("Mail send record {0} does not exist.", id));
+        return retry(getById(id).orElseThrow(() ->
+                new BusinessException("Mail send record {0} does not exist.", id)));
+    }
+
+    @Override
+    public boolean retryVisible(Long id) {
+        // A record the caller may not see answers like one that does not exist.
+        return retry(findVisibleById(id).orElseThrow(() ->
+                new BusinessException("Mail send record {0} does not exist.", id)));
+    }
+
+    @Override
+    public Optional<MailSendRecord> findVisibleById(Long id) {
+        return getById(id).filter(record -> TenantScopes.visibleToCurrentCaller(record.getTenantId()));
+    }
+
+    private boolean retry(MailSendRecord record) {
         MailSendStatus status = record.getStatus();
         if (status == MailSendStatus.SENT) {
             throw new BusinessException("This email was already sent — there is nothing to retry.");
@@ -56,8 +74,19 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
 
     @Override
     public int retryByIds(List<Long> ids) {
+        return retryAll(getByIds(ids));
+    }
+
+    @Override
+    public int retryVisibleByIds(List<Long> ids) {
+        return retryAll(getByIds(ids).stream()
+                .filter(record -> TenantScopes.visibleToCurrentCaller(record.getTenantId()))
+                .toList());
+    }
+
+    private int retryAll(List<MailSendRecord> records) {
         int requeued = 0;
-        for (MailSendRecord record : getByIds(ids)) {
+        for (MailSendRecord record : records) {
             MailSendStatus status = record.getStatus();
             if (status != MailSendStatus.SENT && status != MailSendStatus.SENDING && requeue(record)) {
                 requeued++;
@@ -79,14 +108,20 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
     }
 
     @Override
-    public Map<String, MailSendRecord> findByMessageIds(Collection<String> messageIds) {
+    public Map<String, MailSendRecord> findByMessageIds(Collection<String> messageIds, MailServerOwner carriedBy) {
         if (messageIds == null || messageIds.isEmpty()) return Map.of();
         List<String> ids = messageIds.stream()
                 .filter(s -> s != null && !s.isBlank())
                 .distinct()
                 .toList();
         if (ids.isEmpty()) return Map.of();
-        Filters filters = new Filters().in(MailSendRecord::getMessageId, ids);
+        Filters filters = new Filters()
+                .in(MailSendRecord::getMessageId, ids)
+                .eq(MailSendRecord::getServerOwner, carriedBy);
+        if (carriedBy == MailServerOwner.TENANT && TenantScopes.multiTenancyEnabled()) {
+            // A tenant's receive server answers for its own mail only — the table holds every tenant's.
+            filters.eq(MailSendRecord::getTenantId, TenantScopes.currentTenantOrPlatform());
+        }
         List<MailSendRecord> rows = this.searchList(filters);
         Map<String, MailSendRecord> out = new HashMap<>(rows.size() * 2);
         for (MailSendRecord r : rows) {
@@ -109,6 +144,7 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
         patch.put("replyTo", record.getReplyTo());
         patch.put("readReceiptRequested", record.getReadReceiptRequested());
         patch.put("serverConfigId", record.getServerConfigId());
+        patch.put("serverOwner", record.getServerOwner());
         patch.put("fromAddress", record.getFromAddress());
         return updateVersioned(patch);
     }

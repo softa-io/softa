@@ -1,6 +1,5 @@
 package io.softa.starter.message.service.internal;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -128,9 +127,28 @@ class SmsMessageHandlerTest {
     }
 
     @Test
-    void aPlatformSendWithNoTenantIsFiledUnderThePlatformTier() {
-        // A login code: asked for before any session exists, and the record still needs an owner.
-        List<Context> insertedIn = recordInsertContexts();
+    void aPlatformSendIsFiledUnderTheTenantItIsMadeFor() {
+        // The table is not multi-tenant: the owner is written at acceptance, and it is the tenant the
+        // send is made for whatever the scope — a code sent while one of tenant 7's users is signed in
+        // is tenant 7's, and counts against its quota.
+        Context tenantRequest = new Context("trace-1");
+        tenantRequest.setTenantId(7L);
+        SendSmsDTO dto = new SendSmsDTO();
+        dto.setPhoneNumber("+6591234567");
+        dto.setTemplateCode("user.verification-code");
+        dto.setScope(MessageScope.PLATFORM);
+
+        ContextHolder.runWith(tenantRequest, () -> handler.send(dto));
+
+        SmsSendRecord record = capturedRecord();
+        assertEquals(7L, record.getTenantId());
+        assertTrue(record.getPlatformScope());
+    }
+
+    @Test
+    void aPlatformSendWithNoTenantIsFiledUnderThePlatform() {
+        // A login code for someone in several companies: no session, no company to name — the record
+        // still needs an owner.
         SendSmsDTO dto = new SendSmsDTO();
         dto.setPhoneNumber("+6591234567");
         dto.setTemplateCode("user.verification-code");
@@ -138,14 +156,11 @@ class SmsMessageHandlerTest {
 
         ContextHolder.runWith(new Context("trace-1"), () -> handler.send(dto));
 
-        assertEquals(TenantScopes.PLATFORM, insertedIn.getFirst().getTenantId());
-        assertFalse(insertedIn.getFirst().isCrossTenant());
+        assertEquals(TenantScopes.PLATFORM, capturedRecord().getTenantId());
     }
 
     @Test
-    void aCrossTenantCallerWritesTheRecordUnderItsOwnTenant() {
-        // The ORM stamps the record's tenant from the context only while it is not cross-tenant.
-        List<Context> insertedIn = recordInsertContexts();
+    void aTenantSendIsFiledUnderTheSendingTenantEvenFromACrossTenantJob() {
         Context job = new Context("trace-1");
         job.setTenantId(7L);
         job.setCrossTenant(true);
@@ -155,18 +170,9 @@ class SmsMessageHandlerTest {
 
         ContextHolder.runWith(job, () -> handler.send(dto));
 
-        assertEquals(7L, insertedIn.getFirst().getTenantId());
-        assertFalse(insertedIn.getFirst().isCrossTenant());
-    }
-
-    /** The context each record insert ran in. */
-    private List<Context> recordInsertContexts() {
-        List<Context> contexts = new ArrayList<>();
-        when(recordService.createOne(any(SmsSendRecord.class))).thenAnswer(invocation -> {
-            contexts.add(ContextHolder.getContext());
-            return 55L;
-        });
-        return contexts;
+        SmsSendRecord record = capturedRecord();
+        assertEquals(7L, record.getTenantId());
+        assertFalse(record.getPlatformScope());
     }
 
     private SmsSendRecord capturedRecord() {

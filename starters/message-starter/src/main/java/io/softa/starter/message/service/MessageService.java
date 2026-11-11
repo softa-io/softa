@@ -20,11 +20,14 @@ import io.softa.starter.message.sms.dto.SendSmsDTO;
  * the whole submission. Batch methods are atomic and preserve input order in
  * their returned record IDs.
  * <p>
- * A send record belongs to the caller's tenant. To send for another tenant —
- * from a scheduled job, or an anonymous link that names its tenant — make the
- * call inside {@code ContextUtils.inTenantContext(tenantId, …)}. A
- * {@code PLATFORM}-scope send from a context with no tenant (a login code
- * asked for before any session exists) is filed under the platform tier.
+ * A send record belongs to the caller's tenant, whatever the scope: the scope
+ * picks the template and the servers, the tenant is whom the send is filed
+ * under and whose monthly quota it draws on — a platform notice about a
+ * tenant's account is that tenant's send. To send for another tenant — from a
+ * scheduled job, or an anonymous link that names its tenant — make the call
+ * inside {@code ContextUtils.inTenantContext(tenantId, …)}. A send from a
+ * context with no tenant (a login code for someone in several companies) is
+ * filed under the platform tier.
  */
 public interface MessageService {
 

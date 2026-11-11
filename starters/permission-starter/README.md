@@ -509,8 +509,8 @@ permission:
     - /me/**                      # returns the caller's own data
   platform-only-patterns:         # only SUPER_ADMIN may reach these
     - /Plan/**                    # billing / provisioning / cross-tenant Ops
-  platform-nav-prefixes: navigation.system.,navigation.studio.,navigation.message.operations.
-  shared-nav-prefixes: navigation.message.
+  platform-nav-prefixes: navigation.system.,navigation.studio.
+  shared-nav-prefixes: navigation.crm.          # an example: pages both sides work in, on multiTenant models
 ```
 
 The two prefix lists are **separate, and answer different questions**:
@@ -519,16 +519,23 @@ is what both audiences are let INTO. A tenant admin's nav set is *every* nav min
 the platform prefixes (fail-open); the platform admin's is *only* the platform
 prefixes plus the shared ones (fail-closed). Folding the two lists into one would
 name system and studio twice, once under each meaning — the shape that drifts.
-A platform prefix may sit inside a shared one, as `navigation.message.operations.`
-does above: a tenant admin is tested against the platform list alone, so the
-subtree is carved out for it, and the platform admin keeps the whole module.
+A platform prefix may sit inside a shared one: a tenant admin is tested against the
+platform list alone, so the subtree is carved out for it, and the platform admin
+keeps the whole module.
 
 **Share only pages on multiTenant models.** A shared page is the same page on two
 tiers only when its model is isolated by tenant. A tenant admin (and a consultant)
 reads past row scope, so a shared page on a model that is not multiTenant hands it
-every tenant's rows. message-starter's operations pages are such pages — on
-`DeadLetterMessage`, `TenantMessageQuota`, `TenantMessageUsage` and the like —
-hence their subtree in the platform list.
+every tenant's rows. message-starter's platform pages are such pages — the send logs,
+`DeadLetterMessage`, `TenantMessageQuota`, `TenantMessageUsage`, the `Platform*`
+models — so they belong under a platform prefix.
+
+**A tenant's own roles never reach platform menus.** The prefixes decide the menus a
+tenant admin and a consultant are computed; a custom role holds what was granted to
+it. For every tenant but the platform's own, the snapshot drops granted navigations
+under a platform prefix, and the permissions that hang off them even when they sit in
+another navigation's grant row — a grant saved before a menu became platform-only, or
+written around the role wizard, opens nothing. The platform tenant's roles keep them.
 
 Both are read twice, by `DefaultPermissionSnapshotProvider` here and by
 user-starter's `UiContextBuilder`, which assembles the same answer for the client.

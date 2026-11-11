@@ -2,6 +2,9 @@ package io.softa.starter.message.mail.smtp;
 
 import java.io.UnsupportedEncodingException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,6 +15,7 @@ import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.MailException;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,16 +26,17 @@ import org.springframework.util.StringUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.starter.message.mail.support.MailAddresses;
+import io.softa.starter.message.mail.support.MailSessionSettings;
 import io.softa.framework.orm.service.FileService;
 import io.softa.starter.message.config.MessageProperties;
-import io.softa.starter.message.mail.entity.MailSendServerConfig;
+import io.softa.starter.message.mail.entity.AbstractMailSendServer;
 import io.softa.starter.message.mail.enums.MailPriority;
 
 /**
  * SMTP transport backed by Jakarta Mail via {@link JavaMailSenderImpl}.
  * <p>
  * Authenticated connections are reused across sends, one small pool per
- * {@link MailSendServerConfig} ({@code PooledSmtpSender}), so a run of mails
+ * {@link AbstractMailSendServer} ({@code PooledSmtpSender}), so a run of mails
  * through one server pays the TCP connect, TLS handshake and AUTH once rather
  * than per message. A connection that cannot be reused is found and replaced
  * by itself: it is probed with {@code NOOP} before it is lent, and closed after
@@ -52,6 +57,9 @@ public class SmtpMailTransport {
     public static final String NAME = "smtp";
 
     /** One pool per server config id, replaced when that config's connection settings change. */
+    /** How far down a cause chain the reply code is looked for. */
+    private static final int MAX_CAUSE_DEPTH = 10;
+
     private final Map<Long, PooledSmtpSender> pools = new ConcurrentHashMap<>();
 
     /** {@link PooledSmtpSender#IDLE_TIMEOUT}; a field only so a test can make every connection idle at once. */
@@ -63,7 +71,7 @@ public class SmtpMailTransport {
     @Autowired
     private MessageProperties messageProperties;
 
-    public SmtpSendResult send(MailSendServerConfig config, SmtpMailRequest request) {
+    public SmtpSendResult send(AbstractMailSendServer config, SmtpMailRequest request) {
         try {
             JavaMailSenderImpl sender = senderFor(config);
             MimeMessage message = sender.createMimeMessage();
@@ -79,12 +87,12 @@ public class SmtpMailTransport {
 
     /**
      * Build a configured, single-use {@link JavaMailSenderImpl} from {@code config}.
-     * Public so {@code MailSendServerConfigServiceImpl.testConnectivity} can
+     * Public so {@code AbstractMailSendServerServiceImpl.testConnectivity} can
      * reuse the exact same construction path as the live send path; it stays
      * unpooled, so a connectivity test always opens and authenticates a real
      * connection.
      */
-    public JavaMailSenderImpl buildSender(MailSendServerConfig config) {
+    public JavaMailSenderImpl buildSender(AbstractMailSendServer config) {
         return configure(new JavaMailSenderImpl(), config);
     }
 
@@ -93,7 +101,7 @@ public class SmtpMailTransport {
      * config is unsaved (no id to key a pool by — a connectivity test) or has
      * connection reuse turned off.
      */
-    private JavaMailSenderImpl senderFor(MailSendServerConfig config) {
+    private JavaMailSenderImpl senderFor(AbstractMailSendServer config) {
         if (config.getId() == null) {
             return buildSender(config);
         }
@@ -134,7 +142,7 @@ public class SmtpMailTransport {
         pools.clear();
     }
 
-    private <S extends JavaMailSenderImpl> S configure(S sender, MailSendServerConfig config) {
+    private <S extends JavaMailSenderImpl> S configure(S sender, AbstractMailSendServer config) {
         sender.setHost(config.getHost());
         sender.setPort(config.getPort());
         sender.setUsername(config.getUsername());
@@ -146,26 +154,9 @@ public class SmtpMailTransport {
         props.put("mail.smtp.starttls.enable", Boolean.TRUE.equals(config.getStarttlsEnabled()));
         props.put("mail.smtp.ssl.enable", Boolean.TRUE.equals(config.getSslEnabled()));
 
-        // Global transport timeouts: per-config tunability was YAGNI, see
-        // MessageProperties.Transport Javadoc. Jakarta Mail reads them under the
-        // protocol's own prefix: an SMTPS transport ignores mail.smtp.* and,
-        // without mail.smtps.*, would wait on the server with no timeout at all.
-        // The read timeout is also what bounds the NOOP probe of a pooled connection.
-        String prefix = "mail." + protocol + ".";
-        long connTimeoutMs = messageProperties.getMail().getTransport()
-                .getConnectionTimeout().toMillis();
-        long readTimeoutMs = messageProperties.getMail().getTransport()
-                .getReadTimeout().toMillis();
-        props.put(prefix + "connectiontimeout", connTimeoutMs);
-        props.put(prefix + "timeout", readTimeoutMs);
-
-        if (messageProperties.getMail().isDebug()) {
-            // softa.message.mail.debug=true — JavaMail writes the AUTH exchange to stdout, so
-            // this must stay off in production.
-            props.put("mail.debug", "true");
-            log.warn("SmtpMailTransport: mail.debug=true — JavaMail will dump the SMTP AUTH "
-                  + "exchange to stdout. Non-production only. config id={}", config.getId());
-        }
+        // Global transport timeouts (per-config tunability was YAGNI, see the MessageProperties.Transport
+        // Javadoc) under the protocol's own prefix, and the debug log when it is switched on.
+        MailSessionSettings.apply(props, protocol, messageProperties.getMail(), config.getId());
 
         // Password authentication. Where a provider issues an API key as its SMTP
         // credential (e.g. SendGrid, SES), supply that key as the password.
@@ -247,11 +238,59 @@ public class SmtpMailTransport {
     }
 
     /**
-     * Coarse classification. JavaMail exposes exception type but no standard
-     * reply code. Downstream retry logic only needs a durable SMTP-prefixed
-     * marker; detailed mapping lives in {@link io.softa.starter.message.shared.ErrorClassifier}.
+     * The record's error code: {@code SMTP_} and the reply code the server refused with
+     * ({@code SMTP_550}), when the exception carries one; otherwise {@code SMTP_} and the exception
+     * type ({@code SMTP_MailAuthenticationException} for a failed login). Spring wraps JavaMail's
+     * exceptions — a refused recipient comes as a {@code MailSendException} — so the reply code is
+     * looked for among the failed messages' exceptions and down each cause chain. Which codes are
+     * retried is {@link io.softa.starter.message.shared.ErrorClassifier}'s call.
      */
-    private static String classify(Exception e) {
-        return "SMTP_" + e.getClass().getSimpleName();
+    static String classify(Exception e) {
+        Integer reply = replyCode(e);
+        return reply != null ? "SMTP_" + reply : "SMTP_" + e.getClass().getSimpleName();
+    }
+
+    /** The first SMTP reply code among the exception's failed messages and causes, if any. */
+    private static Integer replyCode(Exception e) {
+        List<Throwable> roots = new ArrayList<>();
+        roots.add(e);
+        if (e instanceof MailSendException send) {
+            roots.addAll(Arrays.asList(send.getMessageExceptions()));
+        }
+        for (Throwable root : roots) {
+            int depth = 0;
+            for (Throwable t = root; t != null && depth < MAX_CAUSE_DEPTH; t = next(t), depth++) {
+                int code = returnCodeOf(t);
+                if (code > 0) {
+                    return code;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The reply code of a JavaMail SMTP exception — {@code SMTPAddressFailedException},
+     * {@code SMTPSendFailedException}, {@code SMTPSenderFailedException} all have
+     * {@code getReturnCode()} — read by name, so no one JavaMail implementation is assumed; -1 for
+     * anything else.
+     */
+    private static int returnCodeOf(Throwable t) {
+        if (!(t instanceof MessagingException)) {
+            return -1;
+        }
+        try {
+            Object code = t.getClass().getMethod("getReturnCode").invoke(t);
+            return code instanceof Integer reply ? reply : -1;
+        } catch (ReflectiveOperationException | RuntimeException notAnSmtpReply) {
+            return -1;
+        }
+    }
+
+    /** JavaMail chains a message's failures through getNextException, everything else through getCause. */
+    private static Throwable next(Throwable t) {
+        Throwable next = t instanceof MessagingException m && m.getNextException() != null
+                ? m.getNextException() : t.getCause();
+        return next != t ? next : null;
     }
 }

@@ -14,6 +14,7 @@ import io.softa.starter.message.sms.dto.SmsSendStatusDTO;
 import io.softa.starter.message.sms.dto.SmsTemplateSummaryDTO;
 import io.softa.starter.message.sms.entity.SmsTemplate;
 import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.shared.TenantScopes;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
 import io.softa.starter.message.sms.service.SmsTemplateService;
 
@@ -74,7 +75,9 @@ public class SmsApiController {
     @Operation(summary = "Query SMS send status by record ID")
     @GetMapping("/status")
     public ApiResponse<SmsSendStatusDTO> getStatus(@RequestParam Long id) {
+        // The table is not multi-tenant: a tenant only finds the records filed under it.
         return sendRecordService.getById(id)
+                .filter(record -> TenantScopes.visibleToCurrentCaller(record.getTenantId()))
                 .map(SmsSendStatusDTO::from)
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.success(null));
@@ -85,14 +88,12 @@ public class SmsApiController {
     // -------------------------------------------------
 
     /**
-     * List all available (enabled) SMS templates for the current tenant.
+     * List all available (enabled) SMS templates.
      */
     @Operation(summary = "List available SMS templates")
     @GetMapping("/templates")
     public ApiResponse<List<SmsTemplateSummaryDTO>> listTemplates() {
-        Filters filters = new Filters()
-                ;
-        List<SmsTemplate> templates = templateService.searchList(filters);
+        List<SmsTemplate> templates = templateService.searchList(new Filters());
         List<SmsTemplateSummaryDTO> summaries = templates.stream()
                 .map(SmsTemplateSummaryDTO::from)
                 .toList();

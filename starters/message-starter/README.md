@@ -44,8 +44,7 @@ The tables are declared by the starter's `@Model` classes: an application whose
 `system.metadata.scanner-scope` covers `io\.softa\.starter\.message.*` gets them
 created and kept current at boot. Runtime writes use the framework
 ORM/versionLock path, so claiming a record does not depend on database-specific
-row-lock SQL. Upgrading from a release that delivered through an outbox: see
-*Upgrading from the outbox pipeline* below.
+row-lock SQL.
 
 ### Hard dependencies
 
@@ -71,64 +70,114 @@ via the readiness probe than to silently fan out under partial failure.
 
 ### Multi-tenancy
 
-All messaging business tables (`mail_*`, `sms_*`, `inbox_notification`) are
-`multiTenant` models: when the platform's `system.enable-multi-tenancy` is on,
-reads are isolated to the caller's tenant and writes are auto-stamped by the
-ORM. `tenant_id = -1` rows (`BaseConstant.PLATFORM_TENANT_ID`) form the
-**platform tier** — owned by the platform operator and invisible to tenants.
-The two tiers are fully separate namespaces; there is no overlay:
+With `system.enable-multi-tenancy` on, the platform's and the tenants' messaging
+data live in separate tables, by two rules:
 
-- **Templates are seeded per tenant, not shared.** Each tenant receives its
-  template rows at provisioning from the APPLICATION's tenant seed files (the
-  tenant files of its `seed-manifest.yml`, run by seed-starter when the tenant
-  is set up — e.g. by hcm's `TenantSeedListener`). From then on the tenant
-  owns and edits its rows freely. A tenant runs a seed file once, so a new
-  template reaches existing tenants as a new tenant file the platform admin
-  runs — or, when the application gives its template file `mode: append` in
-  the manifest, straight from that file on the admin's next run, created only
-  where a tenant lacks it. Either way, a change to a template they already
-  have goes out as a data migration (the seed file is edited too, for tenants
-  created after). The
-  platform tier holds only the templates PLATFORM-scoped sends render
-  (billing, security); a code needed on both tiers (e.g. a public
-  password-reset fallback) appears in both seed sets. Send-time resolution is
-  tier-pure: `scope = TENANT` reads the current scope's own rows only,
-  `scope = PLATFORM` reads the platform tier only — no fallback in either
-  direction on the template axis.
-- **Server/provider configs are invisible to tenants.** Tenants see and pin
-  only their own configs. The platform tier is reached in exactly one way:
-  the dispatchers' silent fallback (`@CrossTenant`) when a tenant has none —
-  mail send/receive fall back to the platform default; SMS routing falls back
-  **per country** (a country the tenant has not routed uses the platform's
-  rows for that country; tiers never interleave within one country), and the
-  SMS catchall default is tenant-first-else-platform the same way.
-- Per-send tier policy: `SendMailDTO.scope` / `SendSmsDTO.scope`
-  (`MessageScope.TENANT` default, `PLATFORM` = the platform tier for template,
-  server or provider AND quota bucket — for billing/security/compliance
-  messages). The scope is stored on the send record (`platform_scope`), so the
-  first delivery attempt renders and routes in the tier the caller chose. The
-  record belongs to the tenant the call is made in — see *Calling
-  MessageService* — so a TENANT-scoped render reaches that tenant's own
-  template.
-- Platform rows are structurally un-writable from a tenant scope (payload
-  guard, insert stamping, and the tenant-filtered pre-read on update/delete);
-  the mail write endpoints additionally turn that silent no-op into an
-  explanatory `BusinessException`.
-- Background jobs are cross-tenant scans that execute per-record in the owning
-  tenant's context: the delivery loop claims and sends each due record inside
-  its record's tenant (and under the trace id of the request that submitted it),
-  the scheduled mail fetch runs each receive config inside its config's tenant,
-  and the zombie sweeper revives each stuck record inside its record's tenant.
-- The dead-letter store is a shared infrastructure table.
+- **Data that belongs to one side only is split by owner.** The platform's copy is
+  a `Platform*` model — not multi-tenant, shown on platform menus only — and a
+  tenant's is the original model, `multiTenant`, isolated to the caller's tenant
+  and stamped by the ORM:
 
-With multi-tenancy disabled, no filtering or stamping occurs and everything
-behaves single-tenant.
+  | Concept | Platform | Tenant |
+  |---|---|---|
+  | Send server | `PlatformMailSendServer` | `MailSendServerConfig` |
+  | Receive server | `PlatformMailReceiveServer` | `MailReceiveServerConfig` |
+  | Received mail | `PlatformMailReceiveRecord` | `MailReceiveRecord` |
+  | IMAP watermark | `PlatformMailFetchWatermark` | `MailFetchImapWatermark` |
+  | Mail template | `PlatformMailTemplate` | `MailTemplate` |
+  | SMS provider, country routing, template, template binding | `SmsProviderConfig`, `SmsProviderRegion`, `SmsTemplate`, `SmsTemplateProviderBinding` — not multi-tenant, no tenant column: SMS is a platform service | — |
+  | Inbox notification | — | `InboxNotification` |
+
+  Each pair shares its fields through an abstract base class
+  (`AbstractMailSendServer` etc.). No read falls back from one table to the other,
+  and there is no `@CrossTenant` lookup of a "platform tier" any more.
+- **Data the platform handles for everyone is one table that is not
+  multi-tenant**, with `tenantId` as an attribution column only: the send
+  records (`MailSendRecord`, `SmsSendRecord` — they are the delivery queue), dead
+  letters, quotas and usage. The platform's pages read them whole; a tenant reads
+  its own mail send log through `TenantMailSendRecord`, a read-only projection
+  over `mail_send_record` marked `multiTenant`, which leaves out the bodies and
+  template variables. The SMS log has no tenant view.
+
+Behaviour that follows:
+
+- **One code, one tier.** A tenant template may not take a code the platform uses
+  (`MailTemplateWriteValidator`, on every write path including seed loading and
+  import). A send names the tier it expects with `MessageScope`: `TENANT` renders
+  the current tenant's template, `PLATFORM` the platform's — no fallback. A code
+  that lives in the other tier fails the record with `TEMPLATE_NOT_RESOLVABLE`
+  and a message naming the scope it needs. Tenants receive their templates at
+  provisioning from the APPLICATION's tenant seed files (the tenant files of its
+  `seed-manifest.yml`, run by seed-starter when the tenant is set up — e.g. by
+  hcm's `TenantSeedListener`) and own them from then on; a new template reaches
+  existing tenants when the application gives its file `mode: append`, and new
+  wording for one they already have goes out as a data migration. The platform
+  tenant (`-1`) is a tenant here too: a `TENANT` send it makes (the invitation of
+  a new platform staff account) reads its own `MailTemplate` rows. It runs no
+  tenant seed files, so those rows go in the application's `data-platform` files.
+- **Sending crosses one way only.** A `TENANT` send goes out through the tenant's
+  enabled default send server or, when it has none, is relayed through the
+  platform's default. A `PLATFORM` send goes out through the platform's only,
+  never through tenant-controlled SMTP. The record keeps the server's owner
+  (`serverOwner`) with its id, and retries replay the same owner's server.
+- **Receiving never crosses.** Received mail belongs to the owner of the server it
+  arrived through: the platform's receive servers fill `PlatformMailReceiveRecord`,
+  a tenant's fill that tenant's `MailReceiveRecord`. A tenant without a receive
+  server of its own gets "not configured" — never the platform's mailbox. Bounces
+  and read receipts mark only the send records the same owner's send servers
+  carried: the platform's receive server marks the platform's mail and tenants'
+  relayed mail (a tenant sees in its send log that a relayed mail bounced, the
+  bounce itself stays with the platform, which watches the bounce rate of its own
+  servers); a tenant's receive server marks only that tenant's mail sent through
+  its own servers. A tenant with a send server but no receive server gets no
+  bounces for that mail.
+- **Record ownership.** `tenantId` on a send record says whom it is filed under:
+  the tenant the send is made for — the calling context's — whatever the scope. The
+  scope picks the template and the servers, not the owner: a `PLATFORM` notice about
+  a tenant's account, a sign-in code for someone in one company, a subscription
+  reminder are that tenant's sends, listed in its send log (without bodies) and
+  counted against its quota. A send no tenant can be named for — no context, as for
+  the codes of someone in several companies, or the platform's own — is filed under
+  `-1`. It is written at acceptance, not stamped by the ORM.
+- **Visibility of the shared tables.** The platform's pages — the `Platform*`
+  models, `MailSendRecord`, `SmsSendRecord`, the SMS configuration — belong on
+  platform menus, and the permission layer is what keeps tenants out of every route
+  of them: list them under the application's `permission.platform-nav-prefixes`,
+  and permission-starter drops those navigations, and the permissions under them,
+  from tenant admins, consultants and a tenant's own roles alike. As a second line
+  behind it, the two send logs' list and detail reads and retries refuse a tenant
+  caller in code (`TenantScopes.requirePlatformCaller`) — their other generic
+  model routes are left to the permission layer — and the status endpoints
+  (`/api/mail/status`, `/api/sms/status`) answer a tenant only for its own records.
+  An application may also list these models' paths in
+  `permission.platform-only-patterns`, which bars tenant admins and consultants at
+  the path.
+- **A tenant's servers stay on the internet.** A tenant send or receive server
+  whose host is, or resolves to, an address inside the deployment (loopback,
+  link-local including `169.254.169.254`, private ranges, carrier-grade NAT,
+  multicast, IPv6 ULA) is refused on save (`TenantMailServerHostValidator`) and
+  again before every connection (`TenantMailHostGuard`), which also catches a name
+  that later resolves inward. A host that does not resolve is not refused: the
+  connection fails on it and the delivery retries, as for any connection error.
+  `softa.message.mail.block-private-tenant-hosts` turns the check off.
+- Background jobs scan across tenants and execute per record in the owner's
+  context: the delivery loop claims and sends each due record inside its record's
+  tenant (and under the trace id of the request that submitted it), the scheduled
+  mail fetch runs the platform's receive servers in the platform's context and
+  each tenant's in that tenant's, and the zombie sweeper revives each stuck record
+  inside its record's tenant.
+
+With multi-tenancy disabled there is one owner: no filtering or stamping occurs,
+the scope stops mattering, and every send takes the deployment's own server and
+template first, then the platform table's; a pinned server id is looked up in
+whichever of the two tables holds it.
 
 ### Enable / disable (framework active control)
 
-The seven config/template models (`MailTemplate`, `MailSendServerConfig`,
-`MailReceiveServerConfig`, `SmsTemplate`, `SmsProviderConfig`,
-`SmsProviderRegion`, `SmsTemplateProviderBinding`) declare
+The config/template models — `MailTemplate` / `PlatformMailTemplate`,
+`MailSendServerConfig` / `PlatformMailSendServer`, `MailReceiveServerConfig` /
+`PlatformMailReceiveServer`, `SmsTemplate`, `SmsProviderConfig`,
+`SmsProviderRegion`, `SmsTemplateProviderBinding` — declare
 `@Model(activeControl = true)` with the framework's `active` field — there is
 no hand-rolled `isEnabled` switch and no service hand-writes an
 `active = true` condition: `WhereBuilder` appends it to every FlexQuery read,
@@ -137,41 +186,53 @@ cannot forget it. Disabling retires a row from every read WITHOUT deleting it,
 which is what rows referenced by send records need. Consequences worth
 knowing:
 
-- A disabled row leaves the default list view, so each of the seven admin
-  pages is a two-tab MultiView — **Active** (framework default) and **All**
+- A disabled row leaves the default list view, so each admin page is a two-tab
+  MultiView — **Active** (framework default) and **All**
   (`active IN (true, false)`, which names the field and therefore suppresses
   the automatic condition). Without that second tab, disabling a row would
   make it vanish from its own admin page. The column-header filter on `active`
   works the same way for ad-hoc queries.
 - Reads that must reach disabled rows use `FilterControl.bypassActiveControl()`
-  and say why: id-addressed replay (`findVisibleById` — an accepted record
-  resolves the config it was accepted with, so disabling a config never turns
-  in-flight retries into `CONFIG_NOT_RESOLVABLE`), authoring tooling
-  (`resolveAny` / `findPlatformByCodeAny` — preview and variable extraction
-  work before a template is activated), the platform-row write probe
-  (`findPlatformById` — a disabled platform row must still produce the
-  explanatory rejection), and default demotion (`demoteOtherDefaults` — a
-  skipped disabled row would resurface as a second default when re-activated).
-  Plain `getById` needs no bypass: id lookups never carry the filter.
+  and say why: authoring tooling (`resolveAny` / `findAnyByCode` — preview and
+  variable extraction work before a template is activated) and default demotion
+  (`demoteOtherDefaults` — a skipped disabled row would resurface as a second
+  default when re-activated). Id-addressed replay needs no bypass: `getById`
+  never carries the filter, so an accepted record resolves the server it was
+  routed through even after that server is disabled.
 - The SMS dispatcher's by-id provider read comes from the config cache, so its
   disabled-route check stays an explicit in-memory guard.
 
-### Monthly send quotas
+### Send quotas (monthly and daily)
 
 `TenantMessageQuota` (deliberately NOT `multiTenant` — a platform-owned
-registry ABOUT tenants, writable only from the platform scope; the service
-and the shadowed write endpoints both enforce `assertPlatformScope`) sets
-per-tenant monthly ceilings for mail/SMS sends. `MonthlyQuotaGuard` charges a
-send when it is **prepared** — its first delivery attempt, after its template
+registry ABOUT tenants, writable only from the platform scope on every write
+path — single rows, batches, imports — because `TenantMessageQuotaWriteValidator`
+runs at the model service's write roots) sets
+per-tenant ceilings for mail/SMS sends: a monthly allowance
+(`mailMonthlyLimit` / `smsMonthlyLimit`) and a daily cap (`mailDailyLimit` /
+`smsDailyLimit`). The daily cap is there because the platform's send servers and
+SMS providers are shared and their own `dailySendLimit` counts every tenant
+together: without a day of its own, one tenant's burst could take the whole day
+and leave the others nothing until midnight. `SendQuotaGuard` charges a send to
+both when it is **prepared** — its first delivery attempt, after its template
 rendered and its server or provider resolved, so a send that cannot go out
 costs nothing. An over-quota send fails its record with
-`MONTHLY_QUOTA_EXCEEDED` (logged at ERROR) — a commercial ceiling, not rate
-limiting — and retries of a prepared record never touch the count. Fix the
-quota and Retry the record to send it. The bucket follows the send's scope:
-`PLATFORM` sends draw on the platform's own `tenantId = -1` row (set it very
-large; it exists to cap runaway or malicious mass sending). Missing rows fall
-back to `softa.message.quota.mail-monthly-default` / `sms-monthly-default`
-(null = unlimited; the ledger still advances for reporting).
+`DAILY_QUOTA_EXCEEDED` or `MONTHLY_QUOTA_EXCEEDED` (logged at ERROR) — a
+commercial ceiling, not rate limiting: nothing queues or retries it — and
+retries of a prepared record never touch either count. Retry the record the
+next day, or after raising the limit, to send it. Only sends through the platform's
+infrastructure are charged: every SMS, and mail a platform send server carries
+(the platform's own, and tenants' relayed). A tenant's mail through its own send
+server costs the platform nothing and is not counted. The bucket is the tenant
+the record is filed under, whatever the scope: a `PLATFORM` notice made for a
+tenant draws on that tenant's row and is refused once its quota is spent, like any
+of its sends. Sends filed under no tenant draw on the platform's own
+`tenantId = -1` row (set it very large; it exists to cap runaway or malicious mass
+sending — its daily caps included, set on its row so it never falls back to
+the tenants' daily default). Missing rows fall back to
+`softa.message.quota.mail-monthly-default` / `sms-monthly-default` /
+`mail-daily-default` / `sms-daily-default` (null = unlimited; the counts still
+advance for reporting).
 
 The counters live in the **database**: one `TenantMessageUsage` row per
 bucket per calendar month (server default zone), check-and-incremented via
@@ -185,11 +246,19 @@ lost race is ordinary: after five in a row the attempt gives up as transient
 and the record goes to `RETRY` — never `FAILED` as over quota. There is no reset job — a new
 month simply starts a new row — and rows are never expired, so per-tenant
 consumption history is a plain model query, with the ceiling in force
-snapshotted onto each row. `GET /TenantMessageQuota/usage?tenantId=` serves
-one bucket's usage vs currently-resolved limits (a tenant session may read
-only its own bucket). The per-config `dailySendLimit` / `rateLimitPerMinute`
-windows are a different axis (delivery-time infrastructure protection) and
-stay unchanged.
+snapshotted onto each row. The daily count lives in **Redis**: one key per
+bucket per channel per calendar day (`quota:{channel}:daily:{tenantId}:{date}`,
+expiring after two days), checked and incremented in one Lua script. The day is
+charged before the month, so a send the day refuses costs the month nothing; a
+send the month refuses — or gives up on over counter contention — is handed back
+to the day. A Redis flush forgets the day's count; daily usage keeps no history.
+`GET /TenantMessageQuota/usage?tenantId=` serves one bucket's usage this month
+and today vs the currently-resolved limits (a tenant session may read only its
+own bucket). The per-config `dailySendLimit` / `rateLimitPerMinute`
+windows are a different axis — delivery-time infrastructure protection, counted
+per server or provider config across every tenant it carries (a platform server
+relaying for many tenants stops at its own daily limit, not at that limit once
+per tenant). A send over one of them is retried later rather than failed.
 
 ### Async delivery (the only delivery model)
 
@@ -222,17 +291,17 @@ Every `MessageService.sendMail(...)` / `sendSms(...)` call follows the same path
    settles on walks the primary key through the whole history, idle or not.
 3. The channel's `DeliveryProcessor` **prepares** a record on its first attempt:
    it renders the template and applies its defaults, chooses the server (mail)
-   or routes the number to a provider (SMS), and charges the monthly quota, last.
+   or routes the number to a provider (SMS), and charges the day's and the month's quota, last.
    It writes the result back, so retries replay it verbatim. Then it rate-limits,
    sends, and marks the record `SENT` — or hands the failure to
    `SendFailureHandler`: `RETRY` with a back-off `next_retry_at`, `FAILED`, or
    `DEAD_LETTER`.
 
 **A send that cannot go out as configured still has its record.** No server or
-provider, a missing or broken template, the monthly quota used up, a template
-that renders nothing: the record fails `FAILED` with a marker code
-(`CONFIG_NOT_RESOLVABLE`, `TEMPLATE_NOT_RESOLVABLE`, `MONTHLY_QUOTA_EXCEEDED`,
-`CONTENT_INVALID`) and the reason, and every terminal failure is logged at ERROR
+provider, a missing or broken template, the daily or monthly quota used up, a
+template that renders nothing: the record fails `FAILED` with a marker code
+(`CONFIG_NOT_RESOLVABLE`, `TEMPLATE_NOT_RESOLVABLE`, `DAILY_QUOTA_EXCEEDED`,
+`MONTHLY_QUOTA_EXCEEDED`, `CONTENT_INVALID`) and the reason, and every terminal failure is logged at ERROR
 with the record id and tenant, so log-based alerting reaches a developer. Fix the
 configuration, then use the record's Retry action: a record that failed before it
 was prepared is prepared afresh. `POST /MailSendRecord/retry?id=` requeues one
@@ -248,13 +317,11 @@ the delivery path; Spring `@Async` is not used.
 **Calling MessageService.** Every module that sends mail or SMS — user-starter's
 login codes, invitations, account notices and subscription reminders included —
 depends on message-starter and calls `MessageService` directly; there is no
-request event in between. The send record belongs to the tenant the call is made
-in. To send for another tenant — a scheduled job, or an anonymous link that names
-its tenant — make the call inside `ContextUtils.inTenantContext(tenantId, …)`. A
-`PLATFORM`-scoped send from a context with no tenant (a login code, asked for
-before any session exists) is filed under the platform tier, and the insert never
-runs cross-tenant, so a cross-tenant caller's record still gets its tenant
-(`TenantScopes.inRecordOwnerContext`). A rejection (`BusinessException`) leaves
+request event in between. A send is filed under, and counted against, the tenant
+the call is made in, whatever its scope; to send for another tenant — a scheduled
+job, an anonymous link that names its tenant, a platform notice about one of its
+accounts — make the call inside `ContextUtils.inTenantContext(tenantId, …)`. A
+send from a context with no tenant is filed under the platform (`-1`). A rejection (`BusinessException`) leaves
 the caller's transaction usable; a caller whose own change must not fail because
 of a notice catches it and logs it at ERROR, as user-starter's notices do.
 
@@ -275,59 +342,28 @@ mq:
       mail-fetch-sub: dev_demo_cron_task_mail_fetch_sub
 ```
 
-### Upgrading from the outbox pipeline
+### Upgrading to the split platform and tenant tables
 
-Earlier releases delivered through a `message_outbox` table and the `mail-send` /
-`sms-send` (plus `mail-request` / `sms-request`) Pulsar topics. On upgrade:
+The platform's configuration moves out of the tenants' tables (their `tenant_id = -1`
+rows) into `Platform*` tables, and the SMS tables stop being multi-tenant. The
+deploying application moves the data; in zingkey-hcm it is
+`Release-20261113/20261111-message-split-by-owner`.
 
-- Remove those four topic entries from the application config; nothing reads
-  them any more.
-- These properties are gone; their values are constants now, or the behaviour
-  is always on: `softa.message.outbox.*` (`enabled`, `poll-interval-ms`; every
-  instance with message-starter runs the delivery loop and the stale-send sweep),
-  `softa.message.zombie.*`,
-  `softa.message.retry.*`, `softa.message.mail.max-body-chars`,
-  `softa.message.mail.smtp-pool.*` (connection reuse is a switch on each
-  server config now, see below), and `softa.message.mail.fetch.*`. Remove them
-  from the application config; set ones are ignored.
-- Three defaults changed: `softa.message.mail.send-concurrency` 1 → 4,
-  `softa.message.sms.send-concurrency` 1 → 10 and
-  `softa.message.dlq.max-redeliver` 5 → 2. A deployment whose mail server allows
-  fewer than four concurrent connections per account sets
-  `mail.send-concurrency` lower.
-- `MailSendServerConfig.connectionReuseEnabled` (default true) turns SMTP
-  connection reuse off for a server that does not take a second message on one
-  connection. The scanner adds `mail_send_server_config.connection_reuse_enabled`,
-  existing rows taking the default, wherever `scanner-scope` covers
-  message-starter; elsewhere the column and its catalog row are added the way
-  that deployment adds catalog columns, and until then every server reuses
-  connections as before.
-- The raw EML archive of received mail is gone, with
-  `MailReceiveRecord.emlFileId`; the parsed bodies and attachments are kept as
-  before. The scanner drops `mail_receive_record.eml_file_id` wherever
-  `scanner-scope` covers message-starter; elsewhere the column is unused and can
-  be dropped by hand.
-- The framework events `MailRequestMessage` / `SmsRequestMessage` (softa-base)
-  are gone. Code that published one calls `MessageService` instead —
-  `SendMailDTO.ofTemplate` / `SendSmsDTO.ofTemplate` build the same templated
-  send — inside `ContextUtils.inTenantContext(tenantId, …)` where the event named
-  a tenant.
-- Records the old pipeline left `PENDING` or `RETRY` need no migration: the
-  delivery loop claims them by their own `status` and `next_retry_at`. The old
-  pipeline prepared records at acceptance, so most are already prepared. A mail
-  record whose server config had no from address was stored with an empty
-  `from_address` and is prepared again on its first attempt here, which charges
-  the monthly quota a second time.
-- The scanner adds the new record columns — `platform_scope`, `template_id`,
-  `template_code`, `template_variables`, `trace_id` on `mail_send_record`;
-  `platform_scope`, `template_variables`, `trace_id` on `sms_send_record` — and
-  makes `mail_send_record.body_mode` nullable. It never drops a removed model's table,
-  so `message_outbox` and the `OutboxEntry` / `OutboxStatus` / `TopicRoute`
-  catalog rows stay until the deploying application removes them with a release
-  script, after the new jar is up. Rows still `NEW` in `message_outbox` at that
-  point are harmless: their records are delivered from the record tables.
-- Remove pages built on `OutboxEntry` (an outbox list, its Requeue action); the
-  send record's Retry action covers what Requeue did.
+- **Before the new jar starts** (old jar stopped): create the five `Platform*` tables
+  from their tenant tables without `tenant_id` and move the `-1` rows across with
+  their ids — templates only for the codes that become the platform's (a `-1` row with
+  any other code is the platform tenant's own tenant template and stays); delete the
+  tenants' rows of the four SMS config tables; move the moved rows' `sys_pre_data`
+  bindings (to system scope) and their attachments' `file_record.model_name` along;
+  add `mail_send_record.server_owner` and backfill it from the table each record's
+  `server_config_id` is in. None of it can wait for the scanner: the new jar reads
+  only the `Platform*` tables and replays a prepared record's server by
+  `server_owner`, and the SMS tables' new unique keys fail on tenant rows.
+- **After the new jar**: delete the tenants' templates that use a platform code, and
+  `user.contact-reset`; the write validator refuses them from then on.
+- Password resets and the three security notices are `PLATFORM` sends now, and the
+  platform's pages are new models (`PlatformMail*`, the platform's `MailSendRecord`)
+  while a tenant's send log is `TenantMailSendRecord`: menus and role grants follow.
 
 ### Message-starter properties
 
@@ -346,20 +382,23 @@ softa:
     quota:
       mail-monthly-default: 10000   # monthly ceiling for buckets with no TenantMessageQuota row; unset = unlimited
       sms-monthly-default: 10000
+      mail-daily-default: 2000      # daily cap for buckets with no TenantMessageQuota row; unset = unlimited
+      sms-daily-default: 2000
     dlq:
       topic: dev_demo_message_dlq   # unset = broker-poison archiving disabled
       max-redeliver: 2              # broker nacks before dead-lettering
       alert:
         recipients: ops@example.com # comma-separated; empty = no alert mail
     mail:
-      debug: false                  # Jakarta Mail protocol debug — never enable in prod (leaks AUTH)
+      debug: false                  # Jakarta Mail protocol debug, sends and fetches — never enable in prod (leaks AUTH)
       send-concurrency: 4           # mails one instance sends in parallel (each worker holds an SMTP connection)
-      transport:
+      block-private-tenant-hosts: true  # refuse a tenant's mail server on an address inside the deployment (multi-tenant only)
+      transport:                    # connect + read at most 2m30s, neither zero (checked at startup)
         connection-timeout: 5s      # SMTP/IMAP/POP3 connect timeout
         read-timeout: 30s           # SMTP/IMAP/POP3 read timeout
     sms:
       send-concurrency: 10          # SMS one instance sends in parallel
-      transport:
+      transport:                    # same limit as mail
         connection-timeout: 5s      # HTTPS RestClient connect timeout
         read-timeout: 30s           # HTTPS RestClient read timeout
 ```
@@ -384,31 +423,32 @@ Common setups:
 Email sending uses the following default lookup order:
 
 ```text
-1. Current tenant default mail server
-2. Platform default mail server (`tenant_id = -1`) — the silent fallback;
-   platform configs are invisible on tenant management surfaces
-3. BusinessException if nothing is available
+scope = TENANT   -> 1. the tenant's enabled default send server (MailSendServerConfig)
+                    2. the platform's default (PlatformMailSendServer) — the relay for a
+                       tenant with none of its own
+scope = PLATFORM -> the platform's default only — platform mail never routes
+                    through tenant-controlled SMTP
+none found       -> BusinessException, logged at ERROR
 ```
 
-If multiple records are marked as default, the one with the smallest `sequence`
-is used. Config objects are cached in Redis for 5 minutes; updating a config
-via `MailSendServerConfigService.updateOne` / `deleteById` evicts automatically.
-
-A send declaring `scope = PLATFORM` skips step 1 and resolves the
-platform default only (cached under the platform key, so the tenant's own
-default cache entry is neither read nor poisoned) — platform mail must not
-route through tenant-controlled SMTP.
+If several rows of one owner are marked default, the one with the smallest
+`sequence` is used. Config objects are cached in Redis for 5 minutes, per owner
+(`MailConfigCache` keyed by tenant, `PlatformMailConfigCache`), and every write
+of a server — whatever endpoint it comes through, the admin pages' generic saves
+included — evicts its entry and its owner's default once it commits
+(`ConfigCacheEvictor`, a write validator that never refuses anything). A tenant's
+server found in the by-id cache is checked to be the caller's own before use.
 
 #### Template resolution
 
-Email templates are resolved by `code` within the tier the send's scope
-names — the tiers are separate namespaces with no fallback:
+Email templates are resolved by `code` in the tier the send's scope names — one
+code lives in one tier, and there is no fallback:
 
 ```text
-scope = TENANT (default) -> the current scope's own template (code + enabled)
-                            (tenants receive their copies at provisioning)
-scope = PLATFORM         -> the platform-tier template (tenant_id = -1)
-either tier missing      -> BusinessException (loud — no cross-tier rescue)
+scope = TENANT (default) -> MailTemplate, the current tenant's (code + enabled)
+scope = PLATFORM         -> PlatformMailTemplate (code + enabled)
+code in the other tier   -> TEMPLATE_NOT_RESOLVABLE, "send it with scope PLATFORM / TENANT"
+missing in both          -> TEMPLATE_NOT_RESOLVABLE
 ```
 
 Template placeholders use the unified Softa syntax: `{{ variable }}`.
@@ -453,7 +493,12 @@ tier for programmatic callers:
   with the given variables, without sending.
 - `SendMailDTO.templateId` — a test send addressing the exact row through the
   full production pipeline (record → render → SMTP): what was previewed is
-  what goes out.
+  what goes out. A platform template's test send names `scope = PLATFORM`.
+
+The two `/api/mail/templates/...` endpoints read the tenant's templates; the
+platform's template editor uses `GET /PlatformMailTemplate/variables` and
+`POST /PlatformMailTemplate/preview`, the same operations over
+`PlatformMailTemplate`.
 
 #### Delivery pipeline
 
@@ -473,9 +518,10 @@ PENDING → SENDING → SENT
 ```
 
 The first attempt prepares the record (see *Async delivery* above): a template
-it cannot load or render, a server it cannot resolve, a used-up monthly quota or
-an empty rendered body fails it with `TEMPLATE_NOT_RESOLVABLE`,
-`CONFIG_NOT_RESOLVABLE`, `MONTHLY_QUOTA_EXCEEDED` or `CONTENT_INVALID`.
+it cannot load or render, a server it cannot resolve, a used-up daily or monthly
+quota or an empty rendered body fails it with `TEMPLATE_NOT_RESOLVABLE`,
+`CONFIG_NOT_RESOLVABLE`, `DAILY_QUOTA_EXCEEDED`, `MONTHLY_QUOTA_EXCEEDED` or
+`CONTENT_INVALID`.
 
 On failure, `ErrorClassifier` maps the error to an `ErrorCategory`
 (TRANSIENT / PERMANENT / INVALID_INPUT / AUTH / CONFIG / QUOTA / UNKNOWN), and
@@ -489,6 +535,18 @@ the retry policy (`ExponentialBackoffPolicy`) decides:
 - **DeadLetter** → `markDeadLetter` + archive a `dead_letter_message` row
   (`source = SendExhausted`) once the retry budget is spent
 
+A failed SMTP send is coded with the server's reply when it has one:
+`SmtpMailTransport` digs the reply code out of Spring's `MailSendException`
+(its failed messages, then each cause chain) and records `SMTP_550`,
+`SMTP_451`…; without one the code is `SMTP_` + the exception type
+(`SMTP_MailAuthenticationException` for a failed login). `ErrorClassifier` reads
+an SMTP reply by its class: 4xx TRANSIENT, 5xx PERMANENT, except 552
+(message too large) INVALID_INPUT and 530 / 534 / 535 / 538 AUTH. Error codes
+and messages are cut to their columns (100 / 1000 characters, ending in "…")
+before a transition writes them, so an over-long provider message cannot fail
+the write that records the failure; `dead_letter_message.last_error_msg` is
+1000 characters wide and cut the same way.
+
 Business code usually does not need to choose a mail server explicitly. Defaults
 should be prepared by the platform or tenant admin.
 
@@ -500,11 +558,14 @@ after a send failure**. The selection chain at send time:
 ```text
 SendMailDTO.serverConfigId          (1) explicit call-site override
   ↓ null
-MailTemplate.preferredServerConfigId (2) template-level soft preference
+preferredServerConfigId              (2) template-level soft preference
   ↓ null
-MailServerDispatcher.resolveSend()   (3) tenant default → platform default
+MailServerDispatcher.resolveSend()   (3) tenant default → platform default (relay)
   ↓ none found                           (PLATFORM scope: platform default only)
 BusinessException
+
+(1) and (2) are looked up in the scope's own table: a TENANT send pins one of the
+tenant's servers, a PLATFORM send one of the platform's.
 ```
 
 Once a config is chosen, that's it — there is no "primary failed, try
@@ -515,16 +576,17 @@ secondary" behaviour. SMTP failure goes through the normal retry policy
 
 | Field | Used for | NOT used for |
 |---|---|---|
-| `MailSendServerConfig.isDefault` | Marks the tenant/platform default. The standard write endpoints keep it unique per tenant scope — saving a config as default demotes the previous one | Failover (only the first default is ever picked) |
-| `MailSendServerConfig.sequence` | Tie-break among multiple `isDefault=true` rows (only reachable via batch/copy/init-script writes) + UI list order | Failover priority |
-| `MailReceiveServerConfig.sequence` | Cron polling order (all active configs polled each tick) + UI list order | Failover priority |
-| `MailTemplate.preferredServerConfigId` | Per-template preferred SMTP (e.g. marketing→SendGrid, transactional→Postmark). Scope-checked on write: only a config owned by the template's own tenant scope (platform configs are invisible to tenants) | Hard binding — DTO can still override |
+| `isDefault` (send / receive server) | Marks the owner's default — the tenant's or the platform's. The standard write endpoints keep it unique per owner — saving a server as default demotes the previous one | Failover (only the first default is ever picked) |
+| `sequence` (send server) | Tie-break among multiple `isDefault=true` rows (only reachable via batch/copy/init-script writes) + UI list order | Failover priority |
+| `sequence` (receive server) | Cron polling order (all active servers polled each tick) + UI list order | Failover priority |
+| `preferredServerConfigId` (template) | Per-template preferred SMTP (e.g. marketing→SendGrid, transactional→Postmark). Checked on every write: a tenant template pins one of its tenant's servers, a platform template one of the platform's | Hard binding — DTO can still override |
 
-Resolution failure is loud: when neither a tenant default nor a platform
-default exists, `resolveSend()` / `resolveReceive()` log an ERROR (with the
-tenant id) and reject the request with a `BusinessException` — an
-ops-actionable signal that the deployment is missing its default server
-config.
+Send resolution failure is loud: when no default of the owners the scope allows
+exists, `resolveSend()` logs an ERROR (with the tenant id) and rejects
+the request with a `BusinessException` — an ops-actionable signal that the
+deployment is missing its default server config. `resolveReceive()` only
+rejects: a tenant without a receive server of its own is a valid setup, not a
+deployment gap.
 
 > Naming note: the field is called `sequence` (not `priority`) because the
 > mail side uses the value for UI / default ordering, not a retry chain. The SMS
@@ -667,29 +729,44 @@ If the business needs inbound mail processing, inject `MailReceiveService`:
 @Autowired
 private MailReceiveService mailReceiveService;
 
-// Fetch from auto-resolved server
+// The current tenant's receive servers
 int fetched = mailReceiveService.fetchNewMails();
-
-// Fetch from a specific server config
 int fetchedByServer = mailReceiveService.fetchNewMails(serverConfigId);
-
-// Mark as read
 mailReceiveService.markAsRead(recordId);
-mailReceiveService.markAsRead(List.of(id1, id2, id3));
+
+// The platform's receive servers
+int platformFetched = mailReceiveService.fetchPlatformMails();
+mailReceiveService.markPlatformAsRead(List.of(id1, id2));
 ```
 
-Messages are deduplicated by `(server_config_id, message_id)`, so repeated
-polling is safe. Bounce and read-receipt classification matches inbound mails
-against the send log in a single batched `IN()` query; the matched
-`MailSendRecord` is updated via CAS (see `markBounced` / `markReadReceiptReceived`).
+Received mail belongs to the owner of the server it arrived through, and neither
+side falls back to the other:
+
+- `fetchNewMails()` (`POST /MailReceiveRecord/fetch`) reads the tenant's default
+  receive server; a tenant with none fails with "No receiving mail server is
+  configured for this tenant". `fetchNewMails(serverConfigId)`
+  (`POST /MailReceiveRecord/fetchByServer`) finds only the tenant's own servers —
+  a platform server's id is "not found".
+- `fetchPlatformMails(...)` (`POST /PlatformMailReceiveRecord/fetch` /
+  `fetchByServer`) reads the platform's receive servers into
+  `PlatformMailReceiveRecord`.
+
+Messages are deduplicated by `(server_config_id, message_id)` within the owner's
+table, so repeated polling is safe. Attachments are uploaded under the receiving
+record's own model. Bounce and read-receipt classification matches inbound mails
+against the send log in a single batched `IN()` query, restricted to the records
+the same owner's send servers carried (`findByMessageIds(ids, carriedBy)`); the
+matched `MailSendRecord` is updated via CAS (see `markBounced` /
+`markReadReceiptReceived`). How the original `Message-ID` is found is described in
+*Inbound delivery status*.
 
 ### Scheduled Fetch
 
 - Scheduled fetch is optional and requires `cron-starter`
 - The current consumer listens to `mq.topics.cron-task.topic`
 - When it receives a cron whose name starts with `mail-fetch`, it polls every
-  receive config with `active = true` — across all tenants; each config's
-  fetch runs inside that config's tenant context
+  active receive server — the platform's in the platform's context, every
+  tenant's in that tenant's context
 - Cadence is governed by a single global `mail-fetch` cron registered in
   `cron-starter`; per-inbox cadence is not supported in this module
 
@@ -713,6 +790,9 @@ Pending -> Sending -> Sent
 
 A record can transition `Sent → Failed` when an inbound bounce is correlated.
 
+`serverOwner` (`Tenant` / `Platform`) records whose send server carried the mail;
+with `serverConfigId` it names the server a retry replays.
+
 #### MailReceiveRecord
 
 ```text
@@ -726,28 +806,26 @@ Unread -> Read -> Archived
 
 #### Config resolution
 
-SMS sending uses the following default lookup order:
+SMS is a platform service: providers, country routing, templates and template
+bindings exist once, for every tenant, in tables that are not multi-tenant.
+Provider selection is by the recipient's country (see *SMS Provider Routing*),
+then the enabled `isDefault` providers ordered by `priority`, else a
+`BusinessException`. Provider configs are cached in Redis (5 min TTL) and evicted
+after every committed write, from any endpoint (`ConfigCacheEvictor`).
 
-```text
-1. Current tenant default SMS provider(s)
-2. Platform default SMS provider(s) (`tenant_id = -1`) — only when the tenant
-   has none; the tiers never interleave
-3. BusinessException if nothing is available
-```
-
-If multiple records are marked as default, the one with the smallest `priority`
-is used. Provider configs are cached in Redis (5 min TTL) and evicted on update
-/ delete automatically.
+A provider that sends a template registered with it (a binding's external
+template id — Aliyun, Tencent Cloud) is sent the record's template variables,
+not the rendered text: Aliyun fills them by name, Tencent by position. Positions
+follow the order the softa template's content names the variables (`{{ code }}`
+before `{{ expiryMinutes }}` makes `code` `{1}`); preparation fixes that order on
+the record, so every retry sends the same.
 
 #### Template resolution
 
-SMS templates are resolved by `code` within the tier the send's scope names —
-no cross-tier fallback:
-
-```text
-scope = TENANT (default) -> the current scope's own template (code + enabled)
-scope = PLATFORM         -> the platform-tier template (tenant_id = -1)
-```
+SMS templates are resolved by `code` alone — there is one tier, and the send's
+`MessageScope` changes nothing for SMS beyond being recorded: the record is filed
+under, and draws on the quotas of, the tenant the send is made for (the
+calling context's; the platform when there is none).
 
 Template placeholders use the unified Softa syntax: `{{ variable }}`.
 
@@ -942,12 +1020,7 @@ Dispatch behaviour:
 
 #### Tenant scoping
 
-`sms_provider_region.tenant_id` follows the same rule as other tenant tables:
-`-1` for platform-tier routing (invisible to tenants); `>0` for per-tenant
-rows. Routing reads are per-country and tenant-first: for the recipient's
-country the dispatcher uses the tenant's own rows when any exist, otherwise
-the platform's rows for that country — the tiers never interleave within one
-country.
+None: routing is the platform's, one set of rows for every tenant.
 
 #### Template-level provider bindings
 
@@ -1090,6 +1163,31 @@ inbound HTTP callback is provided; for provider-pushed delivery events (SMS
 DLR, ESP mail events) add a controller in your application that calls the
 record services' CAS transitions.
 
+A report reaches its send record by the original mail's `Message-ID`, which
+`MailClassificationSupport.extractOriginalMessageId` reads for all three paths
+(standard DSN, read receipt, non-standard bounce), first found wins:
+
+1. the report's own `In-Reply-To`, then the first entry of `References`;
+2. a read receipt's `Original-Message-ID` field, in its
+   `message/disposition-notification` part (RFC 8098);
+3. the returned original's `Message-ID`, in a `text/rfc822-headers` or
+   `message/rfc822` part — the third part of a DSN (RFC 3464 asks a DSN for
+   neither header of step 1), or the original a non-standard bounce attaches.
+
+The id is taken in the form the send record stores it — JavaMail's
+`<id@host>`, angle brackets kept, case untouched — since `findByMessageIds`
+matches it exactly. Steps 2 and 3 read the direct parts of the report and skip a
+part that cannot be read. A bounce whose original is in none of these places —
+or a relay that rewrote the `Message-ID` — is kept as received mail but reaches no
+send record.
+
+Only a DSN that reports a failure (`Action: failed` for a recipient) is linked.
+A `delayed` DSN warns that the MTA is still retrying, and `delivered` /
+`relayed` / `expanded` report success; linking would mark the send record
+bounced and `Failed`, so they are kept as received mail only. The DSN fields are
+read from the `message/delivery-status` part's text: Jakarta Mail has no content
+handler for that type, so its `getContent()` is a raw stream.
+
 ### Rate limits
 
 `MailSendServerConfig` and `SmsProviderConfig` carry two quota columns:
@@ -1113,6 +1211,12 @@ connect and read timeouts are seconds — are versionLock-transitioned back to
 which makes them due for the delivery loop again. This covers JVM crashes
 between claiming a record and finishing the provider call.
 
+The window holds only while every send finishes well inside it, so the sweeper
+refuses to start when a channel's `connection-timeout` plus `read-timeout` is
+more than half of it (2m30s), or either is zero — no timeout to Jakarta Mail: a
+send that is only slow would otherwise be revived while still in flight and sent
+twice. The window itself stays a constant.
+
 Each revival counts as a retry and is held to the same budget as a failed send:
 a stuck record whose `retry_count` has reached the retry policy's five attempts
 is moved to `DEAD_LETTER` (error code
@@ -1132,13 +1236,12 @@ It runs wherever message-starter runs, alongside the delivery loop.
 
 ### Sensitive field encryption
 
-Credential columns on the config tables (`mail_*_server_config.password`,
-`sms_provider_config.api_secret`) are defined wide enough to hold ciphertext.
-The framework's transparent encryption (`MetaField.isEncrypted()`)
-handles the read/write side — but you must still **mark these fields as
-encrypted in the `SysField` metadata table** during deployment. See
-`framework/softa-orm` docs for the full procedure; out of the box the columns
-store plaintext.
+The credential columns of the config tables — the mail servers' `password`
+(tenant and platform tables) and `sms_provider_config.api_key` / `api_secret` —
+are declared `encrypted = true` and `maskingType = ALL`: AES-encrypted at rest,
+masked in API reads, kept when an update leaves them out. A value stored as
+plaintext before the flag was declared is still read as it is, with a WARN
+naming the rows; saving the secret again encrypts it.
 
 ## Extension Points
 
@@ -1157,7 +1260,7 @@ read timeout.
 Each pool is keyed by the settings its connections were opened with, so an
 edited config (new host, rotated password) opens fresh connections on its next
 send, and config changes still only need the Redis config cache evicted
-(automatic on update/delete). Connectivity tests always open a new
+(automatic after every committed write, see `ConfigCacheEvictor`). Connectivity tests always open a new
 connection.
 
 A server that does not take a second message on one connection has

@@ -13,22 +13,26 @@ import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.HtmlUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.mail.entity.AbstractMailSendServer;
+import io.softa.starter.message.mail.entity.AbstractMailTemplate;
 import io.softa.starter.message.mail.entity.MailSendRecord;
-import io.softa.starter.message.mail.entity.MailSendServerConfig;
-import io.softa.starter.message.mail.entity.MailTemplate;
 import io.softa.starter.message.mail.enums.BodyMode;
+import io.softa.starter.message.mail.enums.MailServerOwner;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.service.MailTemplateService;
+import io.softa.starter.message.mail.service.PlatformMailTemplateService;
 import io.softa.starter.message.mail.smtp.SmtpMailRequest;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.mail.smtp.SmtpSendResult;
 import io.softa.starter.message.mail.support.MailAddresses;
 import io.softa.starter.message.mail.support.MailBodies;
 import io.softa.starter.message.mail.support.MailServerDispatcher;
+import io.softa.starter.message.mail.support.MailServerDispatcher.SendServer;
 import io.softa.starter.message.shared.ErrorClassifier;
-import io.softa.starter.message.shared.MonthlyQuotaGuard;
+import io.softa.starter.message.shared.SendQuotaGuard;
 import io.softa.starter.message.shared.RateLimiter;
 import io.softa.starter.message.shared.SendRejection;
+import io.softa.starter.message.shared.TenantScopes;
 import io.softa.starter.message.shared.metrics.MessageMetrics;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 
@@ -38,9 +42,12 @@ import io.softa.starter.message.shared.retry.SendFailureHandler;
  * <p>
  * The delivery loop claims a record (PENDING / RETRY → SENDING) before handing it here, so one worker
  * at a time owns it. The first attempt <b>prepares</b> the record: it renders the template the request
- * named and applies its defaults, chooses the server — the caller's or the template's pin, else the
- * scope's default — and charges the monthly quota, last, so a send that cannot go out costs nothing.
- * The result is written back and retries replay it verbatim. Whatever stops preparation (no server, a
+ * named — the tenant's for a {@code TENANT}-scope send, the platform's for a {@code PLATFORM}-scope one —
+ * and applies its defaults, chooses the server — the caller's or the template's pin, else the scope's
+ * default, a tenant without one relayed through the platform's — and, when the platform's server carries
+ * the mail, charges the monthly quota, last, so a send that cannot go out costs nothing. A tenant's mail
+ * through its own server costs the platform nothing and is not counted. The result — the server's owner
+ * with it — is written back and retries replay it verbatim. Whatever stops preparation (no server, a
  * missing or broken template, the quota used up, empty content) fails the record with a marker code
  * and an ERROR log; the caller already has its record id and never sees an exception.
  * <p>
@@ -58,7 +65,10 @@ public class MailDeliveryProcessor {
     private MailTemplateService templateService;
 
     @Autowired
-    private MonthlyQuotaGuard quotaGuard;
+    private PlatformMailTemplateService platformTemplateService;
+
+    @Autowired
+    private SendQuotaGuard quotaGuard;
 
     @Autowired
     private SmtpMailTransport smtpMailTransport;
@@ -80,12 +90,12 @@ public class MailDeliveryProcessor {
      * this call moves it on. Runs in the record's tenant context.
      */
     public void deliver(MailSendRecord record, long version) {
-        MailSendServerConfig config;
+        SendServer server;
         try {
             if (isPrepared(record)) {
-                config = resolveConfig(record.getServerConfigId(), null);
+                server = resolvePrepared(record);
             } else {
-                config = prepare(record);
+                server = prepare(record);
                 if (!recordService.markPrepared(record, version)) {
                     log.debug("MailDeliveryProcessor: record id={} changed while it was being prepared; "
                             + "leaving it to the newer state", record.getId());
@@ -103,7 +113,7 @@ public class MailDeliveryProcessor {
             handleFailure(record, version, null, e.getMessage());
             return;
         }
-        send(record, version, config);
+        send(record, version, server.config());
     }
 
     /**
@@ -118,26 +128,29 @@ public class MailDeliveryProcessor {
      * Fix on {@code record} what the first attempt decides: rendered content and template defaults,
      * the server and the sender; then charge the month's quota.
      */
-    private MailSendServerConfig prepare(MailSendRecord record) {
+    private SendServer prepare(MailSendRecord record) {
         MessageScope scope = Boolean.TRUE.equals(record.getPlatformScope())
                 ? MessageScope.PLATFORM : MessageScope.TENANT;
-        MailTemplate template = loadTemplate(record, scope);
+        AbstractMailTemplate template = loadTemplate(record, scope);
         if (template != null) {
             applyTemplate(record, template);
         }
         requireSendableContent(record);
-        MailSendServerConfig config = resolveConfig(record.getServerConfigId(), scope);
+        SendServer server = resolveServer(record.getServerConfigId(), scope);
+        AbstractMailSendServer config = server.config();
         String sender = StringUtils.hasText(config.getFromAddress()) ? config.getFromAddress() : config.getUsername();
         if (!StringUtils.hasText(sender)) {
             throw new SendRejection(ErrorClassifier.CONFIG_NOT_RESOLVABLE, "Mail send server config "
                     + config.getId() + " has neither a from address nor a username to send as.");
         }
-        try {
-            quotaGuard.consume("mail", MonthlyQuotaGuard.bucketFor(scope));
-        } catch (BusinessException e) {
-            throw new SendRejection(ErrorClassifier.MONTHLY_QUOTA_EXCEEDED, e.getMessage());
+        // The quota meters the platform's infrastructure: a tenant's own server is not counted. It is
+        // drawn from the tenant the record is filed under, platform notices about it included — the day
+        // first, then the month; a refusal is a SendRejection naming which.
+        if (server.owner() == MailServerOwner.PLATFORM) {
+            quotaGuard.consume("mail", SendQuotaGuard.bucketOf(record.getTenantId()));
         }
         record.setServerConfigId(config.getId());
+        record.setServerOwner(server.owner());
         record.setFromAddress(sender);
         // Third tier of the Reply-To chain (request > template > server); fixed here so retries replay it.
         if (!StringUtils.hasText(record.getReplyTo())) {
@@ -145,32 +158,75 @@ public class MailDeliveryProcessor {
         }
         record.setReadReceiptRequested(Boolean.TRUE.equals(record.getReadReceiptRequested() != null
                 ? record.getReadReceiptRequested() : config.getReadReceiptEnabled()));
-        return config;
+        return server;
     }
 
     /**
-     * The template the request named: {@code templateId} addresses the exact row (editor test sends:
-     * what you preview is what goes out, enabled or not); {@code templateCode} resolves in the scope's
-     * tier, enabled rows only, no fallback across tiers.
+     * The template the request named, in the tier its scope names: the tenant's for {@code TENANT}, the
+     * platform's for {@code PLATFORM}. {@code templateId} addresses the exact row (editor test sends: what
+     * you preview is what goes out, enabled or not); {@code templateCode} resolves enabled rows only. A
+     * code that lives in the other tier fails with a message saying so — one code, one tier, no fallback.
+     * With multi-tenancy off there is one owner: the deployment's own templates, then the platform
+     * table's.
      */
-    private MailTemplate loadTemplate(MailSendRecord record, MessageScope scope) {
-        if (record.getTemplateId() == null && !StringUtils.hasText(record.getTemplateCode())) {
+    private AbstractMailTemplate loadTemplate(MailSendRecord record, MessageScope scope) {
+        Long id = record.getTemplateId();
+        String code = record.getTemplateCode();
+        if (id == null && !StringUtils.hasText(code)) {
             return null;
         }
         try {
-            return record.getTemplateId() != null
-                    ? templateService.getRequiredById(record.getTemplateId())
-                    : templateService.resolve(record.getTemplateCode(), scope);
+            if (!TenantScopes.multiTenancyEnabled()) {
+                return loadSingleOwner(id, code);
+            }
+            if (scope == MessageScope.PLATFORM) {
+                if (id != null) {
+                    return platformTemplateService.getRequiredById(id);
+                }
+                try {
+                    return platformTemplateService.resolve(code);
+                } catch (BusinessException notPlatform) {
+                    throw templateService.anyTenantHasCode(code) ? tierMismatch(code, scope) : notPlatform;
+                }
+            }
+            if (id != null) {
+                return templateService.getRequiredById(id);
+            }
+            try {
+                return templateService.resolve(code);
+            } catch (BusinessException notTenant) {
+                throw platformTemplateService.findAnyByCode(code).isPresent() ? tierMismatch(code, scope) : notTenant;
+            }
         } catch (BusinessException e) {
             throw new SendRejection(ErrorClassifier.TEMPLATE_NOT_RESOLVABLE, e.getMessage());
         }
+    }
+
+    /** One owner (multi-tenancy off): the deployment's own template, then the platform table's. */
+    private AbstractMailTemplate loadSingleOwner(Long id, String code) {
+        if (id != null) {
+            return templateService.getById(id).<AbstractMailTemplate>map(t -> t)
+                    .orElseGet(() -> platformTemplateService.getRequiredById(id));
+        }
+        try {
+            return templateService.resolve(code);
+        } catch (BusinessException notOwn) {
+            return platformTemplateService.resolve(code);
+        }
+    }
+
+    private static BusinessException tierMismatch(String code, MessageScope scope) {
+        return new BusinessException(scope == MessageScope.PLATFORM
+                ? "Mail template ''{0}'' is a tenant template, not a platform one: send it with scope TENANT."
+                : "Mail template ''{0}'' is a platform template, not a tenant one: send it with scope PLATFORM.",
+                code);
     }
 
     /**
      * Render what the caller left empty and apply the template's defaults — caller values always win.
      * Defaults land before the server is resolved, so a template's preferred server is honored.
      */
-    private void applyTemplate(MailSendRecord record, MailTemplate template) {
+    private void applyTemplate(MailSendRecord record, AbstractMailTemplate template) {
         Map<String, Object> variables = record.getTemplateVariables() == null
                 ? Map.of() : JsonUtils.jsonNodeToMap(record.getTemplateVariables());
         try {
@@ -205,7 +261,7 @@ public class MailDeliveryProcessor {
      * to {@link BodyMode#HTML_WITH_DERIVED_PLAIN}, so the record truthfully says it went through
      * machine extraction.
      */
-    private void renderBody(MailSendRecord record, MailTemplate template, Map<String, Object> variables) {
+    private void renderBody(MailSendRecord record, AbstractMailTemplate template, Map<String, Object> variables) {
         BodyMode mode = template.getBodyMode() != null ? template.getBodyMode() : BodyMode.HTML;
         String html = templateService.renderBodyHtml(template, variables);
         String text = templateService.renderBodyText(template, variables);
@@ -249,14 +305,31 @@ public class MailDeliveryProcessor {
     }
 
     /**
-     * An explicit id (caller, template pin, or the record's prepared server) wins over the tier policy;
-     * {@code scope} applies only when there is none.
+     * An explicit id — the caller's or the template's pin — wins over the default and is looked up in the
+     * scope's own table: a tenant pins one of its own servers, a platform send one of the platform's.
+     * Without one the scope's default applies (a tenant without one is relayed through the platform's).
      */
-    private MailSendServerConfig resolveConfig(Long serverConfigId, MessageScope scope) {
+    private SendServer resolveServer(Long serverConfigId, MessageScope scope) {
         try {
-            return serverConfigId != null
-                    ? dispatcher.resolveSendById(serverConfigId)
-                    : dispatcher.resolveSend(scope);
+            if (serverConfigId == null) {
+                return dispatcher.resolveSend(scope);
+            }
+            // With multi-tenancy off there is one owner: the id is in whichever table holds it.
+            MailServerOwner owner = !TenantScopes.multiTenancyEnabled() ? dispatcher.ownerOf(serverConfigId)
+                    : scope == MessageScope.PLATFORM ? MailServerOwner.PLATFORM : MailServerOwner.TENANT;
+            return dispatcher.resolveSendById(owner, serverConfigId);
+        } catch (BusinessException e) {
+            throw new SendRejection(ErrorClassifier.CONFIG_NOT_RESOLVABLE, e.getMessage());
+        }
+    }
+
+    /**
+     * The server a prepared record was routed through, replayed as it was: the same owner's table, the
+     * same id.
+     */
+    private SendServer resolvePrepared(MailSendRecord record) {
+        try {
+            return dispatcher.resolveSendById(record.getServerOwner(), record.getServerConfigId());
         } catch (BusinessException e) {
             throw new SendRejection(ErrorClassifier.CONFIG_NOT_RESOLVABLE, e.getMessage());
         }
@@ -267,7 +340,7 @@ public class MailDeliveryProcessor {
      * server accepted is never a failure: if recording it as SENT fails, the record is left SENDING
      * (see the catch below).
      */
-    private void send(MailSendRecord record, long version, MailSendServerConfig config) {
+    private void send(MailSendRecord record, long version, AbstractMailSendServer config) {
         RateLimiter.Outcome quota = rateLimiter.tryAcquire("mail", config.getId(),
                 config.getDailySendLimit(), config.getRateLimitPerMinute());
         if (!quota.ok()) {
@@ -318,7 +391,7 @@ public class MailDeliveryProcessor {
     }
 
     /** Map service-layer DTO + server config onto an SMTP send request. */
-    private SmtpMailRequest buildRequest(SendMailDTO dto, MailSendServerConfig config) {
+    private SmtpMailRequest buildRequest(SendMailDTO dto, AbstractMailSendServer config) {
         SmtpMailRequest req = new SmtpMailRequest();
         String fromAddress = StringUtils.hasText(config.getFromAddress())
                 ? config.getFromAddress() : config.getUsername();

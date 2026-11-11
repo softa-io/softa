@@ -12,7 +12,11 @@ import lombok.Data;
 @Data
 public class BounceInfo {
 
-    /** Original Message-ID of the email that bounced (from In-Reply-To or References header). */
+    /**
+     * Original Message-ID of the email that bounced — see
+     * {@code MailClassificationSupport.extractOriginalMessageId} for where it is
+     * read. Null for a DSN that reports no failure, which is not linked.
+     */
     private String originalMessageId;
 
     /** 3-digit SMTP reply code, e.g. "550". May be null if not parseable. */

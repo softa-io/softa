@@ -3,8 +3,6 @@ package io.softa.starter.message.shared;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.entity.AbstractModel;
 import io.softa.framework.orm.service.CacheService;
 
@@ -19,12 +17,15 @@ import io.softa.framework.orm.service.CacheService;
  * Two keys per entity:
  * <ul>
  *   <li>{@code {idPrefix}{id}} — direct lookup by primary key</li>
- *   <li>{@code {defaultPrefix}{tenantId}} — default config for a tenant
- *       ({@code tenantId = -1} for the platform tier)</li>
+ *   <li>{@code {defaultPrefix}{owner}} — the default config of one owner: a
+ *       tenant id for a tenant's table, {@code -1} for a platform table, whose
+ *       only owner is the platform</li>
  * </ul>
  * Concrete subclasses supply the two key prefixes and the entity {@link Class}
  * (needed for {@link CacheService#get(String, Class)}); they remain distinct
  * {@code @Component} beans so callers can autowire by channel-specific type.
+ * Each table has its own prefixes, so a tenant's and the platform's servers
+ * never share a key.
  */
 public abstract class ConfigCache<T extends AbstractModel> {
 
@@ -53,21 +54,12 @@ public abstract class ConfigCache<T extends AbstractModel> {
         return loaded;
     }
 
-    public T getDefault(Supplier<T> loader) {
-        return getDefault(currentTenantId(), loader);
-    }
-
     /**
-     * The platform tier's default ({@code tenantId = -1} key) regardless of
-     * the current tenant — for {@code PLATFORM}-scoped sends, which must
-     * neither read nor poison the caller tenant's default cache entry.
+     * The default config of {@code owner} — a tenant id, or {@code -1} for a
+     * platform table.
      */
-    public T getPlatformDefault(Supplier<T> loader) {
-        return getDefault(TenantScopes.PLATFORM, loader);
-    }
-
-    private T getDefault(long tenantId, Supplier<T> loader) {
-        String key = keyDefault + tenantId;
+    public T getDefault(long owner, Supplier<T> loader) {
+        String key = keyDefault + owner;
         T cached = cacheService.get(key, type);
         if (cached != null) return cached;
         T loaded = loader.get();
@@ -79,19 +71,11 @@ public abstract class ConfigCache<T extends AbstractModel> {
         return loaded;
     }
 
-    /** Called after update / delete to drop the cached config everywhere. */
-    public void evictById(Long id) {
-        if (id == null) return;
-        cacheService.clear(keyId + id);
-        // we don't know the tenant, so clear both plausible default keys
-        cacheService.clear(keyDefault + currentTenantId());
-        cacheService.clear(keyDefault + TenantScopes.PLATFORM);
-    }
-
-    private static long currentTenantId() {
-        // No tenant in context = platform scope; -1 keeps the platform's
-        // default-config cache entry distinct from any real tenant's.
-        Context ctx = ContextHolder.getContext();
-        return ctx != null && ctx.getTenantId() != null ? ctx.getTenantId() : TenantScopes.PLATFORM;
+    /** Called after update / delete to drop the cached config and its owner's default. */
+    public void evict(Long id, long owner) {
+        if (id != null) {
+            cacheService.clear(keyId + id);
+        }
+        cacheService.clear(keyDefault + owner);
     }
 }

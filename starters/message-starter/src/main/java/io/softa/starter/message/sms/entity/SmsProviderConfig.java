@@ -4,6 +4,7 @@ import java.io.Serial;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.orm.enums.MaskingType;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
@@ -18,14 +19,15 @@ import io.softa.starter.message.sms.enums.SmsProvider;
  * Uses generic credential fields to avoid provider-specific columns — each adapter
  * interprets these fields according to its provider's requirements.
  * <p>
- * tenant_id = -1 — platform-tier, invisible to tenants (dispatcher fallback only).
- * tenant_id > 0  — tenant-level, ORM auto-fills and isolates.
+ * Platform-owned: SMS is a platform service, so providers, country routing,
+ * templates and template bindings exist once, for every tenant. The table is
+ * not multi-tenant and has no tenant column; tenants never see or configure it.
  */
 @Data
-@Model(label = "SMS Provider Config", idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true,
+@Model(label = "SMS Provider Config", idStrategy = IdStrategy.DISTRIBUTED_LONG,
         activeControl = true,
         defaultOrder = {"priority", "name"})
-@Index(indexName = "idx_sms_provider_cfg_default", fields = {"tenantId", "isDefault"})
+@Index(indexName = "idx_sms_provider_cfg_default", fields = {"isDefault"})
 @EqualsAndHashCode(callSuper = true)
 public class SmsProviderConfig extends AuditableModel {
 
@@ -34,11 +36,6 @@ public class SmsProviderConfig extends AuditableModel {
 
     @Field(label = "ID")
     private Long id;
-
-    @Field(label = "Tenant ID",
-            description = "-1 = platform-tier (invisible to tenants); >0 = tenant-level. "
-                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
-    private Long tenantId;
 
     @Field(label = "Config Name", required = true, length = 100)
     private String name;
@@ -50,12 +47,18 @@ public class SmsProviderConfig extends AuditableModel {
             description = "Provider type: Twilio / Infobip / Aliyun / Tencent / Custom")
     private SmsProvider providerType;
 
-    @Field(label = "API Key", length = 255, copyable = false,
-            description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun=accessKeyId)")
+    @Field(label = "API Key", length = 512, encrypted = true, copyable = false, unsearchable = true,
+            maskingType = MaskingType.ALL,
+            description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun=accessKeyId) — "
+                    + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
+                    + "stored value; a payload containing the mask symbol is rejected.")
     private String apiKey;
 
-    @Field(label = "API Secret", copyable = false,
-            description = "Secondary credential (Twilio=authToken, Infobip=apiSecret, Aliyun=accessKeySecret) — stored encrypted, mark MetaField.encrypted=true")
+    @Field(label = "API Secret", length = 512, encrypted = true, copyable = false, unsearchable = true,
+            maskingType = MaskingType.ALL,
+            description = "Secondary credential (Twilio=authToken, Infobip=apiSecret, Aliyun=accessKeySecret) — "
+                    + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
+                    + "stored value; a payload containing the mask symbol is rejected.")
     private String apiSecret;
 
     @Field(label = "API Endpoint", length = 500,
