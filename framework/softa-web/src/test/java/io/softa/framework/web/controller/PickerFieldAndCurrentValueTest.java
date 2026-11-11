@@ -18,6 +18,7 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.web.dto.SearchNameParams;
 import io.softa.framework.web.dto.SourceRecord;
 
@@ -153,8 +154,11 @@ class PickerFieldAndCurrentValueTest {
             seen[0] = invocation.getArgument(1);
             return List.of();
         });
-        try (MockedStatic<ModelManager> mm = employeeWith("legalEntityId", companyField(false, null))) {
+        try (MockedStatic<ModelManager> mm = employeeWith("legalEntityId", companyField(false, null));
+             MockedStatic<IdUtils> ids = mockStatic(IdUtils.class)) {
             mm.when(() -> ModelManager.existModel("Company")).thenReturn(true);
+            ids.when(() -> IdUtils.formatId(anyString(), any(Serializable.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(1));
             controller.searchName("Company", params);
         }
         return String.valueOf(seen[0].getFilters());
