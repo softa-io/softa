@@ -558,7 +558,11 @@ the summary says why.
     designs and fails the build when an enum change strands one — answer it with the migration, never by editing
     its fixtures.
 - Default language: English (comments, log messages, exception messages).
-- Dates: `LocalDate` / `LocalDateTime`.
+- Dates: `LocalDate` / `LocalDateTime`. Hand the date object to whatever writes it out — Jackson, the
+  templates (`PlaceholderUtils`, `TemplateEngine`, Word documents) and Excel exports all print the
+  `TimeConstant` formats (`2026-11-12 13:00:40`); `toString()` is the ISO form
+  (`2026-11-12T13:00:40.123456789`) and goes out as it is. Where code must build the text itself, use
+  `DateUtils.formatTemporal`.
 
 ### Design principles
 
