@@ -131,56 +131,21 @@ public class RelationLookupResolver {
      * @return a list of LookupGroup describing the relation lookups
      */
     public List<LookupGroup> detectLookupGroups(String modelName, List<ImportFieldDTO> importFields) {
-        // Collect all fieldNames
-        Set<String> directFields = new HashSet<>();
         // rootField -> list of ImportFieldDTOs with dotted paths
         Map<String, List<ImportFieldDTO>> rootToDottedFields = new LinkedHashMap<>();
 
         for (ImportFieldDTO field : importFields) {
             String fieldName = field.getFieldName();
             if (!fieldName.contains(".")) {
-                directFields.add(fieldName);
                 continue;
             }
-            // Has dot: validate relation lookup
-            String[] parts = fieldName.split("\\.");
-            if (parts.length > 3) {
-                throw new IllegalArgumentException(
-                        "Import field `{0}` has more than two levels of cascade. " +
-                        "Supported forms are deptId.code, and employeeProfileId.idType.name where " +
-                        "the first hop is the row's own one-to-one sub-record.",
-                        fieldName);
-            }
-
-            String rootField = parts[0];
-            // Validate root field is ManyToOne/OneToOne
-            if (!ModelManager.existField(modelName, rootField)) {
-                throw new IllegalArgumentException(
-                        "Import field `{0}`: root field `{1}` does not exist in model `{2}`.",
-                        fieldName, rootField, modelName);
-            }
-            MetaField rootMetaField = ModelManager.getModelField(modelName, rootField);
-            if (!FieldType.RELATED_TYPES.contains(rootMetaField.getFieldType())) {
-                throw new IllegalArgumentException(
-                        "Import field `{0}`: root field `{1}` must be a relation field, but is `{2}`.",
-                        fieldName, rootField, rootMetaField.getFieldType());
-            }
-            if (parts.length == 3) {
-                validateNestedLookupPath(modelName, fieldName, rootMetaField, parts);
-            }
+            // Has dot: validate relation lookup — the rules an import template's save check applies too.
+            String rootField = ImportFieldPaths.checkLookupPath(modelName, fieldName).getFieldName();
             rootToDottedFields.computeIfAbsent(rootField, ignored -> new ArrayList<>()).add(field);
         }
 
-        for (String rootField : rootToDottedFields.keySet()) {
-            if (directFields.contains(rootField)) {
-                List<String> paths = rootToDottedFields.get(rootField).stream()
-                        .map(ImportFieldDTO::getFieldName).toList();
-                throw new IllegalArgumentException(
-                        "Import field `{0}` and `{1}` cannot coexist. " +
-                                "Either import the relation value directly or use relation lookup, not both.",
-                        rootField, paths);
-            }
-        }
+        // The columns taken together — the rules an import template's save check applies too.
+        ImportFieldPaths.checkColumns(importFields.stream().map(ImportFieldDTO::getFieldName).toList());
 
         // Build lookup groups
         List<LookupGroup> groups = new ArrayList<>();
@@ -201,19 +166,8 @@ public class RelationLookupResolver {
             boolean toMany = FieldType.TO_MANY_TYPES.contains(rootMetaField.getFieldType());
             boolean oneToOne = FieldType.ONE_TO_ONE.equals(rootMetaField.getFieldType());
             List<NestedLookup> nestedLookups = new ArrayList<>();
-            Set<String> nestedKeys = new HashSet<>();
             for (String path : dottedPaths) {
                 String[] segments = path.split("\\.");
-                String key = segments[1];
-                if (!nestedKeys.add(key)) {
-                    // deptId.code twice is caught by column validation upstream; what arrives here is
-                    // employeeProfileId.idType next to employeeProfileId.idType.name — two columns
-                    // writing the same nested field, one of which would silently win.
-                    throw new IllegalArgumentException(
-                            "Import fields address `{0}.{1}` more than once; a sub-record field can " +
-                                    "be written by only one column.",
-                            rootField, key);
-                }
                 if (segments.length == 3) {
                     MetaField nestedMetaField = ModelManager.getModelField(relatedModel, segments[1]);
                     nestedLookups.add(new NestedLookup(segments[1], nestedMetaField.getRelatedModel(),
@@ -278,54 +232,6 @@ public class RelationLookupResolver {
 
     private static boolean isPartitioned(String modelName) {
         return modelName != null && ModelManager.existModel(modelName) && ModelManager.getModel(modelName).isMultiCountry();
-    }
-
-    /**
-     * A three-segment path is allowed through exactly one shape, and this rejects every other.
-     *
-     * <p>The first hop must be the row's own one-to-one sub-record: its columns are folded into a
-     * nested value object rather than used as a business key, so there is a place for a resolved id
-     * to land. Through a many-to-one the two segments already are the business key of some other row,
-     * and a third would change what the column means. The middle field must be a many-to-one — that is
-     * the thing being named — and the leaf must be a plain field on its target, because the leaf is
-     * what the cell carries and a relation cannot be typed into a cell.
-     */
-    private void validateNestedLookupPath(String modelName, String fieldName, MetaField rootMetaField,
-                                          String[] parts) {
-        if (!FieldType.ONE_TO_ONE.equals(rootMetaField.getFieldType())) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: a two-level path is only supported through the row's own " +
-                            "one-to-one sub-record, but `{1}` is `{2}`.",
-                    fieldName, parts[0], rootMetaField.getFieldType());
-        }
-        String subRecordModel = rootMetaField.getRelatedModel();
-        if (!ModelManager.existField(subRecordModel, parts[1])) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}` does not exist in model `{2}`.",
-                    fieldName, parts[1], subRecordModel);
-        }
-        MetaField nestedMetaField = ModelManager.getModelField(subRecordModel, parts[1]);
-        if (!FieldType.MANY_TO_ONE.equals(nestedMetaField.getFieldType())) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}.{2}` must be a many-to-one relation to be looked up by " +
-                            "`{3}`, but is `{4}`.",
-                    fieldName, subRecordModel, parts[1], parts[2], nestedMetaField.getFieldType());
-        }
-        String targetModel = nestedMetaField.getRelatedModel();
-        Assert.notBlank(targetModel,
-                "Import field `{0}`: `{1}.{2}` has no related model configured.",
-                fieldName, subRecordModel, parts[1]);
-        if (!ModelManager.existField(targetModel, parts[2])) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}` does not exist in model `{2}`.",
-                    fieldName, parts[2], targetModel);
-        }
-        if (FieldType.RELATED_TYPES.contains(ModelManager.getModelField(targetModel, parts[2]).getFieldType())) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}.{2}` is a relation itself and cannot be the value a " +
-                            "cell carries.",
-                    fieldName, targetModel, parts[2]);
-        }
     }
 
     /**

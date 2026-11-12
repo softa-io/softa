@@ -175,15 +175,12 @@ public class TaskInstanceContextEnricher {
         });
     }
 
-    /** The accounts a task names: its holder, the step's candidates, who approved or closed it. */
+    /** The accounts a task names: its holder, and who closed it. */
     private static List<String> actorIdsOf(FlowApprovalTaskView view) {
-        List<String> ids = new ArrayList<>();
-        ids.add(view.getActorId());
-        Stream.of(view.getCandidateActors(), view.getApprovedActors())
+        return Stream.of(view.getActorId(), view.getClosedByActorId())
                 .filter(Objects::nonNull)
-                .forEach(ids::addAll);
-        ids.add(view.getClosedByActorId());
-        return ids.stream().filter(Objects::nonNull).distinct().toList();
+                .distinct()
+                .toList();
     }
 
     /**

@@ -18,7 +18,6 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
-import io.softa.starter.flow.runtime.handler.InclusiveGatewayNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
@@ -40,8 +39,7 @@ class InclusiveJoinRuntimeTest {
     private final StubFlowInstanceStore instanceStore = new StubFlowInstanceStore();
     private final ApprovalNodeExecutionHandler approvalHandler = new ApprovalNodeExecutionHandler();
     private final FlowRuntimeEngine engine = TestFlowRuntimeFactory.create(bundleRegistry, instanceStore,
-            new DefaultNodeHandlerRegistry(List.of(approvalHandler, new InclusiveGatewayNodeExecutionHandler(),
-                    new PassThroughNodeExecutionHandler())),
+            new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
             approvalHandler);
 
     {

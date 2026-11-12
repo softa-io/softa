@@ -873,6 +873,18 @@ Because the snapshots are built once, their source models change only during the
 
 `DbSessionLock` (`io.softa.framework.orm.jdbc.database`) serializes a startup window across instances on a database session lock (`softa:<key>:<database>`): the boot DDL (`boot-ddl`) and the startup seed load (`seed-startup`).
 
+## Field paths
+
+A field path is a field name, or a dotted path through relations (`deptId.companyId.name`). What a path may do depends on what it is used for, and **`FieldPaths`** (`io.softa.framework.orm.meta`) states it once per **`FieldPathUse`** — for a check made before a path is stored, such as an export template's filters and columns (`TemplateFieldWriteValidator` in file-starter):
+
+| Use | Crosses | Ends on | Applied at run time by |
+| --- | --- | --- | --- |
+| `FILTER` | to-one relations by a join, a to-many one by a sub-query | a stored field, a to-many relation (its ids are compared), or a `dynamic` cascaded field first in its query | `WhereBuilder` |
+| `SORT` | to-one relations only | a stored field that is not a to-many relation, or the model's own `dynamic` cascaded field | `BaseBuilder.parseLogicField` |
+| `READ` | to-one relations only | any field — the related record's read answers it | `ModelManager.getLastFieldOfCascaded`, the cascaded read |
+
+Every use goes at most `CASCADE_LEVEL` (4) relations deep. `FieldPaths.problem(model, path, use)` says why a path cannot serve a use, or null; `filterProblems` and `orderProblems` check every field a `Filters` or an `Orders` names. The traversal is **`CascadeFieldWalker`**'s — `walk(..., throughToMany, visitor)` lets a condition cross a to-many relation. The query builders still walk their paths inline; the rules above mirror them, `FieldPathsTest` pins each, and `FieldPathsMatchBuildersTest` holds the two to one answer — the same paths through `FieldPaths` and through `WhereBuilder` / `OrderByBuilder` (taken when they build without an exception and name no column that does not exist), so a builder change that takes or refuses a path the other way fails there first.
+
 ## Configuration
 ### MQ Topic
 ```yml

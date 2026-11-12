@@ -12,7 +12,6 @@ import lombok.NoArgsConstructor;
 
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
-import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
@@ -47,9 +46,6 @@ public class FlowApprovalTaskView {
     @Schema(description = "Approval node label")
     private String nodeLabel;
 
-    @Schema(description = "Approval task cycle number for repeated visits to the same node")
-    private Integer cycleNumber;
-
     @Schema(description = "Assigned actor id")
     private String actorId;
 
@@ -68,20 +64,8 @@ public class FlowApprovalTaskView {
     @Schema(description = "Latest action comment")
     private String comment;
 
-    @Schema(description = "Whether approvers were resolved dynamically")
-    private Boolean dynamicApprovers;
-
-    @Schema(description = "Approval mode snapshot")
-    private VoteThresholdMode approvalMode;
-
     @Schema(description = "Required approval count snapshot")
     private Integer requiredApprovalCount;
-
-    @Schema(description = "Total approver count snapshot")
-    private Integer totalApproverCount;
-
-    @Schema(description = "Candidate actor ids for the node")
-    private List<String> candidateActors;
 
     @Schema(description = "Actors who already approved when this projection was synced")
     private List<String> approvedActors;
@@ -101,9 +85,6 @@ public class FlowApprovalTaskView {
 
     @Schema(description = "Approval deadline derived from the node's timeout config; null = no deadline")
     private LocalDateTime dueTime;
-
-    @Schema(description = "Urgency marker propagated from urge actions")
-    private String urgency;
 
     @Schema(description = "Title of the owning instance (batch-enriched; the task's stored copy when the instance row "
             + "is gone)")

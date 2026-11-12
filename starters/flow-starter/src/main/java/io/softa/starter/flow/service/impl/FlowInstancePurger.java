@@ -8,7 +8,7 @@ import io.softa.starter.flow.entity.*;
 
 /**
  * Deletes flow instances together with everything recorded under their instance id: trace rows,
- * approval tasks and records, parallel-branch rows: the purge of expired Automation runs.
+ * approval tasks and records: the purge of expired Automation runs.
  */
 @Component
 public class FlowInstancePurger {
@@ -17,18 +17,15 @@ public class FlowInstancePurger {
     private final FlowExecutionTraceServiceImpl traceService;
     private final FlowApprovalTaskServiceImpl approvalTaskService;
     private final FlowApprovalRecordServiceImpl approvalRecordService;
-    private final FlowParallelBranchServiceImpl parallelBranchService;
 
     public FlowInstancePurger(FlowInstanceServiceImpl instanceService,
                               FlowExecutionTraceServiceImpl traceService,
                               FlowApprovalTaskServiceImpl approvalTaskService,
-                              FlowApprovalRecordServiceImpl approvalRecordService,
-                              FlowParallelBranchServiceImpl parallelBranchService) {
+                              FlowApprovalRecordServiceImpl approvalRecordService) {
         this.instanceService = instanceService;
         this.traceService = traceService;
         this.approvalTaskService = approvalTaskService;
         this.approvalRecordService = approvalRecordService;
-        this.parallelBranchService = parallelBranchService;
     }
 
     /** Delete {@code instances} (each carrying its row id and instance id) and their records. */
@@ -40,7 +37,6 @@ public class FlowInstancePurger {
         traceService.deleteByFilters(new Filters().in(FlowExecutionTrace::getInstanceId, instanceIds));
         approvalTaskService.deleteByFilters(new Filters().in(FlowApprovalTask::getInstanceId, instanceIds));
         approvalRecordService.deleteByFilters(new Filters().in(FlowApprovalRecord::getInstanceId, instanceIds));
-        parallelBranchService.deleteByFilters(new Filters().in(FlowParallelBranch::getInstanceId, instanceIds));
         instanceService.deleteByIds(instances.stream().map(FlowInstance::getId).toList());
     }
 }

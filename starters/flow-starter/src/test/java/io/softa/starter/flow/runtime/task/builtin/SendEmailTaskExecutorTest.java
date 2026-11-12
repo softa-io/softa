@@ -45,7 +45,6 @@ class SendEmailTaskExecutorTest {
         when(messageService.sendMail(any(SendMailDTO.class))).thenReturn(1L);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_EMAIL)
                 .input(Map.of(
                         "to", List.of("user@example.com"),
                         "subject", "Order confirmed",
@@ -73,7 +72,6 @@ class SendEmailTaskExecutorTest {
     void templateSendBuildsOneTemplateMessage() {
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_EMAIL)
                 .input(Map.of(
                         "to", List.of("a@example.com", "b@example.com"),
                         "templateCode", "ORDER_CONFIRMATION",
@@ -97,7 +95,6 @@ class SendEmailTaskExecutorTest {
     @Test
     void missingRecipientsThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_EMAIL)
                 .input(Map.of("subject", "No recipients"))
                 .build();
 
@@ -111,7 +108,6 @@ class SendEmailTaskExecutorTest {
     void blankRecipientEntriesAreFilteredOut() {
         // a list containing only blank strings resolves to an empty recipient list → throws
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_EMAIL)
                 .input(Map.of("to", List.of("   ", "")))
                 .build();
 

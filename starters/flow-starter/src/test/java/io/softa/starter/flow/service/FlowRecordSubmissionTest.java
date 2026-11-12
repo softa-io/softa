@@ -14,12 +14,16 @@ import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.FlowCcRule;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
@@ -30,6 +34,7 @@ import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.*;
 import io.softa.starter.flow.runtime.*;
 import io.softa.starter.flow.runtime.api.*;
+import io.softa.starter.flow.runtime.context.RecordModelFixture;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
@@ -44,6 +49,7 @@ import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.service.impl.FlowLaunchServiceImpl;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
@@ -89,11 +95,11 @@ class FlowRecordSubmissionTest {
             bundleRegistry, instanceStore,
             new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
             approvalHandler, state -> {},
-            new ApprovalOutcomeListener(handlerRegistry, auditReader, statusWriter));
+            new ApprovalOutcomeListener(handlerRegistry, statusWriter));
     private final FlowInstanceService instanceService = mock(FlowInstanceService.class);
     // The preview's collaborators stay null: FlowApprovalPreviewTest covers it.
     private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
-            publishService, engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
+            engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
             new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null,
             new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger()),
                     new FailedApprovalRecords(instanceService, modelService)));
@@ -122,26 +128,22 @@ class FlowRecordSubmissionTest {
             });
             return true;
         });
-        // The instance table, as the store holds it.
-        when(instanceService.findByModelNameAndRowId(anyString(), anyString())).thenAnswer(invocation -> {
+        // The instance table, as the store holds it: a record's latest approval, its row whole.
+        when(instanceService.findLatestRecordApproval(anyString(), anyString())).thenAnswer(invocation -> {
             List<FlowInstance> instances = new ArrayList<>();
             for (FlowExecutionStatus status : FlowExecutionStatus.values()) {
                 for (FlowExecutionState state : instanceStore.listByStatus(status)) {
                     if (Objects.equals(state.getModelName(), invocation.getArgument(0))
-                            && Objects.equals(state.getRowId(), invocation.getArgument(1))) {
-                        FlowInstance instance = new FlowInstance();
-                        instance.setInstanceId(state.getInstanceId());
-                        instance.setBundleId(state.getBundleId());
-                        instance.setStatus(state.getStatus());
-                        instance.setInitiatorId(state.getInitiatorId());
-                        instance.setModelName(state.getModelName());
-                        instance.setRecordApproval(state.getRecordApproval());
+                            && Objects.equals(state.getRowId(), invocation.getArgument(1))
+                            && Boolean.TRUE.equals(state.getRecordApproval())) {
+                        FlowInstance instance = FlowExecutionStateMapper.toEntity(state);
                         instance.setCreatedTime(createdAt.get(state.getInstanceId()));
                         instances.add(instance);
                     }
                 }
             }
-            return instances;
+            return instances.stream().max(Comparator.comparing(FlowInstance::getCreatedTime,
+                    Comparator.nullsFirst(Comparator.naturalOrder())));
         });
     }
 
@@ -210,7 +212,7 @@ class FlowRecordSubmissionTest {
         assertEquals(5001L, state.getSubjectId());
         assertEquals(LocalDate.of(2026, 11, 2), state.getEffectiveDate());
         assertEquals("LR-0007", state.getRecordCode());
-        // What the record asks for, as its handler words it: the line the approval lists show (zingkey-hcm#2350).
+        // What the record asks for, as its handler words it: the line the approval lists show.
         assertEquals("Annual Leave · 3 days · 2–4 Nov", state.getSummary());
         // No organization service here, so no department to keep.
         assertNull(state.getDepartmentId());
@@ -246,7 +248,7 @@ class FlowRecordSubmissionTest {
     void theApplicantsReachForACancellationIsTheRangeTheyMayEditTheRecordIn() {
         List<AccessType> readAs = recordReachReadAs();
 
-        launchService.cancelRecord(MODEL, ROW, SUBMITTER);
+        launchService.cancelRecord(MODEL, ROW);
 
         assertEquals(List.of(AccessType.UPDATE), readAs);
     }
@@ -316,13 +318,13 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aDraftIsCancelledForGood() {
-        launchService.cancelRecord(MODEL, ROW, SUBMITTER);
+        launchService.cancelRecord(MODEL, ROW);
 
         assertEquals("Cancelled", record.get("approvalStatus"));
         InOrder order = inOrder(handler);
         order.verify(handler).validateCancel(any());
         order.verify(handler).afterOutcome(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.CANCELLED),
-                eq(new ApprovalOutcome(ApprovalOutcomeType.CANCELLED, null, SUBMITTER, null)));
+                eq(new ApprovalOutcome(ApprovalOutcomeType.CANCELLED, null)));
         // A returned approval of it no longer waits for the record to be revised.
         verify(instanceService).markSuperseded(MODEL, ROW);
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
@@ -334,7 +336,7 @@ class FlowRecordSubmissionTest {
     void onlyADraftIsCancelled(String status) {
         record.put("approvalStatus", status);
 
-        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW, SUBMITTER));
+        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW));
 
         assertEquals(status, record.get("approvalStatus"));
         verify(handler, never()).validateCancel(any());
@@ -346,9 +348,9 @@ class FlowRecordSubmissionTest {
         doThrow(new BusinessException("Only the claimant can cancel this claim.")).when(handler).validateCancel(any());
 
         BusinessException refused = assertThrows(BusinessException.class,
-                () -> launchService.cancelRecord(MODEL, ROW, MANAGER));
+                () -> launchService.cancelRecord(MODEL, ROW));
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
-        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW, SUBMITTER));
+        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW));
 
         assertTrue(refused.getMessage().contains("claimant"), refused.getMessage());
         assertEquals("Draft", record.get("approvalStatus"));
@@ -384,6 +386,30 @@ class FlowRecordSubmissionTest {
                 () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
         assertTrue(error.getMessage().contains("Several approval flows"), error.getMessage());
         verify(handler, never()).afterSubmitted(any());
+    }
+
+    @Test
+    void theFlowWithoutAConditionTakesWhatNoOtherFlowTakes() {
+        // The document's default, beside a copy for long leave: each record goes to exactly one of them.
+        publishService.publish("default", flow("Leave", new SubmitTrigger(MODEL), List.of(MANAGER)));
+        publishService.publish("long", flow("Long leave", new SubmitTrigger(MODEL, "days > 5"), List.of(MANAGER)));
+
+        assertEquals("default", launchService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
+
+        launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "make it two weeks");
+        when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 10)));
+        assertEquals("long", launchService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
+    }
+
+    @Test
+    void aDefaultFlowDoesNotSettleConditionsThatOverlap() {
+        publishService.publish("default", flow("Leave", new SubmitTrigger(MODEL), List.of(MANAGER)));
+        publishService.publish("a", flow("Flow A", new SubmitTrigger(MODEL, "true"), List.of(MANAGER)));
+        publishService.publish("b", flow("Flow B", new SubmitTrigger(MODEL, "1 == 1"), List.of(MANAGER)));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+        assertTrue(error.getMessage().contains("Several approval flows"), error.getMessage());
     }
 
     @Test
@@ -444,13 +470,13 @@ class FlowRecordSubmissionTest {
     }
 
     @Test
-    void approvalWritesApprovedBackWithTheDecidingApprover() {
+    void approvalWritesApprovedBack() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
         engine.approve(nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, "enjoy"));
 
-        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, started.getInstanceId(), MANAGER, "enjoy"),
+        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, started.getInstanceId()),
                 capturedOutcome());
         assertEquals("Approved", record.get("approvalStatus"));
         verify(handler).afterOutcome(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.APPROVED), any());
@@ -463,9 +489,90 @@ class FlowRecordSubmissionTest {
 
         engine.reject(nodeRequest(new FlowRejectRequest(), started.getInstanceId(), MANAGER, "busy week"));
 
-        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.REJECTED, started.getInstanceId(), MANAGER, "busy week"),
+        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.REJECTED, started.getInstanceId()),
                 capturedOutcome());
         assertEquals("Rejected", record.get("approvalStatus"));
+    }
+
+    /**
+     * The CCs an approval's result sends are recorded after the entry that ended it, in the status it ended in:
+     * the result still reaches the record, once (zingkey-hcm#2584 — the record stayed Pending).
+     */
+    @Test
+    void anApprovalThatCcsOnItsResultStillWritesApprovedBack() {
+        publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_APPROVED, "3001")));
+        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        FlowExecutionState completed = engine.approve(
+                nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, "enjoy"));
+
+        assertEquals(FlowExecutionStatus.COMPLETED, completed.getStatus());
+        assertEquals(ApprovalActionType.CC, completed.getApprovalAuditDelta().getLast().getAction(),
+                "the approval's CC is the last entry it recorded");
+        assertEquals("Approved", record.get("approvalStatus"));
+        verify(handler, times(1)).afterOutcome(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.APPROVED),
+                eq(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, started.getInstanceId())));
+    }
+
+    @Test
+    void aRejectionThatCcsOnItsResultStillWritesRejectedBack() {
+        publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_REJECTED, "3001")));
+        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        FlowExecutionState rejected = engine.reject(
+                nodeRequest(new FlowRejectRequest(), started.getInstanceId(), MANAGER, "busy week"));
+
+        assertEquals(ApprovalActionType.CC, rejected.getApprovalAuditDelta().getLast().getAction());
+        assertEquals("Rejected", record.get("approvalStatus"));
+        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.REJECTED, started.getInstanceId()), capturedOutcome());
+        verify(handler, times(1)).afterOutcome(any(), any());
+    }
+
+    /** A step nobody resolves to that passes on its own, then the approval CCs: approved as it is submitted. */
+    @Test
+    void anApprovalThatPassesOnItsOwnAndCcsWritesApprovedBackAsItIsSubmitted() {
+        DesignFlowDefinition design = withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_APPROVED, "3001"));
+        // No organization service here: the supervisor source finds nobody, and the step passes.
+        design.getGraph().getNodes().set(1, FlowGraphNode.builder()
+                .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
+                .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor")),
+                        "emptyApproverStrategy", "AutoApprove"))
+                .build());
+        publishService.publish("annual", design);
+
+        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
+        assertEquals("Approved", record.get("approvalStatus"));
+        verify(handler, times(1)).afterOutcome(any(),
+                eq(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, state.getInstanceId())));
+    }
+
+    /**
+     * A CC read changes no status: read on an approval returned before the record was submitted again, it writes
+     * nothing — the record stays in its new approval.
+     */
+    @Test
+    void aCcReadOnAReturnedApprovalLeavesTheRecordsNewApprovalPending() {
+        publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
+                ccRule(CcTiming.ON_SUBMIT, "3001")));
+        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        engine.returnApproval(nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "fix the dates"));
+        launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        assertEquals("Pending", record.get("approvalStatus"));
+
+        FlowCcReadRequest read = new FlowCcReadRequest();
+        read.setInstanceId(started.getInstanceId());
+        read.setNodeId("start");
+        read.setActorId("3001");
+        engine.readCc(read);
+
+        assertEquals("Pending", record.get("approvalStatus"));
+        // The return alone reached the record.
+        verify(handler, times(1)).afterOutcome(any(), any());
     }
 
     @Test
@@ -475,7 +582,7 @@ class FlowRecordSubmissionTest {
         FlowExecutionState returned = engine.returnApproval(
                 nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "fix the dates"));
         assertEquals(FlowExecutionStatus.RETURNED, returned.getStatus());
-        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.RETURNED, started.getInstanceId(), MANAGER, "fix the dates"),
+        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.RETURNED, started.getInstanceId()),
                 capturedOutcome());
         assertEquals("Draft", record.get("approvalStatus"), "a returned record is a draft again");
 
@@ -513,7 +620,7 @@ class FlowRecordSubmissionTest {
         FlowExecutionState withdrawn = launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "not needed");
 
         assertEquals(FlowExecutionStatus.WITHDRAWN, withdrawn.getStatus());
-        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, started.getInstanceId(), SUBMITTER, "not needed"),
+        assertEquals(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, started.getInstanceId()),
                 capturedOutcome());
         assertEquals("Draft", record.get("approvalStatus"));
     }
@@ -541,8 +648,7 @@ class FlowRecordSubmissionTest {
         FlowExecutionState state = launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "try again later");
 
         assertEquals(FlowExecutionStatus.FAILED, state.getStatus(), "the failed instance stays as it is");
-        verify(handler).afterOutcome(any(), eq(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, "failed-1", SUBMITTER,
-                "try again later")));
+        verify(handler).afterOutcome(any(), eq(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, "failed-1")));
         assertEquals("Draft", record.get("approvalStatus"));
     }
 
@@ -569,9 +675,7 @@ class FlowRecordSubmissionTest {
         assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
         assertTrue(state.getApprovalAuditDelta().stream().anyMatch(entry ->
                 entry.getAction() == ApprovalActionType.AUTO_APPROVE && SUBMITTER.equals(entry.getActorId())));
-        // The engine's note on an automatic approval is no one's comment.
-        verify(handler).afterOutcome(any(), eq(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, state.getInstanceId(),
-                SUBMITTER, null)));
+        verify(handler).afterOutcome(any(), eq(new ApprovalOutcome(ApprovalOutcomeType.APPROVED, state.getInstanceId())));
     }
 
     @Test
@@ -660,6 +764,16 @@ class FlowRecordSubmissionTest {
         return flow(name, new SubmitTrigger(MODEL), approvers);
     }
 
+    private static DesignFlowDefinition withCc(DesignFlowDefinition design, FlowCcRule... rules) {
+        design.setCc(List.of(rules));
+        return design;
+    }
+
+    private static FlowCcRule ccRule(CcTiming timing, String recipient) {
+        return FlowCcRule.builder().timing(timing)
+                .recipientSource(Map.of("type", "Users", "userIds", List.of(recipient))).build();
+    }
+
     /** start → approval → end, or start → end when {@code approvers} is null. */
     private static DesignFlowDefinition flow(String name, TriggerSource trigger, List<String> approvers) {
         List<FlowGraphNode> nodes = new ArrayList<>();
@@ -693,5 +807,41 @@ class FlowRecordSubmissionTest {
 
     private static FlowGraphEdge edge(String id, String source, String target) {
         return FlowGraphEdge.builder().id(id).source(source).target(target).build();
+    }
+
+    /**
+     * A submit condition and an edge may read through the document's relations, up to two on. The submission reads
+     * those values from the related record, chooses the flow on them, and keeps them with the record's own values,
+     * so every route of the instance decides on what they were at submission.
+     */
+    @Test
+    void aSubmissionChoosesAndRoutesOnWhatItsRelatedRecordSaysAtSubmission() {
+        try (MockedStatic<ModelManager> metadata = RecordModelFixture.mockModelManager()) {
+            record.put("departmentId", 30L);
+            when(modelService.searchList(eq(RecordModelFixture.RELATED), any(FlexQuery.class)))
+                    .thenReturn(List.of(Map.of("costCenter", "CC1", "level", 4)));
+            publishService.publish("sales", routedFlow("Sales leave", "CC1"));
+            publishService.publish("others", routedFlow("Other leave", "CC2"));
+
+            FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+            assertEquals("sales", state.getFlowId());
+            assertEquals("CC1", state.getVariables().get("departmentId.costCenter"));
+            assertEquals(4, state.getVariables().get("departmentId.level"));
+            // The edge reading departmentId.level >= 4 took the approval step, not the way straight to the end.
+            assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
+            assertEquals(List.of(MANAGER), state.getPendingApprovals().getFirst().getApprovers());
+        }
+    }
+
+    /** For departments of {@code costCenter}: start → approval when the department is level 4 or above, else → end. */
+    private static DesignFlowDefinition routedFlow(String name, String costCenter) {
+        DesignFlowDefinition design = flow(name, new SubmitTrigger(MODEL, null,
+                Filters.of(List.of("departmentId.costCenter", "=", costCenter))), List.of(MANAGER));
+        List<FlowGraphEdge> edges = design.getGraph().getEdges();
+        edges.set(0, FlowGraphEdge.builder().id("e1").source("start").target("approval")
+                .condition(Filters.of(List.of("departmentId.level", ">=", 4))).build());
+        edges.add(edge("e3", "start", "end"));
+        return design;
     }
 }

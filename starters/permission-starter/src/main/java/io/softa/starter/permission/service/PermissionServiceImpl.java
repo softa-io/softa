@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
@@ -2129,30 +2130,51 @@ public class PermissionServiceImpl implements PermissionService {
         return holdsAny(pi, endpointIndex.modelActionPermissions(model, action));
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Asked by the action segment of the permission id, the way {@link #actionPermissions} asks for an
-     * export: no endpoint path names the model.
-     */
     @Override
     public boolean hasModelExportGrant(String model) {
-        if (shouldBypass() || model == null) return true;
-        EndpointIndex endpointIndex = endpointIndexSupplier.get();
-        if (endpointIndex == null) return true;
-        PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return true;
-        return holdsAny(pi, endpointIndex.actionPermissions(model, "export"));
+        return hasSharedEndpointGrant(model, "export");
     }
 
     @Override
     public boolean hasModelImportGrant(String model) {
+        return hasSharedEndpointGrant(model, "import");
+    }
+
+    /**
+     * Whether the caller may export or import {@code model} through the endpoints every model shares.
+     * Asked by the action segment of the permission id, the way {@link #actionPermissions} asks for an
+     * export: no endpoint path names the model.
+     *
+     * <p>Only the platform administrator passes on its role. A tenant administrator used to as well, and
+     * that made these endpoints the way round the line its own menus draw: the gate admits it to
+     * {@code /export/dynamicExport} for holding the export of any model, the model then rides in a
+     * parameter, and an administrator reads past row scope — so it could export or import a model whose
+     * page is the platform's or outside the tenant's plan, and for a model that is not multiTenant that is
+     * every tenant's rows. Its snapshot already lists exactly what its menus reach, so it is asked from
+     * that, like everybody else.
+     *
+     * <p>A model no such permission is registered for stays granted: row scope bounds the read. Not for a
+     * caller who reads past row scope — a tenant administrator or a consultant — when the model's one
+     * table holds every tenant's rows; nothing would bound that read but this answer.
+     */
+    private boolean hasSharedEndpointGrant(String model, String action) {
         if (shouldBypass() || model == null) return true;
         EndpointIndex endpointIndex = endpointIndexSupplier.get();
         if (endpointIndex == null) return true;
         PermissionInfo pi = currentPi();
-        if (PermissionInfo.isAdmin(pi)) return true;
-        return holdsAny(pi, endpointIndex.actionPermissions(model, "import"));
+        if (PermissionInfo.isSuperAdmin(pi)) return true;
+        Set<String> candidates = endpointIndex.actionPermissions(model, action);
+        if (candidates.isEmpty()) {
+            return !PermissionInfo.hasFullDataAccess(pi) || !sharedByEveryTenant(model);
+        }
+        return holdsAny(pi, candidates);
+    }
+
+    /** One table for every tenant's rows: multi-tenancy is on and the model is not multiTenant. */
+    private static boolean sharedByEveryTenant(String model) {
+        return SystemConfig.env.isEnableMultiTenancy()
+                && ModelManager.existModel(model)
+                && !ModelManager.getModel(model).isMultiTenant();
     }
 
     /** Whether the caller holds one of {@code candidates}; an empty set — nothing registered — grants. */

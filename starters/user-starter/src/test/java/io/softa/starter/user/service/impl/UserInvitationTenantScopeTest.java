@@ -2,9 +2,10 @@ package io.softa.starter.user.service.impl;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.message.MailRequestMessage;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
@@ -14,7 +15,6 @@ import io.softa.starter.user.service.UserIdentityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Optional;
@@ -50,20 +50,30 @@ class UserInvitationTenantScopeTest {
 
     private UserAccountService accountService;
     private UserIdentityService identityService;
-    private ApplicationEventPublisher eventPublisher;
+    private MessageService messageService;
     private UserInvitationServiceImpl service;
     /** Null when the insert ran cross-tenant — i.e. when the ORM skipped stamping entirely. */
     private AtomicReference<Long> tenantSeenByRowInsert;
+    /**
+     * The tenant the mail was sent in, which its send record is filed under; null when sent from a
+     * context with no tenant — message-starter files a platform-scope send under the platform tier.
+     */
+    private AtomicReference<Long> tenantSeenByMail;
 
     @BeforeEach
     void setUp() {
         accountService = mock(UserAccountService.class);
         identityService = mock(UserIdentityService.class);
-        eventPublisher = mock(ApplicationEventPublisher.class);
+        messageService = mock(MessageService.class);
+        tenantSeenByMail = new AtomicReference<>();
+        when(messageService.sendMail(any())).thenAnswer(inv -> {
+            tenantSeenByMail.set(ContextHolder.getContext().getTenantId());
+            return 1L;
+        });
 
         // tenantInfoService is null: it only supplies the company NAME shown on the /join screens,
         // and this test is about which tenant tier the mail is rendered under.
-        service = spy(new UserInvitationServiceImpl(accountService, identityService, eventPublisher,
+        service = spy(new UserInvitationServiceImpl(accountService, identityService, messageService,
                 null, mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), siteAt("https://app.example.test/")));
         // Stub the inherited ORM surface: this test is about which tier reaches the mail, not about
         // how the invitation row is stored.
@@ -104,9 +114,9 @@ class UserInvitationTenantScopeTest {
         return account;
     }
 
-    private MailRequestMessage captureMail() {
-        ArgumentCaptor<MailRequestMessage> captor = ArgumentCaptor.forClass(MailRequestMessage.class);
-        verify(eventPublisher).publishEvent(captor.capture());
+    private SendMailDTO captureMail() {
+        ArgumentCaptor<SendMailDTO> captor = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendMail(captor.capture());
         return captor.getValue();
     }
 
@@ -127,10 +137,10 @@ class UserInvitationTenantScopeTest {
 
         inviteAsOperatorFrom(OPERATOR_TENANT);
 
-        MailRequestMessage mail = captureMail();
-        assertThat(mail.tenantId()).isEqualTo(ACCOUNT_TENANT);
-        assertThat(mail.tenantId()).isNotEqualTo(OPERATOR_TENANT);
-        assertThat(mail.scope()).isEqualTo(MessageScope.TENANT);
+        SendMailDTO mail = captureMail();
+        assertThat(tenantSeenByMail.get()).isEqualTo(ACCOUNT_TENANT);
+        assertThat(tenantSeenByMail.get()).isNotEqualTo(OPERATOR_TENANT);
+        assertThat(mail.getScope()).isEqualTo(MessageScope.TENANT);
     }
 
     @Test
@@ -142,20 +152,47 @@ class UserInvitationTenantScopeTest {
 
         inviteAsOperatorFrom(ACCOUNT_TENANT);
 
-        assertThat(captureMail().tenantId()).isEqualTo(ACCOUNT_TENANT);
+        captureMail();
+        assertThat(tenantSeenByMail.get()).isEqualTo(ACCOUNT_TENANT);
     }
 
     @Test
-    void forgotPasswordStaysPlatformTier() {
+    void forgotPasswordStaysPlatformTierWhileFiledUnderThePersonsOnlyCompany() {
         // /login/forgetPassword is in public-uri-patterns: no session, no tenant context. It stays
         // platform-tier deliberately — template resolution has no fallback across tiers, so reaching
         // for the account's tenant would turn a missing or disabled tenant copy into "No mail
-        // template found" on a path with no operator around to see it.
+        // template found" on a path with no operator around to see it. Whom it is filed under is a
+        // separate question: someone in one company is that company's send, counted against its quota.
+        when(accountService.soleJoinedTenantOf(7L)).thenReturn(Optional.of(ACCOUNT_TENANT));
+
         service.forgotPassword("invitee@example.test");
 
-        MailRequestMessage mail = captureMail();
-        assertThat(mail.tenantId()).isNull();
-        assertThat(mail.scope()).isEqualTo(MessageScope.PLATFORM);
+        SendMailDTO mail = captureMail();
+        assertThat(mail.getScope()).isEqualTo(MessageScope.PLATFORM);
+        assertThat(tenantSeenByMail.get()).isEqualTo(ACCOUNT_TENANT);
+    }
+
+    @Test
+    void forgotPasswordOfSomeoneInSeveralCompaniesIsThePlatformsSend() {
+        // The reset sets the person's one password: with two companies it is neither one's, so it is
+        // sent with no tenant context and message-starter files it under the platform.
+        when(accountService.soleJoinedTenantOf(7L)).thenReturn(Optional.empty());
+
+        service.forgotPassword("invitee@example.test");
+
+        assertThat(captureMail().getScope()).isEqualTo(MessageScope.PLATFORM);
+        assertThat(tenantSeenByMail.get()).isNull();
+    }
+
+    @Test
+    void aResetIsThePlatformsMailEvenInsideATenant() {
+        // A password reset is an account credential: the platform's template through the platform's
+        // servers whatever the context, so no company can rewrite or swallow it.
+        Context ctx = new Context();
+        ctx.setTenantId(OPERATOR_TENANT);
+        ContextHolder.runWith(ctx, () -> service.forgotPassword("invitee@example.test"));
+
+        assertThat(captureMail().getScope()).isEqualTo(MessageScope.PLATFORM);
     }
 
     @Test
@@ -187,7 +224,8 @@ class UserInvitationTenantScopeTest {
         assertThat(tenantSeenByRowInsert.get())
                 .as("the row belongs to the account's tenant regardless of which tier renders the mail")
                 .isEqualTo(ACCOUNT_TENANT);
-        assertThat(captureMail().tenantId()).isNull();
+        assertThat(captureMail().getScope()).isEqualTo(MessageScope.PLATFORM);
+        assertThat(tenantSeenByMail.get()).isNull();
     }
 
     @Test
@@ -196,7 +234,7 @@ class UserInvitationTenantScopeTest {
         // some proxies and is invisible in a passing "mail was published" assertion.
         service.forgotPassword("invitee@example.test");
 
-        assertThat((String) captureMail().variables().get("link"))
+        assertThat((String) captureMail().getTemplateVariables().get("link"))
                 .startsWith("https://app.example.test/set-password?token=");
     }
 }

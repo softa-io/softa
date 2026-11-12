@@ -4,7 +4,6 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,7 +21,6 @@ class ValidateDataTaskExecutorTest {
     @Test
     void passingExpressionReturnsValid() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.VALIDATE_DATA)
                 .input(Map.of(
                         "expression", "amount > 0 && amount <= budget",
                         "exceptionMsg", "Amount {{ amount }} exceeds budget {{ budget }}!"))
@@ -36,7 +34,6 @@ class ValidateDataTaskExecutorTest {
     @Test
     void failingExpressionThrowsBusinessExceptionWithInterpolatedMessage() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.VALIDATE_DATA)
                 .input(Map.of(
                         "expression", "amount <= budget",
                         "exceptionMsg", "Amount {{ amount }} exceeds budget {{ budget }}!"))
@@ -51,7 +48,6 @@ class ValidateDataTaskExecutorTest {
     @Test
     void missingExpressionThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.VALIDATE_DATA)
                 .input(Map.of("exceptionMsg", "boom"))
                 .build();
 
@@ -63,7 +59,6 @@ class ValidateDataTaskExecutorTest {
     @Test
     void blankExpressionThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.VALIDATE_DATA)
                 .input(Map.of("expression", "   ", "exceptionMsg", "boom"))
                 .build();
 
@@ -75,7 +70,6 @@ class ValidateDataTaskExecutorTest {
     @Test
     void missingExceptionMsgThrows() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.VALIDATE_DATA)
                 .input(Map.of("expression", "amount > 0"))
                 .build();
 

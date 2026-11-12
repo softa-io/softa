@@ -60,7 +60,7 @@ softa-parent (root pom.xml)
 │   ├── cron-starter             # Scheduled task execution
 │   ├── es-starter               # Elasticsearch CRUDQ
 │   ├── file-starter             # File management
-│   ├── message-starter          # SMS / Mail + Pulsar MQ producers/consumers
+│   ├── message-starter          # Mail / SMS / Inbox: send records, delivery loop, templates
 │   ├── reference-data-starter   # ISO 3166-1 countries, ISO 4217 currencies, ISO 3166-2 subdivisions
 │   ├── studio-starter           # Metadata control plane: cross-env governance + DDL rendering (Pebble)
 │   ├── user-starter             # User management
@@ -487,8 +487,10 @@ Verification recipe for annotation changes:
 1. `mvn -B -ntp -DskipTests compile -pl <affected module> -am`
 2. `mvn -B -ntp test -pl starters/metadata-starter -Dtest='AnnotationParserTest,SystemModelAnnotationTest,ReferenceDataAnnotationTest,TypeInferenceTest'`
 3. `mvn -B -ntp test -pl <affected module>`
-4. `git diff -- '<affected files>'` (and `git diff main...HEAD` for full PR scope)
-5. (If a `scanner-scope: ["*"]` app is available) restart and watch logs:
+4. `mvn -B -ntp test -pl apps/demo-app -am -Dtest=SoftaCatalogBootCheckTest -Dsurefire.failIfNoSpecifiedTests=false`
+   — every softa model through the checks `ModelManager` makes at boot (`CatalogBootCheck`)
+5. `git diff -- '<affected files>'` (and `git diff main...HEAD` for full PR scope)
+6. (If a `scanner-scope: ["*"]` app is available) restart and watch logs:
    `MetadataAnnotationScanner: applied N row change(s) to sys_*`
    `DdlOrchestrator: CREATE TABLE ... OK` / `ALTER TABLE ... OK`
 
@@ -501,14 +503,17 @@ were planned but removed. AI agents use `Read` / `Edit` / `Write` directly
 - [starters/metadata-starter/README.md](starters/metadata-starter/README.md) — annotation API, scanner-scope behavior matrix, `renamedFrom`, DDL auto-execute policy
 - [framework/softa-orm/README.md](framework/softa-orm/README.md) — full `@Model` / `@Field` / `@Index` property reference
 - [starters/studio-starter/README.md](starters/studio-starter/README.md) — metadata control plane: publish / merge / drift / import, connectors, `DesignAggregate`
-- [starters/flow-starter/README.md](starters/flow-starter/README.md) — flow engine: scenarios and triggers, the approval model, approving business records, notifications, APIs
+- [starters/flow-starter/README.md](starters/flow-starter/README.md) — flow engine maintainer reference: wiring and configuration, extension points, the invariants a change must keep; the engine's behaviour is documented in the softa-docs Flow pages
 
 A change to behaviour in `flow-starter` — the record or instance state machine,
 approval actions, flow or node settings, triggers and automation runs,
-notifications, permissions, configuration keys — updates
-`starters/flow-starter/README.md` and the softa-docs Flow pages
-(`content/{zh-CN,en-US}/docs/features/flow/`, zh-CN first: it is the translation
-source) in the same change; when neither needs to change, the summary says why.
+notifications, permissions, configuration keys — updates the softa-docs Flow pages
+(`content/{zh-CN,en-US}/docs/features/flow/`, zh-CN first — it is the source — then
+the en-US mirror, kept by hand) in the same change: they are the one complete
+description of the engine. `starters/flow-starter/README.md` is the maintainer
+reference and changes only when what it lists changes — wiring and configuration,
+extension points and their contracts, the invariants. When none needs to change,
+the summary says why.
 
 ## Coding Conventions
 
@@ -553,7 +558,11 @@ source) in the same change; when neither needs to change, the summary says why.
     designs and fails the build when an enum change strands one — answer it with the migration, never by editing
     its fixtures.
 - Default language: English (comments, log messages, exception messages).
-- Dates: `LocalDate` / `LocalDateTime`.
+- Dates: `LocalDate` / `LocalDateTime`. Hand the date object to whatever writes it out — Jackson, the
+  templates (`PlaceholderUtils`, `TemplateEngine`, Word documents) and Excel exports all print the
+  `TimeConstant` formats (`2026-11-12 13:00:40`); `toString()` is the ISO form
+  (`2026-11-12T13:00:40.123456789`) and goes out as it is. Where code must build the text itself, use
+  `DateUtils.formatTemporal`.
 
 ### Design principles
 

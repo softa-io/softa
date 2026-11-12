@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.message.mail.entity.MailReceiveRecord;
+import io.softa.starter.message.mail.entity.PlatformMailReceiveRecord;
+import io.softa.starter.message.mail.enums.MailServerOwner;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.ReceivedMailType;
 import io.softa.starter.message.mail.service.MailSendRecordService;
@@ -37,9 +39,9 @@ class BounceReceiptLinkerTest {
         record.setMailType(ReceivedMailType.NORMAL);
         record.setOriginalMessageId(null);
 
-        linker.link(List.of(record));
+        linker.link(List.of(record), MailServerOwner.TENANT);
         // No originalMessageId → short-circuits before findByMessageIds.
-        verify(sendRecordService, never()).findByMessageIds(any());
+        verify(sendRecordService, never()).findByMessageIds(any(), any());
     }
 
     @Test
@@ -48,8 +50,8 @@ class BounceReceiptLinkerTest {
         record.setMailType(ReceivedMailType.BOUNCE);
         record.setOriginalMessageId(null);
 
-        linker.link(List.of(record));
-        verify(sendRecordService, never()).findByMessageIds(any());
+        linker.link(List.of(record), MailServerOwner.TENANT);
+        verify(sendRecordService, never()).findByMessageIds(any(), any());
     }
 
     @Test
@@ -57,14 +59,14 @@ class BounceReceiptLinkerTest {
         MailSendRecord send = new MailSendRecord();
         send.setId(5L);
         send.setVersion(2L);
-        when(sendRecordService.findByMessageIds(any())).thenReturn(Map.of("<m@x>", send));
+        when(sendRecordService.findByMessageIds(any(), eq(MailServerOwner.TENANT))).thenReturn(Map.of("<m@x>", send));
         when(sendRecordService.markReadReceiptReceived(5L, 2L)).thenReturn(true);
 
         MailReceiveRecord receive = new MailReceiveRecord();
         receive.setMailType(ReceivedMailType.READ_RECEIPT);
         receive.setOriginalMessageId("<m@x>");
 
-        linker.link(List.of(receive));
+        linker.link(List.of(receive), MailServerOwner.TENANT);
 
         verify(sendRecordService).markReadReceiptReceived(5L, 2L);
     }
@@ -74,7 +76,7 @@ class BounceReceiptLinkerTest {
         MailSendRecord send = new MailSendRecord();
         send.setId(6L);
         send.setVersion(0L);
-        when(sendRecordService.findByMessageIds(any())).thenReturn(Map.of("<b@x>", send));
+        when(sendRecordService.findByMessageIds(any(), eq(MailServerOwner.TENANT))).thenReturn(Map.of("<b@x>", send));
         when(sendRecordService.markBounced(eq(6L), anyLong(), any())).thenReturn(true);
 
         MailReceiveRecord receive = new MailReceiveRecord();
@@ -83,9 +85,21 @@ class BounceReceiptLinkerTest {
         receive.setSmtpReplyCode("550");
         receive.setEnhancedStatusCode("5.1.1");
 
-        linker.link(List.of(receive));
+        linker.link(List.of(receive), MailServerOwner.TENANT);
 
         // SMTP reply code + enhanced status code are combined into one stored value.
         verify(sendRecordService).markBounced(6L, 0L, "550 5.1.1");
+    }
+
+    @Test
+    void aPlatformReceiveServerAsksForTheMailThePlatformsServersCarried() {
+        PlatformMailReceiveRecord receive = new PlatformMailReceiveRecord();
+        receive.setOriginalMessageId("<relayed@x>");
+        receive.setMailType(ReceivedMailType.BOUNCE);
+
+        linker.link(List.of(receive), MailServerOwner.PLATFORM);
+
+        // Every tenant's relayed mail is among them; a tenant's own servers' mail is not.
+        verify(sendRecordService).findByMessageIds(List.of("<relayed@x>"), MailServerOwner.PLATFORM);
     }
 }

@@ -13,14 +13,12 @@ import lombok.Getter;
 public enum EmptyApproverStrategy {
     /** Throw an error and halt the flow (default). */
     ERROR("Error"),
-    /** Skip the approval node and continue execution. */
-    SKIP("Skip"),
     /** Auto-approve the node and continue execution. */
     AUTO_APPROVE("AutoApprove"),
     /**
      * Hand the step to the holders of the node's {@code emptyApproverRoleIds} / {@code emptyApproverRoleCodes} who can
-     * act, the submitter and the employee the record is about left out: any one of them approves or rejects it. With
-     * nobody left, as {@link #ERROR}.
+     * act: any one of them approves or rejects it. A holder who submitted the request is an approver like any other —
+     * the flow's {@code selfApproval} decides. With nobody holding the roles, as {@link #ERROR}.
      */
     ASSIGN_TO_ROLE("AssignToRole"),
     ;

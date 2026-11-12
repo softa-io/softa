@@ -14,6 +14,7 @@ import io.softa.starter.message.inbox.service.InboxNotificationService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -84,6 +85,39 @@ class InboxMessageHandlerTest {
         assertThrows(BusinessException.class, () -> handler.sendBatch(List.of(
                 message(1L, "Valid", "Content"), invalid)));
         verifyNoInteractions(notificationService);
+    }
+
+    // zingkey-hcm#2602: an urge's 256-character note never reached the approver — the content column was 64 wide, and
+    // the refusal was only logged by the flow that sent it. The content has no width now.
+    @Test
+    void longContentIsKeptWhole() {
+        ArgumentCaptor<InboxNotification> captor = ArgumentCaptor.forClass(InboxNotification.class);
+        when(notificationService.createOne(captor.capture())).thenReturn(72L);
+        String note = "x".repeat(2000);
+
+        handler.send(message(1L, "Reminder to approve: Overtime · Ann Lee", note));
+
+        assertEquals(note, captor.getValue().getContent());
+    }
+
+    @Test
+    void aTitleLongerThanItsColumnIsCutToFitNotRefused() {
+        ArgumentCaptor<InboxNotification> captor = ArgumentCaptor.forClass(InboxNotification.class);
+        when(notificationService.createOne(captor.capture())).thenReturn(73L);
+
+        handler.send(message(1L, "A change could not be applied: " + "y".repeat(300), "Reason"));
+
+        String title = captor.getValue().getTitle();
+        assertEquals(InboxMessageHandler.TITLE_MAX_LENGTH, title.length());
+        assertTrue(title.startsWith("A change could not be applied: y"));
+        assertTrue(title.endsWith("…"));
+    }
+
+    @Test
+    void aTitleThatFitsIsKeptAsSent() {
+        String exactly = "t".repeat(InboxMessageHandler.TITLE_MAX_LENGTH);
+
+        assertEquals(exactly, InboxMessageHandler.fit(exactly));
     }
 
     private static SendInboxDTO message(Long recipientId, String title, String content) {

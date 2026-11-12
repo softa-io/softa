@@ -83,7 +83,7 @@ public class WithdrawPolicyGuard {
     }
 
     /**
-     * Whether {@code requesterId} may take the record back from its approval that failed (zingkey-hcm#2385): they
+     * Whether {@code requesterId} may take the record back from its approval that failed: they
      * submitted it, and the record still waits on that approval ({@link FailedApprovalRecords}). No policy limits it —
      * nobody is left to act on the approval. The record becomes a draft again, to submit again on the flow as it is
      * by then; the failed instance stays as it is, for flow monitoring.

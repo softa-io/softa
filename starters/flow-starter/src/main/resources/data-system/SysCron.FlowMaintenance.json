@@ -3,42 +3,12 @@
     {
       "id": "flow_approval_timeout_handle",
       "name": "flow_approval_timeout_handle",
-      "cronExpression": "0 */10 * * * ?",
-      "cronSemantic": "Every 10 minutes",
+      "cronExpression": "0 0 * * * ?",
+      "cronSemantic": "Every hour",
       "limitExecution": false,
       "tenantJobMode": "PerTenant",
       "active": false,
       "description": "Remind the approvers of approval steps that are due (the flow's remindAfterHours)"
-    },
-    {
-      "id": "flow_delegation_expiry",
-      "name": "flow_delegation_expiry",
-      "cronExpression": "0 0 * * * ?",
-      "cronSemantic": "Every hour",
-      "limitExecution": false,
-      "tenantJobMode": "CrossTenant",
-      "active": false,
-      "description": "Expire delegation rules past their end time"
-    },
-    {
-      "id": "flow_timer_sweep",
-      "name": "flow_timer_sweep",
-      "cronExpression": "0 */5 * * * ?",
-      "cronSemantic": "Every 5 minutes",
-      "limitExecution": false,
-      "tenantJobMode": "PerTenant",
-      "active": false,
-      "description": "Resume WAITING instances with a due timer missed by Pulsar deliverAfter"
-    },
-    {
-      "id": "flow_instance_stuck_scan",
-      "name": "flow_instance_stuck_scan",
-      "cronExpression": "0 0 */1 * * ?",
-      "cronSemantic": "Every hour",
-      "limitExecution": false,
-      "tenantJobMode": "CrossTenant",
-      "active": false,
-      "description": "Log non-terminal instances with no recent updates for operator review"
     },
     {
       "id": "flow_automation_purge",

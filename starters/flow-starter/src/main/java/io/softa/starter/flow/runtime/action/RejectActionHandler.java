@@ -1,15 +1,16 @@
 package io.softa.starter.flow.runtime.action;
 
-import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.starter.flow.enums.CcTiming;
 import io.softa.starter.flow.runtime.engine.FlowStatusTransitions;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.engine.ApprovalActorValidator;
 import io.softa.starter.flow.runtime.engine.ApprovalContext;
+import io.softa.starter.flow.runtime.engine.AutoCcService;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowActionReplayGuard;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
@@ -30,17 +31,20 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
     private final FlowAuditService auditService;
     private final ApprovalNotificationService notificationService;
     private final FlowActionReplayGuard replayGuard;
+    private final AutoCcService autoCcService;
 
     public RejectActionHandler(FlowActionContextService contextService,
                                ApprovalActorValidator actorValidator,
                                FlowAuditService auditService,
                                ApprovalNotificationService notificationService,
-                               FlowActionReplayGuard replayGuard) {
+                               FlowActionReplayGuard replayGuard,
+                               AutoCcService autoCcService) {
         this.contextService = contextService;
         this.actorValidator = actorValidator;
         this.auditService = auditService;
         this.notificationService = notificationService;
         this.replayGuard = replayGuard;
+        this.autoCcService = autoCcService;
     }
 
     @Override
@@ -74,7 +78,6 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
 
         state.getPendingApprovals().clear();
         FlowStatusTransitions.apply(state, FlowExecutionStatus.REJECTED);
-        contextService.mergeVariables(state, Map.of("approvalDecision", auditService.buildApprovalDecisionPayload("Rejected", request)));
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_REJECTED,
                 auditService.buildRejectionMessage(node, request));
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
@@ -82,8 +85,10 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
                 .actorId(request.getActorId())
                 .comment(request.getComment())
                 .build());
+        // The flow's rejection CCs, recorded on the step that rejected it.
+        autoCcService.processCc(state, node, CcTiming.ON_REJECTED);
         contextService.persistState(state);
-        notificationService.notify(new FlowNotificationEvent.TaskCompleted(state, pendingApproval, false));
+        notificationService.notify(new FlowNotificationEvent.Rejected(state, pendingApproval));
         return state;
     }
 }

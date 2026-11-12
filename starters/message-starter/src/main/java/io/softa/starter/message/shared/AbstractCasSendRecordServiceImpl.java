@@ -43,8 +43,8 @@ public abstract class AbstractCasSendRecordServiceImpl<E extends AbstractModel>
         Map<String, Object> patch = versionedPatch(id, expectedVersion);
         patch.put("status", status);
         patch.put("retryCount", nextRetryCount);
-        patch.put("errorCode", errorCode);
-        patch.put("errorMessage", errorMessage);
+        patch.put("errorCode", ErrorText.clip(errorCode, ErrorText.CODE_LENGTH));
+        patch.put("errorMessage", ErrorText.clip(errorMessage, ErrorText.MESSAGE_LENGTH));
         patch.put("nextRetryAt", nextRetryAt);
         return updateVersioned(patch);
     }
@@ -53,8 +53,8 @@ public abstract class AbstractCasSendRecordServiceImpl<E extends AbstractModel>
                                          String errorCode, String errorMessage) {
         Map<String, Object> patch = versionedPatch(id, expectedVersion);
         patch.put("status", status);
-        patch.put("errorCode", errorCode);
-        patch.put("errorMessage", errorMessage);
+        patch.put("errorCode", ErrorText.clip(errorCode, ErrorText.CODE_LENGTH));
+        patch.put("errorMessage", ErrorText.clip(errorMessage, ErrorText.MESSAGE_LENGTH));
         return updateVersioned(patch);
     }
 

@@ -56,11 +56,6 @@ public class SendEmailTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "SendEmail";
-    }
-
-    @Override
     public String getName() {
         return "Send Email";
     }

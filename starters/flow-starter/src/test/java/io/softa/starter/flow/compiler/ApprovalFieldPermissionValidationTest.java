@@ -17,7 +17,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * A step's field permissions name a permission for every field they list (zingkey-hcm#2406): a row saved before its
+ * A step's field permissions name a permission for every field they list: a row saved before its
  * permission was picked validated and published as no rule at all, and the designer believed the field set.
  */
 class ApprovalFieldPermissionValidationTest {

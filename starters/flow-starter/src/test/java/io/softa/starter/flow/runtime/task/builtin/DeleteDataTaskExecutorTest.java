@@ -45,7 +45,6 @@ class DeleteDataTaskExecutorTest {
     @Test
     void supportsDeleteRecordNodeType() {
         assertEquals(FlowNodeType.DELETE_RECORD, executor.getSupportedNodeType());
-        assertEquals("DeleteData", executor.getExecutor());
     }
 
     @Test
@@ -54,7 +53,6 @@ class DeleteDataTaskExecutorTest {
 
         // Filters arrive from flow JSON as a raw list (["field","op",value]), coerced by the executor.
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.DELETE_RECORD)
                 .input(Map.of("modelName", "DemoModel", "filters", List.of("active", "=", true)))
                 .build();
 
@@ -69,7 +67,6 @@ class DeleteDataTaskExecutorTest {
         when(modelService.deleteByFilters(eq("DemoModel"), any(Filters.class))).thenReturn(true);
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.DELETE_RECORD)
                 .input(Map.of("modelName", "DemoModel", "pkVariable", "{{ ids }}"))
                 .build();
 
@@ -82,7 +79,6 @@ class DeleteDataTaskExecutorTest {
     @Test
     void returnsNotDeletedWhenNoPkVariableAndNoFilters() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.DELETE_RECORD)
                 .input(Map.of("modelName", "DemoModel"))
                 .build();
 
@@ -95,7 +91,6 @@ class DeleteDataTaskExecutorTest {
     @Test
     void returnsNotDeletedWhenPkVariableResolvesToEmptyCollection() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.DELETE_RECORD)
                 .input(Map.of("modelName", "DemoModel", "pkVariable", "{{ ids }}"))
                 .build();
 
@@ -112,7 +107,6 @@ class DeleteDataTaskExecutorTest {
     @Test
     void throwsWhenModelNameMissing() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.DELETE_RECORD)
                 .input(Map.of("pkVariable", "{{ ids }}"))
                 .build();
 
@@ -124,7 +118,6 @@ class DeleteDataTaskExecutorTest {
     @Test
     void throwsWhenModelNameBlank() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.DELETE_RECORD)
                 .input(Map.of("modelName", "   "))
                 .build();
 

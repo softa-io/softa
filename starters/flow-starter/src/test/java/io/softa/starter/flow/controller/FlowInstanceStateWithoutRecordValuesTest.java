@@ -14,7 +14,6 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowCcReadRequest;
 import io.softa.starter.flow.runtime.api.FlowCcRequest;
-import io.softa.starter.flow.runtime.api.FlowDelegateRequest;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.api.FlowReturnRequest;
 import io.softa.starter.flow.runtime.api.FlowTransferRequest;
@@ -33,7 +32,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * An approval's participants read its state — the instance, and every action's answer — without the record's
- * values (zingkey-hcm#2402). The variables hold the record's fields as submitted and what later steps worked out,
+ * values. The variables hold the record's fields as submitted and what later steps worked out,
  * past the field permissions the record's own read applies: a field a step hid could be read off the instance. The
  * engine's state keeps them.
  */
@@ -52,7 +51,7 @@ class FlowInstanceStateWithoutRecordValuesTest {
         when(engine.getInstance("i1")).thenReturn(Optional.of(state));
         when(names.namesOf(anyList())).thenReturn(Map.of("1001", "Ann Lee"));
 
-        FlowExecutionState read = as(APPROVER, () -> controller.getInstance("i1", false)).getData();
+        FlowExecutionState read = as(APPROVER, () -> controller.getInstance("i1")).getData();
 
         assertWithoutRecordValues(read);
         assertThat(read.getInitiatorName()).isEqualTo("Ann Lee");
@@ -65,7 +64,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
         when(engine.approve(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.reject(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.transfer(any())).thenAnswer(invocation -> withRecordValues());
-        when(engine.delegate(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.cc(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.readCc(any())).thenAnswer(invocation -> withRecordValues());
         when(engine.returnApproval(any())).thenAnswer(invocation -> withRecordValues());
@@ -75,7 +73,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
                 endpoint -> endpoint.approve(new FlowApproveRequest()),
                 endpoint -> endpoint.reject(new FlowRejectRequest()),
                 endpoint -> endpoint.transfer(new FlowTransferRequest()),
-                endpoint -> endpoint.delegate(new FlowDelegateRequest()),
                 endpoint -> endpoint.cc(new FlowCcRequest()),
                 endpoint -> endpoint.readCc(new FlowCcReadRequest()),
                 endpoint -> endpoint.returnApproval(new FlowReturnRequest()),
@@ -94,7 +91,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
         return FlowExecutionState.builder()
                 .instanceId("i1").modelName("ExpenseClaim").rowId("7").recordApproval(true)
                 .status(FlowExecutionStatus.WAITING).initiatorId("1001").title("Taxi to client")
-                .inputPayload(Map.of("totalAmount", 6000))
                 .variables(variables)
                 .returnData(Map.of("ok", true))
                 .build();
@@ -102,7 +98,6 @@ class FlowInstanceStateWithoutRecordValuesTest {
 
     private static void assertWithoutRecordValues(FlowExecutionState state) {
         assertThat(state.getVariables()).isNull();
-        assertThat(state.getInputPayload()).isNull();
         assertThat(state.getReturnData()).isNull();
         // What shows the approval stays.
         assertThat(state.getInstanceId()).isEqualTo("i1");

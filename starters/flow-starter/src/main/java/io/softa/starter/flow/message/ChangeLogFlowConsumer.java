@@ -15,12 +15,10 @@ import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
 import io.softa.starter.flow.runtime.trigger.FlowTriggerEvent;
 
 /**
- * Consumes ChangeLog messages from Pulsar and triggers matching flows.
- * <p>
- * Uses a distinct subscription name ({@code flow-sub}) so it can
- * run in parallel with the legacy flow-starter's {@code ChangeLogFlowConsumer}
- * during migration.
- * </p>
+ * Consumes ChangeLog messages from Pulsar and runs the async flows ({@code sync=false}) the changes start, in this
+ * listener's own thread. Its subscription ({@code flow-sub}) is apart from the one that persists the change logs, so
+ * a slow flow does not hold that up. The sync flows matching the same change already ran in the writer's
+ * transaction, before it committed.
  */
 @Slf4j
 @Component
@@ -48,7 +46,7 @@ public class ChangeLogFlowConsumer {
 
             for (FlowTriggerEvent event : events) {
                 try {
-                    automationService.fireAsync(event);
+                    automationService.fireAsyncOnly(event);
                 } catch (Exception e) {
                     log.error("Failed to fire ChangeLog trigger event {}: {}", event, e.getMessage(), e);
                     throw (RuntimeException) e;

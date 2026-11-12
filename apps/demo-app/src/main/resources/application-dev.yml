@@ -119,12 +119,6 @@ mq:
 #    flow-async-task:
 #      topic: dev_demo_flow_async_task
 #      sub: dev_demo_flow_async_task_sub
-#    flow-event:
-#      topic: dev_demo_flow_event
-#      sub: dev_demo_flow_event_sub
-#    flow-timer:
-#      topic: dev_demo_flow_timer
-#      sub: dev_demo_flow_timer_sub
 #    inner-broadcast:
 #      topic: dev_demo_inner_broadcast
 #      sub: dev_demo_inner_broadcast_sub
@@ -243,28 +237,14 @@ resilience4j:
         failure-rate-threshold: 60
         wait-duration-in-open-state: 30s
 
-# ---- message-starter: incoming mail resource limits ----
-# All five limits below are *defense-in-depth* gates applied to every email
-# pulled from IMAP/POP3. Defaults (shown as comments) are tuned for typical
-# business mail; raise/lower per environment risk profile. Hits land on
-# MailReceiveRecord.truncationReason for SecOps triage.
+# ---- message-starter: transport timeouts ----
+# Incoming mail's size and MIME limits are constants in MailMessageParser
+# (100MB per message, 20MB per attachment, 10 MIME levels, 100 parts); hits
+# land on MailReceiveRecord.truncationReason for SecOps triage. Defaults below
+# are shown as comments.
 #softa:
 #  message:
 #    mail:
-#      fetch:
-#        # Total RFC822 cap. Server-reported size, sender cannot forge.
-#        # Above limit → envelope-only record, BodyTooLarge.
-#        max-message-size: 100MB
-#        # Per-attachment cap. Above limit → that attachment skipped,
-#        # AttachmentTooLarge marker set.
-#        max-attachment-size: 20MB
-#        # Archive raw EML to file-starter. Default false; opt in for
-#        # compliance/audit. Already bounded by max-message-size.
-#        archive-eml: false
-#        # MIME nesting depth. Real emails ≤6; >10 is suspicious.
-#        max-mime-depth: 10
-#        # MIME total part count. Real emails ≤30; >100 is suspicious.
-#        max-mime-parts: 100
 #      transport:
 #        # SMTP / IMAP / POP3 socket timeouts. Applied per-Session by
 #        # SmtpMailTransport + MailReceiveServiceImpl. Tune down for fast

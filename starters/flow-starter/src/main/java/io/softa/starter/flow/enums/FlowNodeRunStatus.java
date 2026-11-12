@@ -12,7 +12,6 @@ import lombok.Getter;
 public enum FlowNodeRunStatus {
     COMPLETED("Completed"),
     WAITING_APPROVAL("WaitingApproval"),
-    WAITING_TIMER("WaitingTimer"),
     WAITING_ASYNC("WaitingAsync"),
     FAILED("Failed");
 

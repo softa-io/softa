@@ -15,7 +15,6 @@ import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
-import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 
 /**
@@ -65,9 +64,6 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(length = 200, description = "Approval node label")
     private String nodeLabel;
 
-    @Field(description = "Approval task cycle number for repeated visits to the same node")
-    private Integer cycleNumber;
-
     @Field(label = "Actor ID", required = true, description = "Assigned actor id")
     private String actorId;
 
@@ -83,20 +79,8 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(length = 2000, description = "Latest action comment")
     private String comment;
 
-    @Field(description = "Whether approvers were resolved dynamically")
-    private Boolean dynamicApprovers;
-
-    @Field(description = "Approval mode snapshot")
-    private VoteThresholdMode approvalMode;
-
     @Field(description = "Required approval count snapshot")
     private Integer requiredApprovalCount;
-
-    @Field(description = "Total approver count snapshot")
-    private Integer totalApproverCount;
-
-    @Field(length = 4000, description = "Candidate actor ids for the node")
-    private List<String> candidateActors;
 
     @Field(length = 4000, description = "Actors who already approved when this projection was synced")
     private List<String> approvedActors;
@@ -109,15 +93,6 @@ public class FlowApprovalTask extends AuditableModel {
 
     @Field(description = "Task due time for timeout handling")
     private LocalDateTime dueTime;
-
-    @Field(description = "Remind count for overdue notifications")
-    private Integer remindCount;
-
-    @Field(length = 30, description = "Urgency level")
-    private String urgency;
-
-    @Field(label = "Batch ID", description = "Batch ID for batch approval operations")
-    private Long batchId;
 
     @Field(label = "Closed By Actor ID", description = "Actor who closed this task when available")
     private String closedByActorId;

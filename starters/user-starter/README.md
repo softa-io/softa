@@ -21,15 +21,18 @@ invites the person into it.
 </dependency>
 ```
 
-Depends on `softa-web`, `reference-data-starter`, and `cron-starter` (**optional** —
+Depends on `softa-web`, `reference-data-starter`, `message-starter`, and `cron-starter` (**optional** —
 powers the built-in `UserMaintenanceCronConsumer` for the nightly `DynamicRoleSync` job; a deployment on
 a different scheduler omits it, the consumer stays dormant via `@ConditionalOnClass`, and the app drives
 `DynamicRoleSyncJob.syncAll()` itself. The job + Role / UserRoleRel entities live here). The cron row
 ships in `data-system/SysCron.UserMaintenance.json`, which the app lists under `platform` in its
 `seed-manifest.yml`; an unlisted file never loads, and the job never runs.
 Auto-configured by `io.softa.starter.user.UserAutoConfiguration` (component-scans the
-module — no enabling flag). Sessions require Redis; password-reset emails require a
-`MessageService` (message-starter).
+module — no enabling flag). Sessions require Redis. Login and join codes, invitation and
+password-reset links, account-change notices and subscription reminders are sent through
+message-starter's `MessageService`; a send it rejects (an address that does not parse) is logged at
+ERROR and never fails the change that triggered it — except the codes of the self-service password
+and mobile changes, where it refuses that step.
 
 ## Entities
 

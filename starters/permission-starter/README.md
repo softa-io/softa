@@ -424,6 +424,16 @@ the export endpoints are shared by every model, so the gate cannot tell which mo
 the caller, and an export of a model whose export permission is registered but held by none of the
 caller's roles reaches no row (and shows no sensitive field).
 
+**Which model the shared export and import endpoints may serve.** `/export/*` and `/import/*` take the
+model as a parameter, so the gate admits anyone holding the export (import) of *some* model;
+`hasModelExportGrant` / `hasModelImportGrant` answer for the model named, before a row is read. The
+caller must hold a permission registered for that model's export (import). Only the platform
+administrator passes on its role. A tenant administrator is answered from its snapshot, which lists
+exactly what its menus reach; passing it on its role would let it export or import, whole, a model
+whose page is the platform's or outside its plan. A model with no such permission registered
+stays granted, bounded by row scope — except to a caller who reads past row scope (a tenant
+administrator, a consultant) when the model is not multiTenant: one table holds every tenant's rows.
+
 **Sensitive fields, per row.** A sensitive field is visible on a row only when a role that reaches the
 row also holds the field's set; editable only when one role holds the write action, the set and the
 row together. `fieldPlan` splits a model's sensitive fields into blocked (no reading role grants them),
@@ -500,15 +510,32 @@ permission:
   platform-only-patterns:         # only SUPER_ADMIN may reach these
     - /Plan/**                    # billing / provisioning / cross-tenant Ops
   platform-nav-prefixes: navigation.system.,navigation.studio.
-  shared-nav-prefixes: navigation.message.
+  shared-nav-prefixes: navigation.crm.          # an example: pages both sides work in, on multiTenant models
 ```
 
-The two prefix lists are **disjoint, and answer different questions**:
+The two prefix lists are **separate, and answer different questions**:
 `platform-nav-prefixes` is what a tenant admin is kept OUT of; `shared-nav-prefixes`
 is what both audiences are let INTO. A tenant admin's nav set is *every* nav minus
 the platform prefixes (fail-open); the platform admin's is *only* the platform
 prefixes plus the shared ones (fail-closed). Folding the two lists into one would
 name system and studio twice, once under each meaning — the shape that drifts.
+A platform prefix may sit inside a shared one: a tenant admin is tested against the
+platform list alone, so the subtree is carved out for it, and the platform admin
+keeps the whole module.
+
+**Share only pages on multiTenant models.** A shared page is the same page on two
+tiers only when its model is isolated by tenant. A tenant admin (and a consultant)
+reads past row scope, so a shared page on a model that is not multiTenant hands it
+every tenant's rows. message-starter's platform pages are such pages — the send logs,
+`DeadLetterMessage`, `TenantMessageQuota`, `TenantMessageUsage`, the `Platform*`
+models — so they belong under a platform prefix.
+
+**A tenant's own roles never reach platform menus.** The prefixes decide the menus a
+tenant admin and a consultant are computed; a custom role holds what was granted to
+it. For every tenant but the platform's own, the snapshot drops granted navigations
+under a platform prefix, and the permissions that hang off them even when they sit in
+another navigation's grant row — a grant saved before a menu became platform-only, or
+written around the role wizard, opens nothing. The platform tenant's roles keep them.
 
 Both are read twice, by `DefaultPermissionSnapshotProvider` here and by
 user-starter's `UiContextBuilder`, which assembles the same answer for the client.

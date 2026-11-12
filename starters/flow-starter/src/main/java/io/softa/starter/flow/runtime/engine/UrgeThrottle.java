@@ -20,16 +20,16 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 /**
  * Who may urge the steps an approval waits on, and how often, by its flow's settings. The initiator may unless
  * the flow turns that off ({@code urgeEnabled}, on when unset); an administrator may either way. A step urged —
- * by the initiator or by an administrator — is not urged again until the flow's {@code urgeIntervalMinutes}
- * (240 when unset) have passed. The interval runs per step and per pass through it: it is measured from the
+ * by the initiator or by an administrator — is not urged again until the flow's {@code urgeIntervalHours}
+ * (4 when unset) have passed — hours, as the flow's reminders ({@code remindAfterHours}) count them. The interval runs per step and per pass through it: it is measured from the
  * step's last {@code URGE} entry in the approval history on the same node and cycle, so a step reached again
  * starts afresh.
  */
 @Component
 public class UrgeThrottle {
 
-    /** The interval of a flow that sets none. */
-    public static final int DEFAULT_INTERVAL_MINUTES = 240;
+    /** The interval, in hours, of a flow that sets none. */
+    public static final int DEFAULT_INTERVAL_HOURS = 4;
 
     private final FlowBundleRegistry bundleRegistry;
 
@@ -47,8 +47,8 @@ public class UrgeThrottle {
 
     /** How long after a step is urged it may be urged again: the flow's interval, else the default. */
     public static Duration intervalOf(CompiledFlowDefinition definition) {
-        Integer minutes = definition == null ? null : definition.getUrgeIntervalMinutes();
-        return Duration.ofMinutes(minutes == null || minutes < 1 ? DEFAULT_INTERVAL_MINUTES : minutes);
+        Integer hours = definition == null ? null : definition.getUrgeIntervalHours();
+        return Duration.ofHours(hours == null || hours < 1 ? DEFAULT_INTERVAL_HOURS : hours);
     }
 
     /** The steps that may be urged now: they wait on approvers still to act, and none was urged within the interval. */
@@ -134,12 +134,11 @@ public class UrgeThrottle {
                 .toList();
     }
 
-    /** When the step was last urged: its newest URGE entry on the same node and cycle. */
+    /** When the step was last urged: its newest URGE entry on the same node. */
     private static LocalDateTime lastUrge(List<ApprovalActionAuditEntry> urges, PendingApproval step) {
         LocalDateTime last = null;
         for (ApprovalActionAuditEntry urge : urges) {
             if (Objects.equals(step.getNodeId(), urge.getNodeId())
-                    && Objects.equals(step.getCycleNumber(), urge.getCycleNumber())
                     && urge.getEventTime() != null
                     && (last == null || urge.getEventTime().isAfter(last))) {
                 last = urge.getEventTime();

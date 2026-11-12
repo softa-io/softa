@@ -1,50 +1,28 @@
 package io.softa.starter.user.service.impl;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.orm.annotation.SkipPermissionCheck;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Filters;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
-import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.BuiltinRole;
+import io.softa.framework.base.utils.NavIds;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.EffectiveAccess;
 import io.softa.starter.user.dto.RoleGrantView;
 import io.softa.starter.user.dto.UiContext;
-import io.softa.starter.user.entity.Navigation;
-import io.softa.starter.user.entity.Role;
-import io.softa.starter.user.entity.RoleDataScope;
-import io.softa.starter.user.entity.RoleNavigation;
-import io.softa.starter.user.entity.RoleSensitiveFieldSet;
-import io.softa.starter.user.entity.UserRoleRel;
-import io.softa.starter.user.service.NavigationModelResolver;
-import io.softa.starter.user.service.RoleDataScopeService;
-import io.softa.starter.user.service.RoleNavigationService;
-import io.softa.starter.user.service.RoleSensitiveFieldSetService;
-import io.softa.starter.user.service.RoleService;
-import io.softa.starter.user.service.UserRoleRelService;
+import io.softa.starter.user.entity.*;
+import io.softa.starter.user.service.*;
 import io.softa.starter.user.util.JsonArrayUtils;
-import io.softa.framework.base.utils.NavIds;
 
 /**
  * Fallback builder for {@code /me/uiContext} when the permission engine's cached
@@ -103,9 +81,10 @@ public class UiContextBuilder {
     @Value("${permission.platform-nav-prefixes:}")
     private String platformNavPrefixesCsv;
 
-    /** Prefixes a tenant AND the platform both work in (e.g. messaging, whose models are all
-     *  multiTenant so the platform reads the same menus on its own tier). Disjoint from the list
-     *  above: that one is what a tenant admin is kept out of, this is what both are let into. */
+    /** Prefixes a tenant AND the platform both work in (pages on multiTenant models, where each side
+     *  reads its own rows). A separate list from the one above: that one is what
+     *  a tenant admin is kept out of — and decides alone for it, so a platform prefix inside a shared
+     *  one carves that subtree out — this is what both are let into. */
     @Value("${permission.shared-nav-prefixes:}")
     private String sharedNavPrefixesCsv;
 
@@ -186,16 +165,24 @@ public class UiContextBuilder {
             return tenantAdminGrants(out, tenantId);
         }
 
-        // Navigation + permission grants.
+        // Navigation + permission grants. A tenant's own role never reaches the platform's menus,
+        // whatever it was granted (mirrors DefaultPermissionSnapshotProvider): a grant saved before a
+        // menu became platform-only, or written around the wizard, opens nothing.
         Set<String> navigations = new HashSet<>();
         Set<String> permissions = new HashSet<>();
+        boolean tenantSide = isTenantSide(tenantId);
+        Set<String> platformPermissions = tenantSide ? platformPermissionIds() : Set.of();
         List<RoleNavigation> navGrants = roleNavigationService.searchList(new FlexQuery(
                 List.of("navigationId", "permissionIds"),
                 new Filters().in(RoleNavigation::getRoleId, roleIds)));
         for (RoleNavigation rn : navGrants) {
-            if (rn.getNavigationId() == null) continue;
+            if (rn.getNavigationId() == null || (tenantSide && isPlatformNav(rn.getNavigationId()))) continue;
             navigations.add(rn.getNavigationId());
-            permissions.addAll(JsonArrayUtils.toStringList(rn.getPermissionIds(), true));
+            for (String pid : JsonArrayUtils.toStringList(rn.getPermissionIds(), true)) {
+                if (!platformPermissions.contains(pid)) {
+                    permissions.add(pid);
+                }
+            }
         }
 
         out.setNavigations(expandAncestors(navigations));
@@ -280,11 +267,19 @@ public class UiContextBuilder {
             return List.of();
         }
         List<Long> roleIds = new ArrayList<>(byRole.keySet());
+        boolean tenantSide = isTenantSide(ContextHolder.getContext() == null ? null : ContextHolder.getContext().getTenantId());
+        Set<String> platformPermissions = tenantSide ? platformPermissionIds() : Set.of();
         for (RoleNavigation rn : roleNavigationService.searchList(new FlexQuery(
-                List.of("roleId", "permissionIds"), new Filters().in(RoleNavigation::getRoleId, roleIds)))) {
+                List.of("roleId", "navigationId", "permissionIds"),
+                new Filters().in(RoleNavigation::getRoleId, roleIds)))) {
             RoleGrantView view = byRole.get(rn.getRoleId());
-            if (view != null) {
-                view.getPermissions().addAll(JsonArrayUtils.toStringList(rn.getPermissionIds(), true));
+            if (view == null || (tenantSide && rn.getNavigationId() != null && isPlatformNav(rn.getNavigationId()))) {
+                continue;
+            }
+            for (String pid : JsonArrayUtils.toStringList(rn.getPermissionIds(), true)) {
+                if (!platformPermissions.contains(pid)) {
+                    view.getPermissions().add(pid);
+                }
             }
         }
         for (RoleDataScope rds : roleDataScopeService.searchList(new FlexQuery(
@@ -428,6 +423,28 @@ public class UiContextBuilder {
         out.setPermissions(permissions);
         out.setModelSensitiveFieldSetsMap(Map.of());
         return out;
+    }
+
+    /** A tenant other than the platform's own: its roles never reach the platform's menus. */
+    private static boolean isTenantSide(Long tenantId) {
+        return tenantId != null && !BaseConstant.PLATFORM_TENANT_ID.equals(tenantId);
+    }
+
+    /** The permissions that hang off a platform-only navigation; empty when no platform prefix is set. */
+    private Set<String> platformPermissionIds() {
+        if (platformNavPrefixesCsv == null || platformNavPrefixesCsv.isBlank()) {
+            return Set.of();
+        }
+        Set<String> ids = new HashSet<>();
+        for (Map<String, Object> p : modelService.searchList("Permission",
+                new FlexQuery(List.of("id", "navigationId"), new Filters()))) {
+            Object id = p.get("id");
+            Object navId = p.get("navigationId");
+            if (id != null && navId != null && isPlatformNav(navId.toString())) {
+                ids.add(id.toString());
+            }
+        }
+        return ids;
     }
 
     /** True when a nav id falls under a configured platform-only prefix (never tenant-facing). */

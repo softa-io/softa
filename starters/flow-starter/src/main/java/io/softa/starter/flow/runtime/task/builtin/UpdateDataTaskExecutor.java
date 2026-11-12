@@ -47,11 +47,6 @@ public class UpdateDataTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "UpdateData";
-    }
-
-    @Override
     public String getName() {
         return "Update Data";
     }

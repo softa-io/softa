@@ -53,8 +53,7 @@ public interface FlowDesignService extends EntityService<FlowDesign, String> {
 
     /**
      * Switch the flow back on, on the revision that was effective; a no-op when it is on. Refused for an approval
-     * flow when another enabled approval flow of its document has the same submit condition, and for a Compute flow
-     * declaring an output another enabled Compute flow of its model declares.
+     * flow when another enabled approval flow of its document has the same submit condition.
      */
     FlowDesignStatusView enable(String id);
 

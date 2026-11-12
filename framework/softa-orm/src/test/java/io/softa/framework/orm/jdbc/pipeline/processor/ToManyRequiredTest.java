@@ -32,7 +32,7 @@ import static org.mockito.ArgumentMatchers.eq;
 /**
  * A required one-to-many or many-to-many field holds at least one row (link), as a required column holds a value:
  * a new record names one in its value, and an update that sends the field leaves one — counted once the write is
- * done, since a patch that deletes every row is not an empty value (zingkey-hcm#2449). An update that leaves the
+ * done, since a patch that deletes every row is not an empty value. An update that leaves the
  * field out is not judged, and a field that is not required is not either.
  */
 class ToManyRequiredTest {

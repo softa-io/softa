@@ -8,6 +8,7 @@ import lombok.EqualsAndHashCode;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.message.inbox.enums.NotificationType;
@@ -49,7 +50,11 @@ public class InboxNotification extends AuditableModel {
     @Field(required = true, length = 200)
     private String title;
 
-    @Field(description = "Notification body content")
+    /**
+     * Unbounded: what says it is free text — an approval's comment, an automation's template, an error that stopped a
+     * step. A width would refuse a longer one, and its sender, past the action that sends it, would only log that.
+     */
+    @Field(fieldType = FieldType.TEXT, description = "Notification body content")
     private String content;
 
     @Field(description = "Source category: System, Workflow, or Manual")

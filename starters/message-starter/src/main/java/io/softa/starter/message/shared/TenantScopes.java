@@ -1,22 +1,24 @@
 package io.softa.starter.message.shared;
 
-import java.util.List;
+import java.util.Objects;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.exception.PermissionException;
 
 /**
- * Tenant-tier helpers for the messaging tables.
+ * Tenant helpers for the messaging tables.
  * <p>
- * {@code multiTenant} messaging rows live in one of two fully separate
- * namespaces: {@code tenant_id = -1} rows form the <b>platform tier</b> —
- * owned by the platform operator and invisible to tenant-scoped reads — and
- * {@code > 0} rows belong to one tenant. There is no overlay: templates are
- * copied to tenants at provisioning, and platform server/provider configs are
- * reached only by the dispatchers' silent fallback ({@code @CrossTenant})
- * when a tenant has none of its own.
+ * The platform's and the tenants' configuration live in separate tables: the
+ * platform's ({@code Platform*}, the SMS tables) are not multi-tenant, a
+ * tenant's are, and no read falls back from one to the other — the one
+ * crossing is a tenant's mail relayed through the platform's send server when
+ * the tenant has none. The send records are not multi-tenant either: they are
+ * the queue the platform delivers for everyone, and {@code tenantId} on them
+ * only says whom a send is filed under — {@link #PLATFORM} ({@code -1}) for
+ * the platform's own.
  */
 public final class TenantScopes {
 
@@ -45,15 +47,31 @@ public final class TenantScopes {
     }
 
     /**
-     * The tenants whose rows the current caller's <b>records</b> may
-     * reference: the caller's own tenant plus the platform tier. Only for
-     * id-addressed replay reads ({@code findVisibleById}) — send/receive
-     * records legitimately point at platform configs picked by the
-     * dispatcher fallback. Never used for list surfaces: platform rows stay
-     * invisible to tenants.
+     * Whether the current caller is the platform: multi-tenancy off (one owner), or a context whose
+     * tenant is the platform tier — a platform operator's request, or system work with no tenant.
      */
-    public static List<Long> currentPlusPlatform() {
-        long tenant = currentTenantOrPlatform();
-        return tenant == PLATFORM ? List.of(PLATFORM) : List.of(PLATFORM, tenant);
+    public static boolean platformCaller() {
+        return !multiTenancyEnabled() || currentTenantOrPlatform() == PLATFORM;
+    }
+
+    /**
+     * Refuse a tenant caller, for what only the platform reads or writes over a table that is not
+     * multi-tenant — the send logs, the message quotas — as a second line behind the menus: a role still
+     * holding such a page must not turn into a window onto every tenant's rows, nor raise its own ceiling.
+     *
+     * @param what names it in the error, e.g. {@code "The SMS send log"}, {@code "Message quotas"}
+     */
+    public static void requirePlatformCaller(String what) {
+        if (!platformCaller()) {
+            throw new PermissionException("{0} can only be read or changed from the platform.", what);
+        }
+    }
+
+    /**
+     * Whether a row filed under {@code ownerTenantId} in a non-multi-tenant table (send records) is the
+     * current caller's to see: the platform sees every row, a tenant only its own.
+     */
+    public static boolean visibleToCurrentCaller(Long ownerTenantId) {
+        return platformCaller() || Objects.equals(ownerTenantId, currentTenantOrPlatform());
     }
 }

@@ -1,32 +1,32 @@
 package io.softa.starter.flow.service;
 
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
-import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
 import io.softa.starter.flow.dto.FlowInstanceRecordView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
  * Service interface for persistent flow instance operations.
  * <p>
- * Every method is abstract on purpose: core capabilities (timer sweeps, start-dedup,
+ * Every method is abstract on purpose: core capabilities (start-dedup,
  * monitoring) depend on these finders, so a replacement implementation that misses one
  * must fail to compile instead of silently returning empty results.
  */
 public interface FlowInstanceService {
 
     /**
-     * Save or update a flow instance entity.
+     * Save a flow instance: insert it when it has no id yet, else update its row by id and version — the fields the
+     * engine's state holds ({@code FlowExecutionStateMapper.STATE_FIELDS}), nulls included, and no other.
      *
      * @param instance the instance entity to persist
      * @return the saved entity
@@ -55,14 +55,6 @@ public interface FlowInstanceService {
     List<FlowInstance> findStatesByInstanceIds(Collection<String> instanceIds);
 
     /**
-     * Find all instances of a flow.
-     *
-     * @param flowId the flow ID
-     * @return list of matching instances
-     */
-    List<FlowInstance> findByFlowId(String flowId);
-
-    /**
      * Find all instances by execution status.
      *
      * @param status the execution status
@@ -80,6 +72,12 @@ public interface FlowInstanceService {
     List<FlowInstance> findByModelNameAndRowId(String modelName, String rowId);
 
     /**
+     * A record's latest approval, whole — the automation runs on the record left out — or none: one row read, newest
+     * first.
+     */
+    Optional<FlowInstance> findLatestRecordApproval(String modelName, String rowId);
+
+    /**
      * Find the run a trigger event started for a flow — an event starts a flow at most once.
      *
      * @param flowId  the flow id
@@ -87,33 +85,6 @@ public interface FlowInstanceService {
      * @return the instance, if the event already started the flow
      */
     Optional<FlowInstance> findByTriggerEvent(String flowId, String eventId);
-
-    /**
-     * Find all instances initiated by a specific user.
-     *
-     * @param initiatorId the initiator id
-     * @return list of matching instances
-     */
-    List<FlowInstance> findByInitiatorId(String initiatorId);
-
-    /**
-     * Find WAITING instances with a due timer whose {@code next_fire_at} is at or before {@code now}.
-     *
-     * @param now   cutoff timestamp
-     * @param limit maximum rows to return
-     * @return list of due timer instances
-     */
-    List<FlowInstance> findDueTimers(LocalDateTime now, int limit);
-
-    /**
-     * Count WAITING instances with a due timer whose {@code next_fire_at} is at or before {@code now}.
-     */
-    long countDueTimers(LocalDateTime now);
-
-    /**
-     * Count instances currently in the given status.
-     */
-    long countByStatus(FlowExecutionStatus status);
 
     /**
      * How many of the flow's instances have not ended — pending, running or waiting, a record's approval in progress
@@ -125,23 +96,16 @@ public interface FlowInstanceService {
     Set<Long> unfinishedBundleIds();
 
     /**
-     * Paged instance query for monitoring views.
-     */
-    Page<FlowInstance> searchInstances(FlexQuery query, Page<FlowInstance> page);
-
-    /**
-     * Paged summary search shared by the caller's "my instances" reads
-     * ({@code POST /flow/instances/search} and {@code FlowClient.myInstances}) and the
-     * cross-initiator monitor endpoint. Builds the summary projection (heavy JSON
+     * Paged summary search shared by the caller's "my instances" read
+     * ({@code POST /flow/instances/search}) and the cross-initiator monitor endpoint. Builds the summary projection (heavy JSON
      * state columns excluded) and the filter set from the request, newest first; the
      * request's {@code filters} are ANDed onto that set and its {@code orders} replace the
      * default order. Both may name only fields {@code FlowInstance} stores, else 400.
      *
      * @param request           search filters and paging
-     * @param forcedInitiatorId when non-null, overrides any requested initiator filter and keeps
-     *                          the record approvals only — the caller-facing "my instances"
-     *                          contract; when {@code null} the request's own {@code initiatorId}
-     *                          is honored over every instance (monitor views)
+     * @param forcedInitiatorId when non-null, pins the search to that initiator's record approvals — the
+     *                          caller-facing "my instances" contract, which the request's filters only narrow;
+     *                          when {@code null} every instance is searched (monitor views)
      * @return one page of instance summary rows
      */
     Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId);
@@ -154,17 +118,6 @@ public interface FlowInstanceService {
     void markSuperseded(String modelName, String rowId);
 
     /**
-     * Find non-terminal instances (RUNNING / WAITING_*) whose last update time is before
-     * {@code threshold} — i.e. instances that have been silent longer than expected and may
-     * require operator attention.
-     *
-     * @param threshold updated-time cutoff
-     * @param limit     maximum rows to return
-     * @return list of candidate stuck instances
-     */
-    List<FlowInstance> findStuckInstances(LocalDateTime threshold, int limit);
-
-    /**
      * A business record's approval history, for its approval panel: the record's approval instances
      * (one per submission), newest first, each with its status, initiator, the steps still waiting
      * and the approvers yet to act, and its approval actions (CC reads left out), every user named.
@@ -173,11 +126,16 @@ public interface FlowInstanceService {
      *
      * @param modelName the record's model
      * @param rowId     the record
-     * @param authorize checks the history, its users still unnamed, and throws to refuse it
+     * @param authorize checks the history, its users still unnamed, with the approvals it was built from — so whoever
+     *                  decides who takes part in them reads neither again — and throws to refuse it
      * @return the history; no instances when the record was never submitted
      */
     FlowRecordApprovalsView recordApprovals(String modelName, String rowId,
-                                            Consumer<FlowRecordApprovalsView> authorize);
+                                            BiConsumer<FlowRecordApprovalsView, List<RecordApproval>> authorize);
+
+    /** One of a record's approvals, as its approval history was built from it: its state and its whole history. */
+    record RecordApproval(FlowExecutionState state, List<ApprovalActionAuditEntry> history) {
+    }
 
     /**
      * A business record's approvals — the instances its submissions started; automation runs on it

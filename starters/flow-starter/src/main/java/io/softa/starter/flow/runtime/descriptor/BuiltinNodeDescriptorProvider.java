@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.design.FlowNodeDescriptor;
 import io.softa.starter.flow.design.FlowNodeDescriptor.Ports;
-import io.softa.starter.flow.design.FlowNodeDescriptorProvider;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.ApproverSourceType;
@@ -18,8 +17,8 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 
 /**
- * Provides {@link FlowNodeDescriptor}s for structural (non-executor) node types.
- * Each {@link FlowNodeType} maps 1:1 to a single descriptor.
+ * The {@link FlowNodeDescriptor}s of the structural (non-executor) node types; the task nodes' come from their
+ * executors ({@link FlowNodeDescriptorRegistry}). Each {@link FlowNodeType} maps 1:1 to a single descriptor.
  * <p>
  * Labels and descriptions are English source text — the framework's i18n
  * translates by the original English string at the REST boundary. Config-schema
@@ -29,7 +28,7 @@ import io.softa.starter.flow.enums.VoteThresholdMode;
  * must ship a non-empty {@code configSchema}, or the editor cannot render its form.
  */
 @Component
-public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider {
+public class BuiltinNodeDescriptorProvider {
 
     /**
      * {@code appliesWhen}: the field applies only to a step that may have several approvers — several groups, or one
@@ -52,28 +51,19 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
             "SPECIFIC_DEPT", "A specific department",
             "VARIABLE_DEPT", "Department held by a variable");
 
-    @Override
     public List<FlowNodeDescriptor> getDescriptors() {
         return List.of(
                 structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry()),
                 structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal()),
-                structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, timerConfigSchema()),
                 structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, approvalConfigSchema(),
                         // A new step starts with one group on the first option, specific people, waiting for them to
                         // be picked.
                         Map.of("approverSources", List.of(Map.of("type", ApproverSourceType.USERS.getType())))),
-                // HUMAN_TASK is intentionally omitted: the runtime has no human-task wait
-                // (dedicated wait token, assignee resolution, completion API) and the node is
-                // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from
-                // version control when the runtime lands.
                 structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Takes every edge whose condition holds, else the edge without a condition", "git-merge", 21, null),
                 structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null),
                 structural(FlowNodeType.PARALLEL_JOIN,     "Join",             "Waits for the branches of a parallel fork, or those an inclusive gateway took, then goes on once", "git-pull-request", 23, null),
                 structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, scriptConfigSchema()),
-                // FOR_EACH is intentionally omitted: its runtime child-node iteration is not yet
-                // implemented and it is rejected at compile time. Restore this entry
-                // (+ forEachConfigSchema) from version control when the runtime lands.
-                structural(FlowNodeType.SUBFLOW,           "Subflow",          "Calls a flow with a Subflow trigger (synchronous-only: it must not wait on timers or async tasks)", "layers", 32, null, subflowConfigSchema()),
+                structural(FlowNodeType.SUBFLOW,           "Subflow",          "Calls a flow with a Subflow trigger (synchronous-only: it must not wait on async tasks)", "layers", 32, null, subflowConfigSchema()),
                 structural(FlowNodeType.RETURN_VALUE,      "Return Value",     "Returns named values from the flow",  "corner-down-left", 33, null, returnValueConfigSchema())
                 // GENERATE_FILE is deliberately NOT listed here: GenerateFileTaskExecutor
                 // (conditional on DocumentTemplateService) contributes its descriptor, and a
@@ -96,7 +86,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                                  String icon, int sortOrder, Ports ports,
                                                  Map<String, Object> configSchema, Map<String, Object> defaultConfig) {
         return FlowNodeDescriptor.of(type, label, description, icon, sortOrder, ports,
-                configSchema, defaultConfig, type.getScenarios(), true);
+                configSchema, defaultConfig, type.getScenarios());
     }
 
     /** Insertion-ordered map builder — property panels render fields in this order. */
@@ -108,21 +98,13 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         return map;
     }
 
-    private static Map<String, Object> timerConfigSchema() {
-        return ordered(
-                "durationSeconds",    ordered("type", "number",     "label", "Wait duration (seconds)"),
-                "cronExpression",     ordered("type", "cron",       "label", "Cron schedule"),
-                "deadlineExpression", ordered("type", "expression", "label", "Deadline expression (resolves to a timestamp)")
-        );
-    }
-
     private static Map<String, Object> approvalConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         // ── Approver resolution ─────────────────────────────────────────────
         // One or more groups, making one pool the approval mode counts over. Each group is one select: specific
-        // people first, then the sources that find them when the step is reached — the organization's, then the
-        // groups', then the developers' — then those no longer offered. A CC rule names its one group of recipients
-        // from the same options. An option says what the designer needs to tell which settings apply (`appliesWhen`):
+        // people first, then the sources that find them in the organization when the step is reached — one person,
+        // then the holders of a role, a position or a department. A CC rule names its one group of recipients from
+        // the same options. An option says what the designer needs to tell which settings apply (`appliesWhen`):
         // where specific people are named (`names`), and that a source finds one person at most (`findsOne`).
         schema.put("approverSources", ordered("type", "approverSources", "label", "Approvers", "required", true,
                 "options", withFindsOne(List.of(
@@ -157,21 +139,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                         ordered("type", "Department", "label", "Department members",
                                 "fields", concat(deptScopeFields(true, "SPECIFIC_DEPT"),
                                         ordered("includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments",
-                                                "default", false)))),
-                        // Read what the application puts in the flow's variables: for developers.
-                        ordered("type", "VariableList", "label", "Variable list (advanced)",
-                                "fields", ordered("variable", ordered("type", "variableRef", "label", "Variable", "required", true))),
-                        ordered("type", "Expression", "label", "Expression (advanced)",
-                                "fields", ordered("expression", ordered("type", "expression", "label", "Expression", "required", true))),
-                        // No longer offered: both read a start variable the application must supply (most supply
-                        // none), and Supervisor relative to the submitter / Role find the same people from the
-                        // organization. Listed so a step saved with one still shows it; the designer offers neither.
-                        ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)", "deprecated", true),
-                        // Keys into the caller's role-approver map, which a built-in role's code names; another
-                        // key may be typed.
-                        ordered("type", "Role", "label", "Role (variable)", "deprecated", true,
-                                "fields", ordered("roleCode", ordered("type", "rolePicker", "label", "Role", "required", true,
-                                        "valueField", "code", "allowCustom", true)))
+                                                "default", false))))
                 ))));
         // ── Vote thresholds ──────────────────────────────────────────────────
         // Counted over the pool the step's groups make — offered only for a step that may have several approvers: one
@@ -200,26 +168,19 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         // Offered only for a step that finds approvers by rule: one that only names them stops and says why when none
         // of them can act (ApprovalNodeConfig). What a step that finds nobody does is said for the source it finds
         // people with (hintBy: the help by the field, by the type of the step's one group; a step of several groups
-        // finds nobody only when none of them finds anyone, said by `otherwise`). Skip is no longer offered — it
-        // approves as AutoApprove does and leaves no trace in the history — and stays listed so a step saved with it
-        // still shows it.
+        // finds nobody only when none of them finds anyone, said by `otherwise`).
         String error = EmptyApproverStrategy.ERROR.getType();
         String autoApprove = EmptyApproverStrategy.AUTO_APPROVE.getType();
         String toRole = EmptyApproverStrategy.ASSIGN_TO_ROLE.getType();
-        String skip = EmptyApproverStrategy.SKIP.getType();
         schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "If nobody is found",
-                "options", List.of(error, autoApprove, toRole, skip),
-                "deprecatedOptions", List.of(skip),
+                "options", List.of(error, autoApprove, toRole),
                 "optionLabels", ordered(error, "Stop and say why", autoApprove, "Approve automatically",
-                        toRole, "Assign to roles", skip, "Skip (not in the history)"),
+                        toRole, "Assign to roles"),
                 "optionDescriptions", ordered(
                         error, "A submission is refused with the reason. After an approval the instance fails, and its "
                                 + "submitter and the administrators are told.",
                         autoApprove, "The step counts as approved; the history shows it was approved automatically.",
-                        toRole, "Anyone holding the roles below decides instead, not the submitter or the employee "
-                                + "the request is about.",
-                        skip, "The step is passed over with no trace in the history. No longer offered: use Approve "
-                                + "automatically."),
+                        toRole, "Anyone holding the roles below decides instead."),
                 "hintBy", ordered("field", "approverSources",
                         "hints", ordered(
                                 "Supervisor", "Applies when the employee has no manager at this level, or none above "
@@ -230,9 +191,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                         + "partner who can approve.",
                                 "RoleQuery", "Applies when nobody who can approve holds these roles.",
                                 "Position", "Applies when nobody who can approve holds these positions.",
-                                "Department", "Applies when these departments have nobody who can approve.",
-                                "VariableList", "Applies when the variable names nobody who can approve.",
-                                "Expression", "Applies when the expression names nobody who can approve."),
+                                "Department", "Applies when these departments have nobody who can approve."),
                         "otherwise", "Applies when the step finds nobody who can approve."),
                 "default", error,
                 "appliesWhen", APPROVERS_FOUND_BY_RULE));
@@ -277,7 +236,6 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                 "deptVariable", ordered("type", "variableRef", "label", "Variable holding the department id",
                         "depends", Map.of("deptScope", "VARIABLE_DEPT")));
     }
-
 
     /** {@code fields}, then {@code more}, in that order. */
     private static Map<String, Object> concat(Map<String, Object> fields, Map<String, Object> more) {

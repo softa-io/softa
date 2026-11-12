@@ -1,14 +1,18 @@
 package io.softa.starter.user.service.impl;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MailRequestMessage;
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.entity.UserAccount;
@@ -27,6 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -37,14 +42,14 @@ class ContactSyncTest {
 
     private static final Long ACCOUNT = 100L;
 
-    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final MessageService messageService = mock(MessageService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
     private final UserSecurityLogService securityLog = AccountServiceTestSupport.quiet(accountService);
     private final UserAccount account = new UserAccount();
 
     ContactSyncTest() {
         ReflectionTestUtils.setField(accountService, "identityService", mock(UserIdentityService.class));
-        ReflectionTestUtils.setField(accountService, "eventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(accountService, "messageService", messageService);
         account.setId(ACCOUNT);
         account.setTenantId(1L);
         account.setProfileId(7L);
@@ -62,8 +67,24 @@ class ContactSyncTest {
         accountService.syncEnterpriseEmail(ACCOUNT, "new@acme.com");
 
         assertThat(account.getEmail()).isEqualTo("new@acme.com");
-        verify(eventPublisher).publishEvent(any(MailRequestMessage.class));
+        verify(messageService).sendMail(any(SendMailDTO.class));
         verify(securityLog).entry(eq(SecurityAction.ENTERPRISE_EMAIL_CHANGED), any(), eq(account), any());
+    }
+
+    @Test
+    void theEmailChangeNotice_carriesTheTimeAsADate_soItReadsAsTheApiWritesIt() {
+        account.setStatus(AccountStatus.ACTIVE);
+
+        accountService.syncEnterpriseEmail(ACCOUNT, "new@acme.com");
+
+        ArgumentCaptor<SendMailDTO> mail = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendMail(mail.capture());
+        Map<String, Object> variables = mail.getValue().getTemplateVariables();
+        // The date itself, not its ISO toString(): the send record and the templates print it in
+        // the platform format.
+        assertThat(variables.get("time")).isInstanceOf(LocalDateTime.class);
+        assertThat(TemplateEngine.renderHtml("<p>was changed on {{time}}.</p>", variables))
+                .matches("<p>was changed on \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.</p>");
     }
 
     @Test
@@ -85,7 +106,7 @@ class ContactSyncTest {
         accountService.syncEnterpriseEmail(ACCOUNT, "new@acme.com");
 
         assertThat(account.getEmail()).isEqualTo("new@acme.com");
-        verify(eventPublisher, never()).publishEvent(any());
+        verifyNoInteractions(messageService);
     }
 
     @Test

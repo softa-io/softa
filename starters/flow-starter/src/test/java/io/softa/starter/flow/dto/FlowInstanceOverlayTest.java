@@ -44,11 +44,10 @@ class FlowInstanceOverlayTest {
         assertEquals(11L, overlay.bundleId());
         assertEquals(FlowNodeRunStatus.COMPLETED, overlay.nodeStates().get("start").status());
         assertEquals(t0, overlay.nodeStates().get("start").enteredAt());
-        assertEquals(t0.plusSeconds(1), overlay.nodeStates().get("start").completedAt());
         FlowInstanceOverlay.NodeState approval = overlay.nodeStates().get("approval1");
         assertEquals(FlowNodeRunStatus.WAITING_APPROVAL, approval.status());
-        assertSame(pending, approval.approval());
-        assertNull(approval.completedAt());
+        assertEquals(t0.plusSeconds(2), approval.enteredAt());
+        assertNull(approval.error());
     }
 
     @Test
@@ -73,7 +72,7 @@ class FlowInstanceOverlayTest {
     private static FlowExecutionTraceEntry entry(String nodeId, FlowTraceEventType type, LocalDateTime time) {
         return FlowExecutionTraceEntry.builder()
                 .nodeId(nodeId)
-                .flowNodeType(FlowNodeType.CALL_SERVICE)
+                .flowNodeType(FlowNodeType.CALL_WEBHOOK)
                 .eventType(type)
                 .eventTime(time)
                 .build();

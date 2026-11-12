@@ -16,6 +16,7 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.entity.ApprovalModel;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
@@ -62,7 +63,8 @@ public class ApprovalFormWriteService {
      *
      * @throws FlowActionValidationException if a REQUIRED field is missing or blank
      */
-    public void applyFormData(FlowExecutionState state, CompiledFlowNode node, Map<String, Object> formData) {
+    public void applyFormData(CompiledFlowDefinition definition, FlowExecutionState state, CompiledFlowNode node,
+                              Map<String, Object> formData) {
         boolean bound = StringUtils.hasText(state.getModelName()) && StringUtils.hasText(state.getRowId());
         Map<String, Object> sanitized = FormPermissionService.filterFormData(node, formData);
         List<String> required = FormPermissionService.requiredFields(node);
@@ -82,7 +84,7 @@ public class ApprovalFormWriteService {
         if (state.isApprovalOfRecord()) {
             handlerRegistry.find(state.getModelName()).ifPresent(handler -> {
                 holdToModelRules(handler, state, Set.copyOf(sanitized.keySet()));
-                refreshVariables(handler, state);
+                refreshVariables(handler, definition, state);
             });
         }
     }
@@ -105,14 +107,21 @@ public class ApprovalFormWriteService {
                 handler.afterApproverEdit(BeanTool.mapToObject(row, handler.modelClass()), editedFields));
     }
 
-    /** The record as the edits left it, and its handler's on top: the variables its flow now routes on. */
-    private <T extends ApprovalModel> void refreshVariables(ModelApprovalHandler<T> handler, FlowExecutionState state) {
+    /**
+     * The record as the edits left it — with the fields its flow's rules read up to {@link RecordVariables#MAX_HOPS}
+     * relations on, read again — and its handler's on top: the variables its flow now routes on.
+     */
+    private <T extends ApprovalModel> void refreshVariables(ModelApprovalHandler<T> handler,
+                                                            CompiledFlowDefinition definition, FlowExecutionState state) {
         Serializable id = IdUtils.formatId(state.getModelName(), state.getRowId());
         ContextUtils.withoutPermissionChecks(() -> modelService.getById(state.getModelName(), id)).ifPresent(row -> {
             Map<String, Object> variables = new LinkedHashMap<>(state.getVariables() == null ? Map.of() : state.getVariables());
-            // A field the edits cleared no longer routes on its old value.
+            Set<String> paths = definition.rulePaths();
+            // A field the edits cleared no longer routes on its old value, nor a relation they cleared on its record's.
             RecordVariables.routedFields(state.getModelName()).forEach(field -> variables.remove(field.getFieldName()));
+            paths.forEach(variables::remove);
             variables.putAll(RecordVariables.of(state.getModelName(), row));
+            variables.putAll(RecordVariables.readPaths(modelService, state.getModelName(), state.getRowId(), row, paths));
             ApprovalSubmission submission = handler.submission(BeanTool.mapToObject(row, handler.modelClass()));
             variables.putAll(submission.variables());
             state.setVariables(variables);

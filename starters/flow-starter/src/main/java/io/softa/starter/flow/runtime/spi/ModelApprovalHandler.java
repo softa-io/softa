@@ -116,7 +116,7 @@ public interface ModelApprovalHandler<T extends ApprovalModel> {
      * failure there holds up the approval, and a rollback does not undo it.
      *
      * @param record  the record, with its new {@code approvalStatus}
-     * @param outcome how the approval ended, and who ended it
+     * @param outcome how the approval ended, and the approval instance
      */
     default void afterOutcome(T record, ApprovalOutcome outcome) {}
 

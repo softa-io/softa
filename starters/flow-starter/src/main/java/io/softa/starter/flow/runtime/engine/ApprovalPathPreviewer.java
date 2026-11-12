@@ -2,7 +2,6 @@ package io.softa.starter.flow.runtime.engine;
 
 import java.util.*;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -19,9 +18,6 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
-import io.softa.starter.flow.runtime.nodeconfig.ScriptNodeConfig;
-import io.softa.starter.flow.runtime.nodeconfig.SubflowNodeConfig;
-import io.softa.starter.flow.runtime.nodeconfig.TaskNodeConfig;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -37,10 +33,10 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  * which is never saved. No node runs; no instance, task, ledger row or notification is created, and
  * no delegation's use is counted.
  *
- * <p>Nothing is guessed. Once the walk passes a node it does not run — a script, a task, a subflow —
- * the variables that node writes are unknown, as is the instance id from the start: a route whose
- * conditions read one is undecided and not followed, and a step whose approvers come from the
- * variables (a dynamic approver source) is undetermined. With approver dedup on, so is a step whose
+ * <p>Nothing is guessed. An approval flow holds people and routes only, so the variables a route reads are the
+ * submission's — but the instance id, unknown before the start, and anything a node on a revision published before
+ * that rule may write: a route whose conditions read one is undecided and not followed, and a step whose approvers
+ * are found by a rule after such a node is undetermined. With approver dedup on, so is a step whose
  * approver may or may not have approved an earlier step, one of several there who could pass it.
  */
 @Component
@@ -131,6 +127,7 @@ public class ApprovalPathPreviewer {
                 .approvalAuditDelta(new ArrayList<>(live.getApprovalAuditDelta() == null ? List.of() : live.getApprovalAuditDelta()))
                 .persistedAuditCount(live.getPersistedAuditCount())
                 .auditSequenceBase(live.getAuditSequenceBase())
+                .committedAudit(live.getCommittedAudit() == null ? null : new ArrayList<>(live.getCommittedAudit()))
                 .joinArrivalCounts(new HashMap<>(live.getJoinArrivalCounts() == null ? Map.of() : live.getJoinArrivalCounts()))
                 .trace(new ArrayList<>())
                 .build();
@@ -156,14 +153,8 @@ public class ApprovalPathPreviewer {
         private final FlowExecutionState state;
         /** Variables whose values are not known before the approval runs. */
         private final Set<String> unknownVariables;
-        /** A node passed may have written any variable: its outputs are not declared. */
-        private boolean anyVariableUnknown;
-        /** A node passed may have written variables: approvers resolved from them are not known. */
-        private boolean variablesWritten;
         /** By step: approvers who may or may not approve it — one of several who could pass it. */
         private final Map<String, Set<String>> possibleApprovers = new HashMap<>();
-        /** Steps whose approvers are not known, so anyone may have approved them. */
-        private final Set<String> unknownApprovers = new HashSet<>();
 
         private final List<Step> steps = new ArrayList<>();
         private final List<Stop> undecided = new ArrayList<>();
@@ -215,8 +206,6 @@ public class ApprovalPathPreviewer {
                 try {
                     if (FlowNodeType.APPROVAL.equals(node.getType())) {
                         previewStep(node);
-                    } else {
-                        passOver(node);
                     }
                     if (failure == null) {
                         List<String> next = gatewayRouter.resolveNextNodeIds(definition, node, this::decide);
@@ -239,53 +228,13 @@ public class ApprovalPathPreviewer {
             Collection<String> reads = Filters.isEmpty(transition.getCondition())
                     ? ComputeUtils.getVariables(transition.getConditionExpression())
                     : transition.getCondition().extractFields();
-            if (anyVariableUnknown || reads.stream().anyMatch(unknownVariables::contains)) {
+            if (reads.stream().anyMatch(unknownVariables::contains)) {
                 throw new UndecidedRoute();
             }
             return FlowGatewayRouter.holds(definition, transition, state.getVariables());
         }
 
-        /** A node the preview does not run: the variables it writes are unknown from here on. */
-        private void passOver(CompiledFlowNode node) {
-            switch (node.getType()) {
-                case START, END, PARALLEL_FORK, PARALLEL_JOIN, INCLUSIVE_GATEWAY, TIMER -> {
-                    // write no variable
-                }
-                default -> {
-                    Object config = node.getParsedConfig();
-                    if (config instanceof ScriptNodeConfig script) {
-                        written(declared(script.getOutputVariable()));
-                    } else if (config instanceof SubflowNodeConfig subflow) {
-                        Set<String> names = new HashSet<>(declared(subflow.getOutputVariable()));
-                        if (subflow.getOutputMapping() != null) {
-                            names.addAll(subflow.getOutputMapping().keySet());
-                        }
-                        written(names);
-                    } else if (config instanceof TaskNodeConfig task && StringUtils.hasText(task.getOutputVariable())
-                            && !FlowNodeType.ASYNC_TASK.equals(node.getType())) {
-                        written(Set.of(task.getOutputVariable()));
-                    } else {
-                        // A task without an output variable merges its whole result, an async task its callback's too.
-                        anyVariableUnknown = true;
-                        variablesWritten = true;
-                    }
-                }
-            }
-        }
-
-        private void written(Collection<String> names) {
-            unknownVariables.addAll(names);
-            variablesWritten |= !names.isEmpty();
-        }
-
         private void previewStep(CompiledFlowNode node) {
-            if (variablesWritten && approverResolutionService.hasDynamicApproverSource(node)) {
-                // Resolved from variables a node before it writes once the approval runs.
-                steps.add(step(node, StepOutcome.UNDETERMINED, List.of(), null, List.of()));
-                unknownApprovers.add(node.getNodeId());
-                recordApproval(node, null);
-                return;
-            }
             PendingApproval pending = pendingApprovalFactory.previewPendingApproval(definition, node, state);
             if (pending == null) {
                 previewEmptyStep(node);
@@ -329,7 +278,6 @@ public class ApprovalPathPreviewer {
                     auditService.appendEmptyStepAutoApproval(state, definition, node);
                     steps.add(step(node, StepOutcome.NO_APPROVER_APPROVED, List.of(), null, List.of()));
                 }
-                case SKIP -> steps.add(step(node, StepOutcome.NO_APPROVER_SKIPPED, List.of(), null, List.of()));
                 case ERROR, ASSIGN_TO_ROLE -> {
                     // AssignToRole reaches here only when its roles leave nobody either.
                     steps.add(step(node, StepOutcome.NO_APPROVER_FAILS, List.of(), null, List.of()));
@@ -349,7 +297,7 @@ public class ApprovalPathPreviewer {
                     .forEach(approval -> earlierSteps.add(approval.getNodeId()));
             for (String step : earlierSteps) {
                 Set<String> possible = possibleApprovers.getOrDefault(step, Set.of());
-                if (unknownApprovers.contains(step) || approvers.stream().anyMatch(possible::contains)) {
+                if (approvers.stream().anyMatch(possible::contains)) {
                     return true;
                 }
             }
@@ -373,14 +321,11 @@ public class ApprovalPathPreviewer {
 
         /** The automatic approvals {@link ApproverDedupService} recorded on a step, and why each. */
         private List<AutoApproval> autoApprovals(List<ApprovalActionAuditEntry> entries) {
-            Map<String, ApproverDedupService.SelfRole> self = approverDedupService.selfApprovers(definition, state);
+            String submitter = approverDedupService.selfApprover(definition, state);
             return entries.stream()
                     .filter(entry -> ApprovalActionType.AUTO_APPROVE.equals(entry.getAction()) && entry.getActorId() != null)
-                    .map(entry -> new AutoApproval(actor(entry.getActorId()), switch (self.get(entry.getActorId())) {
-                        case SUBMITTER -> AutoApprovalReason.SUBMITTER;
-                        case SUBJECT -> AutoApprovalReason.SUBJECT;
-                        case null -> AutoApprovalReason.EARLIER_APPROVAL;
-                    }))
+                    .map(entry -> new AutoApproval(actor(entry.getActorId()), entry.getActorId().equals(submitter)
+                            ? AutoApprovalReason.SUBMITTER : AutoApprovalReason.EARLIER_APPROVAL))
                     .toList();
         }
 
@@ -398,10 +343,6 @@ public class ApprovalPathPreviewer {
 
         private static FlowRecordApprovalsView.Actor actor(String userId) {
             return new FlowRecordApprovalsView.Actor(userId, null);
-        }
-
-        private static List<String> declared(String outputVariable) {
-            return StringUtils.hasText(outputVariable) ? List.of(outputVariable) : List.of();
         }
     }
 }

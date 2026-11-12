@@ -24,7 +24,7 @@ import static org.mockito.Mockito.when;
 /**
  * An instance's variables as the store gives them back: the app writes every {@code Long} and {@code BigDecimal}
  * as text, so the record's amounts and ids came back as strings, and a route after the first approval compared
- * them as such — an amount failed the step, an id never matched (zingkey-hcm#2382). They come back as numbers.
+ * them as such — an amount failed the step, an id never matched. They come back as numbers.
  */
 class RecordVariablesRestoreNumbersTest {
 

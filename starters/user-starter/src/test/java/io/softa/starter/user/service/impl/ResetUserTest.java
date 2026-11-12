@@ -1,15 +1,18 @@
 package io.softa.starter.user.service.impl;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.MailRequestMessage;
-import io.softa.framework.base.message.SmsRequestMessage;
+import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserSecurityLog;
@@ -45,7 +48,7 @@ class ResetUserTest {
     private static final String NEW = "+6592222222";
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
-    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final MessageService messageService = mock(MessageService.class);
     private final PushDeviceRegistry devices = mock(PushDeviceRegistry.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
     private final UserSecurityLogService securityLog = AccountServiceTestSupport.quiet(accountService);
@@ -54,7 +57,7 @@ class ResetUserTest {
 
     ResetUserTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
-        ReflectionTestUtils.setField(accountService, "eventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(accountService, "messageService", messageService);
         ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
         account.setId(ACCOUNT);
         account.setTenantId(1L);
@@ -107,9 +110,26 @@ class ResetUserTest {
 
         verify(sessions()).revokePerson(PROFILE, null, SessionRevokeReason.RESET_USER);
         verify(devices).unregisterPerson(PROFILE);
-        verify(eventPublisher).publishEvent(any(SmsRequestMessage.class));
-        verify(eventPublisher).publishEvent(any(MailRequestMessage.class));
+        verify(messageService).sendSms(any(SendSmsDTO.class));
+        verify(messageService).sendMail(any(SendMailDTO.class));
         verify(securityLog).entry(eq(SecurityAction.RESET_USER), any(), eq(account), any());
+    }
+
+    @Test
+    void theNotices_carryTheTimeAsADate_soItReadsAsTheApiWritesIt() {
+        accountService.resetWorkContacts(ACCOUNT, "Verified by passport");
+
+        ArgumentCaptor<SendSmsDTO> sms = ArgumentCaptor.forClass(SendSmsDTO.class);
+        ArgumentCaptor<SendMailDTO> mail = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendSms(sms.capture());
+        verify(messageService).sendMail(mail.capture());
+        // The date itself, not its ISO toString(): the send record and the templates print it in
+        // the platform format.
+        assertThat(sms.getValue().getTemplateVariables().get("time")).isInstanceOf(LocalDateTime.class);
+        assertThat(mail.getValue().getTemplateVariables().get("time")).isInstanceOf(LocalDateTime.class);
+        assertThat(PlaceholderUtils.replacePlaceholders("changed by your HR on {{time}}.",
+                sms.getValue().getTemplateVariables()))
+                .matches("changed by your HR on \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.");
     }
 
     @Test

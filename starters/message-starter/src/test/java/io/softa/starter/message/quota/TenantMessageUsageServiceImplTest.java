@@ -12,6 +12,8 @@ import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.message.quota.entity.TenantMessageUsage;
 import io.softa.starter.message.quota.service.impl.TenantMessageUsageServiceImpl;
+import io.softa.starter.message.shared.ErrorCategory;
+import io.softa.starter.message.shared.ErrorClassifier;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -158,14 +160,16 @@ class TenantMessageUsageServiceImplTest {
     }
 
     @Test
-    void unresolvedContentionFailsLoudAfterBoundedRetries() {
+    void unresolvedContentionGivesUpAsTransientAfterBoundedRetries() {
         doReturn(Optional.of(row(41L, 7L))).when(service).searchOne(any(Filters.class));
         doThrow(new VersionException("always losing")).when(service)
                 .updateOne(any(TenantMessageUsage.class));
 
-        BusinessException ex = Assertions.assertThrows(BusinessException.class,
+        // Not a BusinessException: the delivery processors read that as "the quota is used up" and fail
+        // the record for good. Contention passes, so the send must reach the retry policy as transient.
+        VersionException ex = Assertions.assertThrows(VersionException.class,
                 () -> service.consume("mail", 5L, 100L));
-        Assertions.assertTrue(ex.getMessage().contains("contention"));
+        Assertions.assertEquals(ErrorCategory.TRANSIENT, new ErrorClassifier().classify(null, ex.getMessage()));
         verify(service, times(5)).updateOne(any(TenantMessageUsage.class));
     }
 }

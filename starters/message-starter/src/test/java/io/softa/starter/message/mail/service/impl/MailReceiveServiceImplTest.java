@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.message.config.MessageProperties;
+import io.softa.starter.message.mail.entity.AbstractMailReceiveServer;
 import io.softa.starter.message.mail.entity.MailReceiveRecord;
 import io.softa.starter.message.mail.entity.MailReceiveServerConfig;
 import io.softa.starter.message.mail.enums.MailReceiveStatus;
@@ -56,7 +57,6 @@ class MailReceiveServiceImplTest {
         when(mailClassifier.classify(any())).thenReturn(normal);
         MailMessageParser parser = new MailMessageParser();
         ReflectionTestUtils.setField(parser, "mailClassifier", mailClassifier);
-        ReflectionTestUtils.setField(parser, "messageProperties", messageProperties);
         BounceReceiptLinker linker = new BounceReceiptLinker();
         ReflectionTestUtils.setField(linker, "sendRecordService", mock(MailSendRecordService.class));
 
@@ -134,8 +134,9 @@ class MailReceiveServiceImplTest {
 
         service.markAsRead(1L);
 
-        Assertions.assertEquals(MailReceiveStatus.READ, record.getStatus());
-        verify(recordService).updateOne(record);
+        // Written as a patch of the status alone, by id.
+        verify(recordService).updateByFilter(any(), argThat((MailReceiveRecord patch) ->
+                patch.getStatus() == MailReceiveStatus.READ && patch.getSubject() == null));
     }
 
     @Test
@@ -207,7 +208,6 @@ class MailReceiveServiceImplTest {
 
         MailReceiveRecord record = invokeProcessOne(msg, config, "INBOX");
         Assertions.assertNotNull(record);
-        Assertions.assertNull(record.getEmlFileId());   // archiveEml disabled by default
         verify(recordService).createOne(record);
     }
 
@@ -218,17 +218,33 @@ class MailReceiveServiceImplTest {
         return (List<String>) ReflectionTestUtils.invokeMethod(service, "parseFolders", config);
     }
 
+    /** The tenant's tier: its records, its watermarks, its send records for the bounces. */
+    private Object tenantTier() {
+        return ReflectionTestUtils.invokeMethod(service, "tenantTier");
+    }
+
+    private static Class<?> tierClass() throws ClassNotFoundException {
+        return Class.forName(MailReceiveServiceImpl.class.getName() + "$Tier");
+    }
+
     private boolean invokeIsDuplicate(String messageId, Long serverConfigId) {
-        return (boolean) ReflectionTestUtils.invokeMethod(service, "isDuplicate", messageId, serverConfigId);
+        try {
+            Method m = MailReceiveServiceImpl.class.getDeclaredMethod(
+                    "isDuplicate", String.class, Long.class, tierClass());
+            m.setAccessible(true);
+            return (boolean) m.invoke(service, messageId, serverConfigId, tenantTier());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private MailReceiveRecord invokeProcessOne(
             Message message, MailReceiveServerConfig config, String folderName) throws Exception {
         Method m = MailReceiveServiceImpl.class.getDeclaredMethod(
-                "processOne", Message.class, MailReceiveServerConfig.class, String.class);
+                "processOne", Message.class, AbstractMailReceiveServer.class, String.class, tierClass());
         m.setAccessible(true);
         try {
-            return (MailReceiveRecord) m.invoke(service, message, config, folderName);
+            return (MailReceiveRecord) m.invoke(service, message, config, folderName, tenantTier());
         } catch (InvocationTargetException ite) {
             if (ite.getCause() instanceof Exception cause) throw cause;
             throw ite;

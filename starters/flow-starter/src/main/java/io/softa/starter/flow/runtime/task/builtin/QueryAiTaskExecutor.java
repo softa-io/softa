@@ -48,11 +48,6 @@ public class QueryAiTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "QueryAi";
-    }
-
-    @Override
     public String getName() {
         return "Query AI";
     }

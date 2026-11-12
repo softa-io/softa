@@ -56,7 +56,8 @@ public class SendMailDTO {
             + "Empty/null defers to template defaults (if any).")
     private List<FileInfo> attachments;
 
-    @Schema(description = "Explicit server config ID; null = auto-resolved via MailServerDispatcher")
+    @Schema(description = "Explicit send server id, of the scope's own table — a tenant's own server for a "
+            + "TENANT send, a platform server for a PLATFORM send; null = the scope's default")
     private Long serverConfigId;
 
     @Schema(description = "Reply-To override — one or more addresses separated by comma / semicolon / "
@@ -72,18 +73,30 @@ public class SendMailDTO {
     @Schema(description = "Template code for template-based sending (e.g. USER_WELCOME)")
     private String templateCode;
 
-    @Schema(description = "Template row id — editor test sends address the exact row being edited "
-            + "(no enabled filter, no tenant→platform resolution); takes precedence over templateCode")
+    @Schema(description = "Template row id, of the scope's own table — editor test sends address the exact "
+            + "row being edited (no enabled filter); takes precedence over templateCode")
     private Long templateId;
 
     @Schema(description = "Template placeholder variables")
     private Map<String, Object> templateVariables;
 
-    @Schema(description = "Tier-selection policy in multi-tenant deployments. Null/TENANT = the "
-            + "current tenant's template, tenant default server (platform fallback when none), "
-            + "tenant quota bucket. PLATFORM = platform tier only for template, server, and quota "
-            + "— for platform-owned mail (billing, security, compliance). Explicit "
-            + "serverConfigId/templateId still win over the policy.")
+    @Schema(description = "Which tier renders and carries the mail in multi-tenant deployments. "
+            + "Null/TENANT = the tenant's: its own template, its own default send server or — when it has "
+            + "none — the platform's as a relay. PLATFORM = the platform's: a platform template and server "
+            + "only — for account credentials, security notices and the platform's own notices. Either "
+            + "way the mail is filed under, and draws on the monthly quota of, the tenant it is made for: "
+            + "the current tenant, or the platform when there is none. A template code lives in one tier; "
+            + "serverConfigId and templateId are looked up in the scope's table.")
     private MessageScope scope;
 
+    /** A templated mail: the template's code and variables, sent in {@code scope}. */
+    public static SendMailDTO ofTemplate(List<String> to, String templateCode, Map<String, Object> variables,
+                                         MessageScope scope) {
+        SendMailDTO mail = new SendMailDTO();
+        mail.setTo(to);
+        mail.setTemplateCode(templateCode);
+        mail.setTemplateVariables(variables);
+        mail.setScope(scope);
+        return mail;
+    }
 }

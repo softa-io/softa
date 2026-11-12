@@ -43,7 +43,6 @@ class CreateDataTaskExecutorTest {
     @Test
     void reportsSupportedNodeTypeAndExecutorKey() {
         assertEquals(FlowNodeType.CREATE_RECORD, executor.getSupportedNodeType());
-        assertEquals("CreateData", executor.getExecutor());
     }
 
     @Test
@@ -56,7 +55,6 @@ class CreateDataTaskExecutorTest {
         rowTemplate.put("fieldType", "DateTime");
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CREATE_RECORD)
                 .input(Map.of("modelName", "SysModel", "rowTemplate", rowTemplate))
                 .build();
 
@@ -82,7 +80,6 @@ class CreateDataTaskExecutorTest {
         rowTemplate.put("name", "{{ modelName }}");
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CREATE_RECORD)
                 .input(Map.of("modelName", "SysModel", "rowTemplate", rowTemplate))
                 .build();
 
@@ -100,7 +97,6 @@ class CreateDataTaskExecutorTest {
     @Test
     void rejectsMissingModelName() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CREATE_RECORD)
                 .input(Map.of("rowTemplate", Map.of("name", "X")))
                 .build();
 
@@ -114,7 +110,6 @@ class CreateDataTaskExecutorTest {
         input.put("rowTemplate", Map.of("name", "X"));
 
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CREATE_RECORD)
                 .input(input)
                 .build();
 
@@ -124,7 +119,6 @@ class CreateDataTaskExecutorTest {
     @Test
     void rejectsMissingRowTemplate() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CREATE_RECORD)
                 .input(Map.of("modelName", "SysModel"))
                 .build();
 
@@ -134,7 +128,6 @@ class CreateDataTaskExecutorTest {
     @Test
     void rejectsEmptyRowTemplate() {
         TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.CREATE_RECORD)
                 .input(Map.of("modelName", "SysModel", "rowTemplate", Map.of()))
                 .build();
 

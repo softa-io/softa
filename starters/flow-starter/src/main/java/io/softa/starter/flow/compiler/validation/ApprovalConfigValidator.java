@@ -70,7 +70,7 @@ public class ApprovalConfigValidator implements FlowValidator {
     /**
      * Every field a step lists names its permission. A field listed with none — a row saved before its permission
      * was picked — was read as no rule at all, and published as one: the designer believed the field set, the step
-     * did not (zingkey-hcm#2406). Refused, so validating says so and publishing waits for it; not read as
+     * did not. Refused, so validating says so and publishing waits for it; not read as
      * {@code Readonly}, which shows a step's approvers a sensitive field their own permissions withhold, where a
      * field left unlisted does not. Checked on the config as stored, before it is read — the read takes an empty
      * permission for none — and the fields refused are left out of what the rest of the validation reads.
@@ -144,7 +144,7 @@ public class ApprovalConfigValidator implements FlowValidator {
     /**
      * A step's groups of approvers, and the approval mode counting over the pool they make. A step names who approves
      * it — at least one group, each specific people or a source that finds them. A step or a group that names nobody
-     * finds nobody on every run — under the default strategy every submission is refused (zingkey-hcm#2450) — so it
+     * finds nobody on every run — under the default strategy every submission is refused — so it
      * is not published; the vote thresholds have nothing to count then, and are not judged.
      */
     private void validateApprovers(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
@@ -257,7 +257,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                 }
             }
             case "Department" -> validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
-            default -> { /* VariableList, Expression, InitiatorManager, Role */ }
+            default -> { }
         }
     }
 

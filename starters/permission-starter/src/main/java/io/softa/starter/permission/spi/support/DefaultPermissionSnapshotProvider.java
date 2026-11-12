@@ -113,18 +113,20 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
      *  {@code navigation.system.} / {@code navigation.studio.}. From {@code permission.platform-nav-prefixes}. */
     private final List<String> platformNavPrefixes;
     /**
-     * Nav-id prefixes a tenant AND the platform both work in, e.g. {@code navigation.message.}. From
-     * {@code permission.shared-nav-prefixes}.
+     * Nav-id prefixes a tenant AND the platform both work in. From {@code permission.shared-nav-prefixes}.
      *
-     * <p>A second list rather than a longer first one, and the two are <b>disjoint</b>. They answer
-     * different questions: {@link #platformNavPrefixes} is what a tenant admin is kept OUT of, this is
-     * what both audiences are let into. Folding them together would name system and studio twice —
-     * once under each meaning — which is the shape that drifts.
+     * <p>A second list rather than a longer first one. They answer different questions:
+     * {@link #platformNavPrefixes} is what a tenant admin is kept OUT of, this is what both audiences are
+     * let into. Folding them together would name system and studio twice — once under each meaning —
+     * which is the shape that drifts. A platform prefix may sit inside a shared one: a tenant admin is
+     * tested against the platform list alone, so that subtree is carved out for it, while the platform
+     * admin, who reaches either list, keeps the whole module.
      *
-     * <p>Messaging is the case that needs it. Every model under it is multiTenant, so the platform is
-     * not looking at a different module: it is looking at the same menus on its own tier, where the
-     * verification-code and password-reset mails live. Take it away and nobody can edit the mail a
-     * consultant logs in with.
+     * <p>A shared page must be on multiTenant models, where each side sees its own rows. A page over a
+     * table that is not multiTenant — one table holding every tenant's rows, such as the message
+     * send logs, dead letters, quotas and usage — belongs under a platform prefix, or every tenant
+     * admin reads it whole. Messaging used to be shared, the platform working its mail on the same
+     * menus on its own tier; the platform's messaging now has models and menus of its own.
      */
     private final List<String> sharedNavPrefixes;
 
@@ -434,16 +436,28 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         List<RoleNavigationView> navGrants = modelService.searchList(M_ROLE_NAV,
                 new FlexQuery(List.of("roleId", "navigationId", "permissionIds"), new Filters().in("roleId", roleIds)),
                 RoleNavigationView.class);
-        TenantFacing tenantFacing = tenantFacing(tenantId, navGrants);
+        // A tenant's own role never reaches the platform's menus, whatever it was granted: the role
+        // wizard is meant to keep such grants out, but a grant that gets in — saved before a menu
+        // became platform-only, or written around the wizard — must not open pages over tables that
+        // hold every tenant's rows. The platform tenant's own roles keep them.
+        boolean tenantSide = tenantId != null && !BaseConstant.PLATFORM_TENANT_ID.equals(tenantId);
+        Set<String> platformPermissions = tenantSide ? platformPermissionIds() : Set.of();
+        // Nor past the tenant's plan: a grant on a module the plan does not include — written around
+        // the wizard, which lists only entitled modules — stays inert, as a tenant admin's own set does.
+        PlanGate plan = tenantSide ? planGate(tenantId, navGrants) : PlanGate.ALL;
         for (RoleNavigationView rn : navGrants) {
-            if (rn.getNavigationId() == null || !tenantFacing.allowsNavigation(rn.getNavigationId())) {
+            if (rn.getNavigationId() == null || (tenantSide && isPlatformNav(rn.getNavigationId()))
+                    || !plan.allowsNavigation(rn.getNavigationId())) {
                 continue;
             }
             navigations.add(rn.getNavigationId());
             List<String> pids = JsonUtils.toStringList(rn.getPermissionIds(), true);
+            if (pids != null && !platformPermissions.isEmpty()) {
+                pids = pids.stream().filter(pid -> !platformPermissions.contains(pid)).toList();
+            }
             if (pids != null) {
                 String rowNavigation = rn.getNavigationId();
-                pids = pids.stream().filter(pid -> tenantFacing.allowsPermission(pid, rowNavigation)).toList();
+                pids = pids.stream().filter(pid -> plan.allowsPermission(pid, rowNavigation)).toList();
                 permissions.addAll(pids);
                 RoleGrant grant = grantsByRole.get(rn.getRoleId());
                 if (grant != null) {
@@ -741,23 +755,15 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     }
 
     /**
-     * Which of a role's stored grants a customer tenant's user may hold: navigations that are not the
-     * platform's own and that the tenant's plan entitles, and permissions under such navigations.
-     *
-     * <p>Role grants are written by the tenant, and nothing stored is trusted to stay inside it: a grant
-     * naming a platform navigation — written before saving refused it, or straight into the table —
-     * would otherwise open the platform's endpoints to an ordinary user of one tenant, and those act on
-     * shared models, every tenant's rows. The same two tests a tenant admin's own set is built by. The
-     * platform tenant and a deployment without tenants keep every grant: their roles are the
-     * platform's own.
+     * Which of a customer tenant's role grants its plan includes: navigations of an entitled module, and
+     * permissions under such navigations. Without a plan gate, or when the gate answers nothing, every
+     * grant stands.
      */
-    private TenantFacing tenantFacing(Long tenantId, List<RoleNavigationView> navGrants) {
-        if (tenantId == null || BaseConstant.PLATFORM_TENANT_ID.equals(tenantId)) {
-            return TenantFacing.ALL;
+    private PlanGate planGate(Long tenantId, List<RoleNavigationView> navGrants) {
+        Set<String> entitled = entitlementService == null ? null : entitlementService.entitledModules(tenantId);
+        if (entitled == null) {
+            return PlanGate.ALL;
         }
-        Set<String> entitled = (entitlementService != null)
-                ? entitlementService.entitledModules(tenantId)
-                : null;
         Set<String> permissionIds = new HashSet<>();
         for (RoleNavigationView rn : navGrants) {
             List<String> pids = JsonUtils.toStringList(rn.getPermissionIds(), true);
@@ -771,19 +777,17 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                             new Filters().in("id", permissionIds)), PermissionView.class)
                     .forEach(p -> navigationOf.put(p.getId(), p.getNavigationId()));
         }
-        Predicate<String> allowed = navId ->
-                navId != null && !isPlatformNav(navId) && isEntitled(navId, entitled);
-        return new TenantFacing(allowed, navigationOf);
+        return new PlanGate(navId -> navId != null && isEntitled(navId, entitled), navigationOf);
     }
 
     /**
-     * The grants a tenant's user may hold; {@link #ALL} where every stored grant stands. A permission is
-     * judged by the navigation it is registered under, wherever the role row filed it; one the catalog
-     * does not know is judged by its row's navigation — it names no endpoint either way, since the
-     * endpoint index is built from the same catalog.
+     * The plan's answer for a role's grants; {@link #ALL} where every grant stands. A permission is judged
+     * by the navigation it is registered under, wherever the role row filed it; one the catalog does not
+     * know is judged by its row's navigation — it names no endpoint either way, since the endpoint index
+     * is built from the same catalog.
      */
-    private record TenantFacing(Predicate<String> navigation, Map<String, String> navigationOf) {
-        static final TenantFacing ALL = new TenantFacing(n -> true, Map.of());
+    private record PlanGate(Predicate<String> navigation, Map<String, String> navigationOf) {
+        static final PlanGate ALL = new PlanGate(n -> true, Map.of());
 
         boolean allowsNavigation(String navId) {
             return navigation.test(navId);
@@ -803,6 +807,24 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         }
         String moduleId = NavIds.moduleOf(navId);
         return moduleId == null || entitled.contains(moduleId);
+    }
+
+    /**
+     * The permissions that hang off a platform-only navigation — what a tenant's role must not carry
+     * even inside another navigation's grant row. Empty when no platform prefix is configured.
+     */
+    private Set<String> platformPermissionIds() {
+        if (platformNavPrefixes.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> ids = new HashSet<>();
+        for (PermissionView p : modelService.searchList(M_PERMISSION,
+                new FlexQuery(List.of("id", "navigationId"), new Filters()), PermissionView.class)) {
+            if (p.getId() != null && p.getNavigationId() != null && isPlatformNav(p.getNavigationId())) {
+                ids.add(p.getId());
+            }
+        }
+        return ids;
     }
 
     /** True when a nav id falls under a configured platform-only prefix (never tenant-facing). */

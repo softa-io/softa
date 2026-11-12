@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.engine;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +19,8 @@ import io.softa.starter.flow.runtime.store.FlowInstanceStore;
  * Reminds the approvers of the steps that are due: an approval flow's {@code remindAfterHours} after a step opens, its
  * approvers still to act are reminded, then again every as many hours, at most {@value #MAX_REMINDERS} times. A
  * reminder is all that happens — nothing is decided for anyone: a step no one acts on waits, and its approver can
- * delegate, its submitter urge, an administrator reassign. Nothing is sent before a step is due.
+ * delegate, its submitter urge, an administrator reassign. Nothing is sent before a step is due. The job runs on the
+ * hour by default, so a step is reminded within the hour after it falls due: its timing is counted in hours.
  */
 @Slf4j
 @Component
@@ -26,6 +28,13 @@ public class ApprovalTimeoutScheduler {
 
     /** The most reminders a step gets. */
     static final int MAX_REMINDERS = 3;
+
+    /**
+     * How much earlier than a step's next reminder a run may come and still send it. A reminder is stamped with the
+     * moment its run started, a little past the hour; the run an interval later can start a little less past it, and
+     * would leave the reminder to the run after — an hourly reminder every two hours.
+     */
+    static final Duration REMIND_EARLY_BY = Duration.ofMinutes(5);
 
     private final FlowInstanceStore instanceStore;
     private final FlowBundleRegistry bundleRegistry;
@@ -81,8 +90,9 @@ public class ApprovalTimeoutScheduler {
 
     /**
      * Whether a due step is reminded now: first when it falls due; then once per {@code intervalHours} since the last
-     * reminder, until {@value #MAX_REMINDERS} are sent. Without an interval — a step due by a setting its revision no
-     * longer has — once.
+     * reminder — counted from {@link #REMIND_EARLY_BY} before, so the run on the hour sends it — until
+     * {@value #MAX_REMINDERS} are sent. Without an interval — a step due by a setting its revision no longer has —
+     * once.
      */
     static boolean remindsNow(PendingApproval step, Integer intervalHours, LocalDateTime now) {
         int sent = step.getRemindCount() == null ? 0 : step.getRemindCount();
@@ -90,6 +100,7 @@ public class ApprovalTimeoutScheduler {
             return sent == 0;
         }
         LocalDateTime last = step.getLastRemindTime();
-        return sent < MAX_REMINDERS && (last == null || !now.isBefore(last.plusHours(intervalHours)));
+        return sent < MAX_REMINDERS
+                && (last == null || !now.isBefore(last.plusHours(intervalHours).minus(REMIND_EARLY_BY)));
     }
 }

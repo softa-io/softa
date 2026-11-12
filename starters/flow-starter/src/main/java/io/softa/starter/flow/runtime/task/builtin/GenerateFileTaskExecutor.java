@@ -53,11 +53,6 @@ public class GenerateFileTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "GenerateFile";
-    }
-
-    @Override
     public String getName() {
         return "Generate File";
     }

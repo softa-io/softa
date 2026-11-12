@@ -23,7 +23,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Withdraw on the approval page and in My Requests, on a record's approval that failed: its submitter takes the record
- * back as from the record's own page — a draft again, the failed instance kept (zingkey-hcm#2385). An approval waiting
+ * back as from the record's own page — a draft again, the failed instance kept. An approval waiting
  * on its approvers is withdrawn by the engine, as before.
  */
 class FlowInstanceWithdrawFailedTest {

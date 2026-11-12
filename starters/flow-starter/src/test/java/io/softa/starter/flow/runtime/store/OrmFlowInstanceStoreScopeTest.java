@@ -11,6 +11,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.engine.FlowProjectionPublisher;
 import io.softa.starter.flow.runtime.engine.FlowStateChangeListener;
+import io.softa.starter.flow.runtime.engine.FlowStatusChangeListener;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
@@ -21,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -53,13 +56,11 @@ class OrmFlowInstanceStoreScopeTest {
 
     @Test
     void savesTheInstancePastTheCallersRowScope() {
-        when(instanceService.findByInstanceId("i-1")).thenAnswer(invocation -> {
-            skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
-            return Optional.of(instance());
-        });
         when(instanceService.saveInstance(any())).thenAnswer(invocation -> {
             skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
-            return invocation.getArgument(0);
+            FlowInstance saved = invocation.getArgument(0);
+            saved.setId(42L);
+            return saved;
         });
         FlowExecutionState state = new FlowExecutionState();
         state.setInstanceId("i-1");
@@ -67,20 +68,28 @@ class OrmFlowInstanceStoreScopeTest {
 
         asRequest(() -> store.save(state));
 
-        assertEquals(List.of(true, true), skipped);
+        assertEquals(List.of(true), skipped);
+        // The row the state is saved as is written without being read first, and the state keeps its id.
+        verify(instanceService, never()).findByInstanceId(any());
+        assertEquals(42L, state.getPersistedId());
     }
 
     @Test
     void projectionsRunPastTheCallersRowScope() {
         FlowStateChangeListener listener = state -> skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
-        FlowProjectionPublisher publisher = new FlowProjectionPublisher(List.of(listener));
+        FlowStatusChangeListener statusListener =
+                (state, from) -> skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
+        FlowProjectionPublisher publisher = new FlowProjectionPublisher(List.of(listener), List.of(statusListener));
+        // A new instance saved in its first status: both kinds of listener are told.
+        FlowExecutionState saved = new FlowExecutionState();
+        saved.setStatus(FlowExecutionStatus.RUNNING);
 
         asRequest(() -> {
-            publisher.publish(new FlowExecutionState());
+            publisher.publish(saved);
             return null;
         });
 
-        assertEquals(List.of(true), skipped);
+        assertEquals(List.of(true, true), skipped);
     }
 
     @Test

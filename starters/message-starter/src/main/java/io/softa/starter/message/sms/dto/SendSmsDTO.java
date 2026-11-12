@@ -35,10 +35,21 @@ public class SendSmsDTO {
     @Schema(description = "External template ID override (from template if not set)")
     private String externalTemplateId;
 
-
-    @Schema(description = "Tier-selection policy in multi-tenant deployments. Null/TENANT = the "
-            + "current tenant's template and quota bucket. PLATFORM = platform tier only for "
-            + "template and quota — for platform-owned SMS (security codes for platform accounts, "
-            + "operational alerts). Explicit providerConfigId still wins over the policy.")
+    @Schema(description = "Null/TENANT or PLATFORM, kept for symmetry with mail and recorded on the send. "
+            + "SMS templates and providers are platform-owned either way, and the send is filed under — and "
+            + "draws on the monthly quota of — the tenant it is made for: the current tenant, or the "
+            + "platform when there is none. To send for another tenant, call inside "
+            + "ContextUtils.inTenantContext(tenantId, ...).")
     private MessageScope scope;
+
+    /** A templated SMS to one number: the template's code and variables, sent in {@code scope}. */
+    public static SendSmsDTO ofTemplate(String phoneNumber, String templateCode, Map<String, Object> variables,
+                                        MessageScope scope) {
+        SendSmsDTO sms = new SendSmsDTO();
+        sms.setPhoneNumber(phoneNumber);
+        sms.setTemplateCode(templateCode);
+        sms.setTemplateVariables(variables);
+        sms.setScope(scope);
+        return sms;
+    }
 }

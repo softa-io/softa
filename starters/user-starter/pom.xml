@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.softa</groupId>
         <artifactId>starters</artifactId>
-        <version>2.9.11</version>
+        <version>3.0.4</version>
     </parent>
 
     <name>Softa User Starter</name>
@@ -23,6 +23,14 @@
         <dependency>
             <groupId>io.softa</groupId>
             <artifactId>reference-data-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Login and join codes, invitations, account-change notices and subscription reminders are
+             sent through MessageService. -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>message-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
 

@@ -70,25 +70,24 @@ class ApprovalNodeDescriptorValuesTest {
     }
 
     /**
-     * The sources come in the order an HR administrator reaches for them — specific people, the organization's, the
-     * groups', then the developers' — and each says what the designer needs to tell which settings apply: where specific
-     * people are named, and that a source finds one person at most.
+     * The sources come in the order an HR administrator reaches for them — specific people, then the organization's:
+     * one person, then the holders of a role, a position or a department — every one of them offered, and each says
+     * what the designer needs to tell which settings apply: where specific people are named, and that a source finds
+     * one person at most.
      */
     @Test
     void sourcesComeInTheOrderTheyAreReachedForAndSayWhatTheyFind() {
         List<?> options = (List<?>) property(approvalSchema(), "approverSources").get("options");
-        List<?> offered = options.stream().map(option -> (Map<?, ?>) option)
-                .filter(option -> !Boolean.TRUE.equals(option.get("deprecated"))).map(option -> option.get("label")).toList();
         assertEquals(List.of("Specific people", "Supervisor", "Department leader", "Department HRBP", "Role", "Position",
-                "Department members", "Variable list (advanced)", "Expression (advanced)"), offered);
+                "Department members"), options.stream().map(option -> ((Map<?, ?>) option).get("label")).toList());
+        assertTrue(options.stream().noneMatch(option -> ((Map<?, ?>) option).containsKey("deprecated")),
+                "every source is offered");
 
         Map<Object, Map<?, ?>> byType = new java.util.LinkedHashMap<>();
         options.forEach(option -> byType.put(((Map<?, ?>) option).get("type"), (Map<?, ?>) option));
         assertEquals("userIds", byType.get("Users").get("names"));
-        assertEquals(List.of("InitiatorManager", "Supervisor", "DeptLeader", "DeptHrbp"), byType.values().stream()
-                .filter(option -> Boolean.TRUE.equals(option.get("findsOne"))).map(option -> option.get("type"))
-                .sorted(java.util.Comparator.comparing(type -> List.of("InitiatorManager", "Supervisor", "DeptLeader",
-                        "DeptHrbp").indexOf(type))).toList());
+        assertEquals(List.of("Supervisor", "DeptLeader", "DeptHrbp"), byType.values().stream()
+                .filter(option -> Boolean.TRUE.equals(option.get("findsOne"))).map(option -> option.get("type")).toList());
     }
 
     /**

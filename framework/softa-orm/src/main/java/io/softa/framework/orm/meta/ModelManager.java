@@ -93,33 +93,64 @@ public class ModelManager {
             List<MetaField> fields = jdbcService.selectMetaEntityList("SysField", MetaField.class, null);
             List<MetaIndex> indexes = jdbcService.selectMetaEntityList("SysModelIndex", MetaIndex.class, null);
             if (ListUtils.allNotNull(models, fields)) {
-                this.initModels(models);
-                // Initialize basic field information
-                this.initBasicFields(fields);
-                // Validate model attributes
-                this.validateModelAttributes(models);
-                // Validate field attributes
-                this.validateFieldAttributes(fields);
-                // Register indexes into the independent global registry, failing fast on a duplicate name.
                 // Index metadata is secondary (backs the friendly duplicate-key resolver), so a null read
                 // must not block model loading — treat it as no indexes.
-                this.initIndexes(indexes == null ? List.of() : indexes);
-                // Identify composition relationships and build childModels
-                this.identifyChildModels();
-                // Build the inbound TO_ONE reverse-reference index (delete strategy)
-                this.identifyOnDeleteRefs();
-                // Reject cyclic / self-referential CASCADE so the runtime cascade needs no cycle guard
-                this.validateCascadeAcyclic();
-                // Identify the audit fields of the models.
-                this.identifyAuditFields(models);
-                // Seal the model attributes to make them immutable after initialization
-                this.sealModelAttributes(models);
+                this.load(models, fields, indexes == null ? List.of() : indexes);
                 snapshot = freezeSnapshot(draft);
             }
         } finally {
             BUILDING_SNAPSHOT.remove();
             initLock.unlock();
         }
+    }
+
+    /**
+     * Run the checks {@link #init()} runs over a catalog that is not read from the database — the
+     * rows the metadata scanner would write from the annotations — without loading it: the metadata
+     * the application reads stays as it was. A test calls it, so that a catalog which would stop the
+     * application at boot fails the build instead.
+     *
+     * <p>The checks complete the objects they are given, as at boot (a default display and search
+     * name, the dependent fields, the readonly flags), and seal them: pass objects made for the
+     * check. Multi-tenancy is read from {@code SystemConfig.env}, as at boot.
+     *
+     * @param models  model metadata
+     * @param fields  field metadata
+     * @param indexes index metadata
+     */
+    public static void validateCatalog(List<MetaModel> models, List<MetaField> fields, List<MetaIndex> indexes) {
+        BUILDING_SNAPSHOT.set(createMutableSnapshot());
+        try {
+            // The steps keep their state in BUILDING_SNAPSHOT, not on the instance: a bare one runs them.
+            new ModelManager().load(models, fields, indexes);
+        } finally {
+            BUILDING_SNAPSHOT.remove();
+        }
+    }
+
+    /**
+     * Load a catalog into the snapshot being built ({@code BUILDING_SNAPSHOT}), checking it on the way.
+     */
+    private void load(List<MetaModel> models, List<MetaField> fields, List<MetaIndex> indexes) {
+        this.initModels(models);
+        // Initialize basic field information
+        this.initBasicFields(fields);
+        // Validate model attributes
+        this.validateModelAttributes(models);
+        // Validate field attributes
+        this.validateFieldAttributes(fields);
+        // Register indexes into the independent global registry, failing fast on a duplicate name.
+        this.initIndexes(indexes);
+        // Identify composition relationships and build childModels
+        this.identifyChildModels();
+        // Build the inbound TO_ONE reverse-reference index (delete strategy)
+        this.identifyOnDeleteRefs();
+        // Reject cyclic / self-referential CASCADE so the runtime cascade needs no cycle guard
+        this.validateCascadeAcyclic();
+        // Identify the audit fields of the models.
+        this.identifyAuditFields(models);
+        // Seal the model attributes to make them immutable after initialization
+        this.sealModelAttributes(models);
     }
 
     /**
@@ -538,12 +569,16 @@ public class ModelManager {
         if (!CollectionUtils.isEmpty(searchName)) {
             Assert.isTrue(!searchName.contains(ModelConstant.SEARCH_NAME),
                     "The searchName of model {0} cannot contain the 'searchName' keyword itself!", metaModel.getModelName());
-            // MultiString is stored as delimited text, so a search box's CONTAINS is a substring
-            // match on it just as on a String — a send record found by one of its recipients.
+            // The types the search box's CONTAINS reads as text (FieldType.TEXT_SEARCH_TYPES, which
+            // WhereBuilder matches by). MultiString is stored as delimited text, so it is a substring
+            // match just as on a String — a send record found by one of its recipients; Text is a String
+            // without a width — an inbox notification found by its body. Only a String gets a derived
+            // search index (SearchIndexSynthesizer), so a search on the other two scans what the rest of
+            // the query leaves.
             searchName.forEach(field -> {
                 FieldType fieldType = getModelField(metaModel.getModelName(), field).getFieldType();
-                Assert.isTrue(FieldType.STRING.equals(fieldType) || FieldType.MULTI_STRING.equals(fieldType),
-                        "The `searchName` attribute only supports String and MultiString fields, not model {0} field {1} type {2}!",
+                Assert.isTrue(FieldType.TEXT_SEARCH_TYPES.contains(fieldType),
+                        "The `searchName` attribute only supports String, Text and MultiString fields, not model {0} field {1} type {2}!",
                         metaModel.getModelName(), field, fieldType.getType());
             });
         } else if (existField(metaModel.getModelName(), "name")) {

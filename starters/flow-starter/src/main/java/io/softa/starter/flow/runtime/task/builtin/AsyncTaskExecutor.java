@@ -52,11 +52,6 @@ public class AsyncTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "AsyncTask";
-    }
-
-    @Override
     public String getName() {
         return "Async Task";
     }

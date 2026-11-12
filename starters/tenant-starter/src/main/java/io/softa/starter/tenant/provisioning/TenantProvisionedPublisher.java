@@ -12,9 +12,9 @@ import io.softa.framework.base.message.TenantProvisionedMessage;
 /**
  * Bridges the in-process {@link TenantProvisionedEvent} to MQ: on {@code AFTER_COMMIT} (so a rolled-back
  * provisioning never publishes), fans a {@link TenantProvisionedMessage} to Pulsar for business modules
- * to consume and self-seed per-tenant data. Mirrors the framework {@code MailRequestPublisher} pattern —
- * the {@code :}-empty-default topic gate means this is a no-op when {@code mq.topics.tenant-provisioned.topic}
- * is unconfigured (e.g. tests / apps that don't want business seeding).
+ * to consume and self-seed per-tenant data. The {@code :}-empty-default topic gate means this is a no-op
+ * when {@code mq.topics.tenant-provisioned.topic} is unconfigured (e.g. tests / apps that don't want
+ * business seeding).
  */
 @Slf4j
 @Component

@@ -26,8 +26,6 @@ public final class TaskConfigTypes {
         TYPES.put(FlowNodeType.GET_RECORD, GetDataConfig.class);
         TYPES.put(FlowNodeType.DELETE_RECORD, DeleteDataConfig.class);
         TYPES.put(FlowNodeType.QUERY_RECORDS, QueryRecordsConfig.class);
-        TYPES.put(FlowNodeType.CALL_SERVICE, CallServiceConfig.class);
-        TYPES.put(FlowNodeType.SEND_SMS, SendSmsConfig.class);
         TYPES.put(FlowNodeType.SEND_EMAIL, SendEmailConfig.class);
         TYPES.put(FlowNodeType.SEND_INBOX_NOTIFICATION, SendInboxNotificationConfig.class);
         TYPES.put(FlowNodeType.GENERATE_FILE, GenerateFileConfig.class);

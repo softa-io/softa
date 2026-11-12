@@ -24,7 +24,7 @@
         "position": { "x": 0, "y": 160 },
         "config": {
           "approverSource": { "type": "Supervisor", "level": 1 },
-          "emptyApproverStrategy": "Skip",
+          "emptyApproverStrategy": "AutoApprove",
           "approvalMode": "AnyOne",
           "rejectMode": "AnyOne",
           "returnEnabled": true,

@@ -36,11 +36,6 @@ class DefaultTaskExecutorRegistryTest {
             }
 
             @Override
-            public String getExecutor() {
-                return "Stub" + nodeType.getType();
-            }
-
-            @Override
             public String getName() {
                 return "Stub";
             }

@@ -8,7 +8,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
-import io.softa.starter.flow.runtime.engine.InProcessFlowClient;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -32,12 +31,9 @@ class FlowSelfServiceScopeWaiverTest {
     @Test
     @DisplayName("every self-service entry point waives row scope")
     void selfServiceEntryPointsWaiveRowScope() {
-        assertWaived(FlowApprovalTaskController.class, "counts", "searchTasks", "getInbox");
-        assertWaived(FlowApprovalRecordController.class, "getHistory", "getSentCcHistory");
-        assertWaived(FlowDelegationController.class, "myDelegations", "delegationsToMe", "delegableFlows", "cancel");
+        assertWaived(FlowApprovalTaskController.class, "counts", "searchTasks");
+        assertWaived(FlowDelegationController.class, "searchDelegations", "delegableFlows", "cancel");
         assertWaived(FlowInstanceController.class, "searchInstances");
-        assertWaived(InProcessFlowClient.class, "myInstances", "inbox", "pendingTasks", "completedTasks",
-                "ccTasks", "approvalHistory", "sentCcHistory");
     }
 
     @Test
@@ -48,8 +44,6 @@ class FlowSelfServiceScopeWaiverTest {
         assertChecked(FlowInstanceController.class, "getInstance", "getOverlay", "getTrace",
                 "getRecordApprovals", "previewRecordApproval", "getInstanceRecord", "getRecordThroughApprovals",
                 "getInstanceSummary", "getInstanceDesign", "getFormPermissions");
-        assertChecked(InProcessFlowClient.class, "getInstance", "recordApprovals", "previewRecord", "tasksByInstance",
-                "recordsByInstance", "getFormPermissions");
     }
 
     @Test

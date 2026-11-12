@@ -1,6 +1,7 @@
 package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -9,16 +10,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.message.SmsRequestMessage;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
+import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.dto.MembershipOption;
 import io.softa.starter.user.dto.MyAccountSummary;
@@ -68,7 +71,9 @@ class MyCredentialServiceTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final LoginService loginService = mock(LoginService.class);
     private final VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
-    private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+    private final MessageService messages = mock(MessageService.class);
+    /** Every send, in order, with the tenant it was made in. */
+    private final List<Sent> sends = new ArrayList<>();
     private final UserSessionService sessions = mock(UserSessionService.class);
     private final UserSecurityLogService securityLog = mock(UserSecurityLogService.class);
     private final LoginHistoryRecorder history = mock(LoginHistoryRecorder.class);
@@ -83,7 +88,9 @@ class MyCredentialServiceTest {
         ReflectionTestUtils.setField(service, "loginService", loginService);
         ReflectionTestUtils.setField(service, "codeGuard", codeGuard);
         ReflectionTestUtils.setField(service, "cacheService", inMemoryCache());
-        ReflectionTestUtils.setField(service, "eventPublisher", events);
+        ReflectionTestUtils.setField(service, "messageService", messages);
+        when(messages.sendMail(any())).thenAnswer(inv -> this.recordSend(inv.getArgument(0)));
+        when(messages.sendSms(any())).thenAnswer(inv -> this.recordSend(inv.getArgument(0)));
         ReflectionTestUtils.setField(service, "sessionService", sessions);
         ReflectionTestUtils.setField(service, "securityLog", securityLog);
         ReflectionTestUtils.setField(service, "history", history);
@@ -163,7 +170,7 @@ class MyCredentialServiceTest {
 
         verify(codeGuard).beforeSend(MOBILE);
         verify(codeGuard).store(eq(MOBILE), anyString());
-        verify(events).publishEvent(any(SmsRequestMessage.class));
+        verify(messages).sendSms(any(SendSmsDTO.class));
     }
 
     @Test
@@ -479,17 +486,18 @@ class MyCredentialServiceTest {
         });
     }
 
-    private List<Object> published() {
-        org.mockito.ArgumentCaptor<Object> sent = org.mockito.ArgumentCaptor.forClass(Object.class);
-        verify(events, org.mockito.Mockito.atLeast(0)).publishEvent(sent.capture());
-        return sent.getAllValues();
+    private record Sent(Object message, Long tenantId) {
     }
 
-    private List<Object> notices() {
-        return published().stream().filter(m -> (m instanceof SmsRequestMessage sms
-                        && MyCredentialServiceImpl.TEMPLATE_LOGIN_MOBILE_CHANGED.equals(sms.templateCode()))
-                || (m instanceof io.softa.framework.base.message.MailRequestMessage mail
-                        && MyCredentialServiceImpl.TEMPLATE_LOGIN_MOBILE_CHANGED.equals(mail.templateCode())))
+    private Long recordSend(Object message) {
+        sends.add(new Sent(message, ContextHolder.getContext().getTenantId()));
+        return 1L;
+    }
+
+    private List<Sent> notices() {
+        return sends.stream().filter(s -> MyCredentialServiceImpl.TEMPLATE_LOGIN_MOBILE_CHANGED.equals(
+                s.message() instanceof SendSmsDTO sms ? sms.getTemplateCode()
+                        : ((SendMailDTO) s.message()).getTemplateCode()))
                 .toList();
     }
 
@@ -510,21 +518,29 @@ class MyCredentialServiceTest {
 
         changeMobile("password");
 
-        List<Object> notices = notices();
-        SmsRequestMessage sms = (SmsRequestMessage) notices.stream()
-                .filter(SmsRequestMessage.class::isInstance).findFirst().orElseThrow();
-        assertThat(sms.to()).containsExactly(MOBILE);
+        List<Sent> notices = notices();
+        SendSmsDTO sms = notices.stream().map(Sent::message).filter(SendSmsDTO.class::isInstance)
+                .map(SendSmsDTO.class::cast).findFirst().orElseThrow();
+        assertThat(sms.getPhoneNumber()).isEqualTo(MOBILE);
         // In full, as the owner is being told their own numbers.
-        assertThat(sms.variables()).containsEntry("oldMobile", "+65 91234567")
+        assertThat(sms.getTemplateVariables()).containsEntry("oldMobile", "+65 91234567")
                 .containsEntry("newMobile", "+65 98765432");
-        List<io.softa.framework.base.message.MailRequestMessage> mails = notices.stream()
-                .filter(io.softa.framework.base.message.MailRequestMessage.class::isInstance)
-                .map(io.softa.framework.base.message.MailRequestMessage.class::cast).toList();
+        List<Sent> mails = notices.stream().filter(s -> s.message() instanceof SendMailDTO).toList();
         // Joined and not left — frozen included, merely invited not; one mailbox once.
-        assertThat(mails).extracting(m -> m.to().get(0)).containsExactly("ada@acme.com", "ada@beta.com");
-        assertThat(mails).extracting(io.softa.framework.base.message.MailRequestMessage::tenantId)
-                .containsExactly(1L, 2L);
-        assertThat(mails.get(0).variables()).isEqualTo(sms.variables());
+        assertThat(mails).extracting(s -> ((SendMailDTO) s.message()).getTo().get(0))
+                .containsExactly("ada@acme.com", "ada@beta.com");
+        // A platform notice on every channel: the platform's template and servers, which no company
+        // can rewrite or swallow.
+        assertThat(sms.getScope()).isEqualTo(MessageScope.PLATFORM);
+        assertThat(mails).extracting(s -> ((SendMailDTO) s.message()).getScope())
+                .containsOnly(MessageScope.PLATFORM);
+        // Each still a company's send, filed under it and counted against its quota: every mail the
+        // company of the mailbox it goes to, the one SMS the company the person is signed in to.
+        assertThat(notices.stream().filter(n -> n.message() instanceof SendSmsDTO).map(Sent::tenantId))
+                .containsExactly(1L);
+        assertThat(mails).extracting(Sent::tenantId).containsExactly(1L, 2L);
+        assertThat(((SendMailDTO) mails.get(0).message()).getTemplateVariables())
+                .isEqualTo(sms.getTemplateVariables());
         UserSecurityLog row = loggedChange();
         assertThat(row.getReminderChannels()).isEqualTo("sms,email,email");
         assertThat(row.getReminderResult()).isEqualTo("sms:sent,email:sent,email:sent");
@@ -545,8 +561,7 @@ class MyCredentialServiceTest {
     void aNoticeThatCannotBeSent_isRecordedAsFailed_andTheChangeStands() {
         when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
                 membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com")));
-        doThrow(new IllegalStateException("broker down")).when(events)
-                .publishEvent(any(io.softa.framework.base.message.MailRequestMessage.class));
+        doThrow(new IllegalStateException("database down")).when(messages).sendMail(any());
 
         changeMobile("password");
 

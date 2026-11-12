@@ -53,7 +53,7 @@ class ApprovalWritesAsApproverTest {
             bundleRegistry,
             new StubFlowInstanceStore(),
             new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
-            approvalHandler, state -> {}, state -> {}, records);
+            approvalHandler, state -> {}, (state, from) -> {}, records);
 
     @Test
     void theApproversFormEditsAreWrittenPastTheirOwnPermissions() {

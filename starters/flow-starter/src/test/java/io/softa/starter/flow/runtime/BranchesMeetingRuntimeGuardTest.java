@@ -32,8 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The runtime safety net under the publish checks, for revisions published before them: a step two branches reach
  * without a join is not run a second time, and a join left short does not let the approval complete. Either way the
- * instance fails, naming the node; the approval that reached it stands, as any after which the approval cannot go on
- * (zingkey-hcm#2385).
+ * instance fails, naming the node; the approval that reached it stands, as any after which the approval cannot go on.
  */
 class BranchesMeetingRuntimeGuardTest {
 

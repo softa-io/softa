@@ -72,12 +72,12 @@ public class FlowVariableCatalogService {
         collectTriggerVariables(definition, byName);
         for (String builtin : BUILTIN_VARIABLES) {
             byName.putIfAbsent(builtin, new FlowVariableView(
-                    builtin, FlowVariableView.Source.BUILTIN, null, "Trigger metadata",
+                    builtin, FlowVariableView.Source.BUILTIN, "Trigger metadata",
                     TYPE_STRING, null));
         }
         if (definition != null && definition.getTrigger() instanceof SubmitTrigger) {
             byName.putIfAbsent(SUBJECT_VARIABLE, new FlowVariableView(
-                    SUBJECT_VARIABLE, FlowVariableView.Source.BUILTIN, null, "The employee the record is about",
+                    SUBJECT_VARIABLE, FlowVariableView.Source.BUILTIN, "The employee the record is about",
                     FieldType.LONG.getType(), null));
         }
         if (definition != null && definition.getGraph() != null && nodeId != null) {
@@ -88,7 +88,10 @@ public class FlowVariableCatalogService {
 
     /**
      * The record the flow starts on: an entity change's every field, an approval's the fields its
-     * approvals route on ({@link RecordVariables}) — what the instance carries, so what a rule may read.
+     * approvals route on ({@link RecordVariables}) — what the instance carries, so what a rule may read. A
+     * relation a rule reads through lists the fields of its record a rule may read through it, by their
+     * paths — up to {@link RecordVariables#MAX_HOPS} relations on; an edge's rule reads them, and an approval's
+     * submit condition.
      */
     private void collectTriggerVariables(DesignFlowDefinition definition,
                                          Map<String, FlowVariableView> byName) {
@@ -102,12 +105,36 @@ public class FlowVariableCatalogService {
         List<MetaField> fields = definition.getTrigger() instanceof SubmitTrigger
                 ? RecordVariables.routedFields(modelName)
                 : ModelManager.getModelFields(modelName);
+        Map<String, List<String>> throughRelations = new LinkedHashMap<>();
+        for (MetaField relation : RecordVariables.routedRelations(modelName)) {
+            List<String> reachable = ruleFieldsOf(relation.getRelatedModel(), RecordVariables.MAX_HOPS - 1);
+            if (!reachable.isEmpty()) {
+                throughRelations.put(relation.getFieldName(), reachable);
+            }
+        }
         for (MetaField field : fields) {
             String fieldType = field.getFieldType() == null ? null : field.getFieldType().getType();
             byName.putIfAbsent(field.getFieldName(), new FlowVariableView(
-                    field.getFieldName(), FlowVariableView.Source.TRIGGER, null, modelName,
-                    fieldType, relatedModelOf(field)));
+                    field.getFieldName(), FlowVariableView.Source.TRIGGER, modelName,
+                    fieldType, relatedModelOf(field), throughRelations.get(field.getFieldName())));
         }
+    }
+
+    /**
+     * The fields of {@code modelName} a rule reads once a relation has reached it, as the rule names them after that
+     * relation: its routed fields, and — with {@code hopsLeft} — those through its own routed relations,
+     * {@code departmentId.costCentreId}.
+     */
+    private static List<String> ruleFieldsOf(String modelName, int hopsLeft) {
+        List<String> fields = new ArrayList<>();
+        RecordVariables.routedFields(modelName).forEach(field -> fields.add(field.getFieldName()));
+        if (hopsLeft > 0) {
+            for (MetaField next : RecordVariables.routedRelations(modelName)) {
+                ruleFieldsOf(next.getRelatedModel(), hopsLeft - 1)
+                        .forEach(field -> fields.add(next.getFieldName() + "." + field));
+            }
+        }
+        return fields;
     }
 
     private static boolean isModel(String modelName) {
@@ -140,10 +167,10 @@ public class FlowVariableCatalogService {
             }
             String sourceLabel = StringUtils.hasText(upstream.getLabel()) ? upstream.getLabel() : upstreamId;
             String primaryOutput = primaryOutputVariable(upstream.getConfig());
-            for (String variable : declaredOutputs(upstream.getConfig())) {
+            for (String variable : declaredOutputs(upstream)) {
                 boolean isPrimary = variable.equals(primaryOutput);
                 byName.putIfAbsent(variable, new FlowVariableView(
-                        variable, FlowVariableView.Source.NODE_OUTPUT, upstreamId, sourceLabel,
+                        variable, FlowVariableView.Source.NODE_OUTPUT, sourceLabel,
                         isPrimary ? inferNodeOutputType(upstream) : null,
                         isPrimary ? nodeTargetModel(upstream) : null));
             }
@@ -206,15 +233,17 @@ public class FlowVariableCatalogService {
 
     /**
      * Output variable names a node's raw config declares: {@code outputVariable}
-     * (Script/Subflow/Task, also nested under {@code task}) and the keys of
-     * {@code outputMapping} (Subflow/Task).
+     * (Script/Subflow/Task, also nested under {@code task}) and, on a Subflow, the keys of
+     * {@code outputMapping}.
      */
-    private static List<String> declaredOutputs(Map<String, Object> config) {
+    private static List<String> declaredOutputs(FlowGraphNode node) {
+        Map<String, Object> config = node.getConfig();
+        boolean subflow = FlowNodeType.SUBFLOW.equals(node.getType());
         List<String> outputs = new ArrayList<>();
-        collectOutputKeys(config, outputs);
+        collectOutputKeys(config, subflow, outputs);
         Object task = config.get("task");
         if (task instanceof Map<?, ?> taskMap) {
-            collectOutputKeys(taskMap, outputs);
+            collectOutputKeys(taskMap, false, outputs);
         }
         return outputs;
     }
@@ -231,11 +260,11 @@ public class FlowVariableCatalogService {
         return null;
     }
 
-    private static void collectOutputKeys(Map<?, ?> config, List<String> outputs) {
+    private static void collectOutputKeys(Map<?, ?> config, boolean subflow, List<String> outputs) {
         if (config.get("outputVariable") instanceof String name && !name.isBlank()) {
             outputs.add(name);
         }
-        if (config.get("outputMapping") instanceof Map<?, ?> mapping) {
+        if (subflow && config.get("outputMapping") instanceof Map<?, ?> mapping) {
             for (Object key : mapping.keySet()) {
                 if (key instanceof String name && !name.isBlank()) {
                     outputs.add(name);

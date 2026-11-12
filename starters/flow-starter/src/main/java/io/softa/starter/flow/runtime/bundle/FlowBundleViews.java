@@ -22,48 +22,31 @@ public final class FlowBundleViews {
         return FlowBundleSummaryView.builder()
                 .flowName(def.getFlowName())
                 .scenario(def.getScenario())
-                .triggerType(def.getTrigger() == null
-                        ? null
-                        : def.getTrigger().getClass().getSimpleName().replace("Trigger", ""))
-                .sync(def.getSync())
-                .rollbackOnFail(def.getRollbackOnFail())
                 .revision(def.getRevision())
                 .bundleId(def.getBundleId())
                 .flowId(def.getFlowId())
-                .compiledAt(def.getCompiledAt())
                 .publishedAt(def.getPublishedAt())
-                .nodeCount(def.getNodeIndex() == null ? 0 : def.getNodeIndex().size())
-                .transitionCount(def.getTransitionIndex() == null ? 0 : def.getTransitionIndex().size())
-                .capabilitySummary(def.getCapabilitySummary())
                 .build();
     }
 
     /**
-     * One stored revision as the revision history lists it: its compiled summary, with what only the row knows —
-     * whether it is the flow's effective revision ({@code active}) and its {@code changeDescription}. A row whose
-     * compiled definition cannot be read is summarized from its own columns.
+     * One stored revision as the revision history lists it, from its own columns — its compiled definition is not
+     * read: what it is, whether it is the flow's effective revision ({@code active}) and its {@code changeDescription}.
      */
     public static FlowBundleSummaryView summarize(FlowBundle entity) {
         if (entity == null) {
             return null;
         }
-        FlowBundleSummaryView summary = summarize(FlowBundleMapper.toDefinition(entity));
-        if (summary == null) {
-            summary = FlowBundleSummaryView.builder()
-                    .flowName(entity.getFlowName())
-                    .scenario(entity.getScenario())
-                    .sync(entity.getSync())
-                    .rollbackOnFail(entity.getRollbackOnFail())
-                    .revision(entity.getRevision())
-                    .bundleId(entity.getId())
-                    .flowId(entity.getFlowId())
-                    .compiledAt(entity.getCompiledAt())
-                    .build();
-        }
-        summary.setPublishedAt(entity.getPublishedAt() != null ? entity.getPublishedAt() : summary.getPublishedAt());
-        summary.setActive(Boolean.TRUE.equals(entity.getActive()));
-        summary.setChangeDescription(entity.getChangeDescription());
-        return summary;
+        return FlowBundleSummaryView.builder()
+                .flowName(entity.getFlowName())
+                .scenario(entity.getScenario())
+                .revision(entity.getRevision())
+                .bundleId(entity.getId())
+                .flowId(entity.getFlowId())
+                .publishedAt(entity.getPublishedAt())
+                .active(Boolean.TRUE.equals(entity.getActive()))
+                .changeDescription(entity.getChangeDescription())
+                .build();
     }
 
     /**

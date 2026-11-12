@@ -35,23 +35,14 @@ public class PendingApproval {
     @Schema(description = "Node label")
     private String nodeLabel;
 
-    @Schema(description = "Approval task cycle number for repeated visits to the same node")
-    private Integer cycleNumber;
-
     @Schema(description = "Static approver ids or names from config")
     private List<String> approvers;
-
-    @Schema(description = "Whether approvers were resolved from a dynamic source")
-    private Boolean dynamicApprovers;
 
     @Schema(description = "Approval mode for this node")
     private VoteThresholdMode approvalMode;
 
     @Schema(description = "Required approval count before the node can continue")
     private Integer requiredApprovalCount;
-
-    @Schema(description = "Total configured approver count")
-    private Integer totalApproverCount;
 
     @Schema(description = "Approvers who have already approved in unanimous mode")
     private List<String> approvedActors;

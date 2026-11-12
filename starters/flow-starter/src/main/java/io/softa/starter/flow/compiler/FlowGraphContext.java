@@ -14,8 +14,7 @@ public record FlowGraphContext(
         Map<String, FlowGraphEdge> edgeMap,
         Map<String, List<String>> incomingEdgeIds,
         Map<String, List<String>> outgoingEdgeIds,
-        List<String> entryNodeIds,
-        List<String> terminalNodeIds
+        List<String> entryNodeIds
 ) {
 
     /** What a message calls a node: its label, or its id when it has none or is not in the graph. */

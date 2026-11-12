@@ -1,10 +1,10 @@
 package io.softa.starter.flow.service.impl;
 
 import java.io.Serializable;
-import java.time.LocalDateTime;
 import java.util.*;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -28,6 +28,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowInstanceRecordView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
@@ -103,30 +104,22 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getStatus),
             LambdaUtils.getAttributeName(FlowInstance::getFailedNodeId),
             LambdaUtils.getAttributeName(FlowInstance::getRetryAfterNodeId),
-            LambdaUtils.getAttributeName(FlowInstance::getNextFireAt),
             LambdaUtils.getAttributeName(FlowInstance::getCreatedTime),
             LambdaUtils.getAttributeName(FlowInstance::getUpdatedTime));
 
     @Override
     public FlowInstance saveInstance(FlowInstance instance) {
         if (instance.getId() != null) {
-            if (this.updateOne(instance, false)) {
+            // What the state holds, nulls included; a column written apart from it (superseded) keeps its value.
+            Map<String, Object> row = BeanTool.objectToMap(instance, false);
+            row.keySet().retainAll(SAVED_FIELDS);
+            if (modelService.updateOne(modelName, row)) {
                 advanceVersion(instance);
             }
             return instance;
         }
-        // Check if one already exists by instanceId
-        Optional<FlowInstance> existing = findByInstanceId(instance.getInstanceId());
-        if (existing.isPresent()) {
-            instance.setId(existing.get().getId());
-            if (instance.getVersion() == null) {
-                instance.setVersion(existing.get().getVersion());
-            }
-            if (this.updateOne(instance, false)) {
-                advanceVersion(instance);
-            }
-            return instance;
-        }
+        // A state never saved carries no row id: a new row. Its instance id is unique (uk_instance_id), so a second
+        // row for it is refused.
         Long id = this.createOne(instance);
         instance.setId(id);
         if (instance.getVersion() == null) {
@@ -134,6 +127,10 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         }
         return instance;
     }
+
+    /** The fields a save updates: the row's id and what the engine's state holds. */
+    private static final Set<String> SAVED_FIELDS = Stream.concat(Stream.of(ModelConstant.ID),
+            FlowExecutionStateMapper.STATE_FIELDS.stream()).collect(Collectors.toUnmodifiableSet());
 
     private static void advanceVersion(FlowInstance instance) {
         if (instance.getVersion() != null) {
@@ -167,12 +164,6 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
-    public List<FlowInstance> findByFlowId(String flowId) {
-        Filters filters = new Filters().eq(FlowInstance::getFlowId, flowId);
-        return this.searchList(filters);
-    }
-
-    @Override
     public List<FlowInstance> findByStatus(FlowExecutionStatus status) {
         Filters filters = new Filters().eq(FlowInstance::getStatus, status);
         return this.searchList(filters);
@@ -187,42 +178,23 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
+    public Optional<FlowInstance> findLatestRecordApproval(String modelName, String rowId) {
+        Filters filters = new Filters()
+                .eq(FlowInstance::getModelName, modelName)
+                .eq(FlowInstance::getRowId, rowId)
+                .eq(FlowInstance::getRecordApproval, true);
+        FlexQuery query = new FlexQuery(filters,
+                Orders.ofDesc(FlowInstance::getCreatedTime).addDesc(FlowInstance::getId));
+        query.setLimitSize(1);
+        return this.searchList(query).stream().findFirst();
+    }
+
+    @Override
     public Optional<FlowInstance> findByTriggerEvent(String flowId, String eventId) {
         Filters filters = new Filters()
                 .eq(FlowInstance::getFlowId, flowId)
                 .eq(FlowInstance::getTriggerEventId, eventId);
         return this.searchOne(filters);
-    }
-
-    @Override
-    public List<FlowInstance> findByInitiatorId(String initiatorId) {
-        Filters filters = new Filters().eq(FlowInstance::getInitiatorId, initiatorId);
-        return this.searchList(filters);
-    }
-
-    @Override
-    public List<FlowInstance> findDueTimers(LocalDateTime now, int limit) {
-        Filters filters = new Filters()
-                .eq(FlowInstance::getStatus, FlowExecutionStatus.WAITING)
-                .le(FlowInstance::getNextFireAt, now);
-        Orders orders = Orders.ofAsc(FlowInstance::getNextFireAt);
-        FlexQuery query = new FlexQuery(filters, orders);
-        query.setLimitSize(limit);
-        return this.searchList(query);
-    }
-
-    @Override
-    public long countDueTimers(LocalDateTime now) {
-        Filters filters = new Filters()
-                .eq(FlowInstance::getStatus, FlowExecutionStatus.WAITING)
-                .le(FlowInstance::getNextFireAt, now);
-        return this.count(filters);
-    }
-
-    @Override
-    public long countByStatus(FlowExecutionStatus status) {
-        Filters filters = new Filters().eq(FlowInstance::getStatus, status);
-        return this.count(filters);
     }
 
     @Override
@@ -244,55 +216,14 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
-    public Page<FlowInstance> searchInstances(FlexQuery query, Page<FlowInstance> page) {
-        return this.searchPage(query, page);
-    }
-
-    @Override
     public Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId) {
         CallerConditions.requireStoredFields(modelName, request.filters(), request.orders());
         Filters filters = new Filters();
-        if (request.flowId() != null) {
-            filters.eq(FlowInstance::getFlowId, request.flowId());
-        }
-        if (request.status() != null) {
-            filters.eq(FlowInstance::getStatus, request.status());
-        }
-        String initiatorId = forcedInitiatorId != null ? forcedInitiatorId : request.initiatorId();
-        if (initiatorId != null) {
-            filters.eq(FlowInstance::getInitiatorId, initiatorId);
-        }
         if (forcedInitiatorId != null) {
             // The caller's own list is what they submitted: their records' approvals. An automation run
             // their write happened to trigger records them as initiator too, but is not theirs to follow.
-            filters.eq(FlowInstance::getRecordApproval, true);
-        }
-        if (request.modelName() != null) {
-            filters.eq(FlowInstance::getModelName, request.modelName());
-        }
-        if (request.rowId() != null) {
-            filters.eq(FlowInstance::getRowId, request.rowId());
-        }
-        if (request.createdFrom() != null) {
-            filters.ge(FlowInstance::getCreatedTime, request.createdFrom());
-        }
-        if (request.createdTo() != null) {
-            filters.le(FlowInstance::getCreatedTime, request.createdTo());
-        }
-        if (request.subjectId() != null) {
-            filters.eq(FlowInstance::getSubjectId, request.subjectId());
-        }
-        if (request.subjectDeptId() != null) {
-            filters.eq(FlowInstance::getDepartmentId, request.subjectDeptId());
-        }
-        if (request.effectiveDateFrom() != null) {
-            filters.ge(FlowInstance::getEffectiveDate, request.effectiveDateFrom());
-        }
-        if (request.effectiveDateTo() != null) {
-            filters.le(FlowInstance::getEffectiveDate, request.effectiveDateTo());
-        }
-        if (StringUtils.hasText(request.recordCode())) {
-            filters.contains(FlowInstance::getRecordCode, request.recordCode().trim());
+            filters.eq(FlowInstance::getInitiatorId, forcedInitiatorId)
+                    .eq(FlowInstance::getRecordApproval, true);
         }
         if (Boolean.TRUE.equals(request.awaitingRevision())) {
             // Returned and not replaced by a later submission: the record still waits to be edited.
@@ -306,9 +237,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         Page<FlowInstance> page = Page.of(
                 request.pageNumber() == null ? 1 : request.pageNumber(),
                 request.pageSize() == null ? 50 : request.pageSize());
-        // Funnel through searchInstances so a replacement implementation that
-        // intercepts raw monitoring queries sees this path too.
-        return this.searchInstances(query, page);
+        return this.searchPage(query, page);
     }
 
     @Override
@@ -325,16 +254,21 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
 
     @Override
     public FlowRecordApprovalsView recordApprovals(String modelName, String rowId,
-                                                   Consumer<FlowRecordApprovalsView> authorize) {
-        List<FlowRecordApprovalsView.Instance> instances = ContextUtils.withoutPermissionChecks(
-                () -> approvalsOf(modelName, rowId).stream()
-                        .map(this::approvalRun)
-                        .map(ApprovalRun::toView)
-                        .toList());
-        FlowRecordApprovalsView history = new FlowRecordApprovalsView(instances);
-        authorize.accept(history);
-        nameUsers(history);
-        return history;
+                                                   BiConsumer<FlowRecordApprovalsView, List<RecordApproval>> authorize) {
+        // Each approval and its history read once: for the panel, and for deciding who takes part in which.
+        List<RecordApproval> approvals = new ArrayList<>();
+        List<FlowRecordApprovalsView.Instance> instances = new ArrayList<>();
+        ContextUtils.withoutPermissionChecks(() -> {
+            for (FlowInstance instance : approvalsOf(modelName, rowId)) {
+                List<ApprovalActionAuditEntry> history = approvalLedger.findByInstanceId(instance.getInstanceId());
+                approvals.add(new RecordApproval(FlowExecutionStateMapper.toState(instance), history));
+                instances.add(approvalRun(instance, history).toView());
+            }
+        });
+        FlowRecordApprovalsView view = new FlowRecordApprovalsView(instances);
+        authorize.accept(view, approvals);
+        nameUsers(view);
+        return view;
     }
 
     @Override
@@ -356,12 +290,13 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                 .toList();
     }
 
-    private ApprovalRun approvalRun(FlowInstance instance) {
+    /** The approval as its panel shows it, from its row and its whole history (CC reads left out of the actions). */
+    private ApprovalRun approvalRun(FlowInstance instance, List<ApprovalActionAuditEntry> history) {
         CompiledFlowDefinition definition = bundleRegistry.getByBundleId(instance.getBundleId()).orElse(null);
         List<PendingApproval> pending = FlowExecutionStatus.WAITING.equals(instance.getStatus())
                 ? pendingApprovalsOf(instance)
                 : List.of();
-        List<ApprovalActionAuditEntry> actions = approvalLedger.findByInstanceId(instance.getInstanceId()).stream()
+        List<ApprovalActionAuditEntry> actions = history.stream()
                 .filter(entry -> !ApprovalActionType.READ.equals(entry.getAction()))
                 .toList();
         return new ApprovalRun(instance, definition == null ? null : definition.getFlowName(), pending, actions,
@@ -637,7 +572,6 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                     .status(instance.getStatus())
                     .initiator(actor(instance.getInitiatorId()))
                     .startedAt(instance.getCreatedTime())
-                    .updatedAt(instance.getUpdatedTime())
                     .pending(pending.stream().map(step -> FlowRecordApprovalsView.PendingStep.builder()
                             .nodeId(step.getNodeId())
                             .nodeLabel(step.getNodeLabel())
@@ -659,18 +593,5 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         private static FlowRecordApprovalsView.Actor actor(String id) {
             return id == null ? null : new FlowRecordApprovalsView.Actor(id, null);
         }
-    }
-
-    @Override
-    public List<FlowInstance> findStuckInstances(LocalDateTime threshold, int limit) {
-        Filters filters = new Filters()
-                .in(FlowInstance::getStatus, List.of(
-                        FlowExecutionStatus.RUNNING,
-                        FlowExecutionStatus.WAITING))
-                .lt(FlowInstance::getUpdatedTime, threshold);
-        Orders orders = Orders.ofAsc(FlowInstance::getUpdatedTime);
-        FlexQuery query = new FlexQuery(filters, orders);
-        query.setLimitSize(limit);
-        return this.searchList(query);
     }
 }

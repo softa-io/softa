@@ -15,7 +15,6 @@ import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ChangeEvent;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.FlowNodeType;
@@ -77,13 +76,6 @@ class TriggerConditionCompileTest {
     }
 
     @Test
-    void aFieldChangeTriggerWatchesFieldsItsModelHas() {
-        assertTrue(message(flow(FlowScenario.COMPUTE, new FieldChangeTrigger(MODEL, List.of("days", "nights"))),
-                "UNKNOWN_TRIGGER_FIELD").contains("nights"));
-        assertTrue(codes(flow(FlowScenario.COMPUTE, new FieldChangeTrigger(MODEL, List.of("days")))).isEmpty());
-    }
-
-    @Test
     void aSubmitConditionIsCheckedLikeTheRoutesOfItsDocumentsApprovals() {
         assertTrue(codes(submit(Filters.of(List.of("days", ">", 3)), null)).isEmpty());
         assertTrue(message(submit(Filters.of(List.of("approvalStatus", "=", "Pending")), null),
@@ -93,7 +85,21 @@ class TriggerConditionCompileTest {
                 .contains("CONFLICTING_TRIGGER_CONDITIONS"));
     }
 
-    /** The trigger is edited on the Start node: its diagnostics point there, so the designer marks it (zingkey-hcm#2450). */
+    /**
+     * A submit condition reads through the document's relations, up to two on, as its edges do: a submission reads
+     * the value from the related record to choose a flow. A change trigger's rule is decided on the change itself,
+     * before any run starts, so it reads the changed record only.
+     */
+    @Test
+    void aSubmitConditionReadsThroughARelationAndAChangeTriggersRuleDoesNot() {
+        assertTrue(codes(submit(Filters.of(List.of("departmentId.costCenter", "=", "CC1")), null)).isEmpty());
+        assertTrue(message(submit(Filters.of(List.of("departmentId.budget", ">", 1)), null),
+                "INVALID_TRIGGER_CONDITION").contains("is not a path a rule can read"));
+        assertTrue(message(change(MODEL, Filters.of(List.of("departmentId.costCenter", "=", "CC1")), null),
+                "INVALID_TRIGGER_CONDITION").contains("reads the record's own fields only"));
+    }
+
+    /** The trigger is edited on the Start node: its diagnostics point there, so the designer marks it. */
     @Test
     void aTriggersDiagnosticsPointAtTheStartNode() {
         CompileDiagnostic invalid = compiler.validate(submit(null, "days > 3 &&")).stream()
@@ -144,7 +150,6 @@ class TriggerConditionCompileTest {
                 .name("Leave watch")
                 .scenario(scenario)
                 .trigger(trigger)
-                .declaredOutputs(FlowScenario.COMPUTE.equals(scenario) ? List.of("days") : null)
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),

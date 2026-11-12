@@ -5,7 +5,6 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
 import io.softa.starter.message.inbox.dto.SendInboxDTO;
 import io.softa.starter.message.inbox.enums.NotificationType;
@@ -33,7 +32,6 @@ class SendInboxNotificationTaskExecutorTest {
 
     private TaskExecutionRequest request(Map<String, Object> input) {
         return TaskExecutionRequest.builder()
-                .flowNodeType(FlowNodeType.SEND_INBOX_NOTIFICATION)
                 .input(input)
                 .build();
     }

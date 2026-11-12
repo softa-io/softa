@@ -33,11 +33,11 @@ public final class FlowStatusTransitions {
         // Async-launch: created-but-not-started → running (or force-cancelled before start).
         ALLOWED.put(FlowExecutionStatus.PENDING, EnumSet.of(
                 FlowExecutionStatus.RUNNING, FlowExecutionStatus.CANCELLED));
-        // Active execution may suspend on any wait (approval / timer / async), complete, or cancel.
+        // Active execution may suspend on any wait (approval / async), complete, or cancel.
         ALLOWED.put(FlowExecutionStatus.RUNNING, EnumSet.of(
                 FlowExecutionStatus.WAITING, FlowExecutionStatus.COMPLETED,
                 FlowExecutionStatus.CANCELLED));
-        // Parked on a wait: resume (approve / timer / async → running), or terminate via
+        // Parked on a wait: resume (approve / async → running), or terminate via
         // reject / return / withdraw / cancel. Parallel branches with different wait reasons
         // share this one status, so a second branch suspending is a legal self-transition.
         ALLOWED.put(FlowExecutionStatus.WAITING, EnumSet.of(
