@@ -464,7 +464,12 @@ code in the other tier   -> TEMPLATE_NOT_RESOLVABLE, "send it with scope PLATFOR
 missing in both          -> TEMPLATE_NOT_RESOLVABLE
 ```
 
-Template placeholders use the unified Softa syntax: `{{ variable }}`.
+Template placeholders use the unified Softa syntax: `{{ variable }}`. A date or
+time variable is passed as the object itself (`LocalDateTime.now()`, never its
+`toString()`) and prints as the API writes it: `2026-11-12 13:00:40` — server
+local time, no zone. The record keeps the variables as JSON, so the template
+receives that text; another format names it:
+`{{ time | date("dd/MM/yyyy", existingFormat="yyyy-MM-dd HH:mm:ss") }}`.
 
 #### Body modes
 
@@ -840,7 +845,9 @@ SMS templates are resolved by `code` alone — there is one tier, and the send's
 under, and draws on the quotas of, the tenant the send is made for (the
 calling context's; the platform when there is none).
 
-Template placeholders use the unified Softa syntax: `{{ variable }}`.
+Template placeholders use the unified Softa syntax: `{{ variable }}`. A date or
+time variable is passed as the object itself and prints as the API writes it
+(`2026-11-12 13:00:40`), as in mail templates.
 
 #### Delivery pipeline
 
