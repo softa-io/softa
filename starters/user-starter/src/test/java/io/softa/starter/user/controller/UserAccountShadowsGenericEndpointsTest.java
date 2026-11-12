@@ -49,7 +49,11 @@ class UserAccountShadowsGenericEndpointsTest {
             "POST /copyById",
             "POST /copyByIdAndFetch",
             "POST /copyByIds",
-            "POST /copyByIdsAndFetch");
+            "POST /copyByIdsAndFetch",
+            // Read a record the account owns through a one-to-one or one-to-many field. UserAccount owns
+            // none, so both refuse on the field before any row is read.
+            "GET /getRelationUnmaskedFields",
+            "POST /searchRelationPage");
 
     /** {@code "VERB /path"} for every request mapping the class itself declares. */
     private static Set<String> mappingsOf(Class<?> controller) {

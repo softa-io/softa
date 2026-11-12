@@ -403,9 +403,9 @@ class DepartmentGrantConditionsTest {
     }
 
     @Test
-    @DisplayName("a department picked on a record following its employee places nothing, so it is not narrowed")
+    @DisplayName("a record whose department comes from its employee has none to pick, so its picker is not narrowed")
     void aRecordFollowingItsEmployeeIsNotNarrowed() {
-        recordOfAnEmployee();
+        recordPlacedByItsEmployee();
 
         assertThat(writable(RECORD, writer(Set.of("1/10"), Set.of(), Set.of()))).isNull();
     }
@@ -427,6 +427,18 @@ class DepartmentGrantConditionsTest {
                 .thenReturn(department);
     }
 
+    /**
+     * A record reached on its own that belongs where its employee does: {@code departmentId} a dynamic cascade of
+     * {@code employeeId.departmentId}, the way such a model declares it.
+     */
+    private void recordPlacedByItsEmployee() {
+        recordOfAnEmployee();
+        MetaField placed = toOne(ModelConstant.DEPARTMENT_MODEL);
+        when(placed.isDynamicCascadedField()).thenReturn(true);
+        when(placed.getCascadedField()).thenReturn("employeeId.departmentId");
+        modelManager.when(() -> ModelManager.getModelFieldOrNull(RECORD, ModelConstant.DEPARTMENT_FIELD)).thenReturn(placed);
+    }
+
     private static MetaField toOne(String related) {
         MetaField field = mock(MetaField.class);
         when(field.getFieldType()).thenReturn(FieldType.MANY_TO_ONE);
@@ -446,7 +458,7 @@ class DepartmentGrantConditionsTest {
     @Test
     @DisplayName("named departments and conditions reach a record through its employee")
     void conditionsReachARecordThroughItsEmployee() {
-        recordOfAnEmployee();
+        recordPlacedByItsEmployee();
 
         String read = scope(RECORD, roleOnRecord(Set.of("1/10"), Set.of("OWN_DEPARTMENT", "MANAGED_DEPARTMENTS"), Set.of()),
                 AccessType.READ).toString();
@@ -457,7 +469,7 @@ class DepartmentGrantConditionsTest {
     @Test
     @DisplayName("direct reports reach a record through its employee where the type applies")
     void directReportsReachARecord() {
-        recordOfAnEmployee();
+        recordPlacedByItsEmployee();
 
         String read = scope(RECORD, roleOnRecord(Set.of(), Set.of("DIRECT_REPORTS"), Set.of()), AccessType.READ).toString();
 
@@ -467,7 +479,7 @@ class DepartmentGrantConditionsTest {
     @Test
     @DisplayName("an exemption on the record lifts the grant for viewing it only")
     void anExemptionOnTheRecordLiftsViewingOnly() {
-        recordOfAnEmployee();
+        recordPlacedByItsEmployee();
         RoleGrant exempt = roleOnRecord(Set.of("1/10"), Set.of(), Set.of(RECORD));
 
         assertThat(scope(RECORD, exempt, AccessType.READ)).isNull();
@@ -502,9 +514,9 @@ class DepartmentGrantConditionsTest {
     }
 
     @Test
-    @DisplayName("a role with no way to the record through the employee is bounded on it directly")
+    @DisplayName("a record placed by its employee is bounded on its own department path")
     void aRecordFollowingNoEmployeeIsBounded() {
-        recordOfAnEmployee();
+        recordPlacedByItsEmployee();
 
         assertThat(scope(RECORD, role(Set.of("1/10"), Set.of(), Set.of()), AccessType.READ).toString())
                 .contains(THROUGH_EMPLOYEE);

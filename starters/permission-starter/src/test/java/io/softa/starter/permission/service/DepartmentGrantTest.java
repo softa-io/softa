@@ -184,24 +184,26 @@ class DepartmentGrantTest {
     }
 
     @Test
-    @DisplayName("a record of an employee's is bounded through that employee's department")
-    void boundsARecordThroughItsEmployee() {
+    @DisplayName("a record with an employee but no department of its own is not bounded: it says where it belongs by departmentId")
+    void anEmployeeAloneIsNoAnchor() {
         belongingToAnEmployee("EmpFamily");
 
-        assertThat(scope("EmpFamily", new HashSet<>(GRANTED)))
-                .isEqualTo(IdPath.subtreesOf("employeeId.departmentId.idPath", List.of("1/10", "1/11")));
-        assertThat(DepartmentGrantRules.anchorOf("EmpFamily")).isEqualTo(ModelConstant.EMPLOYEE_FIELD);
+        assertThat(DepartmentGrantRules.anchorOf("EmpFamily")).isNull();
+        assertThat(scope("EmpFamily", GRANTED)).isNull();
     }
 
     @Test
-    @DisplayName("an employeeId with no column of its own is followed through its cascade path")
-    void aDynamicEmployeeIdGoesThroughItsCascadePath() {
-        belongingToAnEmployee("EmpFamily");
-        MetaField employee = ModelManager.getModelFieldOrNull("EmpFamily", ModelConstant.EMPLOYEE_FIELD);
-        when(employee.isDynamicCascadedField()).thenReturn(true);
-        when(employee.getCascadedField()).thenReturn("contractId.employeeId");
+    @DisplayName("a departmentId cascading through the employee is followed through its cascade path")
+    void aDepartmentCascadingThroughTheEmployeeGoesThroughItsPath() {
+        belongingToAnEmployee("EmpCosting");
+        toOne("EmpCosting", ModelConstant.DEPARTMENT_FIELD, ModelConstant.DEPARTMENT_MODEL);
+        MetaField department = ModelManager.getModelFieldOrNull("EmpCosting", ModelConstant.DEPARTMENT_FIELD);
+        when(department.isDynamicCascadedField()).thenReturn(true);
+        when(department.getCascadedField()).thenReturn("employeeId.departmentId");
 
-        assertThat(scope("EmpFamily", GRANTED).toString()).contains("contractId.employeeId.departmentId.idPath");
+        assertThat(DepartmentGrantRules.anchorOf("EmpCosting")).isEqualTo(ModelConstant.DEPARTMENT_FIELD);
+        assertThat(scope("EmpCosting", new HashSet<>(GRANTED)))
+                .isEqualTo(IdPath.subtreesOf("employeeId.departmentId.idPath", List.of("1/10", "1/11")));
     }
 
     @Test
@@ -223,21 +225,6 @@ class DepartmentGrantTest {
 
         assertThat(DepartmentGrantRules.anchorOf("FlowRow")).isNull();
         assertThat(scope("FlowRow", GRANTED)).isNull();
-    }
-
-    @Test
-    @DisplayName("an employeeId pointing elsewhere, or an employee model with no department, is no anchor")
-    void leavesAnEmployeeIdThatDoesNotReachADepartment() {
-        model("Elsewhere", null, null);
-        toOne("Elsewhere", ModelConstant.EMPLOYEE_FIELD, "Contractor");
-        toOne(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD, ModelConstant.DEPARTMENT_MODEL);
-        assertThat(DepartmentGrantRules.anchorOf("Elsewhere")).isNull();
-
-        model("NoDepartment", null, null);
-        toOne("NoDepartment", ModelConstant.EMPLOYEE_FIELD, ModelConstant.EMPLOYEE_MODEL);
-        modelManager.when(() -> ModelManager.getModelFieldOrNull(ModelConstant.EMPLOYEE_MODEL, ModelConstant.DEPARTMENT_FIELD))
-                .thenReturn(null);
-        assertThat(DepartmentGrantRules.anchorOf("NoDepartment")).isNull();
     }
 
     @Test

@@ -15,12 +15,14 @@ import org.springframework.web.bind.annotation.*;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.*;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -300,6 +302,112 @@ public class ModelController<K extends Serializable> {
         ContextHolder.getContext().setEffectiveDate(effectiveDate);
         id = IdUtils.formatId(modelName, id);
         return ApiResponse.success(modelService.getUnmaskedFields(modelName, id, fields));
+    }
+
+    /**
+     * Get the original values of masked fields on a record this one owns: the one-to-one section {@code field}
+     * points at, or, for a one-to-many {@code field}, its row {@code rowId}. A record an owner holds through such
+     * a field is read through the owner and has no endpoints of its own, so its masked values are asked for here.
+     * The owner has to be readable, the row has to be the owner's, and the section's own row and field rules
+     * still decide what comes back.
+     *
+     * @param modelName the owner model
+     * @param id        the owner's id
+     * @param field     the owner's one-to-one or one-to-many field
+     * @param rowId     the row of a one-to-many field; ignored for a one-to-one field
+     * @param fields    masked fields of the owned model
+     * @return unmasked field values map, {fieldName: fieldValue}
+     */
+    @GetMapping("/getRelationUnmaskedFields")
+    @Operation(description = "Get the original values of masked fields on a record this one owns.")
+    @Parameters({
+            @Parameter(name = "id", description = "The owner's ID", schema = @Schema(type = "string")),
+            @Parameter(name = "field", description = "The owner's one-to-one or one-to-many field"),
+            @Parameter(name = "rowId", description = "The row of a one-to-many field", schema = @Schema(type = "string")),
+            @Parameter(name = "fields", description = "Masked fields of the owned model"),
+            @Parameter(name = "effectiveDate", description = "Effective date for timeline model.")
+    })
+    public ApiResponse<Map<String, Object>> getRelationUnmaskedFields(@PathVariable String modelName,
+                                                                      @RequestParam K id,
+                                                                      @RequestParam String field,
+                                                                      @RequestParam(required = false) String rowId,
+                                                                      @RequestParam List<String> fields,
+                                                                      @RequestParam(required = false) LocalDate effectiveDate) {
+        ContextHolder.getContext().setEffectiveDate(effectiveDate);
+        MetaField relation = ownedRelation(modelName, field);
+        K ownerId = IdUtils.formatId(modelName, id);
+        String ownedModel = relation.getRelatedModel();
+        K ownedId;
+        if (relation.getFieldType() == FieldType.ONE_TO_ONE) {
+            Object value = modelService.getById(modelName, ownerId, List.of(field))
+                    .map(row -> row.get(field))
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "The data of model {0} with id {1} does not exist!", modelName, ownerId));
+            Object referenced = value instanceof Map<?, ?> reference ? reference.get(ModelConstant.ID) : value;
+            Assert.notNull(referenced, "The {0} of model {1} with id {2} is empty.", field, modelName, ownerId);
+            ownedId = IdUtils.formatId(ownedModel, (Serializable) referenced);
+        } else {
+            Assert.notBlank(rowId, "A one-to-many field needs the rowId of its row.");
+            requireReadable(modelName, ownerId);
+            ownedId = IdUtils.formatId(ownedModel, rowId);
+            Filters ownRow = new Filters().eq(ModelConstant.ID, ownedId).eq(relation.getRelatedField(), ownerId);
+            Assert.isTrue(modelService.count(ownedModel, ownRow) > 0,
+                    "Row {0} of {1} does not belong to model {2} with id {3}.", rowId, field, modelName, ownerId);
+        }
+        return ApiResponse.success(modelService.getUnmaskedFields(ownedModel, ownedId, fields));
+    }
+
+    /**
+     * Page through the rows of a one-to-many field of one record. The rows a record owns are read through it
+     * and have no endpoints of their own: the owner has to be readable, and the rows' own rules still bound the
+     * page. The query parameters apply to the owned model; the rows are limited to this record's.
+     *
+     * @param modelName   the owner model
+     * @param id          the owner's id
+     * @param field       the owner's one-to-many field
+     * @param queryParams fields, filters, orders and paging on the owned model
+     * @return the record's rows in the page
+     */
+    @PostMapping(value = "/searchRelationPage")
+    @Operation(description = "Page through the rows of a one-to-many field of one record.")
+    @Parameters({
+            @Parameter(name = "id", description = "The owner's ID", schema = @Schema(type = "string")),
+            @Parameter(name = "field", description = "The owner's one-to-many field")
+    })
+    @DataMask
+    public ApiResponse<Page<Map<String, Object>>> searchRelationPage(@PathVariable String modelName,
+                                                                     @RequestParam K id,
+                                                                     @RequestParam String field,
+                                                                     @RequestBody(required = false) QueryParams queryParams) {
+        MetaField relation = ownedRelation(modelName, field);
+        Assert.isTrue(relation.getFieldType() == FieldType.ONE_TO_MANY,
+                "Field {0} of model {1} is not a one-to-many field.", field, modelName);
+        id = IdUtils.formatId(modelName, id);
+        requireReadable(modelName, id);
+        if (queryParams == null) {
+            queryParams = new QueryParams();
+        }
+        FlexQuery flexQuery = QueryParams.convertParamsToFlexQuery(queryParams);
+        flexQuery.setFilters(Filters.and(flexQuery.getFilters(), new Filters().eq(relation.getRelatedField(), id)));
+        Page<Map<String, Object>> page = Page.of(queryParams.getPageNumber(), queryParams.getPageSize());
+        return ApiResponse.success(modelService.searchPage(relation.getRelatedModel(), flexQuery, page));
+    }
+
+    /** A one-to-one or keyed one-to-many field of {@code modelName}, the kind through which it owns records. */
+    private static MetaField ownedRelation(String modelName, String field) {
+        MetaField relation = ModelManager.getModelField(modelName, field);
+        boolean toMany = relation.getFieldType() == FieldType.ONE_TO_MANY
+                && relation.getRelatedField() != null && !relation.getRelatedField().isBlank();
+        Assert.isTrue(toMany || relation.getFieldType() == FieldType.ONE_TO_ONE,
+                "Field {0} of model {1} is not a one-to-one or one-to-many field.", field, modelName);
+        return relation;
+    }
+
+    /** Refuses unless the caller can read the record: what it owns is read through it. */
+    private void requireReadable(String modelName, K id) {
+        if (modelService.getById(modelName, id, List.of(ModelConstant.ID)).isEmpty()) {
+            throw new IllegalArgumentException("The data of model {0} with id {1} does not exist!", modelName, id);
+        }
     }
 
     /**

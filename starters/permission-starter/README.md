@@ -225,8 +225,8 @@ Scope **types are data**; their compilation is **code only where it must be**.
   (evaluate an admin-authored `scopeExpr`). These read `Employee` / `Department` by
   model name via `ModelService`; `ModelManager.existModel` lets a non-HR app degrade.
   The department anchor is the field named `departmentId`: a ToOne to `Department`
-  (or reached as `employeeId.departmentId`) is filtered on its `idPath` through the
-  join; a **plain department-id column** under that name — a framework model that
+  (stored, or a dynamic cascade such as `employeeId.departmentId`) is filtered on its
+  `idPath` through the join; a **plain department-id column** under that name — a framework model that
   cannot relate to the application's `Department`, such as `FlowInstance` — is
   filtered `departmentId IN (the subtree's department ids)`, the ids picked from the
   cached department tree (`DepartmentCascadePathResolver.resolveIdColumn`,
@@ -433,18 +433,20 @@ snapshot keeps, per role, the `idPath` of each granted root (`RoleGrant.grantedD
 past the department model's active control, so a disabled root still bounds what is under it), and
 `PermissionServiceImpl` ANDs a subtree match on those paths onto that role's rows — `departmentId.idPath`
 on every model with `departmentId` as a to-one onto `Department` (its cascade path when that field is
-dynamic), `employeeId.departmentId.idPath` on a model with no `departmentId` whose `employeeId` is a to-one onto
-`Employee`, `idPath` on `Department` itself — next to the company grant, per role, before the roles are
-OR-ed. A `departmentId` that is no such anchor (a plain number column) rules `employeeId` out too. The read is live,
+dynamic), `idPath` on `Department` itself — next to the company grant, per role, before the roles are
+OR-ed. A model declares where its rows belong by declaring `departmentId`; one without it is not bounded by
+the department grant. A record an employee owns through a one-to-one or one-to-many field needs none: it is
+read and written through its owner (below) and follows the owner's rows. A record reached on its own that
+belongs where its employee does declares `departmentId` as a dynamic cascade of `employeeId.departmentId`.
+A `departmentId` that is no such anchor (a plain number column) bounds nothing. The read is live,
 so a department created under, or moved into, a granted subtree is in it at once and one moved out leaves it at
 once; a move also drops the tenant's snapshots, which hold the granted roots' paths, so a granted root that moves
 keeps its subtree. An application's event adapter says which it is — `DepartmentIdPathResolver.evict(tenant, false)`
 for a change that rewrites no stored path (a create, a delete, disabling, a rename) drops only the cached tree;
 `evict(tenant)` or `evict(tenant, true)` for a move drops the snapshots as well. A snapshot built from the old paths
 and written back after that clear removes itself (`PermissionSnapshotProvider.departmentPathsMarkKey`).
-A sub-record the role holds no rule for, reached through the employee model that owns it, follows that employee
-instead, so an exemption on `Employee` also shows that person's own sections; a model carrying its own rules is
-bounded on its own and needs its own exemption. A department just inserted, whose path the application writes
+A sub-record the role holds no rule for follows the record that owns it, so an exemption on `Employee` also
+shows that person's own sections. A department just inserted, whose path the application writes
 after the insert, is judged by its parent's path, so a role may create one under a department it is
 granted (not at the top). There is no user-level union.
 Who may hand a grant on is judged by user-starter's `RoleGrantCeiling`, on a save and an assignment alike: a role
@@ -500,8 +502,8 @@ template's company column offer the same companies, none when the write is grant
 with a `sourceRecord` (`{model, recordId}`) offers what that write may choose: the departments of the roles holding
 the write on `model` — create when `recordId` is absent, update when it is set — exemptions left out, since they lift
 the grant for viewing only (`PermissionService.getWritableDepartmentScope`). It narrows only where the picked
-department places the record, on the department model and models with a `departmentId` of their own; a record following
-its employee, an admin, and a holding role with no department grant are left as they read. So is a picker naming another
+department places the record, on the department model and models with a `departmentId` of their own; an admin and a
+holding role with no department grant are left as they read. So is a picker naming another
 field in `sourceRecord.fieldName`: a department it names does not decide whose the record is. So is a holding role
 with `DIRECT_REPORTS`, on a model the type applies to: the holder's reports can sit in any department, so the picker
 cannot tell which the write will accept and the save's own check decides. On a model it does not apply to, the role

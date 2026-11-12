@@ -8,10 +8,6 @@ import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.enums.OnDelete;
-import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.scope.DepartmentGrantRules;
 import io.softa.framework.orm.service.ModelService;
@@ -114,33 +110,6 @@ public final class DepartmentGrants {
     /** Whether the department grant bounds {@code model}; see {@link DepartmentGrantRules#anchorOf}. */
     public static boolean bounds(String model) {
         return DepartmentGrantRules.anchorOf(model) != null;
-    }
-
-    /**
-     * Whether a model's records follow the employee they belong to: they reach the department through the
-     * employee, and the employee model owns them — a one-to-many child, or a one-to-one section not deleted
-     * along with the employee. A role that holds the employee model and writes no rule of its own for such a
-     * model reads exactly the rows of the employees it reaches, so an exemption on it changes nothing; it is
-     * the employee model that has to be exempt.
-     */
-    public static boolean followsEmployee(String model) {
-        if (!ModelConstant.EMPLOYEE_FIELD.equals(DepartmentGrantRules.anchorOf(model))
-                || !ModelManager.existModel(ModelConstant.EMPLOYEE_MODEL)) {
-            return false;
-        }
-        for (MetaField field : ModelManager.getModelFields(ModelConstant.EMPLOYEE_MODEL)) {
-            if (!model.equals(field.getRelatedModel())) {
-                continue;
-            }
-            if (field.getFieldType() == FieldType.ONE_TO_MANY && field.getRelatedField() != null
-                    && !field.getRelatedField().isBlank()) {
-                return true;
-            }
-            if (field.getFieldType() == FieldType.ONE_TO_ONE && field.getOnDelete() != OnDelete.CASCADE) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** See {@link DepartmentGrantRules#idPathsOf}. */

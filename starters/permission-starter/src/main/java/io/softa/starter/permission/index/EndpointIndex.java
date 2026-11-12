@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.startup.StartupSnapshot;
@@ -91,7 +92,9 @@ public class EndpointIndex implements StartupSnapshot {
             "POST getOne", "POST getById", "POST getByIds", "POST searchOne",
             "GET getUnmaskedField", "GET getUnmaskedFields",
             // What a detail form asks before rendering: which sections and buttons this record allows.
-            "POST getRecordAccess");
+            "POST getRecordAccess",
+            // The records a record owns, read through it: a paged child table and a masked field on a section.
+            "POST searchRelationPage", "GET getRelationUnmaskedFields");
 
     /** Minimum endpoint set a Picker widget needs to render:
      *  {@code searchName} lists the candidates for the dropdown,
@@ -654,14 +657,18 @@ public class EndpointIndex implements StartupSnapshot {
         Set<String> visited = new HashSet<>();
         visited.add(model);  // never re-derive self
 
-        // L1: direct relations → full view
+        // L1: direct relations → full view. A record the root owns is reached through the root and gets no
+        // endpoint of its own; its own relations still need their pickers, so it is walked like the others.
+        boolean rootOwns = !ModelManager.isProjectionModel(model);
         List<String> l1Related = new ArrayList<>();
         for (MetaField field : rootFields) {
             if (!FieldType.RELATED_TYPES.contains(field.getFieldType())) continue;
             String related = field.getRelatedModel();
             if (related == null || related.isEmpty()) continue;
             if (!visited.add(related)) continue;
-            appendDerivedAction(out, related, "view");
+            if (!(rootOwns && ownsRecords(field))) {
+                appendDerivedAction(out, related, "view");
+            }
             l1Related.add(related);
         }
 
@@ -669,10 +676,12 @@ public class EndpointIndex implements StartupSnapshot {
         // for the dropdown + getById / getByIds to render the selected chip).
         for (String parent : l1Related) {
             List<MetaField> nestedFields = readFieldsSafely(parent);
+            boolean parentOwns = !ModelManager.isProjectionModel(parent);
             for (MetaField field : nestedFields) {
                 if (!FieldType.RELATED_TYPES.contains(field.getFieldType())) continue;
                 String nestedRelated = field.getRelatedModel();
                 if (nestedRelated == null || nestedRelated.isEmpty()) continue;
+                if (parentOwns && ownsRecords(field)) continue;
                 if (!visited.add(nestedRelated)) continue;
                 for (String entry : PICKER_ENDPOINTS) {
                     int spaceIdx = entry.indexOf(' ');
@@ -705,6 +714,21 @@ public class EndpointIndex implements StartupSnapshot {
      * {@link #deriveStandardEndpoints} so lookup propagation and primary
      * derivation produce identical URL formats.
      */
+    /**
+     * Whether {@code field} makes the related records the model's own: a one-to-many child keyed back on the model,
+     * or a one-to-one section not deleted along with the related record (a referrer deleted with it hangs off it,
+     * as {@code PermissionServiceImpl.findReferencers} reads the same edge). Such records are read and written
+     * through their owner — expanded on its reads, carried in its writes, paged with
+     * {@code searchRelationPage}, unmasked with {@code getRelationUnmaskedFields} — so a permission on the owner
+     * does not open their own endpoints, and their rows are never queried apart from the record they belong to.
+     */
+    private static boolean ownsRecords(MetaField field) {
+        if (field.getFieldType() == FieldType.ONE_TO_MANY) {
+            return field.getRelatedField() != null && !field.getRelatedField().isBlank();
+        }
+        return field.getFieldType() == FieldType.ONE_TO_ONE && field.getOnDelete() != OnDelete.CASCADE;
+    }
+
     private void appendDerivedAction(List<String> out, String model, String action) {
         List<String> entries = STANDARD_ACTION_MAP.get(action);
         if (entries == null) return;
