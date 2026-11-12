@@ -40,9 +40,13 @@ import io.softa.starter.message.mail.enums.MailServerOwner;
  * and the ORM neither stamps nor filters it.
  * The platform's pages read the table itself; a tenant reads its own rows through the
  * {@link TenantMailSendRecord} projection, which leaves out the bodies and template variables.
+ *
+ * <p>Keeps no change log: the delivery loop writes every record several times — the claim, the
+ * preparation, the outcome — and its own fields are its history. A log would also copy the rendered
+ * bodies, with their sign-in links and codes, into the change-log store.
  */
 @Data
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false,
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false, enableAuditLog = false,
         searchName = {"toAddresses", "subject"})
 @Index(indexName = "idx_mail_send_tenant_status", fields = {"tenantId", "status"})
 @Index(indexName = "idx_mail_send_sent_at", fields = {"sentAt"})

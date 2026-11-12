@@ -9,14 +9,16 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.IdStrategy;
 
 /**
- * IMAP watermark of the platform's own receive server. Not multi-tenant.
+ * IMAP watermark of the platform's own receive server. Not multi-tenant. Moved by the fetch loop only, so it
+ * keeps no change log.
  */
 @Data
 @Model(
         label = "Platform Mail Fetch Watermark",
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         businessKey = {"serverConfigId", "folderName"},
-        versionLock = true
+        versionLock = true,
+        enableAuditLog = false
 )
 @Index(indexName = "uk_platform_mail_watermark", fields = {"serverConfigId", "folderName"}, unique = true)
 @EqualsAndHashCode(callSuper = true)

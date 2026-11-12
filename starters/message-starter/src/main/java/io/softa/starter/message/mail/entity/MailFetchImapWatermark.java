@@ -10,7 +10,8 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.IdStrategy;
 
 /**
- * IMAP watermark of a tenant's own receive server. Multi-tenant.
+ * IMAP watermark of a tenant's own receive server. Multi-tenant. Moved by the fetch loop only, so it keeps
+ * no change log.
  */
 @Data
 @Model(
@@ -18,7 +19,8 @@ import io.softa.framework.orm.enums.IdStrategy;
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         businessKey = {"serverConfigId", "folderName"},
         versionLock = true,
-        multiTenant = true
+        multiTenant = true,
+        enableAuditLog = false
 )
 @Index(indexName = "uk_config_folder", fields = {"serverConfigId", "folderName"}, unique = true)
 @Index(indexName = "idx_watermark_tenant", fields = {"tenantId"})
