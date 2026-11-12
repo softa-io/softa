@@ -11,20 +11,23 @@ import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
 
 /**
- * Monthly send-volume quota for one tenant — a commercial ceiling, not rate
- * limiting. A send is charged when its record is prepared (its first delivery
- * attempt); once the month's charged sends reach the limit, further records
- * fail with {@code MONTHLY_QUOTA_EXCEEDED}, logged at ERROR — raise the limit
- * and Retry them. Complements — never replaces — the per-config infrastructure
- * limits ({@code dailySendLimit} / {@code rateLimitPerMinute}), which protect
- * individual servers/providers at delivery time.
+ * Send-volume quota for one tenant — commercial ceilings, not rate limiting:
+ * a monthly allowance, and a daily cap so that one tenant's burst cannot take
+ * a shared platform server's or provider's whole day. A send is charged to both
+ * when its record is prepared (its first delivery attempt); once the day's or
+ * the month's charged sends reach the limit, further records fail with
+ * {@code DAILY_QUOTA_EXCEEDED} / {@code MONTHLY_QUOTA_EXCEEDED}, logged at
+ * ERROR — raise the limit (or wait for the next day) and Retry them.
+ * Complements — never replaces — the per-config infrastructure limits
+ * ({@code dailySendLimit} / {@code rateLimitPerMinute}), which protect each
+ * server/provider at delivery time and count every tenant together.
  * <p>
  * Deliberately NOT {@code multiTenant}: this is a platform-owned registry
  * ABOUT tenants, managed by platform operations only — a tenant must never
  * see or edit its own ceiling. The governed tenant is a plain column;
- * {@code tenantId = -1} governs the platform's own sends (the platform quota
- * is expected to be very large — it exists to cap runaway or malicious mass
- * sending, not day-to-day volume).
+ * {@code tenantId = -1} governs the sends no tenant can be named for (the
+ * platform's limits are expected to be very large — they exist to cap runaway
+ * or malicious mass sending, not day-to-day volume).
  * <p>
  * A missing row (or a null limit) falls back to the deployment defaults in
  * {@code message.quota.*}; a null resolved limit means unlimited.
@@ -61,6 +64,20 @@ public class TenantMessageQuota extends AuditableModel {
                     + "Null = use the deployment default (softa.message.quota.sms-monthly-default; "
                     + "null there = unlimited).")
     private Long smsMonthlyLimit;
+
+    @Field(label = "Mail Daily Limit",
+            description = "Maximum mail sends charged per calendar day, counted with the monthly limit when a "
+                    + "record is prepared — so one tenant cannot take a shared platform server's whole day. "
+                    + "Null = use the deployment default (softa.message.quota.mail-daily-default; "
+                    + "null there = unlimited).")
+    private Long mailDailyLimit;
+
+    @Field(label = "SMS Daily Limit",
+            description = "Maximum SMS sends charged per calendar day, counted with the monthly limit when a "
+                    + "record is prepared — so one tenant cannot take a shared provider's whole day. "
+                    + "Null = use the deployment default (softa.message.quota.sms-daily-default; "
+                    + "null there = unlimited).")
+    private Long smsDailyLimit;
 
     @Field(length = 500, description = "Operations note, e.g. the plan or contract behind this ceiling")
     private String description;

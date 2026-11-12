@@ -11,7 +11,7 @@ import io.softa.starter.message.quota.entity.TenantMessageQuota;
 public interface TenantMessageQuotaService extends EntityService<TenantMessageQuota, Long> {
 
     /**
-     * The resolved monthly limits for one quota bucket: the tenant's row when
+     * The resolved monthly and daily limits for one quota bucket: the tenant's row when
      * present, each null limit falling back to the deployment default
      * ({@code message.quota.*}); a null resolved value means unlimited.
      * Read with permission checks skipped — this runs when a send record is
@@ -22,12 +22,6 @@ public interface TenantMessageQuotaService extends EntityService<TenantMessageQu
      */
     ResolvedLimits resolveLimits(long tenantId);
 
-    /**
-     * Reject — with an explanatory error — any quota write attempted outside
-     * the platform scope in a multi-tenant deployment.
-     */
-    void assertPlatformScope();
-
-    /** Resolved monthly ceilings; null = unlimited. */
-    record ResolvedLimits(Long mailMonthlyLimit, Long smsMonthlyLimit) {}
+    /** Resolved monthly and daily ceilings; null = unlimited. */
+    record ResolvedLimits(Long mailMonthlyLimit, Long smsMonthlyLimit, Long mailDailyLimit, Long smsDailyLimit) {}
 }

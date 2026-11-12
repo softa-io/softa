@@ -7,14 +7,22 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import io.softa.starter.message.mail.entity.MailReceiveRecord;
+import io.softa.starter.message.mail.entity.AbstractMailReceiveRecord;
 import io.softa.starter.message.mail.entity.MailSendRecord;
+import io.softa.starter.message.mail.enums.MailServerOwner;
 import io.softa.starter.message.mail.enums.ReceivedMailType;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 
 /**
  * Links classified inbound mail (read-receipts / bounces) back to the
  * originating {@link MailSendRecord} via CAS updates.
+ * <p>
+ * A receive server answers only for the mail its own owner's send servers
+ * carried: the platform's receive server marks the records the platform's send
+ * servers carried — tenants' relayed mail included, so a tenant sees in its
+ * send log that a relayed mail bounced — and a tenant's receive server marks
+ * only that tenant's records sent through its own servers. The bounce itself
+ * stays with whoever received it.
  * <p>
  * Extracted from {@code MailReceiveServiceImpl}: this is the only writer of
  * send records on the receive path — a concern orthogonal to fetching mail.
@@ -30,15 +38,15 @@ public class BounceReceiptLinker {
      * Bulk linkage: look up all referenced send records in one {@code IN()}
      * query, then apply bounce / read-receipt updates.
      */
-    public void link(List<MailReceiveRecord> receiveRecords) {
+    public void link(List<? extends AbstractMailReceiveRecord> receiveRecords, MailServerOwner receivedBy) {
         List<String> ids = receiveRecords.stream()
-                .map(MailReceiveRecord::getOriginalMessageId)
+                .map(AbstractMailReceiveRecord::getOriginalMessageId)
                 .filter(StringUtils::hasText)
                 .distinct()
                 .toList();
         if (ids.isEmpty()) return;
-        Map<String, MailSendRecord> sendIndex = sendRecordService.findByMessageIds(ids);
-        for (MailReceiveRecord receive : receiveRecords) {
+        Map<String, MailSendRecord> sendIndex = sendRecordService.findByMessageIds(ids, receivedBy);
+        for (AbstractMailReceiveRecord receive : receiveRecords) {
             MailSendRecord send = sendIndex.get(receive.getOriginalMessageId());
             if (send == null) continue;
             ReceivedMailType mailType = receive.getMailType();
@@ -61,7 +69,7 @@ public class BounceReceiptLinker {
         }
     }
 
-    private void applyBounce(MailSendRecord sendRecord, MailReceiveRecord receiveRecord) {
+    private void applyBounce(MailSendRecord sendRecord, AbstractMailReceiveRecord receiveRecord) {
         String bounceCode = StringUtils.hasText(receiveRecord.getSmtpReplyCode())
                 ? receiveRecord.getSmtpReplyCode() : "";
         if (StringUtils.hasText(receiveRecord.getEnhancedStatusCode())) {

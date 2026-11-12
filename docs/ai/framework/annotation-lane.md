@@ -118,16 +118,21 @@ mvn -B -ntp test -pl starters/metadata-starter \
 # 3. The module's own tests (don't skip Service tests)
 mvn -B -ntp test -pl <affected module>
 
-# 4. Read the diff
+# 4. Every softa model through the checks ModelManager makes at boot (CatalogBootCheck):
+#    they read the whole catalog, so a change can pass step 3 and still stop the boot
+mvn -B -ntp test -pl apps/demo-app -am -Dtest=SoftaCatalogBootCheckTest \
+    -Dsurefire.failIfNoSpecifiedTests=false
+
+# 5. Read the diff
 git diff -- '<affected files>'
 git diff main...HEAD -- '**/*.java'      # full PR scope
 
-# 5. (If a scanner-scope: ["*"] app exists) restart and watch:
+# 6. (If a scanner-scope: ["*"] app exists) restart and watch:
 #   DdlOrchestrator: CREATE TABLE ... OK / ADD COLUMN ... OK / DROP COLUMN ... [converge] undeclared OK
 #   DdlOrchestrator: converged N in-scope model(s) — executed X DDL statement(s), ...
 #   MetadataAnnotationScanner: applied N row change(s)
 #   MetadataAnnotationScanner: physical schema drift — N finding(s) ...   (RESIDUAL audit; absent = converged clean)
-# 6. GET /metadata/status — code vs catalog fingerprints ("did my change land?")
+# 7. GET /metadata/status — code vs catalog fingerprints ("did my change land?")
 #    + the physical drift report from this boot.
 ```
 

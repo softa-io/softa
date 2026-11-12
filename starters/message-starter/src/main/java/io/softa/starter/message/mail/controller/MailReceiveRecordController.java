@@ -16,8 +16,9 @@ import io.softa.starter.message.mail.service.MailReceiveRecordService;
 import io.softa.starter.message.mail.service.MailReceiveService;
 
 /**
- * REST controller for incoming mail records.
- * Inherits standard CRUD endpoints from EntityController.
+ * REST controller for the mail a tenant's own receive servers fetched. Inherits standard CRUD
+ * endpoints from EntityController, narrowed to the tenant by the ORM. Fetching reads the tenant's own
+ * receive servers only — a tenant without one gets "not configured", never the platform's mailbox.
  */
 @Tag(name = "MailReceiveRecord")
 @RestController
@@ -29,7 +30,7 @@ public class MailReceiveRecordController
     private MailReceiveService mailReceiveService;
 
     @Operation(summary = "Fetch new emails",
-            description = "Actively poll the resolved IMAP/POP3 server and persist any new messages.")
+            description = "Actively poll the tenant's default IMAP/POP3 server and persist any new messages.")
     @PostMapping("/fetch")
     public ApiResponse<Integer> fetch() {
         int count = mailReceiveService.fetchNewMails();

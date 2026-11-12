@@ -22,6 +22,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.FilterControl;
@@ -121,8 +122,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
      *  {@code navigation.system.} / {@code navigation.studio.}. From {@code permission.platform-nav-prefixes}. */
     private final List<String> platformNavPrefixes;
     /**
-     * Nav-id prefixes a tenant AND the platform both work in, e.g. {@code navigation.message.}. From
-     * {@code permission.shared-nav-prefixes}.
+     * Nav-id prefixes a tenant AND the platform both work in. From {@code permission.shared-nav-prefixes}.
      *
      * <p>A second list rather than a longer first one. They answer different questions:
      * {@link #platformNavPrefixes} is what a tenant admin is kept OUT of, this is what both audiences are
@@ -131,13 +131,11 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
      * tested against the platform list alone, so that subtree is carved out for it, while the platform
      * admin, who reaches either list, keeps the whole module.
      *
-     * <p>Messaging is the case that needs it, for its pages on multiTenant models: there the platform is
-     * not looking at a different module, it is looking at the same menus on its own tier, where the
-     * verification-code and password-reset mails live. Take it away and nobody can edit the mail a
-     * consultant logs in with. Its operations pages are not like that — {@code DeadLetterMessage},
-     * {@code TenantMessageQuota}, {@code TenantMessageUsage} and the like are not multiTenant, one table
-     * holding every tenant's rows — so an application sharing messaging lists their subtree among the
-     * platform prefixes as well, or every tenant admin reads them whole.
+     * <p>A shared page must be on multiTenant models, where each side sees its own rows. A page over a
+     * table that is not multiTenant — one table holding every tenant's rows, such as the message
+     * send logs, dead letters, quotas and usage — belongs under a platform prefix, or every tenant
+     * admin reads it whole. Messaging used to be shared, the platform working its mail on the same
+     * menus on its own tier; the platform's messaging now has models and menus of its own.
      */
     private final List<String> sharedNavPrefixes;
 
@@ -463,12 +461,21 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         List<RoleNavigationView> navGrants = modelService.searchList(M_ROLE_NAV,
                 new FlexQuery(List.of("roleId", "navigationId", "permissionIds"), new Filters().in("roleId", roleIds)),
                 RoleNavigationView.class);
+        // A tenant's own role never reaches the platform's menus, whatever it was granted: the role
+        // wizard is meant to keep such grants out, but a grant that gets in — saved before a menu
+        // became platform-only, or written around the wizard — must not open pages over tables that
+        // hold every tenant's rows. The platform tenant's own roles keep them.
+        boolean tenantSide = tenantId != null && !BaseConstant.PLATFORM_TENANT_ID.equals(tenantId);
+        Set<String> platformPermissions = tenantSide ? platformPermissionIds() : Set.of();
         for (RoleNavigationView rn : navGrants) {
-            if (rn.getNavigationId() == null) {
+            if (rn.getNavigationId() == null || (tenantSide && isPlatformNav(rn.getNavigationId()))) {
                 continue;
             }
             navigations.add(rn.getNavigationId());
             List<String> pids = JsonUtils.toStringList(rn.getPermissionIds(), true);
+            if (pids != null && !platformPermissions.isEmpty()) {
+                pids = pids.stream().filter(pid -> !platformPermissions.contains(pid)).toList();
+            }
             if (pids != null) {
                 permissions.addAll(pids);
                 RoleGrant grant = grantsByRole.get(rn.getRoleId());
@@ -869,6 +876,24 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         }
         String moduleId = NavIds.moduleOf(navId);
         return moduleId == null || entitled.contains(moduleId);
+    }
+
+    /**
+     * The permissions that hang off a platform-only navigation — what a tenant's role must not carry
+     * even inside another navigation's grant row. Empty when no platform prefix is configured.
+     */
+    private Set<String> platformPermissionIds() {
+        if (platformNavPrefixes.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> ids = new HashSet<>();
+        for (PermissionView p : modelService.searchList(M_PERMISSION,
+                new FlexQuery(List.of("id", "navigationId"), new Filters()), PermissionView.class)) {
+            if (p.getId() != null && p.getNavigationId() != null && isPlatformNav(p.getNavigationId())) {
+                ids.add(p.getId());
+            }
+        }
+        return ids;
     }
 
     /** True when a nav id falls under a configured platform-only prefix (never tenant-facing). */

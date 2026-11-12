@@ -83,7 +83,18 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-          cache: maven
+
+      # setup-java's `cache: maven` keys on the hash of every pom.xml and sets no
+      # restore-keys; every release bumps every pom.xml, so it never hit. Restore the
+      # newest cache by prefix instead. The post step saves a new one when the job
+      # succeeds (the last step drops this release's own io/softa artifacts first).
+      - name: Cache Maven dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
 
       # Maven 3.10.0 (default on ubuntu-latest since image 20261004) leaves
       # maven-metadata-local.xml in central-publishing-maven-plugin's staging dir,
@@ -91,13 +102,14 @@ jobs:
       # "Bundle has content that does NOT have a .pom file".
       # Keep Maven on 3.9.x until the plugin handles Maven 3.10:
       # https://github.com/mavenplugins/central-publishing-maven-plugin/issues/79
+      # The distribution is fetched from Maven Central, much faster than archive.apache.org.
       - name: Set up Maven 3.9.16 (pinned)
         shell: bash
         env:
           MAVEN_VERSION: "3.9.16"
         run: |
           set -euo pipefail
-          base="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries"
+          base="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}"
           tarball="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/$tarball" "$base/$tarball"
           expected="$(curl -fsSL --retry 3 "$base/$tarball.sha512" | awk '{print $1}')"
@@ -117,18 +129,12 @@ jobs:
           set -euo pipefail
           git fetch --no-tags origin main
 
-          worktree_dir="$(mktemp -d)"
-          cleanup() {
-            git worktree remove --force "$worktree_dir" >/dev/null 2>&1 || true
-            rm -rf "$worktree_dir" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          git worktree add --detach "$worktree_dir" origin/main
-          v_main=$(cd "$worktree_dir" && mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
+          # The root pom declares its version literally, so read it straight from git
+          # rather than running Maven (and downloading maven-help-plugin) in a worktree.
+          v_main=$(git show origin/main:pom.xml | python3 -c 'import sys, xml.etree.ElementTree as ET; print(ET.parse(sys.stdin).getroot().findtext("{http://maven.apache.org/POM/4.0.0}version") or "")')
 
           if [[ -z "$v_main" ]]; then
-            echo "Unable to evaluate project.version on origin/main" >&2
+            echo "Unable to read project.version from origin/main:pom.xml" >&2
             exit 1
           fi
 
@@ -215,13 +221,17 @@ jobs:
       # ──────────────────────────────────────────────────────────
       # 5. Build & Deploy (from current branch: main or release/*)
       # ──────────────────────────────────────────────────────────
+      # -T 1C: modules build in parallel along the reactor graph, one thread per core.
       - name: Build & verify
         shell: bash
         run: |
-          mvn -B -ntp -DskipTests=false verify
+          mvn -B -ntp -T 1C -DskipTests=false verify
 
       # Central first: its bundle is validated as a whole before anything is
       # published, so a failure here leaves both registries untouched.
+      # Single-threaded on purpose: the plugin bundles and uploads at the last
+      # publishable module in reactor order, and under -T modules finish in no fixed order.
+      # Tests already ran above, so neither the test sources nor coverage are rebuilt.
       - name: Deploy to Maven Central (Central Portal)
         shell: bash
         env:
@@ -229,14 +239,22 @@ jobs:
           CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          mvn -B -ntp -DskipTests -Pcentral deploy
+          mvn -B -ntp -Dmaven.test.skip=true -Djacoco.skip=true -Pcentral deploy
 
+      # GitHub Packages serves the release right away, while Central takes a few
+      # minutes after validation before new files can be pulled. The pom, jar and
+      # sources go here: IDEs fetch sources from here too, and a lookup that misses
+      # before Central has them is not retried for a day. Javadoc and signatures are
+      # left to Central. -T 4 uploads modules in parallel, since Maven 3.9 uploads one
+      # file at a time.
       - name: Deploy to GitHub Packages (Maven Registry)
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mvn -B -ntp -DskipTests -Pgithub deploy
+          mvn -B -ntp -T 4 -Dmaven.test.skip=true -Djacoco.skip=true \
+            -Dmaven.javadoc.skip=true -Dgpg.skip=true \
+            -Pgithub deploy
 
       # ──────────────────────────────────────────────────────────
       # 6. Post-deploy: merge release branch into main (fire-and-forget)
@@ -293,3 +311,9 @@ jobs:
         run: |
           # If the PR merge already deleted the branch, this is a no-op.
           git push origin --delete "${{ steps.version.outputs.branch }}" 2>/dev/null || true
+
+      # The cache post step saves ~/.m2/repository after this; leave this release's own
+      # artifacts out so the cache does not grow by one softa version per release.
+      - name: Drop softa artifacts from the Maven cache
+        shell: bash
+        run: rm -rf ~/.m2/repository/io/softa

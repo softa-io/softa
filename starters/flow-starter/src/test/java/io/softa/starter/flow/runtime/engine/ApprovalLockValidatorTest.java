@@ -170,6 +170,20 @@ class ApprovalLockValidatorTest {
     }
 
     @Test
+    void anApprovedRequestAndItsDaysAreNotDeleted() {
+        requests.put(42L, "Approved");
+        when(modelService.searchList(eq(DAY), any(FlexQuery.class))).thenReturn(List.of(Map.of("id", 7L, "leaveRequestId", 42L)));
+
+        WriteValidationException request = assertThrows(WriteValidationException.class,
+                () -> asUser(() -> validator.validateDelete(REQUEST, List.of(42L))));
+        WriteValidationException day = assertThrows(WriteValidationException.class,
+                () -> asUser(() -> validator.validateDelete(DAY, List.of(7L))));
+
+        assertTrue(request.getMessage().contains("approved"), request.getMessage());
+        assertTrue(day.getMessage().contains("approved"), day.getMessage());
+    }
+
+    @Test
     void aRejectedOrCancelledRequestAndItsDaysAreNotDeleted() {
         when(modelService.searchList(eq(DAY), any(FlexQuery.class))).thenReturn(List.of(Map.of("id", 7L, "leaveRequestId", 42L)));
         for (String status : List.of("Rejected", "Cancelled")) {

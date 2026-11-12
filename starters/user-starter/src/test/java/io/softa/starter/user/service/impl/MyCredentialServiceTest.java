@@ -14,6 +14,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
@@ -528,7 +529,15 @@ class MyCredentialServiceTest {
         // Joined and not left — frozen included, merely invited not; one mailbox once.
         assertThat(mails).extracting(s -> ((SendMailDTO) s.message()).getTo().get(0))
                 .containsExactly("ada@acme.com", "ada@beta.com");
-        // Each company's mail is sent in that company: its template, its send records.
+        // A platform notice on every channel: the platform's template and servers, which no company
+        // can rewrite or swallow.
+        assertThat(sms.getScope()).isEqualTo(MessageScope.PLATFORM);
+        assertThat(mails).extracting(s -> ((SendMailDTO) s.message()).getScope())
+                .containsOnly(MessageScope.PLATFORM);
+        // Each still a company's send, filed under it and counted against its quota: every mail the
+        // company of the mailbox it goes to, the one SMS the company the person is signed in to.
+        assertThat(notices.stream().filter(n -> n.message() instanceof SendSmsDTO).map(Sent::tenantId))
+                .containsExactly(1L);
         assertThat(mails).extracting(Sent::tenantId).containsExactly(1L, 2L);
         assertThat(((SendMailDTO) mails.get(0).message()).getTemplateVariables())
                 .isEqualTo(sms.getTemplateVariables());

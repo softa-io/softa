@@ -362,9 +362,10 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         List<Runnable> notices = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
             channels.add("sms");
-            // The person is signed in: the notice goes out in their current tenant.
+            // A platform notice (the platform's template), sent from the company the person is signed
+            // in to: one SMS for the person, filed under that company and counted against its quota.
             notices.add(() -> messageService.sendSms(SendSmsDTO.ofTemplate(
-                    oldMobile, TEMPLATE_LOGIN_MOBILE_CHANGED, vars, MessageScope.TENANT)));
+                    oldMobile, TEMPLATE_LOGIN_MOBILE_CHANGED, vars, MessageScope.PLATFORM)));
         }
         // Joined (not merely invited) and not left: the mailboxes the person actually reads at work.
         // One per address — the same enterprise email on two accounts is one mailbox.
@@ -377,10 +378,12 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             }
             mailed.add(email);
             channels.add("email");
-            // Each company's mail is that company's: its template, and its send records.
+            // A platform notice to each company's mailbox: the platform's template through the
+            // platform's servers, so no company can rewrite or swallow it — and that company's mail,
+            // filed under it and counted against its quota.
             Long tenantId = membership.getTenantId();
-            notices.add(() -> ContextUtils.inTenantContext(tenantId, () -> messageService.sendMail(SendMailDTO.ofTemplate(
-                    List.of(email), TEMPLATE_LOGIN_MOBILE_CHANGED, vars, MessageScope.TENANT))));
+            notices.add(() -> ContextUtils.inTenantContext(tenantId, () -> messageService.sendMail(
+                    SendMailDTO.ofTemplate(List.of(email), TEMPLATE_LOGIN_MOBILE_CHANGED, vars, MessageScope.PLATFORM))));
         }
         row.setReminderChannels(String.join(",", channels));
         return notices;

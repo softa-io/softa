@@ -11,11 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import jakarta.mail.Address;
-import jakarta.mail.Message;
-import jakarta.mail.MessagingException;
-import jakarta.mail.Multipart;
-import jakarta.mail.Part;
+import java.util.function.Supplier;
+import jakarta.mail.*;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
@@ -31,8 +28,9 @@ import io.softa.framework.orm.dto.UploadFileDTO;
 import io.softa.framework.orm.enums.FileSource;
 import io.softa.framework.orm.enums.FileType;
 import io.softa.framework.orm.service.FileService;
+import io.softa.starter.message.mail.entity.AbstractMailReceiveRecord;
+import io.softa.starter.message.mail.entity.AbstractMailReceiveServer;
 import io.softa.starter.message.mail.entity.MailReceiveRecord;
-import io.softa.starter.message.mail.entity.MailReceiveServerConfig;
 import io.softa.starter.message.mail.enums.BodyMode;
 import io.softa.starter.message.mail.enums.MailReceiveStatus;
 import io.softa.starter.message.mail.enums.ReceivedMailType;
@@ -86,31 +84,46 @@ public class MailMessageParser {
 
 
     /**
-     * Convert a message to a {@link MailReceiveRecord}. Messages whose reported
-     * size exceeds {@link #MAX_MESSAGE_SIZE} are persisted envelope-only (no body
-     * fetch, no memory blow-up) with {@code truncationReason = BodyTooLarge}.
+     * Convert a message to a tenant's {@link MailReceiveRecord}; see
+     * {@link #parse(Message, AbstractMailReceiveServer, String, Supplier)}.
      */
-    public MailReceiveRecord parse(Message message, MailReceiveServerConfig config, String folderName)
+    public MailReceiveRecord parse(Message message, AbstractMailReceiveServer config, String folderName)
+            throws MessagingException, IOException {
+        return parse(message, config, folderName, MailReceiveRecord::new);
+    }
+
+    /**
+     * Convert a message to a record of the receiving server's owner — {@code newRecord} makes an empty
+     * one of that owner's table. Messages whose reported size exceeds {@link #MAX_MESSAGE_SIZE} are
+     * persisted envelope-only (no body fetch, no memory blow-up) with
+     * {@code truncationReason = BodyTooLarge}.
+     */
+    public <R extends AbstractMailReceiveRecord> R parse(Message message, AbstractMailReceiveServer config,
+                                                         String folderName, Supplier<R> newRecord)
             throws MessagingException, IOException {
         long maxBytes = MAX_MESSAGE_SIZE.toBytes();
         long size = message.getSize();
         if (size > 0 && size > maxBytes) {
             log.warn("Message size={} exceeds the {}-byte cap on folder '{}', persisting envelope only",
                     size, maxBytes, folderName);
-            MailReceiveRecord record = toEnvelopeOnlyRecord(message, config, folderName);
+            R record = newRecord.get();
+            populateEnvelope(record, message, config, folderName);
+            record.setMailType(ReceivedMailType.NORMAL);
             record.setTruncationReason(TruncationReason.BodyTooLarge.name());
             return record;
         }
-        return toFullRecord(message, config, folderName);
+        R record = newRecord.get();
+        fillFull(record, message, config, folderName);
+        return record;
     }
 
     /**
-     * Populate the envelope fields shared by {@link #toEnvelopeOnlyRecord} and {@link #toFullRecord}:
+     * Populate the envelope fields shared by toEnvelopeOnlyRecord and toFullRecord:
      * server / folder / subject / fetch-time / status, the sent→received-at conversion, the Message-ID
      * (synthetic when the header is absent), and the from / to / cc addresses.
      */
-    private void populateEnvelope(MailReceiveRecord record, Message message,
-                                  MailReceiveServerConfig config, String folderName)
+    private void populateEnvelope(AbstractMailReceiveRecord record, Message message,
+                                  AbstractMailReceiveServer config, String folderName)
             throws MessagingException {
         record.setServerConfigId(config.getId());
         record.setFolderName(folderName);
@@ -134,23 +147,12 @@ public class MailMessageParser {
     }
 
     /**
-     * Build an envelope-only record without invoking {@code message.getContent()}.
-     * Used when {@link #MAX_MESSAGE_SIZE} is exceeded — we want to preserve the fact
-     * that this email arrived (for audit / observability) without paying the
-     * body-fetch cost or risking memory blow-up.
+     * The full record: envelope, bodies, attachments and classification. Attachments are uploaded
+     * under the record's own model, so the file records point at the owner's table.
      */
-    private MailReceiveRecord toEnvelopeOnlyRecord(
-            Message message, MailReceiveServerConfig config, String folderName)
-            throws MessagingException {
-        MailReceiveRecord record = new MailReceiveRecord();
-        populateEnvelope(record, message, config, folderName);
-        record.setMailType(ReceivedMailType.NORMAL);
-        return record;
-    }
-
-    private MailReceiveRecord toFullRecord(Message message, MailReceiveServerConfig config, String folderName)
+    private void fillFull(AbstractMailReceiveRecord record, Message message, AbstractMailReceiveServer config,
+                          String folderName)
             throws MessagingException, IOException {
-        MailReceiveRecord record = new MailReceiveRecord();
         populateEnvelope(record, message, config, folderName);
 
         // Body and attachments — extract plain and HTML independently. The
@@ -166,6 +168,7 @@ public class MailMessageParser {
         // refs so the record doesn't claim ownership of files that may or may
         // not have made it to file-starter.
         BodyExtractResult bodyResult = new BodyExtractResult();
+        bodyResult.modelName = record.getClass().getSimpleName();
         try {
             extractBody(message, bodyResult, 0);
         } catch (MimeBoundaryException e) {
@@ -222,8 +225,6 @@ public class MailMessageParser {
         } else {
             record.setMailType(ReceivedMailType.NORMAL);
         }
-
-        return record;
     }
 
     /**
@@ -369,7 +370,7 @@ public class MailMessageParser {
             }
 
             UploadFileDTO uploadDTO = new UploadFileDTO();
-            uploadDTO.setModelName("MailReceiveRecord");
+            uploadDTO.setModelName(acc.modelName);
             uploadDTO.setFileName(fileName);
             uploadDTO.setFileType(fileType);
             uploadDTO.setFileSize(data.length / 1024);
@@ -403,6 +404,8 @@ public class MailMessageParser {
     }
 
     private static class BodyExtractResult {
+        /** The model the attachments are uploaded under: the receiving record's own. */
+        String modelName;
         String bodyText;
         String bodyHtml;
         List<FileInfo> attachments = new ArrayList<>();

@@ -1,67 +1,41 @@
 package io.softa.starter.user.service.impl;
 
-import org.apache.commons.lang3.StringUtils;
-
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
-import io.softa.framework.base.utils.RandomUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.Assert;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.context.UserInfo;
-import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.UserNotFoundException;
-import io.softa.framework.base.security.PasswordUtils;
-import io.softa.framework.base.utils.UUIDUtils;
-import java.util.Map;
 import io.softa.framework.base.message.MessageScope;
+import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
+import io.softa.framework.web.session.ReentryTokenIssuer;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionRevokeReason;
+import io.softa.framework.web.session.SessionStore;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
-import io.softa.starter.user.dto.AuthenticationResult;
-import io.softa.starter.user.dto.JoinContacts;
-import io.softa.starter.user.dto.JoinPasswordResult;
-import io.softa.starter.user.dto.JoinVerification;
-import io.softa.starter.user.dto.InvitationInfo;
-import io.softa.starter.user.dto.MembershipOption;
-import io.softa.starter.user.exception.MultipleMembershipsException;
+import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.dto.*;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
-import io.softa.starter.user.enums.AccountStatus;
-import io.softa.starter.user.service.LoginService;
-import io.softa.starter.user.service.UserAccountService;
-import io.softa.starter.user.service.UserInvitationService;
-import io.softa.starter.user.service.UserIdentityService;
-import io.softa.starter.user.service.UserProfileService;
-import io.softa.framework.web.session.ReentryTokenIssuer;
-import io.softa.framework.web.session.SessionErrorCodes;
-import io.softa.framework.web.session.SessionStore;
-import io.softa.framework.web.session.SessionRevokeReason;
-import io.softa.starter.user.constant.AccountErrorCodes;
-import io.softa.starter.user.enums.LoginChannel;
-import io.softa.starter.user.enums.LoginEvent;
-import io.softa.starter.user.enums.LoginMethod;
-import io.softa.starter.user.enums.SecurityAction;
-import io.softa.starter.user.enums.SecurityLogSource;
-import io.softa.starter.user.service.UserSecurityLogService;
-import io.softa.starter.user.service.UserSessionService;
+import io.softa.starter.user.enums.*;
+import io.softa.starter.user.exception.MultipleMembershipsException;
+import io.softa.starter.user.service.*;
 import io.softa.starter.user.spi.PushDeviceRegistry;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
-import io.softa.starter.user.service.ConsultantService;
 
 /**
  * UserAccount Model Service Implementation
@@ -325,20 +299,24 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
     @Override
     public void sendEmailCode(String email) {
-        withoutSayingWhy(() -> {
-            if (identifierLinked(email)) {
-                this.deliverEmailCode(email);
-            }
-        });
+        withoutSayingWhy(() -> this.codeRecipient(email)
+                .ifPresent(identity -> this.deliverEmailCode(email, this.companyOf(identity))));
     }
 
     @Override
     public void sendMobileCode(String mobile) {
-        withoutSayingWhy(() -> {
-            if (identifierLinked(mobile)) {
-                this.deliverMobileCode(mobile);
-            }
-        });
+        withoutSayingWhy(() -> this.codeRecipient(mobile)
+                .ifPresent(identity -> this.deliverMobileCode(mobile, this.companyOf(identity))));
+    }
+
+    /**
+     * The company a sign-in code is sent for: the only one the person has joined, or null when they
+     * have joined several or none — a code for someone in two companies is neither one's, and is
+     * filed under the platform like every send no tenant can be named for. Read on the linked path
+     * only, as part of the delivery that path alone does.
+     */
+    private Long companyOf(UserIdentity identity) {
+        return accountService.soleJoinedTenantOf(identity.getProfileId()).orElse(null);
     }
 
     /**
@@ -354,7 +332,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     /**
-     * Whether a code should go out to this identifier — asked without ever saying so.
+     * The person a code should go out to for this identifier, if anyone — asked without ever saying
+     * so.
      *
      * <p>Every unauthenticated entry point answers the same whether or not the identifier is
      * anybody's: a distinct "no such account" is an oracle, and asked once per number it returns a
@@ -377,9 +356,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * is the same oracle one step later: past it, an unknown number is refused while a real one
      * still goes through.
      */
-    private boolean identifierLinked(String identifier) {
-        boolean linked = this.findLinked(identifier).isPresent();
-        if (!linked) {
+    private Optional<UserIdentity> codeRecipient(String identifier) {
+        Optional<UserIdentity> linked = this.findLinked(identifier);
+        if (linked.isEmpty()) {
             // The same Redis work the linked path is about to do, so the two cost the same.
             this.generateNumericCode(LoginIdentifiers.normalize(identifier));
         }
@@ -428,8 +407,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * no identity yet: the invitation is the authority there, and the address came from the
      * invitation rather than from the caller, so the linked check would skip every first-time
      * joiner and the code would never go out.
+     *
+     * @param tenantId the company the code is for — filed under it and counted against its quota —
+     *                 or null when no one company can be named
      */
-    private void deliverEmailCode(String email) {
+    private void deliverEmailCode(String email, Long tenantId) {
         // Normalised once, here, and the normalised value is what the code is keyed by AND sent to:
         // the verify step normalises its identifier the same way, so the two meet on one key
         // however the person spelt the address on either screen.
@@ -439,26 +421,33 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // context to render a tenant-specific template from — the platform row is the code's copy.
         SendMailDTO mail = SendMailDTO.ofTemplate(List.of(email), TEMPLATE_CODE,
                 Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
-        sendCode(() -> messageService.sendMail(mail));
+        sendCode(tenantId, () -> messageService.sendMail(mail));
     }
 
     /** The mobile twin of {@link #deliverEmailCode}; see there for why it is separate — and platform-tier. */
-    private void deliverMobileCode(String mobile) {
+    private void deliverMobileCode(String mobile, Long tenantId) {
         mobile = LoginIdentifiers.normalize(mobile);
         String code = this.generateNumericCode(mobile);
         SendSmsDTO sms = SendSmsDTO.ofTemplate(mobile, TEMPLATE_CODE,
                 Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
-        sendCode(() -> messageService.sendSms(sms));
+        sendCode(tenantId, () -> messageService.sendSms(sms));
     }
 
     /**
-     * Store the code's send record. A send message-starter rejects — an address on file that does not
+     * Store the code's send record — in the company the code is for, so it is filed under that company
+     * and counted against its quota, or in the caller's own (anonymous) context, where it is the
+     * platform's. Only the send runs there: the code itself is stored outside any tenant, where the
+     * verify step looks for it. A send message-starter rejects — an address on file that does not
      * parse — is logged at ERROR and goes no further: the screen answers the same either way, and
      * {@code /join} has nothing the person could correct.
      */
-    private static void sendCode(Runnable send) {
+    private static void sendCode(Long tenantId, Runnable send) {
         try {
-            send.run();
+            if (tenantId == null) {
+                send.run();
+            } else {
+                ContextUtils.inTenantContext(tenantId, send);
+            }
         } catch (BusinessException e) {
             log.error("Verification code send rejected: {}", e.getMessage());
         }
@@ -765,12 +754,15 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // The address never crosses the wire in either direction: the caller sends a token, the
         // invitation service resolves it, and the code goes out to what IT stored.
         String address = invitationService.resolveJoinChannel(rawToken, channel);
+        // The company that sent the invitation: the code is filed under it and counted against its
+        // quota. Empty only if the link stopped being usable a moment ago — then it is the platform's.
+        Long tenantId = invitationService.resolveJoinAccount(rawToken).map(UserAccount::getTenantId).orElse(null);
         // deliver*, not send*: the invitee has no identity yet — that is what joining is — so the
         // linked check the public entry points carry would silently skip every first-time joiner.
         if ("mobile".equalsIgnoreCase(channel)) {
-            this.deliverMobileCode(address);
+            this.deliverMobileCode(address, tenantId);
         } else {
-            this.deliverEmailCode(address);
+            this.deliverEmailCode(address, tenantId);
         }
     }
 

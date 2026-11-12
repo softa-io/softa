@@ -487,8 +487,10 @@ Verification recipe for annotation changes:
 1. `mvn -B -ntp -DskipTests compile -pl <affected module> -am`
 2. `mvn -B -ntp test -pl starters/metadata-starter -Dtest='AnnotationParserTest,SystemModelAnnotationTest,ReferenceDataAnnotationTest,TypeInferenceTest'`
 3. `mvn -B -ntp test -pl <affected module>`
-4. `git diff -- '<affected files>'` (and `git diff main...HEAD` for full PR scope)
-5. (If a `scanner-scope: ["*"]` app is available) restart and watch logs:
+4. `mvn -B -ntp test -pl apps/demo-app -am -Dtest=SoftaCatalogBootCheckTest -Dsurefire.failIfNoSpecifiedTests=false`
+   — every softa model through the checks `ModelManager` makes at boot (`CatalogBootCheck`)
+5. `git diff -- '<affected files>'` (and `git diff main...HEAD` for full PR scope)
+6. (If a `scanner-scope: ["*"]` app is available) restart and watch logs:
    `MetadataAnnotationScanner: applied N row change(s) to sys_*`
    `DdlOrchestrator: CREATE TABLE ... OK` / `ALTER TABLE ... OK`
 

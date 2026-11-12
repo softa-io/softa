@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.function.Supplier;
 import jakarta.mail.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,18 +16,27 @@ import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.config.MessageProperties;
-import io.softa.starter.message.mail.entity.MailFetchImapWatermark;
+import io.softa.starter.message.mail.entity.AbstractMailFetchWatermark;
+import io.softa.starter.message.mail.entity.AbstractMailReceiveRecord;
+import io.softa.starter.message.mail.entity.AbstractMailReceiveServer;
 import io.softa.starter.message.mail.entity.MailReceiveRecord;
-import io.softa.starter.message.mail.entity.MailReceiveServerConfig;
+import io.softa.starter.message.mail.entity.PlatformMailReceiveRecord;
 import io.softa.starter.message.mail.enums.*;
 import io.softa.starter.message.mail.service.MailFetchImapWatermarkService;
+import io.softa.starter.message.mail.service.MailFetchWatermarkService;
 import io.softa.starter.message.mail.service.MailReceiveRecordService;
 import io.softa.starter.message.mail.service.MailReceiveService;
+import io.softa.starter.message.mail.service.PlatformMailFetchWatermarkService;
+import io.softa.starter.message.mail.service.PlatformMailReceiveRecordService;
 import io.softa.starter.message.mail.support.BounceReceiptLinker;
 import io.softa.starter.message.mail.support.MailMessageParser;
 import io.softa.starter.message.mail.support.MailServerDispatcher;
+import io.softa.starter.message.mail.support.MailSessionSettings;
+import io.softa.starter.message.mail.support.TenantMailHostGuard;
 
 /**
  * Implementation of {@link MailReceiveService}.
@@ -37,6 +47,10 @@ import io.softa.starter.message.mail.support.MailServerDispatcher;
  * and {@link BounceReceiptLinker} (read-receipt / bounce → originating
  * {@code MailSendRecord}). This class owns only the connect / per-folder fetch
  * lifecycle (IMAP watermark+lease, POP3 destructive drain), dedup, and persist.
+ * <p>
+ * One flow serves both owners; a {@link Tier} binds where an owner's mail and watermarks are stored
+ * and whose send records its bounces may mark. A tenant's receive server is checked against hosts
+ * inside the deployment before connecting.
  */
 @Slf4j
 @Service
@@ -61,6 +75,9 @@ public class MailReceiveServiceImpl implements MailReceiveService {
     private MailReceiveRecordService recordService;
 
     @Autowired
+    private PlatformMailReceiveRecordService platformRecordService;
+
+    @Autowired
     private MailMessageParser mailMessageParser;
 
     @Autowired
@@ -70,42 +87,87 @@ public class MailReceiveServiceImpl implements MailReceiveService {
     private MailFetchImapWatermarkService watermarkService;
 
     @Autowired
+    private PlatformMailFetchWatermarkService platformWatermarkService;
+
+    @Autowired
+    private TenantMailHostGuard hostGuard;
+
+    /** Where one owner's received mail and watermarks live, and whose send records its bounces mark. */
+    private record Tier<R extends AbstractMailReceiveRecord>(
+            MailServerOwner owner,
+            EntityService<R, Long> records,
+            Supplier<R> newRecord,
+            MailFetchWatermarkService<? extends AbstractMailFetchWatermark> watermarks) {}
+
+    private Tier<MailReceiveRecord> tenantTier() {
+        return new Tier<>(MailServerOwner.TENANT, recordService, MailReceiveRecord::new, watermarkService);
+    }
+
+    private Tier<PlatformMailReceiveRecord> platformTier() {
+        return new Tier<>(MailServerOwner.PLATFORM, platformRecordService, PlatformMailReceiveRecord::new,
+                platformWatermarkService);
+    }
+
+    @Autowired
     private MessageProperties messageProperties;
 
     @Override
     public int fetchNewMails() {
-        MailReceiveServerConfig config = dispatcher.resolveReceive();
-        return fetchFromServer(config);
+        return fetchFromServer(dispatcher.resolveReceive(), tenantTier());
     }
 
     @Override
     public int fetchNewMails(Long serverConfigId) {
-        MailReceiveServerConfig config = dispatcher.resolveReceiveById(serverConfigId);
-        return fetchFromServer(config);
+        return fetchFromServer(dispatcher.resolveReceiveById(serverConfigId), tenantTier());
+    }
+
+    @Override
+    public int fetchPlatformMails() {
+        return fetchFromServer(dispatcher.resolvePlatformReceive(), platformTier());
+    }
+
+    @Override
+    public int fetchPlatformMails(Long serverConfigId) {
+        return fetchFromServer(dispatcher.resolvePlatformReceiveById(serverConfigId), platformTier());
     }
 
     @Override
     public void markAsRead(Long receiveRecordId) {
-        MailReceiveRecord record = recordService.getById(receiveRecordId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "MailReceiveRecord {0} not found.", receiveRecordId));
-        record.setStatus(MailReceiveStatus.READ);
-        recordService.updateOne(record);
+        markRead(tenantTier(), List.of(receiveRecordId), true);
     }
 
     @Override
     public void markAsRead(List<Long> receiveRecordIds) {
-        Filters filters = new Filters().in(MailReceiveRecord::getId, receiveRecordIds);
-        MailReceiveRecord patch = new MailReceiveRecord();
+        markRead(tenantTier(), receiveRecordIds, false);
+    }
+
+    @Override
+    public void markPlatformAsRead(Long receiveRecordId) {
+        markRead(platformTier(), List.of(receiveRecordId), true);
+    }
+
+    @Override
+    public void markPlatformAsRead(List<Long> receiveRecordIds) {
+        markRead(platformTier(), receiveRecordIds, false);
+    }
+
+    private <R extends AbstractMailReceiveRecord> void markRead(Tier<R> tier, List<Long> ids, boolean mustExist) {
+        if (mustExist && tier.records().getById(ids.getFirst()).isEmpty()) {
+            throw new IllegalArgumentException("Received mail {0} not found.", ids.getFirst());
+        }
+        R patch = tier.newRecord().get();
         patch.setStatus(MailReceiveStatus.READ);
-        recordService.updateByFilter(filters, patch);
+        tier.records().updateByFilter(new Filters().in(ModelConstant.ID, ids), patch);
     }
 
     // -------------------------------------------------
     // Fetch Logic
     // -------------------------------------------------
 
-    private int fetchFromServer(MailReceiveServerConfig config) {
+    private <R extends AbstractMailReceiveRecord> int fetchFromServer(AbstractMailReceiveServer config, Tier<R> tier) {
+        if (tier.owner() == MailServerOwner.TENANT) {
+            hostGuard.requirePublicBeforeConnecting(config.getHost());
+        }
         String protocol = config.getProtocol().getCode().toLowerCase();
         Properties props = buildSessionProperties(config, protocol);
         Session session = Session.getInstance(props);
@@ -120,7 +182,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
                 // Multi-folder support: parse fetchFolders, default to "INBOX"
                 List<String> folderNames = parseFolders(config);
                 for (String folderName : folderNames) {
-                    totalFetched += fetchFromFolder(store, folderName, config);
+                    totalFetched += fetchFromFolder(store, folderName, config, tier);
                 }
             }
         } catch (MessagingException e) {
@@ -132,11 +194,12 @@ public class MailReceiveServiceImpl implements MailReceiveService {
         return totalFetched;
     }
 
-    private int fetchFromFolder(Store store, String folderName, MailReceiveServerConfig config) {
+    private <R extends AbstractMailReceiveRecord> int fetchFromFolder(Store store, String folderName,
+                                                                       AbstractMailReceiveServer config, Tier<R> tier) {
         if (config.getProtocol().isImap()) {
-            return fetchFromImapFolder(store, folderName, config);
+            return fetchFromImapFolder(store, folderName, config, tier);
         }
-        return fetchFromPop3Folder(store, folderName, config);
+        return fetchFromPop3Folder(store, folderName, config, tier);
     }
 
     /**
@@ -146,14 +209,17 @@ public class MailReceiveServiceImpl implements MailReceiveService {
      * subscription. UIDVALIDITY change resets the watermark to 0 — duplicate
      * Message-IDs are still caught by {@link #isDuplicate}.
      */
-    private int fetchFromImapFolder(Store store, String folderName, MailReceiveServerConfig config) {
-        Optional<MailFetchImapWatermark> leaseOpt = watermarkService.tryAcquireLease(
+    private <R extends AbstractMailReceiveRecord> int fetchFromImapFolder(Store store, String folderName,
+                                                                           AbstractMailReceiveServer config,
+                                                                           Tier<R> tier) {
+        MailFetchWatermarkService<? extends AbstractMailFetchWatermark> watermarks = tier.watermarks();
+        Optional<? extends AbstractMailFetchWatermark> leaseOpt = watermarks.tryAcquireLease(
                 config.getId(), folderName,
                 LEASE_TIMEOUT);
         if (leaseOpt.isEmpty()) {
             return 0;
         }
-        MailFetchImapWatermark watermark = leaseOpt.get();
+        AbstractMailFetchWatermark watermark = leaseOpt.get();
         // Lease token: each successful CAS transition we perform bumps it by one.
         long leaseVersion = watermark.getVersion() != null ? watermark.getVersion() : 0L;
         int fetched = 0;
@@ -164,7 +230,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
             if (!folder.exists()) {
                 log.debug("Folder '{}' does not exist on server [{}], skipping.",
                         folderName, config.getHost());
-                watermarkService.releaseSuccess(watermark.getId(), leaseVersion, null);
+                watermarks.releaseSuccess(watermark.getId(), leaseVersion, null);
                 return 0;
             }
             folder.open(Folder.READ_ONLY);
@@ -178,7 +244,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
                                     + "resetting watermark.",
                             config.getId(), folderName,
                             watermark.getUidValidity(), currentValidity);
-                    if (!watermarkService.resetForUidValidityChange(
+                    if (!watermarks.resetForUidValidityChange(
                             watermark.getId(), leaseVersion, currentValidity)) {
                         log.warn("Lease superseded during UIDVALIDITY reset for config={} folder={} "
                                 + "— abandoning this fetch", config.getId(), folderName);
@@ -202,11 +268,11 @@ public class MailReceiveServiceImpl implements MailReceiveService {
                     fp.add(UIDFolder.FetchProfileItem.UID);
                     folder.fetch(slice, fp);
 
-                    List<MailReceiveRecord> classified = new ArrayList<>();
+                    List<R> classified = new ArrayList<>();
                     for (Message message : slice) {
                         long uid = uidFolder.getUID(message);
                         try {
-                            MailReceiveRecord record = processOne(message, config, folderName);
+                            R record = processOne(message, config, folderName, tier);
                             if (record != null) {
                                 fetched++;
                                 if (StringUtils.hasText(record.getOriginalMessageId())) {
@@ -224,19 +290,19 @@ public class MailReceiveServiceImpl implements MailReceiveService {
                         }
                     }
                     if (!classified.isEmpty()) {
-                        bounceReceiptLinker.link(classified);
+                        bounceReceiptLinker.link(classified, tier.owner());
                     }
                 }
             } finally {
                 folder.close(false);
             }
-            watermarkService.releaseSuccess(watermark.getId(), leaseVersion, maxUidProcessed);
+            watermarks.releaseSuccess(watermark.getId(), leaseVersion, maxUidProcessed);
         } catch (MessagingException e) {
             log.error("Failed to fetch from folder '{}' on [{}]: {}",
                     folderName, config.getHost(), e.getMessage());
-            watermarkService.releaseFailure(watermark.getId(), leaseVersion, e.getMessage());
+            watermarks.releaseFailure(watermark.getId(), leaseVersion, e.getMessage());
         } catch (RuntimeException e) {
-            watermarkService.releaseFailure(watermark.getId(), leaseVersion, e.getMessage());
+            watermarks.releaseFailure(watermark.getId(), leaseVersion, e.getMessage());
             throw e;
         }
         return fetched;
@@ -249,7 +315,9 @@ public class MailReceiveServiceImpl implements MailReceiveService {
      * watermark / lease mechanism does not apply. Concurrent workers are
      * naturally bounded by Pulsar message dispatch and Message-ID dedup.
      */
-    private int fetchFromPop3Folder(Store store, String folderName, MailReceiveServerConfig config) {
+    private <R extends AbstractMailReceiveRecord> int fetchFromPop3Folder(Store store, String folderName,
+                                                                           AbstractMailReceiveServer config,
+                                                                           Tier<R> tier) {
         int fetched = 0;
         try {
             Folder folder = store.getFolder(folderName);
@@ -262,13 +330,13 @@ public class MailReceiveServiceImpl implements MailReceiveService {
             try {
                 int batchLimit = BATCH_LIMIT;
                 Message[] messages = folder.getMessages();
-                List<MailReceiveRecord> classified = new ArrayList<>();
+                List<R> classified = new ArrayList<>();
                 int processed = 0;
                 for (Message message : messages) {
                     if (processed >= batchLimit) break;
                     processed++;
                     try {
-                        MailReceiveRecord record = processOne(message, config, folderName);
+                        R record = processOne(message, config, folderName, tier);
                         if (record != null) {
                             fetched++;
                             if (StringUtils.hasText(record.getOriginalMessageId())) {
@@ -285,7 +353,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
                     }
                 }
                 if (!classified.isEmpty()) {
-                    bounceReceiptLinker.link(classified);
+                    bounceReceiptLinker.link(classified, tier.owner());
                 }
             } finally {
                 folder.close(true);   // expunge on close → DELETED messages removed
@@ -301,7 +369,7 @@ public class MailReceiveServiceImpl implements MailReceiveService {
      * Parse the folder list from {@code fetchFolders} (comma-separated).
      * Falls back to {@code "INBOX"} if unset, blank, or contains only empty entries.
      */
-    private List<String> parseFolders(MailReceiveServerConfig config) {
+    private List<String> parseFolders(AbstractMailReceiveServer config) {
         if (StringUtils.hasText(config.getFetchFolders())) {
             List<String> folders = Arrays.stream(config.getFetchFolders().split(","))
                     .map(String::trim)
@@ -322,37 +390,32 @@ public class MailReceiveServiceImpl implements MailReceiveService {
      * @return the persisted record, or {@code null} when this message was a
      *         duplicate and was skipped.
      */
-    private MailReceiveRecord processOne(Message message, MailReceiveServerConfig config, String folderName)
+    private <R extends AbstractMailReceiveRecord> R processOne(Message message, AbstractMailReceiveServer config,
+                                                                String folderName, Tier<R> tier)
             throws MessagingException, IOException {
-        MailReceiveRecord record = mailMessageParser.parse(message, config, folderName);
-        if (isDuplicate(record.getMessageId(), config.getId())) {
+        R record = mailMessageParser.parse(message, config, folderName, tier.newRecord());
+        if (isDuplicate(record.getMessageId(), config.getId(), tier)) {
             return null;
         }
-        recordService.createOne(record);
+        tier.records().createOne(record);
         return record;
     }
 
-    private boolean isDuplicate(String messageId, Long serverConfigId) {
+    private boolean isDuplicate(String messageId, Long serverConfigId, Tier<?> tier) {
         if (!StringUtils.hasText(messageId)) return false;
         Filters filters = new Filters()
-                .eq(MailReceiveRecord::getMessageId, messageId)
-                .eq(MailReceiveRecord::getServerConfigId, serverConfigId);
-        return recordService.count(filters) > 0;
+                .eq(AbstractMailReceiveRecord::getMessageId, messageId)
+                .eq(AbstractMailReceiveRecord::getServerConfigId, serverConfigId);
+        return tier.records().count(filters) > 0;
     }
 
-    private Properties buildSessionProperties(MailReceiveServerConfig config, String protocol) {
+    private Properties buildSessionProperties(AbstractMailReceiveServer config, String protocol) {
         Properties props = new Properties();
         props.put("mail." + protocol + ".host", config.getHost());
         props.put("mail." + protocol + ".port", config.getPort());
         props.put("mail." + protocol + ".ssl.enable", Boolean.TRUE.equals(config.getSslEnabled()));
-        // Global transport timeouts; per-config tunability removed (see
-        // MessageProperties.Transport Javadoc).
-        long connTimeoutMs = messageProperties.getMail().getTransport()
-                .getConnectionTimeout().toMillis();
-        long readTimeoutMs = messageProperties.getMail().getTransport()
-                .getReadTimeout().toMillis();
-        props.put("mail." + protocol + ".connectiontimeout", connTimeoutMs);
-        props.put("mail." + protocol + ".timeout", readTimeoutMs);
+        // Global transport timeouts (see the MessageProperties.Transport Javadoc) and the debug log.
+        MailSessionSettings.apply(props, protocol, messageProperties.getMail(), config.getId());
         return props;
     }
 }

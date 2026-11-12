@@ -587,6 +587,37 @@ class FlowApprovalPreviewTest {
         verify(organization, never()).getEmployeeIdOfUser(any());
     }
 
+    /**
+     * The form comes as JSON — an id as text, a long id not fitting a JavaScript number, a number as text — and the
+     * test run reads it as the record would hold it (zingkey-hcm#2583: a company id sent as text failed it whole).
+     */
+    @Test
+    void aTestRunReadsTheValuesAsTheBrowserSendsThem() {
+        saveDraft("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
+        MetaField employee = mock(MetaField.class);
+        when(employee.getFieldName()).thenReturn("employeeId");
+        when(employee.getFieldType()).thenReturn(FieldType.MANY_TO_ONE);
+        when(employee.getRelatedModel()).thenReturn("Employee");
+        MetaField days = mock(MetaField.class);
+        when(days.getFieldName()).thenReturn("days");
+        when(days.getFieldType()).thenReturn(FieldType.INTEGER);
+        modelManager.when(() -> ModelManager.existField(MODEL, "employeeId")).thenReturn(true);
+        modelManager.when(() -> ModelManager.getModelField(MODEL, "employeeId")).thenReturn(employee);
+        modelManager.when(() -> ModelManager.existField(MODEL, "days")).thenReturn(true);
+        modelManager.when(() -> ModelManager.getModelField(MODEL, "days")).thenReturn(days);
+        idUtils.when(() -> IdUtils.formatId(eq("Employee"), any(Serializable.class)))
+                .thenAnswer(invocation -> Long.valueOf(invocation.getArgument(1).toString()));
+
+        FlowDesignPreview preview = launchService.previewDraft("annual", SUBMITTER,
+                Map.of("employeeId", "897782239419432990", "days", "2"));
+
+        assertEquals(Status.READY, preview.route().getStatus());
+        ArgumentCaptor<LeaveRequest> submitted = ArgumentCaptor.forClass(LeaveRequest.class);
+        verify(handler).submission(submitted.capture());
+        assertEquals(897782239419432990L, submitted.getValue().getEmployeeId());
+        assertEquals(2, submitted.getValue().getDays());
+    }
+
     @Test
     void aTestRunSaysWhenTheDraftsSubmitConditionWouldNotTakeTheRequest() {
         DesignFlowDefinition draft = chain("Long leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))));

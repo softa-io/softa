@@ -114,6 +114,9 @@ public enum FieldType {
     public static final Set<FieldType> EXPANDABLE_TYPES = Sets.immutableEnumSet(BOOLEAN, MANY_TO_ONE, ONE_TO_ONE, OPTION, MULTI_OPTION);
     // File type set
     public static final Set<FieldType> FILE_TYPES = Sets.immutableEnumSet(FILE, MULTI_FILE);
+    // Free text a search box matches as written: what a `searchName` may name (ModelManager) and what its
+    // CONTAINS reads as text (WhereBuilder). One set, so the boot check and the query cannot disagree.
+    public static final Set<FieldType> TEXT_SEARCH_TYPES = Sets.immutableEnumSet(STRING, TEXT, MULTI_STRING);
 
     /**
      * type map

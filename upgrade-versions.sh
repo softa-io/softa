@@ -24,33 +24,7 @@ if [[ ! "$NEW_VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
   exit 1
 fi
 
-# Update the parent POM file version
-echo "Updating parent POM version to $NEW_VERSION"
-mvn versions:set -DnewVersion="$NEW_VERSION"
-mvn versions:commit
-
-# update the project version in framework and starters modules
-function update_child_modules {
-  local module_dir="$1"
-  local new_version="$2"
-
-  find "$module_dir" -name "pom.xml" | while read -r pom_file; do
-    local submodule
-    submodule=$(dirname "$pom_file")
-
-    # skip the current module directory
-    if [ "$submodule" == "$module_dir" ]; then
-      continue
-    fi
-
-    # Update the parent version in the current submodule
-    echo "Updating $submodule parent version to $new_version"
-    mvn versions:update-parent -DparentVersion="$new_version" -DgenerateBackupPoms=false -f "$pom_file"
-
-    # Recursively update child modules
-    update_child_modules "$submodule" "$new_version"
-  done
-}
-
-# Start recursively updating all child modules' parent versions from the project root directory
-update_child_modules "." "$NEW_VERSION"
+# versions:set walks the whole reactor: it sets the root version and the <parent>
+# version of every module under framework, starters and apps, so no per-module pass is needed.
+echo "Updating all module versions to $NEW_VERSION"
+mvn versions:set -DnewVersion="$NEW_VERSION" -DgenerateBackupPoms=false

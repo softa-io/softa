@@ -17,6 +17,7 @@ import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.starter.message.mail.enums.BodyMode;
 import io.softa.starter.message.mail.enums.MailPriority;
 import io.softa.starter.message.mail.enums.MailSendStatus;
+import io.softa.starter.message.mail.enums.MailServerOwner;
 
 /**
  * Outgoing mail record.
@@ -30,9 +31,18 @@ import io.softa.starter.message.mail.enums.MailSendStatus;
  *
  * <p>Searched by recipient and subject: the send log is where "this user never got the email" is
  * looked into, and the recipient is what the person investigating has in hand.
+ *
+ * <p>Not multi-tenant: the table is the mail delivery queue the platform works through for every
+ * tenant, and one record can involve both sides — a tenant's mail relayed through a platform server
+ * has the tenant's content and the platform's server, quota and bounces. {@code tenantId} records
+ * only whom the mail is filed under: the tenant it is made for, whatever the scope (a platform notice
+ * about one of its accounts included), {@code -1} when no tenant can be named. Acceptance writes it
+ * and the ORM neither stamps nor filters it.
+ * The platform's pages read the table itself; a tenant reads its own rows through the
+ * {@link TenantMailSendRecord} projection, which leaves out the bodies and template variables.
  */
 @Data
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false, multiTenant = true,
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false,
         searchName = {"toAddresses", "subject"})
 @Index(indexName = "idx_mail_send_tenant_status", fields = {"tenantId", "status"})
 @Index(indexName = "idx_mail_send_sent_at", fields = {"sentAt"})
@@ -49,12 +59,15 @@ public class MailSendRecord extends AuditableModel {
     private Long id;
 
     @Field(label = "Tenant ID",
-            description = "-1 = platform-tier (invisible to tenants); >0 = tenant-level. "
-                    + "Auto-stamped by the ORM on writes when multi-tenancy is enabled.")
+            description = "Whom the mail is filed under: the tenant it is made for, whatever the scope (a "
+                    + "platform notice about one of its accounts included); -1 when no tenant can be named. "
+                    + "Decides who sees it in the tenant send log and whose monthly quota a send through a "
+                    + "platform server draws on.")
     private Long tenantId;
 
-    @Field(description = "Tier policy of the send: true = PLATFORM scope (the platform tier renders the "
-            + "template, carries the mail and is charged), false = TENANT scope.")
+    @Field(description = "Scope the caller declared: true = PLATFORM (a platform template, a platform "
+            + "server), false = TENANT (the tenant's template, its own server or the platform's relay). "
+            + "Decides which tier renders and carries the mail, not whom it is filed under.")
     private Boolean platformScope;
 
     @Field(label = "Template ID", description = "Template row the caller addressed (editor test sends); "
@@ -71,9 +84,16 @@ public class MailSendRecord extends AuditableModel {
             + "every delivery attempt runs and logs under it")
     private String traceId;
 
-    @Field(label = "Server Config ID", description = "Mail server config that carries this email: the "
-            + "caller's or template's choice, else the default the first delivery attempt resolved")
+    @Field(label = "Server Config ID", description = "Send server that carries this email: the caller's or "
+            + "template's choice, else the default the first delivery attempt resolved. An id in the table of "
+            + "serverOwner.")
     private Long serverConfigId;
+
+    @Field(description = "Whose send server carries this email, fixed by the first delivery attempt: the "
+            + "tenant's own, or the platform's (the platform's mail, or a tenant's relayed). Retries replay "
+            + "the same owner's server; bounces and receipts are matched by the receive servers of the "
+            + "same owner. Empty until the record is prepared.")
+    private MailServerOwner serverOwner;
 
     @Field(length = 255, description = "Sender address, fixed by the first delivery attempt from the "
             + "server config; empty until then")

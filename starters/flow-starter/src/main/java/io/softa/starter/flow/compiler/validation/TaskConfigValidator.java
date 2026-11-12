@@ -29,7 +29,6 @@ import io.softa.starter.flow.runtime.nodeconfig.QueryAiConfig;
 import io.softa.starter.flow.runtime.nodeconfig.QueryRecordsConfig;
 import io.softa.starter.flow.runtime.nodeconfig.SendEmailConfig;
 import io.softa.starter.flow.runtime.nodeconfig.SendInboxNotificationConfig;
-import io.softa.starter.flow.runtime.nodeconfig.SendSmsConfig;
 import io.softa.starter.flow.runtime.nodeconfig.TaskConfigTypes;
 import io.softa.starter.flow.runtime.nodeconfig.TaskNodeConfig;
 import io.softa.starter.flow.runtime.nodeconfig.UpdateDataConfig;
@@ -109,14 +108,6 @@ public class TaskConfigValidator implements FlowValidator {
             case QueryRecordsConfig q -> {
                 requireText(node, at + "modelName", q.getModelName(), d);
                 checkQuery(node, at, q.getModelName(), q.getFields(), q.getFilters(), q.getOrders(), d);
-            }
-            case SendSmsConfig sms -> {
-                requirePresent(node, at + "phoneNumbers", sms.getPhoneNumbers(), d);
-                if (!StringUtils.hasText(sms.getContent()) && !StringUtils.hasText(sms.getTemplateCode())) {
-                    d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(),
-                            at + "content", MISSING_REQUIRED_INPUT, "Task node '" + node.displayName()
-                                    + "' requires " + at + "content or " + at + "templateCode"));
-                }
             }
             case SendEmailConfig mail -> requirePresent(node, at + "to", mail.getTo(), d);
             case SendInboxNotificationConfig inbox -> {
