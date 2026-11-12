@@ -602,7 +602,7 @@ permission:
     - /actuator/health
   authenticated-bypass-patterns:  # authenticated but no permission needed
     - /me/**                      # returns the caller's own data
-  platform-only-patterns:         # only SUPER_ADMIN may reach these
+  platform-only-patterns:         # closed inside every customer tenant; SUPER_ADMIN and the platform tenant only
     - /Plan/**                    # billing / provisioning / cross-tenant Ops
   platform-nav-prefixes: navigation.system.,navigation.studio.,navigation.message.operations.
   shared-nav-prefixes: navigation.message.
@@ -658,7 +658,14 @@ box.
    tenant admin and a consultant are refused it like anyone else, so a new controller
    or model verb is closed inside a tenant until a permission lists it.
    `EndpointCoverageValidator` logs every endpoint no permission lists.
-7. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
+7. **Platform-only pattern inside a customer tenant → 403**, for everyone who reached
+   this step, whatever their grants. A tenant role can hold a permission that lists
+   such an endpoint without anyone granting it: a standard view derives the lookup
+   endpoints of the models it references, so a page over accounts registers the full
+   read surface of a shared model the accounts point at — one with no tenant column,
+   whose reads no tenant narrows. The pattern list is what keeps such a model to the
+   platform. Users of the platform tenant itself are not refused.
+8. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
    (unknown URLs are denied, not opened) — for everyone who reached this step.
    A permission that lists its endpoints by hand also brings what its pages ask
    before rendering, on the same model: an explicit `createOne` / `createList`
@@ -666,7 +673,7 @@ box.
    `getById`, `getByIds` and `getRecordAccess` (one view, one row scope); an
    explicit `getById` / `getOne` brings `getRecordAccess`. Writes are never
    brought — they stay listed by hand.
-8. Snapshot holds a required permission? allow, else 403.
+9. Snapshot holds a required permission? allow, else 403.
 
 > **Changed:** the super-admin used to be step 4 and a blanket `return true`. It is
 > now step 6, bounded by its snapshot. Tenant business work belongs to the consultant,

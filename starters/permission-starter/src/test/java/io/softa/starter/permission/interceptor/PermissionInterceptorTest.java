@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.ConsultantAccessChecker;
 
@@ -390,6 +391,41 @@ class PermissionInterceptorTest {
 
         MockHttpServletRequest r = req("POST", "/Employee/searchList");
         boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    // ─── platform-only patterns hold for everyone inside a tenant ───
+
+    /** A grant that lists a platform-only endpoint — as a derived lookup of a referenced shared model does. */
+    private void anOrdinaryUserWhoseGrantListsTheProfileReads() {
+        props.setPlatformOnlyPatterns(List.of("/UserProfile/**"));
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(
+                PermissionInfo.builder()
+                        .roleCodes(Set.of("HR"))
+                        .permissions(Set.of("user-account.view"))
+                        .build());
+        when(endpointIndex.lookup(eq("/UserProfile/searchPage"), eq("POST")))
+                .thenReturn(Set.of("user-account.view"));
+    }
+
+    @Test
+    void anOrdinaryUserInATenant_isDeniedAPlatformOnlyEndpoint_evenWhenAGrantListsIt() {
+        anOrdinaryUserWhoseGrantListsTheProfileReads();
+
+        MockHttpServletRequest r = req("POST", "/UserProfile/searchPage");
+        assertThatThrownBy(() -> inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null)))
+                .isInstanceOf(PermissionException.class)
+                .hasMessageContaining("Platform-admin only");
+    }
+
+    @Test
+    void anOrdinaryUserOfThePlatformTenant_keepsThem() {
+        anOrdinaryUserWhoseGrantListsTheProfileReads();
+
+        MockHttpServletRequest r = req("POST", "/UserProfile/searchPage");
+        boolean allowed = inCtx(BaseConstant.PLATFORM_TENANT_ID, 42L,
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
         assertThat(allowed).isTrue();
     }

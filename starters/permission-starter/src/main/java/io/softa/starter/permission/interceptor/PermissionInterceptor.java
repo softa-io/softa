@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.BuiltinRole;
@@ -179,6 +180,19 @@ public class PermissionInterceptor implements HandlerInterceptor {
         if (PermissionInfo.isConsultant(pi)) {
             // The authorization was checked above, before any bypass; this branch only decides the gate.
             return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.CONSULTANT);
+        }
+
+        // Platform-only endpoints are closed to everyone inside a customer tenant, whatever their grants —
+        // not only to the admins above. A tenant role's permissions can still list such an endpoint: a
+        // standard view derives the lookup endpoints of the models it references, so holding the account
+        // page's view registered the full read surface of the people the accounts point at, a shared model
+        // with no tenant column, and an ordinary user read every tenant's people through it. The platform
+        // tenant's own users keep them: they are who these endpoints are for.
+        if (!BaseConstant.PLATFORM_TENANT_ID.equals(ctx.getTenantId())
+                && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied inside a tenant — userId={}, tenantId={}, uri={} {}",
+                    ctx.getUserId(), ctx.getTenantId(), method, uri);
+            throw new PermissionException("Platform-admin only: " + method + " " + uri);
         }
 
         // EndpointIndex.lookup returns every permission id that lists this
