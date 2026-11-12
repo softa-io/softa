@@ -183,6 +183,23 @@ the cached snapshot. A field hidden only on some records is not in `modelHiddenF
 `POST /{model}/getRecordAccess` for those. The same fields are left out of what
 `GET /metadata/getMetaModel` serves this caller (metadata-starter README).
 
+The same controller lets the signed-in person change their own password and login mobile, each a
+chain of steps over `MyCredentialService` in which every step hands back a ticket only the next step
+accepts (`{"ticket": "..."}`):
+
+| Endpoint | Body | Returns |
+| --- | --- | --- |
+| `POST /me/password/sendCode` | — | a code sent to the login mobile |
+| `POST /me/password/verifyCode` | `code` | a ticket for `/me/password/change`, ten minutes |
+| `POST /me/password/change` | `ticket`, `newPassword` | — ; every other device is signed out |
+| `POST /me/mobile/verifyCurrent` | `method` (`code` or `password`), `code` / `password` | a ticket for `/me/mobile/checkNew` |
+| `POST /me/mobile/checkNew` | `ticket`, `newMobile` | a ticket for confirming; a code is sent to the new number |
+| `POST /me/mobile/resendCode` | `ticket` | another code, same ticket |
+| `POST /me/mobile/confirm` | `ticket`, `code` | — ; the number holds in every company, every other device is signed out |
+
+They act on the caller only and carry no business permission: the application lists `/me/**` under
+`permission.authenticated-bypass-patterns`, as `uiContext` already needs.
+
 ## Consultants
 
 Platform implementation staff, authorized into a client company for a bounded
