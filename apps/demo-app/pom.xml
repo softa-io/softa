@@ -96,6 +96,17 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Test scope only, demo-app loads no seed data: it puts seed-starter's models beside the
+             rest, so SoftaCatalogBootCheckTest checks every softa module that declares models
+             (flow-starter already brings ai-starter and cron-starter). MetadataBaselineDdlGeneratorTest
+             renders the test classpath, so its output includes seed-starter's tables too. -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>seed-starter</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
