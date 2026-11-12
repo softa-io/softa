@@ -21,6 +21,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>MultiString joins String: it is stored as delimited text, so the search box's CONTAINS is a
  * substring match on it exactly as on a String. The mail send log needs it — what someone looking
  * into "this user never got the email" has in hand is the recipient, and recipients are a list.
+ *
+ * <p>Text joins them too: it is a String without a width, and the query already searched it as text.
+ * Refusing it here stopped the application at boot once {@code InboxNotification.content} — searched
+ * by the inbox — was widened to Text (softa 3.0.1).
  */
 class SearchNameFieldTypesTest {
 
@@ -43,12 +47,21 @@ class SearchNameFieldTypesTest {
     }
 
     @Test
+    void aTextFieldMayBeSearchedBy() {
+        MetaModel model = modelSearchedBy("title", "content");
+
+        validate(model, FieldType.STRING, FieldType.TEXT);
+
+        assertThat(model.getSearchName()).containsExactly("title", "content");
+    }
+
+    @Test
     void aNonTextFieldIsStillRefusedAtBoot() {
         MetaModel model = modelSearchedBy("sentAt");
 
         assertThatThrownBy(() -> validate(model, FieldType.DATE_TIME))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("String and MultiString");
+                .hasMessageContaining("String, Text and MultiString");
     }
 
     private static MetaModel modelSearchedBy(String... fields) {

@@ -538,12 +538,16 @@ public class ModelManager {
         if (!CollectionUtils.isEmpty(searchName)) {
             Assert.isTrue(!searchName.contains(ModelConstant.SEARCH_NAME),
                     "The searchName of model {0} cannot contain the 'searchName' keyword itself!", metaModel.getModelName());
-            // MultiString is stored as delimited text, so a search box's CONTAINS is a substring
-            // match on it just as on a String — a send record found by one of its recipients.
+            // The types the search box's CONTAINS reads as text (FieldType.TEXT_SEARCH_TYPES, which
+            // WhereBuilder matches by). MultiString is stored as delimited text, so it is a substring
+            // match just as on a String — a send record found by one of its recipients; Text is a String
+            // without a width — an inbox notification found by its body. Only a String gets a derived
+            // search index (SearchIndexSynthesizer), so a search on the other two scans what the rest of
+            // the query leaves.
             searchName.forEach(field -> {
                 FieldType fieldType = getModelField(metaModel.getModelName(), field).getFieldType();
-                Assert.isTrue(FieldType.STRING.equals(fieldType) || FieldType.MULTI_STRING.equals(fieldType),
-                        "The `searchName` attribute only supports String and MultiString fields, not model {0} field {1} type {2}!",
+                Assert.isTrue(FieldType.TEXT_SEARCH_TYPES.contains(fieldType),
+                        "The `searchName` attribute only supports String, Text and MultiString fields, not model {0} field {1} type {2}!",
                         metaModel.getModelName(), field, fieldType.getType());
             });
         } else if (existField(metaModel.getModelName(), "name")) {
