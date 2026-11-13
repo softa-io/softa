@@ -41,6 +41,20 @@ A detail form hides Edit / Delete and the sections of hidden sets from the answe
 sections of read-only sets read-only. The record's answer stands on its own: it overrides what the user
 holds through some other role.
 
+## Field errors
+
+A rejection that is about particular fields answers with HTTP 200 and code 400 as any rejected input does,
+and adds `fieldErrors` (field name → sentence) to the body so a form can put each sentence on its control
+instead of one toast. Two rejections carry it:
+
+| Rejection | Raised by | `error` |
+|---|---|---|
+| A refused write | field constraints or a `ModelWriteValidator` (`WriteValidationException`) | `field: sentence; …`, fields by label |
+| A request body failing its bean validation | `@Valid` on a controller argument, field or class-level constraints (`MethodArgumentNotValidException`) | `Validation Error: field: sentence; …` |
+
+A field with more than one sentence keeps its first in `fieldErrors`; `error` still lists them all. Every
+other error leaves `fieldErrors` out, so a client that does not read it sees the body it always did.
+
 ## Enum Request Parameters
 
 Query, path and header parameters bind an enum by the value JSON uses for it — the `@JsonValue` field when the enum declares one, the constant name otherwise — so a parameter takes the same value that request bodies, responses and option items show: for `Status.ACTIVE("Active")`, send `?status=Active`. Matching is exact, a blank value binds as `null`, and a value naming no constant fails to bind. `BaseWebConfig.addFormatters` registers this in place of Spring's default binding, which matches the constant name only.
