@@ -196,12 +196,12 @@ accepts (`{"ticket": "..."}`):
 | Endpoint | Body | Returns |
 | --- | --- | --- |
 | `POST /me/password/sendCode` | — | a code sent to the login mobile |
-| `POST /me/password/verifyCode` | `code` | a ticket for `/me/password/change`, ten minutes |
+| `POST /me/password/verifyCode` | `verificationCode` | a ticket for `/me/password/change`, ten minutes |
 | `POST /me/password/change` | `ticket`, `newPassword` | — ; every other device is signed out |
-| `POST /me/mobile/verifyCurrent` | `method` (`code` or `password`), `code` / `password` | a ticket for `/me/mobile/checkNew` |
+| `POST /me/mobile/verifyCurrent` | `method` (`code` or `password`), `verificationCode` / `password` | a ticket for `/me/mobile/checkNew` |
 | `POST /me/mobile/checkNew` | `ticket`, `newMobile` | a ticket for confirming; a code is sent to the new number |
 | `POST /me/mobile/resendCode` | `ticket` | another code, same ticket |
-| `POST /me/mobile/confirm` | `ticket`, `code` | — ; the number holds in every company, every other device is signed out |
+| `POST /me/mobile/confirm` | `ticket`, `verificationCode` | — ; the number holds in every company, every other device is signed out |
 
 They act on the caller only and carry no business permission: the application lists `/me/**` under
 `permission.authenticated-bypass-patterns`, as `uiContext` already needs.

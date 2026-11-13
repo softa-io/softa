@@ -9,5 +9,5 @@ public class MobileCodeDTO {
     private String mobile;
 
     @NotBlank(message = "Verification code cannot be empty!")
-    private String code;
+    private String verificationCode;
 }

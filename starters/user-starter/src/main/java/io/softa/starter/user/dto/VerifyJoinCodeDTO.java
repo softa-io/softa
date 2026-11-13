@@ -14,5 +14,5 @@ public class VerifyJoinCodeDTO {
     private String channel;
 
     @NotBlank(message = "Verification code cannot be empty!")
-    private String code;
+    private String verificationCode;
 }

@@ -104,6 +104,21 @@ class VerificationCodeGuardTest {
     }
 
     @Test
+    void missingCode_isRefused_withoutSpendingAnAttempt() {
+        issueIgnoringCooldown("123456");
+        Map<String, Long> countersBefore = new HashMap<>(counters);
+
+        for (int i = 0; i < 12; i++) {
+            String missing = i % 2 == 0 ? null : " ";
+            assertThatThrownBy(() -> guard.verify(ID, missing))
+                    .hasMessageContaining("enter the verification code");
+        }
+        // Twelve empty tries moved no counter: not the code's budget, not the ban.
+        assertThat(counters).isEqualTo(countersBefore);
+        assertThatCode(() -> guard.verify(ID, "123456")).doesNotThrowAnyException();
+    }
+
+    @Test
     void wrongCode_saysTryAgain_untilTheFifth_whichKillsTheCode() {
         issueIgnoringCooldown("123456");
 
