@@ -232,7 +232,8 @@ public class FlowInstanceController {
                     + "ordinary read, with no fields — the only way a record never submitted is read here; everyone "
                     + "else is refused. A model that does not exist is not found, and so is a record deleted under "
                     + "someone who took part in its approvals; to anyone else, a missing record is refused like one "
-                    + "they cannot read. Relations and options come as references, and masked fields are masked as on "
+                    + "they cannot read. A record deleted softly — kept, flagged — is deleted here too: not found to "
+                    + "whoever is let in. Relations and options come as references, and masked fields are masked as on "
                     + "every model read.")
     @DataMask
     public ApiResponse<FlowInstanceRecordView> getRecordThroughApprovals(@RequestParam String modelName,

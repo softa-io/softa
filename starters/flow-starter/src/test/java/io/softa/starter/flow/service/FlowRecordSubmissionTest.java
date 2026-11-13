@@ -743,6 +743,44 @@ class FlowRecordSubmissionTest {
         verify(handler, never()).afterOutcome(any(), any());
     }
 
+    @Test
+    void aDraftDeletedSoftlyIsNeitherSubmittedNorCancelled() {
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
+        // Deleted by its applicant on a model that deletes softly: the row stays, flagged, and a read by id returns it.
+        record.put("deleted", true);
+        BusinessException submit;
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
+            models.when(() -> ModelManager.isSoftDeleted(MODEL)).thenReturn(true);
+
+            submit = assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+            assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW));
+        }
+
+        assertTrue(submit.getMessage().contains("does not exist"), submit.getMessage());
+        assertEquals("Draft", record.get("approvalStatus"));
+        assertTrue(createdAt.isEmpty(), "no approval was started");
+        verify(handler, never()).validate(any());
+        verify(handler, never()).afterSubmitted(any());
+        verify(handler, never()).afterOutcome(any(), any());
+    }
+
+    @Test
+    void aResultReachesNoRecordDeletedSoftlyWhileItsApprovalWaited() {
+        publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
+        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        // Deleted while in approval — a system write gets past the approval lock — on a model that deletes softly.
+        record.put("deleted", true);
+
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
+            models.when(() -> ModelManager.isSoftDeleted(MODEL)).thenReturn(true);
+
+            engine.approve(nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, "fine"));
+        }
+
+        assertEquals("Pending", record.get("approvalStatus"));
+        verify(handler, never()).afterOutcome(any(), any());
+    }
+
     private ApprovalOutcome capturedOutcome() {
         ArgumentCaptor<ApprovalOutcome> outcome = ArgumentCaptor.forClass(ApprovalOutcome.class);
         verify(handler, atLeastOnce()).afterOutcome(any(), outcome.capture());

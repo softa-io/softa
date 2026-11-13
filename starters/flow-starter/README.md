@@ -169,6 +169,11 @@ A change keeps these; each names the class that holds it.
   approval fields out of every write; writes made with permission checks off are exempt. Results reach the record only
   through `ApprovalOutcomeListener` and `ApprovalStatusWriter`: on the save that moved the instance into its result,
   only onto a record still `Pending`, so `afterOutcome` runs once per result. An instance's status moves only by `FlowStatusTransitions`.
+- **A record deleted softly is deleted for its approvals.** A read by id returns a soft-deleted row, flagged
+  (`ModelService.getByIds` leaves the soft-delete filter to queries), so each read of an approved record by id that
+  acts on what it finds asks `ApprovalModel.isDeleted`: `FlowLaunchServiceImpl.readRecord` (submit, preview, cancel),
+  `ApprovalStatusWriter` (the write-back), `FlowInstanceSummaryComposer` (`recordDeleted`) and the record read of the
+  approval pages. A new one does the same.
 - **One approval in progress per record.** `FlowInstance.openRecordId` holds the record's id while its approval is
   unfinished (`FlowExecutionStateMapper`), under the unique index `uk_flow_instance_open_record` (tenant, model,
   record): a second submission fails even when two arrive at once.

@@ -240,6 +240,37 @@ class FlowInstanceSummaryComposerTest {
     }
 
     @Test
+    void aRecordDeletedSoftlyIsGoneThoughItsRowIsKept() {
+        // Two returned claims on a model that deletes softly: one deleted by its applicant, one still to revise.
+        FlowInstance deleted = instance("i1", FlowExecutionStatus.RETURNED);
+        deleted.setModelName("ExpenseClaim");
+        deleted.setRowId("10");
+        FlowInstance kept = instance("i2", FlowExecutionStatus.RETURNED);
+        kept.setModelName("ExpenseClaim");
+        kept.setRowId("11");
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class);
+             MockedStatic<IdUtils> idUtils = mockStatic(IdUtils.class)) {
+            models.when(() -> ModelManager.existModel("ExpenseClaim")).thenReturn(true);
+            models.when(() -> ModelManager.existField("ExpenseClaim", "approvalStatus")).thenReturn(true);
+            models.when(() -> ModelManager.isSoftDeleted("ExpenseClaim")).thenReturn(true);
+            idUtils.when(() -> IdUtils.formatIds(anyString(), anyList()))
+                    .thenAnswer(invocation -> ((List<?>) invocation.getArgument(1)).stream()
+                            .map(id -> Long.valueOf(id.toString())).toList());
+            // A read by id returns the deleted row too, flagged.
+            when(modelService.getByIds(eq("ExpenseClaim"), eq(List.of(10L, 11L)),
+                    eq(List.of("id", "approvalStatus", "deleted"))))
+                    .thenReturn(List.of(Map.of("id", 10L, "approvalStatus", "Draft", "deleted", true),
+                            Map.of("id", 11L, "approvalStatus", "Draft", "deleted", false)));
+
+            List<FlowInstanceSummaryView> views = composer.summarize(List.of(deleted, kept), null);
+
+            assertTrue(views.get(0).getRecordDeleted());
+            assertFalse(views.get(0).getRecordCancelled());
+            assertFalse(views.get(1).getRecordDeleted());
+        }
+    }
+
+    @Test
     void anApprovedRecordShowsWhereItsChangeStandsAsItsHandlerReadsIt() {
         @SuppressWarnings("unchecked")
         ModelApprovalHandler<LeaveRequest> handler = mock(ModelApprovalHandler.class);
