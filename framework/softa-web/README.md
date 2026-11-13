@@ -41,6 +41,23 @@ A detail form hides Edit / Delete and the sections of hidden sets from the answe
 sections of read-only sets read-only. The record's answer stands on its own: it overrides what the user
 holds through some other role.
 
+**A company picker offers the companies the write may name.** `POST /Company/searchName` with a
+`sourceRecord` — the record the picker fills a field of — is narrowed to the company grants of the roles
+holding that write: create when `sourceRecord.recordId` is empty, update otherwise
+(`PermissionService.getGrantedCompanyIds`). The company list as the user reads it reaches the companies of
+every role they hold, and a role with no company grant (the self-service role) reaches them all, so a form
+picking a signing entity or a cost centre's company would offer companies the save then refuses. A search
+with no `sourceRecord` — a list filter, a report — is left as it reads. A write granted no company offers
+none: every company the picker could list would be refused. On an update, only the holding roles reaching
+that record count.
+
+**A department picker offers what the write may choose.** `POST /Department/searchName` and
+`POST /Department/searchList` — the read a tree picker makes — take the same `sourceRecord`, and are narrowed to the
+department grants of the roles holding that write (`PermissionService.getWritableDepartmentScope`). The list as
+the user reads it answers for what they may view, which an exemption from the grant opens in full. Only where the
+picked department places the record: a model with a `departmentId` of its own, or the department model itself. A
+picker that names its field in `sourceRecord.fieldName` is narrowed only when that field places the record: the
+`departmentId`, or a department's `parentId`.
 ## Field errors
 
 A rejection that is about particular fields answers with HTTP 200 and code 400 as any rejected input does,

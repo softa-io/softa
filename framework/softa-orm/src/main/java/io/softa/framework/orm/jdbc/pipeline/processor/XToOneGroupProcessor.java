@@ -119,7 +119,12 @@ public class XToOneGroupProcessor extends BaseProcessor {
      * @param rows The list of output data
      */
     public void batchProcessOutputRows(List<Map<String, Object>> rows) {
-        if (flexQuery.isAcrossTimeline()
+        // A OneToMany expansion groups its child rows by this back reference as a raw id. A dynamic cascaded field
+        // through it brings this processor in, and it computes that field but must leave the reference unexpanded:
+        // expanded, no child row matches its parent and the expansion comes back empty.
+        boolean keepId = metaField.getFieldName().equals(flexQuery.getKeepIdField());
+        if (!keepId
+                && flexQuery.isAcrossTimeline()
                 && ModelManager.isTimelineModel(metaField.getModelName())
                 && ModelManager.isTimelineModel(metaField.getRelatedModel())
                 && ConvertType.EXPAND_TYPES.contains(flexQuery.getConvertType())) {
@@ -130,6 +135,9 @@ public class XToOneGroupProcessor extends BaseProcessor {
             Map<Serializable, Map<String, Object>> relatedRowMap = getRelatedModelRowMap(rows);
             // Before expand the ManyToOne/OneToOne field, calculate the dynamic cascaded field first.
             cascadedFields.forEach(sf -> batchProcessOutputRowsCascaded(sf, rows, relatedRowMap));
+            if (keepId) {
+                return;
+            }
             XToOneProcessor xToOneField = new XToOneProcessor(metaField, accessType, flexQuery);
             // Expand the ManyToOne/OneToOne field with displayName, or related model row according to subQuery.
             xToOneField.batchProcessOutputRows(rows, relatedRowMap);

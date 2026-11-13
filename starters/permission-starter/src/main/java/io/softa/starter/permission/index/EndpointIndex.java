@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.startup.StartupSnapshot;
@@ -91,7 +92,9 @@ public class EndpointIndex implements StartupSnapshot {
             "POST getOne", "POST getById", "POST getByIds", "POST searchOne",
             "GET getUnmaskedField", "GET getUnmaskedFields",
             // What a detail form asks before rendering: which sections and buttons this record allows.
-            "POST getRecordAccess");
+            "POST getRecordAccess",
+            // The records a record owns, read through it: a paged child table and a masked field on a section.
+            "POST searchRelationPage", "GET getRelationUnmaskedFields");
 
     /** Minimum endpoint set a Picker widget needs to render:
      *  {@code searchName} lists the candidates for the dropdown,
@@ -160,6 +163,10 @@ public class EndpointIndex implements StartupSnapshot {
         return Collections.unmodifiableMap(frozen);
     }
 
+    /** Every {@code "VERB suffix"} of a standard endpoint, whichever action it belongs to. */
+    private static final Set<String> STANDARD_ENTRIES = STANDARD_ACTION_MAP.values().stream()
+            .flatMap(List::stream).collect(java.util.stream.Collectors.toUnmodifiableSet());
+
     private final PermissionEndpointSource endpointSource;
 
     /**
@@ -198,9 +205,12 @@ public class EndpointIndex implements StartupSnapshot {
      * @param modelActions {@code "<Model> <action>"} → the permission ids reaching any standard endpoint of a
      *                     per-model action on that model, whether derived or hand-listed. See
      *                     {@link #modelActionPermissions}.
+     * @param customWrites {@code <Model>} → the permission ids listing a custom write endpoint on that model.
+     *                     See {@link #customWritePermissions}.
      */
     private record Index(Map<String, Set<String>> exact, List<PatternEntry> patterns,
-                         Map<String, Set<String>> actions, Map<String, Set<String>> modelActions) {
+                         Map<String, Set<String>> actions, Map<String, Set<String>> modelActions,
+                         Map<String, Set<String>> customWrites) {
     }
 
     private volatile Index index;
@@ -216,6 +226,7 @@ public class EndpointIndex implements StartupSnapshot {
         List<PatternEntry> patterns = new ArrayList<>();
         Map<String, Set<String>> actions = new HashMap<>();
         Map<String, Set<String>> modelActions = new HashMap<>();
+        Map<String, Set<String>> customWrites = new HashMap<>();
 
         for (PermissionEndpointDef def : endpointSource.getPermissionEndpoints()) {
             if (def.model() != null && !def.model().isEmpty() && def.permissionId() != null) {
@@ -225,6 +236,7 @@ public class EndpointIndex implements StartupSnapshot {
             List<String> endpoints = explicitOrDerive(def);
             for (String ep : endpoints) {
                 indexModelAction(ep, def.permissionId(), modelActions);
+                indexCustomWrite(ep, def.permissionId(), customWrites);
                 if (ep.contains("{")) {
                     patterns.add(PatternEntry.compile(ep, def.permissionId()));
                 } else {
@@ -236,7 +248,8 @@ public class EndpointIndex implements StartupSnapshot {
         }
         // Freeze each inner Set, then publish the whole index at once: a reader sees the previous index or this
         // one, never half of each.
-        this.index = new Index(freeze(exact), List.copyOf(patterns), freeze(actions), freeze(modelActions));
+        this.index = new Index(freeze(exact), List.copyOf(patterns), freeze(actions), freeze(modelActions),
+                freeze(customWrites));
         log.info("EndpointIndex built: {} exact + {} pattern entries",
                 exact.size(), patterns.size());
     }
@@ -312,6 +325,61 @@ public class EndpointIndex implements StartupSnapshot {
      */
     public Set<String> modelActionPermissions(String model, String action) {
         return built().modelActions().getOrDefault(model + " " + action, Set.of());
+    }
+
+    /**
+     * The permission ids listing a custom write endpoint on {@code model}: a {@code POST} / {@code PUT} /
+     * {@code PATCH} / {@code DELETE} on {@code /Model/...} that is none of the standard endpoints — the
+     * {@code POST /Contract/upload} a form saves through when the model's own update is not exposed.
+     *
+     * <p>Who writes such a model, asked without the request that writes it — a picker on the form, before
+     * the save. Wider than the permission of any one endpoint (a role that may only void records counts),
+     * narrower than every role the user holds. An endpoint named as a read does not count
+     * ({@link #namedAsRead}): a role that may only preview a bank file does not choose companies by it.
+     *
+     * @return the permission ids, empty when none lists one
+     */
+    public Set<String> customWritePermissions(String model) {
+        return built().customWrites().getOrDefault(model, Set.of());
+    }
+
+    /**
+     * The verbs a custom {@code POST} that only reads is named by; see {@link #namedAsRead}. Short on purpose:
+     * {@code check} is left out for {@code checkIn}, and {@code fetch} for the fetch that stores what it fetched.
+     */
+    private static final List<String> READ_VERBS = List.of("search", "preview", "list", "count", "export", "get",
+            "query", "find");
+
+    /**
+     * Whether an endpoint's last path segment says it only reads: a read verb, alone or as the first word of
+     * the name ({@code preview}, {@code searchByEmployee}), not merely as its first letters ({@code listen}).
+     *
+     * <p>A convention, because nothing better is on hand here: an endpoint reaches this index as a
+     * {@code VERB /path} string from a permission row, and a {@code POST} says nothing by itself — reads travel
+     * as {@code POST} when their parameters do not fit a query string. {@code @RequirePermission#accessType} says
+     * what a handler does, but only the handlers carrying it, and with {@code READ} as its default it cannot
+     * tell a read from a handler that never said. An endpoint this does not recognise stays a write, the
+     * reading that was already in place, so the worst a misleading name costs is what it cost before.
+     */
+    static boolean namedAsRead(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1);
+        return READ_VERBS.stream().anyMatch(verb -> name.startsWith(verb)
+                && (name.length() == verb.length() || Character.isUpperCase(name.charAt(verb.length()))));
+    }
+
+    /** Record {@code endpoint} under its model when it is a write endpoint none of the standard ones are. */
+    private static void indexCustomWrite(String endpoint, String permissionId, Map<String, Set<String>> out) {
+        if (permissionId == null) return;
+        int space = endpoint.indexOf(' ');
+        if (space <= 0 || endpoint.length() < space + 2 || endpoint.charAt(space + 1) != '/') return;
+        String verb = endpoint.substring(0, space);
+        if ("GET".equals(verb) || "HEAD".equals(verb) || "OPTIONS".equals(verb)) return;
+        int slash = endpoint.indexOf('/', space + 2);
+        if (slash < 0) return;
+        String model = endpoint.substring(space + 2, slash);
+        if (model.isEmpty() || STANDARD_ENTRIES.contains(verb + " " + endpoint.substring(slash + 1))) return;
+        if (namedAsRead(endpoint)) return;
+        out.computeIfAbsent(model, k -> new HashSet<>()).add(permissionId);
     }
 
     /** Record {@code endpoint} under each per-model standard action its {@code VERB /Model/suffix} is in. */
@@ -589,14 +657,18 @@ public class EndpointIndex implements StartupSnapshot {
         Set<String> visited = new HashSet<>();
         visited.add(model);  // never re-derive self
 
-        // L1: direct relations → full view
+        // L1: direct relations → full view. A record the root owns is reached through the root and gets no
+        // endpoint of its own; its own relations still need their pickers, so it is walked like the others.
+        boolean rootOwns = !ModelManager.isProjectionModel(model);
         List<String> l1Related = new ArrayList<>();
         for (MetaField field : rootFields) {
             if (!FieldType.RELATED_TYPES.contains(field.getFieldType())) continue;
             String related = field.getRelatedModel();
             if (related == null || related.isEmpty()) continue;
             if (!visited.add(related)) continue;
-            appendDerivedAction(out, related, "view");
+            if (!(rootOwns && ownsRecords(field))) {
+                appendDerivedAction(out, related, "view");
+            }
             l1Related.add(related);
         }
 
@@ -604,10 +676,12 @@ public class EndpointIndex implements StartupSnapshot {
         // for the dropdown + getById / getByIds to render the selected chip).
         for (String parent : l1Related) {
             List<MetaField> nestedFields = readFieldsSafely(parent);
+            boolean parentOwns = !ModelManager.isProjectionModel(parent);
             for (MetaField field : nestedFields) {
                 if (!FieldType.RELATED_TYPES.contains(field.getFieldType())) continue;
                 String nestedRelated = field.getRelatedModel();
                 if (nestedRelated == null || nestedRelated.isEmpty()) continue;
+                if (parentOwns && ownsRecords(field)) continue;
                 if (!visited.add(nestedRelated)) continue;
                 for (String entry : PICKER_ENDPOINTS) {
                     int spaceIdx = entry.indexOf(' ');
@@ -640,6 +714,21 @@ public class EndpointIndex implements StartupSnapshot {
      * {@link #deriveStandardEndpoints} so lookup propagation and primary
      * derivation produce identical URL formats.
      */
+    /**
+     * Whether {@code field} makes the related records the model's own: a one-to-many child keyed back on the model,
+     * or a one-to-one section not deleted along with the related record (a referrer deleted with it hangs off it,
+     * as {@code PermissionServiceImpl.findReferencers} reads the same edge). Such records are read and written
+     * through their owner — expanded on its reads, carried in its writes, paged with
+     * {@code searchRelationPage}, unmasked with {@code getRelationUnmaskedFields} — so a permission on the owner
+     * does not open their own endpoints, and their rows are never queried apart from the record they belong to.
+     */
+    private static boolean ownsRecords(MetaField field) {
+        if (field.getFieldType() == FieldType.ONE_TO_MANY) {
+            return field.getRelatedField() != null && !field.getRelatedField().isBlank();
+        }
+        return field.getFieldType() == FieldType.ONE_TO_ONE && field.getOnDelete() != OnDelete.CASCADE;
+    }
+
     private void appendDerivedAction(List<String> out, String model, String action) {
         List<String> entries = STANDARD_ACTION_MAP.get(action);
         if (entries == null) return;

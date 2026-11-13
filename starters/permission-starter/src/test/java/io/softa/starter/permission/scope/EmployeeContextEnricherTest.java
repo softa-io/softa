@@ -53,6 +53,22 @@ class EmployeeContextEnricherTest {
     }
 
     @Test
+    void managedDepartments_areReadEnabledOrNot() {
+        when(modelService.searchOne(eq("Employee"), any(FlexQuery.class)))
+                .thenReturn(Optional.of(Map.of("id", 7L, "departmentId", 3L)));
+        org.mockito.ArgumentCaptor<FlexQuery> query = org.mockito.ArgumentCaptor.forClass(FlexQuery.class);
+        when(modelService.searchList(eq("Department"), query.capture())).thenReturn(List.of(Map.of("id", 9L)));
+
+        Context ctx = ctx(1L);
+        enrichWithModels(ctx);
+
+        assertThat(query.getValue().getFilterControl().isSkipActiveControl()).isTrue();
+        EmployeeContextEnricher.MANAGING_FIELDS.forEach(
+                field -> assertThat(query.getValue().getFilters().toString()).contains(field));
+        assertThat(ctx.getEmpInfo().getManagedDeptIds()).containsExactly(9L);
+    }
+
+    @Test
     void dbRead_runsWithScopeBypass_andRestoresTheFlag() {
         AtomicBoolean bypassedDuringRead = new AtomicBoolean(false);
         when(modelService.searchOne(eq("Employee"), any(FlexQuery.class))).thenAnswer(inv -> {

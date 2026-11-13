@@ -146,7 +146,11 @@ scope/contributor/  Custom · DepartmentSubtree · ManagedDepartments
 index/        EndpointIndex · EndpointCoverageValidator
 sensitive/    SensitiveFieldSetCache
 interceptor/  PermissionInterceptor · PermissionInterceptorProperties · PermissionWebMvcConfig
+              AdmittedRequest   (the permissions the gate admitted this request on)
 service/      PermissionServiceImpl
+validation/   CompanyReferenceGrantValidator   (a company named by a field, judged by the write's grant)
+              EmployeeIdentityCacheEvictor     (an employee's cached identity, dropped when a write moves them
+                                                or changes who manages a department)
 ```
 
 ## Snapshot re-sourcing
@@ -221,8 +225,8 @@ Scope **types are data**; their compilation is **code only where it must be**.
   (evaluate an admin-authored `scopeExpr`). These read `Employee` / `Department` by
   model name via `ModelService`; `ModelManager.existModel` lets a non-HR app degrade.
   The department anchor is the field named `departmentId`: a ToOne to `Department`
-  (or reached as `employeeId.departmentId`) is filtered on its `idPath` through the
-  join; a **plain department-id column** under that name — a framework model that
+  (stored, or a dynamic cascade such as `employeeId.departmentId`) is filtered on its
+  `idPath` through the join; a **plain department-id column** under that name — a framework model that
   cannot relate to the application's `Department`, such as `FlowInstance` — is
   filtered `departmentId IN (the subtree's department ids)`, the ids picked from the
   cached department tree (`DepartmentCascadePathResolver.resolveIdColumn`,
@@ -400,6 +404,63 @@ plane lets the user reach.
 The shape changed, so **clear `perm:*` after deploying**; a snapshot cached before that reads by the old
 union until it expires.
 
+**Department grant conditions and exemptions.** Besides departments named once for everyone, the grant may
+hold conditions worked out for the holder: `OWN_DEPARTMENT` and `MANAGED_DEPARTMENTS`, read from the request's
+employee and each taken with everything under it, and `DIRECT_REPORTS`, a row whose manager is the holder. A
+record has to meet any one of the rules in the grant. They are kept by name on the snapshot
+(`RoleGrant.departmentConditions`) and resolved per request; without an employee they contribute nothing.
+`DIRECT_REPORTS` applies where the type does (below); a model it does not apply to is judged by the rest.
+A role's scope row can set `departmentGrantExempt`: the role views that model's records in every department
+(`RoleGrant.departmentExemptModels`). Viewing only, in lists and on detail pages — creating, updating, deleting
+and exporting stay within the grant, which is why the data plane computes a role's rows separately for those. It
+can be set only on a model the grant bounds.
+
+`DataScopeType.roleLevelOnly` marks a type the wizard offers at role level and on no model card
+(`DEPT_SUBTREE`, `MANAGED_DEPARTMENTS`); a rule of the type already stored on a card still compiles.
+An identity type applies to a model carrying the fields of its `filter`; failing that, for a type whose
+`identityFilter` anchors on something other than `id`, to one carrying that anchor, or whose records belong to
+an employee through `employeeId` — so `DIRECT_REPORTS` reaches `employeeId.piEmployeeId` on a leave request. Models
+with neither do not take it (`ScopeFilterTemplates.forModel`, mirrored by the wizard).
+
+**Department grant.** Beside its company grant a role may carry a department grant: the departments it
+reaches, each with every department under it. It is stored on the role itself (`Role.departmentGrant`,
+written by the role wizard's `roleUpdate`), not as a data scope on `Department` — that row is the role's
+per-model rule for reading departments and stays one. The value is a JSON array of rules in the
+data-scope form: `{"scopeType":"ALL"}`, `{"scopeType":"DEPT_SUBTREE","scopeExpr":{"deptId":"<id>"}}`, and the
+conditions worked out for the holder above; three states as for companies — column `null` unrestricted, `ALL`
+unrestricted, anything else exactly what it names (`[]` = none). The
+snapshot keeps, per role, the `idPath` of each granted root (`RoleGrant.grantedDepartmentPaths`, roots read
+past the department model's active control, so a disabled root still bounds what is under it), and
+`PermissionServiceImpl` ANDs a subtree match on those paths onto that role's rows — `departmentId.idPath`
+on every model with `departmentId` as a to-one onto `Department` (its cascade path when that field is
+dynamic), `idPath` on `Department` itself — next to the company grant, per role, before the roles are
+OR-ed. A model declares where its rows belong by declaring `departmentId`; one without it is not bounded by
+the department grant. A record an employee owns through a one-to-one or one-to-many field needs none: it is
+read and written through its owner (below) and follows the owner's rows. A record reached on its own that
+belongs where its employee does declares `departmentId` as a dynamic cascade of `employeeId.departmentId`.
+A `departmentId` that is no such anchor (a plain number column) bounds nothing. The read is live,
+so a department created under, or moved into, a granted subtree is in it at once and one moved out leaves it at
+once; a move also drops the tenant's snapshots, which hold the granted roots' paths, so a granted root that moves
+keeps its subtree. An application's event adapter says which it is — `DepartmentIdPathResolver.evict(tenant, false)`
+for a change that rewrites no stored path (a create, a delete, disabling, a rename) drops only the cached tree;
+`evict(tenant)` or `evict(tenant, true)` for a move drops the snapshots as well. A snapshot built from the old paths
+and written back after that clear removes itself (`PermissionSnapshotProvider.departmentPathsMarkKey`).
+A sub-record the role holds no rule for follows the record that owns it, so an exemption on `Employee` also
+shows that person's own sections. A department just inserted, whose path the application writes
+after the insert, is judged by its parent's path, so a role may create one under a department it is
+granted (not at the top). There is no user-level union.
+Who may hand a grant on is judged by user-starter's `RoleGrantCeiling`, on a save and an assignment alike: a role
+with no department grant is wider than a caller bounded by one.
+The company grant is judged there by the companies named: a role may be given any of the ids a caller role's rules
+list together, in any order and as one rule or several, the way the snapshot adds them up. A `CUSTOM` rule naming
+no fixed ids (a predicate, a placeholder) is compared as written, since what it reaches can change.
+A model whose department reference is configuration rather than ownership names that field otherwise
+(not `departmentId`), and is not bounded. A person's own department and managed departments are read from the
+request's employee (`emp-info:` cache), which `EmployeeIdentityCacheEvictor` drops after any write moving them or
+creating, deleting or changing the managers of a department (`EmployeeContextEnricher.MANAGING_FIELDS`), for the
+managers before and after, and which reads managed departments enabled or not, as the tree does. With no role carrying a grant, nothing changes; an application
+whose `Role` model does not declare the column is not asked for it.
+
 **Rows, per action.** The row scope of an action on a model is the OR of the scopes of the roles that
 hold that action (`holders`), each role bounded by its own company grant and its own `scopeCondition`
 (an optional `Filters` AND-ed onto that role's rules for the model). Which action is asked:
@@ -407,8 +468,8 @@ hold that action (`holders`), each role bounded by its own company grant and its
 - a read asks `READ`; a write by id checks the ids against `UPDATE` / `DELETE` holders;
 - a read made *for* another action carries it in `AccessScope` (`io.softa.framework.orm.service`) — an
   export reads under `AccessScope.callAs(AccessType.EXPORT, …)`, so it reaches only the rows the
-  exporting roles reach, which may be fewer than the list shows (`POST /export/countExportable` gives
-  the number);
+  exporting roles reach, an exemption from the department grant not counting, which may be fewer than the list
+  shows (`POST /export/countExportable` gives the number);
 - a create is refused when the new row falls outside every creating role's scope
   (`The record is outside your data scope.`);
 - `@RequirePermission(accessType = …)` checks a custom endpoint's id / filters against that action.
@@ -423,6 +484,40 @@ so a model nobody configured per action behaves as before. Export is the excepti
 the export endpoints are shared by every model, so the gate cannot tell which model's export admitted
 the caller, and an export of a model whose export permission is registered but held by none of the
 caller's roles reaches no row (and shows no sensitive field).
+
+**Companies named by a field, per action.** Row scope bounds a record by its `companyId`. Every other
+stored to-one field onto the company model — the entity a contract is signed under, the one an employee
+is employed by — is judged by `CompanyReferenceGrantValidator` at the write roots, so the generic
+endpoints, custom ones and imports all meet it: on create when it is set, on update only when the write
+changes it, against the company grants of the roles holding that write
+(`PermissionService.getGrantedCompanyIds`) — on update only the roles among them reaching the row, as each role
+answers for its own rows and companies together. The company list as the user reads it is no answer — it is
+the union, and a role with no company grant reaches every company. A record already naming a company
+outside the grant stays editable in its other fields; writes made without permission checks pass;
+`dynamic` and cascaded fields and projections are not judged. A form's company picker
+(`POST /Company/searchName` with a `sourceRecord`, on an update by the roles reaching that record) and an import
+template's company column offer the same companies, none when the write is granted none.
+
+**Departments chosen by a picker.** A picker reading `POST /Department/searchName` or `POST /Department/searchList`
+with a `sourceRecord` (`{model, recordId}`) offers what that write may choose: the departments of the roles holding
+the write on `model` — create when `recordId` is absent, update when it is set — exemptions left out, since they lift
+the grant for viewing only (`PermissionService.getWritableDepartmentScope`). It narrows only where the picked
+department places the record, on the department model and models with a `departmentId` of their own; an admin and a
+holding role with no department grant are left as they read. So is a picker naming another
+field in `sourceRecord.fieldName`: a department it names does not decide whose the record is. So is a holding role
+with `DIRECT_REPORTS`, on a model the type applies to: the holder's reports can sit in any department, so the picker
+cannot tell which the write will accept and the save's own check decides. On a model it does not apply to, the role
+offers the departments it names or works out, none if there are none. A request naming no `sourceRecord` reads the
+list as ever.
+
+A model written only through custom endpoints — a contract saved through `POST /Contract/upload`
+— has no holder of its standard write, and the fallback below would hand the choice to every role,
+the self-service role's "every company" included. For the company grant only, no holder is read as:
+the roles holding a permission that admitted the current request, when its path names the model
+(`AdmittedRequest`, recorded by the endpoint gate); otherwise the roles holding a permission that lists a
+custom write endpoint on the model (`EndpointIndex.customWritePermissions` — what a picker asks before the
+save, leaving out endpoints whose name begins with a read verb: `search`, `preview`, `list`, `count`, `export`, `get`,
+`query`, `find`, so a role that may only preview does not choose companies); every role only when neither names one. Row scope keeps the fallback as it is.
 
 **Which model the shared export and import endpoints may serve.** `/export/*` and `/import/*` take the
 model as a parameter, so the gate admits anyone holding the export (import) of *some* model;
@@ -507,7 +602,7 @@ permission:
     - /actuator/health
   authenticated-bypass-patterns:  # authenticated but no permission needed
     - /me/**                      # returns the caller's own data
-  platform-only-patterns:         # only SUPER_ADMIN may reach these
+  platform-only-patterns:         # closed inside every customer tenant; SUPER_ADMIN and the platform tenant only
     - /Plan/**                    # billing / provisioning / cross-tenant Ops
   platform-nav-prefixes: navigation.system.,navigation.studio.
   shared-nav-prefixes: navigation.crm.          # an example: pages both sides work in, on multiTenant models
@@ -570,7 +665,14 @@ box.
    tenant admin and a consultant are refused it like anyone else, so a new controller
    or model verb is closed inside a tenant until a permission lists it.
    `EndpointCoverageValidator` logs every endpoint no permission lists.
-7. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
+7. **Platform-only pattern inside a customer tenant → 403**, for everyone who reached
+   this step, whatever their grants. A tenant role can hold a permission that lists
+   such an endpoint without anyone granting it: a standard view derives the lookup
+   endpoints of the models it references, so a page over accounts registers the full
+   read surface of a shared model the accounts point at — one with no tenant column,
+   whose reads no tenant narrows. The pattern list is what keeps such a model to the
+   platform. Users of the platform tenant itself are not refused.
+8. Endpoint → required permission via `EndpointIndex`; **unmapped endpoint → 403**
    (unknown URLs are denied, not opened) — for everyone who reached this step.
    A permission that lists its endpoints by hand also brings what its pages ask
    before rendering, on the same model: an explicit `createOne` / `createList`
@@ -578,7 +680,7 @@ box.
    `getById`, `getByIds` and `getRecordAccess` (one view, one row scope); an
    explicit `getById` / `getOne` brings `getRecordAccess`. Writes are never
    brought — they stay listed by hand.
-8. Snapshot holds a required permission? allow, else 403.
+9. Snapshot holds a required permission? allow, else 403.
 
 > **Changed:** the super-admin used to be step 4 and a blanket `return true`. It is
 > now step 6, bounded by its snapshot. Tenant business work belongs to the consultant,

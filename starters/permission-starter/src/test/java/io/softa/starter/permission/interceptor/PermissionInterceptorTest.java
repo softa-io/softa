@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.ConsultantAccessChecker;
 
@@ -345,6 +346,33 @@ class PermissionInterceptorTest {
         assertThat(ctx.getGrantedCountries()).containsExactly("SG");
     }
 
+    @Test
+    void anAdmittedRequestKeepsThePermissionsThatAdmittedIt() {
+        // A custom endpoint writes its model with no holder of the model's standard write; the
+        // company grant of the write is then asked of the roles holding what let the request in.
+        PermissionInfo pi = PermissionInfo.builder()
+                .roleCodes(Set.of("HR"))
+                .permissions(Set.of("contract.edit"))
+                .build();
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup("/EmpDocument/editUploaded", "POST")).thenReturn(Set.of("contract.edit"));
+
+        MockHttpServletRequest r = req("POST", "/EmpDocument/editUploaded");
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(r));
+        try {
+            Context ctx = new Context();
+            ctx.setTenantId(10L);
+            ctx.setUserId(42L);
+            ContextHolder.runWith(ctx, () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+
+            assertThat(AdmittedRequest.current())
+                    .isEqualTo(new AdmittedRequest("EmpDocument", Set.of("contract.edit")));
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
     // ─── unmapped endpoint → 403 ───
 
     @Test
@@ -399,6 +427,41 @@ class PermissionInterceptorTest {
 
         MockHttpServletRequest r = req("POST", "/Employee/searchList");
         boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    // ─── platform-only patterns hold for everyone inside a tenant ───
+
+    /** A grant that lists a platform-only endpoint — as a derived lookup of a referenced shared model does. */
+    private void anOrdinaryUserWhoseGrantListsTheProfileReads() {
+        props.setPlatformOnlyPatterns(List.of("/UserProfile/**"));
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(
+                PermissionInfo.builder()
+                        .roleCodes(Set.of("HR"))
+                        .permissions(Set.of("user-account.view"))
+                        .build());
+        when(endpointIndex.lookup(eq("/UserProfile/searchPage"), eq("POST")))
+                .thenReturn(Set.of("user-account.view"));
+    }
+
+    @Test
+    void anOrdinaryUserInATenant_isDeniedAPlatformOnlyEndpoint_evenWhenAGrantListsIt() {
+        anOrdinaryUserWhoseGrantListsTheProfileReads();
+
+        MockHttpServletRequest r = req("POST", "/UserProfile/searchPage");
+        assertThatThrownBy(() -> inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null)))
+                .isInstanceOf(PermissionException.class)
+                .hasMessageContaining("Platform-admin only");
+    }
+
+    @Test
+    void anOrdinaryUserOfThePlatformTenant_keepsThem() {
+        anOrdinaryUserWhoseGrantListsTheProfileReads();
+
+        MockHttpServletRequest r = req("POST", "/UserProfile/searchPage");
+        boolean allowed = inCtx(BaseConstant.PLATFORM_TENANT_ID, 42L,
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
         assertThat(allowed).isTrue();
     }

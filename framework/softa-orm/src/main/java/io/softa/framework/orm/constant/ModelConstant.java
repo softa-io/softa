@@ -74,6 +74,39 @@ public interface ModelConstant {
      * attribute, and takes no part in the company axis.
      */
     String COMPANY_FIELD = "companyId";
+
+    /**
+     * The organisation-tree model a role's department grant is written against. Hard-coded for the
+     * reason {@link #COMPANY_MODEL} is: an application either has this dimension under this name or
+     * does not have it, and the grant degrades to a no-op when the model is absent. Its rows store
+     * their place in the tree as a materialized {@code idPath}, which is how a granted department
+     * expands to its descendants.
+     */
+    String DEPARTMENT_MODEL = "Department";
+
+    /**
+     * The field a model belongs to a department through — the anchor the department grant bounds,
+     * when it is a {@code MANY_TO_ONE} / {@code ONE_TO_ONE} onto {@link #DEPARTMENT_MODEL}. Fixed by
+     * name for the reason {@link #COMPANY_FIELD} is: a model may reference departments for other
+     * reasons, and only this name says "the row is that department's"; a reference that is
+     * configuration rather than ownership is named otherwise.
+     */
+    String DEPARTMENT_FIELD = "departmentId";
+
+    /**
+     * The model whose rows are people. Hard-coded for the reason {@link #DEPARTMENT_MODEL} is: a record
+     * belonging to an employee belongs to that employee's department, which is how the department grant
+     * reaches a model with no department of its own.
+     */
+    String EMPLOYEE_MODEL = "Employee";
+
+    /**
+     * The field a model's rows belong to an employee through, when it is a {@code MANY_TO_ONE} /
+     * {@code ONE_TO_ONE} onto {@link #EMPLOYEE_MODEL}. Fixed by name for the reason
+     * {@link #DEPARTMENT_FIELD} is: a reference to an employee under another name (an approver, a
+     * manager) says nothing about whose record the row is.
+     */
+    String EMPLOYEE_FIELD = "employeeId";
     // Reserved field: Version number identifier, used for optimistic lock control
     String VERSION = "version";
     // Starting value of the optimistic-lock version, materialized into the catalog

@@ -68,6 +68,39 @@ class DepartmentIdPathResolverTest {
     }
 
     @Test
+    void aTreeReadBeforeAnEvictionRemovesItselfAfterTheWriteBack() {
+        // The eviction lands between the read of the mark and the write-back of the old tree.
+        when(cacheService.get("dept-idpath-mark:" + TENANT)).thenReturn("before", "after");
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 5L, "idPath", "1/5")));
+
+        ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(5L));
+
+        verify(cacheService).save(eq(KEY), any(), anyInt());
+        verify(cacheService).clear(KEY);
+    }
+
+    @Test
+    void aTreeReadWithNoEvictionStays() {
+        when(cacheService.get("dept-idpath-mark:" + TENANT)).thenReturn("same", "same");
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 5L, "idPath", "1/5")));
+
+        ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(5L));
+
+        verify(cacheService, never()).clear(KEY);
+    }
+
+    @Test
+    void anEvictionMovesTheMarkBeforeClearingTheTree() {
+        resolver.evict(TENANT, false);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(cacheService);
+        order.verify(cacheService).save(eq("dept-idpath-mark:" + TENANT), any(), anyInt());
+        order.verify(cacheService).clear(KEY);
+    }
+
+    @Test
     void cacheHit_servesFromCache_noDbNoWrite() {
         doReturn(Map.of(5L, "1/5")).when(cacheService).get(eq(KEY), any(TypeReference.class));
 
@@ -111,6 +144,71 @@ class DepartmentIdPathResolverTest {
         resolver.evict(TENANT);
 
         verify(cacheService).clear(KEY);
+    }
+
+    @Test
+    void evict_clearsTheTenantsPermissionSnapshots() {
+        resolver.evict(TENANT);
+
+        verify(cacheService).clearByPrefix("perm:" + TENANT + ":");
+    }
+
+    @Test
+    void evict_snapshotClearFailing_doesNotFailTheCaller() {
+        org.mockito.Mockito.doThrow(new IllegalStateException("redis down")).when(cacheService).clearByPrefix(anyString());
+
+        resolver.evict(TENANT);
+
+        verify(cacheService).clear(KEY);
+    }
+
+    @Test
+    void evict_withoutAPathChanged_leavesThePermissionSnapshots() {
+        resolver.evict(TENANT, false);
+
+        verify(cacheService).clear(KEY);
+        verify(cacheService, never()).clearByPrefix(anyString());
+        verify(cacheService, never()).save(eq("dept-paths-mark:" + TENANT), any(), anyInt());
+    }
+
+    @Test
+    void evict_withAPathChanged_marksThePathsBeforeClearingTheSnapshots() {
+        resolver.evict(TENANT, true);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(cacheService);
+        order.verify(cacheService).save(eq("dept-paths-mark:" + TENANT), any(), anyInt());
+        order.verify(cacheService).clearByPrefix("perm:" + TENANT + ":");
+    }
+
+    @Test
+    void aTreeThatCouldNotBeReadIsNotCached() {
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class))).thenThrow(new IllegalStateException("db down"));
+
+        assertThat(ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(1L))).isEmpty();
+
+        verify(cacheService, never()).save(eq(KEY), any(), anyInt());
+    }
+
+    @Test
+    void aTenantWithNoDepartmentsIsCached() {
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class))).thenReturn(List.of());
+
+        assertThat(ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(1L))).isEmpty();
+
+        verify(cacheService).save(eq(KEY), eq(Map.of()), anyInt());
+    }
+
+    @Test
+    void loadTree_readsDisabledDepartmentsToo() {
+        when(modelService.searchList(eq("Department"), any(FlexQuery.class))).thenReturn(List.of());
+
+        ContextHolder.callWith(tenantCtx(), () -> resolver.idPathOf(1L));
+
+        org.mockito.ArgumentCaptor<FlexQuery> query = org.mockito.ArgumentCaptor.forClass(FlexQuery.class);
+        verify(modelService).searchList(eq("Department"), query.capture());
+        org.assertj.core.api.Assertions.assertThat(query.getValue().getFilterControl())
+                .usingRecursiveComparison()
+                .isEqualTo(io.softa.framework.orm.domain.FilterControl.bypassActiveControl());
     }
 
     @Test

@@ -182,6 +182,19 @@ public class PermissionInterceptor implements HandlerInterceptor {
             return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.CONSULTANT);
         }
 
+        // Platform-only endpoints are closed to everyone inside a customer tenant, whatever their grants —
+        // not only to the admins above. A tenant role's permissions can still list such an endpoint: a
+        // standard view derives the lookup endpoints of the models it references, so holding the account
+        // page's view registered the full read surface of the people the accounts point at, a shared model
+        // with no tenant column, and an ordinary user read every tenant's people through it. The platform
+        // tenant's own users keep them: they are who these endpoints are for.
+        if (!BaseConstant.PLATFORM_TENANT_ID.equals(ctx.getTenantId())
+                && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied inside a tenant — userId={}, tenantId={}, uri={} {}",
+                    ctx.getUserId(), ctx.getTenantId(), method, uri);
+            throw new PermissionException("Platform-admin only: " + method + " " + uri);
+        }
+
         // EndpointIndex.lookup returns every permission id that lists this
         // endpoint in its `permission.endpoints` array (or matches the
         // standard CRUD derivation). The user is allowed if their permission
@@ -214,6 +227,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
                     ctx.getUserId(), method, uri, candidatePermissions);
             throw new PermissionException("Missing permission for " + method + " " + uri);
         }
+        AdmittedRequest.record(req, uri, candidatePermissions);
         return true;
     }
 
