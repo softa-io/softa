@@ -86,8 +86,9 @@ public class ApprovalStatusWriter {
     /**
      * Writes how a record's approval ended onto the record and hands it to its handler — only while the
      * record is in approval. A return or a withdrawal writes it back as a draft; every other result is
-     * final. A result delivered again finds the record moved on, and nothing happens. Runs inside the
-     * action that produced the result, so a handler that throws vetoes the action.
+     * final. A result delivered again finds the record moved on, and nothing happens; so does one whose
+     * record is gone, deleted softly too. Runs inside the action that produced the result, so a handler that
+     * throws vetoes the action.
      */
     public void concluded(ModelApprovalHandler<?> handler, String rowId, ApprovalOutcome outcome) {
         ContextUtils.withoutPermissionChecks(() -> conclude(handler, rowId, outcome));
@@ -97,7 +98,10 @@ public class ApprovalStatusWriter {
                                                     ApprovalOutcome outcome) {
         String modelName = modelNameOf(handler);
         Serializable id = IdUtils.formatId(modelName, rowId);
-        Map<String, Object> row = modelService.getById(modelName, id).orElse(null);
+        // A soft delete leaves the row, flagged, and the read by id returns it: gone all the same.
+        Map<String, Object> row = modelService.getById(modelName, id)
+                .filter(found -> !ApprovalModel.isDeleted(modelName, found))
+                .orElse(null);
         ApprovalStatus current = row == null ? null : ApprovalStatus.from(row.get(ApprovalModel.APPROVAL_STATUS));
         if (current != ApprovalStatus.PENDING) {
             log.debug("Approval {} of {} {} ended {}, but the record is {}: nothing is written",

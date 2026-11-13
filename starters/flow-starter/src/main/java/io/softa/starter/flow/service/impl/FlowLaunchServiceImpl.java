@@ -459,7 +459,6 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         return FlowExecutionStateMapper.toState(failed);
     }
 
-    /** The whole record, read past the submitter's field and row checks: submit conditions see every field. */
     /**
      * Whether the caller reaches the record within the range they may edit it in. Submitting and cancelling write the
      * record, so the range that counts is that of the caller's roles holding its update action, not the wider one of
@@ -473,9 +472,15 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                 () -> modelService.getById(modelName, id, List.of(ModelConstant.ID))).isPresent();
     }
 
+    /**
+     * The whole record, read past the submitter's field and row checks: submit conditions see every field. A record
+     * deleted softly is still returned by a read by id, flagged: it does not exist here either, so it is neither
+     * submitted, previewed nor cancelled.
+     */
     private Map<String, Object> readRecord(String modelName, String rowId) {
         Serializable id = IdUtils.formatId(modelName, rowId);
         return ContextUtils.withoutPermissionChecks(() -> modelService.getById(modelName, id))
+                .filter(row -> !ApprovalModel.isDeleted(modelName, row))
                 .orElseThrow(() -> new BusinessException(NO_SUCH_RECORD, modelName, rowId));
     }
 

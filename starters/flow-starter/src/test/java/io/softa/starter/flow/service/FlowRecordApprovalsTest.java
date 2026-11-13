@@ -591,6 +591,24 @@ class FlowRecordApprovalsTest {
     }
 
     @Test
+    void aRecordDeletedSoftlyIsNotFoundThoughItsRowIsKept() {
+        resubmittedClaim();
+        FlowInstanceController page = recordPage();
+        // The model deletes softly: the read by id still returns the row, flagged.
+        modelManager.when(() -> ModelManager.isSoftDeleted(MODEL)).thenReturn(true);
+        when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenAnswer(invocation ->
+                Optional.of(new LinkedHashMap<>(Map.of("id", 7L, "note", "raise", "deleted", true))));
+
+        for (String participant : List.of(INITIATOR, CURRENT_APPROVER, EARLIER_APPROVER)) {
+            assertEquals(ResponseCode.REQUEST_NOT_FOUND.getCode(),
+                    as(participant, () -> page.getRecordThroughApprovals(MODEL, ROW)).getCode(), participant);
+        }
+        // Its approvals stay to be read, as a record deleted for good leaves them.
+        assertEquals(List.of("second", "first"), as(INITIATOR, () -> page.getRecordApprovals(MODEL, ROW)).getData()
+                .getInstances().stream().map(FlowRecordApprovalsView.Instance::getInstanceId).toList());
+    }
+
+    @Test
     void aTerminatedApprovalsClearedApproverSeesTheRecordsApprovalsAndTheAdministratorWhoEndedItDoesNot() {
         terminatedResubmission();
         // The approver it waited on never acted: only their task, which the termination closed, names them.

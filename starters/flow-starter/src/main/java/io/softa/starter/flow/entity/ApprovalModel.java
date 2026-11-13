@@ -3,12 +3,15 @@ package io.softa.starter.flow.entity;
 import java.io.Serial;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.flow.enums.ApprovalStatus;
 
 /**
@@ -50,4 +53,16 @@ public abstract class ApprovalModel extends AuditableModel {
     /** When the record was submitted last. */
     @Field(copyable = false)
     protected LocalDateTime submittedTime;
+
+    /**
+     * Whether {@code row}, a record of {@code modelName} as a read by its id returns it, was deleted softly. A model
+     * that deletes softly keeps the row, flagged, and a read by id still returns it — {@code ModelService.getByIds}
+     * leaves the soft-delete filter to queries. To its approvals such a record is gone, as one deleted for good is:
+     * it is not submitted, cancelled or written back, and the lists say it was deleted.
+     */
+    public static boolean isDeleted(String modelName, Map<String, Object> row) {
+        // The flag first: a row read without it, as most are, never asks the metadata.
+        return row != null && Boolean.TRUE.equals(row.get(ModelConstant.SOFT_DELETED_FIELD))
+                && ModelManager.isSoftDeleted(modelName);
+    }
 }

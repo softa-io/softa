@@ -31,6 +31,7 @@ import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowInstanceRecordView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
+import io.softa.starter.flow.entity.ApprovalModel;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FlowNodeType;
@@ -480,8 +481,10 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             return new RecordRead(modelName, IdUtils.formatId(modelName, rowId), fields, childRows, childModels);
         }
 
+        /** The record; none when it is gone — deleted softly too, which leaves the row a read by id still returns. */
         Optional<Map<String, Object>> fetch(ModelService<Serializable> records) {
-            return records.getById(modelName, id, fields, childRows, ConvertType.REFERENCE);
+            return records.getById(modelName, id, fields, childRows, ConvertType.REFERENCE)
+                    .filter(row -> !ApprovalModel.isDeleted(modelName, row));
         }
     }
 
