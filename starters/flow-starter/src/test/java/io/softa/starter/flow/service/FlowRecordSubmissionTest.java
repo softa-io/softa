@@ -99,10 +99,8 @@ class FlowRecordSubmissionTest {
     private final FlowInstanceService instanceService = mock(FlowInstanceService.class);
     // The preview's collaborators stay null: FlowApprovalPreviewTest covers it.
     private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
-            engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
-            new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null,
-            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger()),
-                    new FailedApprovalRecords(instanceService, modelService)));
+            engine, compiler, handlerRegistry, statusWriter,
+            new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null);
 
     /** The record as its table holds it: reads return a copy, updates land on it. */
     private final Map<String, Object> record = new LinkedHashMap<>(

@@ -155,17 +155,19 @@ public class FlowInstanceController {
     }
 
     @GetMapping("/by-record")
-    @Operation(summary = "Get a record's approval history",
-            description = "The approval instances of a business record, newest first: status, initiator, "
-                    + "the steps still waiting with the approvers yet to act, and the approval actions, "
-                    + "every user named; each says whether the caller may open it (viewable) — its detail, "
-                    + "progress diagram and trace. For the record page's approval panel and the inbox task detail. "
-                    + "Allowed to whoever took part in the record's approvals or can read the record.")
+    @Operation(summary = "Get a record's approval",
+            description = "A business record's approval: every submission of it — the approval instance each "
+                    + "started — newest first, with its status, who submitted it and when, and its approval steps: "
+                    + "those it passed and those it waits on, each approver with their result, time and comment, "
+                    + "and — for the submission in progress — the steps still ahead with the approvers expected; "
+                    + "then how it ended. Every user named. For every page that shows the record's approval. "
+                    + "Allowed to whoever took part in any of its submissions, can read the record, or whose roles "
+                    + "read the FlowInstance row of any of its submissions.")
     public ApiResponse<FlowRecordApprovalsView> getRecordApprovals(@RequestParam String modelName,
                                                                   @RequestParam String rowId) {
         String requesterId = currentUserId();
-        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId, (history, approvals) ->
-                accessGuard.authorizeRecordApprovals(modelName, rowId, history, approvals, requesterId)));
+        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId,
+                approvals -> accessGuard.authorizeRecordApprovals(modelName, rowId, approvals, requesterId)));
     }
 
     @GetMapping("/preview")
@@ -174,10 +176,11 @@ public class FlowInstanceController {
                     + "it would get and the approval steps it would go through, every step assumed approved — each "
                     + "with the approvers who would be asked, or why it passes on its own (the submitter is its "
                     + "approver, an approver already approved an earlier step, nobody resolves to it). A refusal "
-                    + "by the record's own checks, an approval already in progress, no applicable flow or several "
-                    + "are reported, not raised; a route that depends on data only known once the approval runs is "
-                    + "reported as undecided, never guessed. Nothing is started or written. Allowed to whoever can "
-                    + "read the record with their own permissions.")
+                    + "by the record's own checks, no applicable flow or several are reported, not raised; so is "
+                    + "an approval already in progress (InProgress, with its instance id), whose steps the record's "
+                    + "approval shows (by-record). A route that depends on data only known once the approval runs "
+                    + "is reported as undecided, never guessed. Nothing is started or written. Allowed to whoever "
+                    + "can read the record with their own permissions.")
     public ApiResponse<FlowApprovalPreview> previewRecordApproval(@RequestParam String modelName,
                                                                  @RequestParam String rowId) {
         return ApiResponse.success(launchService.previewRecord(modelName, rowId, currentUserId()));

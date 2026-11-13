@@ -40,13 +40,11 @@ import io.softa.starter.flow.runtime.api.FlowWithdrawRequest;
 import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.context.SubmittedValues;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
-import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.ApprovalPathPreviewer;
 import io.softa.starter.flow.runtime.engine.ApprovalStatusWriter;
 import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.ModelApprovalHandlerRegistry;
-import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.spi.ApprovalOutcome;
@@ -85,7 +83,6 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
             + "your administrator to narrow their submit conditions so that exactly one applies.";
 
     private final FlowRuntimeEngine flowRuntimeEngine;
-    private final FlowBundleRegistry flowBundleRegistry;
     private final DefaultFlowCompiler flowCompiler;
     private final ModelApprovalHandlerRegistry handlerRegistry;
     private final ApprovalStatusWriter statusWriter;
@@ -95,7 +92,6 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private final ApprovalPathPreviewer pathPreviewer;
     private final FlowInstanceAccessGuard accessGuard;
     private final FlowUserNames userNames;
-    private final WithdrawPolicyGuard withdrawPolicyGuard;
 
     @Autowired(required = false)
     private FlowDesignService designService;
@@ -106,7 +102,6 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
 
     @SuppressWarnings("unchecked")
     public FlowLaunchServiceImpl(FlowRuntimeEngine flowRuntimeEngine,
-                                 FlowBundleRegistry flowBundleRegistry,
                                  DefaultFlowCompiler flowCompiler,
                                  ModelApprovalHandlerRegistry handlerRegistry,
                                  ApprovalStatusWriter statusWriter,
@@ -115,10 +110,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                                  ModelService<?> modelService,
                                  ApprovalPathPreviewer pathPreviewer,
                                  FlowInstanceAccessGuard accessGuard,
-                                 FlowUserNames userNames,
-                                 WithdrawPolicyGuard withdrawPolicyGuard) {
+                                 FlowUserNames userNames) {
         this.flowRuntimeEngine = flowRuntimeEngine;
-        this.flowBundleRegistry = flowBundleRegistry;
         this.flowCompiler = flowCompiler;
         this.handlerRegistry = handlerRegistry;
         this.statusWriter = statusWriter;
@@ -128,7 +121,6 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         this.pathPreviewer = pathPreviewer;
         this.accessGuard = accessGuard;
         this.userNames = userNames;
-        this.withdrawPolicyGuard = withdrawPolicyGuard;
     }
 
     /**
@@ -288,23 +280,23 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     }
 
     /**
-     * {@link #submitRecord} up to the start of the approval, whose path is worked out instead — or, for a
-     * record whose approval is in progress, the rest of that approval's path.
+     * {@link #submitRecord} up to the start of the approval, whose path is worked out instead. A record whose
+     * approval is in progress has nothing to preview: its approval's steps, those ahead included, are the record's
+     * approval's to show ({@code GET /flow/instances/by-record}), and the preview names the instance.
      */
     private FlowApprovalPreview previewSubmission(String modelName, String rowId, String submitterId) {
         FlowInstance latest = latestApproval(modelName, rowId);
         if (inProgress(latest)) {
-            return previewInProgress(latest, submitterId);
+            return FlowApprovalPreview.builder()
+                    .status(FlowApprovalPreview.Status.IN_PROGRESS)
+                    .instanceId(latest.getInstanceId())
+                    .build();
         }
         Submission<?> submission;
         try {
             submission = checkSubmission(handlerRegistry.require(modelName), modelName, rowId, latest);
         } catch (BusinessException refusal) {
-            FlowApprovalPreview refused = notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage());
-            // A failed approval leaves its record in approval: its submitter takes it back by withdrawing it.
-            refused.setWithdrawable(latest != null && FlowExecutionStatus.FAILED.equals(latest.getStatus())
-                    && Objects.equals(submitterId, latest.getInitiatorId()));
-            return refused;
+            return notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage());
         }
         return previewStart(modelName, rowId, submitterId, submission);
     }
@@ -364,23 +356,6 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         CompiledFlowDefinition definition = flows.getFirst();
         return pathPreviewer.preview(definition, submitStartRequest(definition, modelName, rowId, submitterId,
                 submission));
-    }
-
-    /**
-     * The rest of an approval in progress: the step it waits on now, then those after it — and whether the
-     * requester may withdraw it: its submitter, on a flow that lets them.
-     */
-    private FlowApprovalPreview previewInProgress(FlowInstance approval, String requesterId) {
-        // The whole row is in hand (latestApproval): its state needs no second read.
-        FlowExecutionState state = FlowExecutionStateMapper.toState(approval);
-        CompiledFlowDefinition definition = state.getBundleId() == null ? null
-                : flowBundleRegistry.getByBundleId(state.getBundleId()).orElse(null);
-        if (definition == null) {
-            return notReady(FlowApprovalPreview.Status.REFUSED, I18n.get(ALREADY_IN_APPROVAL));
-        }
-        FlowApprovalPreview preview = pathPreviewer.previewRemaining(definition, state);
-        preview.setWithdrawable(withdrawPolicyGuard.withdrawable(state, requesterId));
-        return preview;
     }
 
     private static FlowApprovalPreview notReady(FlowApprovalPreview.Status status, String message) {

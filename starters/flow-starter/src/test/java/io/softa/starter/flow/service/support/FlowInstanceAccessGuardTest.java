@@ -243,6 +243,52 @@ class FlowInstanceAccessGuardTest {
     }
 
     @Test
+    void whoTookPartInAnotherSubmissionOfTheRecordMayViewThisOne() {
+        FlowExecutionState first = FlowExecutionState.builder().instanceId("first").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").status(FlowExecutionStatus.RETURNED)
+                .pendingApprovals(List.of()).build();
+        FlowExecutionState second = FlowExecutionState.builder().instanceId("second").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").status(FlowExecutionStatus.WAITING)
+                .pendingApprovals(List.of(PendingApproval.builder().nodeId("approval").approvers(List.of("2002"))
+                        .approvedActors(List.of()).build()))
+                .build();
+        when(instanceService.recordApprovalStates("ExpenseClaim", "7")).thenReturn(List.of(second, first));
+        FlowInstance row = instanceInitiatedBy("1001");
+        row.setRecordApproval(true);
+        row.setModelName("ExpenseClaim");
+        row.setRowId("7");
+        when(instanceService.findByInstanceId("second")).thenReturn(Optional.of(row));
+        // The approver of the first submission, named there by their task alone.
+        when(modelService.searchList(eq("FlowApprovalTask"), argThat(query -> query != null && new Filters()
+                .in(FlowApprovalTask::getInstanceId, List.of("first"))
+                .eq(FlowApprovalTask::getActorId, "2001").equals(query.getFilters()))))
+                .thenReturn(List.of(Map.of("instanceId", "first")));
+
+        assertDoesNotThrow(() -> guard.requireInstanceViewer(second, "2001"));
+        assertDoesNotThrow(() -> guard.requireInstanceViewer("second", "2001", false));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(second, "9999"));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("second", "9999", false));
+    }
+
+    @Test
+    void whoseRolesReadAnotherSubmissionOfTheRecordMayViewThisOne() {
+        FlowExecutionState first = FlowExecutionState.builder().instanceId("first").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").pendingApprovals(List.of()).build();
+        FlowExecutionState second = FlowExecutionState.builder().instanceId("second").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").pendingApprovals(List.of()).build();
+        FlowExecutionState automation = FlowExecutionState.builder().instanceId("run").initiatorId("1001")
+                .modelName("ExpenseClaim").rowId("7").pendingApprovals(List.of()).build();
+        when(instanceService.recordApprovalStates("ExpenseClaim", "7")).thenReturn(List.of(second, first));
+        // A department's scope that reaches the first submission's row only, its subject having moved since.
+        when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("instanceId", "first")));
+
+        assertDoesNotThrow(() -> guard.requireInstanceViewer(second, "hrbp"));
+        // A run of another flow on the record is not the record's approval.
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(automation, "hrbp"));
+    }
+
+    @Test
     void aReaderOfTheRecordMayViewItsApproval() {
         FlowExecutionState approval = FlowExecutionState.builder().instanceId("i1").initiatorId("someoneElse")
                 .recordApproval(true).modelName("ExpenseClaim").rowId("7").build();

@@ -2,16 +2,14 @@ package io.softa.starter.flow.service.impl;
 
 import java.io.Serializable;
 import java.util.*;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.context.ContextUtils;
-import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -33,15 +31,13 @@ import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowInstanceRecordView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
+import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
-import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.FormPermissionService;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
-import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.PendingApproval;
@@ -49,6 +45,7 @@ import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.support.CallerConditions;
+import io.softa.starter.flow.service.support.FlowApprovalStepsComposer;
 import io.softa.starter.flow.service.support.FlowUserNames;
 import io.softa.starter.flow.service.support.RecordFieldDefinitions;
 
@@ -64,6 +61,9 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
 
     @Autowired
     private ApprovalActionLedger approvalLedger;
+
+    @Autowired
+    private FlowApprovalStepsComposer stepsComposer;
 
     @Autowired
     private FlowUserNames userNames;
@@ -254,21 +254,45 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
 
     @Override
     public FlowRecordApprovalsView recordApprovals(String modelName, String rowId,
-                                                   BiConsumer<FlowRecordApprovalsView, List<RecordApproval>> authorize) {
-        // Each approval and its history read once: for the panel, and for deciding who takes part in which.
+                                                   Consumer<List<RecordApproval>> authorize) {
+        // Each submission and its history read once: for deciding who may see the record's approval, then for its
+        // steps — built only once that has passed, with every submission's tasks read in one query.
+        List<FlowInstance> instances = new ArrayList<>();
         List<RecordApproval> approvals = new ArrayList<>();
-        List<FlowRecordApprovalsView.Instance> instances = new ArrayList<>();
         ContextUtils.withoutPermissionChecks(() -> {
             for (FlowInstance instance : approvalsOf(modelName, rowId)) {
-                List<ApprovalActionAuditEntry> history = approvalLedger.findByInstanceId(instance.getInstanceId());
-                approvals.add(new RecordApproval(FlowExecutionStateMapper.toState(instance), history));
-                instances.add(approvalRun(instance, history).toView());
+                instances.add(instance);
+                approvals.add(new RecordApproval(FlowExecutionStateMapper.toState(instance),
+                        approvalLedger.findByInstanceId(instance.getInstanceId())));
             }
         });
-        FlowRecordApprovalsView view = new FlowRecordApprovalsView(instances);
-        authorize.accept(view, approvals);
+        authorize.accept(approvals);
+        // Past the caller's permissions, as the approval's own reads are: the route ahead finds approvers the
+        // caller need not be able to read.
+        List<FlowRecordApprovalsView.Instance> submissions = ContextUtils.withoutPermissionChecks(() -> {
+            Map<String, List<FlowApprovalTask>> tasks = tasksOf(instances);
+            List<FlowRecordApprovalsView.Instance> built = new ArrayList<>();
+            for (int i = 0; i < instances.size(); i++) {
+                FlowInstance instance = instances.get(i);
+                built.add(stepsComposer.compose(instance, approvals.get(i).history(),
+                        tasks.getOrDefault(instance.getInstanceId(), List.of())));
+            }
+            return built;
+        });
+        FlowRecordApprovalsView view = new FlowRecordApprovalsView(submissions);
         nameUsers(view);
         return view;
+    }
+
+    /** The tasks of these instances — approval tasks and copies — by instance, read in one query past permissions. */
+    private Map<String, List<FlowApprovalTask>> tasksOf(List<FlowInstance> instances) {
+        List<String> ids = instances.stream().map(FlowInstance::getInstanceId).filter(Objects::nonNull).toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        FlexQuery query = new FlexQuery(new Filters().in(FlowApprovalTask::getInstanceId, ids));
+        return modelService.searchList(FlowApprovalTask.class.getSimpleName(), query, FlowApprovalTask.class).stream()
+                .collect(Collectors.groupingBy(FlowApprovalTask::getInstanceId));
     }
 
     @Override
@@ -290,47 +314,32 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                 .toList();
     }
 
-    /** The approval as its panel shows it, from its row and its whole history (CC reads left out of the actions). */
-    private ApprovalRun approvalRun(FlowInstance instance, List<ApprovalActionAuditEntry> history) {
-        CompiledFlowDefinition definition = bundleRegistry.getByBundleId(instance.getBundleId()).orElse(null);
-        List<PendingApproval> pending = FlowExecutionStatus.WAITING.equals(instance.getStatus())
-                ? pendingApprovalsOf(instance)
-                : List.of();
-        List<ApprovalActionAuditEntry> actions = history.stream()
-                .filter(entry -> !ApprovalActionType.READ.equals(entry.getAction()))
-                .toList();
-        return new ApprovalRun(instance, definition == null ? null : definition.getFlowName(), pending, actions,
-                failureOf(instance, definition));
-    }
-
-    /**
-     * Where and why a failed approval stopped, or null for one that did not fail. The record stays in
-     * approval with nobody to act on it, so the panel says so and that its submitter takes it back.
-     */
-    private static FlowRecordApprovalsView.Failure failureOf(FlowInstance instance, CompiledFlowDefinition definition) {
-        if (!FlowExecutionStatus.FAILED.equals(instance.getStatus())) {
-            return null;
-        }
-        String nodeId = instance.getFailedNodeId();
-        CompiledFlowNode node = nodeId == null || definition == null || definition.getNodeIndex() == null
-                ? null : definition.getNodeIndex().get(nodeId);
-        return new FlowRecordApprovalsView.Failure(nodeId, node == null ? null : node.getLabel(), instance.getErrorMessage(),
-                StringUtils.hasText(instance.getRetryAfterNodeId()));
-    }
-
-    /** Names every user the history mentions — done once the caller is known to be allowed to see it. */
-    private void nameUsers(FlowRecordApprovalsView history) {
+    /** Names every user the record's approval mentions — done once the caller is known to be allowed to see it. */
+    private void nameUsers(FlowRecordApprovalsView approval) {
         List<FlowRecordApprovalsView.Actor> actors = new ArrayList<>();
-        for (FlowRecordApprovalsView.Instance instance : history.getInstances()) {
+        for (FlowRecordApprovalsView.Instance instance : approval.getInstances()) {
             actors.add(instance.getInitiator());
-            instance.getPending().forEach(step -> actors.addAll(step.getApprovers()));
-            instance.getActions().forEach(action -> {
-                actors.add(action.getActor());
-                actors.add(action.getTarget());
-                actors.add(action.getOperator());
-            });
+            for (FlowRecordApprovalsView.Step step : instance.getSteps()) {
+                for (FlowRecordApprovalsView.Approver approver : step.getApprovers()) {
+                    actors.add(approver.getActor());
+                    actors.add(approver.getTarget());
+                    actors.add(approver.getOperator());
+                }
+                step.getEvents().forEach(event -> addActors(actors, event));
+            }
+            instance.getEvents().forEach(event -> addActors(actors, event));
+            if (instance.getEnded() != null) {
+                actors.add(instance.getEnded().getActor());
+                actors.add(instance.getEnded().getOperator());
+            }
         }
         userNames.name(actors);
+    }
+
+    private static void addActors(List<FlowRecordApprovalsView.Actor> actors, FlowRecordApprovalsView.Event event) {
+        actors.add(event.getActor());
+        actors.add(event.getTarget());
+        actors.add(event.getOperator());
     }
 
     @Override
@@ -543,55 +552,6 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                 FormFieldPermission permission = permissions.get(field);
                 return permission != null && permission != FormFieldPermission.HIDDEN;
             });
-        }
-    }
-
-    private static List<PendingApproval> pendingApprovalsOf(FlowInstance instance) {
-        return JsonUtils.stringToObject(instance.getPendingApprovals(),
-                new TypeReference<List<PendingApproval>>() {}, new ArrayList<>());
-    }
-
-    /** The approvers of a waiting step who have not acted on it yet. */
-    private static List<String> stillToAct(PendingApproval step) {
-        List<String> approvers = step.getApprovers() == null ? List.of() : step.getApprovers();
-        return approvers.stream()
-                .filter(approver -> step.getApprovedActors() == null || !step.getApprovedActors().contains(approver))
-                .toList();
-    }
-
-    /** One approval instance of a record with what its history view is built from. */
-    private record ApprovalRun(FlowInstance instance, String flowName, List<PendingApproval> pending,
-                               List<ApprovalActionAuditEntry> actions, FlowRecordApprovalsView.Failure failure) {
-
-        /** The view, its users as ids; {@link #nameUsers} names them. */
-        FlowRecordApprovalsView.Instance toView() {
-            return FlowRecordApprovalsView.Instance.builder()
-                    .instanceId(instance.getInstanceId())
-                    .flowId(instance.getFlowId())
-                    .flowName(flowName)
-                    .status(instance.getStatus())
-                    .initiator(actor(instance.getInitiatorId()))
-                    .startedAt(instance.getCreatedTime())
-                    .pending(pending.stream().map(step -> FlowRecordApprovalsView.PendingStep.builder()
-                            .nodeId(step.getNodeId())
-                            .nodeLabel(step.getNodeLabel())
-                            .approvers(stillToAct(step).stream().map(ApprovalRun::actor).toList())
-                            .build()).toList())
-                    .actions(actions.stream().map(entry -> FlowRecordApprovalsView.Action.builder()
-                            .action(entry.getAction())
-                            .nodeLabel(entry.getNodeLabel())
-                            .actor(actor(entry.getActorId()))
-                            .target(actor(entry.getTargetActorId()))
-                            .operator(actor(entry.getOperatorId()))
-                            .comment(entry.getComment())
-                            .eventTime(entry.getEventTime())
-                            .build()).toList())
-                    .failure(failure)
-                    .build();
-        }
-
-        private static FlowRecordApprovalsView.Actor actor(String id) {
-            return id == null ? null : new FlowRecordApprovalsView.Actor(id, null);
         }
     }
 }
