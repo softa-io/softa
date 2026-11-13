@@ -70,7 +70,11 @@ public class CookieUtils {
                 .path("/")
                 .httpOnly(true)
                 .secure(true)
-                .sameSite("None")
+                // Lax: the browser sends the cookie with requests this site makes and when the user
+                // follows a link from elsewhere (a GET navigation, e.g. from an email), but not with a
+                // request another site starts — a cross-site form post, fetch or iframe arrives without
+                // the session, so a foreign page cannot act as the signed-in user.
+                .sameSite("Lax")
                 .maxAge(maxAge)
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());

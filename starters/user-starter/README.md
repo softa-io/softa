@@ -92,7 +92,13 @@ finds it in a search (`searchName`).
   | Client | Gets the session | Sends it back | Ignored |
   | --- | --- | --- | --- |
   | APP | `sessionToken` in the response body (no cookie) | `X-Session-Id` header | any cookie |
-  | Web / H5 | `SOFTA_SESSION_ID` cookie (never in the body) | the cookie | `X-Session-Id` |
+  | Web / H5 | `sessionId` cookie (never in the body) | the cookie | `X-Session-Id` |
+
+  The Web cookie is `HttpOnly`, `Secure` and `SameSite=Lax`, kept 30 days: page scripts
+  cannot read it, and the browser leaves it off any request another site starts (a form
+  post, a fetch, an iframe) while still sending it when the user follows a link from
+  elsewhere. A cross-site page therefore cannot act with the session; a page on another
+  subdomain of the same registrable domain still counts as the same site.
 
   A session is also checked against the client using it, on every authenticated request
   and on `/login/myTenants`, `/login/switchTenant`, `/login/leaveTenant` and
