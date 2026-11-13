@@ -1,5 +1,7 @@
 package io.softa.framework.web.handler;
 
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.core.MethodParameter;
@@ -17,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * A request body that fails its constraints comes back as a 400 whose error names the field of every message,
- * in the {@code field: message} form a refused write uses.
+ * in the {@code field: message} form a refused write uses, with {@code fieldErrors} naming each field as well.
  */
 class ArgumentValidationResponseTest {
 
@@ -36,6 +38,27 @@ class ArgumentValidationResponseTest {
     void singleMessageFollowsThePrefix() throws NoSuchMethodException {
         ApiResponseErrorDetails<Void> body = respond(new FieldError("order", "code", "must not be blank"));
         assertThat(body.getError()).isEqualTo("Validation Error: code: must not be blank");
+    }
+
+    /** The body also names each rejected field, so a form can put the sentence on its control. */
+    @Test
+    void fieldErrorsNameEachRejectedField() throws NoSuchMethodException {
+        ApiResponseErrorDetails<Void> body = respond(
+                new FieldError("order", "startDate", "Start date is required"),
+                new FieldError("order", "amount", "The amount is required."));
+        assertThat(body.getFieldErrors()).containsExactly(
+                Map.entry("startDate", "Start date is required"),
+                Map.entry("amount", "The amount is required."));
+    }
+
+    /** A field rejected twice keeps its first message in fieldErrors; the joined error still has both. */
+    @Test
+    void aFieldRejectedTwiceKeepsItsFirstMessage() throws NoSuchMethodException {
+        ApiResponseErrorDetails<Void> body = respond(
+                new FieldError("order", "code", "must not be blank"),
+                new FieldError("order", "code", "size must be between 1 and 32"));
+        assertThat(body.getFieldErrors()).containsExactly(Map.entry("code", "must not be blank"));
+        assertThat(body.getError()).isEqualTo("Validation Error: code: must not be blank; code: size must be between 1 and 32");
     }
 
     /** Runs the handler on a request body rejected with these field errors. */

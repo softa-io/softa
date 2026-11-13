@@ -1,6 +1,8 @@
 package io.softa.framework.web.handler;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ValidationException;
@@ -255,6 +257,9 @@ public class WebExceptionHandler {
      * Handle MethodArgumentNotValidException
      * Each message is written as {@code field: message}, the form a refused write uses too:
      * a default message such as "must not be blank" does not say which field it is about.
+     * The body also carries {@code fieldErrors}, field → message, as a refused write does, so a form can
+     * put each sentence on its control instead of showing the joined text; when a field has several
+     * messages the first is kept.
      *
      * @param e Exception
      * @return All the validation error messages.
@@ -262,14 +267,20 @@ public class WebExceptionHandler {
     @ExceptionHandler(value = MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleException(MethodArgumentNotValidException e) {
         StringBuilder errorMessage = new StringBuilder();
+        Map<String, String> byField = new LinkedHashMap<>();
         List<FieldError> fieldErrors = e.getBindingResult().getFieldErrors();
         for (FieldError fieldError : fieldErrors) {
             if (!errorMessage.isEmpty()) {
                 errorMessage.append("; ");
             }
             errorMessage.append(fieldError.getField()).append(": ").append(fieldError.getDefaultMessage());
+            byField.putIfAbsent(fieldError.getField(), fieldError.getDefaultMessage());
         }
-        return handler(ResponseCode.BAD_REQUEST, e, "Validation Error: " + errorMessage);
+        ResponseEntity<ApiResponse<Void>> response = handler(ResponseCode.BAD_REQUEST, e, "Validation Error: " + errorMessage);
+        if (response.getBody() instanceof ApiResponseErrorDetails<Void> details && !byField.isEmpty()) {
+            details.setFieldErrors(byField);
+        }
+        return response;
     }
 
     /**
