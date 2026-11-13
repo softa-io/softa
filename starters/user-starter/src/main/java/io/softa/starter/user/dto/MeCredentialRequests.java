@@ -10,7 +10,7 @@ public final class MeCredentialRequests {
     }
 
     /** A verification code. */
-    public record CodeBody(String code) {
+    public record CodeBody(String verificationCode) {
     }
 
     /** The ticket the step before handed out. */
@@ -21,8 +21,11 @@ public final class MeCredentialRequests {
     public record ChangePasswordBody(String ticket, String newPassword) {
     }
 
-    /** Proof it is the person: {@code method} is {@code code} or {@code password}, with that value. */
-    public record VerifyCurrentBody(String method, String code, String password) {
+    /**
+     * Proof it is the person: {@code method} is {@code code} or {@code password}, with {@code verificationCode}
+     * or {@code password} filled in.
+     */
+    public record VerifyCurrentBody(String method, String verificationCode, String password) {
     }
 
     /** The new login mobile, with its country code. */
@@ -30,7 +33,7 @@ public final class MeCredentialRequests {
     }
 
     /** The code sent to the new number, with the ticket from naming it. */
-    public record ConfirmMobileBody(String ticket, String code) {
+    public record ConfirmMobileBody(String ticket, String verificationCode) {
     }
 
     /** What a step hands to the next one. */

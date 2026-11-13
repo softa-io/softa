@@ -147,7 +147,7 @@ public class MeController {
     @PostMapping("/password/verifyCode")
     @Operation(summary = "Check the code; the ticket opens /password/change for ten minutes")
     public ApiResponse<TicketView> verifyPasswordCode(@RequestBody CodeBody body) {
-        return ApiResponse.success(new TicketView(credentialService.verifyCodeForPassword(body.code())));
+        return ApiResponse.success(new TicketView(credentialService.verifyCodeForPassword(body.verificationCode())));
     }
 
     @PostMapping("/password/change")
@@ -161,7 +161,7 @@ public class MeController {
     @Operation(summary = "Prove it is you with the code sent to the login mobile, or your password")
     public ApiResponse<TicketView> verifyCurrent(@RequestBody VerifyCurrentBody body) {
         return ApiResponse.success(new TicketView(
-                credentialService.verifyCurrentForMobile(body.method(), body.code(), body.password())));
+                credentialService.verifyCurrentForMobile(body.method(), body.verificationCode(), body.password())));
     }
 
     @PostMapping("/mobile/checkNew")
@@ -180,7 +180,7 @@ public class MeController {
     @PostMapping("/mobile/confirm")
     @Operation(summary = "Confirm the new login mobile; it holds in every company, every other device is signed out")
     public ApiResponse<Void> confirm(@RequestBody ConfirmMobileBody body) {
-        credentialService.confirmNewMobile(body.ticket(), body.code());
+        credentialService.confirmNewMobile(body.ticket(), body.verificationCode());
         return ApiResponse.success();
     }
 }

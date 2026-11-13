@@ -108,7 +108,7 @@ public class LoginController {
     public ApiResponse<AuthenticationResult> loginByEmail(@RequestBody @Valid EmailCodeDTO emailCodeDTO,
             HttpServletResponse response) {
         return this.issueOrAskForCompany(
-                loginService.authenticateByCode(emailCodeDTO.getEmail(), emailCodeDTO.getCode()), response);
+                loginService.authenticateByCode(emailCodeDTO.getEmail(), emailCodeDTO.getVerificationCode()), response);
     }
 
     /**
@@ -120,7 +120,8 @@ public class LoginController {
     public ApiResponse<AuthenticationResult> loginByMobileCode(@RequestBody @Valid MobileCodeDTO mobileCodeDTO,
             HttpServletResponse response) {
         return this.issueOrAskForCompany(
-                loginService.authenticateByCode(mobileCodeDTO.getMobile(), mobileCodeDTO.getCode()), response);
+                loginService.authenticateByCode(mobileCodeDTO.getMobile(), mobileCodeDTO.getVerificationCode()),
+                response);
     }
 
     @PostMapping("/sendEmailCode")
@@ -184,7 +185,8 @@ public class LoginController {
     @PostMapping("/verifyJoinCode")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<JoinVerification> verifyJoinCode(@RequestBody @Valid VerifyJoinCodeDTO dto) {
-        return ApiResponse.success(loginService.verifyJoinCode(dto.getToken(), dto.getChannel(), dto.getCode()));
+        return ApiResponse.success(
+                loginService.verifyJoinCode(dto.getToken(), dto.getChannel(), dto.getVerificationCode()));
     }
 
     /**
@@ -443,7 +445,7 @@ public class LoginController {
     @PostMapping("/resetPasswordByCode")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<Void> resetPasswordByCode(@RequestBody @Valid ResetPasswordByCodeDTO dto) {
-        loginService.resetPasswordByCode(dto.getIdentifier(), dto.getCode(), dto.getNewPassword());
+        loginService.resetPasswordByCode(dto.getIdentifier(), dto.getVerificationCode(), dto.getNewPassword());
         return ApiResponse.success();
     }
 

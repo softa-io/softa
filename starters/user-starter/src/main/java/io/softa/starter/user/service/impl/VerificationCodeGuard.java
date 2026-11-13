@@ -1,5 +1,6 @@
 package io.softa.starter.user.service.impl;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
@@ -110,10 +111,15 @@ public class VerificationCodeGuard {
     /**
      * Verify a submitted code, applying the attempt limits.
      *
-     * @throws BusinessException when banned, expired, or wrong (the message distinguishes
+     * @throws BusinessException when missing, banned, expired, or wrong (the message distinguishes
      *         "wrong" from "this code is now dead, request a new one", because the remedies differ)
      */
     public void verify(String identifier, String submitted) {
+        // No code guesses nothing, so it is refused before any counter: a client sending none — one still
+        // sending it under its old name, say — cannot spend the attempt budget or bring on the ban.
+        if (StringUtils.isBlank(submitted)) {
+            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_INCORRECT, "Please enter the verification code.");
+        }
         countAddress();
         requireNotBanned(identifier);
 
