@@ -16,6 +16,16 @@ What this buys, with no application code involved: **every log line written insi
 
 Requests that skip context binding have no MDC either — `IdentifyType.NONE` and `OPENAPI` endpoints run outside a bound scope by design.
 
+## Error Logs
+
+An API call that fails is logged by `WebExceptionHandler` together with the request it failed on (`RequestInfoHandler`): the URL and query string, the user, the traceId, the client IP and the method parameters `ApiExceptionAspect` collected. An exception whose log level is WARN (`BusinessException` among them) is logged at WARN, any other at ERROR. With `sentry-starter`, an ERROR line becomes a Sentry event and the request's earlier lines its breadcrumbs, text and all — `sentry.send-default-pii: false` does not reach the text of a log line.
+
+Credentials are masked in that text before it is written (`SecretMasker`). A value becomes `***` when the name it is sent under — a method parameter, a query parameter, or a JSON member at any depth, whether in a parameter written out as JSON or in the request body — is one of:
+
+`password` `newPassword` `currentPassword` `oldPassword` `jdbcPassword` `verificationCode` `codeVerifier` `ticket` `proof` `token` `authToken` `verificationToken` `secret` `apiKey` `apiSecret` `privateKey`
+
+Names are compared whole and ignoring case, so `token` is masked and `tokenType` is not; a null or empty value is kept. `code` is deliberately not on the list: it names business codes (a role, template or sequence code) far more often than one-time ones, so a verification code is masked when it is sent as `verificationCode`. A new credential field takes one of these names, or adds its own to `SecretMasker`. Only credentials are masked: personal data in a request still reaches the line, and exception messages are written as they are.
+
 ## Record access
 
 Two model endpoints tell a form what to render before it renders it; both answer only about the caller's
