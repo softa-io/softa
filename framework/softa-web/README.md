@@ -435,17 +435,18 @@ app:
     ios:
       min-version: 1.0.0      # below it, every signed-in endpoint answers UPGRADE_REQUIRED
       latest-version: 1.2.0   # below it, the APP offers an upgrade the person may postpone
-      store-url: https://apps.apple.com/...
+      store-url: https://apps.apple.com/...   # https, itms-apps or market; see below
       release-notes: ...
   # Signed-in endpoints an old APP may still call. Signing out (/UserAccount/logout) is always open.
   upgrade-exempt-paths:
-    - DELETE /devices/*       # "[METHOD] /path pattern"; no method means any; excludes the context path
+    - DELETE /app/devices/*   # "[METHOD] /path pattern"; no method means any; excludes the context path
 ```
 
 The refusal is the usual error body (HTTP 200) with `errorCode` `UPGRADE_REQUIRED`.
 
 - **Who is checked:** requests with both `X-App-Platform` and `X-App-Version` (`SessionStore.APP_PLATFORM_HEADER` / `APP_VERSION_HEADER`) on a signed-in endpoint, on a platform with a `min-version`. A request with only one header has nothing to compare and passes, though `SessionStore.isAppRequest` calls it an APP's for session handling. Web and H5 send neither. The headers are self-reported: this steers an honest old APP to the upgrade screen and is no security boundary.
 - **Versions** compare by number: `1.10.0` is newer than `1.9.3`, a missing part counts as 0, a leading `v` is ignored.
+- **`store-url`** is opened by the APP only when it starts with `https`, `itms-apps` (the iOS App Store) or `market` (the generic Android store form, `market://details?id=<package>`, which phones from Chinese vendors open in their own store). Any other form — a vendor's private store scheme, an `intent:` URL — is not opened. Left empty, the upgrade button cannot be tapped.
 - **`/app/version` has to be declared anonymous by the application**, since an APP too old to do anything else must still reach it. Like any public endpoint that takes both layers, and a profile's list replaces the base's rather than adding to it:
 
 ```yaml

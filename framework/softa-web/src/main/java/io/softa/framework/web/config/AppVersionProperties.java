@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
  *       store-url: https://apps.apple.com/...
  *       release-notes: ...
  *   upgrade-exempt-paths:
- *     - DELETE /devices/*
+ *     - DELETE /app/devices/*
  * </pre>
  */
 @Data
@@ -36,8 +36,8 @@ public class AppVersionProperties {
     /**
      * Signed-in endpoints an APP below the minimum version may still call, in addition to signing
      * out, which is always open: what an APP stuck on the upgrade screen still has to be able to do.
-     * Each entry is a path pattern ({@code /devices/*}), optionally after an HTTP method
-     * ({@code DELETE /devices/*}); without a method it covers them all. Paths exclude the context path.
+     * Each entry is a path pattern ({@code /app/devices/*}), optionally after an HTTP method
+     * ({@code DELETE /app/devices/*}); without a method it covers them all. Paths exclude the context path.
      */
     private List<String> upgradeExemptPaths = new ArrayList<>();
 
