@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -20,9 +21,9 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
@@ -441,8 +442,12 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         // hold every tenant's rows. The platform tenant's own roles keep them.
         boolean tenantSide = tenantId != null && !BaseConstant.PLATFORM_TENANT_ID.equals(tenantId);
         Set<String> platformPermissions = tenantSide ? platformPermissionIds() : Set.of();
+        // Nor past the tenant's plan: a grant on a module the plan does not include — written around
+        // the wizard, which lists only entitled modules — stays inert, as a tenant admin's own set does.
+        PlanGate plan = tenantSide ? planGate(tenantId, navGrants) : PlanGate.ALL;
         for (RoleNavigationView rn : navGrants) {
-            if (rn.getNavigationId() == null || (tenantSide && isPlatformNav(rn.getNavigationId()))) {
+            if (rn.getNavigationId() == null || (tenantSide && isPlatformNav(rn.getNavigationId()))
+                    || !plan.allowsNavigation(rn.getNavigationId())) {
                 continue;
             }
             navigations.add(rn.getNavigationId());
@@ -451,6 +456,8 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                 pids = pids.stream().filter(pid -> !platformPermissions.contains(pid)).toList();
             }
             if (pids != null) {
+                String rowNavigation = rn.getNavigationId();
+                pids = pids.stream().filter(pid -> plan.allowsPermission(pid, rowNavigation)).toList();
                 permissions.addAll(pids);
                 RoleGrant grant = grantsByRole.get(rn.getRoleId());
                 if (grant != null) {
@@ -745,6 +752,51 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         // Unrestricted grant, so every company of the tenant — and the countries of all of them.
         info.setGrantedCountries(readGrantedCountries(null));
         return info;
+    }
+
+    /**
+     * Which of a customer tenant's role grants its plan includes: navigations of an entitled module, and
+     * permissions under such navigations. Without a plan gate, or when the gate answers nothing, every
+     * grant stands.
+     */
+    private PlanGate planGate(Long tenantId, List<RoleNavigationView> navGrants) {
+        Set<String> entitled = entitlementService == null ? null : entitlementService.entitledModules(tenantId);
+        if (entitled == null) {
+            return PlanGate.ALL;
+        }
+        Set<String> permissionIds = new HashSet<>();
+        for (RoleNavigationView rn : navGrants) {
+            List<String> pids = JsonUtils.toStringList(rn.getPermissionIds(), true);
+            if (pids != null) {
+                permissionIds.addAll(pids);
+            }
+        }
+        Map<String, String> navigationOf = new HashMap<>();
+        if (!permissionIds.isEmpty()) {
+            modelService.searchList(M_PERMISSION, new FlexQuery(List.of("id", "navigationId"),
+                            new Filters().in("id", permissionIds)), PermissionView.class)
+                    .forEach(p -> navigationOf.put(p.getId(), p.getNavigationId()));
+        }
+        return new PlanGate(navId -> navId != null && isEntitled(navId, entitled), navigationOf);
+    }
+
+    /**
+     * The plan's answer for a role's grants; {@link #ALL} where every grant stands. A permission is judged
+     * by the navigation it is registered under, wherever the role row filed it; one the catalog does not
+     * know is judged by its row's navigation — it names no endpoint either way, since the endpoint index
+     * is built from the same catalog.
+     */
+    private record PlanGate(Predicate<String> navigation, Map<String, String> navigationOf) {
+        static final PlanGate ALL = new PlanGate(n -> true, Map.of());
+
+        boolean allowsNavigation(String navId) {
+            return navigation.test(navId);
+        }
+
+        boolean allowsPermission(String permissionId, String rowNavigation) {
+            String registered = navigationOf.get(permissionId);
+            return navigation.test(registered != null ? registered : rowNavigation);
+        }
     }
 
     /** Plan narrowing — mirrors the FE {@code navModuleOf} gating. Null set (no gate installed, or no
