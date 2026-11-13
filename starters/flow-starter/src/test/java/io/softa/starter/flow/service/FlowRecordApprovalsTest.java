@@ -50,6 +50,14 @@ import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
+import io.softa.starter.flow.runtime.engine.ApprovalLifecycleService;
+import io.softa.starter.flow.runtime.engine.ApprovalPathPreviewer;
+import io.softa.starter.flow.runtime.engine.ApproverDedupService;
+import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
+import io.softa.starter.flow.runtime.engine.AutoDelegationService;
+import io.softa.starter.flow.runtime.engine.FlowAuditService;
+import io.softa.starter.flow.runtime.engine.FlowGatewayRouter;
+import io.softa.starter.flow.runtime.engine.PendingApprovalFactory;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
@@ -61,6 +69,7 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 import io.softa.starter.flow.service.impl.FlowInstanceServiceImpl;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
+import io.softa.starter.flow.service.support.FlowApprovalStepsComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.FlowUserNames;
 import io.softa.starter.flow.service.support.MetadataFieldDefinitions;
@@ -75,12 +84,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * A record's approval history and the record as its approvers see it: only the record's approval
- * flows count, users are named, CC reads and hidden fields stay out — on a one-to-many's rows too —
- * the fields a step grants past the viewer's metadata come with their definitions, and the history
- * is shown to readers of the record and to whoever took part. Read by the record, whichever approval is
- * current, it is lent by the newest approval the viewer took part in, else read with their own permissions.
- * The approver a termination cleared took part by their task; the administrator who ended it did not.
+ * A record's approval and the record as its approvers see it: only the record's approval flows count, every
+ * submission with its steps, users are named, CC reads and hidden fields stay out — on a one-to-many's rows too —
+ * the fields a step grants past the viewer's metadata come with their definitions, and the record's approval is
+ * shown whole to readers of the record, to whoever took part in any of its submissions, and to whoever's roles read
+ * any of their instance rows. Read by the record, whichever approval is current, it is lent by the newest approval
+ * the viewer took part in, else read with their own permissions. The approver a termination cleared took part by
+ * their task; the administrator who ended it did not.
  */
 class FlowRecordApprovalsTest {
 
@@ -110,6 +120,7 @@ class FlowRecordApprovalsTest {
         ReflectionTestUtils.setField(service, "modelService", modelService);
         ReflectionTestUtils.setField(service, "permissionService", permissions);
         ReflectionTestUtils.setField(service, "fieldDefinitions", new MetadataFieldDefinitions());
+        ReflectionTestUtils.setField(service, "stepsComposer", stepsComposer());
         doReturn(instances).when(service).findByModelNameAndRowId(MODEL, ROW);
         modelManager = mockStatic(ModelManager.class);
         modelManager.when(() -> ModelManager.existModel(MODEL)).thenReturn(true);
@@ -125,37 +136,59 @@ class FlowRecordApprovalsTest {
     }
 
     @Test
-    void historyListsTheRecordsApprovalInstancesNewestFirstWithNamedUsers() {
+    void theRecordsApprovalListsItsSubmissionsNewestFirstWithTheirStepsAndNamedUsers() {
         CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
         CompiledFlowDefinition automation = publishService.publish("audit", automationFlow("Audit"));
         instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
         PendingApproval waiting = PendingApproval.builder().nodeId("approval").nodeLabel("Manager")
-                .approvers(List.of("2001", "2002")).approvedActors(new ArrayList<>(List.of("2001"))).build();
+                .approvers(List.of("2001", "2002")).approvedActors(new ArrayList<>(List.of("2001")))
+                .requiredApprovalCount(2).build();
         instance("new", approval, true, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 20, 9, 0), waiting);
         instance("other", automation, false, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 21, 9, 0), null);
         // The approval flow run on the record without a submission: not its approval either.
         instance("unsubmitted", approval, false, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 22, 9, 0), null);
         when(ledger.findByInstanceId("new")).thenReturn(List.of(
                 entry(ApprovalActionType.APPROVE, "2001", null, "ok"),
-                entry(ApprovalActionType.READ, "3001", null, null),
-                entry(ApprovalActionType.TRANSFER, "2001", "2003", "please take over")));
+                entry(ApprovalActionType.READ, "3001", null, null)));
         when(ledger.findByInstanceId("old")).thenReturn(List.of(entry(ApprovalActionType.REJECT, "2001", null, "no")));
         when(organization.getUsersByIds(anyList())).thenReturn(List.of(
                 new ApproverInfo(1001L, "Alice"), new ApproverInfo(2001L, "Bob"), new ApproverInfo(2002L, "Carol")));
 
-        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, (view, approvals) -> {});
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, approvals -> {});
 
         assertEquals(List.of("new", "old"),
                 history.getInstances().stream().map(FlowRecordApprovalsView.Instance::getInstanceId).toList());
         FlowRecordApprovalsView.Instance latest = history.getInstances().getFirst();
         assertEquals("Claims", latest.getFlowName());
         assertEquals(new FlowRecordApprovalsView.Actor("1001", "Alice"), latest.getInitiator());
-        assertEquals(List.of(new FlowRecordApprovalsView.Actor("2002", "Carol")),
-                latest.getPending().getFirst().getApprovers());
-        assertEquals(List.of(ApprovalActionType.APPROVE, ApprovalActionType.TRANSFER),
-                latest.getActions().stream().map(FlowRecordApprovalsView.Action::getAction).toList());
-        assertEquals(new FlowRecordApprovalsView.Actor("2003", null), latest.getActions().get(1).getTarget());
-        assertTrue(history.getInstances().get(1).getPending().isEmpty());
+        FlowRecordApprovalsView.Step current = latest.getSteps().getFirst();
+        assertEquals(FlowRecordApprovalsView.StepState.CURRENT, current.getState());
+        assertEquals(2, current.getRequiredApprovals());
+        assertEquals(List.of(
+                        approver("2001", "Bob", FlowRecordApprovalsView.ApproverResult.APPROVED, "ok"),
+                        approver("2002", "Carol", FlowRecordApprovalsView.ApproverResult.PENDING, null)),
+                current.getApprovers().stream().map(FlowRecordApprovalsTest::withoutTime).toList());
+        // A copy read is no step's event.
+        assertEquals(List.of(), current.getEvents());
+        assertNull(latest.getEnded());
+
+        FlowRecordApprovalsView.Instance rejected = history.getInstances().get(1);
+        assertEquals(FlowRecordApprovalsView.StepState.DONE, rejected.getSteps().getFirst().getState());
+        assertEquals(List.of(approver("2001", "Bob", FlowRecordApprovalsView.ApproverResult.REJECTED, "no")),
+                rejected.getSteps().getFirst().getApprovers().stream().map(FlowRecordApprovalsTest::withoutTime).toList());
+        assertEquals(ApprovalActionType.REJECT, rejected.getEnded().getAction());
+        assertEquals(new FlowRecordApprovalsView.Actor("2001", "Bob"), rejected.getEnded().getActor());
+    }
+
+    private static FlowRecordApprovalsView.Approver approver(String id, String name,
+                                                             FlowRecordApprovalsView.ApproverResult result,
+                                                             String comment) {
+        return FlowRecordApprovalsView.Approver.builder()
+                .actor(new FlowRecordApprovalsView.Actor(id, name)).result(result).comment(comment).build();
+    }
+
+    private static FlowRecordApprovalsView.Approver withoutTime(FlowRecordApprovalsView.Approver approver) {
+        return approver.toBuilder().time(null).build();
     }
 
     @Test
@@ -166,7 +199,7 @@ class FlowRecordApprovalsTest {
         instances.getLast().setErrorMessage("Approval node 'approval' resolved an empty approver list (strategy=ERROR)");
         instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
 
-        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, (view, approvals) -> {});
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, approvals -> {});
 
         // Not after an approval: nothing to run again — its submitter takes the record back.
         assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager",
@@ -183,7 +216,7 @@ class FlowRecordApprovalsTest {
         instances.getLast().setRetryAfterNodeId("approval");
         instances.getLast().setErrorMessage("Webhook answered 502");
 
-        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, (view, approvals) -> {});
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, approvals -> {});
 
         assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager", "Webhook answered 502", true),
                 history.getInstances().getFirst().getFailure());
@@ -194,7 +227,7 @@ class FlowRecordApprovalsTest {
         CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", Map.of()));
         instance("i1", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
 
-        assertThrows(FlowAuthorizationException.class, () -> service.recordApprovals(MODEL, ROW, (view, approvals) -> {
+        assertThrows(FlowAuthorizationException.class, () -> service.recordApprovals(MODEL, ROW, approvals -> {
             throw new FlowAuthorizationException("no");
         }));
         verify(organization, never()).getUsersByIds(anyList());
@@ -414,29 +447,28 @@ class FlowRecordApprovalsTest {
     }
 
     @Test
-    void theHistoryIsShownToParticipantsAndReadersOnly() {
+    void theRecordsApprovalIsShownToParticipantsReadersAndWhoeverReadsOneOfItsInstances() {
         FlowInstanceAccessGuard guard = new FlowInstanceAccessGuard(service,
                 new ApprovalAuditReader(new NoopApprovalActionLedger()), modelService);
-        FlowRecordApprovalsView history = new FlowRecordApprovalsView(List.of(FlowRecordApprovalsView.Instance.builder()
-                .instanceId("i1")
-                .initiator(new FlowRecordApprovalsView.Actor("1001", "Alice"))
-                .pending(List.of())
-                .build()));
-        // The approval the history was built from: Alice submitted it, Bob approved it.
+        // The approval it was built from: Alice submitted it, Bob approved it.
         List<FlowInstanceService.RecordApproval> approvals = List.of(new FlowInstanceService.RecordApproval(
                 FlowExecutionState.builder().instanceId("i1").initiatorId("1001").pendingApprovals(List.of()).build(),
                 List.of(ApprovalActionAuditEntry.builder().action(ApprovalActionType.APPROVE).actorId("2001").build())));
         when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.empty());
 
-        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "1001"));
-        assertTrue(history.getInstances().getFirst().isViewable(), "a participant opens it");
-        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "2001"));
+        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, approvals, "1001"));
+        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, approvals, "2001"));
         assertThrows(FlowAuthorizationException.class,
-                () -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "9999"));
+                () -> guard.authorizeRecordApprovals(MODEL, ROW, approvals, "9999"));
 
+        // Roles that read one of its instance rows, as the monitoring console's do.
+        when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("instanceId", "i1")));
+        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, approvals, "9999"));
+
+        when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class))).thenReturn(List.of());
         when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.of(Map.of("id", 7L)));
-        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, history, approvals, "9999"));
-        assertTrue(history.getInstances().getFirst().isViewable(), "a reader of the record opens it");
+        assertDoesNotThrow(() -> guard.authorizeRecordApprovals(MODEL, ROW, approvals, "9999"));
     }
 
     @Test
@@ -586,32 +618,39 @@ class FlowRecordApprovalsTest {
     }
 
     @Test
-    void eachApprovalInTheHistorySaysWhetherTheCallerMayOpenIt() {
+    void whoeverSeesTheRecordsApprovalSeesEverySubmissionWithItsSteps() {
         resubmittedClaim();
         FlowInstanceController page = recordPage();
 
-        // An approver of the earlier submission sees the history, but the approval in progress is not theirs to
-        // open: its detail would be refused them.
-        assertEquals(Map.of("second", false, "first", true), viewable(historyAs(EARLIER_APPROVER, page)));
-        assertEquals(Map.of("second", true, "first", false), viewable(historyAs(CURRENT_APPROVER, page)));
-        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(INITIATOR, page)));
-        // Roles that read the approvals' rows open them, as the monitoring console does.
+        // An approver of the earlier submission sees the one in progress too, and the approver of the one in
+        // progress why the earlier one was returned.
+        for (String viewer : List.of(EARLIER_APPROVER, CURRENT_APPROVER, INITIATOR)) {
+            FlowRecordApprovalsView approval = historyAs(viewer, page);
+            assertEquals(List.of("second", "first"),
+                    approval.getInstances().stream().map(FlowRecordApprovalsView.Instance::getInstanceId).toList());
+            FlowRecordApprovalsView.Step waiting = approval.getInstances().getFirst().getSteps().getFirst();
+            assertEquals(FlowRecordApprovalsView.StepState.CURRENT, waiting.getState());
+            assertEquals(List.of(new FlowRecordApprovalsView.Actor(CURRENT_APPROVER, null)),
+                    waiting.getApprovers().stream().map(FlowRecordApprovalsView.Approver::getActor).toList());
+            FlowRecordApprovalsView.Instance returned = approval.getInstances().get(1);
+            assertTrue(returned.isSuperseded());
+            assertEquals("fix the amount", returned.getSteps().getFirst().getApprovers().getFirst().getComment());
+            assertEquals(ApprovalActionType.RETURN, returned.getEnded().getAction());
+        }
+        // Roles that read only the earlier submission's row, as a department's scope may after a transfer: the
+        // record's approval whole.
         when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class)))
-                .thenReturn(List.of(Map.of("instanceId", "second")));
-        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(EARLIER_APPROVER, page)));
-        // Whoever reads the record opens them all.
+                .thenReturn(List.of(Map.of("instanceId", "first")));
+        assertEquals(2, historyAs(ADMINISTRATOR, page).getInstances().size());
+        when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class))).thenReturn(List.of());
+        assertThrows(FlowAuthorizationException.class, () -> historyAs(OUTSIDER, page));
+        // Whoever reads the record.
         when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.of(Map.of("id", 7L)));
-        assertEquals(Map.of("second", true, "first", true), viewable(historyAs(READER, page)));
+        assertEquals(2, historyAs(READER, page).getInstances().size());
     }
 
     private static FlowRecordApprovalsView historyAs(String userId, FlowInstanceController page) {
         return as(userId, () -> page.getRecordApprovals(MODEL, ROW)).getData();
-    }
-
-    private static Map<String, Boolean> viewable(FlowRecordApprovalsView history) {
-        Map<String, Boolean> viewable = new LinkedHashMap<>();
-        history.getInstances().forEach(instance -> viewable.put(instance.getInstanceId(), instance.isViewable()));
-        return viewable;
     }
 
     /**
@@ -646,7 +685,10 @@ class FlowRecordApprovalsTest {
         instance("first", first, true, FlowExecutionStatus.RETURNED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
         instance("second", second, true, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 20, 9, 0),
                 PendingApproval.builder().nodeId("approval").nodeLabel("Manager")
-                        .approvers(List.of(CURRENT_APPROVER)).build());
+                        .approvers(List.of(CURRENT_APPROVER)).approvedActors(new ArrayList<>())
+                        .requiredApprovalCount(1).build());
+        instances.getLast().setSuperseded(false);
+        instances.getFirst().setSuperseded(true);
         when(ledger.findByInstanceId("first"))
                 .thenReturn(List.of(entry(ApprovalActionType.RETURN, EARLIER_APPROVER, null, "fix the amount")));
         when(permissions.getHiddenSensitiveFields()).thenReturn(Map.of(MODEL, Set.of("salary")));
@@ -659,6 +701,21 @@ class FlowRecordApprovalsTest {
     private FlowInstanceController recordPage() {
         FlowInstanceAccessGuard guard = new FlowInstanceAccessGuard(service, new ApprovalAuditReader(ledger), modelService);
         return new FlowInstanceController(null, null, service, null, guard, null, null, null, null, null, null, null);
+    }
+
+    /** The record's approval's steps, over the engine's own route preview. */
+    private FlowApprovalStepsComposer stepsComposer() {
+        ApprovalAuditReader auditReader = new ApprovalAuditReader(ledger);
+        FlowAuditService auditService = new FlowAuditService(auditReader);
+        ApproverResolutionService approverResolution = new ApproverResolutionService();
+        PendingApprovalFactory pendingApprovalFactory = new PendingApprovalFactory(approverResolution);
+        AutoDelegationService autoDelegation = new AutoDelegationService();
+        ReflectionTestUtils.setField(autoDelegation, "delegationService", mock(FlowDelegationService.class));
+        ReflectionTestUtils.setField(pendingApprovalFactory, "autoDelegationService", autoDelegation);
+        ApprovalPathPreviewer previewer = new ApprovalPathPreviewer(new FlowGatewayRouter(), pendingApprovalFactory,
+                approverResolution, new ApproverDedupService(new ApprovalLifecycleService(), auditService, auditReader),
+                auditService);
+        return new FlowApprovalStepsComposer(bundleRegistry, previewer, approverResolution);
     }
 
     private static <T> T as(String userId, Supplier<T> call) {
@@ -687,7 +744,7 @@ class FlowRecordApprovalsTest {
                                                   String comment) {
         return ApprovalActionAuditEntry.builder()
                 .action(action).actorId(actorId).targetActorId(targetActorId).comment(comment)
-                .nodeLabel("Manager").build();
+                .nodeId("approval").nodeLabel("Manager").build();
     }
 
     /** An automation flow on the record: start → end, nothing to approve. */

@@ -7,6 +7,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +22,15 @@ import io.softa.framework.orm.service.EntitlementService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.constant.RoleConstant;
+import io.softa.starter.user.dto.MeCredentialRequests.ChangePasswordBody;
+import io.softa.starter.user.dto.MeCredentialRequests.CheckNewMobileBody;
+import io.softa.starter.user.dto.MeCredentialRequests.CodeBody;
+import io.softa.starter.user.dto.MeCredentialRequests.ConfirmMobileBody;
+import io.softa.starter.user.dto.MeCredentialRequests.TicketBody;
+import io.softa.starter.user.dto.MeCredentialRequests.TicketView;
+import io.softa.starter.user.dto.MeCredentialRequests.VerifyCurrentBody;
 import io.softa.starter.user.dto.UiContext;
+import io.softa.starter.user.service.MyCredentialService;
 import io.softa.starter.user.service.impl.UiContextBuilder;
 import io.softa.starter.user.util.PermissionSnapshotKey;
 
@@ -37,6 +47,10 @@ import io.softa.starter.user.util.PermissionSnapshotKey;
  *
  * <p>Frontend Sidebar / RouteGuard / business pages all consume this single
  * payload via the {@code useUIContext} hook (cached 30s; 401 triggers refetch).
+ *
+ * <p>Also the signed-in person changing their own password and login mobile ({@link MyCredentialService}). Each
+ * acts on the caller only, so the application lists {@code /me/**} under its authenticated-bypass patterns; a
+ * change is proved step by step, each step handing back a ticket that only the next step accepts.
  */
 @Tag(name = "Me")
 @RestController
@@ -52,6 +66,7 @@ public class MeController {
     /** The data plane's own answer for which sensitive fields the caller never sees; absent in a
      *  deployment without a permission engine, which then hides nothing. */
     private final ObjectProvider<PermissionService> permissionServiceProvider;
+    private final MyCredentialService credentialService;
 
     @GetMapping("/uiContext")
     @Operation(summary = "Get the current user's UI context (navigations, permissions, sensitive field sets)")
@@ -120,5 +135,52 @@ public class MeController {
         }
         Set<String> modules = entitlementService.entitledModules(tenantId);
         info.setEntitledModules(modules != null ? modules : Set.of());
+    }
+
+    @PostMapping("/password/sendCode")
+    @Operation(summary = "Send a code to the login mobile (changing the password, or proving it is you before changing the mobile)")
+    public ApiResponse<Void> sendCode() {
+        credentialService.sendCurrentMobileCode();
+        return ApiResponse.success();
+    }
+
+    @PostMapping("/password/verifyCode")
+    @Operation(summary = "Check the code; the ticket opens /password/change for ten minutes")
+    public ApiResponse<TicketView> verifyPasswordCode(@RequestBody CodeBody body) {
+        return ApiResponse.success(new TicketView(credentialService.verifyCodeForPassword(body.code())));
+    }
+
+    @PostMapping("/password/change")
+    @Operation(summary = "Set a new password; every other device is signed out")
+    public ApiResponse<Void> changePassword(@RequestBody ChangePasswordBody body) {
+        credentialService.changePassword(body.ticket(), body.newPassword());
+        return ApiResponse.success();
+    }
+
+    @PostMapping("/mobile/verifyCurrent")
+    @Operation(summary = "Prove it is you with the code sent to the login mobile, or your password")
+    public ApiResponse<TicketView> verifyCurrent(@RequestBody VerifyCurrentBody body) {
+        return ApiResponse.success(new TicketView(
+                credentialService.verifyCurrentForMobile(body.method(), body.code(), body.password())));
+    }
+
+    @PostMapping("/mobile/checkNew")
+    @Operation(summary = "Name the new login mobile; a code is sent to it")
+    public ApiResponse<TicketView> checkNew(@RequestBody CheckNewMobileBody body) {
+        return ApiResponse.success(new TicketView(credentialService.checkNewMobile(body.ticket(), body.newMobile())));
+    }
+
+    @PostMapping("/mobile/resendCode")
+    @Operation(summary = "Send the new number another code; the ticket stays the same")
+    public ApiResponse<Void> resendCode(@RequestBody TicketBody body) {
+        credentialService.resendNewMobileCode(body.ticket());
+        return ApiResponse.success();
+    }
+
+    @PostMapping("/mobile/confirm")
+    @Operation(summary = "Confirm the new login mobile; it holds in every company, every other device is signed out")
+    public ApiResponse<Void> confirm(@RequestBody ConfirmMobileBody body) {
+        credentialService.confirmNewMobile(body.ticket(), body.code());
+        return ApiResponse.success();
     }
 }

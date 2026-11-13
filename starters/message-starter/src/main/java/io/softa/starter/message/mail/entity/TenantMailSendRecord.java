@@ -24,10 +24,13 @@ import io.softa.starter.message.mail.enums.MailServerOwner;
  * status and timing, the error, whether it bounced or was read, and whose server carried it. Bodies and
  * template variables are left out: they hold the sign-in links, codes and documents of the mail they
  * render. Column declarations repeat {@link MailSendRecord}'s verbatim, which owns the table.
+ * <p>
+ * No history either: the rows are written through {@link MailSendRecord}, which keeps no change log, and
+ * {@code enableAuditLog = false} tells the pages so, which then show no Audit Log panel.
  */
 @Data
 @Model(label = "Tenant Mail Send Record", tableName = "mail_send_record", projection = true,
-        idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, copyable = false,
+        idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, copyable = false, enableAuditLog = false,
         searchName = {"toAddresses", "subject"})
 @EqualsAndHashCode(callSuper = true)
 public class TenantMailSendRecord extends AuditableModel {
@@ -81,6 +84,11 @@ public class TenantMailSendRecord extends AuditableModel {
 
     @Field(description = "Timestamp when the email was accepted by the SMTP server")
     private LocalDateTime sentAt;
+
+    @Field(label = "Send Duration (ms)", description = "How long the SMTP call of the successful attempt took, "
+            + "in milliseconds — connection setup (when no pooled connection was reused) and attachment "
+            + "streaming included. Null until the record is sent.")
+    private Integer sendDurationMs;
 
     @Field(description = "Whether a read receipt was requested for this email")
     private Boolean readReceiptRequested;

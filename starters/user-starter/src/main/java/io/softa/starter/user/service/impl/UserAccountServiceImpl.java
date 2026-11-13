@@ -876,7 +876,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         Long tenantId = account.getTenantId();
         Map<String, Object> vars = Map.of(
                 "employeeName", StringUtils.defaultString(account.getNickname()),
-                "time", LocalDateTime.now().toString());
+                "time", LocalDateTime.now());
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
@@ -948,7 +948,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // like the reset-user one: the company cannot rewrite or swallow it.
         Map<String, Object> vars = Map.of(
                 "employeeName", StringUtils.defaultString(account.getNickname()),
-                "time", LocalDateTime.now().toString());
+                "time", LocalDateTime.now());
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(previous)) {

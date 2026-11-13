@@ -708,10 +708,12 @@ templateType = RICH_TEXT
 - Uses `{{ variable }}` placeholder syntax.
 - Use `{{#fieldName}}` for OneToMany fields rendered as looping table rows via `LoopRowTableRenderPolicy`.
 - OneToMany fields are auto-detected from model metadata; SubQueries are built automatically to load related data.
+- Date and time fields print as the API writes them: a date-time as `2026-11-12 13:00:40`, a date as `2026-11-12` — not the ISO `2026-11-12T13:00:40`. Looping table rows print them the same way (a `PreRenderDataCastor` on `WordFileGenerator`'s configuration formats every tag's value, after any expression in it has been evaluated).
 
 ### RICH_TEXT Template
 - `htmlTemplate` stores HTML with `{{ variable }}` placeholders.
 - Placeholders are rendered to the final HTML via Pebble.
+- Date and time fields print as the API writes them too (`2026-11-12 13:00:40`). A filter still receives the date object, so another format is `{{ hireDate | date("dd/MM/yyyy") }}`.
 - The rendered HTML is converted to PDF via OpenHTMLToPDF.
 
 ### Endpoint

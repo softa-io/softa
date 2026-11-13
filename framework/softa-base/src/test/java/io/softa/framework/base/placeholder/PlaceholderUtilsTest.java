@@ -1,5 +1,7 @@
 package io.softa.framework.base.placeholder;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
@@ -35,6 +37,16 @@ class PlaceholderUtilsTest {
         Assertions.assertNull(PlaceholderUtils.replacePlaceholders(null, variables));
         Assertions.assertEquals("Hi {{ userName }}",
                 PlaceholderUtils.replacePlaceholders("Hi {{ userName }}", null));
+    }
+
+    @Test
+    void replacePlaceholdersWritesDatesAsTheApiDoes() {
+        Map<String, Object> variables = Map.of(
+                "time", LocalDateTime.of(2026, 11, 12, 13, 0, 40, 123_456_789),
+                "day", LocalDate.of(2026, 11, 12));
+        // Not the ISO toString() (2026-11-12T13:00:40.123456789)
+        Assertions.assertEquals("Changed on 2026-11-12 13:00:40, effective 2026-11-12.",
+                PlaceholderUtils.replacePlaceholders("Changed on {{ time }}, effective {{day}}.", variables));
     }
 
     @Test

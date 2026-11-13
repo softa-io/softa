@@ -211,6 +211,27 @@ public abstract class DateUtils {
     }
 
     /**
+     * A date or time as text in the formats the API serializes it with ({@code JacksonConfig}):
+     * {@code LocalDateTime} as {@code yyyy-MM-dd HH:mm:ss}, {@code LocalDate} as {@code yyyy-MM-dd},
+     * {@code LocalTime} as {@code HH:mm:ss}. Any other value, null included, is returned as it is.
+     *
+     * <p>For the places that print values for people without going through Jackson — templates,
+     * placeholders, generated documents — where the value's own {@code toString()} would give the ISO
+     * form, {@code 2026-11-12T13:00:40.123456789}.
+     *
+     * @param value any value
+     * @return the text of a date or time; otherwise the value itself
+     */
+    public static Object formatTemporal(Object value) {
+        return switch (value) {
+            case LocalDateTime dateTime -> TimeConstant.DATETIME_FORMATTER.format(dateTime);
+            case LocalDate date -> TimeConstant.DATE_FORMATTER.format(date);
+            case LocalTime time -> TimeConstant.TIME_FORMATTER.format(time);
+            case null, default -> value;
+        };
+    }
+
+    /**
      * Date object to a locale-formatted string (CLDR via the JDK; platform
      * convention MEDIUM date style), e.g. {@code zh-CN → "2026年6月12日"},
      * {@code en-US → "Jun 12, 2026"}. Compatible with LocalDate, Date, null.

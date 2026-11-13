@@ -308,7 +308,20 @@ was prepared is prepared afresh. `POST /MailSendRecord/retry?id=` requeues one
 record and `POST /MailSendRecord/retryByIds` (body `{"ids": [...]}`) the selected
 ones, skipping `SENT` and in-flight `SENDING` records; the SMS endpoints are the
 same under `/SmsSendRecord`. The caller never sees these errors — `sendMail`
-returned the record id when the request was accepted.
+returned the record id when the request was accepted. Such a record keeps none of
+what the failed attempt worked out: the rendered subject, body or SMS text and the
+route are written back only when preparation completes, so its content is empty and
+its template code and variables — stored at acceptance — say what it was.
+
+**The records keep no change log.** `MailSendRecord` and `SmsSendRecord` (and the
+`TenantMailSendRecord` projection over the mail table), the usage ledger
+`TenantMessageUsage` and the two fetch watermarks declare `enableAuditLog = false`:
+the delivery and fetch loops write them several times per message or fetch, and
+their own fields are the history. A change log would also copy the rendered bodies,
+sign-in links and codes included, into the change-log store. Their pages show no
+Audit Log panel, and no change-triggered flow can start from them. Receive records
+and dead letters keep theirs: an arriving mail is something a flow may react to,
+and a dead letter is resolved or discarded by a person.
 
 Instances polling the same tables never send a record twice: of two claims
 holding the same version only one wins. There is no outbox table and no broker in
@@ -451,7 +464,12 @@ code in the other tier   -> TEMPLATE_NOT_RESOLVABLE, "send it with scope PLATFOR
 missing in both          -> TEMPLATE_NOT_RESOLVABLE
 ```
 
-Template placeholders use the unified Softa syntax: `{{ variable }}`.
+Template placeholders use the unified Softa syntax: `{{ variable }}`. A date or
+time variable is passed as the object itself (`LocalDateTime.now()`, never its
+`toString()`) and prints as the API writes it: `2026-11-12 13:00:40` — server
+local time, no zone. The record keeps the variables as JSON, so the template
+receives that text; another format names it:
+`{{ time | date("dd/MM/yyyy", existingFormat="yyyy-MM-dd HH:mm:ss") }}`.
 
 #### Body modes
 
@@ -827,7 +845,9 @@ SMS templates are resolved by `code` alone — there is one tier, and the send's
 under, and draws on the quotas of, the tenant the send is made for (the
 calling context's; the platform when there is none).
 
-Template placeholders use the unified Softa syntax: `{{ variable }}`.
+Template placeholders use the unified Softa syntax: `{{ variable }}`. A date or
+time variable is passed as the object itself and prints as the API writes it
+(`2026-11-12 13:00:40`), as in mail templates.
 
 #### Delivery pipeline
 

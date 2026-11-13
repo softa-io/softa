@@ -20,6 +20,7 @@ import io.softa.starter.user.service.DepartmentGrants;
 import io.softa.starter.user.service.DynamicRoleSyncJob;
 import io.softa.starter.user.service.RoleDataScopeService;
 import io.softa.starter.user.service.RoleGrantCeiling;
+import io.softa.starter.user.service.RoleTenantFacingGuard;
 import io.softa.starter.user.service.RoleNavigationService;
 import io.softa.starter.user.service.RoleSaveValidator;
 import io.softa.starter.user.service.RoleSensitiveFieldSetService;
@@ -81,6 +82,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     private final DynamicRoleSyncJob dynamicRoleSyncJob;
     private final UiContextBuilder uiContextBuilder;
     private final RoleGrantCeiling roleGrantCeiling;
+    private final RoleTenantFacingGuard roleTenantFacingGuard;
 
     /**
      * The application's own rules on what a role may be saved as, in {@code @Order}; none by default.
@@ -127,6 +129,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     @Transactional
     @Operation(summary = "Wizard create — insert Role + role_navigation + user_role rows (Manual + Dynamic) in one transaction; returns new role id")
     public ApiResponse<Long> createWithWizard(@RequestBody @Valid WizardSaveDTO body) {
+        roleTenantFacingGuard.assertTenantFacing(null, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(null);
         Long newId = roleService.createOne(role);
@@ -156,6 +159,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         // Who holds it now, and by what rule: a save that gives the role to anyone new is an assignment.
         Set<Long> membersBefore = memberIdsOf(id);
         JsonNode dynamicFilterBefore = roleService.getById(id).map(Role::getDynamicFilter).orElse(null);
+        roleTenantFacingGuard.assertTenantFacing(id, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         roleService.updateOne(role, true);

@@ -211,6 +211,42 @@ class PermissionInterceptorTest {
     }
 
     @Test
+    void tenantUser_holdingAPlatformPermission_isDeniedThePlatformOnlyEndpoints() {
+        // Roles are the tenant's to write; a grant naming the platform's permission must not open the
+        // platform's endpoints — shared models, every tenant's rows — to one tenant's ordinary user.
+        props.setPlatformOnlyPatterns(List.of("/TenantInfo/**"));
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleCodes(Set.of());
+        pi.setPermissions(Set.of("permission.system.tenant-info.view"));
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of("permission.system.tenant-info.view"));
+
+        MockHttpServletRequest r = req("POST", "/TenantInfo/searchList");
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class)
+                    .hasMessageContaining("Platform-admin only");
+            return null;
+        });
+    }
+
+    @Test
+    void platformTenantUser_keepsWhatTheirRolesGrant() {
+        // The platform tenant's staff are the platform's own; their roles may name its pages.
+        props.setPlatformOnlyPatterns(List.of("/TenantInfo/**"));
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleCodes(Set.of());
+        pi.setPermissions(Set.of("permission.system.tenant-info.view"));
+        when(snapshotProvider.get(eq(-1L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of("permission.system.tenant-info.view"));
+
+        MockHttpServletRequest r = req("POST", "/TenantInfo/searchList");
+        boolean allowed = inCtx(-1L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    @Test
     void platformAdmin_stillReachesAnUnregisteredEndpoint() {
         // The platform's own operations (pre-data loading, cron triggers) are such endpoints, and
         // the platform administrator is who they are for. The two in-tenant principals are refused.

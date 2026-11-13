@@ -17,7 +17,7 @@ import io.softa.starter.message.sms.enums.SmsProvider;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
 
 /**
- * SMS send record (audit log).
+ * SMS send record: the send log, and the queue the delivery loop works through.
  * <p>
  * Each record corresponds to a single phone number. For batch sends,
  * one record per recipient is created.
@@ -28,7 +28,10 @@ import io.softa.starter.message.sms.enums.SmsSendStatus;
  * attempt renders the template, routes the number to a provider and charges the
  * monthly quota, and writes the result back here; retries replay what that attempt
  * prepared. A request that cannot be prepared (no provider for the country, no
- * template, quota used up) still leaves its record, FAILED with the reason.
+ * template, quota used up) still leaves its record, FAILED with the reason, and
+ * nothing that attempt worked out: the rendered content and the route are written
+ * back only when preparation completes, so the record has no {@code content} and
+ * its {@code templateCode} and {@code templateVariables} say what it was.
  * <p>
  * Platform-owned and not multi-tenant: the table is the SMS delivery queue, and
  * SMS is a platform service, so there is no tenant view of it. {@code tenantId}
@@ -36,9 +39,15 @@ import io.softa.starter.message.sms.enums.SmsSendStatus;
  * the scope, {@code -1} when no tenant can be named — and picks the monthly
  * quota bucket it draws on. Acceptance writes it explicitly; the ORM neither
  * stamps nor filters it.
+ * <p>
+ * Keeps no change log: the delivery loop writes every record several times —
+ * the claim, the preparation, the outcome — and its own fields are its history.
+ * A log would also copy the rendered content, sign-in codes included, into the
+ * change-log store.
  */
 @Data
-@Model(label = "SMS Send Record", idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false)
+@Model(label = "SMS Send Record", idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false,
+        enableAuditLog = false)
 @Index(indexName = "idx_sms_send_tenant_status", fields = {"tenantId", "status"})
 @Index(indexName = "idx_sms_send_sent_at", fields = {"sentAt"})
 @Index(indexName = "idx_sms_send_status_updated", fields = {"status", "updatedTime"})
@@ -84,8 +93,9 @@ public class SmsSendRecord extends AuditableModel {
     @Field(fieldType = FieldType.JSON, description = "Template placeholder values the caller passed")
     private JsonNode templateVariables;
 
-    @Field(length = 2000, description = "SMS content: the caller's text, or the template rendered "
-            + "by the first delivery attempt")
+    @Field(length = 2000, description = "SMS content: the caller's text, or the template rendered when the "
+            + "first delivery attempt prepares the record. Empty on a record that failed before that (template, "
+            + "provider or quota): its template code and variables say what it was.")
     private String content;
 
     @Field(description = "SMS signature (sign name) actually used at send time. "

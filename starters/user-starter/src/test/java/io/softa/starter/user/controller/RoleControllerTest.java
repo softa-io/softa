@@ -78,7 +78,8 @@ class RoleControllerTest {
         controller = new RoleController(
                 roleService, roleNavigationService,
                 roleDataScopeService, roleSensitiveFieldSetService,
-                userRoleRelService, dynamicRoleSyncJob, uiContextBuilder, roleGrantCeiling);
+                userRoleRelService, dynamicRoleSyncJob, uiContextBuilder, roleGrantCeiling,
+                mock(io.softa.starter.user.service.RoleTenantFacingGuard.class));
         // Injected by Spring in production; set directly here (same package) because the write
         // verbs and their SystemRoleWriteGuard call now live in SystemRoleGuardedController.
         controller.modelService = castModelService(modelService);

@@ -92,7 +92,13 @@ finds it in a search (`searchName`).
   | Client | Gets the session | Sends it back | Ignored |
   | --- | --- | --- | --- |
   | APP | `sessionToken` in the response body (no cookie) | `X-Session-Id` header | any cookie |
-  | Web / H5 | `SOFTA_SESSION_ID` cookie (never in the body) | the cookie | `X-Session-Id` |
+  | Web / H5 | `sessionId` cookie (never in the body) | the cookie | `X-Session-Id` |
+
+  The Web cookie is `HttpOnly`, `Secure` and `SameSite=Lax`, kept 30 days: page scripts
+  cannot read it, and the browser leaves it off any request another site starts (a form
+  post, a fetch, an iframe) while still sending it when the user follows a link from
+  elsewhere. A cross-site page therefore cannot act with the session; a page on another
+  subdomain of the same registrable domain still counts as the same site.
 
   A session is also checked against the client using it, on every authenticated request
   and on `/login/myTenants`, `/login/switchTenant`, `/login/leaveTenant` and
@@ -182,6 +188,23 @@ entitlement is installed. `modelHiddenFieldsMap` and `empId` are computed per re
 the cached snapshot. A field hidden only on some records is not in `modelHiddenFieldsMap`; ask
 `POST /{model}/getRecordAccess` for those. The same fields are left out of what
 `GET /metadata/getMetaModel` serves this caller (metadata-starter README).
+
+The same controller lets the signed-in person change their own password and login mobile, each a
+chain of steps over `MyCredentialService` in which every step hands back a ticket only the next step
+accepts (`{"ticket": "..."}`):
+
+| Endpoint | Body | Returns |
+| --- | --- | --- |
+| `POST /me/password/sendCode` | — | a code sent to the login mobile |
+| `POST /me/password/verifyCode` | `code` | a ticket for `/me/password/change`, ten minutes |
+| `POST /me/password/change` | `ticket`, `newPassword` | — ; every other device is signed out |
+| `POST /me/mobile/verifyCurrent` | `method` (`code` or `password`), `code` / `password` | a ticket for `/me/mobile/checkNew` |
+| `POST /me/mobile/checkNew` | `ticket`, `newMobile` | a ticket for confirming; a code is sent to the new number |
+| `POST /me/mobile/resendCode` | `ticket` | another code, same ticket |
+| `POST /me/mobile/confirm` | `ticket`, `code` | — ; the number holds in every company, every other device is signed out |
+
+They act on the caller only and carry no business permission: the application lists `/me/**` under
+`permission.authenticated-bypass-patterns`, as `uiContext` already needs.
 
 ## Consultants
 

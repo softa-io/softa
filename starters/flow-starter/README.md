@@ -140,7 +140,7 @@ any validator runs.
 
 **`FlowClient`** (`api`) — not an extension point but the in-process port, one class, for what a business module does
 with a record's approval: `submitRecord`, `previewValues`, `withdrawRecord`, `cancelRecord`. Identity comes from the
-context, never from a parameter. Approver actions, task reads, a record's approval history, a saved record's preview and starting an
+context, never from a parameter. Approver actions, task reads, a record's approval and its steps, a saved record's preview and starting an
 `Api`-triggered Automation flow stay on REST; a method joins the port when a business module calls it, not before.
 
 **`FlowStateChangeListener`** (`runtime/engine`) — called by `FlowProjectionPublisher` after every save of an
@@ -211,7 +211,12 @@ A change keeps these; each names the class that holds it.
   client's filters are ANDed onto the pin (`CallerConditions`).
 - **The preview walks the engine's own code.** `ApprovalPathPreviewer` routes with `FlowGatewayRouter`, resolves with
   `PendingApprovalFactory` and auto-approves with `ApproverDedupService`, on a state never saved — a routing or
-  resolution change reaches submissions and previews together.
+  resolution change reaches submissions, previews and the steps a record's approval shows ahead together.
+- **A record's approval is one, however many times it was submitted.** Each submission is an instance; whoever sees
+  one sees them all, with their steps (`GET /flow/instances/by-record`): whoever took part in any of them, reads the
+  record, or whose roles read any of their `FlowInstance` rows. The instance endpoints admit the same people
+  (`FlowInstanceAccessGuard`). Reading the record itself through an approval stays narrower: its participants and
+  its readers.
 - **Stored codes are data.** Enum codes and option items stored by the flow models — in columns and inside
   `FlowDesign.designJson`, `FlowBundle.designJson` / `compiledJson` and an instance's state — are read strictly: an
   unknown code throws. Renaming or removing one, or renaming a JSON key, ships a migration SQL in the same change, for
@@ -237,6 +242,8 @@ The softa-docs pages state each rule; this is where to change it.
 | A record node's model, and the paths its filters, orders and fields name, checked at publish | `TaskConfigValidator.checkQuery`, with softa-orm's `FieldPaths` |
 | A delegation rule's status — Scheduled, Active, Ended, Cancelled — the one that routes a task, the one the lists show and the one the administrators' list filters by | `FlowDelegationStatus.of`, and `condition` for the same judgement as a filter on the stored fields (`FlowDelegationSearchTest` holds them together); routing in `FlowDelegationServiceImpl.findActiveDelegation`, the caller's lists in `searchDelegations` (`FlowDelegationBox`), the administrators' in `searchAll`, shown by `FlowDelegationViews` |
 | Withdrawing and taking back a failed approval | `WithdrawPolicyGuard` |
+| Who sees a record's approval, and each of its instances | `FlowInstanceAccessGuard.authorizeRecordApprovals`, `requireInstanceViewer` |
+| A record's approval steps — passed, waited on, ahead — and how a submission ended | `FlowApprovalStepsComposer`; the steps ahead by `ApprovalPathPreviewer.previewRemaining` |
 | A task row's current steps | `CurrentStepsReader` |
 | A subflow that cannot run | `FlowExecutionOrchestrator.executeSubflow` |
 | Refusals answered with their reason | `FlowExceptionHandler`, ordered first (`Ordered.HIGHEST_PRECEDENCE`) |

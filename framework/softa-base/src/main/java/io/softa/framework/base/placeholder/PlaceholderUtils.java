@@ -13,6 +13,7 @@ import org.jspecify.annotations.Nullable;
 import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.base.utils.DateUtils;
 
 /**
  * Placeholder Utils
@@ -160,7 +161,9 @@ public class PlaceholderUtils {
      * A variable missing from the map is left in place literally, keeping typos
      * visible in the rendered text instead of silently blanking them.
      * @param text text
-     * @param placeholderMap placeholder variable map, values are rendered via toString
+     * @param placeholderMap placeholder variable map; a date or time is rendered in the
+     *                       platform format ({@link DateUtils#formatTemporal}), any other
+     *                       value via toString
      * @return replaced text
      */
     public static String replacePlaceholders(String text, Map<String, Object> placeholderMap) {
@@ -168,7 +171,7 @@ public class PlaceholderUtils {
             return text;
         }
         StringLookup trimmedKeyLookup = key -> {
-            Object value = placeholderMap.get(key.trim());
+            Object value = DateUtils.formatTemporal(placeholderMap.get(key.trim()));
             return value == null ? null : value.toString();
         };
         StringSubstitutor sub = new StringSubstitutor(

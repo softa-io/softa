@@ -28,10 +28,13 @@ import io.softa.framework.orm.enums.IdStrategy;
  * deployment default) — historical rows therefore show the limit that
  * governed that month, while enforcement always compares against the
  * CURRENT resolved limit (an operations change takes effect immediately).
+ * <p>
+ * Keeps no change log: a row is incremented on every send, and its counts
+ * are the history.
  */
 @Data
 @Model(label = "Tenant Message Usage", idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        businessKey = {"tenantId", "month"}, versionLock = true, copyable = false)
+        businessKey = {"tenantId", "month"}, versionLock = true, copyable = false, enableAuditLog = false)
 @Index(indexName = "uk_tenant_message_usage_bucket", fields = {"tenantId", "month"}, unique = true,
         message = "A usage row for this tenant and month already exists.")
 @EqualsAndHashCode(callSuper = true)
