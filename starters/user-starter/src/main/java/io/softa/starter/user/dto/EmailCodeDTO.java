@@ -11,5 +11,5 @@ public class EmailCodeDTO {
     private String email;
 
     @NotBlank(message = "Verification code cannot be empty!")
-    private String code;
+    private String verificationCode;
 }

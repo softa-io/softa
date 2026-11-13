@@ -67,7 +67,7 @@ class MeCredentialEndpointsTest {
     void theBodiesKeepTheirFieldNamesOnTheWire() {
         assertThat(JsonUtils.objectToString(new TicketView("t"))).isEqualTo("{\"ticket\":\"t\"}");
         VerifyCurrentBody proof = JsonUtils.stringToObject(
-                "{\"method\":\"code\",\"code\":\"123456\"}", VerifyCurrentBody.class);
+                "{\"method\":\"code\",\"verificationCode\":\"123456\"}", VerifyCurrentBody.class);
         assertThat(proof).isEqualTo(new VerifyCurrentBody("code", "123456", null));
         ChangePasswordBody change = JsonUtils.stringToObject(
                 JsonUtils.objectToString(Map.of("ticket", "t", "newPassword", "p")), ChangePasswordBody.class);
