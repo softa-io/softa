@@ -95,6 +95,7 @@ class RebindJoinTest {
 
         assertThat(result.profileId()).isEqualTo(ADA);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(result.signedUp()).isFalse();
         assertThat(result.proof()).isEqualTo("proof");
     }
 

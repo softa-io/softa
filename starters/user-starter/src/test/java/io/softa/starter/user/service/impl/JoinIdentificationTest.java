@@ -109,6 +109,7 @@ class JoinIdentificationTest {
 
         assertThat(result.profileId()).isEqualTo(EXISTING);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.CONFIRM);
+        assertThat(result.signedUp()).isFalse();
         verify(proofGuard).mint(TOKEN, EXISTING, "mobile");
     }
 
@@ -143,7 +144,10 @@ class JoinIdentificationTest {
         when(profileService.createPersonForJoin(EMAIL)).thenReturn(NEW_PERSON);
         when(proofGuard.joinPersonOf(TOKEN)).thenReturn(null);
 
-        assertThat(loginService.verifyJoinCode(TOKEN, "email", "123456").profileId()).isEqualTo(NEW_PERSON);
+        JoinVerification result = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(result.profileId()).isEqualTo(NEW_PERSON);
+        assertThat(result.signedUp()).isTrue();
     }
 
     @Test
@@ -156,6 +160,7 @@ class JoinIdentificationTest {
 
         assertThat(result.profileId()).isEqualTo(PLACEHOLDER);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(result.signedUp()).isTrue();
     }
 
     @Test
@@ -167,6 +172,7 @@ class JoinIdentificationTest {
 
         assertThat(result.profileId()).isEqualTo(NEW_PERSON);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(result.signedUp()).isTrue();
         verify(proofGuard).rememberJoinPerson(TOKEN, NEW_PERSON);
     }
 
@@ -181,6 +187,8 @@ class JoinIdentificationTest {
 
         assertThat(result.profileId()).isEqualTo(NEW_PERSON);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        // Back to an account they left half set up: not a sign-up a second time.
+        assertThat(result.signedUp()).isFalse();
         verify(accountService, never()).releaseDormantLoginMobile(anyString(), anyString());
         verify(profileService, never()).createPersonForJoin(anyString());
     }
