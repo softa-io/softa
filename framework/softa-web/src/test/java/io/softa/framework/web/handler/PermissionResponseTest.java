@@ -47,7 +47,7 @@ class PermissionResponseTest {
     @Test
     void anyOtherRefusalCarriesNoFieldErrorsMember() {
         ApiResponseErrorDetails<Void> body = bodyOf(handler.handleException(
-                new PermissionException("Endpoint not registered: POST /X/y")));
+                new PermissionException("You do not have access to this resource.")));
         assertThat(body.getCode()).isEqualTo(ResponseCode.PERMISSION_DENIED.getCode());
         assertThat(body.getFieldErrors()).isNull();
     }

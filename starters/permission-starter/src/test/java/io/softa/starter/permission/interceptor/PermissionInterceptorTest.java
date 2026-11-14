@@ -82,7 +82,7 @@ class PermissionInterceptorTest {
         MockHttpServletRequest r = req("POST", "/Employee/searchList");
         assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
                 .isInstanceOf(PermissionException.class)
-                .hasMessageContaining("Authentication required");
+                .hasMessage(PermissionInterceptor.REFUSED);
     }
 
     @Test
@@ -177,7 +177,7 @@ class PermissionInterceptorTest {
             assertThatThrownBy(() ->
                     interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Missing permission");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -225,7 +225,7 @@ class PermissionInterceptorTest {
         inCtx(10L, 42L, () -> {
             assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Platform-admin only");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -386,7 +386,7 @@ class PermissionInterceptorTest {
             assertThatThrownBy(() ->
                     interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("not registered");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -408,7 +408,7 @@ class PermissionInterceptorTest {
             assertThatThrownBy(() ->
                     interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Missing permission");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -453,7 +453,7 @@ class PermissionInterceptorTest {
         assertThatThrownBy(() -> inCtx(10L, 42L,
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null)))
                 .isInstanceOf(PermissionException.class)
-                .hasMessageContaining("Platform-admin only");
+                .hasMessage(PermissionInterceptor.REFUSED);
     }
 
     @Test
@@ -527,7 +527,7 @@ class PermissionInterceptorTest {
             assertThatThrownBy(() ->
                     interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Missing permission");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -556,7 +556,7 @@ class PermissionInterceptorTest {
         inCtx(10L, 42L, () -> {
             assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Endpoint not registered");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -573,7 +573,7 @@ class PermissionInterceptorTest {
             assertThatThrownBy(() ->
                     interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Platform-admin only");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -620,7 +620,7 @@ class PermissionInterceptorTest {
             assertThatThrownBy(() ->
                     interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Missing permission");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -634,7 +634,7 @@ class PermissionInterceptorTest {
         inCtx(10L, 42L, () -> {
             assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Endpoint not registered");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
@@ -661,7 +661,7 @@ class PermissionInterceptorTest {
             assertThatThrownBy(() ->
                     interceptor.preHandle(r, new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Platform-admin only");
+                    .hasMessage(PermissionInterceptor.REFUSED);
             return null;
         });
     }
