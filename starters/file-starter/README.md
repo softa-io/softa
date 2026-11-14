@@ -746,6 +746,8 @@ Map<String, Object> data = Map.of(
 FileInfo fileInfo = documentTemplateService.generateDocument(templateId, data);
 ```
 
+The returned `FileInfo.url` is a file key's address ending in `?download=1` (softa-web README, File keys): hand it to the client that asked for the document. Code that keeps the result — a flow variable, a mail — keeps `fileInfo.getFileId()`; to mail the document, attach it by its id.
+
 The `generateDocument(templateId, data)` overload skips the model data fetch step and renders the template directly with the provided `Map<String, Object>`. This is useful when:
 - The data comes from an external source or custom aggregation.
 - You want to render a document from a non-model data structure.

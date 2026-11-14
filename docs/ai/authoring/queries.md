@@ -157,5 +157,10 @@ allowed.
 With a `SubQuery`, a relation returns the full related **row map** (using the
 same `ConvertType`) instead of a reference.
 
-`FileInfo.url` is a ready-to-use download URL — see the file-starter reference
-([feature-starters.md](feature-starters.md)) for upload/storage mechanics.
+`FileInfo.url` is a site-relative address with a signed key, for the client the
+data is returned to: it opens for that account only (30–31 days), or for anyone
+for an hour when no user is logged in; append `?download=1` to download. Backend
+code never reads it — keep the `fileId`, read content with
+`FileService.downloadStream(fileId)`. See softa-web README "File keys", and the
+file-starter reference ([feature-starters.md](feature-starters.md)) for
+upload/storage mechanics.

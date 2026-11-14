@@ -2,10 +2,8 @@ package io.softa.framework.web.signature.support;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
-import io.softa.framework.base.exception.SignatureException;
+import io.softa.framework.base.security.HashUtils;
 
 /**
  * Builds the canonical byte string that signer and verifier both feed into Ed25519.
@@ -27,8 +25,7 @@ import io.softa.framework.base.exception.SignatureException;
 public final class CanonicalRequest {
 
     public static final String VERSION = "v1";
-    private static final String SHA_256 = "SHA-256";
-    private static final byte[] EMPTY_BODY_HASH = hexHash(new byte[0]);
+    private static final String EMPTY_BODY_HASH = HashUtils.sha256Hex(new byte[0]);
 
     private CanonicalRequest() {}
 
@@ -48,7 +45,7 @@ public final class CanonicalRequest {
         sb.append(nonce).append('\n');
         sb.append(method.toUpperCase()).append('\n');
         sb.append(pathAndQuery(uri)).append('\n');
-        sb.append(new String(body == null || body.length == 0 ? EMPTY_BODY_HASH : hexHash(body), StandardCharsets.US_ASCII));
+        sb.append(body == null || body.length == 0 ? EMPTY_BODY_HASH : HashUtils.sha256Hex(body));
         return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
@@ -59,24 +56,5 @@ public final class CanonicalRequest {
         }
         String query = uri.getRawQuery();
         return query == null ? path : path + "?" + query;
-    }
-
-    private static byte[] hexHash(byte[] body) {
-        try {
-            byte[] digest = MessageDigest.getInstance(SHA_256).digest(body);
-            return toHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new SignatureException("SHA-256 unavailable — broken JRE", e);
-        }
-    }
-
-    private static byte[] toHex(byte[] bytes) {
-        byte[] out = new byte[bytes.length * 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int v = bytes[i] & 0xff;
-            out[i * 2] = (byte) Character.forDigit(v >>> 4, 16);
-            out[i * 2 + 1] = (byte) Character.forDigit(v & 0x0f, 16);
-        }
-        return out;
     }
 }

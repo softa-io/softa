@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.starter.metadata.catalog.SysCatalog;
 import io.softa.starter.metadata.catalog.SysColumn;
 import io.softa.starter.metadata.entity.SysField;
@@ -80,7 +80,7 @@ public final class AggregateChecksum {
                                  List<Map<String, Object>> fields,
                                  List<Map<String, Object>> indexes) {
         String root = CanonicalMetadataSerializer.canonical(model, MODEL_ATTRS);
-        return sha256(root
+        return HashUtils.sha256Hex(root
                 + "|F" + childGroup(fields, FIELD_ATTRS)
                 + "|I" + childGroup(indexes, INDEX_ATTRS));
     }
@@ -91,7 +91,7 @@ public final class AggregateChecksum {
     public static String ofOptionSet(Map<String, Object> optionSet,
                                      List<Map<String, Object>> items) {
         String root = CanonicalMetadataSerializer.canonical(optionSet, OPTION_SET_ATTRS);
-        return sha256(root + "|I" + childGroup(items, OPTION_ITEM_ATTRS));
+        return HashUtils.sha256Hex(root + "|I" + childGroup(items, OPTION_ITEM_ATTRS));
     }
 
     /**
@@ -99,7 +99,7 @@ public final class AggregateChecksum {
      * after an aggregate-level mismatch.
      */
     public static String ofChild(Map<String, Object> child, List<String> allowList) {
-        return sha256(CanonicalMetadataSerializer.canonical(child, allowList));
+        return HashUtils.sha256Hex(CanonicalMetadataSerializer.canonical(child, allowList));
     }
 
     private static String childGroup(List<Map<String, Object>> children, List<String> allowList) {
@@ -112,9 +112,5 @@ public final class AggregateChecksum {
         }
         Collections.sort(hashes);   // child order never affects the aggregate hash
         return "[" + String.join("|", hashes) + "]";
-    }
-
-    private static String sha256(String s) {
-        return EncryptUtils.computeSha256(s);
     }
 }

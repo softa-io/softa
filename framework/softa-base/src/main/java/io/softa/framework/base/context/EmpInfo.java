@@ -34,7 +34,6 @@ public class EmpInfo implements Serializable {
     private String name;
     private String email;
     private String phone;
-    private String photoUrl;
     private Long deptId;
     private String deptName;
     private Long positionId;

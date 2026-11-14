@@ -4,10 +4,10 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -22,6 +22,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.util.unit.DataSize;
 
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.HtmlUtils;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.dto.UploadFileDTO;
@@ -240,17 +241,8 @@ public class MailMessageParser {
         String date = message.getSentDate() != null
                 ? String.valueOf(message.getSentDate().getTime()) : "";
         String raw = serverConfigId + ":" + folderName + ":" + from + ":" + subject + ":" + date;
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(raw.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(32);
-            for (int i = 0; i < 16; i++) {
-                hex.append(String.format("%02x", hash[i]));
-            }
-            return "synthetic:" + hex;
-        } catch (Exception e) {
-            return "synthetic:" + Math.abs(raw.hashCode());
-        }
+        byte[] hash = HashUtils.sha256(raw.getBytes(StandardCharsets.UTF_8));
+        return "synthetic:" + HexFormat.of().formatHex(hash, 0, 16);
     }
 
     private String extractAddress(Address[] addresses) {

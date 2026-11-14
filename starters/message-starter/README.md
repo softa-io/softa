@@ -703,7 +703,7 @@ SendMailDTO mail = new SendMailDTO();
 mail.setAttachments(List.of(attachment));
 ```
 
-Upload bytes through `file-starter` first, then pass the resulting `FileInfo`.
+Upload bytes through `file-starter` first, then pass the resulting `FileInfo`. Only its `fileId` is used: the transport streams each attachment from storage by id when the mail goes out, so a `FileInfo` read in any context works — never put a file's `url` in a mail body instead, it is dead long before the mail is read. In a flow, the Send Email node's `attachments` takes file ids.
 
 ### Email Templates
 

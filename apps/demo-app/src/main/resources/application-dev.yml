@@ -131,6 +131,12 @@ oss:
   bucket-name: demo-app
   sub-dir:
 
+file:
+  # Signs the keys in FileInfo.url (softa-web README, File keys). Required, the same on every
+  # instance. The default is for local development only: anywhere else set FILE_OPEN_KEY_SECRET
+  # (openssl rand -base64 48).
+  open-key-secret: ${FILE_OPEN_KEY_SECRET:dev-only-file-open-key-secret-do-not-use-anywhere-else}
+
 rpc:
   enable: true
   protocol: http
@@ -274,3 +280,6 @@ permission:
   public-uri-patterns:            # bypass the interceptor entirely (login / health / …)
     - /login/**
     - /actuator/health
+    - /openapi/file/**            # unbound file keys: FileInfo.url of a request without a user
+  authenticated-bypass-patterns:  # signed in, but the path names no model to check
+    - /file/open/**               # the file key is the check: it opens for its own account only

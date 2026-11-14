@@ -82,7 +82,7 @@ public class LoginController {
         UserInfo userInfo = oAuth2Service.loginByApple(appleLoginDTO.getToken());
         String sessionId = loginService.generateSessionId(userInfo.getUserId());
         CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-        return ApiResponse.success(userInfo);
+        return ApiResponse.success(profileService.withPhotoUrl(userInfo));
     }
 
     /**
@@ -96,7 +96,7 @@ public class LoginController {
         UserInfo userInfo = oAuth2Service.loginByOAuth2(oAuthCredential);
         String sessionId = loginService.generateSessionId(userInfo.getUserId());
         CookieUtils.setCookie(response, BaseConstant.SESSION_ID, sessionId);
-        return ApiResponse.success(userInfo);
+        return ApiResponse.success(profileService.withPhotoUrl(userInfo));
     }
 
     /**

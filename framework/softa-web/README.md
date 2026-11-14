@@ -363,15 +363,15 @@ Typical `FileInfo` fields include:
 1. `fileId`
 2. `fileName`
 3. `size`
-4. `url`
+4. `url` — a site-relative address with a signed key, not a storage link; see [File keys](#file-keys)
 
 Example:
 ```json
 {
-  "avatar": { "fileId": 1001, "fileName": "a.png", "url": "..." },
+  "avatar": { "fileId": 1001, "fileName": "a.png", "url": "/api/demo/file/open/1001.1797206400.G4CHYJkdKbgZABYFb9A1mw" },
   "attachments": [
-    { "fileId": 2001, "fileName": "doc.pdf", "url": "..." },
-    { "fileId": 2002, "fileName": "spec.docx", "url": "..." }
+    { "fileId": 2001, "fileName": "doc.pdf", "url": "/api/demo/file/open/2001.1797206400.qP3vXWm1lB0aZ7cYt5dE2g" },
+    { "fileId": 2002, "fileName": "spec.docx", "url": "/api/demo/file/open/2002.1797206400.K9sLx2Rb0nVfQ6hTz1uW4A" }
   ]
 }
 ```
@@ -465,6 +465,40 @@ Rules:
    - OneToMany: `CREATE/UPDATE/DELETE` or `Create/Update/Delete`
    - ManyToMany: `ADD/REMOVE` or `Add/Remove`
 3. Unknown patch key or non-list patch value will fail fast with parameter validation error.
+
+## File keys
+
+`FileInfo.url` — on every File / MultiFile field read, every upload, every generated file — is not a storage link. It is a site-relative address carrying a signed key (`FileOpenKeys`, softa-orm), made in `FileServiceImpl.convertToFileInfo` each time a file is returned:
+
+| Request | `url` | Opens for | Valid |
+|---|---|---|---|
+| With a logged-in user (`Context.userId`) | `<context-path>/file/open/<key>` | that account only — its session must present the key | until UTC midnight of the issue day + 31 days (30–31 days; one address per file per day) |
+| Without one: a public page under `/openapi/**`, a scheduled job, a flow nobody triggered | `<context-path>/openapi/file/<key>` | anyone holding it | 1 hour |
+
+A key is `<fileId>.<exp>.<signature>`: the signature is HMAC-SHA256 over the file, the expiry and — for a user key — the account, cut to 128 bits and base64url-encoded. The account is signed in, not written out: opening recomputes the signature with the userId of the session presenting the key. Nothing is stored, nothing is encrypted, no Redis.
+
+Opening (`FileController` `GET /file/open/{key}`, `PublicFileController` `GET /openapi/file/{key}`) checks the key and answers `302` to a storage link signed at that moment, valid `oss.url-expire-seconds` (default 300). `?download=1` asks for `Content-Disposition: attachment` with the file name; otherwise the file displays inline. Generated files (`uploadFromStream`: exports, import results, documents) carry `?download=1` already. Every answer is `Cache-Control: no-store` — a shared cache holding one account's `302` would hand the file to anyone. Refusals are one line of plain text, since these addresses are opened by img, iframe and new tabs: `404` malformed key or missing file, `403` a key issued to another account (or of the other kind), `410` expired. A `/file/open/` address reached with no usable session gets `401` from `ContextScopeFilter`, in plain text too — not the HTTP 200 JSON envelope every other call gets, which a download would save as the file.
+
+Opening does not re-check access to the record the file hangs on: a key only comes out of a read that was authorized already, under the record's scope. A revoked permission or a removed attachment therefore stops keys already handed out when they expire — at most 31 days — not at once. Rebinding an account to another person (Unbind & Re-invite) revokes the previous person's sessions, which their keys need.
+
+Configuration — required; startup fails without it:
+
+```yaml
+file:
+  open-key-secret: ${FILE_OPEN_KEY_SECRET:}   # at least 32 characters: openssl rand -base64 48
+```
+
+Every instance must use the same secret: a key one instance signed has to open on any other, rolling deploys included. Changing it invalidates every key handed out — a page refresh issues new ones.
+
+With `permission-starter`, the endpoint gate cannot tell a model from `/file/open/**` (the same reason as `/file/uploadFileTo*`): list it in `permission.authenticated-bypass-patterns` — the key is the check. `/openapi/file/**` must be reachable without a session: it is under `/openapi/**`, which `IdentityResolver` binds no context for; list it (or `/openapi/**`) in `permission.public-uri-patterns`.
+
+Rules for code that handles files:
+
+- Caches, the database, flow variables and mails hold file ids, never addresses. The address is made when the data is returned to a client; an address kept anywhere outlives what signed it.
+- Backend code never reads `FileInfo.url`. Read the content with `FileService.downloadStream(fileId)`; attach a file to a mail by its `FileInfo` (the transport streams it by `fileId`); hand a file to an external system that fetches by URL with `FileService.getStorageLink(fileId, download)` — signed at call time, gone within minutes, never stored.
+- To let a person open a file later (a mail, an SMS, a notification), attach it or link to the record's page; the person signs in and reads the record, which hands them their own key.
+
+Clients: a browser on the same origin sends the session cookie by itself. The mobile APP sends `X-Session-Id` with image and file requests; for a viewer that cannot send headers (the system browser, a third-party PDF viewer), it requests the address with the header itself and hands the `302`'s `Location` — a short storage link — to the viewer.
 
 ## APP Version Check
 

@@ -45,10 +45,9 @@ public interface FileService {
      * @param rowId     the ID of the corresponding business row data
      * @param fieldName The field name of the file belongs to
      * @param url       the URL of the file
-     * @param expireSeconds the expiration time in seconds
      * @return fileInfo object
      */
-    FileInfo uploadFromUrl(String modelName, Serializable rowId, String fieldName, String url, int expireSeconds);
+    FileInfo uploadFromUrl(String modelName, Serializable rowId, String fieldName, String url);
 
     /**
      * Upload a file to the OSS by input stream.
@@ -76,13 +75,17 @@ public interface FileService {
     Optional<FileInfo> getByFileId(Long fileId);
 
     /**
-     * Get the FileInfo object by fileId
+     * A storage link to the file, signed now and valid for {@code oss.url-expire-seconds} (300 seconds
+     * by default). For the endpoints that open a file key, and for handing a file to an external system
+     * that fetches it by URL right away. Never keep it or send it on: it is dead within minutes.
+     * {@code FileInfo.url} is the address a page keeps; backend code that needs the content reads
+     * {@link #downloadStream(Long)}.
      *
-     * @param fileId the ID of the file
-     * @param expireSeconds the expiration time in seconds
-     * @return Optional object containing the FileInfo object if found, or empty if not found
+     * @param fileId   the ID of the file
+     * @param download true for {@code Content-Disposition: attachment}, false to display inline
+     * @return the link, or empty when there is no such file
      */
-    Optional<FileInfo> getByFileId(Long fileId, int expireSeconds);
+    Optional<String> getStorageLink(Long fileId, boolean download);
 
     /**
      * Get the FileInfo object list by fileIds.

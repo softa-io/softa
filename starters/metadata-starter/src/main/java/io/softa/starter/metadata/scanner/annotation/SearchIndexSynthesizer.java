@@ -1,8 +1,6 @@
 package io.softa.starter.metadata.scanner.annotation;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -12,6 +10,7 @@ import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IndexMethod;
 import io.softa.starter.metadata.entity.SysModelIndex;
@@ -238,16 +237,11 @@ public final class SearchIndexSynthesizer {
     }
 
     private static String shortDigest(String value) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; sb.length() < HASH_LEN; i++) {
-                sb.append(Character.forDigit((hash[i] & 0xFF) % 36, 36));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is required by every JVM", e);
+        byte[] hash = HashUtils.sha256(value.getBytes(StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; sb.length() < HASH_LEN; i++) {
+            sb.append(Character.forDigit((hash[i] & 0xFF) % 36, 36));
         }
+        return sb.toString();
     }
 }

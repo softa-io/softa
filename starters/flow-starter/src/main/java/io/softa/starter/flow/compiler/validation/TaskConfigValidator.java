@@ -109,7 +109,10 @@ public class TaskConfigValidator implements FlowValidator {
                 requireText(node, at + "modelName", q.getModelName(), d);
                 checkQuery(node, at, q.getModelName(), q.getFields(), q.getFilters(), q.getOrders(), d);
             }
-            case SendEmailConfig mail -> requirePresent(node, at + "to", mail.getTo(), d);
+            case SendEmailConfig mail -> {
+                requirePresent(node, at + "to", mail.getTo(), d);
+                checkFileIds(node, at + "attachments", mail.getAttachments(), d);
+            }
             case SendInboxNotificationConfig inbox -> {
                 requirePresent(node, at + "recipientIds", inbox.getRecipientIds(), d);
                 requireText(node, at + "title", inbox.getTitle(), d);
@@ -215,6 +218,24 @@ public class TaskConfigValidator implements FlowValidator {
         if (value == null || value.isEmpty()) {
             d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field,
                     MISSING_REQUIRED_INPUT, "Task node '" + node.displayName() + "' requires " + field));
+        }
+    }
+
+    /**
+     * File ids for an optional polymorphic field (a literal list, or a {@code {{ expr }}} string):
+     * every literal must be a number. Expressions are left to run time — what they resolve to is not
+     * known yet. A link pasted where an id belongs is the mistake this catches.
+     */
+    private void checkFileIds(FlowGraphNode node, String field, Object value, List<CompileDiagnostic> d) {
+        Iterable<?> items = value instanceof java.util.Collection<?> c ? c
+                : value == null ? List.of() : List.of(value);
+        for (Object item : items) {
+            if (item instanceof String s && StringUtils.hasText(s) && !s.contains("{{")
+                    && !s.trim().chars().allMatch(ch -> ch >= '0' && ch <= '9')) {
+                d.add(CompileDiagnostic.fieldLevel(node.getId(), node.getType().getType(), field, INVALID_TASK_CONFIG,
+                        "Task node '" + node.displayName() + "' has a value in " + field
+                                + " that is not a file ID: '" + s + "'"));
+            }
         }
     }
 

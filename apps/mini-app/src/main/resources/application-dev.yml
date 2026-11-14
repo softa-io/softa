@@ -45,6 +45,12 @@ oss:
   bucket-name: demo-app
   sub-dir:
 
+file:
+  # Signs the keys in FileInfo.url (softa-web README, File keys). Required, the same on every
+  # instance. The default is for local development only: anywhere else set FILE_OPEN_KEY_SECRET
+  # (openssl rand -base64 48).
+  open-key-secret: ${FILE_OPEN_KEY_SECRET:dev-only-file-open-key-secret-do-not-use-anywhere-else}
+
 rpc:
   enable: true
 
