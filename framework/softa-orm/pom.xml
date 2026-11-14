@@ -116,5 +116,12 @@
             <artifactId>aliyun-sdk-oss</artifactId>
             <version>3.18.5</version>
         </dependency>
+        <!-- Bytecode-level structure checks (which write paths reach the id check). -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>1.4.2</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
