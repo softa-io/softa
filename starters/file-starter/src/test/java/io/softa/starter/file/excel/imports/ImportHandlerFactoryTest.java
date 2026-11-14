@@ -78,6 +78,18 @@ class ImportHandlerFactoryTest {
     }
 
     @Test
+    void anAmountWithThousandsSeparatorsSaysWhatToEnterInsteadOfTheJavaType() throws Exception {
+        MetaField metaField = metaField(FieldType.BIG_DECIMAL, "IPA Basic", "ipaBasic");
+        BaseImportHandler handler = invokeCreateHandler(metaField, importFieldDTO("ipaBasic"));
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("ipaBasic", "4,500.50");
+
+        ValidationException e = assertThrows(ValidationException.class, () -> handler.handleRow(row));
+        assertEquals("IPA Basic: `4,500.50` is not a number. Enter digits only, without thousands separators "
+                + "(e.g. 4500.50).", e.getMessage());
+    }
+
+    @Test
     void aNumericColumnConvertsWhatItAccepts() throws Exception {
         MetaField metaField = metaField(FieldType.LONG, "Head Count", "headCount");
         BaseImportHandler handler = invokeCreateHandler(metaField, importFieldDTO("headCount"));
