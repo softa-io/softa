@@ -4,6 +4,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.service.UserInvitationService;
+import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserSessionService;
 
@@ -33,6 +34,7 @@ final class AccountServiceTestSupport {
         ReflectionTestUtils.setField(accountService, "invitationService", mock(UserInvitationService.class));
         ReflectionTestUtils.setField(accountService, "loginHistory", mock(LoginHistoryRecorder.class));
         ReflectionTestUtils.setField(accountService, "mobileFormat", InvitationServiceTestSupport.mobileFormat());
+        ReflectionTestUtils.setField(accountService, "profileService", mock(UserProfileService.class));
         return securityLog;
     }
 }

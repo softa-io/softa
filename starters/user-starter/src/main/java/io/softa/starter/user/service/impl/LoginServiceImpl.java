@@ -30,6 +30,7 @@ import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.dto.*;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.enums.*;
 import io.softa.starter.user.exception.MultipleMembershipsException;
 import io.softa.starter.user.service.*;
@@ -299,14 +300,69 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
     @Override
     public void sendEmailCode(String email) {
-        withoutSayingWhy(() -> this.codeRecipient(email)
-                .ifPresent(identity -> this.deliverEmailCode(email, this.companyOf(identity))));
+        String address = LoginIdentifiers.normalize(email);
+        String code = this.issueCode(address);
+        withoutSayingWhy(() -> this.findLinked(email).ifPresent(identity ->
+                this.mailCode(address, code, this.companyOf(identity), this.personNameOf(identity))));
     }
 
     @Override
     public void sendMobileCode(String mobile) {
-        withoutSayingWhy(() -> this.codeRecipient(mobile)
-                .ifPresent(identity -> this.deliverMobileCode(mobile, this.companyOf(identity))));
+        String number = LoginIdentifiers.normalize(mobile);
+        String code = this.issueCode(number);
+        withoutSayingWhy(() -> this.findLinked(mobile).ifPresent(identity ->
+                this.textCode(number, code, this.companyOf(identity))));
+    }
+
+    /**
+     * Spend the send budget and issue the code, before anyone is looked up — the same step, with the
+     * same answer, whether or not the identifier is anybody's.
+     *
+     * <p>Every unauthenticated entry point answers the same whether or not the identifier is
+     * anybody's: a distinct "no such account" is an oracle, and asked once per number it returns a
+     * verified roster of an organisation's staff. Three things have to stay identical for that to
+     * hold, and each is easy to lose:
+     *
+     * <ul>
+     *   <li><b>The send budget.</b> This runs on both paths. Skipping it for an unknown identifier
+     *       would make the limiter itself the oracle: the eleventh ask of one number is refused when
+     *       it exists and accepted when it does not.</li>
+     *   <li><b>The elapsed time.</b> Both paths do the same lookup, {@code beforeSend} and
+     *       {@code store}. Delivery is the only extra step on the linked path, and it writes a send
+     *       record for the delivery loop rather than waiting on a gateway.</li>
+     *   <li><b>The answer.</b> The guard's refusals — "Too many requests. Try again later.", the
+     *       ban — come from here, before the lookup, and from counters kept per identifier for every
+     *       identifier alike, so they are the same refusal on both paths and are returned: the person
+     *       over the limit is told so instead of waiting for a code that never comes. Everything
+     *       after the lookup is the linked path's alone and stays silent — see
+     *       {@link #withoutSayingWhy}.</li>
+     * </ul>
+     *
+     * <p>No budget may count misses only. A per-address allowance of misses, refused once spent,
+     * is the same oracle one step later: past it, an unknown number is refused while a real one
+     * still goes through.
+     */
+    private String issueCode(String identifier) {
+        return this.generateNumericCode(identifier);
+    }
+
+    /**
+     * The name a sign-in code greets the person by: their own full name, empty when none is known —
+     * or when it cannot be read: the code still goes out, a greeting is not worth losing it over.
+     */
+    private String personNameOf(UserIdentity identity) {
+        if (identity.getProfileId() == null || profileService == null) {
+            return "";
+        }
+        try {
+            return profileService.getById(identity.getProfileId())
+                    .map(UserProfile::getFullName)
+                    .map(StringUtils::trimToEmpty)
+                    .orElse("");
+        } catch (RuntimeException e) {
+            log.warn("Could not read the name of person {} for a sign-in code", identity.getProfileId(), e);
+            return "";
+        }
     }
 
     /**
@@ -332,49 +388,12 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     /**
-     * The person a code should go out to for this identifier, if anyone — asked without ever saying
-     * so.
-     *
-     * <p>Every unauthenticated entry point answers the same whether or not the identifier is
-     * anybody's: a distinct "no such account" is an oracle, and asked once per number it returns a
-     * verified roster of an organisation's staff. The screen says the same thing either way, and
-     * whoever mistyped is served by its wording ("if this number is linked, a code is on its way").
-     *
-     * <p>Three things have to stay identical for that to hold, and each is easy to lose:
-     *
-     * <ul>
-     *   <li><b>The send budget.</b> {@link #generateNumericCode} runs on both paths. Skipping it
-     *       for an unknown identifier would make the limiter itself the oracle: the eleventh ask of
-     *       one number is refused when it exists and accepted when it does not.</li>
-     *   <li><b>The elapsed time.</b> Both paths do the same lookup, {@code beforeSend} and
-     *       {@code store}. Delivery is the only extra step on the linked path, and it writes a send
-     *       record for the delivery loop rather than waiting on a gateway.</li>
-     *   <li><b>The status.</b> Neither path throws — see {@link #withoutSayingWhy}.</li>
-     * </ul>
-     *
-     * <p>No budget may count misses only. A per-address allowance of misses, refused once spent,
-     * is the same oracle one step later: past it, an unknown number is refused while a real one
-     * still goes through.
-     */
-    private Optional<UserIdentity> codeRecipient(String identifier) {
-        Optional<UserIdentity> linked = this.findLinked(identifier);
-        if (linked.isEmpty()) {
-            // The same Redis work the linked path is about to do, so the two cost the same.
-            this.generateNumericCode(LoginIdentifiers.normalize(identifier));
-        }
-        return linked;
-    }
-
-    /**
      * Swallow whatever went wrong, so that WHY it went wrong is not an answer either.
      *
-     * <p>Wrapped at the public entry points rather than inside the delivery: {@code /join} calls the
-     * delivery directly and must stay loud — the invitation, not the caller, named the address.
-     *
-     * <p>The guard's own "too many requests" is the case that matters: it can only be reported on
-     * one of the two paths if it is reported at all, and reporting it there is the oracle one
-     * layer down. A person hammering the button no longer learns they are over the limit; the
-     * cooldown the screen already shows is what tells them to wait.
+     * <p>Wrapped at the public entry points around what follows the lookup, rather than inside the
+     * delivery: {@code /join} calls the delivery directly and must stay loud — the invitation, not the
+     * caller, named the address. The send budget is spent before the lookup and outside this, for
+     * the reason {@link #issueCode} gives.
      *
      * <p>Logged, never returned: an outage stays diagnosable without becoming readable from outside.
      */
@@ -411,23 +430,32 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * @param tenantId the company the code is for — filed under it and counted against its quota —
      *                 or null when no one company can be named
      */
-    private void deliverEmailCode(String email, Long tenantId) {
+    private void deliverEmailCode(String email, Long tenantId, String name) {
         // Normalised once, here, and the normalised value is what the code is keyed by AND sent to:
         // the verify step normalises its identifier the same way, so the two meet on one key
         // however the person spelt the address on either screen.
         email = LoginIdentifiers.normalize(email);
-        String code = this.generateNumericCode(email);
-        // PLATFORM tier: a login / join code is requested BEFORE any session, so there is no tenant
-        // context to render a tenant-specific template from — the platform row is the code's copy.
-        SendMailDTO mail = SendMailDTO.ofTemplate(List.of(email), TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
-        sendCode(tenantId, () -> messageService.sendMail(mail));
+        this.mailCode(email, this.generateNumericCode(email), tenantId, name);
     }
 
     /** The mobile twin of {@link #deliverEmailCode}; see there for why it is separate — and platform-tier. */
     private void deliverMobileCode(String mobile, Long tenantId) {
         mobile = LoginIdentifiers.normalize(mobile);
-        String code = this.generateNumericCode(mobile);
+        this.textCode(mobile, this.generateNumericCode(mobile), tenantId);
+    }
+
+    /** Mail an issued code to a normalised address, greeting the person by {@code name}. */
+    private void mailCode(String email, String code, Long tenantId, String name) {
+        // PLATFORM tier: a login / join code is requested BEFORE any session, so there is no tenant
+        // context to render a tenant-specific template from — the platform row is the code's copy.
+        SendMailDTO mail = SendMailDTO.ofTemplate(List.of(email), TEMPLATE_CODE,
+                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES,
+                        "employeeName", StringUtils.defaultString(name)), MessageScope.PLATFORM);
+        sendCode(tenantId, () -> messageService.sendMail(mail));
+    }
+
+    /** Text an issued code to a normalised number. */
+    private void textCode(String mobile, String code, Long tenantId) {
         SendSmsDTO sms = SendSmsDTO.ofTemplate(mobile, TEMPLATE_CODE,
                 Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
         sendCode(tenantId, () -> messageService.sendSms(sms));
@@ -762,13 +790,14 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         String address = invitationService.resolveJoinChannel(rawToken, channel);
         // The company that sent the invitation: the code is filed under it and counted against its
         // quota. Empty only if the link stopped being usable a moment ago — then it is the platform's.
-        Long tenantId = invitationService.resolveJoinAccount(rawToken).map(UserAccount::getTenantId).orElse(null);
+        Optional<UserAccount> invited = invitationService.resolveJoinAccount(rawToken);
+        Long tenantId = invited.map(UserAccount::getTenantId).orElse(null);
         // deliver*, not send*: the invitee has no identity yet — that is what joining is — so the
         // linked check the public entry points carry would silently skip every first-time joiner.
         if ("mobile".equalsIgnoreCase(channel)) {
             this.deliverMobileCode(address, tenantId);
         } else {
-            this.deliverEmailCode(address, tenantId);
+            this.deliverEmailCode(address, tenantId, invited.map(accountService::noticeNameOf).orElse(""));
         }
     }
 

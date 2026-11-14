@@ -6,9 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.message.MessageScope;
 import io.softa.starter.message.inbox.dto.SendInboxDTO;
 import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.mail.support.MailServerDispatcher;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
+import io.softa.starter.message.sms.support.SmsProviderDispatcher;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,6 +25,8 @@ class MessageServiceImplTest {
     private MailMessageHandler mailHandler;
     private SmsMessageHandler smsHandler;
     private InboxMessageHandler inboxHandler;
+    private MailServerDispatcher mailServerDispatcher;
+    private SmsProviderDispatcher smsProviderDispatcher;
     private MessageServiceImpl service;
 
     @BeforeEach
@@ -29,7 +34,46 @@ class MessageServiceImplTest {
         mailHandler = mock(MailMessageHandler.class);
         smsHandler = mock(SmsMessageHandler.class);
         inboxHandler = mock(InboxMessageHandler.class);
-        service = new MessageServiceImpl(mailHandler, smsHandler, inboxHandler);
+        mailServerDispatcher = mock(MailServerDispatcher.class);
+        smsProviderDispatcher = mock(SmsProviderDispatcher.class);
+        service = new MessageServiceImpl(mailHandler, smsHandler, inboxHandler,
+                mailServerDispatcher, smsProviderDispatcher);
+    }
+
+    @Test
+    void aMailRouteIsTheServerDeliveryWouldResolve() {
+        service.requireMailRoute(MessageScope.PLATFORM);
+        service.requireMailRoute(null);
+
+        verify(mailServerDispatcher).resolveSend(MessageScope.PLATFORM);
+        // Null is the tenant's tier, as on a send.
+        verify(mailServerDispatcher).resolveSend(MessageScope.TENANT);
+        verifyNoInteractions(mailHandler);
+    }
+
+    @Test
+    void noMailServerIsRefusedWithDeliverysReason() {
+        when(mailServerDispatcher.resolveSend(MessageScope.TENANT))
+                .thenThrow(new BusinessException("No send server is configured for this tenant"));
+
+        assertThrows(BusinessException.class, () -> service.requireMailRoute(MessageScope.TENANT));
+    }
+
+    @Test
+    void anSmsRouteIsTheProvidersDeliveryWouldChooseFrom() {
+        service.requireSmsRoute("+6591234567");
+
+        verify(smsProviderDispatcher).resolveProviders("+6591234567");
+        verifyNoInteractions(smsHandler);
+    }
+
+    @Test
+    void aCountryWithNoProviderIsRefused() {
+        when(smsProviderDispatcher.resolveProviders("+6591234567"))
+                .thenThrow(new BusinessException("No SMS provider configured for region SG"));
+
+        assertThrows(BusinessException.class, () -> service.requireSmsRoute("+6591234567"));
+        assertThrows(BusinessException.class, () -> service.requireSmsRoute(" "));
     }
 
     @Test

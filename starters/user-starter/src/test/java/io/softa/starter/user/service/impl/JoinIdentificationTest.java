@@ -97,7 +97,7 @@ class JoinIdentificationTest {
 
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.VERIFY_MOBILE);
         assertThat(result.proof()).isNull();
-        assertThat(result.maskedMobile()).isEqualTo("+65 912****67");
+        assertThat(result.maskedMobile()).isEqualTo("+65 912****567");
         verify(proofGuard, never()).mint(any(), any(), any());
     }
 
@@ -237,7 +237,7 @@ class JoinIdentificationTest {
 
         assertThat(formatted.dialCode()).isEqualTo("+86");
         assertThat(formatted.countryName()).isEqualTo("China");
-        assertThat(formatted.masked()).isEqualTo("+86 138****00");
+        assertThat(formatted.masked()).isEqualTo("+86 138****000");
         verify(accountService, never()).isEmailHeldByAnotherPerson(eq(EMAIL), any(), any());
     }
 }

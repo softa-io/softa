@@ -14,6 +14,9 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.dto.WorkContacts;
+import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.entity.UserProfile;
+import io.softa.starter.user.service.UserProfileService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -123,5 +126,47 @@ class ArchiveWorkContactsTest {
 
         assertThat(accountService.archiveWorkContacts(ACCOUNT).any()).isFalse();
         org.mockito.Mockito.verifyNoInteractions(modelService);
+    }
+
+    // ─────────────────────── the name a notice greets the person by ───────────────────────
+
+    private UserAccount reopenedMembership() {
+        // A membership reopened for a re-hire loses its nickname, and joining again gives none back.
+        UserAccount account = new UserAccount();
+        account.setId(ACCOUNT);
+        account.setProfileId(7L);
+        return account;
+    }
+
+    @Test
+    void aNoticeGreetsThePersonByTheNameOnTheRecord() {
+        archiveRow(Map.of("fullName", " Ada Lovelace "));
+        UserAccount account = reopenedMembership();
+        account.setNickname("ada");
+
+        assertThat(accountService.noticeNameOf(account)).isEqualTo("Ada Lovelace");
+    }
+
+    @Test
+    void withNoRecord_theNicknameAndThenThePersonsNameStandIn() {
+        archiveRow(null);
+        UserAccount account = reopenedMembership();
+        UserProfile profile = new UserProfile();
+        profile.setFullName("Ada L.");
+        UserProfileService profiles = mock(UserProfileService.class);
+        when(profiles.getById(7L)).thenReturn(Optional.of(profile));
+        ReflectionTestUtils.setField(accountService, "profileService", profiles);
+
+        assertThat(accountService.noticeNameOf(account)).isEqualTo("Ada L.");
+        account.setNickname("ada");
+        assertThat(accountService.noticeNameOf(account)).isEqualTo("ada");
+    }
+
+    @Test
+    void anUnreadableRecord_stillGivesAName_neverNull() {
+        when(modelService.searchOne(anyString(), any(FlexQuery.class))).thenThrow(new IllegalStateException("boom"));
+
+        assertThat(accountService.noticeNameOf(reopenedMembership())).isEmpty();
+        assertThat(accountService.noticeNameOf(null)).isEmpty();
     }
 }

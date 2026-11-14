@@ -38,6 +38,15 @@ items, join the caller's transaction, and return record IDs in input order. A
 mail DTO may address multiple `to` recipients in one MIME message; an SMS DTO
 always contains exactly one phone number.
 
+Delivery is asynchronous, so a send that cannot go out as configured is only
+known on its record. A caller that must tell its user at once — "Failed to
+send" rather than a success that never arrives — asks first with
+`requireMailRoute(MessageScope)` / `requireSmsRoute(phoneNumber)`: each throws
+a `BusinessException` naming what is missing (no send server for the tier, a
+number that does not parse, no enabled provider for its country and no default)
+and writes nothing. What only delivery can learn — a provider rejecting the
+number, a bounce, a used-up quota — is not checked.
+
 ## Requirements and Configuration
 
 The tables are declared by the starter's `@Model` classes: an application whose

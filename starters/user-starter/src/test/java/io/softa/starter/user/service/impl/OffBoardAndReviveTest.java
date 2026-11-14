@@ -121,7 +121,7 @@ class OffBoardAndReviveTest {
         verify(identityService).updateLoginMobile(IDENTITY, null);
         verify(securityLog).entry(eq(SecurityAction.WORK_MOBILE_RELEASED), eq(SecurityLogSource.SYSTEM), eq(membership), any());
         // Masked as everywhere: dial code, space, first three, four stars, last two.
-        assertThat(logged(SecurityAction.WORK_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 900****00");
+        assertThat(logged(SecurityAction.WORK_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 900****000");
     }
 
     @Test

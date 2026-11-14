@@ -1,6 +1,5 @@
 package io.softa.starter.user.service.impl;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -10,6 +9,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.placeholder.TemplateEngine;
+import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
@@ -72,19 +72,36 @@ class ContactSyncTest {
     }
 
     @Test
-    void theEmailChangeNotice_carriesTheTimeAsADate_soItReadsAsTheApiWritesIt() {
+    void theEmailChangeNotice_namesThePersonTheCompanyAndTheMaskedNewAddress_toTheMinute() {
         account.setStatus(AccountStatus.ACTIVE);
+        TenantInfoService tenants = mock(TenantInfoService.class);
+        when(tenants.getTenantName(1L)).thenReturn("Acme Pte Ltd");
+        ReflectionTestUtils.setField(accountService, "tenantInfoService", tenants);
+        doReturn("Ada Lovelace").when(accountService).noticeNameOf(account);
 
         accountService.syncEnterpriseEmail(ACCOUNT, "new@acme.com");
 
         ArgumentCaptor<SendMailDTO> mail = ArgumentCaptor.forClass(SendMailDTO.class);
         verify(messageService).sendMail(mail.capture());
         Map<String, Object> variables = mail.getValue().getTemplateVariables();
-        // The date itself, not its ISO toString(): the send record and the templates print it in
-        // the platform format.
-        assertThat(variables.get("time")).isInstanceOf(LocalDateTime.class);
+        assertThat(variables).containsEntry("employeeName", "Ada Lovelace")
+                .containsEntry("companyName", "Acme Pte Ltd")
+                // Sent to the OLD address, which may no longer be the person's.
+                .containsEntry("newEmail", "n***@acme.com");
         assertThat(TemplateEngine.renderHtml("<p>was changed on {{time}}.</p>", variables))
-                .matches("<p>was changed on \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.</p>");
+                .matches("<p>was changed on \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\.</p>");
+    }
+
+    @Test
+    void anEmailClearedFromTheRecord_isStillNoticed() {
+        // Map.of refuses nulls; a cleared Work Email must not turn the notice into an exception.
+        account.setStatus(AccountStatus.ACTIVE);
+
+        accountService.syncEnterpriseEmail(ACCOUNT, " ");
+
+        ArgumentCaptor<SendMailDTO> mail = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendMail(mail.capture());
+        assertThat(mail.getValue().getTemplateVariables()).containsEntry("newEmail", "");
     }
 
     @Test
