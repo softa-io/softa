@@ -950,6 +950,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     @Override
+    public void checkResetCode(String identifier, String code) {
+        // Same order and same answers as resetPasswordByCode, minus the spending.
+        codeGuard.check(LoginIdentifiers.normalize(identifier), code);
+        this.findLinked(identifier).orElseThrow(LoginServiceImpl::incorrectCode);
+    }
+
+    @Override
     @Transactional
     public void resetPasswordByCode(String identifier, String code, String newPassword) {
         // The strength rules first: verifying spends the code, and a weak password refused after it
