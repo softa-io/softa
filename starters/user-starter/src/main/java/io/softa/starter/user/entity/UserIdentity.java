@@ -77,12 +77,16 @@ public class UserIdentity extends AuditableModel {
     private String loginMobile;
 
     @Field(copyable = false, length = 256,
-            description = "Password hash. length 256 because the stored hash is 128 characters, so "
-                    + "the 64-char type default would silently truncate it and no credential could "
-                    + "be written at all")
+            description = "Password hash, pbkdf2-sha256$<iterations>$<salt>$<hash> with the salt "
+                    + "inside (87 characters); rows not yet upgraded still hold the old one-round "
+                    + "SHA-512 (128 hex characters). length 256 because the 64-char type default would "
+                    + "silently truncate either, and no credential could be written at all")
     private String password;
 
-    @Field(copyable = false, description = "Per-row salt for the password hash")
+    @Field(copyable = false,
+            description = "Salt of the old one-round SHA-512 hash, read only to verify a row not yet "
+                    + "upgraded. Cleared whenever a password is stored in the current scheme, whose "
+                    + "salt is inside the hash")
     private String passwordSalt;
 
     @Field(copyable = false,

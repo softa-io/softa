@@ -14,7 +14,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -184,17 +183,54 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
     }
 
 
+    // @SkipPermissionCheck / @CrossTenant like setPassword: a match can re-store the hash (below), and
+    // the person checking their own current password before changing it holds no write grant on
+    // UserIdentity — the upgrade would otherwise fail the change it was only riding along with.
+    @SkipPermissionCheck
+    @CrossTenant
     @Override
     public boolean matchesPassword(UserIdentity identity, String rawPassword) {
-        if (identity == null || StringUtils.isBlank(identity.getPassword())
-                || StringUtils.isBlank(rawPassword)) {
-            // No stored password = password login is not available for this person (they arrived by
-            // invitation and have not set one). Returning true for an empty hash is the classic way
-            // that rule gets broken.
+        String stored = identity == null ? null : identity.getPassword();
+        String legacySalt = identity == null ? null : identity.getPasswordSalt();
+        // No stored password = password login is not available for this person (they arrived by
+        // invitation and have not set one). Returning true for an empty hash is the classic way that
+        // rule gets broken: PasswordUtils.matches never does, and it takes as long to say so as a
+        // real check — see the timing note on recordUnknownIdentifierFailure.
+        if (!PasswordUtils.matches(rawPassword, stored, legacySalt)) {
             return false;
         }
-        String hashed = PasswordUtils.hashPassword(rawPassword, identity.getPasswordSalt());
-        return hashed.equals(identity.getPassword());
+        if (PasswordUtils.needsRehash(stored)) {
+            this.rehash(identity, rawPassword);
+        }
+        return true;
+    }
+
+    /**
+     * Store a password that has just verified against an older kind of hash — the one-round SHA-512
+     * of earlier releases, or another iteration count — again in the current one. There is no other
+     * moment to do it: the password is known only while its owner is typing it.
+     *
+     * <p>Written only while the row still holds the hash that was verified. A row read before its
+     * password was changed elsewhere — on another device, or by an administrator's reset — would
+     * otherwise carry a hash of the OLD password back over the new one, the same hazard
+     * recordPasswordFailure avoids by writing the lock alone. Losing that race costs nothing: the row
+     * is left as the other write left it.
+     */
+    private void rehash(UserIdentity identity, String rawPassword) {
+        if (identity.getId() == null) {
+            return;
+        }
+        String upgraded = PasswordUtils.hash(rawPassword);
+        Map<String, Object> fields = new HashMap<>();
+        fields.put(PASSWORD, upgraded);
+        // The salt is inside the new hash; the column only served the old scheme.
+        fields.put(PASSWORD_SALT, null);
+        Filters stillTheVerifiedHash = new Filters().eq(UserIdentity::getId, identity.getId())
+                .eq(UserIdentity::getPassword, identity.getPassword());
+        if (modelService.updateByFilter(modelName, stillTheVerifiedHash, fields) > 0) {
+            identity.setPassword(upgraded);
+            identity.setPasswordSalt(null);
+        }
     }
 
     @SkipPermissionCheck
@@ -214,12 +250,13 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         // self-service change and admin reset all land in this method, and a rule that every
         // caller must remember to apply is a rule that one of them eventually will not.
         PasswordPolicy.validate(rawPassword);
-        String salt = PasswordUtils.generateSalt();
         // A new password ends the window AND the lock: the guesses were against the old password,
         // and leaving the lock standing would mean someone who reset theirs still cannot use it.
         Map<String, Object> fields = new HashMap<>();
-        fields.put(PASSWORD_SALT, salt);
-        fields.put(PASSWORD, PasswordUtils.hashPassword(rawPassword, salt));
+        fields.put(PASSWORD, PasswordUtils.hash(rawPassword));
+        // The salt is inside the hash; the column is cleared so it never pairs with a hash it is not
+        // the salt of.
+        fields.put(PASSWORD_SALT, null);
         fields.put(PASSWORD_LOCKED_UNTIL, null);
         this.updateFields(identity.getId(), fields);
         this.clearPasswordFailures(identityId);
@@ -324,10 +361,13 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
      *  - The storage medium differs. The real lock is persisted on the identity row so a cache flush
      *    cannot unlock it; the unknown lock lives only in the cache. A flush therefore frees unknown
      *    identifiers and not real ones — observable only by whoever can cause the flush.
-     *  - Timing. Both branches run the same two identifier queries, but the real branch then hashes
-     *    a password and writes a row on the tenth failure, the unknown one increments a cache key.
-     *    Sub-millisecond, and below what the network jitter of an anonymous form exposes; not
-     *    equalised further.
+     *  - Timing. Both branches run the same two identifier queries and the same password hash. The
+     *    hash is slow on purpose (~70 ms), and a refusal that skipped it would say, by how long it
+     *    took, whether the identifier is anyone's — so the unknown branch spends one through
+     *    matchesPassword(null, …), and PasswordUtils.matches spends one for a person with no
+     *    password yet or an old-scheme hash. What remains is that the real branch writes a row on
+     *    the tenth failure and the unknown one increments a cache key: sub-millisecond, and below
+     *    what the network jitter of an anonymous form exposes; not equalised further.
      */
     @Override
     public long recordUnknownIdentifierFailure(String identifier) {

@@ -56,7 +56,7 @@ hops through `profileId` first.
 | Entity | Purpose | Key fields |
 |---|---|---|
 | `UserProfile` | The person | `userId`, `fullName`, `chineseName`, `birthDate`, `gender`, `photoId`, `language`, `timezone` |
-| `UserIdentity` | The person's credentials — global, unique | `profileId`, `loginEmail`, `loginMobile`, `password`, `passwordSalt`, `passwordLockedUntil` |
+| `UserIdentity` | The person's credentials — global, unique | `profileId`, `loginEmail`, `loginMobile`, `password`, `passwordSalt` (old hashes only), `passwordLockedUntil` |
 | `UserAccount` | One membership (person × tenant) | `tenantId`, `profileId`, `consultant`, `nickname`, `username`, `email`, `mobile`, `policyId`, `status`, `activationTime`, `locked` (derived) |
 | `UserInvitation` | An issued invitation | `tenantId`, `userId`, `email`, `mobile`, `purpose`, `tokenHash`, `status`, `invitedBy`, `sentAt`, `expiresAt`, `acceptedAt` |
 | `ConsultantProfile` | Marks a person as platform consultant staff | `profileId`, `active` |
@@ -74,9 +74,28 @@ finds it in a search (`searchName`).
 
 ## Authentication & security
 
-- **Passwords** live on `UserIdentity`, hashed (BCrypt) with a per-person
-  `passwordSalt`; never stored or returned in clear text. They belong to the PERSON,
-  not to a membership — one password opens every company they belong to.
+- **Passwords** live on `UserIdentity`, never stored or returned in clear text. They
+  belong to the PERSON, not to a membership — one password opens every company they
+  belong to.
+  - **Hashed slowly**: PBKDF2-HMAC-SHA256 at 600,000 iterations, stored as one string,
+    `pbkdf2-sha256$<iterations>$<salt>$<hash>` (87 characters), the salt inside
+    (`PasswordUtils` in softa-base). About 70 ms of one core per check. The count is a
+    code constant; each hash records its own, so raising it strands nothing.
+  - **Trimmed**: surrounding spaces are not part of a password, as before; the clients
+    send what was typed.
+  - **Older hashes still sign in.** Rows written before this scheme hold one round of
+    SHA-512, with the salt in `passwordSalt`. The first successful check stores the
+    password again in the current scheme and clears `passwordSalt` — only while the
+    row still holds the hash that matched, so a password changed meanwhile on another
+    device is not overwritten. No SQL: the password is known only when typed, so a
+    person who never signs in again keeps the old hash. Rolling back to a release
+    without this scheme stops everyone already upgraded from signing in by password
+    (code sign-in and resetting by code still work).
+  - **One place each**: `UserIdentityService.setPassword` is the only write,
+    `matchesPassword` the only check (and the upgrade).
+  - **Same time whatever the answer**: an unknown identifier, a person with no
+    password yet and an old-scheme hash each spend the same hash before saying no, so
+    the time a refusal takes does not tell whether the identifier is anyone's.
 - **Login identifiers** (`loginEmail` / `loginMobile`) are **globally unique** and
   stored in one canonical spelling — trimmed, lowercased, mobile separators folded.
   `LoginIdentifiers` is that rule, and it must be applied wherever an identifier is
