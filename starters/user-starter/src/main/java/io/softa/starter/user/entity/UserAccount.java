@@ -92,7 +92,13 @@ public class UserAccount extends AuditableModel {
             + "Set when the account is minted; never edited by a tenant")
     private Boolean consultant;
 
-    @Field
+    /**
+     * The person's name as the account shows it. An account minted for a member of the business —
+     * created with them, rather than signed up for — takes their full name, so it has the room a full
+     * name is given (128); the 64 a bare string defaults to refused the long names those records accept,
+     * and the whole create with them.
+     */
+    @Field(length = 128)
     private String nickname;
 
     @Field

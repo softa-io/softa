@@ -54,7 +54,8 @@ public class UserProfile extends AuditableModel {
     // now live on UserIdentity, a 1:1 satellite. Personal information stays here; a password hash
     // must not ride along with a browsable directory of names and photos.
 
-    @Field
+    /** As long as a full name may be anywhere else (128): it is copied in when an account is minted. */
+    @Field(length = 128)
     private String fullName;
 
     @Field
