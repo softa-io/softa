@@ -1,16 +1,11 @@
 package io.softa.starter.message.quota;
 
 import java.util.Optional;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import io.softa.framework.base.config.SystemConfig;
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.quota.entity.TenantMessageQuota;
@@ -23,7 +18,8 @@ import static org.mockito.Mockito.spy;
 
 /**
  * {@link TenantMessageQuotaServiceImpl}: limit resolution falls back per
- * field to the deployment defaults, and every write path is platform-only.
+ * field to the deployment defaults. That every write is the platform's is
+ * {@code TenantMessageQuotaWriteValidatorTest}'s.
  */
 class TenantMessageQuotaServiceImplTest {
 
@@ -37,42 +33,38 @@ class TenantMessageQuotaServiceImplTest {
         ReflectionTestUtils.setField(service, "messageProperties", properties);
     }
 
-    @AfterEach
-    void tearDown() {
-        SystemConfig.env = null;
-    }
-
-    private static void asTenant(long tenantId, Runnable action) {
-        SystemConfig config = new SystemConfig();
-        config.setEnableMultiTenancy(true);
-        SystemConfig.env = config;
-        Context ctx = new Context();
-        ctx.setTenantId(tenantId);
-        ContextHolder.runWith(ctx, action);
-    }
 
     @Test
     void rowLimitsWinOverDefaults() {
         properties.getQuota().setMailMonthlyDefault(1000L);
+        properties.getQuota().setMailDailyDefault(300L);
         TenantMessageQuota row = new TenantMessageQuota();
         row.setMailMonthlyLimit(50L);
+        row.setSmsDailyLimit(7L);
         doReturn(Optional.of(row)).when(service).searchOne(any(Filters.class));
 
         TenantMessageQuotaService.ResolvedLimits limits = service.resolveLimits(5L);
         Assertions.assertEquals(50L, limits.mailMonthlyLimit());
         // No SMS limit on the row → falls back to the (unset) default.
         Assertions.assertNull(limits.smsMonthlyLimit());
+        // Each daily cap falls back on its own too.
+        Assertions.assertEquals(300L, limits.mailDailyLimit());
+        Assertions.assertEquals(7L, limits.smsDailyLimit());
     }
 
     @Test
     void missingRowFallsBackToDeploymentDefaults() {
         properties.getQuota().setMailMonthlyDefault(1000L);
         properties.getQuota().setSmsMonthlyDefault(200L);
+        properties.getQuota().setMailDailyDefault(100L);
+        properties.getQuota().setSmsDailyDefault(20L);
         doReturn(Optional.empty()).when(service).searchOne(any(Filters.class));
 
         TenantMessageQuotaService.ResolvedLimits limits = service.resolveLimits(5L);
         Assertions.assertEquals(1000L, limits.mailMonthlyLimit());
         Assertions.assertEquals(200L, limits.smsMonthlyLimit());
+        Assertions.assertEquals(100L, limits.mailDailyLimit());
+        Assertions.assertEquals(20L, limits.smsDailyLimit());
     }
 
     @Test
@@ -84,20 +76,6 @@ class TenantMessageQuotaServiceImplTest {
         Assertions.assertNull(limits.smsMonthlyLimit());
     }
 
-    @Test
-    void tenantScopeCannotWriteQuota() {
-        asTenant(5L, () -> Assertions.assertThrows(BusinessException.class,
-                () -> service.assertPlatformScope()));
-    }
 
-    @Test
-    void platformScopeMayWriteQuota() {
-        asTenant(-1L, () -> Assertions.assertDoesNotThrow(() -> service.assertPlatformScope()));
-    }
 
-    @Test
-    void singleTenantDeploymentIsUnrestricted() {
-        // No SystemConfig.env → multi-tenancy off → no platform gate.
-        Assertions.assertDoesNotThrow(() -> service.assertPlatformScope());
-    }
 }

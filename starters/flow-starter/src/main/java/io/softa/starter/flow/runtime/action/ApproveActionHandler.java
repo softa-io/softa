@@ -9,8 +9,6 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
-import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
-import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
 
 /**
@@ -24,7 +22,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
     private final ApprovalLifecycleService lifecycleService;
     private final FlowAuditService auditService;
     private final FlowExecutionOrchestrator orchestrator;
-    private final ApprovalNotificationService notificationService;
     private final ApprovalFormWriteService formWriteService;
     private final FlowActionReplayGuard replayGuard;
 
@@ -33,7 +30,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
                                 ApprovalLifecycleService lifecycleService,
                                 FlowAuditService auditService,
                                 FlowExecutionOrchestrator orchestrator,
-                                ApprovalNotificationService notificationService,
                                 ApprovalFormWriteService formWriteService,
                                 FlowActionReplayGuard replayGuard) {
         this.contextService = contextService;
@@ -41,7 +37,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         this.lifecycleService = lifecycleService;
         this.auditService = auditService;
         this.orchestrator = orchestrator;
-        this.notificationService = notificationService;
         this.formWriteService = formWriteService;
         this.replayGuard = replayGuard;
     }
@@ -66,7 +61,6 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         FlowExecutionStatus statusBefore = ctx.statusBefore();
 
         actorValidator.validateApprovalActor(pendingApproval, request.getActorId(), node);
-        lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
         // The actor is this node's approver — that, not the actor's own roles, is what authorizes the
         // writes from here on: the form edits the node allows and every node the approval resumes.
         // An approver rarely holds update on the record they approve; approving is the grant. The
@@ -78,17 +72,12 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
                                                 PendingApproval pendingApproval, CompiledFlowDefinition definition,
                                                 CompiledFlowNode node, FlowExecutionStatus statusBefore) {
         // Enforce form field permissions + write sanitized edits to the business row.
-        formWriteService.applyFormData(state, node, request.getFormData());
+        formWriteService.applyFormData(definition, state, node, request.getFormData());
         if (lifecycleService.requiresTrackedApprover(pendingApproval)) {
             if (!StringUtils.hasText(request.getActorId())) {
                 throw new FlowActionValidationException("actorId is required to approve this approval node: " + request.getNodeId());
             }
-            if (pendingApproval.getRejectedActors().contains(request.getActorId())) {
-                throw new FlowActionValidationException("Approver has already rejected this approval node: " + request.getActorId());
-            }
-            if (pendingApproval.getApprovedActors().contains(request.getActorId())) {
-                throw new FlowActionValidationException("Approver has already approved this approval node: " + request.getActorId());
-            }
+            actorValidator.requireNotVoted(pendingApproval, request.getActorId(), node);
             pendingApproval.getApprovedActors().add(request.getActorId());
             if (!lifecycleService.canCompleteApproval(pendingApproval)) {
                 auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.WAIT_APPROVAL,
@@ -110,10 +99,10 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
                 .actorId(request.getActorId())
                 .comment(request.getComment())
                 .build());
-        orchestrator.resumeApprovedNode(state, pendingApproval, definition, node);
-        contextService.persistState(state);
-        notificationService.notify(new FlowNotificationEvent.TaskCompleted(state, pendingApproval, true));
-        return state;
+        // The steps after the approval may fail without undoing it: the instance then comes back failed.
+        FlowExecutionState resumed = orchestrator.resumeApprovedNode(state, pendingApproval, definition, node);
+        contextService.persistState(resumed);
+        return resumed;
     }
 
     /**

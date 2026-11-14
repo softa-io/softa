@@ -1,7 +1,6 @@
 package io.softa.starter.flow.service.impl;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
@@ -13,7 +12,6 @@ import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowExecutionTrace;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionTraceEntry;
-import io.softa.starter.flow.runtime.state.FlowTraceEventType;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
 
 /**
@@ -81,18 +79,6 @@ public class FlowExecutionTraceServiceImpl
         Filters filters = new Filters()
                 .eq(FlowExecutionTrace::getInstanceId, instanceId)
                 .gt(FlowExecutionTrace::getSequence, (int) sinceSequence);
-        return this.searchList(filters).stream()
-                .sorted(Comparator.comparing(FlowExecutionTrace::getSequence,
-                        Comparator.nullsLast(Integer::compareTo)))
-                .toList();
-    }
-
-    @Override
-    public List<FlowExecutionTrace> findByInstanceIdAndEventTypes(String instanceId,
-                                                                  Collection<FlowTraceEventType> eventTypes) {
-        Filters filters = new Filters()
-                .eq(FlowExecutionTrace::getInstanceId, instanceId)
-                .in(FlowExecutionTrace::getEventType, eventTypes);
         return this.searchList(filters).stream()
                 .sorted(Comparator.comparing(FlowExecutionTrace::getSequence,
                         Comparator.nullsLast(Integer::compareTo)))

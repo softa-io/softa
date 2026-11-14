@@ -18,8 +18,9 @@ import io.softa.framework.base.message.EntitlementChangeMessage;
  *
  * <p>The subscription is Shared, so every replica takes messages off the topic; under the former
  * default (Exclusive) a second replica failed to boot. Two changes for one tenant may now be
- * cleaned up out of order; a cleanup only deletes, so both orders remove the same grants. The
- * one-time switch needs a stop-then-start release; see {@code MailSendConsumer}.
+ * cleaned up out of order; a cleanup only deletes, so both orders remove the same grants.
+ * Switching an existing deployment from Exclusive needs one stop-then-start release: Pulsar
+ * refuses a Shared consumer while an Exclusive one is still attached.
  */
 @Slf4j
 @Component

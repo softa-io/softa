@@ -1,0 +1,169 @@
+package io.softa.starter.user.service;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+
+import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
+import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.base.utils.NavIds;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.service.EntitlementService;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.user.entity.RoleNavigation;
+
+/**
+ * A role in a customer tenant grants only what faces that tenant: no navigation of the platform's own
+ * ({@code permission.platform-nav-prefixes}), none of a module the tenant's plan does not entitle, and
+ * no permission under such a navigation.
+ *
+ * <p>The ceiling on what a role manager may hand out ({@link RoleGrantCeiling}) does not bind a tenant
+ * admin — whatever it holds it may pass on — and the wizard saves whatever navigations the request
+ * names. The role screen offers only the tenant's own pages, but the endpoint took any id, so a tenant
+ * admin could give an ordinary user the platform's pages: endpoints that act on shared models, every
+ * tenant's rows. Refused here for everyone saving inside a customer tenant, the admin included. The
+ * platform tenant's roles are the platform's own, and a deployment without tenants has no other tenant
+ * to protect.
+ *
+ * <p>Only what a save adds is judged. A role saved before this check may already hold such a page; the
+ * permission snapshot ignores it, and the wizard, which lists only the tenant's own pages, cannot show it
+ * to be taken off — yet sends it back with every save. Refusing it would leave the role uneditable, so
+ * what the role already holds is let through, inert as it is.
+ */
+@Component
+public class RoleTenantFacingGuard {
+
+    private static final String M_PERMISSION = "Permission";
+
+    private final ModelService<?> modelService;
+    private final RoleNavigationService roleNavigationService;
+
+    @Value("${permission.platform-nav-prefixes:}")
+    private String platformNavPrefixesCsv;
+
+    /** Optional: without a plan gate every module counts as entitled. */
+    @Autowired(required = false)
+    private EntitlementService entitlementService;
+
+    public RoleTenantFacingGuard(ModelService<?> modelService, @Lazy RoleNavigationService roleNavigationService) {
+        this.modelService = modelService;
+        this.roleNavigationService = roleNavigationService;
+    }
+
+    /**
+     * Refuse the wizard's navigation rows ({@code [{navigationId, permissionIds}]}) when one of them, or one
+     * of their permissions, does not face the current tenant and is not already held by the role.
+     *
+     * @param roleId          the role being saved, or {@code null} for a new one
+     * @param roleNavigations the navigation rows the save writes
+     */
+    public void assertTenantFacing(Long roleId, JsonNode roleNavigations) {
+        Context context = ContextHolder.getContext();
+        Long tenantId = context == null ? null : context.getTenantId();
+        if (context == null || context.isSkipPermissionCheck() || tenantId == null
+                || BaseConstant.PLATFORM_TENANT_ID.equals(tenantId)
+                || roleNavigations == null || !roleNavigations.isArray()) {
+            return;
+        }
+        Set<String> navigationIds = new LinkedHashSet<>();
+        // permission id → the navigation of the row it was filed under
+        Map<String, String> rowOf = new LinkedHashMap<>();
+        for (JsonNode row : roleNavigations) {
+            JsonNode nav = row.get("navigationId");
+            String navId = nav == null || nav.isNull() ? null : nav.asString();
+            if (navId != null) {
+                navigationIds.add(navId);
+            }
+            List<String> pids = JsonUtils.toStringList(row.get("permissionIds"), true);
+            if (pids != null) {
+                pids.forEach(pid -> rowOf.putIfAbsent(pid, navId));
+            }
+        }
+        if (roleId != null) {
+            Set<String> heldNavigations = new HashSet<>();
+            Set<String> heldPermissions = new HashSet<>();
+            // Read past the caller's own scope, as the grant ceiling reads a role: the question is what
+            // the role holds, not what the caller may see of it.
+            List<RoleNavigation> stored = ContextUtils.withoutPermissionChecks(() -> roleNavigationService.searchList(
+                    new Filters().eq(RoleNavigation::getRoleId, roleId)));
+            for (RoleNavigation rn : stored) {
+                heldNavigations.add(rn.getNavigationId());
+                List<String> held = JsonUtils.toStringList(rn.getPermissionIds(), true);
+                if (held != null) {
+                    heldPermissions.addAll(held);
+                }
+            }
+            navigationIds.removeAll(heldNavigations);
+            rowOf.keySet().removeAll(heldPermissions);
+        }
+        Set<String> permissionIds = rowOf.keySet();
+        Map<String, String> navigationOf = new HashMap<>();
+        if (!permissionIds.isEmpty()) {
+            // The catalog is shared and anchors to no tenant, so a role manager without the admin bypass
+            // reads none of it under their own scope — and every permission would fall back to its row.
+            List<Map<String, Object>> rows = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                    M_PERMISSION, new FlexQuery(List.of("id", "navigationId"), new Filters().in("id", permissionIds))));
+            rows.forEach(r -> navigationOf.put(String.valueOf(r.get("id")), (String) r.get("navigationId")));
+        }
+        Set<String> entitled = entitlementService == null ? null : entitlementService.entitledModules(tenantId);
+        List<String> refused = new ArrayList<>();
+        for (String navId : navigationIds) {
+            if (!facesTenant(navId, entitled)) {
+                refused.add(navId);
+            }
+        }
+        for (String permissionId : permissionIds) {
+            // Judged by the navigation it is registered under. One the catalog no longer knows names no
+            // endpoint — the endpoint index is built from the same catalog — so it is judged by its row's,
+            // and a role still carrying a permission since removed can be saved.
+            String registered = navigationOf.get(permissionId);
+            if (!facesTenant(registered != null ? registered : rowOf.get(permissionId), entitled)) {
+                refused.add(permissionId);
+            }
+        }
+        if (!refused.isEmpty()) {
+            throw new BusinessException("A role in this tenant cannot grant {0}: a platform page, or a module "
+                    + "the tenant''s plan does not include.", String.join(", ", refused));
+        }
+    }
+
+    private boolean facesTenant(String navId, Set<String> entitled) {
+        if (navId == null || isPlatformNav(navId)) {
+            return false;
+        }
+        if (entitled == null) {
+            return true;
+        }
+        String moduleId = NavIds.moduleOf(navId);
+        return moduleId == null || entitled.contains(moduleId);
+    }
+
+    private boolean isPlatformNav(String navId) {
+        if (platformNavPrefixesCsv == null || platformNavPrefixesCsv.isBlank()) {
+            return false;
+        }
+        for (String prefix : platformNavPrefixesCsv.split(",")) {
+            String p = prefix.trim();
+            if (!p.isEmpty() && navId.startsWith(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}

@@ -41,10 +41,11 @@ import io.softa.starter.metadata.scanner.diff.SchemaDiff;
 @Component
 public class MetadataReadPipeline {
 
+    private static final AnnotationParser PARSER = new AnnotationParser();
+
     private final BeanFactory beanFactory;
     private final MetadataProperties properties;
     private final SysJdbcLoader loader;
-    private final AnnotationParser parser = new AnnotationParser();
     private final DiffEngine diffEngine = new DiffEngine();
 
     public MetadataReadPipeline(BeanFactory beanFactory, JdbcTemplate jdbcTemplate,
@@ -83,7 +84,16 @@ public class MetadataReadPipeline {
      */
     public AnnotationScanResult parse(Collection<Class<?>> modelClasses,
                                       Collection<Class<?>> optionSetEnums) {
-        AnnotationScanResult parsed = parser.parse(modelClasses, optionSetEnums);
+        return parseFromCode(modelClasses, optionSetEnums);
+    }
+
+    /**
+     * {@link #parse} for a caller without the bean: {@link CatalogBootCheck} checks the rows the
+     * scanner writes, so it parses through the same seam.
+     */
+    public static AnnotationScanResult parseFromCode(Collection<Class<?>> modelClasses,
+                                                     Collection<Class<?>> optionSetEnums) {
+        AnnotationScanResult parsed = PARSER.parse(modelClasses, optionSetEnums);
         List<SysModelIndex> derived = SearchIndexSynthesizer.derive(
                 SearchIndexSpecs.from(parsed.models(), parsed.fields()),
                 SearchIndexSpecs.declared(parsed.modelIndexes()));

@@ -1,0 +1,161 @@
+package io.softa.starter.flow.compiler;
+
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.meta.ModelManager;
+import io.softa.starter.flow.api.CompileDiagnostic;
+import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.FlowGraphDocument;
+import io.softa.starter.flow.design.FlowGraphEdge;
+import io.softa.starter.flow.design.FlowGraphNode;
+import io.softa.starter.flow.design.trigger.ChangeEvent;
+import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
+import io.softa.starter.flow.design.trigger.TriggerSource;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.runtime.context.RecordModelFixture;
+
+import static io.softa.starter.flow.runtime.context.RecordModelFixture.MODEL;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * A data-change trigger's condition is checked at publish the way an edge's is — a rule against the fields of the
+ * flow's model, an expression by compiling it, never both — and a field-change trigger watches fields its model has.
+ */
+class TriggerConditionCompileTest {
+
+    private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
+    private MockedStatic<ModelManager> modelManager;
+
+    @BeforeEach
+    void setUp() {
+        modelManager = RecordModelFixture.mockModelManager();
+    }
+
+    @AfterEach
+    void tearDown() {
+        modelManager.close();
+    }
+
+    @Test
+    void aRuleOverTheRecordCompilesAndTravelsWithTheTrigger() {
+        Filters rule = Filters.of(List.of(List.of("days", ">", 3), "AND", List.of("leaveType", "=", "Annual")));
+
+        EntityChangeTrigger compiled = (EntityChangeTrigger) compiler.compile(change(MODEL, rule, null)).getTrigger();
+
+        assertEquals(rule.toString(), compiled.condition().toString());
+    }
+
+    @Test
+    void aTriggerKeepsOneKindOfCondition() {
+        assertEquals(List.of("CONFLICTING_TRIGGER_CONDITIONS"),
+                codes(change(MODEL, Filters.of(List.of("days", ">", 3)), "days > 3")));
+    }
+
+    @Test
+    void aRuleIsCheckedAgainstTheFieldsOfTheModelTheTriggerNames() {
+        assertTrue(message(change(MODEL, Filters.of(List.of("nights", ">", 3)), null), "INVALID_TRIGGER_CONDITION")
+                .contains("does not exist"));
+        assertTrue(message(change(MODEL, Filters.of(List.of("leaveType", ">", "A")), null), "INVALID_TRIGGER_CONDITION")
+                .contains("has no order"));
+        assertTrue(message(change("Nowhere", Filters.of(List.of("days", ">", 3)), null), "INVALID_TRIGGER_CONDITION")
+                .contains("not a model"));
+    }
+
+    @Test
+    void anExpressionMustCompile() {
+        assertTrue(codes(change(MODEL, null, "days > 3 &&")).contains("INVALID_TRIGGER_CONDITION"));
+        assertTrue(codes(change(MODEL, null, "days > 3")).isEmpty());
+    }
+
+    @Test
+    void aSubmitConditionIsCheckedLikeTheRoutesOfItsDocumentsApprovals() {
+        assertTrue(codes(submit(Filters.of(List.of("days", ">", 3)), null)).isEmpty());
+        assertTrue(message(submit(Filters.of(List.of("approvalStatus", "=", "Pending")), null),
+                "INVALID_TRIGGER_CONDITION").contains("route on"), "only the fields its approvals route on");
+        assertTrue(codes(submit(null, "days > 3 &&")).contains("INVALID_TRIGGER_CONDITION"));
+        assertTrue(codes(submit(Filters.of(List.of("days", ">", 3)), "days > 3"))
+                .contains("CONFLICTING_TRIGGER_CONDITIONS"));
+    }
+
+    /**
+     * A submit condition reads through the document's relations, up to two on, as its edges do: a submission reads
+     * the value from the related record to choose a flow. A change trigger's rule is decided on the change itself,
+     * before any run starts, so it reads the changed record only.
+     */
+    @Test
+    void aSubmitConditionReadsThroughARelationAndAChangeTriggersRuleDoesNot() {
+        assertTrue(codes(submit(Filters.of(List.of("departmentId.costCenter", "=", "CC1")), null)).isEmpty());
+        assertTrue(message(submit(Filters.of(List.of("departmentId.budget", ">", 1)), null),
+                "INVALID_TRIGGER_CONDITION").contains("is not a path a rule can read"));
+        assertTrue(message(change(MODEL, Filters.of(List.of("departmentId.costCenter", "=", "CC1")), null),
+                "INVALID_TRIGGER_CONDITION").contains("reads the record's own fields only"));
+    }
+
+    /** The trigger is edited on the Start node: its diagnostics point there, so the designer marks it. */
+    @Test
+    void aTriggersDiagnosticsPointAtTheStartNode() {
+        CompileDiagnostic invalid = compiler.validate(submit(null, "days > 3 &&")).stream()
+                .filter(diagnostic -> "INVALID_TRIGGER_CONDITION".equals(diagnostic.code()))
+                .findFirst().orElseThrow();
+        assertEquals("start", invalid.nodeId());
+        assertEquals("trigger", invalid.field());
+    }
+
+    /** Allowed — a submission is approved as it is made — but rarely meant: a warning at the flow's start. */
+    @Test
+    void anApprovalFlowWithoutAnApprovalStepIsWarnedOfAtItsStart() {
+        CompileDiagnostic warning = compiler.validate(submit(null, null)).stream()
+                .filter(diagnostic -> "NO_APPROVAL_STEP".equals(diagnostic.code()))
+                .findFirst().orElseThrow();
+        assertEquals(CompileDiagnostic.Severity.WARNING, warning.severity());
+        assertEquals("start", warning.nodeId());
+        assertTrue(compiler.validate(change(MODEL, null, null)).stream()
+                .noneMatch(diagnostic -> "NO_APPROVAL_STEP".equals(diagnostic.code())), "only approval flows");
+    }
+
+    /** The errors validation reports: a warning — an approval flow without an approval step — is no trigger error. */
+    private List<String> codes(DesignFlowDefinition definition) {
+        return compiler.validate(definition).stream()
+                .filter(diagnostic -> diagnostic.severity() == CompileDiagnostic.Severity.ERROR)
+                .map(CompileDiagnostic::code)
+                .toList();
+    }
+
+    private String message(DesignFlowDefinition definition, String code) {
+        return compiler.validate(definition).stream()
+                .filter(diagnostic -> code.equals(diagnostic.code()))
+                .map(CompileDiagnostic::message)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no " + code + " in " + compiler.validate(definition)));
+    }
+
+    private static DesignFlowDefinition submit(Filters rule, String expression) {
+        return flow(FlowScenario.APPROVAL, new SubmitTrigger(MODEL, expression, rule));
+    }
+
+    private static DesignFlowDefinition change(String model, Filters rule, String expression) {
+        return flow(FlowScenario.AUTOMATION, new EntityChangeTrigger(model, List.of(ChangeEvent.UPDATE), expression, rule));
+    }
+
+    private static DesignFlowDefinition flow(FlowScenario scenario, TriggerSource trigger) {
+        return DesignFlowDefinition.builder()
+                .name("Leave watch")
+                .scenario(scenario)
+                .trigger(trigger)
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
+                                FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
+                        .edges(List.of(FlowGraphEdge.builder().id("e1").source("start").target("end").build()))
+                        .build())
+                .build();
+    }
+}

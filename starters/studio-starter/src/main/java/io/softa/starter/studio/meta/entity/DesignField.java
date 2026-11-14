@@ -28,7 +28,8 @@ import io.softa.framework.orm.enums.WidgetType;
         copyable = false,   // copy disabled (would clone the per-env business key) — see DesignModel.
         // envId scopes the businessKey (see DesignModel).
         businessKey = {"envId", "modelName", "fieldName"},
-        displayName = {"label"}
+        displayName = {"label"},
+        defaultOrder = {"id"}
 )
 public class DesignField extends AuditableModel {
 

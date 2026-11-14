@@ -41,7 +41,7 @@ public class PermissionAspect {
      * <p>This used to log a WARN. It was removed: an unbound context is the norm on
      * scheduler / bootstrap / MQ threads, and the annotation sits on the
      * {@code JdbcServiceImpl} read-write methods every ORM call funnels through, so
-     * the warning fired continuously (message-starter's outbox polls every 500ms) and
+     * the warning fired continuously (message-starter's delivery loop polls every 500ms) and
      * reported something with no consequence. The failure it was written for — a
      * caller who expected a bound context and lost it — is not observable from here:
      * where the flag actually decides the outcome, the context IS bound and this

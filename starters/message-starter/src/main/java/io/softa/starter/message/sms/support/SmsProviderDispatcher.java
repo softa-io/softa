@@ -112,10 +112,10 @@ public class SmsProviderDispatcher {
      * persisted send record is retried through the same provider.
      */
     public SmsProviderConfig resolveProviderById(Long id) {
-        // Visibility-scoped lookup: records may reference platform-tier
-        // (tenant -1) configs that the implicit tenant filter would hide.
+        // By id, active or not: a prepared record replays through the very
+        // provider it was routed to, even one disabled since.
         SmsProviderConfig config = configCache.getById(id,
-                () -> configService.findVisibleById(id).orElse(null));
+                () -> configService.getById(id).orElse(null));
         if (config == null) {
             throw new BusinessException(
                     "SMS provider config with ID {0} not found.", id);

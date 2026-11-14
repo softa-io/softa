@@ -25,9 +25,6 @@ public class ApprovalNodeExecutionHandler implements NodeExecutionHandler {
 
     @Override
     public NodeOutcome execute(CompiledFlowNode node, FlowVariableContext ctx) {
-        // toExpressionScope() is available for downstream use (e.g. evaluating assignee expressions)
-        // but approval routing is handled by the approval service layer.
-        ctx.toExpressionScope();
         return new NodeOutcome.WaitApproval();
     }
 }

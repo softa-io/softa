@@ -2,20 +2,17 @@ package io.softa.starter.flow.runtime.engine;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
+import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
+import io.softa.starter.flow.runtime.exception.FlowNoApproverException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
-import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 
@@ -26,32 +23,37 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 public class PendingApprovalFactory {
 
     private final ApproverResolutionService approverResolutionService;
-    private final ApprovalAuditReader auditReader;
 
     @Autowired(required = false)
     private AutoDelegationService autoDelegationService;
 
-    public PendingApprovalFactory(ApproverResolutionService approverResolutionService,
-                                  ApprovalAuditReader auditReader) {
+    public PendingApprovalFactory(ApproverResolutionService approverResolutionService) {
         this.approverResolutionService = approverResolutionService;
-        this.auditReader = auditReader;
     }
 
     /**
      * Build a pending approval for the given node. A submitted record's submitter stays among the
      * step's approvers: {@link ApproverDedupService} counts them as having approved.
      *
-     * @return the pending approval, or {@code null} when the node resolves to nobody and its
-     *         empty-approver strategy skips or auto-approves it — the caller tells which with
-     *         {@link #resolveEmptyApproverStrategy}
-     * @throws FlowRuntimeException when the node resolves to nobody and its strategy is ERROR
+     * @return the pending approval — under AssignToRole, the holders of its roles when the node itself resolves to
+     *         nobody — or {@code null} when the node resolves to nobody and its empty-approver strategy
+     *         auto-approves it
+     * @throws FlowNoApproverException when the node resolves to nobody and its strategy is ERROR, or AssignToRole and
+     *         its roles leave nobody either: the action that reached it is refused
      */
     public PendingApproval buildPendingApproval(CompiledFlowDefinition definition,
                                                 CompiledFlowNode node,
                                                 FlowExecutionState state) {
         PendingApproval pendingApproval = resolvePendingApproval(definition, node, state, true);
-        if (pendingApproval == null && EmptyApproverStrategy.ERROR.equals(resolveEmptyApproverStrategy(node))) {
-            throw new FlowRuntimeException(emptyApproverMessage(node));
+        if (pendingApproval == null) {
+            switch (resolveEmptyApproverStrategy(node)) {
+                case ERROR -> throw new FlowNoApproverException(node.getNodeId(), node.getLabel(), whyNobody(node, state));
+                case ASSIGN_TO_ROLE -> throw FlowNoApproverException.inRoles(node.getNodeId(), node.getLabel(),
+                        approverResolutionService.emptyApproverRoleNames(node));
+                case AUTO_APPROVE -> {
+                    // The caller approves it on record.
+                }
+            }
         }
         return pendingApproval;
     }
@@ -70,39 +72,52 @@ public class PendingApprovalFactory {
         return resolvePendingApproval(definition, node, state, false);
     }
 
-    /** Why a node that resolves to nobody fails under its {@code ERROR} empty-approver strategy. */
-    static String emptyApproverMessage(CompiledFlowNode node) {
-        return "Approval node '" + node.getNodeId() + "' resolved an empty approver list (strategy=ERROR)";
+    /**
+     * Why a node that resolves to nobody is refused: under {@code ERROR}, saying why it found nobody where its source
+     * can tell; or {@code AssignToRole} leaving nobody.
+     */
+    String emptyApproverMessage(CompiledFlowNode node, FlowExecutionState state) {
+        return EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(resolveEmptyApproverStrategy(node))
+                ? FlowNoApproverException.messageOf(node.getNodeId(), node.getLabel(),
+                        approverResolutionService.emptyApproverRoleNames(node))
+                : FlowNoApproverException.messageOf(node.getNodeId(), node.getLabel(), whyNobody(node, state));
+    }
+
+    private String whyNobody(CompiledFlowNode node, FlowExecutionState state) {
+        return approverResolutionService.whyNobody(node, state == null ? null : state.getVariables(),
+                state == null ? null : state.getInitiatorId());
     }
 
     private PendingApproval resolvePendingApproval(CompiledFlowDefinition definition,
                                                    CompiledFlowNode node,
                                                    FlowExecutionState state,
                                                    boolean recordDelegationUsage) {
-        List<String> approvers = approverResolutionService.resolveApprovers(node,
-                ApproverResolutionService.resolutionVariables(state == null ? null : state.getVariables(),
-                        state == null ? null : state.getInitiatorId()));
+        Map<String, Object> variables = state == null ? null : state.getVariables();
+        String initiatorId = state == null ? null : state.getInitiatorId();
+        List<String> approvers = approverResolutionService.resolveApprovers(node, variables, initiatorId);
+        List<String> assignedRoles = null;
+        if (approvers.isEmpty() && EmptyApproverStrategy.ASSIGN_TO_ROLE.equals(resolveEmptyApproverStrategy(node))) {
+            // Found nobody: the holders of its roles take it, any one of whom decides.
+            approvers = approverResolutionService.resolveEmptyApproverRoleHolders(node, variables, initiatorId);
+            assignedRoles = approvers.isEmpty() ? null : approverResolutionService.emptyApproverRoleNames(node);
+        }
 
         if (approvers.isEmpty()) {
             return null;
         }
+        boolean toRoles = assignedRoles != null;
         PendingApproval pendingApproval = PendingApproval.builder()
                 .flowId(definition.getFlowId())
                 .flowRevision(definition.getRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())
-                .cycleNumber(nextCycleNumberForNode(state, node.getNodeId()))
                 .approvers(approvers)
-                .dynamicApprovers(approverResolutionService.hasDynamicApproverSource(node))
-                .approvalMode(approverResolutionService.resolveApprovalMode(node))
-                .requiredApprovalCount(approverResolutionService.resolveRequiredApprovalCount(node, approvers))
-                .totalApproverCount(approvers.size())
+                .approvalMode(toRoles ? VoteThresholdMode.ANY_ONE : approverResolutionService.resolveApprovalMode(node))
+                .requiredApprovalCount(toRoles ? 1 : approverResolutionService.resolveRequiredApprovalCount(node, approvers))
                 .approvedActors(new ArrayList<>())
-                .rejectMode(approverResolutionService.resolveRejectMode(node))
-                .requiredRejectCount(approverResolutionService.resolveRequiredRejectCount(node, approvers))
-                .rejectedActors(new ArrayList<>())
-                .dueTime(computeDueTime(node))
+                .dueTime(computeDueTime(definition))
                 .remindCount(0)
+                .assignedRoles(assignedRoles)
                 .build();
 
         // Apply auto-delegation rules if available
@@ -113,64 +128,28 @@ public class PendingApprovalFactory {
         return pendingApproval;
     }
 
-    public void recomputePendingApprovalThresholds(PendingApproval pendingApproval, CompiledFlowNode node) {
-        pendingApproval.setTotalApproverCount(pendingApproval.getApprovers().size());
-        pendingApproval.setRequiredApprovalCount(
-                approverResolutionService.resolveRequiredApprovalCount(node, pendingApproval.getApprovers()));
-        pendingApproval.setRequiredRejectCount(
-                approverResolutionService.resolveRequiredRejectCount(node, pendingApproval.getApprovers()));
-    }
-
-    private Integer nextCycleNumberForNode(FlowExecutionState state, String nodeId) {
-        int maxCycle = 0;
-        if (state != null) {
-            if (state.getPendingApprovals() != null) {
-                maxCycle = Math.max(maxCycle, state.getPendingApprovals().stream()
-                        .filter(item -> Objects.equals(nodeId, item.getNodeId()))
-                        .map(PendingApproval::getCycleNumber)
-                        .filter(Objects::nonNull)
-                        .max(Integer::compareTo)
-                        .orElse(0));
-            }
-            maxCycle = Math.max(maxCycle, auditReader.fullHistory(state).stream()
-                    .filter(entry -> Objects.equals(nodeId, entry.getNodeId()))
-                    .map(ApprovalActionAuditEntry::getCycleNumber)
-                    .filter(Objects::nonNull)
-                    .max(Integer::compareTo)
-                    .orElse(0));
-        }
-        return maxCycle + 1;
-    }
-
     /**
      * Read empty-approver strategy from node config, defaulting to {@link EmptyApproverStrategy#ERROR}.
      */
+    /**
+     * What a step that resolves to nobody does: its empty-approver strategy, applied only when it finds its approvers
+     * by rule ({@link ApprovalNodeConfig#findsApproversByRule}) — one that only names them, none of whom can act any
+     * more, stops and says why.
+     */
     EmptyApproverStrategy resolveEmptyApproverStrategy(CompiledFlowNode node) {
-        if (node.getParsedConfig() instanceof ApprovalNodeConfig cfg && cfg.getEmptyApproverStrategy() != null) {
+        if (node.getParsedConfig() instanceof ApprovalNodeConfig cfg && cfg.getEmptyApproverStrategy() != null
+                && cfg.findsApproversByRule()) {
             return cfg.getEmptyApproverStrategy();
         }
         return EmptyApproverStrategy.ERROR;
     }
 
     /**
-     * Compute due time from the node's timeout configuration.
-     * Returns {@code null} if no timeout is configured.
+     * When the step is due: its flow's {@code remindAfterHours} after it opens — its approvers still to act are
+     * reminded then — or {@code null} when the flow sends no reminders.
      */
-    private LocalDateTime computeDueTime(CompiledFlowNode node) {
-        ApprovalTimeoutConfig config = resolveTimeoutConfig(node);
-        if (config == null || config.getTimeoutHours() == null || config.getTimeoutHours() <= 0) {
-            return null;
-        }
-        return LocalDateTime.now().plusHours(config.getTimeoutHours());
-    }
-
-    /**
-     * Extract {@link ApprovalTimeoutConfig} from node config.
-     */
-    ApprovalTimeoutConfig resolveTimeoutConfig(CompiledFlowNode node) {
-        if (node.getParsedConfig() instanceof ApprovalNodeConfig cfg) {
-            return cfg.getTimeout();
-        }
-        return null;
+    private static LocalDateTime computeDueTime(CompiledFlowDefinition definition) {
+        Integer hours = definition.getRemindAfterHours();
+        return hours == null || hours < 1 ? null : LocalDateTime.now().plusHours(hours);
     }
 }

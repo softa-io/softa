@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import io.softa.framework.orm.meta.LookupKeys;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
@@ -52,6 +53,8 @@ public final class MetadataDtoMapper {
         fieldDTO.setCountries(metaField.getCountries());
         fieldDTO.setOnDelete(metaField.getOnDelete());
         fieldDTO.setConstraints(metaField.getConstraints());
+        List<String> lookupFields = LookupKeys.of(metaField);
+        fieldDTO.setLookupFields(lookupFields.isEmpty() ? null : lookupFields);
         return fieldDTO;
     }
 

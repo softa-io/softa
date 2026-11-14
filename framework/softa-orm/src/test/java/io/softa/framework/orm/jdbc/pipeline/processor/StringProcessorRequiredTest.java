@@ -69,6 +69,18 @@ class StringProcessorRequiredTest {
     }
 
     @Test
+    void theRefusalNamesTheFieldByItsLabel() {
+        // Not "Model field Company:name ..." — the sentence reaches import failure reasons and toasts,
+        // where the reader knows the field as its label. The model reads as its name here only
+        // because no model is registered in this test.
+        WriteValidationException refused = assertThrows(WriteValidationException.class,
+                () -> write(true, AccessType.CREATE, row(null)));
+
+        assertEquals("Company: Company Name is required.", refused.getMessage());
+        assertEquals("Company: Company Name is required.", refused.fieldErrors().get(FIELD));
+    }
+
+    @Test
     void spacesAreAsEmptyAsNothing() {
         assertThrows(WriteValidationException.class, () -> write(true, AccessType.CREATE, row("   ")));
         assertThrows(WriteValidationException.class, () -> write(true, AccessType.UPDATE, row("\t ")));

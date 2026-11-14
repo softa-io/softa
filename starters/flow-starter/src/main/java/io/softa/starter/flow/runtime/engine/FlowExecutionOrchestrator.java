@@ -1,12 +1,12 @@
 package io.softa.starter.flow.runtime.engine;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
-import io.softa.starter.flow.enums.EmptyApproverStrategy;
+import io.softa.starter.flow.enums.CcTiming;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
@@ -21,18 +21,20 @@ import io.softa.starter.flow.runtime.handler.NodeOutcome;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
+import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 
 /**
  * Encapsulates compiled-flow execution traversal, parallel-join bookkeeping, and synchronous subflow orchestration.
  *
- * <p>Gateway condition routing is delegated to {@link FlowGatewayRouter}; per-node error
- * strategy (FAIL/RETRY) is delegated to {@link NodeRetryExecutor}. A single
+ * <p>Gateway condition routing is delegated to {@link FlowGatewayRouter}. A node that throws fails the run: a call out
+ * is retried by its HTTP client, never by the engine (a database statement that failed has aborted the transaction,
+ * and a request that may have gone out must not be sent again). A single
  * {@link FlowVariableContext} is maintained for the entire lifetime of each
- * {@link #executeDefinition} call and passed to every node handler. Node outputs are
- * merged into the context's mutable {@code vars} tier after each node completes, which
- * is synced back to {@code FlowExecutionState#getVariables()} for persistence-layer
- * compatibility.</p>
+ * {@link #executeDefinition} call and passed to every node handler. Its {@code vars} tier is the instance's own
+ * variables map ({@code FlowExecutionState#getVariables()}): node outputs are written into it after each node
+ * completes, and what is saved is what the nodes wrote.</p>
  */
+@Slf4j
 @Component
 public class FlowExecutionOrchestrator {
 
@@ -43,8 +45,8 @@ public class FlowExecutionOrchestrator {
     private final PendingApprovalFactory pendingApprovalFactory;
     private final ApprovalNotificationService notificationService;
     private final FlowGatewayRouter gatewayRouter;
-    private final NodeRetryExecutor retryExecutor;
     private final ApproverDedupService approverDedupService;
+    private final AutoCcService autoCcService;
 
     public FlowExecutionOrchestrator(FlowBundleRegistry bundleRegistry,
                                      DefaultNodeHandlerRegistry nodeHandlerRegistry,
@@ -53,8 +55,8 @@ public class FlowExecutionOrchestrator {
                                      PendingApprovalFactory pendingApprovalFactory,
                                      ApprovalNotificationService notificationService,
                                      FlowGatewayRouter gatewayRouter,
-                                     NodeRetryExecutor retryExecutor,
-                                     ApproverDedupService approverDedupService) {
+                                     ApproverDedupService approverDedupService,
+                                     AutoCcService autoCcService) {
         this.bundleRegistry = bundleRegistry;
         this.nodeHandlerRegistry = nodeHandlerRegistry;
         this.contextService = contextService;
@@ -62,49 +64,83 @@ public class FlowExecutionOrchestrator {
         this.pendingApprovalFactory = pendingApprovalFactory;
         this.notificationService = notificationService;
         this.gatewayRouter = gatewayRouter;
-        this.retryExecutor = retryExecutor;
         this.approverDedupService = approverDedupService;
+        this.autoCcService = autoCcService;
     }
 
     // ── Public entry points ───────────────────────────────────────────────────
 
     public void executeRoot(CompiledFlowDefinition definition, FlowExecutionState state) {
         FlowVariableContext ctx = buildContextFromState(state);
-        executeDefinition(definition, state, definition.getEntryNodeIds(), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
-    }
-
-    /**
-     * Transient variant of {@link #executeRoot} for stateless Validation / Compute evaluation:
-     * identical traversal, but completion notifications are suppressed — the run leaves no
-     * persisted instance, so listeners must not observe it.
-     */
-    public void evaluateRoot(CompiledFlowDefinition definition, FlowExecutionState state) {
-        FlowVariableContext ctx = buildContextFromState(state);
-        executeDefinition(definition, state, definition.getEntryNodeIds(), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, false);
+        executeDefinition(definition, state, definition.getEntryNodeIds(),
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx);
     }
 
     /**
      * Resume execution after an approval node has been approved.
      */
-    public void resumeApprovedNode(FlowExecutionState state,
-                                   PendingApproval pendingApproval,
-                                   CompiledFlowDefinition definition,
-                                   CompiledFlowNode node) {
+    public FlowExecutionState resumeApprovedNode(FlowExecutionState state,
+                                                 PendingApproval pendingApproval,
+                                                 CompiledFlowDefinition definition,
+                                                 CompiledFlowNode node) {
         state.getPendingApprovals().removeIf(item -> pendingApproval.getNodeId().equals(item.getNodeId()));
         addCompletedNode(state, node.getNodeId());
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RESUMED,
                 "Approval granted for node " + node.getNodeId());
         FlowStatusTransitions.apply(state, FlowExecutionStatus.RUNNING);
-
-        FlowVariableContext ctx = buildContextFromState(state);
-        executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, node, ctx), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
+        return runAfterApproval(state, definition, node);
     }
 
     /**
-     * Resume execution after an async-task callback or timer fires.
+     * Runs the steps after an approval step — those its approval resumes, or, on a retry, the same steps again —
+     * without letting anything that stops them undo the approval.
+     *
+     * <p>The approver has done their part, and what stops the approval going on after it is not theirs to put right:
+     * no route out of a step, nobody to approve the next one, branches meeting a step wrongly — or, on a revision
+     * published before approval flows held people and routes only, an automated step failing. Whichever it is, the steps' writes are
+     * undone apart from the approval, with what they arranged for the commit (messages, change logs and the flows
+     * those would start); the error is logged; and the instance, as the approval left it, fails at the step that
+     * stopped it, remembering where to run again from — its initiator and the tenant's administrators are told. The
+     * approval stands: the caller gets the failed instance, to save, not the error. Its submitter can take the record
+     * back and submit it again, on the flow as it is by then; an administrator can run the steps again once the cause
+     * is gone ({@code RetryActionHandler}) — a system back up, an approver set up — or terminate the instance.
+     *
+     * <p>What the approver can put right is refused before this runs, the approval with it: a step already handled,
+     * a required field left empty, an edit the record's rules refuse. So is a veto of the record's handler on the
+     * approval's result, which runs as the instance is saved.
+     *
+     * @return the state to go on with: {@code state} once the steps ran, else the instance as the approval left it,
+     *         failed
+     */
+    public FlowExecutionState runAfterApproval(FlowExecutionState state, CompiledFlowDefinition definition,
+                                               CompiledFlowNode approved) {
+        FlowExecutionState approvedState = FlowExecutionStateMapper.copyOf(state);
+        UndoableSteps steps = UndoableSteps.begin();
+        try {
+            FlowVariableContext ctx = buildContextFromState(state);
+            executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, approved, ctx),
+                    new LinkedHashSet<>(List.of(definition.getFlowId())), ctx);
+            steps.keep();
+            state.setRetryAfterNodeId(null);
+            return state;
+        } catch (RuntimeException e) {
+            // The step that was running, while the trace still says — else the approval, whose routes led nowhere.
+            String failedNodeId = Objects.requireNonNullElse(deriveFailedNodeId(state), approved.getNodeId());
+            CompiledFlowNode failedNode = definition.getNodeIndex() == null ? approved
+                    : definition.getNodeIndex().getOrDefault(failedNodeId, approved);
+            steps.undo();
+            log.error("Step '{}' after approval step '{}' of flow instance {} failed; the approval stands and the "
+                    + "instance has failed until it is run again", failedNode.getNodeId(), approved.getNodeId(),
+                    state.getInstanceId(), e);
+            approvedState.setRetryAfterNodeId(approved.getNodeId());
+            failState(approvedState, definition.getFlowId(), failedNode,
+                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            return approvedState;
+        }
+    }
+
+    /**
+     * Resume execution after an async-task callback.
      *
      * @param state           the suspended instance state (loaded from store)
      * @param definition      the compiled flow definition
@@ -115,7 +151,7 @@ public class FlowExecutionOrchestrator {
                                         CompiledFlowDefinition definition,
                                         String suspendedNodeId,
                                         Map<String, Object> callbackOutputs) {
-        // Idempotent: a redelivered timer/async message (or a sweep racing Pulsar) finds no
+        // Idempotent: a redelivered callback finds no
         // live wait token for the node — already consumed, or the instance is terminal — and no-ops.
         if (state.getStatus() != null && state.getStatus().isTerminal()) {
             return;
@@ -132,8 +168,8 @@ public class FlowExecutionOrchestrator {
 
         FlowVariableContext ctx = buildContextFromState(state);
         CompiledFlowNode suspendedNode = contextService.requiredNode(definition, suspendedNodeId);
-        executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, suspendedNode, ctx), false,
-                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
+        executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, suspendedNode, ctx),
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx);
     }
 
     public void failState(FlowExecutionState state,
@@ -185,10 +221,8 @@ public class FlowExecutionOrchestrator {
     private void executeDefinition(CompiledFlowDefinition definition,
                                    FlowExecutionState state,
                                    Collection<String> startingNodeIds,
-                                   boolean subflow,
                                    Set<String> flowStack,
-                                   FlowVariableContext ctx,
-                                   boolean notifyOnComplete) {
+                                   FlowVariableContext ctx) {
         ArrayDeque<String> queue = new ArrayDeque<>(startingNodeIds);
         execution:
         while (!queue.isEmpty()) {
@@ -198,22 +232,17 @@ public class FlowExecutionOrchestrator {
             if (shouldWaitForParallelJoin(definition, state, node)) {
                 continue;
             }
+            requireFirstEntry(definition, state, node);
 
             auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.ENTER_NODE,
                     "Entering node " + node.getNodeId());
 
             NodeExecutionHandler handler = nodeHandlerRegistry.getHandler(node.getType());
 
-            NodeOutcome outcome = retryExecutor.execute(handler, node, ctx, state, definition);
-            if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
-                return;
-            }
+            NodeOutcome outcome = handler.execute(node, ctx);
 
-            // Merge outputs into context vars and sync back to state — regardless of outcome kind
-            if (!outcome.outputs().isEmpty()) {
-                outcome.outputs().forEach(ctx::writeVar);
-                contextService.mergeVariables(state, outcome.outputs());
-            }
+            // Outputs go into the run's variables — the instance's own map — regardless of outcome kind.
+            outcome.outputs().forEach(ctx::writeVar);
 
             // Exhaustive dispatch: wait outcomes park the instance and skip the completion
             // tail; Completed / RunSubflow fall through to it; Ended terminates the loop.
@@ -228,16 +257,11 @@ public class FlowExecutionOrchestrator {
                 case NodeOutcome.WaitApproval _ -> {
                     PendingApproval pendingApproval = pendingApprovalFactory.buildPendingApproval(definition, node, state);
                     if (pendingApproval == null) {
-                        // Nobody to approve: the node's empty-approver strategy skips it, or approves it on record.
-                        boolean autoApproved = EmptyApproverStrategy.AUTO_APPROVE.equals(
-                                pendingApprovalFactory.resolveEmptyApproverStrategy(node));
-                        if (autoApproved) {
-                            auditService.appendEmptyStepAutoApproval(state, definition, node);
-                        }
+                        // Nobody to approve: the node's empty-approver strategy approves it on record.
+                        auditService.appendEmptyStepAutoApproval(state, definition, node);
                         addCompletedNode(state, node.getNodeId());
                         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
-                                "Approval node " + node.getNodeId() + (autoApproved ? " auto-approved" : " skipped")
-                                        + " (no approver)");
+                                "Approval node " + node.getNodeId() + " auto-approved (no approver)");
                         enqueueNextNodes(definition, node, queue, state, ctx);
                         continue;
                     }
@@ -257,30 +281,14 @@ public class FlowExecutionOrchestrator {
                     notificationService.notify(new FlowNotificationEvent.TaskAssigned(state, pendingApproval));
                     continue;
                 }
-                case NodeOutcome.WaitTimer timer -> {
-                    LocalDateTime dueAt = timer.dueAt() == null ? null
-                            : LocalDateTime.ofInstant(timer.dueAt(), ZoneId.systemDefault());
-                    state.addWaitToken(FlowWaitToken.builder()
-                            .nodeId(node.getNodeId()).type(WaitType.TIMER).dueAt(dueAt).build());
-                    auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
-                            "Timer node " + node.getNodeId() + " suspending instance");
-                    FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
-                    continue;
-                }
                 case NodeOutcome.WaitAsync _ -> {
-                    state.addWaitToken(FlowWaitToken.builder()
-                            .nodeId(node.getNodeId()).type(WaitType.ASYNC).build());
+                    state.addWaitToken(FlowWaitToken.builder().nodeId(node.getNodeId()).build());
                     auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
                             "Async task node " + node.getNodeId() + " dispatched, waiting for callback");
                     FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
                     continue;
                 }
-                case NodeOutcome.RunSubflow subflowCall -> {
-                    executeSubflow(state, node, subflowCall, flowStack, ctx, notifyOnComplete);
-                    if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
-                        return;
-                    }
-                }
+                case NodeOutcome.RunSubflow subflowCall -> executeSubflow(state, node, subflowCall, flowStack, ctx);
                 case NodeOutcome.Completed _ -> {
                     // nothing outcome-specific; completion tail below
                 }
@@ -292,17 +300,87 @@ public class FlowExecutionOrchestrator {
             enqueueNextNodes(definition, node, queue, state, ctx);
         }
 
-        if (!subflow) {
-            finalizeRootState(state, announcesCompletion(definition, notifyOnComplete));
+        requireJoinsComplete(definition, state);
+        finalizeRootState(definition, state);
+    }
+
+    /**
+     * A node runs once in an instance — an end aside, which each branch may reach: the graph has no cycles, and a
+     * return or a resubmission starts a new instance. A parallel join counts as entered when its last branch
+     * arrives. Entered again, branches have met at the node without a join (or one branch reached a join twice): it
+     * would ask its approvers again and run everything after it twice. The run fails instead, naming the node — a
+     * record's submission is refused and rolls back; after an approval, the instance fails with the approval kept
+     * ({@link #runAfterApproval}). Publishing refuses such graphs
+     * ({@code CONCURRENT_BRANCHES_MEET}, {@code BRANCH_ENTERS_JOIN_TWICE}); this is the engine's own check, should a
+     * graph get past them.
+     */
+    private static void requireFirstEntry(CompiledFlowDefinition definition, FlowExecutionState state,
+                                          CompiledFlowNode node) {
+        if (isEnd(node)) {
+            return;
         }
+        String nodeId = node.getNodeId();
+        boolean entered = state.getCompletedNodeIds().contains(nodeId)
+                || state.getPendingApprovals().stream().anyMatch(pending -> nodeId.equals(pending.getNodeId()))
+                || state.findWaitToken(nodeId) != null;
+        if (entered) {
+            throw new FlowRuntimeException("Flow '" + definition.getFlowName() + "' reached node '" + node.displayName()
+                    + "' a second time: branches that run at the same time meet there without a parallel join, so "
+                    + "it would run once for each. Join the branches with a parallel join first, or let each end on "
+                    + "its own, and publish the flow again.");
+        }
+    }
+
+    /**
+     * With nothing left to wait for, every parallel join a branch reached has had all of its branches: a join still
+     * short of one never goes on, and the instance would complete there, skipping the steps after it — an approval
+     * written back as approved. The run fails instead, naming the join. Publishing refuses the graphs that leave a
+     * join short ({@code BRANCH_SKIPS_JOIN}, {@code BRANCH_ENTERS_JOIN_TWICE}, {@code INCLUSIVE_JOIN_UNPAIRED}); this
+     * is the engine's own check, should a graph get past them. A flow a Return Value ended skips the check: it ends
+     * with its branches.
+     */
+    private static void requireJoinsComplete(CompiledFlowDefinition definition, FlowExecutionState state) {
+        if (state.hasWaitTokens() || !state.getPendingApprovals().isEmpty()) {
+            return;
+        }
+        Map<String, CompiledFlowNode> nodes = definition.getNodeIndex();
+        boolean returned = state.getCompletedNodeIds().stream()
+                .map(nodes::get)
+                .anyMatch(node -> node != null && FlowNodeType.RETURN_VALUE.equals(node.getType()));
+        if (returned) {
+            return;
+        }
+        String prefix = definition.getFlowId() + ":";
+        for (Map.Entry<String, Integer> arrivals : state.getJoinArrivalCounts().entrySet()) {
+            if (!arrivals.getKey().startsWith(prefix)) {
+                continue;
+            }
+            CompiledFlowNode join = nodes.get(arrivals.getKey().substring(prefix.length()));
+            if (join == null || !isParallelJoin(join)) {
+                continue;
+            }
+            int branches = join.getIncomingEdgeIds().size();
+            if (arrivals.getValue() < branches) {
+                throw new FlowRuntimeException("Flow '" + definition.getFlowName() + "' has nothing left to run, but "
+                        + "parallel join '" + join.displayName() + "' has had " + arrivals.getValue() + " of its "
+                        + branches + " branches: the others took a way that skips it, so the steps after it would "
+                        + "never run. Let every branch that goes on to the join reach it by one edge, and publish the "
+                        + "flow again.");
+            }
+        }
+    }
+
+    /** Where a path ends: an End, or a Return Value, which ends the flow. */
+    private static boolean isEnd(CompiledFlowNode node) {
+        return FlowNodeType.END.equals(node.getType()) || FlowNodeType.RETURN_VALUE.equals(node.getType());
     }
 
     /**
      * The completion notice tells the initiator their approval went through, so only an Approval flow
      * sends one — an automation run is not something its triggering user asked to hear about.
      */
-    private static boolean announcesCompletion(CompiledFlowDefinition definition, boolean notifyOnComplete) {
-        return notifyOnComplete && FlowScenario.APPROVAL.equals(definition.getScenario());
+    private static boolean announcesCompletion(CompiledFlowDefinition definition) {
+        return FlowScenario.APPROVAL.equals(definition.getScenario());
     }
 
     // ── Subflow ───────────────────────────────────────────────────────────────
@@ -311,35 +389,31 @@ public class FlowExecutionOrchestrator {
                                 CompiledFlowNode parentNode,
                                 NodeOutcome.RunSubflow subflowCall,
                                 Set<String> flowStack,
-                                FlowVariableContext parentCtx,
-                                boolean notifyOnComplete) {
+                                FlowVariableContext parentCtx) {
+        // A subflow is a step like any other: what stops it throws, and whoever runs the steps handles it as it handles
+        // any failing step — an automation run failed.
         String subflowId = subflowCall.flowId();
-        if (flowStack.contains(subflowId)) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Recursive subflow invocation is not supported: " + flowStack + " -> " + subflowId);
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    parentState.getErrorMessage());
-            return;
-        }
         CompiledFlowDefinition subflow = bundleRegistry.getActiveByFlowId(subflowId)
-                .orElseThrow(() -> new FlowRuntimeException("Compiled subflow bundle not found: flowId=" + subflowId));
+                .orElseThrow(() -> new FlowRuntimeException("Subflow " + subflowId
+                        + " cannot run: it was never published, or it is disabled"));
         String subflowName = subflow.getFlowName();
+        if (flowStack.contains(subflowId)) {
+            throw new FlowRuntimeException("Subflow node '" + parentNode.displayName() + "' calls flow '" + subflowName
+                    + "', which is already running above it: a flow cannot call itself, directly or through another");
+        }
         // A flow's trigger is its start contract: only a flow that declares a Subflow trigger (an
         // Automation flow) runs from a parent.
         if (!FlowScenario.AUTOMATION.equals(subflow.getScenario()) || !(subflow.getTrigger() instanceof SubflowTrigger)) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Flow '" + subflowName + "' cannot run as a subflow: only an Automation flow "
-                    + "with a Subflow trigger can");
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    parentState.getErrorMessage());
-            return;
+            throw new FlowRuntimeException("Flow '" + subflowName + "' cannot run as a subflow: only an Automation flow "
+                    + "with a Subflow trigger can. Pick one on Subflow node '" + parentNode.displayName() + "'");
         }
         auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.SUBFLOW_START,
                 "Starting subflow " + subflowName + " (flowId=" + subflowId + ") from node " + parentNode.getNodeId());
 
-        // Fork child context from parent using the outcome's input mapping
+        // Fork child context from parent using the outcome's input mapping, over the child run's own variables
+        Map<String, Object> childVariables = new LinkedHashMap<>();
         FlowVariableContext childCtx = FlowVariableContextUtils.forkForSubflow(
-                parentCtx, subflowCall.inputMapping());
+                parentCtx, subflowCall.inputMapping(), childVariables);
 
         FlowExecutionState childState = FlowExecutionState.builder()
                 .instanceId(parentState.getInstanceId() + ":" + subflowId)
@@ -348,8 +422,7 @@ public class FlowExecutionOrchestrator {
                 .flowName(subflowName)
                 .flowRevision(subflow.getRevision())
                 .status(FlowExecutionStatus.RUNNING)
-                .inputPayload(new LinkedHashMap<>(childCtx.getInput()))
-                .variables(new LinkedHashMap<>(childCtx.getVars()))
+                .variables(childVariables)
                 .completedNodeIds(new ArrayList<>())
                 .pendingApprovals(new ArrayList<>())
                 .approvalAuditDelta(new ArrayList<>())
@@ -359,34 +432,13 @@ public class FlowExecutionOrchestrator {
 
         Set<String> childFlowStack = new LinkedHashSet<>(flowStack);
         childFlowStack.add(subflowId);
-        executeDefinition(subflow, childState, subflow.getEntryNodeIds(), true, childFlowStack, childCtx, notifyOnComplete);
-        finalizeRootState(childState, announcesCompletion(subflow, notifyOnComplete));
+        executeDefinition(subflow, childState, subflow.getEntryNodeIds(), childFlowStack, childCtx);
 
-        FlowExecutionStatus childStatus = childState.getStatus();
-        if (FlowExecutionStatus.WAITING.equals(childStatus)) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Subflow '" + subflowName
-                    + "' paused (" + childStatus + "), which is not supported in synchronous subflow mode");
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    parentState.getErrorMessage());
-            return;
-        }
-        if (FlowExecutionStatus.FAILED.equals(childState.getStatus())) {
-            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage(childState.getErrorMessage());
-            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
-                    childState.getErrorMessage());
-            return;
-        }
-
-        // Merge child results back into parent context using output mapping
+        // Merge child results back into the parent's variables using output mapping
         FlowVariableContextUtils.mergeSubflowResult(
                 parentCtx, childCtx,
                 subflowCall.outputVariable(),
                 subflowCall.outputMapping());
-
-        // Sync parent ctx vars to parent state for persistence
-        parentCtx.varsView().forEach((k, v) -> parentState.getVariables().put(k, v));
 
         parentState.getTrace().addAll(childState.getTrace());
         auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.SUBFLOW_END,
@@ -425,6 +477,21 @@ public class FlowExecutionOrchestrator {
         return arrivals < node.getIncomingEdgeIds().size();
     }
 
+    /**
+     * Counts, at the join an inclusive gateway is paired with, the branches it did not take as arrived: each of its
+     * edges leads to one edge into the join, so the join waits for the {@code taken} it did take, and goes on once,
+     * after the last of them. A gateway whose branches each end on their own, or compiled before pairing, names no
+     * join. The approval path preview counts the same way.
+     */
+    static void creditUntakenBranches(CompiledFlowDefinition definition, FlowExecutionState state,
+                                      CompiledFlowNode gateway, int taken) {
+        String join = gateway.getPairedJoinId();
+        int untaken = gateway.getOutgoingEdgeIds().size() - taken;
+        if (join != null && untaken > 0) {
+            state.getJoinArrivalCounts().merge(definition.getFlowId() + ":" + join, untaken, Integer::sum);
+        }
+    }
+
     // ── Transition resolution ─────────────────────────────────────────────────
 
     private void enqueueNextNodes(CompiledFlowDefinition definition,
@@ -445,19 +512,27 @@ public class FlowExecutionOrchestrator {
         boolean isGateway = FlowNodeType.PARALLEL_FORK.equals(node.getType())
                 || FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType());
         if (!isGateway && nextNodeIds.size() > 1) {
-            throw new FlowRuntimeException("Node '" + node.getNodeId()
+            throw new FlowRuntimeException("Node '" + node.displayName()
                     + "' produced multiple outgoing branches without a gateway");
+        }
+        if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
+            creditUntakenBranches(definition, state, node, nextNodeIds.size());
         }
         nextNodeIds.forEach(queue::addLast);
     }
 
     // ── State finalization ────────────────────────────────────────────────────
 
-    private void finalizeRootState(FlowExecutionState state, boolean notifyOnComplete) {
-        if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
-            return;
-        }
-        // Still parked on any wait — a timer/async token or a pending approval.
+    /**
+     * A run that got here did not fail: nothing in a run fails an instance but a step that throws, and the caller of the
+     * run handles that ({@link #runAfterApproval}, or the facade around a start or a resume).
+     *
+     * <p>What an approval completing approved brings goes here, so that every run that completes one brings it — an
+     * approval, a retry, an async task resuming the instance, an administrator's reassignment: the notice
+     * that it went through, and the flow's approval CCs, recorded on the step whose action ended it.
+     */
+    private void finalizeRootState(CompiledFlowDefinition definition, FlowExecutionState state) {
+        // Still parked on any wait — an async task or a pending approval.
         if (state.hasWaitTokens() || !state.getPendingApprovals().isEmpty()) {
             FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
             return;
@@ -472,9 +547,27 @@ public class FlowExecutionOrchestrator {
                 .eventTime(LocalDateTime.now())
                 .message("Flow execution completed")
                 .build());
-        if (notifyOnComplete) {
-            notificationService.notify(new FlowNotificationEvent.FlowCompleted(state, true));
+        if (announcesCompletion(definition)) {
+            notificationService.notify(new FlowNotificationEvent.FlowCompleted(state));
+            autoCcService.processCc(state, approvalEndStep(definition, state), CcTiming.ON_APPROVED);
         }
+    }
+
+    /**
+     * The step whose action ended the approval: the approval step completed last — one that passed on its own as it
+     * opened counts too — else the start node, when no approval step was on the way.
+     */
+    private static CompiledFlowNode approvalEndStep(CompiledFlowDefinition definition, FlowExecutionState state) {
+        Map<String, CompiledFlowNode> nodes = definition.getNodeIndex() == null ? Map.of() : definition.getNodeIndex();
+        List<String> completed = state.getCompletedNodeIds();
+        for (int i = completed.size() - 1; i >= 0; i--) {
+            CompiledFlowNode node = nodes.get(completed.get(i));
+            if (node != null && FlowNodeType.APPROVAL.equals(node.getType())) {
+                return node;
+            }
+        }
+        List<String> entries = definition.getEntryNodeIds();
+        return entries == null || entries.isEmpty() ? null : nodes.get(entries.getFirst());
     }
 
     private void addCompletedNode(FlowExecutionState state, String nodeId) {
@@ -485,9 +578,14 @@ public class FlowExecutionOrchestrator {
 
     // ── Context construction ──────────────────────────────────────────────────
 
+    /**
+     * A run's context, over its instance's variables. The input tier is a subflow's own — its parent's inputMapping,
+     * handed to it in memory (it runs in one go and is never resumed) — so a run loaded from its state has none.
+     */
     private FlowVariableContext buildContextFromState(FlowExecutionState state) {
-        Map<String, Object> input = state.getInputPayload() != null ? state.getInputPayload() : Map.of();
-        Map<String, Object> vars  = state.getVariables()    != null ? state.getVariables()    : Map.of();
-        return FlowVariableContextUtils.fromTriggerPayloadAndVars(input, vars);
+        if (state.getVariables() == null) {
+            state.setVariables(new LinkedHashMap<>());
+        }
+        return new FlowVariableContext(Map.of(), state.getVariables());
     }
 }

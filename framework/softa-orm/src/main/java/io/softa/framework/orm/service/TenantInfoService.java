@@ -2,6 +2,8 @@ package io.softa.framework.orm.service;
 
 import java.util.List;
 
+import io.softa.framework.base.enums.Timezone;
+
 /**
  * Framework SPI for multi-tenant runtime concerns. Returns only ids / booleans — never the
  * tenant entity, which lives in tenant-starter. The implementation
@@ -89,6 +91,19 @@ public interface TenantInfoService {
      * @return the country code, or null when unknown
      */
     default String getDefaultCountry(Long tenantId) {
+        return null;
+    }
+
+    /**
+     * The tenant's default time zone: the calendar of a company that names none of its own.
+     *
+     * <p>Default {@code null} so an implementation that predates this method still compiles; callers fall back to
+     * the server's zone when it is unknown.
+     *
+     * @param tenantId tenant id
+     * @return the time zone, or null when unknown
+     */
+    default Timezone getDefaultTimezone(Long tenantId) {
         return null;
     }
 

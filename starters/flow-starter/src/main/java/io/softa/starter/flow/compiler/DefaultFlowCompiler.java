@@ -18,6 +18,7 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
+import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
@@ -44,8 +45,8 @@ public class DefaultFlowCompiler {
                 new GraphStructureValidator(),
                 new TriggerConsistencyValidator(),
                 new TaskConfigValidator(),
-                new UnsupportedNodeTypeValidator(),
                 new ApprovalConfigValidator(),
+                new TemplatePlaceholderValidator(),
                 new GatewayValidator()
         );
     }
@@ -66,48 +67,52 @@ public class DefaultFlowCompiler {
     /**
      * Validate without compiling: returns every diagnostic the compile pipeline would
      * raise, as a normal result instead of an exception — the editor's lint surface.
-     * An empty list means the definition compiles.
+     * The definition compiles when none of them is an error; warnings are advice.
      */
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition) {
         return analyze(definition).diagnostics;
     }
 
+    /**
+     * Compiles the definition, refused with every diagnostic when any of them is an error. Warnings do not stop it.
+     */
     public CompiledFlowDefinition compile(DesignFlowDefinition definition) {
         Analysis analysis = analyze(definition);
-        if (!analysis.diagnostics.isEmpty()) {
+        if (analysis.diagnostics.stream().anyMatch(d -> d.severity() == CompileDiagnostic.Severity.ERROR)) {
             throw new FlowCompileException(analysis.diagnostics);
         }
         FlowGraphContext context = analysis.context;
         Map<String, CompiledFlowNode> compiledNodeIndex = NodeTransformer.compileNodes(
                 context.nodeMap().values(), context.incomingEdgeIds(), context.outgoingEdgeIds());
+        // An inclusive gateway whose branches meet names its join: the engine counts the branches not taken there.
+        for (FlowGraphNode node : context.nodeMap().values()) {
+            if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
+                compiledNodeIndex.get(node.getId()).setPairedJoinId(BranchRegions.pairOf(node, context).joinId());
+            }
+        }
         Map<String, CompiledFlowTransition> compiledTransitionIndex =
                 NodeTransformer.compileTransitions(context.edgeMap().values());
         List<String> entryNodeIds = context.entryNodeIds();
-        List<String> terminalNodeIds = context.terminalNodeIds();
-        List<String> topologicalOrder = analysis.topologicalOrder;
 
         return CompiledFlowDefinition.builder()
                 .flowName(definition.getName())
                 .scenario(definition.getScenario())
                 .compiledAt(LocalDateTime.now())
                 .trigger(definition.getTrigger())
-                .forms(defaultList(definition.getForms()))
                 .withdrawPolicy(definition.getWithdrawPolicy() == null ? WithdrawPolicy.NEVER : definition.getWithdrawPolicy())
+                .returnEnabled(definition.getReturnEnabled())
                 .urgeEnabled(definition.getUrgeEnabled())
-                .urgeIntervalMinutes(definition.getUrgeIntervalMinutes())
+                .urgeIntervalHours(definition.getUrgeIntervalHours())
+                .remindAfterHours(definition.getRemindAfterHours())
                 .emailNotification(definition.getEmailNotification())
                 .cc(definition.getCc() == null ? List.of() : List.copyOf(definition.getCc()))
                 .sync(Boolean.TRUE.equals(definition.getSync()))
                 .rollbackOnFail(Boolean.TRUE.equals(definition.getRollbackOnFail()))
                 .approverDedup(definition.getApproverDedup())
                 .selfApproval(definition.getSelfApproval())
-                .declaredOutputs(defaultList(definition.getDeclaredOutputs()))
                 .entryNodeIds(entryNodeIds)
-                .terminalNodeIds(terminalNodeIds)
-                .topologicalOrder(topologicalOrder)
                 .nodeIndex(compiledNodeIndex)
                 .transitionIndex(compiledTransitionIndex)
-                .capabilitySummary(NodeTransformer.buildCapabilitySummary(context.nodeMap().values()))
                 .build();
     }
 
@@ -123,29 +128,25 @@ public class DefaultFlowCompiler {
         Map<String, List<String>> incomingEdgeIds = GraphIndexBuilder.buildIncomingEdgeIds(edgeMap.values());
         Map<String, List<String>> outgoingEdgeIds = GraphIndexBuilder.buildOutgoingEdgeIds(edgeMap.values());
         List<String> entryNodeIds = GraphIndexBuilder.resolveEntryNodes(nodeMap.values());
-        List<String> terminalNodeIds = GraphIndexBuilder.resolveTerminalNodes(nodeMap.values(), outgoingEdgeIds);
 
-        FlowGraphContext context = new FlowGraphContext(
-                nodeMap, edgeMap, incomingEdgeIds, outgoingEdgeIds, entryNodeIds, terminalNodeIds);
+        FlowGraphContext context = new FlowGraphContext(nodeMap, edgeMap, incomingEdgeIds, outgoingEdgeIds, entryNodeIds);
 
         // Defective entries were skipped from the indexes, so running validators on top
         // would produce misleading follow-on errors — report the structural set alone.
         if (!structural.isEmpty()) {
-            return new Analysis(context, structural, List.of());
+            return new Analysis(context, structural);
         }
 
         List<CompileDiagnostic> diagnostics = new ArrayList<>();
         for (FlowValidator validator : validators) {
             diagnostics.addAll(validator.validate(definition, context));
         }
-        List<String> topologicalOrder =
-                TopologicalSorter.topologicalSort(nodeMap.values(), edgeMap.values(), diagnostics);
-        return new Analysis(context, diagnostics, topologicalOrder);
+        // A cycle is reported on each node it leaves unsortable; the order itself is not kept.
+        TopologicalSorter.topologicalSort(nodeMap.values(), edgeMap.values(), diagnostics);
+        return new Analysis(context, diagnostics);
     }
 
-    private record Analysis(FlowGraphContext context,
-                            List<CompileDiagnostic> diagnostics,
-                            List<String> topologicalOrder) {
+    private record Analysis(FlowGraphContext context, List<CompileDiagnostic> diagnostics) {
     }
 
     private static <T> List<T> defaultList(List<T> values) {

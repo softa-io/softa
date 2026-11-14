@@ -60,8 +60,16 @@ class CronTriggerValidationTest {
         assertEquals("CRON_INVALID_EXPRESSION", refused.getDiagnostics().getFirst().code());
     }
 
+    @Test
+    void aScheduleThatHasEndedIsRejected() {
+        List<CompileDiagnostic> diagnostics = compiler.validate(cronFlow(FlowScenario.AUTOMATION, "0 0 2 1 1 ? 2020"));
+
+        assertEquals(List.of("CRON_INVALID_EXPRESSION"), diagnostics.stream().map(CompileDiagnostic::code).toList());
+        assertTrue(diagnostics.getFirst().message().contains("never fires again"), diagnostics.getFirst().message());
+    }
+
     @ParameterizedTest
-    @EnumSource(value = FlowScenario.class, names = {"AUTOMATION", "VALIDATION", "COMPUTE"})
+    @EnumSource(value = FlowScenario.class, names = {"AUTOMATION"})
     void everyFlowButAnApprovalMayRunOnASchedule(FlowScenario scenario) {
         assertFalse(codes(cronFlow(scenario, "0 0 9 ? * MON-FRI")).contains("TRIGGER_NOT_ALLOWED"));
     }

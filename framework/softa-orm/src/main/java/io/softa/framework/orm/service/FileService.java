@@ -45,10 +45,9 @@ public interface FileService {
      * @param rowId     the ID of the corresponding business row data
      * @param fieldName The field name of the file belongs to
      * @param url       the URL of the file
-     * @param expireSeconds the expiration time in seconds
      * @return fileInfo object
      */
-    FileInfo uploadFromUrl(String modelName, Serializable rowId, String fieldName, String url, int expireSeconds);
+    FileInfo uploadFromUrl(String modelName, Serializable rowId, String fieldName, String url);
 
     /**
      * Upload a file to the OSS by input stream.
@@ -76,13 +75,17 @@ public interface FileService {
     Optional<FileInfo> getByFileId(Long fileId);
 
     /**
-     * Get the FileInfo object by fileId
+     * A storage link to the file, signed now and valid for {@code oss.url-expire-seconds} (300 seconds
+     * by default). For the endpoints that open a file key, and for handing a file to an external system
+     * that fetches it by URL right away. Never keep it or send it on: it is dead within minutes.
+     * {@code FileInfo.url} is the address a page keeps; backend code that needs the content reads
+     * {@link #downloadStream(Long)}.
      *
-     * @param fileId the ID of the file
-     * @param expireSeconds the expiration time in seconds
-     * @return Optional object containing the FileInfo object if found, or empty if not found
+     * @param fileId   the ID of the file
+     * @param download true for {@code Content-Disposition: attachment}, false to display inline
+     * @return the link, or empty when there is no such file
      */
-    Optional<FileInfo> getByFileId(Long fileId, int expireSeconds);
+    Optional<String> getStorageLink(Long fileId, boolean download);
 
     /**
      * Get the FileInfo object list by fileIds.
@@ -162,9 +165,10 @@ public interface FileService {
      * two rows pointing at one record leaves the copy readable only through the original's
      * permissions. A record each is what makes each row's own check the answer.
      *
-     * <p>The stored object is shared, not duplicated: nothing in this framework deletes from object
-     * storage, so a second reference cannot be left dangling by the first going away. Anything that
-     * adds deletion later has to look for other records on the same key first.
+     * <p>The stored object is copied too, under a new key: {@code FileRecord.ossKey} is unique, one
+     * record per stored object, so two records cannot share one. The copy is made on the storage side,
+     * without reading the bytes through this process. Should the surrounding transaction roll back, the
+     * copied object is left with no record — harmless, as nothing reads an object no record names.
      *
      * <p><b>Not</b> reachable from a claim. Copying on demand there would turn writing a stranger's
      * file id into a row you may edit — the theft {@code claimFiles} refuses — into a supported way of

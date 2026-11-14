@@ -57,7 +57,7 @@ Platform metadata is declared in Java (`@Model` / `@Field` / `@OptionSet` / `@In
 | Annotation API & scanner | [`starters/metadata-starter/README.md`](starters/metadata-starter/README.md) |
 | Annotation properties | [`framework/softa-orm/README.md`](framework/softa-orm/README.md) |
 | AI agent prompts (this repo) | [`docs/ai/`](docs/ai/) |
-| Manual migrations | [`deploy/migrations/`](deploy/migrations/) — version-numbered ledger; each file's header carries its ordering contract |
+| Manual migrations | [`docs/README.md`](docs/README.md) → *DB schema or data change*: when SQL is needed at all. This repo keeps no migration files — the deploying app ships each script with its release |
 
 ## Global Placeholder Syntax
 Softa uses one placeholder syntax across Flow, document templates, file templates, and DDL generation:

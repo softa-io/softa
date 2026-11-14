@@ -21,7 +21,7 @@ public enum FlowExecutionStatus {
     PENDING("Pending"),
     RUNNING("Running"),
     /**
-     * Parked on one or more waits — a pending approval and/or timer / async
+     * Parked on one or more waits — a pending approval and/or an async-task
      * callback. The specific reasons live in {@code FlowExecutionState#getPendingApprovals()}
      * and {@code FlowExecutionState#getWaitTokens()}, so a single status covers
      * parallel branches suspended for different reasons at once.

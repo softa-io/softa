@@ -21,7 +21,7 @@ import io.softa.starter.flow.runtime.trigger.FlowTriggerEvent;
  * <p>
  * Before the transaction is committed, triggers matching flows
  * synchronously using the ChangeLog data accumulated during the transaction.
- * This enables data validation flows that can cause transaction rollback.
+ * A {@code sync} Automation flow with {@code rollbackOnFail} can so fail the write that fired it.
  * </p>
  */
 @Slf4j

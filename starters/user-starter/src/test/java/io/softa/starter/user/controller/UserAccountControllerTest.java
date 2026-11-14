@@ -402,7 +402,7 @@ class UserAccountControllerTest {
         stored.setNickname("Old Name");
         stored.setEmail("alice@acme.com");
         stored.setMobile("+6591234567");
-        when(accountService.getById(42L)).thenReturn(java.util.Optional.of(stored));
+        when(accountService.getMyOwnAccount(42L)).thenReturn(java.util.Optional.of(stored));
         when(accountService.updateOne(any(UserAccount.class))).thenReturn(true);
 
         UserAccountDTO body = new UserAccountDTO();
@@ -422,6 +422,74 @@ class UserAccountControllerTest {
         assertThat(written.getValue().getNickname()).isEqualTo("New Name");
         assertThat(written.getValue().getEmail()).isEqualTo("alice@acme.com");
         assertThat(written.getValue().getMobile()).isEqualTo("+6591234567");
+    }
+
+    // ─── the caller's own account is read and written past row scope ───
+
+    /**
+     * The self-service endpoints read the session's own row through {@code getMyOwnAccount} (which
+     * skips row scope — see its test on the service) and write it with the scope skipped too; the
+     * mock refuses the write otherwise, as the real scope would for a role without a grant.
+     */
+    private UserAccountService ownAccount(UserAccount stored) {
+        UserAccountService accountService = mock(UserAccountService.class);
+        ReflectionTestUtils.setField(controller, "service", accountService);
+        when(accountService.getMyOwnAccount(stored.getId())).thenReturn(java.util.Optional.of(stored));
+        when(accountService.updateOne(any(UserAccount.class))).thenAnswer(call ->
+                ContextHolder.getContext().isSkipPermissionCheck());
+        return accountService;
+    }
+
+    private static Context signedInAs(Long userId) {
+        Context ctx = new Context();
+        ctx.setUserId(userId);
+        ctx.setTenantId(9L);
+        return ctx;
+    }
+
+    @Test
+    void getMyAccount_readsTheSessionsOwnRow() {
+        UserAccount stored = new UserAccount();
+        stored.setId(42L);
+        stored.setNickname("Alice");
+        UserAccountService accountService = ownAccount(stored);
+
+        AtomicReference<ApiResponse<UserAccount>> response = new AtomicReference<>();
+        ContextHolder.runWith(signedInAs(42L), () -> response.set(controller.getMyAccount()));
+
+        assertThat(response.get().isSuccess()).isTrue();
+        assertThat(response.get().getData().getNickname()).isEqualTo("Alice");
+        verify(accountService, never()).getById(any());
+    }
+
+    @Test
+    void saveMyAccount_writesTheCallersOwnRow_pastRowScope() {
+        UserAccount stored = new UserAccount();
+        stored.setId(42L);
+        stored.setNickname("Old Name");
+        UserAccountService accountService = ownAccount(stored);
+
+        UserAccountDTO body = new UserAccountDTO();
+        body.setNickname("New Name");
+        Context ctx = signedInAs(42L);
+        AtomicReference<ApiResponse<Void>> response = new AtomicReference<>();
+        ContextHolder.runWith(ctx, () -> response.set(controller.saveMyAccount(body)));
+
+        assertThat(response.get().isSuccess()).isTrue();
+        verify(accountService).updateOne(any(UserAccount.class));
+        // The skip is confined to the write: the caller's own context is left as it was.
+        assertThat(ctx.isSkipPermissionCheck()).isFalse();
+    }
+
+    @Test
+    void getMyAccount_letsAFailureThrough_insteadOfAnOpaqueError() {
+        UserAccountService accountService = mock(UserAccountService.class);
+        ReflectionTestUtils.setField(controller, "service", accountService);
+        when(accountService.getMyOwnAccount(42L)).thenThrow(new BusinessException("boom"));
+
+        assertThatThrownBy(() -> ContextHolder.callWith(signedInAs(42L), () -> controller.getMyAccount()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("boom");
     }
 
     // ─── @CrossTenant operations are bounded to the caller's own tenant ───

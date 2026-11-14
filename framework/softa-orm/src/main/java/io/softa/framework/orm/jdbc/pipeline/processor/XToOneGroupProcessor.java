@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
 
-import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.aspect.CallerPermissions;
@@ -27,6 +26,7 @@ import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.utils.ReflectTool;
+import io.softa.framework.orm.utils.DisplayNames;
 import io.softa.framework.orm.vo.ModelReference;
 
 /**
@@ -119,7 +119,12 @@ public class XToOneGroupProcessor extends BaseProcessor {
      * @param rows The list of output data
      */
     public void batchProcessOutputRows(List<Map<String, Object>> rows) {
-        if (flexQuery.isAcrossTimeline()
+        // A OneToMany expansion groups its child rows by this back reference as a raw id. A dynamic cascaded field
+        // through it brings this processor in, and it computes that field but must leave the reference unexpanded:
+        // expanded, no child row matches its parent and the expansion comes back empty.
+        boolean keepId = metaField.getFieldName().equals(flexQuery.getKeepIdField());
+        if (!keepId
+                && flexQuery.isAcrossTimeline()
                 && ModelManager.isTimelineModel(metaField.getModelName())
                 && ModelManager.isTimelineModel(metaField.getRelatedModel())
                 && ConvertType.EXPAND_TYPES.contains(flexQuery.getConvertType())) {
@@ -130,6 +135,9 @@ public class XToOneGroupProcessor extends BaseProcessor {
             Map<Serializable, Map<String, Object>> relatedRowMap = getRelatedModelRowMap(rows);
             // Before expand the ManyToOne/OneToOne field, calculate the dynamic cascaded field first.
             cascadedFields.forEach(sf -> batchProcessOutputRowsCascaded(sf, rows, relatedRowMap));
+            if (keepId) {
+                return;
+            }
             XToOneProcessor xToOneField = new XToOneProcessor(metaField, accessType, flexQuery);
             // Expand the ManyToOne/OneToOne field with displayName, or related model row according to subQuery.
             xToOneField.batchProcessOutputRows(rows, relatedRowMap);
@@ -255,8 +263,7 @@ public class XToOneGroupProcessor extends BaseProcessor {
             });
             if (!relatedRow.isEmpty()) {
                 // Compute the displayName of related timeline model, and assign it to the ManyToOne/OneToOne field.
-                List<Object> displayValues = displayFields.stream().map(relatedRow::get).filter(n -> n != null && n != "").collect(Collectors.toList());
-                String displayName = StringUtils.join(displayValues, StringConstant.DISPLAY_NAME_SEPARATOR);
+                String displayName = DisplayNames.of(relatedRow, displayFields);
                 Serializable relatedId = (Serializable) row.get(xToOneFieldName);
                 Object value = ConvertType.REFERENCE.equals(flexQuery.getConvertType()) ?
                         ModelReference.of(relatedId, displayName) : displayName;

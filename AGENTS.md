@@ -60,7 +60,7 @@ softa-parent (root pom.xml)
 │   ├── cron-starter             # Scheduled task execution
 │   ├── es-starter               # Elasticsearch CRUDQ
 │   ├── file-starter             # File management
-│   ├── message-starter          # SMS / Mail + Pulsar MQ producers/consumers
+│   ├── message-starter          # Mail / SMS / Inbox: send records, delivery loop, templates
 │   ├── reference-data-starter   # ISO 3166-1 countries, ISO 4217 currencies, ISO 3166-2 subdivisions
 │   ├── studio-starter           # Metadata control plane: cross-env governance + DDL rendering (Pebble)
 │   ├── user-starter             # User management
@@ -202,19 +202,23 @@ preserved) — data is carried, not divorced. A skipped-version chain or an
 
 **When is manual DDL/DML needed at all?** Additive structure (new
 model/field/index/option, attribute widening) is annotation-only and
-self-applies — **except new columns on the `sys_*` / `design_*` catalog
-tables themselves**: the scanner's strict catalog read SELECTs every entity
-column and runs *before* any auto-DDL, so a catalog-table column added in
-code crashes the boot of every existing environment until its migration has
-run (chicken-and-egg; fresh installs are unaffected — the baseline DDL
-already carries it). Hand-written SQL is therefore reserved for catalog-table
-columns, data transformation, destructive cleanup, Studio/connector-managed
-rows, and business-data DML. Migrations live in
-`deploy/migrations/<db>/V<N>__<slug>.sql` — the next free number is the
-registration, and the header comment carries the context, variants, and
-run-before-boot ordering contract (copy the structure of
-`V34__add_auto_sequence_to_sys_field.sql`); see also the *DB schema or data
-change* branch of [`docs/README.md`](docs/README.md)'s decision tree.
+self-applies — the `sys_*` catalog tables included: a boot with a non-empty
+`scanner-scope` first reconciles the five boot-read catalog tables from their
+own annotations (`DdlOrchestrator.reconcilePhysical`, before the strict
+catalog read), so a fresh database bootstraps with no baseline DDL and a new
+catalog column needs no migration. Hand-written SQL is therefore reserved for
+data transformation (including the backfill `UPDATE` a new column needs on
+rows the scanner does not manage), destructive cleanup,
+Studio/connector-managed rows, business-data DML, and any change on an
+environment with an empty `scanner-scope` (checker-only — nothing
+auto-applies there, catalog included). Softa keeps no migration files: the
+change states the transition, its variants and when it must run (before or
+after the new jar boots) in its PR and module README, and the deploying app
+ships the script with its release — in zingkey-hcm,
+`deploy/hcm-app/release/<Release>/<batch>/NN-<phase>-<slug>.sql` (model:
+`Release-20261030/20261029-approval-center/01-before-jar-withdraw-policy.sql`);
+see also the *DB schema or data change* branch of
+[`docs/README.md`](docs/README.md)'s decision tree.
 
 ### Runtime catalog identity (`app_code`)
 
@@ -243,8 +247,10 @@ Verification recipe for annotation changes:
 1. `mvn -B -ntp -DskipTests compile -pl <affected module> -am`
 2. `mvn -B -ntp test -pl starters/metadata-starter -Dtest='AnnotationParserTest,SystemModelAnnotationTest,ReferenceDataAnnotationTest,TypeInferenceTest'`
 3. `mvn -B -ntp test -pl <affected module>`
-4. `git diff -- '<affected files>'` (and `git diff main...HEAD` for full PR scope)
-5. (If a `scanner-scope: ["*"]` app is available) restart and watch logs:
+4. `mvn -B -ntp test -pl apps/demo-app -am -Dtest=SoftaCatalogBootCheckTest -Dsurefire.failIfNoSpecifiedTests=false`
+   — every softa model through the checks `ModelManager` makes at boot (`CatalogBootCheck`)
+5. `git diff -- '<affected files>'` (and `git diff main...HEAD` for full PR scope)
+6. (If a `scanner-scope: ["*"]` app is available) restart and watch logs:
    `MetadataAnnotationScanner: applied N row change(s) to sys_*`
    `DdlOrchestrator: CREATE TABLE ... OK` / `ALTER TABLE ... OK`
 
@@ -257,14 +263,17 @@ were planned but removed. AI agents use `Read` / `Edit` / `Write` directly
 - [starters/metadata-starter/README.md](starters/metadata-starter/README.md) — annotation API, scanner-scope behavior matrix, `renamedFrom`, DDL auto-execute policy
 - [framework/softa-orm/README.md](framework/softa-orm/README.md) — full `@Model` / `@Field` / `@Index` property reference
 - [starters/studio-starter/README.md](starters/studio-starter/README.md) — metadata control plane: publish / merge / drift / import, connectors, `DesignAggregate`
-- [starters/flow-starter/README.md](starters/flow-starter/README.md) — flow engine: scenarios and triggers, the approval model, approving business records, notifications, APIs
+- [starters/flow-starter/README.md](starters/flow-starter/README.md) — flow engine maintainer reference: wiring and configuration, extension points, the invariants a change must keep; the engine's behaviour is documented in the softa-docs Flow pages
 
 A change to behaviour in `flow-starter` — the record or instance state machine,
 approval actions, flow or node settings, triggers and automation runs,
-notifications, permissions, configuration keys — updates
-`starters/flow-starter/README.md` and the softa-docs Flow pages
-(`content/{zh-CN,en-US}/docs/features/flow/`, zh-CN first: it is the translation
-source) in the same change; when neither needs to change, the summary says why.
+notifications, permissions, configuration keys — updates the softa-docs Flow pages
+(`content/{zh-CN,en-US}/docs/features/flow/`, zh-CN first — it is the source — then
+the en-US mirror, kept by hand) in the same change: they are the one complete
+description of the engine. `starters/flow-starter/README.md` is the maintainer
+reference and changes only when what it lists changes — wiring and configuration,
+extension points and their contracts, the invariants. When none needs to change,
+the summary says why.
 
 ## Coding Conventions
 

@@ -11,10 +11,17 @@ import io.softa.starter.message.inbox.entity.InboxNotification;
 import io.softa.starter.message.inbox.enums.NotificationType;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
-/** Internal persistence handler for inbox submissions. */
+/**
+ * Internal persistence handler for inbox submissions. A title longer than its column is cut to fit, ending in an
+ * ellipsis, rather than refused: senders tell users past the action that sends, where a refusal is only logged, and
+ * the message was lost for a long title (an automation's, an alert naming a long request). The content has no width.
+ */
 @Component
 @RequiredArgsConstructor
 final class InboxMessageHandler {
+
+    /** The title column's width ({@code InboxNotification.title}). */
+    static final int TITLE_MAX_LENGTH = 200;
 
     private final InboxNotificationService notificationService;
 
@@ -37,9 +44,6 @@ final class InboxMessageHandler {
         if (!StringUtils.hasText(message.getTitle())) {
             throw new BusinessException("Inbox send rejected: title is required");
         }
-        if (message.getTitle().length() > 200) {
-            throw new BusinessException("Inbox send rejected: title exceeds 200 characters");
-        }
         if (!StringUtils.hasText(message.getContent())) {
             throw new BusinessException("Inbox send rejected: content is required");
         }
@@ -48,10 +52,15 @@ final class InboxMessageHandler {
         }
     }
 
+    /** {@code title} cut to the column, its last character an ellipsis when it was longer. */
+    static String fit(String title) {
+        return title.length() <= TITLE_MAX_LENGTH ? title : title.substring(0, TITLE_MAX_LENGTH - 1) + "…";
+    }
+
     private static InboxNotification toNotification(SendInboxDTO message) {
         InboxNotification notification = new InboxNotification();
         notification.setRecipientId(message.getRecipientId());
-        notification.setTitle(message.getTitle());
+        notification.setTitle(fit(message.getTitle().strip()));
         notification.setContent(message.getContent());
         notification.setNotificationType(message.getNotificationType() != null
                 ? message.getNotificationType() : NotificationType.SYSTEM);

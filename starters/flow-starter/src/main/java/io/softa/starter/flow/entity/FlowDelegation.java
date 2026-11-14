@@ -49,6 +49,7 @@ public class FlowDelegation extends AuditableModel {
     @Field(description = "Delegation end time")
     private LocalDateTime endTime;
 
+    // False once the rule is cancelled. Whether it applies now also depends on its period: FlowDelegationStatus.
     @Field(description = "Whether the rule is active")
     private Boolean active;
 
@@ -63,9 +64,6 @@ public class FlowDelegation extends AuditableModel {
 
     @Field(label = "Node ID", length = 100, description = "Node id when the scope is node-specific")
     private String nodeId;
-
-    @Field(description = "Auto expire at end time")
-    private Boolean autoExpire;
 
     @Field(copyable = false, description = "Delegated task count")
     private Integer delegatedTaskCount;

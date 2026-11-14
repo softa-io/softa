@@ -98,7 +98,7 @@ class ApproverDedupScenarioTest {
                 .name("Approver Dedup " + dedup)
                 .scenario(FlowScenario.APPROVAL)
                 .approverDedup(dedup)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -124,7 +124,7 @@ class ApproverDedupScenarioTest {
                 .id(id)
                 .type(FlowNodeType.APPROVAL)
                 .label(id)
-                .config(Map.of("approvers", List.of(approverId)))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(approverId)))))
                 .build();
     }
 

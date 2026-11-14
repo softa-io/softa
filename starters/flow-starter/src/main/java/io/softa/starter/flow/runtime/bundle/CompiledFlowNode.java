@@ -10,9 +10,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.starter.flow.design.FlowGraphPosition;
 import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.runtime.nodeconfig.NodeErrorConfig;
 
 /**
  * Runtime node compiled from a design-time graph node.
@@ -21,10 +19,8 @@ import io.softa.starter.flow.runtime.nodeconfig.NodeErrorConfig;
  * <ul>
  *   <li>{@code type} ({@link FlowNodeType}) replaces the former {@code kind} ({@code FlowNodeKind}),
  *       serving as the single discriminator for both handler routing and palette rendering.</li>
- *   <li>{@code errorConfig} ({@link NodeErrorConfig}) replaces the former loose pair of
- *       {@code errorStrategy} + {@code retryCount} fields.</li>
- *   <li>Return policy ({@code returnEnabled}) is now embedded in {@code parsedConfig} as part
- *       of {@code ApprovalNodeConfig}.</li>
+ *   <li>Return policy ({@code returnEnabled}) is the flow's, on {@code CompiledFlowDefinition}, the same at every
+ *       step.</li>
  * </ul>
  */
 @Data
@@ -54,16 +50,20 @@ public class CompiledFlowNode {
     @Schema(hidden = true)
     private Object parsedConfig;
 
-    @Schema(description = "Error handling configuration")
-    @Builder.Default
-    private NodeErrorConfig errorConfig = NodeErrorConfig.failFast();
-
     @Schema(description = "Incoming edge ids")
     private List<String> incomingEdgeIds;
 
-    @Schema(description = "Outgoing edge ids")
+    @Schema(description = "Outgoing edge ids, in the order a node that is not a gateway tries them: by priority, the "
+            + "default last")
     private List<String> outgoingEdgeIds;
 
-    @Schema(description = "Original design-time canvas position")
-    private FlowGraphPosition position;
+    @Schema(description = "On an inclusive gateway whose branches meet: the join they meet at, which counts the branches "
+            + "the gateway does not take as arrived. Null when its branches each end on their own, and on every other "
+            + "node")
+    private String pairedJoinId;
+
+    /** What a message calls the node: its label — the step's name people see — or its id when it has none. */
+    public String displayName() {
+        return label != null && !label.isBlank() ? label : nodeId;
+    }
 }

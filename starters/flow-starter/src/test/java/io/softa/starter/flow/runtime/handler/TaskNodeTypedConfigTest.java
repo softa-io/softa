@@ -35,11 +35,6 @@ class TaskNodeTypedConfigTest {
         }
 
         @Override
-        public String getExecutor() {
-            return "capture";
-        }
-
-        @Override
         public String getName() {
             return "capture";
         }

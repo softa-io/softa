@@ -39,9 +39,18 @@ class AccountContactEditTest {
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
+
+    private final io.softa.starter.user.service.UserInvitationService invitations;
 
     AccountContactEditTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
+        invitations = (io.softa.starter.user.service.UserInvitationService)
+                ReflectionTestUtils.getField(accountService, "invitationService");
+        // The person behind an account nobody has joined yet is, by default, the placeholder minted
+        // with it; a test about a real person says so.
+        when(invitations.isPlaceholderPerson(PROFILE, ACCOUNT)).thenReturn(true);
     }
 
     private void given(AccountStatus status, String email, String mobile) {
@@ -91,10 +100,35 @@ class AccountContactEditTest {
 
         assertThat(edit(patch("email", "New@Acme.com", "mobile", "+6590000002"))).isTrue();
 
-        // Stored the way login looks it up; the old address no longer names this person.
-        assertThat(identity.getLoginEmail()).isEqualTo("new@acme.com");
-        assertThat(identity.getLoginMobile()).isEqualTo("+6590000002");
-        verify(identityService).updateOne(identity, false);
+        // The mobile is stored the way login looks it up; the old number no longer names this person.
+        verify(identityService).updateLoginMobile(11L, "+6590000002");
+        // The email has no copy on the person to move: it signs in through the account itself.
+        assertThat(identity.getLoginEmail()).isEqualTo("old@acme.com");
+    }
+
+    @Test
+    void aRealPersonsLoginMobile_isNotTheCompanysToMove() {
+        // The account was bound to an existing person (HR created it under their contact): their
+        // login mobile signs them in everywhere, and an account form must not rewrite it.
+        given(AccountStatus.INVITED, null, "+6590000001");
+        UserIdentity identity = person(null, "+6590000001");
+        when(invitations.isPlaceholderPerson(PROFILE, ACCOUNT)).thenReturn(false);
+
+        assertThat(edit(patch("mobile", "+6590000002"))).isTrue();
+
+        assertThat(identity.getLoginMobile()).isEqualTo("+6590000001");
+        verify(identityService, never()).updateLoginMobile(any(), any());
+    }
+
+    @Test
+    void anEmailOnlyEdit_touchesNoCredential() {
+        given(AccountStatus.PENDING, "old@acme.com", null);
+        person("old@acme.com", null);
+
+        assertThat(edit(patch("email", "new@acme.com"))).isTrue();
+
+        verify(identityService, never()).updateLoginMobile(any(), any());
+        verify(identityService, never()).findByProfile(any());
     }
 
     @Test
@@ -105,7 +139,7 @@ class AccountContactEditTest {
         assertThat(edit(patch("email", "new@acme.com"))).isTrue();
 
         assertThat(identity.getLoginEmail()).isEqualTo("me@gmail.com");
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
@@ -128,7 +162,7 @@ class AccountContactEditTest {
         assertThatThrownBy(() -> edit(patch("email", "new@acme.com")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage(UserAccountServiceImpl.RESET_INSTEAD);
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
@@ -138,18 +172,18 @@ class AccountContactEditTest {
         person("old@acme.com", "+6590000001");
 
         assertThat(edit(patch("email", " OLD@acme.com", "mobile", "+6590000001", "nickname", "Ann"))).isTrue();
-        verify(identityService, never()).updateOne(any(UserIdentity.class), anyBoolean());
+        verify(identityService, never()).updateLoginMobile(any(), any());
     }
 
     @Test
-    void anAddressAnotherPersonSignsInWithIsRefused() {
-        given(AccountStatus.PENDING, "old@acme.com", null);
-        person("old@acme.com", null);
+    void aNumberAnotherPersonSignsInWithIsRefused() {
+        given(AccountStatus.PENDING, null, "+6590000001");
+        person(null, "+6590000001");
         UserIdentity someoneElse = new UserIdentity();
         someoneElse.setProfileId(8L);
-        when(identityService.findByLoginIdentifier("taken@acme.com")).thenReturn(Optional.of(someoneElse));
+        when(identityService.findByLoginIdentifier("+6590000009")).thenReturn(Optional.of(someoneElse));
 
-        assertThatThrownBy(() -> edit(patch("email", "taken@acme.com")))
+        assertThatThrownBy(() -> edit(patch("mobile", "+6590000009")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("already signs in another person");
     }

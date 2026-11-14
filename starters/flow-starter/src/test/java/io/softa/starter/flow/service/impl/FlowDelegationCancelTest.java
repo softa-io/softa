@@ -28,12 +28,12 @@ class FlowDelegationCancelTest {
     @Test
     void theDelegatorCancelsTheirOwnRule() {
         doReturn(Optional.of(delegation("alice"))).when(service).getById(5L);
-        doReturn(true).when(service).updateOne(any(FlowDelegation.class), anyBoolean());
+        doReturn(true).when(service).updateOne(any(FlowDelegation.class));
 
         service.cancelDelegation(5L, "alice");
 
         ArgumentCaptor<FlowDelegation> saved = ArgumentCaptor.forClass(FlowDelegation.class);
-        verify(service).updateOne(saved.capture(), anyBoolean());
+        verify(service).updateOne(saved.capture());
         assertEquals(Boolean.FALSE, saved.getValue().getActive());
     }
 
@@ -42,6 +42,7 @@ class FlowDelegationCancelTest {
         doReturn(Optional.of(delegation("alice"))).when(service).getById(5L);
 
         assertThrows(FlowAuthorizationException.class, () -> service.cancelDelegation(5L, "mallory"));
+        verify(service, never()).updateOne(any(FlowDelegation.class));
         verify(service, never()).updateOne(any(FlowDelegation.class), anyBoolean());
     }
 

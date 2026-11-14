@@ -16,7 +16,8 @@ public class FlowCompileException extends RuntimeException {
     private final List<CompileDiagnostic> diagnostics;
 
     public FlowCompileException(List<CompileDiagnostic> diagnostics) {
-        super(diagnostics.size() + " compilation error(s)");
+        super(diagnostics.stream().filter(d -> d.severity() != CompileDiagnostic.Severity.WARNING).count()
+                + " compilation error(s)");
         this.diagnostics = List.copyOf(diagnostics);
     }
 

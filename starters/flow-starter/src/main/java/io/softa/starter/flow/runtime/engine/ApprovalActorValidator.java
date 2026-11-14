@@ -1,113 +1,84 @@
 package io.softa.starter.flow.runtime.engine;
 
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.i18n.I18n;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
-import io.softa.starter.flow.runtime.state.AddSignPosition;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 
 /**
- * Unified validation for approval actor eligibility across all action types.
+ * Unified validation for approval actor eligibility across all action types. A refusal names the people it is about
+ * and the step by its label, as the person who acted sees them; the person an action hands the step to — a transfer,
+ * delegation or reassignment target, someone CC'd — must be able to act ({@link ActorAccounts}).
  */
 @Component
 public class ApprovalActorValidator {
 
-    private final ApprovalLifecycleService lifecycleService;
+    // The refusals, translated: {0} is a person's name, {1} the step's label (else its node id).
+    private static final String NOT_AN_APPROVER = "{0} is not an approver of step ''{1}''.";
+    private static final String ALREADY_AN_APPROVER = "{0} is already an approver of step ''{1}''.";
+    private static final String ALREADY_APPROVED = "{0} has already approved step ''{1}''.";
+    /** {0} is the step's label. */
+    private static final String NO_APPROVERS = "Step ''{0}'' has no approvers.";
 
-    public ApprovalActorValidator(ApprovalLifecycleService lifecycleService) {
-        this.lifecycleService = lifecycleService;
+    /** Names people and tells who can act; without it people are named by their ids and anyone can act. */
+    private final ActorAccounts actorAccounts;
+
+    public ApprovalActorValidator(ActorAccounts actorAccounts) {
+        this.actorAccounts = actorAccounts;
     }
 
     public void validateApprovalActor(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
         if (!StringUtils.hasText(actorId) || pendingApproval.getApprovers() == null || pendingApproval.getApprovers().isEmpty()) {
             return;
         }
-        if (!pendingApproval.getApprovers().contains(actorId)) {
-            throw new FlowActionValidationException("Actor '" + actorId + "' is not an approver for node: " + node.getNodeId());
-        }
+        requireActorIsApprover(pendingApproval, actorId, node);
     }
 
     public void validateRejectActor(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
-        if (!StringUtils.hasText(actorId) || pendingApproval.getApprovers() == null || pendingApproval.getApprovers().isEmpty()) {
-            return;
-        }
-        if (!pendingApproval.getApprovers().contains(actorId)) {
-            throw new FlowActionValidationException("Actor '" + actorId + "' is not an approver for node: " + node.getNodeId());
-        }
+        validateApprovalActor(pendingApproval, actorId, node);
     }
 
     public void validateTransferActors(PendingApproval pendingApproval, FlowTransferRequest request, CompiledFlowNode node) {
-        requireNonEmptyApprovers(pendingApproval, node, "transferrable");
+        requireNonEmptyApprovers(pendingApproval, node);
         requireActorIsApprover(pendingApproval, request.getActorId(), node);
         requireTargetNotExisting(pendingApproval, request.getTargetActorId(), node);
-        requireActorNotAlreadyVoted(pendingApproval, request.getActorId());
-        lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
+        requireNotVoted(pendingApproval, request.getActorId(), node);
+        requireUsable(List.of(request.getTargetActorId()));
     }
 
     /**
-     * An administrator reassigning {@code actorId}'s task: they must be an approver of the step still to act. The
-     * new approver may already be one (the two merge), and an add-sign prerequisite moves with the task.
+     * An administrator reassigning {@code actorId}'s task to {@code targetActorId}: the former must be an approver of
+     * the step still to act, the latter able to act. The new approver may already be one (the two merge).
      */
-    public void validateReassignActor(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
-        requireNonEmptyApprovers(pendingApproval, node, "reassignable");
+    public void validateReassignActor(PendingApproval pendingApproval, String actorId, String targetActorId,
+                                      CompiledFlowNode node) {
+        requireNonEmptyApprovers(pendingApproval, node);
         requireActorIsApprover(pendingApproval, actorId, node);
-        requireActorNotAlreadyVoted(pendingApproval, actorId);
-    }
-
-    public void validateDelegateActors(PendingApproval pendingApproval, FlowDelegateRequest request, CompiledFlowNode node) {
-        requireNonEmptyApprovers(pendingApproval, node, "delegatable");
-        requireActorIsApprover(pendingApproval, request.getActorId(), node);
-        requireTargetNotExisting(pendingApproval, request.getTargetActorId(), node);
-        requireActorNotAlreadyVoted(pendingApproval, request.getActorId());
-        lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
+        requireNotVoted(pendingApproval, actorId, node);
+        requireUsable(List.of(targetActorId));
     }
 
     /**
-     * Position-aware dispatcher: routes BEFORE to the add-sign-before validation and AFTER to the
-     * add-sign-after validation so the per-position messages are preserved exactly.
-     */
-    public void validateAddSign(PendingApproval pendingApproval,
-                                AbstractFlowNodeTargetActorRequest request,
-                                CompiledFlowNode node,
-                                AddSignPosition position) {
-        switch (position) {
-            case BEFORE -> validateAddSignCommon(pendingApproval, request, node, "add sign before",
-                    "Approval node already has an unresolved add-sign-before prerequisite: " + node.getNodeId());
-            case AFTER -> validateAddSignCommon(pendingApproval, request, node, "add sign after",
-                    "Approval node already has an unresolved add-sign dependency: " + node.getNodeId());
-        }
-    }
-
-    private void validateAddSignCommon(PendingApproval pendingApproval,
-                                       AbstractFlowNodeTargetActorRequest request,
-                                       CompiledFlowNode node,
-                                       String emptyApproversLabel,
-                                       String unresolvedDependencyMessage) {
-        requireNonEmptyApprovers(pendingApproval, node, emptyApproversLabel);
-        requireActorIsApprover(pendingApproval, request.getActorId(), node);
-        requireTargetNotExisting(pendingApproval, request.getTargetActorId(), node);
-        requireActorNotAlreadyVoted(pendingApproval, request.getActorId());
-        lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
-        if (lifecycleService.hasUnresolvedAddSignDependency(pendingApproval)) {
-            throw new FlowActionValidationException(unresolvedDependencyMessage);
-        }
-    }
-
-    /**
-     * The actor CC'ing on a step: one of its approvers, still to vote and not waiting on a signer added before them.
-     * Who they CC is the action's to sort out — it skips the people who already see the approval.
+     * The actor CC'ing on a step: one of its approvers, still to vote. Who they CC is the action's to sort out — it
+     * skips the people who already see the approval.
      */
     public void validateCcActor(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
-        requireNonEmptyApprovers(pendingApproval, node, "CC");
+        requireNonEmptyApprovers(pendingApproval, node);
         requireActorIsApprover(pendingApproval, actorId, node);
-        lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, actorId, node);
-        requireActorNotAlreadyVoted(pendingApproval, actorId);
+        requireNotVoted(pendingApproval, actorId, node);
+    }
+
+    /** The people chosen to CC: refused as a whole when any of them cannot act, naming them. */
+    public void validateCcRecipients(List<String> recipients) {
+        requireUsable(recipients);
     }
 
     public List<String> normalizeCcRecipients(List<String> targetActorIds) {
@@ -123,33 +94,46 @@ public class ApprovalActorValidator {
         return List.copyOf(orderedUnique);
     }
 
+    /**
+     * Refuses an actor who already approved the step in this cycle. A rejection ends the approval, so nobody has
+     * rejected a step still waiting.
+     */
+    public void requireNotVoted(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
+        if (pendingApproval.getApprovedActors() != null && pendingApproval.getApprovedActors().contains(actorId)) {
+            throw new FlowActionValidationException(I18n.get(ALREADY_APPROVED, nameOf(actorId), node.displayName()));
+        }
+    }
+
     // --- shared building blocks ---
 
-    private void requireNonEmptyApprovers(PendingApproval pendingApproval, CompiledFlowNode node, String actionLabel) {
+    private void requireNonEmptyApprovers(PendingApproval pendingApproval, CompiledFlowNode node) {
         if (pendingApproval.getApprovers() == null || pendingApproval.getApprovers().isEmpty()) {
-            throw new FlowActionValidationException("Approval node has no " + actionLabel + " approvers: " + node.getNodeId());
+            throw new FlowActionValidationException(I18n.get(NO_APPROVERS, node.displayName()));
         }
     }
 
     private void requireActorIsApprover(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
         if (!pendingApproval.getApprovers().contains(actorId)) {
-            throw new FlowActionValidationException("Actor '" + actorId + "' is not an approver for node: " + node.getNodeId());
+            throw new FlowActionValidationException(I18n.get(NOT_AN_APPROVER, nameOf(actorId), node.displayName()));
         }
     }
 
     private void requireTargetNotExisting(PendingApproval pendingApproval, String targetActorId, CompiledFlowNode node) {
         if (pendingApproval.getApprovers().contains(targetActorId)) {
-            throw new FlowActionValidationException("Target actor '" + targetActorId + "' is already an approver for node: " + node.getNodeId());
+            throw new FlowActionValidationException(I18n.get(ALREADY_AN_APPROVER, nameOf(targetActorId), node.displayName()));
         }
     }
 
-    private void requireActorNotAlreadyVoted(PendingApproval pendingApproval, String actorId) {
-        if (pendingApproval.getApprovedActors() != null && pendingApproval.getApprovedActors().contains(actorId)) {
-            throw new FlowActionValidationException("Approver has already approved this approval node: " + actorId);
+    private void requireUsable(Collection<String> userIds) {
+        if (actorAccounts != null) {
+            actorAccounts.requireUsable(userIds);
         }
-        if (pendingApproval.getRejectedActors() != null && pendingApproval.getRejectedActors().contains(actorId)) {
-            throw new FlowActionValidationException("Approver has already rejected this approval node: " + actorId);
+    }
+
+    private String nameOf(String userId) {
+        if (actorAccounts == null || !StringUtils.hasText(userId)) {
+            return userId;
         }
+        return actorAccounts.namesOf(List.of(userId)).getOrDefault(userId, userId);
     }
 }
-

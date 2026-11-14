@@ -40,11 +40,6 @@ public class CreateDataTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "CreateData";
-    }
-
-    @Override
     public String getName() {
         return "Create Data";
     }

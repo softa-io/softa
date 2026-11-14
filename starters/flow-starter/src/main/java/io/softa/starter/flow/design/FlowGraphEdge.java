@@ -48,6 +48,12 @@ public class FlowGraphEdge {
             + "node outputs. Exclusive with condition")
     private String conditionExpression;
 
+    @Schema(description = "Where the edge stands among its node's conditional edges, 1 first: a node that is not a "
+            + "gateway takes the first whose condition holds. Edges without one come after those with one, in drawing "
+            + "order, and the edge without a condition — the default — is always last, so it takes none. An inclusive "
+            + "gateway and a parallel fork do not read it: they take every edge that holds, or every edge")
+    private Integer priority;
+
     @Schema(description = "Opaque data bag passed to the frontend edge component")
     private Map<String, Object> data;
 

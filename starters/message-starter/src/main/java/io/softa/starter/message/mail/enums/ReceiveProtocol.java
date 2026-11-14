@@ -36,8 +36,4 @@ public enum ReceiveProtocol {
     public boolean isImap() {
         return this == IMAP || this == IMAPS;
     }
-
-    public boolean isPop3() {
-        return this == POP3 || this == POP3S;
-    }
 }

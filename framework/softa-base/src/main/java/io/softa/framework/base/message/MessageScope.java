@@ -9,10 +9,9 @@ package io.softa.framework.base.message;
  * no overlay or fallback on the template axis. An explicit config/template id
  * on the request still wins over the policy.
  * <p>
- * Carried on {@code SendMailDTO.scope} / {@code SendSmsDTO.scope} and
- * {@code MailRequestMessage.scope}; {@code null} means {@link #TENANT}. With
- * multi-tenancy disabled there is a single namespace and the value has no
- * effect. The scope also selects the monthly-quota bucket the send consumes:
+ * Carried on {@code SendMailDTO.scope} / {@code SendSmsDTO.scope};
+ * {@code null} means {@link #TENANT}. With multi-tenancy disabled there is a
+ * single namespace and the value has no effect. The scope also selects the monthly-quota bucket the send consumes:
  * {@code PLATFORM} sends draw on the platform's own quota, never a tenant's.
  */
 public enum MessageScope {

@@ -29,27 +29,24 @@ class CredentialOnPersonTest {
 
     @Test
     void theStoredHashFitsInItsColumn() {
-        // The type default for a String field is 64 characters. This hash is 128, so declaring no
-        // length would truncate every password on write — the migration moved nothing, and setting
-        // a password failed with "Data truncated". Asserting the real size keeps that from
-        // regressing if the hashing algorithm changes.
-        String salt = PasswordUtils.generateSalt();
-        String hash = PasswordUtils.hashPassword("Str0ngPass", salt);
+        // The type default for a String field is 64 characters. The hash is longer (87 today, 128 for
+        // rows still in the old SHA-512 scheme), so declaring no length would truncate every password
+        // on write — the migration moved nothing, and setting a password failed with "Data
+        // truncated". Asserting the real size keeps that from regressing when the scheme changes.
+        String hash = PasswordUtils.hash("Str0ngPass");
 
         assertThat(hash.length()).isGreaterThan(64);
         assertThat(hash.length()).isLessThanOrEqualTo(DECLARED_LENGTH);
-        assertThat(salt.length()).isLessThanOrEqualTo(64);
     }
 
     @Test
-    void aPasswordVerifiesAgainstTheSaltItWasHashedWith() {
-        String salt = PasswordUtils.generateSalt();
+    void aPasswordVerifiesAgainstItsOwnHash() {
+        // The salt travels inside the hash: nothing else is needed to check it.
         UserIdentity identity = new UserIdentity();
-        identity.setPasswordSalt(salt);
-        identity.setPassword(PasswordUtils.hashPassword("Str0ngPass", salt));
+        identity.setPassword(PasswordUtils.hash("Str0ngPass"));
 
-        assertThat(PasswordUtils.hashPassword("Str0ngPass", salt)).isEqualTo(identity.getPassword());
-        assertThat(PasswordUtils.hashPassword("wrong", salt)).isNotEqualTo(identity.getPassword());
+        assertThat(PasswordUtils.matches("Str0ngPass", identity.getPassword(), null)).isTrue();
+        assertThat(PasswordUtils.matches("wrong", identity.getPassword(), null)).isFalse();
     }
 
     @Test

@@ -25,12 +25,12 @@ docker compose up -d mysql redis
 and Pulsar — start those from their supporting stacks under
 [`deploy/`](../../deploy/) if you exercise them.
 
-On first boot the MySQL container loads everything in
-`deploy/demo-app/init_mysql/` in order: `1.Metadata.ddl.sql` (the `sys_*`
-catalog + one table per starter entity), then the `2.*` / `3.*` / `4.*` DML
-seeds. To bring an **existing** dev database forward instead, apply the scripts
-under [`deploy/migrations/`](../../deploy/migrations/) (see its README for the
-decision tree).
+No SQL seeding: on the first boot against an empty database the catalog
+reconcile creates the `sys_*` tables from their own annotations, then the
+`["*"]` scanner (step 2) creates every business table. An **existing** dev
+database is brought forward the same way on its next boot; hand-written SQL is
+needed only for data-carrying changes (see the *DB schema or data change*
+branch of [`docs/README.md`](../../docs/README.md)'s decision tree).
 
 ### 2. Run the app
 

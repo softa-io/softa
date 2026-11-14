@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -15,19 +16,25 @@ import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.dto.FlowBatchActionResult;
 import io.softa.starter.flow.dto.FlowBatchActionResult.Item;
 import io.softa.starter.flow.dto.FlowBatchActionResult.Outcome;
+import io.softa.starter.flow.dto.FlowDelegationMonitorSearchRequest;
 import io.softa.starter.flow.dto.FlowReassignPreview;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.runtime.api.FlowReassignRequest;
+import io.softa.starter.flow.runtime.api.FlowRetryRequest;
 import io.softa.starter.flow.runtime.api.FlowTerminateRequest;
+import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.state.FlowExecutionState;
+import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.service.FlowAdministrationService;
 import io.softa.starter.flow.service.FlowDelegationService;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
@@ -54,6 +61,10 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
     private final FlowDelegationService delegationService;
 
     private final ModelService<Long> modelService;
+
+    /** Whether the new approver can act; without it, anyone can. */
+    @Autowired(required = false)
+    private ActorAccounts actorAccounts;
 
     @SuppressWarnings("unchecked")
     public FlowAdministrationServiceImpl(FlowRuntimeEngine runtimeEngine, FlowInstanceAccessGuard accessGuard,
@@ -90,8 +101,38 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
     }
 
     @Override
+    public FlowBatchActionResult retry(List<String> instanceIds, String comment, String operatorId) {
+        List<String> requested = List.copyOf(new LinkedHashSet<>(instanceIds));
+        Set<String> administrable = accessGuard.administrableInstanceIds(requested);
+        List<Item> items = new ArrayList<>(requested.size());
+        for (String instanceId : requested) {
+            if (!administrable.contains(instanceId)) {
+                items.add(new Item(instanceId, null, Outcome.FAILED, "You may not administer this instance"));
+                continue;
+            }
+            try {
+                FlowRetryRequest request = new FlowRetryRequest();
+                request.setInstanceId(instanceId);
+                request.setActorId(operatorId);
+                request.setComment(comment);
+                FlowExecutionState state = runtimeEngine.retry(request);
+                // Run again and failed again: told so, as its initiator and the administrators are.
+                if (FlowExecutionStatus.FAILED.equals(state.getStatus())) {
+                    items.add(new Item(instanceId, state.getFailedNodeId(), Outcome.FAILED, state.getErrorMessage()));
+                } else {
+                    items.add(new Item(instanceId, null, Outcome.SUCCEEDED, null));
+                }
+            } catch (RuntimeException e) {
+                log.info("Retry refused on instance {}: {}", instanceId, e.getMessage());
+                items.add(new Item(instanceId, null, Outcome.FAILED, e.getMessage()));
+            }
+        }
+        return FlowBatchActionResult.of(items);
+    }
+
+    @Override
     public FlowReassignPreview previewReassign(String fromActorId, String toActorId) {
-        requireDifferent(fromActorId, toActorId);
+        requireNewApprover(fromActorId, toActorId);
         List<Map<String, Object>> tasks = reassignableTasks(fromActorId);
         int instances = (int) tasks.stream().map(task -> task.get(INSTANCE_ID)).distinct().count();
         return new FlowReassignPreview(tasks.size(), instances);
@@ -99,7 +140,7 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
 
     @Override
     public FlowBatchActionResult reassign(String fromActorId, String toActorId, String reason, String operatorId) {
-        requireDifferent(fromActorId, toActorId);
+        requireNewApprover(fromActorId, toActorId);
         if (!StringUtils.hasText(reason)) {
             throw new FlowActionValidationException("A reason is required to reassign approval tasks");
         }
@@ -148,31 +189,29 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
                 .toList();
     }
 
-    private static void requireDifferent(String fromActorId, String toActorId) {
+    /** Two different approvers, the new one able to act: a whole reassignment, or its preview, is refused otherwise. */
+    private void requireNewApprover(String fromActorId, String toActorId) {
         if (!StringUtils.hasText(fromActorId) || !StringUtils.hasText(toActorId)) {
             throw new FlowActionValidationException("Both the original and the new approver are required");
         }
         if (fromActorId.equals(toActorId)) {
             throw new FlowActionValidationException("The new approver must be someone else");
         }
+        if (actorAccounts != null) {
+            actorAccounts.requireUsable(List.of(toActorId));
+        }
     }
 
     @Override
     public FlowDelegation delegateOnBehalf(FlowDelegation delegation) {
-        if (delegation == null || !StringUtils.hasText(delegation.getDelegatorId())
-                || !StringUtils.hasText(delegation.getDelegateId())) {
-            throw new FlowActionValidationException("Both the approver and the delegate are required");
-        }
-        if (delegation.getDelegatorId().equals(delegation.getDelegateId())) {
-            throw new FlowActionValidationException("The delegate must be someone else");
-        }
-        // Authorized by the endpoint's own permission: the administrator need not hold the delegation model.
+        // The rule is checked as any other is, by the delegation service. Authorized by the endpoint's own
+        // permission: the administrator need not hold the delegation model.
         return ContextUtils.withoutPermissionChecks(() -> delegationService.createDelegation(delegation));
     }
 
     @Override
-    public List<FlowDelegation> listDelegations() {
-        return ContextUtils.withoutPermissionChecks(delegationService::listAll);
+    public Page<FlowDelegation> searchDelegations(FlowDelegationMonitorSearchRequest request) {
+        return ContextUtils.withoutPermissionChecks(() -> delegationService.searchAll(request));
     }
 
     @Override

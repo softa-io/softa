@@ -77,11 +77,11 @@ public enum CustomerTier {
 | `label` | String | `""` | `label` | empty → humanized class name (`DeptInfo`→"Dept Info"); i18n translations override by id |
 | `tableName` | String | `""` | `tableName` | empty → `snake_case(modelName)` |
 | `description` | String | `""` | `description` | **≤512 chars**, parse-time enforced (catalog column width); concise user-facing summary — design notes go in Javadoc |
-| `displayName` | String[] | `{}` | `displayName` | list-display defaults |
+| `displayName` | String[] | `{}` | `displayName` | list-display defaults: a row's name is these fields' values joined with ` / `, blank ones left out; a relation among them reads as its own name, an option as its label (`DisplayNames`) |
 | `searchName` | String[] | `{}` | `searchName` | search-field defaults |
-| `defaultOrder` | String[] | `{}` | `defaultOrder` | e.g. `"createdTime:desc"` |
-| `softDelete` | boolean | `false` | `softDelete` | requires a `deleted` field on the class; every read appends `deleted = false` (bypass via `FilterControl.bypassSoftDelete()`), and the starting value `false` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT FALSE` |
-| `activeControl` | boolean | `false` | `activeControl` | requires an `active` field on the class; every read appends `active = true` unless the caller's own filters name `active` (or `FilterControl.bypassActiveControl()` is set), so disabling retires a row from reads without deleting it; the starting value `true` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT TRUE` |
+| `defaultOrder` | String[] | `{}` | `defaultOrder` | one sort per entry, `"field"` or `"field:dir"`: `{"sequence", "name"}` is sequence, then name (`{"id", "desc"}` would name a field `desc` and fail the boot). Applies to paged and non-paged reads that name no order. Unset, a paged read lists the newest first (`id DESC`), the lines and tags a record's read expands (ONE_TO_MANY, MANY_TO_MANY) come in entry order (`id` ascending, then `sliceId` on a timeline model), and any other non-paged read is not sorted — so records and plain detail lines need no declaration, while master data people pick declares its order (`{"name"}`, `{"fullName", "code"}`) and lines with a business order declare it (`{"effectiveStartDate:desc"}`, `{"lineNo"}`). A paged read then appends the physical primary key, in the direction of the first sort, so pages neither repeat nor skip rows that tie |
+| `softDelete` | boolean | `false` | `softDelete` | requires a `deleted` field on the class; every query appends `deleted = false` (bypass via `FilterControl.bypassSoftDelete()`) — a read by id (`getById` / `getByIds`) does not, and returns a deleted row too, flagged, so code that acts on a record it reads by id checks `deleted` itself; the starting value `false` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT FALSE` |
+| `activeControl` | boolean | `false` | `activeControl` | requires an `active` field on the class; every query appends `active = true` unless the caller's own filters name `active` (or `FilterControl.bypassActiveControl()` is set), so disabling retires a row from reads without deleting it — a read by id still returns it; the starting value `true` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT TRUE` |
 | `timeline` | boolean | `false` | `timeline` | effective-dated rows (see Timeline Model) |
 | `idStrategy` | `IdStrategy` | `DB_AUTO_ID` | `idStrategy` | |
 | `storageType` | `StorageType` | `RDBMS` | `storageType` | |
@@ -141,7 +141,7 @@ all. The older spelling `endDate < "{{ @startDate }}"` still parses and produces
 it remains what the JSON form and the stored row carry, since only the authoring layer changed.
 
 Compare an option by its item code: a wrong code never fires and never reports.
-| `required` | boolean | `false` | `required` | NOT NULL constraint |
+| `required` | boolean | `false` | `required` | NOT NULL constraint. On a `ONE_TO_MANY` / `MANY_TO_MANY` (no column): at least one row / link — a create must name one, an update that sends the field must leave one (counted after the write, so a patch deleting every row is refused); an update that leaves the field out is not judged |
 | `readonly` | boolean | `false` | `readonly` | UI hint |
 | `hidden` | boolean | `false` | `hidden` | internal field: left out of the field lists a client builds from metadata on its own (offered list columns, template fields); still read, written and shown where a view names it. Stored as null when unmarked |
 | `translatable` | boolean | `false` | `translatable` | i18n-aware column |
@@ -858,6 +858,23 @@ Every skip is silent by design: an over-eager condition empties a list the user 
 
 The set is on the context before the first read — one Redis round trip for the permission snapshot, which the interceptor pays anyway. The affiliation fallback costs `CompanyCountryEnricher` one company → country lookup per request for callers with an employee record, cached in Redis for five minutes — short deliberately, because the country is an editable field on the company's own form and there is no eviction hook on the generic write path. If it cannot be resolved (a deleted company, a row with no country, an application with no company model), the fallback is simply absent and the narrowing skips for that caller.
 
+## A company's today (`CompanyClock`)
+
+Whether a dated record has started, which assignment is in effect, which change is due — each is a question about
+the company's own calendar, and a server in another zone answers it with a different date for hours every day.
+`CompanyClock` reads the date in the company's time zone:
+
+- `today(companyId)` / `zoneOf(companyId)` — the company's `timeZone` (declared on `BaseCompany`), else the tenant's
+  default time zone (`TenantInfoService.getDefaultTimezone`), else the server's zone.
+- `companiesByToday()` — every company of the tenant, disabled ones included, grouped by the day it is there now,
+  for a list that compares dates across companies in one query. Usually one day, two for the hours the zones
+  straddle.
+- `resolveZone(companyTimeZone, tenantDefault)` — the three tiers on their own.
+
+The company is read past the caller's scope: a time zone is configuration, and a caller who may not see the company
+must not be handed another calendar because of it. An application with no `Company` model, or one without its
+`timeZone`, gets the tenant's calendar.
+
 ## Startup snapshots
 
 Some rows are read on every request and change only with the build — the permission and navigation catalogue, the sensitive field sets, the data scope types. A starter keeps them in memory as a **`StartupSnapshot`** (`io.softa.framework.orm.startup`): it names the models it is built from (`sourceModels()`) and builds itself from their rows (`build()`).
@@ -872,6 +889,18 @@ A failure in either stops the start before any request is served. Not a `@PostCo
 Because the snapshots are built once, their source models change only during the convergence: **`StartupSnapshotWriteGuard`**, a `ModelWriteValidator` at the write roots, refuses a write to one at any other time — the change would reach no instance until it restarted. Change those rows in the files the build owns.
 
 `DbSessionLock` (`io.softa.framework.orm.jdbc.database`) serializes a startup window across instances on a database session lock (`softa:<key>:<database>`): the boot DDL (`boot-ddl`) and the startup seed load (`seed-startup`).
+
+## Field paths
+
+A field path is a field name, or a dotted path through relations (`deptId.companyId.name`). What a path may do depends on what it is used for, and **`FieldPaths`** (`io.softa.framework.orm.meta`) states it once per **`FieldPathUse`** — for a check made before a path is stored, such as an export template's filters and columns (`TemplateFieldWriteValidator` in file-starter):
+
+| Use | Crosses | Ends on | Applied at run time by |
+| --- | --- | --- | --- |
+| `FILTER` | to-one relations by a join, a to-many one by a sub-query | a stored field, a to-many relation (its ids are compared), or a `dynamic` cascaded field first in its query | `WhereBuilder` |
+| `SORT` | to-one relations only | a stored field that is not a to-many relation, or the model's own `dynamic` cascaded field | `BaseBuilder.parseLogicField` |
+| `READ` | to-one relations only | any field — the related record's read answers it | `ModelManager.getLastFieldOfCascaded`, the cascaded read |
+
+Every use goes at most `CASCADE_LEVEL` (4) relations deep. `FieldPaths.problem(model, path, use)` says why a path cannot serve a use, or null; `filterProblems` and `orderProblems` check every field a `Filters` or an `Orders` names. The traversal is **`CascadeFieldWalker`**'s — `walk(..., throughToMany, visitor)` lets a condition cross a to-many relation. The query builders still walk their paths inline; the rules above mirror them, `FieldPathsTest` pins each, and `FieldPathsMatchBuildersTest` holds the two to one answer — the same paths through `FieldPaths` and through `WhereBuilder` / `OrderByBuilder` (taken when they build without an exception and name no column that does not exist), so a builder change that takes or refuses a path the other way fails there first.
 
 ## Configuration
 ### MQ Topic

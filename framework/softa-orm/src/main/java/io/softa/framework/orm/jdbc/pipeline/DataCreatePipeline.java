@@ -45,7 +45,7 @@ public class DataCreatePipeline extends DataPipeline {
      */
     public DataCreatePipeline(String modelName) {
         super(modelName);
-        this.fields = ModelManager.getModelUpdatableFields(modelName);
+        this.fields = ModelManager.getModelCreatableFields(modelName);
         this.addEffectedFields();
         // Extract the set of fields stored in the database
         this.storedFields = fields.stream().filter(field -> ModelManager.isStored(modelName, field)).collect(Collectors.toSet());

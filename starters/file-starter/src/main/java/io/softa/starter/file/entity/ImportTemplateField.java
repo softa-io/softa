@@ -15,7 +15,7 @@ import io.softa.framework.orm.enums.OnDelete;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(label = "Import Template Fields", multiTenant = true)
+@Model(label = "Import Template Fields", multiTenant = true, defaultOrder = {"sequence"})
 public class ImportTemplateField extends AuditableModel {
 
     @Serial

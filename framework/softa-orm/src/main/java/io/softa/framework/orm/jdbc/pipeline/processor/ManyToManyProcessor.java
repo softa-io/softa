@@ -23,6 +23,7 @@ import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.PatchType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.utils.ReflectTool;
@@ -103,6 +104,7 @@ public class ManyToManyProcessor extends BaseProcessor {
         rows.forEach(row -> {
             Serializable id = (Serializable) row.get(ModelConstant.ID);
             Object value = row.get(fieldName);
+            requireLinksOnCreate(value);
             if (value instanceof List<?> valueList) {
                 List<Serializable> rightIds = getRightIds(valueList);
                 appendMappingRows(id, rightIds, mappingRows);
@@ -205,6 +207,41 @@ public class ManyToManyProcessor extends BaseProcessor {
         if (!CollectionUtils.isEmpty(newMToMRows) || !CollectionUtils.isEmpty(deleteJoinIds)) {
             changed = true;
             writeLinks(newMToMRows, deleteJoinIds);
+        }
+        requireLinksLeft(rows);
+    }
+
+    /**
+     * A required many-to-many keeps at least one link. A new record names its links in the value — a list, or the
+     * {@code Add} ids of a patch — so it is judged on the value, before any link is written.
+     */
+    private void requireLinksOnCreate(Object value) {
+        if (!metaField.isRequired()) {
+            return;
+        }
+        boolean namesLinks = value instanceof List<?> list
+                ? !list.isEmpty()
+                : value instanceof Map<?, ?> patchMap && !parseManyToManyPatchValues(patchMap).addIds().isEmpty();
+        if (!namesLinks) {
+            throw WriteValidationException.requiredField(metaField);
+        }
+    }
+
+    /**
+     * A required many-to-many keeps at least one link. An update that sends it is judged on the links the write
+     * leaves — a patch's added and removed ids say nothing of the links left — counted in the write's own transaction,
+     * whose rollback the refusal takes the write with. An update that leaves the field out is not judged.
+     */
+    private void requireLinksLeft(List<Map<String, Object>> rows) {
+        if (!metaField.isRequired()) {
+            return;
+        }
+        List<Serializable> sent = rows.stream()
+                .filter(row -> row.containsKey(fieldName))
+                .map(row -> (Serializable) row.get(ModelConstant.ID))
+                .toList();
+        if (!sent.isEmpty() && !ToManyRows.allHeld(metaField.getJoinModel(), metaField.getJoinLeft(), sent)) {
+            throw WriteValidationException.requiredField(metaField);
         }
     }
 
@@ -471,6 +508,10 @@ public class ManyToManyProcessor extends BaseProcessor {
                 joinModelFlexQuery.setGroupBy(List.of(metaField.getJoinLeft(), metaField.getJoinRight()));
                 joinModelFlexQuery.setAggregate(false);
             }
+        }
+        if (joinModelFlexQuery.getTopN() == null) {
+            // The tags follow the join rows: in the order they were added, unless the join model names one.
+            orderAsEntered(metaField.getJoinModel(), joinModelFlexQuery);
         }
         return ReflectTool.searchListIgnoringRowScope(metaField.getJoinModel(), joinModelFlexQuery);
     }

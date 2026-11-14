@@ -1,0 +1,92 @@
+{
+  "name": "Pay Run Approval",
+  "scenario": "Approval",
+  "trigger": {
+    "type": "Submit",
+    "modelName": "PayRunApproval"
+  },
+  "withdrawPolicy": "UntilCompleted",
+  "selfApproval": "RequireApproval",
+  "sync": false,
+  "rollbackOnFail": false,
+  "approverDedup": "Global",
+  "graph": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "Start",
+        "label": "Submitted",
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": "approval_manager",
+        "type": "Approval",
+        "label": "Direct Manager",
+        "position": {
+          "x": 0,
+          "y": 160
+        },
+        "config": {
+          "approverSource": {
+            "type": "Supervisor",
+            "relativeTo": "SUBJECT",
+            "level": 1
+          },
+          "emptyApproverStrategy": "AutoApprove",
+          "approvalMode": "AnyOne",
+          "rejectMode": "AnyOne",
+          "returnEnabled": true
+        }
+      },
+      {
+        "id": "approval_manager_l2",
+        "type": "Approval",
+        "label": "Second-level Manager",
+        "position": {
+          "x": 0,
+          "y": 320
+        },
+        "config": {
+          "approverSource": {
+            "type": "Supervisor",
+            "relativeTo": "SUBJECT",
+            "level": 2
+          },
+          "emptyApproverStrategy": "AutoApprove",
+          "approvalMode": "AnyOne",
+          "rejectMode": "AnyOne",
+          "returnEnabled": true
+        }
+      },
+      {
+        "id": "end",
+        "type": "End",
+        "label": "Approved",
+        "position": {
+          "x": 0,
+          "y": 480
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_start_manager",
+        "source": "start",
+        "target": "approval_manager"
+      },
+      {
+        "id": "edge_manager_manager_l2",
+        "source": "approval_manager",
+        "target": "approval_manager_l2"
+      },
+      {
+        "id": "edge_manager_l2_end",
+        "source": "approval_manager_l2",
+        "target": "end"
+      }
+    ]
+  }
+}

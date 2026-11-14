@@ -129,6 +129,22 @@ public class AliyunOSSClientService implements OssClientService {
         }
     }
 
+    @Override
+    public void copyObject(String sourceKey, String targetKey, String fileName) {
+        try {
+            ossClient.copyObject(getBucketName(), sourceKey, getBucketName(), targetKey);
+        } catch (OSSException ossException) {
+            throw new ExternalException("OSSException occurred while copying the file {0}.\n{1}",
+                    fileName, ossException.getErrorMessage(), ossException);
+        } catch (ClientException clientException) {
+            throw new SystemException("ClientException occurred while copying the file {0}.\n{1}",
+                    fileName, clientException.getMessage(), clientException);
+        } catch (Exception e) {
+            throw new SystemException("Unexpected error occurred while copying the file {0}.\n{1}",
+                    fileName, e.getMessage(), e);
+        }
+    }
+
     /**
      * Downloads the file from the OSS bucket and returns the InputStream
      *

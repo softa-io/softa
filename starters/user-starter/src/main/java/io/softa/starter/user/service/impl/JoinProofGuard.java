@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.service.CacheService;
 
@@ -43,18 +43,38 @@ public class JoinProofGuard {
     private final CacheService cacheService;
 
     private static String key(String proof) {
-        return "join:proof:" + EncryptUtils.computeSha256(proof);
+        return "join:proof:" + HashUtils.sha256Hex(proof);
     }
 
     private static String claim(String rawToken, Long profileId) {
-        return EncryptUtils.computeSha256(rawToken) + "|" + profileId;
+        return HashUtils.sha256Hex(rawToken) + "|" + profileId;
     }
 
     /** Mint a fresh proof that {@code profileId} passed the code for invitation {@code rawToken}. */
     public String mint(String rawToken, Long profileId) {
+        return this.mint(rawToken, profileId, null);
+    }
+
+    /**
+     * Mint a proof that also remembers which contact was verified ({@code mobile} / {@code email}),
+     * so confirmJoin can prefill the login screen with it.
+     */
+    public String mint(String rawToken, Long profileId, String channel) {
         String proof = RandomUtils.randomString(PROOF_BYTES);
         cacheService.save(key(proof), claim(rawToken, profileId), PROOF_TTL_SECONDS);
+        if (channel != null) {
+            cacheService.save(channelKey(proof), channel, PROOF_TTL_SECONDS);
+        }
         return proof;
+    }
+
+    /** The channel the proof was minted for, or null. */
+    public String channelOf(String proof) {
+        return StringUtils.isBlank(proof) ? null : cacheService.get(channelKey(proof));
+    }
+
+    private static String channelKey(String proof) {
+        return "join:proof-channel:" + HashUtils.sha256Hex(proof);
     }
 
     /**
@@ -70,10 +90,32 @@ public class JoinProofGuard {
         }
     }
 
+    private static String joinPersonKey(String rawToken) {
+        return "join:person:" + HashUtils.sha256Hex(rawToken);
+    }
+
+    /**
+     * Remember the person a verification of this link created. Until confirmJoin binds an account
+     * to them they hold none, which is exactly what a dormant holder looks like; verifying again
+     * must find them rather than release their number and make another person.
+     */
+    public void rememberJoinPerson(String rawToken, Long profileId) {
+        if (StringUtils.isNotBlank(rawToken) && profileId != null) {
+            cacheService.save(joinPersonKey(rawToken), profileId.toString(), PROOF_TTL_SECONDS);
+        }
+    }
+
+    /** The person a verification of this link created, or null. */
+    public Long joinPersonOf(String rawToken) {
+        String value = StringUtils.isBlank(rawToken) ? null : cacheService.get(joinPersonKey(rawToken));
+        return value == null ? null : Long.valueOf(value);
+    }
+
     /** Spend the proof: the step it existed for has completed. */
     public void consume(String proof) {
         if (StringUtils.isNotBlank(proof)) {
             cacheService.clear(key(proof));
+            cacheService.clear(channelKey(proof));
         }
     }
 }

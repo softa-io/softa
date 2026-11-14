@@ -133,6 +133,19 @@ rich-text document templates — `TemplateEngine.renderHtml`) HTML-escape every
 fragment, opt out explicitly per value: `{{ fragment | raw }}`. Subjects,
 plain-text bodies and SMS are not HTML and are never escaped.
 
+**Dates print as the API writes them.** A `LocalDateTime`, `LocalDate` or
+`LocalTime` prints as `2026-11-12 13:00:40`, `2026-11-12`, `13:00:40` — the
+`TimeConstant` formats — in every template: placeholders, Pebble, Word documents.
+Put the date object in the variables, never its `toString()`, which gives the ISO
+form (`2026-11-12T13:00:40.123456789`) and is printed as it is. Only the printed
+value is formatted: where a template gets the object — a document template, a
+direct `TemplateEngine` call — a filter or a comparison still sees the date, so
+`{{ hireDate | date("dd MMM yyyy") }}` works. Mail and SMS variables are stored
+with the send record as JSON first, so there a date arrives as that text; to print
+another format, name the stored one:
+`{{ time | date("dd MMM yyyy", existingFormat="yyyy-MM-dd HH:mm:ss") }}`. The time
+is the server's local time, with no zone.
+
 ---
 
 ## Where you'll use it

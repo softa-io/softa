@@ -30,7 +30,7 @@ docker network create shared-net 2>/dev/null || true
 docker compose up -d mysql redis
 ```
 
-The compose file seeds `deploy/mini-app/init_mysql/` into the `mini` database.
+The compose file starts an empty `mini` database — mini-app has no tables of its own.
 `application-dev.yml` points at `jdbc:mysql://localhost:3306/db1` — either create
 a matching schema locally or align the datasource URL with your MySQL database
 name before starting.
@@ -55,7 +55,9 @@ To turn mini-app into an annotation-driven app:
 1. Add `metadata-starter` (and any domain starters) to `pom.xml`.
 2. Set `system.app-code` and `system.metadata.scanner-scope` in
    `application-dev.yml` (see demo-app).
-3. Apply or extend init DDL under `deploy/mini-app/init_mysql/`.
+3. Boot — there is no init DDL to write: the catalog reconcile creates the
+   `sys_*` tables from their own annotations, and the scanner creates the
+   in-scope business tables.
 
 AI/human prompt for `@Model` changes:
 [`docs/ai/framework/annotation-lane.md`](../../docs/ai/framework/annotation-lane.md).

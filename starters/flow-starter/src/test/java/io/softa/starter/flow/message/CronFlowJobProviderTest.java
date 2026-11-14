@@ -33,7 +33,7 @@ class CronFlowJobProviderTest {
     private static final long TENANT_B = 9L;
 
     private final StubBundleService bundleService = new StubBundleService();
-    private final OrmFlowBundleRegistry registry = new OrmFlowBundleRegistry(bundleService, 60);
+    private final OrmFlowBundleRegistry registry = new OrmFlowBundleRegistry(bundleService);
     private final CronFlowJobProvider provider = new CronFlowJobProvider(bundleService);
 
     @BeforeEach

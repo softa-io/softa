@@ -1,48 +1,33 @@
 package io.softa.starter.message.service.internal;
 
-import java.util.Collections;
-import java.util.Map;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
-import io.softa.starter.message.mq.TopicRoute;
-import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
-import io.softa.starter.message.shared.MonthlyQuotaGuard;
+import io.softa.framework.base.utils.JsonUtils;
+import io.softa.starter.message.shared.TenantScopes;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
-import io.softa.starter.message.sms.entity.SmsProviderConfig;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
-import io.softa.starter.message.sms.entity.SmsTemplate;
 import io.softa.starter.message.sms.enums.SmsDeliveryStatus;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
-import io.softa.starter.message.sms.service.SmsTemplateService;
 import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
-import io.softa.starter.message.sms.support.SmsRoutingPlanner;
+import io.softa.starter.message.sms.support.SmsProviderDispatcher;
 
 /**
- * Internal acceptance handler for one SMS message. The public
- * {@code MessageService} owns single/batch orchestration; this handler validates
- * and renders one request without mutating the caller's DTO, resolves its
- * provider route, and persists one {@code SmsSendRecord (PENDING)} + outbox row.
+ * Internal acceptance handler for one SMS message. The counterpart of {@code MailMessageHandler}:
+ * acceptance checks only what the caller got wrong — a number that parses as E.164, content or a
+ * template to render it from — and stores the request as it was made in a PENDING
+ * {@link SmsSendRecord}, in the caller's transaction.
  * <p>
- * Delivery execution (CAS claim, rate-limit, provider call, retry / DLQ) lives
- * in {@link SmsDeliveryProcessor}, driven by the broker consumers; callers
- * never block on the provider HTTP round-trip.
- * <p>
- * Normalization contract (single funnel):
- * <ol>
- *   <li>Resolve the template once when {@code templateCode} is set.</li>
- *   <li>Render content wherever the caller didn't supply it (caller values
- *       always win over template values).</li>
- *   <li>Validate: one recipient, and non-empty content after
- *       rendering — a template-only request without a resolvable template or
- *       content is rejected here instead of persisting an unsendable record.</li>
- * </ol>
- * Provider routing is resolved per recipient before persistence; retries
- * replay the same provider / template parameters.
+ * Rendering the template, routing the number to a provider and charging the monthly quota happen at
+ * the first delivery attempt, in {@link SmsDeliveryProcessor}; a request that fails there still has
+ * its record, FAILED with the reason. Nothing is written before validation passes.
  */
 @Component
 @RequiredArgsConstructor
@@ -50,96 +35,55 @@ final class SmsMessageHandler {
 
     private final SmsSendRecordService recordService;
 
-    private final SmsTemplateService templateService;
-
-    private final SmsRoutingPlanner routingPlanner;
-
-    private final OutboxRecordWriter outboxRecordWriter;
-
-    private final MonthlyQuotaGuard quotaGuard;
+    private final SmsProviderDispatcher providerDispatcher;
 
     Long send(SendSmsDTO dto) {
+        return insert(accept(dto));
+    }
+
+    /** Accept every message before writing any: one invalid message rejects the whole batch. */
+    List<Long> sendBatch(List<SendSmsDTO> batch) {
+        List<SmsSendRecord> records = batch.stream().map(this::accept).toList();
+        return records.stream().map(this::insert).toList();
+    }
+
+    private Long insert(SmsSendRecord record) {
+        return recordService.createOne(record);
+    }
+
+    /** Validate one request and build its PENDING record, without writing anything. */
+    SmsSendRecord accept(SendSmsDTO dto) {
         if (!StringUtils.hasText(dto.getPhoneNumber())) {
             throw new BusinessException("SMS send rejected: phoneNumber is required");
         }
-        // The tier policy names the template tier and the quota bucket this
-        // send consumes; provider routing falls back per country on its own.
-        MessageScope scope = dto.getScope() != null ? dto.getScope() : MessageScope.TENANT;
-        SmsTemplate template = StringUtils.hasText(dto.getTemplateCode())
-                ? templateService.resolve(dto.getTemplateCode(), scope)
-                : null;
-        String content = resolveContent(dto.getContent(), template, dto.getTemplateVariables());
-        SmsRoutingPlanner.RoutingRequest routingRequest = new SmsRoutingPlanner.RoutingRequest(
-                dto.getPhoneNumber(), dto.getProviderConfigId(), dto.getTemplateCode(),
-                dto.getExternalTemplateId(), dto.getSignName(), template);
-        SmsRoutingPlanner.Plan plan = routingPlanner.plan(routingRequest);
-        ResolvedSms message = new ResolvedSms(
-                dto.getPhoneNumber(), content, dto.getTemplateCode(), plan);
-        // Quota consumes AFTER validation/routing and BEFORE persistence;
-        // delivery retries never touch the counter again.
-        quotaGuard.consume("sms", MonthlyQuotaGuard.bucketFor(scope));
-        return enqueueForAsyncSend(message);
-    }
-
-    /**
-     * Caller content wins; otherwise render the template. A request with
-     * neither is unsendable and rejected before anything is persisted.
-     */
-    private String resolveContent(String callerContent, SmsTemplate template,
-                                  Map<String, Object> variables) {
-        if (StringUtils.hasText(callerContent)) {
-            return callerContent;
+        // Parses the number only (no configuration read): a bare national number, or one that is not
+        // a number at all, is the caller's mistake and never gets a record.
+        providerDispatcher.resolveRegion(dto.getPhoneNumber());
+        if (!StringUtils.hasText(dto.getContent()) && !StringUtils.hasText(dto.getTemplateCode())) {
+            throw new BusinessException(
+                    "SMS send rejected: no content — provide content or a templateCode that renders one");
         }
-        if (template != null) {
-            String rendered = templateService.renderContent(template,
-                    variables != null ? variables : Collections.emptyMap());
-            if (StringUtils.hasText(rendered)) {
-                return rendered;
-            }
-        }
-        throw new BusinessException(
-                "SMS send rejected: no content — provide content or a templateCode that renders one");
-    }
 
-    // ------------------------------------------------------------------
-    // Persistence — route, then PENDING record + outbox row atomically
-    // ------------------------------------------------------------------
-
-    /**
-     * Persist PENDING record + outbox row inside a single transaction. The
-     * transaction boundary lives on {@link OutboxRecordWriter} so it is crossed
-     * through the Spring proxy (a {@code @Transactional} method on this bean
-     * would be bypassed by self-invocation).
-     */
-    private Long enqueueForAsyncSend(ResolvedSms message) {
-        return outboxRecordWriter.persistAndEnqueue(
-                () -> {
-                    SmsSendRecord record = buildRecord(message);
-                    return recordService.createOne(record);
-                },
-                "SmsSendRecord", TopicRoute.SMS_SEND);
-    }
-
-    private SmsSendRecord buildRecord(ResolvedSms message) {
-        SmsRoutingPlanner.Plan plan = message.plan();
-        SmsProviderConfig config = plan.providerConfig();
         SmsSendRecord record = new SmsSendRecord();
-        record.setProviderConfigId(config.getId());
-        record.setProviderType(config.getProviderType());
-        record.setPhoneNumber(message.phoneNumber());
-        record.setTemplateCode(message.templateCode());
-        record.setContent(message.content());
-        record.setSignName(plan.signName());
-        record.setExternalTemplateId(plan.externalTemplateId());
+        record.setPlatformScope(dto.getScope() == MessageScope.PLATFORM);
+        // The table is not multi-tenant, so the owner is written here, not stamped by the ORM: the
+        // tenant the send is made for whatever its scope (see MailMessageHandler), the platform when
+        // no tenant can be named.
+        record.setTenantId(TenantScopes.currentTenantOrPlatform());
+        record.setTraceId(ContextHolder.getContext().getTraceId());
+        record.setPhoneNumber(dto.getPhoneNumber());
+        record.setTemplateCode(StringUtils.hasText(dto.getTemplateCode()) ? dto.getTemplateCode() : null);
+        record.setTemplateVariables(CollectionUtils.isEmpty(dto.getTemplateVariables())
+                ? null : JsonUtils.objectToJsonNode(dto.getTemplateVariables()));
+        record.setContent(StringUtils.hasText(dto.getContent()) ? dto.getContent() : null);
+        // Caller overrides; routing at the first attempt fills in whatever they leave open.
+        record.setProviderConfigId(dto.getProviderConfigId());
+        record.setSignName(dto.getSignName());
+        record.setExternalTemplateId(dto.getExternalTemplateId());
         record.setStatus(SmsSendStatus.PENDING);
         record.setRetryCount(0);
         record.setVersion(0L);
         record.setDeliveryStatus(SmsDeliveryStatus.UNKNOWN);
         return record;
     }
-
-    private record ResolvedSms(String phoneNumber,
-                               String content,
-                               String templateCode,
-                               SmsRoutingPlanner.Plan plan) {}
 }

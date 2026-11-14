@@ -21,14 +21,17 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowWithdrawRequest;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.SubflowNodeExecutionHandler;
-import io.softa.starter.flow.runtime.handler.TimerNodeExecutionHandler;
+import io.softa.starter.flow.runtime.handler.TaskNodeExecutionHandler;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.task.DispatchOnlyAsyncTaskExecutor;
+import io.softa.starter.flow.runtime.task.builtin.DefaultTaskExecutorRegistry;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -37,7 +40,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * What a flow's scenario decides at run time: only an Approval announces its completion and can be
- * withdrawn, and a Subflow node runs only an Automation flow that declares a Subflow trigger.
+ * withdrawn, and a Subflow node runs only an Automation flow that declares a Subflow trigger — failing like any
+ * other step when it cannot.
  */
 class FlowScenarioRuntimeTest {
 
@@ -46,13 +50,14 @@ class FlowScenarioRuntimeTest {
             new FlowPublishServiceImpl(new DefaultFlowCompiler(), bundleRegistry);
     private final ApprovalNodeExecutionHandler approvalHandler = new ApprovalNodeExecutionHandler();
     private final List<FlowNotificationEvent> notices = new ArrayList<>();
+    private final StubFlowInstanceStore instanceStore = new StubFlowInstanceStore();
     private final FlowRuntimeEngine engine = TestFlowRuntimeFactory.createWithNotifications(
             bundleRegistry,
-            new StubFlowInstanceStore(),
+            instanceStore,
             new DefaultNodeHandlerRegistry(List.of(
                     approvalHandler,
                     new SubflowNodeExecutionHandler(),
-                    new TimerNodeExecutionHandler(),
+                    new TaskNodeExecutionHandler(new DefaultTaskExecutorRegistry(List.of(new DispatchOnlyAsyncTaskExecutor()))),
                     new PassThroughNodeExecutionHandler())),
             approvalHandler,
             notices::add);
@@ -67,9 +72,9 @@ class FlowScenarioRuntimeTest {
 
     @Test
     void anApprovalAnnouncesItsCompletion() {
-        publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest", null),
+        publishService.publish("leave", flow(FlowScenario.APPROVAL, new SubmitTrigger("LeaveRequest"),
                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                        .config(Map.of("approvers", List.of("manager"))).build()));
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager"))))).build()));
         FlowExecutionState started = engine.start(start("leave", "submitter"));
 
         FlowApproveRequest approve = new FlowApproveRequest();
@@ -78,14 +83,14 @@ class FlowScenarioRuntimeTest {
         approve.setActorId("manager");
         engine.approve(approve);
 
-        assertTrue(notices.stream().anyMatch(n -> n instanceof FlowNotificationEvent.FlowCompleted c && c.approved()));
+        assertTrue(notices.stream().anyMatch(n -> n instanceof FlowNotificationEvent.FlowCompleted));
     }
 
     @Test
     void onlyAnApprovalCanBeWithdrawn() {
         publishService.publish("delayed", flow(FlowScenario.AUTOMATION, new ApiTrigger(null),
-                FlowGraphNode.builder().id("timer").type(FlowNodeType.TIMER).label("Wait")
-                        .config(Map.of("durationSeconds", 3600L)).build()));
+                FlowGraphNode.builder().id("dispatch").type(FlowNodeType.ASYNC_TASK).label("Dispatch")
+                        .config(Map.of("asyncTaskHandlerCode", "notify")).build()));
         FlowExecutionState waiting = engine.startAutomation(start("delayed", "user-1"));
         assertEquals(FlowExecutionStatus.WAITING, waiting.getStatus());
 
@@ -105,14 +110,30 @@ class FlowScenarioRuntimeTest {
     }
 
     @Test
-    void aSubflowNodeRefusesAFlowStartedAnotherWay() {
+    void aSubflowNodeRefusesAFlowStartedAnotherWayAsAFailingStep() {
         publishService.publish("child", flow(FlowScenario.AUTOMATION, new ApiTrigger(null)));
         publishService.publish("parent", flow(FlowScenario.AUTOMATION, new ApiTrigger(null), subflowNode("child")));
 
-        FlowExecutionState parent = engine.startAutomation(start("parent", "user-1"));
+        // A run's failing step fails the run: recorded failed, its writes rolled back with the error.
+        FlowRuntimeException failure = assertThrows(FlowRuntimeException.class,
+                () -> engine.startAutomation(start("parent", "user-1")));
 
+        assertTrue(failure.getMessage().contains("Subflow trigger"), failure.getMessage());
+        FlowExecutionState parent = instanceStore.listByStatus(FlowExecutionStatus.FAILED).getFirst();
         assertEquals(FlowExecutionStatus.FAILED, parent.getStatus());
-        assertTrue(parent.getErrorMessage().contains("Subflow trigger"), parent.getErrorMessage());
+        assertEquals("subflow", parent.getFailedNodeId());
+        assertTrue(notices.stream().anyMatch(FlowNotificationEvent.FlowFailed.class::isInstance), "who is told");
+    }
+
+    @Test
+    void aFlowCallingItselfAsASubflowFails() {
+        publishService.publish("child", flow(FlowScenario.AUTOMATION, new SubflowTrigger(), subflowNode("child")));
+        publishService.publish("parent", flow(FlowScenario.AUTOMATION, new ApiTrigger(null), subflowNode("child")));
+
+        FlowRuntimeException failure = assertThrows(FlowRuntimeException.class,
+                () -> engine.startAutomation(start("parent", "user-1")));
+
+        assertTrue(failure.getMessage().contains("already running above it"), failure.getMessage());
     }
 
     private static FlowStartRequest start(String flowId, String initiatorId) {

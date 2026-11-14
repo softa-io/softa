@@ -67,6 +67,10 @@ public class FlowInstanceSummaryView {
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
 
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it — the "
+            + "days of a leave, a claim's amount")
+    private String summary;
+
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;
 
@@ -78,16 +82,22 @@ public class FlowInstanceSummaryView {
     private Boolean awaitingRevision;
 
     @Schema(description = "The caller's own approval waiting on its approvers: whether they may withdraw it now, by "
-            + "the flow's withdraw policy; null on any other row")
+            + "the flow's withdraw policy; their own record's approval that failed: whether they may take the record "
+            + "back (while it still waits on it); null on any other row")
     private Boolean withdrawable;
 
     @Schema(description = "The caller's own approval waiting on its approvers: whether they may urge it now, by the "
-            + "flow's urge settings, and if not, when; null on any other row")
+            + "flow's urge settings, and if not, when; null on any other row. In the monitoring console's search, "
+            + "every approval waiting on its approvers: whether the caller may urge it as an administrator")
     private FlowUrgeStatus urge;
 
     @Schema(description = "A record's approval whose record no longer exists — a draft deleted after its approval "
             + "was returned or withdrawn")
     private Boolean recordDeleted;
+
+    @Schema(description = "A record's approval whose record was cancelled for good — a draft cancelled after its "
+            + "approval was returned or withdrawn, which will not be submitted again")
+    private Boolean recordCancelled;
 
     @Schema(description = "An approved record whose change takes effect later: applied, failed to apply, or still "
             + "scheduled, as the record says; null for a model whose approval takes effect at once")
@@ -96,8 +106,8 @@ public class FlowInstanceSummaryView {
     @Schema(description = "Node where execution failed (status = Failed)")
     private String failedNodeId;
 
-    @Schema(description = "Earliest timer due time")
-    private LocalDateTime nextFireAt;
+    @Schema(description = "Whether it failed in the steps after an approval, which an administrator can run again")
+    private Boolean retryable;
 
     @Schema(description = "When the instance started — a record's approval: when the record was submitted")
     private LocalDateTime createdTime;

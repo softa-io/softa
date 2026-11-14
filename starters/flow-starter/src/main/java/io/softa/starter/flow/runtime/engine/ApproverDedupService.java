@@ -1,12 +1,9 @@
 package io.softa.starter.flow.runtime.engine;
 
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -15,7 +12,6 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.SelfApprovalStrategy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -24,11 +20,13 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 /**
  * Automatic approvals at node activation, before the node starts waiting:
  * <ul>
- *   <li><b>The record's own people</b> ("本人是审批人时"). On an Approval flow, a step whose approvers
- *       include the record's submitter, or the user of the employee the record is about, counts them as
- *       having approved — nobody is asked to approve their own record — unless the flow's
- *       {@link SelfApprovalStrategy} asks them like anyone else. Whether the step then passes is the
- *       step's own approval mode: an any-one step passes, an all-approve step still waits for the others.</li>
+ *   <li><b>The submitter</b> ("提交人是审批人时"). On an Approval flow, a step whose approvers include the
+ *       record's submitter counts them as having approved — submitting it was agreeing to it, so they are not
+ *       asked again — unless the flow's {@link SelfApprovalStrategy} asks them like anyone else. Whether the
+ *       step then passes is the step's own approval mode: an any-one step passes, an all-approve step still
+ *       waits for the others. The employee the record is about gets no such pass when someone else submitted
+ *       it: approving it for them would decide their own matter in their name, so they are asked like any
+ *       other approver.</li>
  *   <li><b>Approver consolidation</b> ("审批人去重"): an actor who already approved an earlier node
  *       of the instance approves a later one on their behalf, per the flow's
  *       {@link ApproverDedupStrategy}. Default (unconfigured) is {@link ApproverDedupStrategy#GLOBAL}.</li>
@@ -41,20 +39,9 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 @Component
 public class ApproverDedupService {
 
-    /** Which of the record's own people an approver is. */
-    public enum SelfRole {
-        /** The user who submitted the record. */
-        SUBMITTER,
-        /** The user of the employee the record is about. */
-        SUBJECT
-    }
-
     private final ApprovalLifecycleService lifecycleService;
     private final FlowAuditService auditService;
     private final ApprovalAuditReader auditReader;
-
-    /** Optional: without it, the subject's own user is not recognized among a step's approvers. */
-    private OrganizationService organizationService;
 
     public ApproverDedupService(ApprovalLifecycleService lifecycleService, FlowAuditService auditService,
                                 ApprovalAuditReader auditReader) {
@@ -63,20 +50,17 @@ public class ApproverDedupService {
         this.auditReader = auditReader;
     }
 
-    @Autowired(required = false)
-    void setOrganizationService(OrganizationService organizationService) {
-        this.organizationService = organizationService;
-    }
-
     /**
-     * Auto-approve the record's own people, when the flow says so, and the approvers who already approved a
-     * qualifying prior node, then report whether the node is thereby complete (and should auto-advance
-     * instead of waiting for a human action).
+     * Auto-approve the submitter, when the flow says so, and the approvers who already approved a qualifying
+     * prior node, then report whether the node is thereby complete (and should auto-advance instead of
+     * waiting for a human action).
      */
     public boolean applyAndCheckComplete(CompiledFlowDefinition definition, CompiledFlowNode node,
                                          FlowExecutionState state, PendingApproval pending) {
-        selfApprovers(definition, state).forEach((approver, role) -> autoApprove(definition, node, state, pending,
-                approver, role == SelfRole.SUBMITTER ? "Auto-approved (submitter)" : "Auto-approved (subject)"));
+        String submitter = selfApprover(definition, state);
+        if (submitter != null) {
+            autoApprove(definition, node, state, pending, submitter, "Auto-approved (submitter)");
+        }
         ApproverDedupStrategy strategy = strategyOf(definition);
         if (strategy != ApproverDedupStrategy.NONE) {
             Set<String> priorApprovers = new HashSet<>();
@@ -121,33 +105,16 @@ public class ApproverDedupService {
     }
 
     /**
-     * The record's own people this flow approves for automatically, by user: its submitter, then the user of
-     * the employee it is about — the submitter's role first when they are one person. Empty for a flow that
-     * is not an approval, or that asks them like any other approver.
+     * The submitter, by user, when this flow approves for them automatically; null on a flow that is not an
+     * approval or that asks them like any other approver, and on an instance that names no submitter.
      */
-    public Map<String, SelfRole> selfApprovers(CompiledFlowDefinition definition, FlowExecutionState state) {
-        Map<String, SelfRole> self = new LinkedHashMap<>();
+    public String selfApprover(CompiledFlowDefinition definition, FlowExecutionState state) {
         if (!FlowScenario.APPROVAL.equals(definition.getScenario())
-                || selfApprovalOf(definition) != SelfApprovalStrategy.AUTO_APPROVE) {
-            return self;
-        }
-        if (StringUtils.hasText(state.getInitiatorId())) {
-            self.put(state.getInitiatorId(), SelfRole.SUBMITTER);
-        }
-        Long subjectUser = subjectUser(state);
-        if (subjectUser != null) {
-            self.putIfAbsent(subjectUser.toString(), SelfRole.SUBJECT);
-        }
-        return self;
-    }
-
-    /** The user of the employee the record is about; null without one, or without the organization. */
-    private Long subjectUser(FlowExecutionState state) {
-        Object subject = state.getVariables() == null ? null : state.getVariables().get(ApproverResolutionService.SUBJECT_ID_KEY);
-        if (organizationService == null || subject == null || subject.toString().isBlank()) {
+                || selfApprovalOf(definition) != SelfApprovalStrategy.AUTO_APPROVE
+                || !StringUtils.hasText(state.getInitiatorId())) {
             return null;
         }
-        return organizationService.getUserIdOfEmployee(Long.valueOf(subject.toString()));
+        return state.getInitiatorId();
     }
 
     /**

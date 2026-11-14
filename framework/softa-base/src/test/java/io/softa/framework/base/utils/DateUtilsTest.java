@@ -1,8 +1,10 @@
 package io.softa.framework.base.utils;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.Date;
 import org.junit.jupiter.api.Test;
@@ -119,6 +121,24 @@ class DateUtilsTest {
     void dateTimeToStringConvertsDateTimeToString() {
         String dateTimeString = DateUtils.dateTimeToString(LocalDateTime.of(2023, 9, 15, 12, 30));
         assertNotNull(dateTimeString);
+    }
+
+    @Test
+    void formatTemporalWritesDatesAndTimesAsTheApiDoes() {
+        // Not the ISO toString(): no 'T', no fraction of a second, seconds even when they are zero.
+        assertEquals("2026-11-12 13:00:40",
+                DateUtils.formatTemporal(LocalDateTime.of(2026, 11, 12, 13, 0, 40, 123_456_789)));
+        assertEquals("2026-11-12 13:00:00", DateUtils.formatTemporal(LocalDateTime.of(2026, 11, 12, 13, 0)));
+        assertEquals("2026-11-12", DateUtils.formatTemporal(LocalDate.of(2026, 11, 12)));
+        assertEquals("09:05:00", DateUtils.formatTemporal(LocalTime.of(9, 5)));
+    }
+
+    @Test
+    void formatTemporalReturnsAnyOtherValueAsItIs() {
+        BigDecimal amount = new BigDecimal("1E+3");
+        assertSame(amount, DateUtils.formatTemporal(amount));
+        assertEquals("text", DateUtils.formatTemporal("text"));
+        assertNull(DateUtils.formatTemporal(null));
     }
 
     @Test

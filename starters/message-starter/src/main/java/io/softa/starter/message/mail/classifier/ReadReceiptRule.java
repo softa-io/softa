@@ -14,7 +14,10 @@ import io.softa.starter.message.mail.support.MailClassification;
  * Matched by {@code Content-Type: multipart/report; report-type=disposition-notification}.
  * Runs first because the check is a header string scan — cheap, unambiguous,
  * and we don't want a keyword-based bounce rule to accidentally reclassify
- * a read receipt.
+ * a read receipt. The receipted mail's Message-ID comes from
+ * {@link MailClassificationSupport#extractOriginalMessageId}: the receipt's own
+ * {@code In-Reply-To} / {@code References}, else its {@code Original-Message-ID}
+ * field.
  */
 @Component
 @Order(10)

@@ -1,7 +1,11 @@
 package io.softa.framework.web.filter.context;
 
+import java.time.LocalDateTime;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -14,6 +18,10 @@ import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.UserInfoService;
+import io.softa.framework.web.session.ReentryTokenIssuer;
+import io.softa.framework.web.session.SessionErrorCodes;
+import io.softa.framework.web.session.SessionRecord;
+import io.softa.framework.web.session.SessionStore;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,13 +65,18 @@ class ContextBuilderUserInfoRebuildTest {
         contextBuilder = new ContextBuilder();
         ReflectionTestUtils.setField(contextBuilder, "cacheService", cacheService);
         ReflectionTestUtils.setField(contextBuilder, "userInfoService", userInfoService);
+        ReflectionTestUtils.setField(contextBuilder, "sessionStore",
+                new SessionStore(cacheService, mock(ApplicationEventPublisher.class)));
 
-        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(Long.class))).thenReturn(USER_ID);
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
+        when(cacheService.getExpire(RedisConstant.SESSION + SESSION_ID)).thenReturn((long) SessionStore.TTL_SECONDS);
+        when(cacheService.clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID))).thenReturn(1L);
     }
 
     private MockHttpServletRequest request() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader(BaseConstant.SESSION_ID_HEADER, SESSION_ID);
+        request.setCookies(new jakarta.servlet.http.Cookie(BaseConstant.SESSION_ID, SESSION_ID));
         return request;
     }
 
@@ -112,10 +125,15 @@ class ContextBuilderUserInfoRebuildTest {
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)
-                .hasMessageContaining("not active");
+                .hasMessageContaining("not active")
+                // Only this organisation is unavailable — the client re-runs the entry rule rather
+                // than sending the person back to the login page.
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
         // And this one really is over: the session is destroyed, not merely unresolvable.
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
+        verify(cacheService).removeFromSet(SessionStore.ACCOUNT_SESSIONS + USER_ID, SESSION_ID);
     }
 
     @Test
@@ -138,9 +156,89 @@ class ContextBuilderUserInfoRebuildTest {
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)
-                .hasMessageContaining("is not active");
+                .hasMessageContaining("is not active")
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
 
-        verify(cacheService).clear(RedisConstant.SESSION + SESSION_ID);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
+    }
+
+    @Test
+    void anUnavailableOrganisation_handsBackASignInTokenForTheOtherCompanies() {
+        // The person is still who they were: with the token the APP offers their other companies
+        // instead of a login screen, which is what tells ORG_UNAVAILABLE from SESSION_EXPIRED.
+        ReentryTokenIssuer issuer = profileId -> "reentry-for-" + profileId;
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ReentryTokenIssuer> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(issuer);
+        ReflectionTestUtils.setField(contextBuilder, "reentryTokenIssuer", provider);
+        cachedUserInfo(null);
+        when(userInfoService.loadUserInfo(USER_ID)).thenReturn(userInfo(false));
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorDetails())
+                .isEqualTo(java.util.Map.of("authToken", "reentry-for-7"));
+    }
+
+    @Test
+    void aSessionOpenedForThePreviousHolder_endsOnceTheAccountBelongsToSomeoneElse() {
+        // The session was opened for person 7; the account was closed, reopened and joined by 8.
+        UserInfo now = userInfo(true);
+        now.setProfileId(8L);
+        cachedUserInfo(now);
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
+        verify(cacheService).clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID));
+        // Read off the cached entry: no extra query per request.
+        verify(userInfoService, never()).loadUserInfo(any());
+    }
+
+    @Test
+    void theSamePerson_orAnEntryCachedBeforeTheFieldExisted_passes() {
+        UserInfo same = userInfo(true);
+        same.setProfileId(7L);
+        cachedUserInfo(same);
+        assertThat(contextBuilder.buildUserContext(request()).getUserId()).isEqualTo(USER_ID);
+
+        cachedUserInfo(userInfo(true));
+        assertThat(contextBuilder.buildUserContext(request()).getUserId()).isEqualTo(USER_ID);
+    }
+
+    @Test
+    void aWebSessionSentWithTheAppHeaders_isRefused_butNotEnded() {
+        cachedUserInfo(userInfo(true));
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-App-Platform", "ios");
+        request.addHeader(BaseConstant.SESSION_ID_HEADER, SESSION_ID);
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
+        // Whoever sent it this way may not be its holder; the holder's browser keeps working.
+        verify(cacheService, never()).clear(RedisConstant.SESSION + SESSION_ID);
+        assertThat(contextBuilder.buildUserContext(request()).getUserId()).isEqualTo(USER_ID);
+    }
+
+    @Test
+    void anAppSession_worksFromTheApp_andIsRefusedWithoutItsHeaders() {
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, "ios", "1.0.0", null, LocalDateTime.now()));
+        cachedUserInfo(userInfo(true));
+        MockHttpServletRequest app = new MockHttpServletRequest();
+        app.addHeader("X-App-Platform", "ios");
+        app.addHeader(BaseConstant.SESSION_ID_HEADER, SESSION_ID);
+        assertThat(contextBuilder.buildUserContext(app).getUserId()).isEqualTo(USER_ID);
+
+        // The same id as a cookie, with no APP headers: a Web request may not use an APP session.
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
     }
 
     @Test
@@ -179,12 +277,47 @@ class ContextBuilderUserInfoRebuildTest {
 
     @Test
     void anInvalidSessionNeverReachesTheRebuild() {
-        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(Long.class))).thenReturn(null);
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)
-                .hasMessageContaining("Invalid session ID");
+                .hasMessageContaining("Invalid session ID")
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
 
         verify(userInfoService, never()).loadUserInfo(any());
+    }
+
+    @Test
+    void aConcurrentRequestArrivingAfterTheOrgEndedTheSession_isToldTheOrgIsUnavailableToo() {
+        // The first of two simultaneous requests found the account frozen and ended the session.
+        // The second finds no session; it must not answer SESSION_EXPIRED, or a client acting on
+        // whichever answer lands first sends the person to the login page.
+        ReentryTokenIssuer issuer = profileId -> "reentry-for-" + profileId;
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ReentryTokenIssuer> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(issuer);
+        ReflectionTestUtils.setField(contextBuilder, "reentryTokenIssuer", provider);
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
+        when(cacheService.get(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + SESSION_ID), eq(SessionRecord.class)))
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .satisfies(e -> {
+                    UserNotFoundException u = (UserNotFoundException) e;
+                    assertThat(u.getErrorCode()).isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
+                    assertThat(u.getErrorDetails()).isEqualTo(java.util.Map.of("authToken", "reentry-for-7"));
+                });
+    }
+
+    @Test
+    void aSessionThatIsSimplyGone_isStillExpired() {
+        when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
+
+        assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
+                .isInstanceOf(UserNotFoundException.class)
+                .extracting(e -> ((UserNotFoundException) e).getErrorCode())
+                .isEqualTo(SessionErrorCodes.SESSION_EXPIRED);
     }
 }

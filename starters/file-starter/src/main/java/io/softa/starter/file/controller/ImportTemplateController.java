@@ -31,6 +31,8 @@ import io.softa.framework.web.dto.SearchNameParams;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.orm.annotation.DataMask;
 import io.softa.starter.file.entity.ImportTemplate;
+import io.softa.starter.file.entity.ImportTemplateField;
+import io.softa.starter.file.excel.imports.ImportFieldAccess;
 import io.softa.starter.file.support.ImportTemplateCountryScope;
 import io.softa.starter.file.support.TemplateScope;
 import io.softa.starter.file.service.ImportService;
@@ -51,6 +53,9 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
 
     @Autowired
     private ModelService<Long> modelService;
+
+    @Autowired
+    private ImportFieldAccess importFieldAccess;
 
     /**
      * Typed shadow of the generic {@code /ImportTemplate/searchPage}, narrowed to the caller's
@@ -98,9 +103,10 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
     @PostMapping("/searchName")
     @DataMask
     public ApiResponse<List<Map<String, Object>>> searchName(@RequestBody(required = false) SearchNameParams searchNameParams) {
-        FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(searchNameParams);
+        SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
+        FlexQuery flexQuery = params.toFlexQuery();
         flexQuery.setFilters(withCountryScope(flexQuery.getFilters()));
-        return ApiResponse.success(modelService.searchName(MODEL, flexQuery));
+        return ApiResponse.success(modelService.searchName(MODEL, flexQuery, params.toPage()));
     }
 
     /** Typed shadow of the generic {@code /ImportTemplate/count} — the total a narrowed page reports. */
@@ -156,7 +162,24 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
         }
         FlexQuery flexQuery = new FlexQuery(filters).expandSubQuery(ImportTemplate::getImportFields);
         List<ImportTemplate> templates = inDisplayOrder(service.searchList(flexQuery));
+        templates.forEach(this::withoutUnwritableFields);
         return ApiResponse.success(templates);
+    }
+
+    /**
+     * Leave out the columns the caller may not write, as the downloaded template does — so the dialog
+     * does not list a column the file will not have, nor call one required that the caller cannot fill.
+     */
+    void withoutUnwritableFields(ImportTemplate template) {
+        List<ImportTemplateField> fields = template.getImportFields();
+        if (CollectionUtils.isEmpty(fields)) {
+            return;
+        }
+        Set<String> withheld = importFieldAccess.withheld(template.getModelName(), template.getImportRule(),
+                fields.stream().map(ImportTemplateField::getFieldName).toList());
+        if (!withheld.isEmpty()) {
+            template.setImportFields(fields.stream().filter(f -> !withheld.contains(f.getFieldName())).toList());
+        }
     }
 
     /** Sequence ascending with unset last, then id. Sorted here: databases disagree on where nulls go. */

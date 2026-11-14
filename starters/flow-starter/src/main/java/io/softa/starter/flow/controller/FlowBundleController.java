@@ -10,8 +10,6 @@ import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowBundleDetailView;
 import io.softa.starter.flow.dto.FlowBundleSummaryView;
-import io.softa.starter.flow.entity.FlowBundle;
-import io.softa.starter.flow.runtime.bundle.FlowBundleMapper;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.bundle.FlowBundleViews;
 import io.softa.starter.flow.service.FlowBundleService;
@@ -40,13 +38,17 @@ public class FlowBundleController {
 
     @GetMapping
     @Operation(summary = "List bundles",
-            description = "With flowId: all published revisions of that design, newest first. "
-                    + "Without: the currently active bundle of every design of the caller's tenant.")
+            description = "With flowId: the revision history of that design, newest first, read from the stored "
+                    + "revisions — each says whether it is the effective one (active) and what changed "
+                    + "(changeDescription). Without: the currently active bundle of every enabled design of the "
+                    + "caller's tenant.")
     public ApiResponse<List<FlowBundleSummaryView>> list(@RequestParam(required = false) String flowId) {
-        var definitions = flowId != null
-                ? bundleRegistry.listRevisionsByFlowId(flowId)
-                : bundleRegistry.list();
-        return ApiResponse.success(definitions.stream().map(FlowBundleViews::summarize).toList());
+        if (flowId != null) {
+            return ApiResponse.success(bundleService.listRevisionsByFlowId(flowId).stream()
+                    .map(FlowBundleViews::summarize)
+                    .toList());
+        }
+        return ApiResponse.success(bundleRegistry.list().stream().map(FlowBundleViews::summarize).toList());
     }
 
     @GetMapping("/{bundleId}")
@@ -57,7 +59,7 @@ public class FlowBundleController {
     public ApiResponse<FlowBundleDetailView> get(@PathVariable Long bundleId,
                                                  @RequestParam(required = false) String include) {
         return bundleService.findById(bundleId)
-                .map(entity -> toDetail(entity, "design".equalsIgnoreCase(include)))
+                .map(entity -> FlowBundleViews.detail(entity, "design".equalsIgnoreCase(include)))
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow bundle not found: " + bundleId));
@@ -69,14 +71,12 @@ public class FlowBundleController {
                     + "roll-forward are the same operation.")
     public ApiResponse<FlowBundleSummaryView> activate(@PathVariable Long bundleId) {
         return publishService.activateBundle(bundleId)
-                .map(FlowBundleViews::summarize)
+                // The stored revision, now active, as the history lists it.
+                .map(activated -> bundleService.findById(bundleId)
+                        .map(FlowBundleViews::summarize)
+                        .orElseGet(() -> FlowBundleViews.summarize(activated)))
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow bundle not found: " + bundleId));
-    }
-
-    private static FlowBundleDetailView toDetail(FlowBundle entity, boolean includeDesign) {
-        FlowBundleSummaryView summary = FlowBundleViews.summarize(FlowBundleMapper.toDefinition(entity));
-        return new FlowBundleDetailView(summary, includeDesign ? entity.getDesignJson() : null);
     }
 }

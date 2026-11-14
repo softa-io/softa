@@ -8,12 +8,15 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.domain.SubQuery;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.MetaModel;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.ReflectTool;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,7 +66,13 @@ class OneToManyAcrossTimelineTest {
 
     /** The query the expansion sent to the related model. */
     private static FlexQuery expansionQueryFor(SubQuery subQuery) {
-        try (MockedStatic<ReflectTool> reflect = mockStatic(ReflectTool.class)) {
+        try (MockedStatic<ReflectTool> reflect = mockStatic(ReflectTool.class);
+             MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
+            // The expansion orders the lines itself when the related model declares no order, so it asks.
+            MetaModel related = new MetaModel();
+            ReflectionTestUtils.setField(related, "modelName", RELATED);
+            models.when(() -> ModelManager.getModel(RELATED)).thenReturn(related);
+            models.when(() -> ModelManager.isTimelineModel(RELATED)).thenReturn(true);
             reflect.when(() -> ReflectTool.searchRelatedRows(eq(RELATED), any(FlexQuery.class)))
                     .thenReturn(List.of());
 

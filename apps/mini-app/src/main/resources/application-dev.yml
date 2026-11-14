@@ -11,6 +11,11 @@ security:
   encryption:
     password: 12345678
     algorithm: AESEncryption
+  # Signs the keys in FileInfo.url (softa-web README, File keys). Required, the same on every
+  # instance. This value is for local development only: anywhere else set SECURITY_FILE_KEY_SECRET
+  # (openssl rand -base64 48), which overrides it.
+  file-key:
+    secret: dev-only-file-open-key-secret-do-not-use-anywhere-else
 server:
   port: 80
 
@@ -48,18 +53,12 @@ oss:
 rpc:
   enable: true
 
-# ---- message-starter: incoming mail resource limits ----
-# Defense-in-depth gates applied to every email pulled from IMAP/POP3.
-# Hits land on MailReceiveRecord.truncationReason for SecOps triage.
+# ---- message-starter: transport timeouts ----
+# Incoming mail's size and MIME limits are constants in MailMessageParser;
+# hits land on MailReceiveRecord.truncationReason for SecOps triage.
 #softa:
 #  message:
 #    mail:
-#      fetch:
-#        max-message-size: 100MB
-#        max-attachment-size: 20MB
-#        archive-eml: false
-#        max-mime-depth: 10
-#        max-mime-parts: 100
 #      transport:
 #        connection-timeout: 5s
 #        read-timeout: 30s

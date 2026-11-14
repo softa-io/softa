@@ -17,7 +17,7 @@ import io.softa.starter.file.enums.SigningDocumentStatus;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(multiTenant = true, copyable = false)
+@Model(multiTenant = true, copyable = false, defaultOrder = {"sequence", "id"})
 @Index(fields = {"tenantId", "signingRequestId"})
 public class SigningDocument extends AuditableModel {
 

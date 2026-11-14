@@ -47,11 +47,18 @@ public class FlowActionContextService {
         }
     }
 
+    /**
+     * The step an action is taken on, while it waits. A step that no longer waits — handled by someone else, or by
+     * this person on another page, since theirs was loaded — is refused as a stale request, not failed as an error:
+     * the caller is told to look again.
+     */
     public PendingApproval requirePendingApproval(FlowExecutionState state, String nodeId) {
         return state.getPendingApprovals().stream()
                 .filter(item -> nodeId.equals(item.getNodeId()))
                 .findFirst()
-                .orElseThrow(() -> new FlowRuntimeException("Pending approval not found for node: " + nodeId));
+                .orElseThrow(() -> new FlowActionValidationException(
+                        "This step no longer waits for approval: it may have been handled already. "
+                                + "Refresh to see where the approval stands."));
     }
 
     /**
@@ -63,12 +70,13 @@ public class FlowActionContextService {
     }
 
     /**
-     * Fallback definition lookup by flow id, resolving to the current active revision.
+     * The revision a new instance of the flow starts from: its active revision, refused while the flow is
+     * disabled or was never published.
      */
     public CompiledFlowDefinition resolveDefinitionByFlowId(String flowId) {
         return bundleRegistry.getActiveByFlowId(flowId)
                 .orElseThrow(() -> new FlowRuntimeException(
-                        "Compiled flow bundle not found: flowId=" + flowId));
+                        "Flow " + flowId + " cannot start: it was never published, or it is disabled"));
     }
 
     public CompiledFlowNode requiredNode(CompiledFlowDefinition definition, String nodeId) {
@@ -77,17 +85,6 @@ public class FlowActionContextService {
             throw new FlowRuntimeException("Node not found in compiled definition: " + nodeId);
         }
         return node;
-    }
-
-    /**
-     * Loads the shared approval context for a node-scoped action without a waiting-approval
-     * gate: resolves the state, pending approval, compiled definition, and node, and snapshots
-     * the status before the action. Used by handlers (e.g. approve / reject) that do not require
-     * the instance to be in {@link FlowExecutionStatus#WAITING}.
-     */
-    public ApprovalContext loadApprovalContext(String instanceId, String nodeId) {
-        FlowExecutionState state = requireState(instanceId);
-        return loadApprovalContext(state, nodeId);
     }
 
     /**
@@ -106,9 +103,9 @@ public class FlowActionContextService {
     }
 
     /**
-     * Loads the shared approval context from an already-resolved state, for callers (e.g. the
-     * add-sign handlers) that apply a bespoke waiting-approval gate with a custom message before
-     * the pending-approval lookup. Equivalent to the tail of the {@code instanceId} overloads.
+     * Loads the shared approval context from an already-resolved state, for callers (e.g. approve and
+     * reject) that check the state themselves before the pending-approval lookup. Equivalent to the tail
+     * of the {@code instanceId} overload.
      */
     public ApprovalContext loadApprovalContext(FlowExecutionState state, String nodeId) {
         PendingApproval pendingApproval = requirePendingApproval(state, nodeId);
@@ -132,7 +129,7 @@ public class FlowActionContextService {
 
     /**
      * Persist state in its own transaction so the record survives when the caller's transaction
-     * rolls back. Used by failed starts and failed timer/async resumes: they rethrow to roll back
+     * rolls back. Used by failed starts and failed async resumes: they rethrow to roll back
      * the failed attempt's partial business writes, but the FAILED instance must still be recorded
      * for observability.
      */

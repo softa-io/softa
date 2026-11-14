@@ -80,10 +80,13 @@ public class OAuth2ServiceImpl implements OAuth2Service {
     public UserProfileDTO buildProfileFromSocial(String fullName, String photoUrl) {
         UserProfileDTO dto = new UserProfileDTO();
         dto.setFullName(fullName);
-        // Upload photo from URL if it is a valid URL
+        // Upload photo from URL if it is a valid URL. A photo that cannot be fetched or stored (null)
+        // leaves the profile without one: signing up must not fail over a picture.
         if (StringUtils.isNotBlank(photoUrl)) {
             FileInfo fileInfo = profileService.fetchPhotoFromURL(photoUrl, null);
-            dto.setPhotoId(fileInfo.getFileId());
+            if (fileInfo != null) {
+                dto.setPhotoId(fileInfo.getFileId());
+            }
         }
         return dto;
     }

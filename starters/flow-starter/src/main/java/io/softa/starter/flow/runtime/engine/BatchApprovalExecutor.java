@@ -14,6 +14,7 @@ import io.softa.starter.flow.runtime.api.FlowApproveRequest;
 import io.softa.starter.flow.runtime.api.FlowBatchActionRequest;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.api.FlowReturnRequest;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
@@ -53,7 +54,7 @@ public class BatchApprovalExecutor {
 
     private Item executeOne(Action action, FlowBatchActionRequest.Task task, String comment, String actorId) {
         try {
-            String skipped = stepOf(task).map(node -> skipReason(action, node)).orElse(null);
+            String skipped = stepOf(task).map(step -> skipReason(action, step.definition(), step.node())).orElse(null);
             if (skipped != null) {
                 return new Item(task.getInstanceId(), task.getNodeId(), Outcome.SKIPPED, skipped);
             }
@@ -70,23 +71,28 @@ public class BatchApprovalExecutor {
         }
     }
 
+    /** A step and the revision that compiled it. */
+    private record Step(CompiledFlowDefinition definition, CompiledFlowNode node) {
+    }
+
     /** The step as the instance's revision compiled it; empty when the instance or step is unknown — the engine says why. */
-    private Optional<CompiledFlowNode> stepOf(FlowBatchActionRequest.Task task) {
+    private Optional<Step> stepOf(FlowBatchActionRequest.Task task) {
         return runtimeEngine.getInstance(task.getInstanceId())
                 .flatMap(state -> Optional.ofNullable(state.getBundleId()))
                 .flatMap(bundleRegistry::getByBundleId)
-                .map(definition -> definition.getNodeIndex().get(task.getNodeId()));
+                .flatMap(definition -> Optional.ofNullable(definition.getNodeIndex().get(task.getNodeId()))
+                        .map(node -> new Step(definition, node)));
     }
 
-    private static String skipReason(Action action, CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg)) {
+    private static String skipReason(Action action, CompiledFlowDefinition definition, CompiledFlowNode node) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig)) {
             return null;
         }
         if (!FormPermissionService.requiredFields(node).isEmpty()) {
             return "This step has fields to fill in: open it to act on it.";
         }
-        if (action == Action.RETURN && !Boolean.TRUE.equals(cfg.getReturnEnabled())) {
-            return "This step does not allow returns.";
+        if (action == Action.RETURN && !Boolean.TRUE.equals(definition.getReturnEnabled())) {
+            return "This approval does not allow returns.";
         }
         return null;
     }

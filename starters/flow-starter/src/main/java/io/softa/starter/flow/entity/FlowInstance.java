@@ -2,7 +2,6 @@ package io.softa.starter.flow.entity;
 
 import java.io.Serial;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -24,11 +23,12 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
     multiTenant = true,
     idStrategy = IdStrategy.DISTRIBUTED_LONG,
     versionLock = true,
-    copyable = false
+    copyable = false,
+    searchName = {"title", "recordCode"}
 )
 @Index(indexName = "uk_instance_id", fields = {"instanceId"}, unique = true)
 @Index(indexName = "idx_tenant_flow_status", fields = {"tenantId", "flowId", "status"})
-@Index(indexName = "idx_tenant_status_fire", fields = {"tenantId", "status", "nextFireAt"})
+@Index(indexName = "idx_flow_instance_status", fields = {"tenantId", "status"})
 @Index(indexName = "idx_tenant_initiator_status", fields = {"tenantId", "initiatorId", "status"})
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
 @Index(indexName = "idx_flow_instance_dept", fields = {"tenantId", "departmentId"})
@@ -105,8 +105,13 @@ public class FlowInstance extends AuditableModel {
     @Field(description = "A record's approval: the record's own number, as at submission")
     private String recordCode;
 
+    @Field(length = 256, description = "A record's approval: a line saying what the record asks for — the days of a "
+            + "leave, the amount of a claim — as its handler words it at submission and after an approver's edits")
+    private String summary;
+
     @Field(defaultValue = "false", description = "A record's approval that a later submission of the same record "
-            + "replaced: an approval returned and not superseded is still waiting for its record to be edited")
+            + "replaced, or whose record was cancelled: an approval returned and not superseded is still waiting "
+            + "for its record to be edited")
     private Boolean superseded;
 
     @Field(label = "Open Record ID", description = "The record's id while this record approval is unfinished, empty "
@@ -126,17 +131,15 @@ public class FlowInstance extends AuditableModel {
     @Field(label = "Failed Node ID", length = 100, description = "Node where execution failed (set when status = Failed)")
     private String failedNodeId;
 
-    @Field(fieldType = FieldType.TEXT, description = "Immutable trigger payload (JSON)")
-    private String inputPayload;
+    @Field(label = "Retry After Node ID", length = 100,
+            description = "Approval step after which a failed approval runs again on retry (set only when the steps after an approval failed)")
+    private String retryAfterNodeId;
 
     @Field(fieldType = FieldType.TEXT, description = "Execution variables (JSON)")
     private String variables;
 
-    @Field(fieldType = FieldType.TEXT, description = "Active timer/async waits (JSON array); pending approvals are tracked separately")
+    @Field(fieldType = FieldType.TEXT, description = "AsyncTask nodes waiting for their callback (JSON array); pending approvals are tracked separately")
     private String waitTokens;
-
-    @Field(description = "Earliest due time across timer waits (denormalized from waitTokens for the sweep index)")
-    private LocalDateTime nextFireAt;
 
     @Field(label = "Completed Node IDs", fieldType = FieldType.TEXT, description = "Completed node ids (JSON array)")
     private String completedNodeIds;

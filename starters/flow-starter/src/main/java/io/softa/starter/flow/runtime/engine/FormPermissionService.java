@@ -1,6 +1,7 @@
 package io.softa.starter.flow.runtime.engine;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -65,16 +66,6 @@ public class FormPermissionService {
         return new HashMap<>(cfg.getFormPermissions());
     }
 
-    /** Check if a field is editable (editable or required). */
-    public static boolean isFieldEditable(CompiledFlowNode node, String fieldName) {
-        return isEditable(getFieldPermissions(node).get(fieldName));
-    }
-
-    /** Check if a field is required. */
-    public static boolean isFieldRequired(CompiledFlowNode node, String fieldName) {
-        return getFieldPermissions(node).get(fieldName) == FormFieldPermission.REQUIRED;
-    }
-
     /** The fields a node marks REQUIRED. */
     public static List<String> requiredFields(CompiledFlowNode node) {
         return getFieldPermissions(node).entrySet().stream()
@@ -84,14 +75,10 @@ public class FormPermissionService {
                 .toList();
     }
 
-    /** Check if a field is hidden. */
-    public static boolean isFieldHidden(CompiledFlowNode node, String fieldName) {
-        return getFieldPermissions(node).get(fieldName) == FormFieldPermission.HIDDEN;
-    }
-
     /**
      * Validate the values a node's REQUIRED fields will hold against node permissions: pass the
-     * approver's edits over the values the row stores.
+     * approver's edits over the values the row stores. A field holds no value when it is null, a blank
+     * string or an empty collection — a table without a row, a multi-select with nothing picked.
      *
      * @return list of validation error messages (empty if valid)
      */
@@ -101,13 +88,18 @@ public class FormPermissionService {
         for (Map.Entry<String, FormFieldPermission> entry : permissions.entrySet()) {
             if (entry.getValue() == FormFieldPermission.REQUIRED) {
                 String fieldName = entry.getKey();
-                Object value = formData == null ? null : formData.get(fieldName);
-                if (value == null || (value instanceof String s && s.isBlank())) {
+                if (isEmpty(formData == null ? null : formData.get(fieldName))) {
                     errors.add("Field '" + fieldName + "' is required");
                 }
             }
         }
         return errors;
+    }
+
+    private static boolean isEmpty(Object value) {
+        return value == null
+                || value instanceof String s && s.isBlank()
+                || value instanceof Collection<?> collection && collection.isEmpty();
     }
 
     /**

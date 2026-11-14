@@ -15,13 +15,19 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.service.CacheService;
 
 /**
- * Per-tenant + per-config rate limiter backed by Redis.
+ * Per-server / per-provider rate limiter backed by Redis: the limits a send
+ * server or SMS provider config declares are that server's, shared by every
+ * tenant whose sends it carries — a platform server relaying for many tenants
+ * stops at its own daily limit, not at that limit once per tenant. What each
+ * tenant may send is the quota's business ({@link SendQuotaGuard}: its monthly allowance and daily cap).
  * <p>
  * Two windows apply in tandem:
  * <ul>
- *   <li><b>daily</b> — cumulative sends per tenant + config per day</li>
- *   <li><b>per-minute</b> — sends per tenant + config per minute (smoothing burst)</li>
+ *   <li><b>daily</b> — cumulative sends per config per day</li>
+ *   <li><b>per-minute</b> — sends per config per minute (smoothing burst)</li>
  * </ul>
+ * Config ids are distributed ids, unique across the tenant and platform server
+ * tables and the provider table, so the channel and the id name one server.
  * Either {@code dailyLimit} or {@code minuteLimit} can be {@code null} to
  * disable that window. Counters are atomic on Redis, so multiple app instances
  * share one budget.
@@ -88,7 +94,7 @@ public class RateLimiter {
      * Try to consume one send-quota token.
      *
      * @param channel       {@code mail} / {@code sms} — scopes the key so Mail and SMS quotas don't collide
-     * @param configId      provider / server config id — quotas are per-config
+     * @param configId      provider / server config id — the windows are the config's, across tenants
      * @param dailyLimit    max sends per day; {@code null} to disable
      * @param minuteLimit   max sends per minute; {@code null} to disable
      * @return              {@link Outcome} indicating success or which window was exceeded
@@ -98,13 +104,10 @@ public class RateLimiter {
                 && (minuteLimit == null || minuteLimit <= 0)) {
             return Outcome.ALLOWED;
         }
-        long tenantId = currentTenantId();
         String id = String.valueOf(configId != null ? configId : 0L);
 
-        String dailyKey = "rl:" + channel + ":daily:" + tenantId + ":" + id
-                + ":" + LocalDate.now();
-        String minuteKey = "rl:" + channel + ":min:" + tenantId + ":" + id
-                + ":" + LocalDateTime.now().format(MINUTE_FMT);
+        String dailyKey = "rl:" + channel + ":daily:" + id + ":" + LocalDate.now();
+        String minuteKey = "rl:" + channel + ":min:" + id + ":" + LocalDateTime.now().format(MINUTE_FMT);
         Long result = stringRedisTemplate.execute(
                 TRY_ACQUIRE_SCRIPT,
                 List.of(cacheService.getKeyPath(dailyKey), cacheService.getKeyPath(minuteKey)),
@@ -114,13 +117,13 @@ public class RateLimiter {
                 "120");
         long outcome = result != null ? result : LUA_ALLOWED;
         if (outcome == LUA_DAILY_EXCEEDED) {
-            log.warn("RateLimiter: daily quota exceeded channel={} configId={} tenant={} limit={}",
-                    channel, configId, tenantId, dailyLimit);
+            log.warn("RateLimiter: daily limit reached channel={} configId={} limit={} (send for tenant {})",
+                    channel, configId, dailyLimit, currentTenantId());
             return Outcome.DAILY_EXCEEDED;
         }
         if (outcome == LUA_MINUTE_EXCEEDED) {
-            log.warn("RateLimiter: per-minute quota exceeded channel={} configId={} tenant={} limit={}",
-                    channel, configId, tenantId, minuteLimit);
+            log.warn("RateLimiter: per-minute limit reached channel={} configId={} limit={} (send for tenant {})",
+                    channel, configId, minuteLimit, currentTenantId());
             return Outcome.MINUTE_EXCEEDED;
         }
         return Outcome.ALLOWED;
@@ -130,9 +133,10 @@ public class RateLimiter {
         return n != null ? n : 0;
     }
 
-    private static long currentTenantId() {
+    /** For the log only: the windows do not depend on it. */
+    private static Long currentTenantId() {
         Context ctx = ContextHolder.getContext();
-        return ctx != null && ctx.getTenantId() != null ? ctx.getTenantId() : 0L;
+        return ctx != null ? ctx.getTenantId() : null;
     }
 
     public enum Outcome {

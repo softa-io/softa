@@ -227,17 +227,6 @@ public abstract class ReflectTool {
     }
 
     /**
-     * Call the searchName method of the specified model
-     *
-     * @param modelName model name
-     * @param flexQuery flexQuery
-     * @return Search result
-     */
-    public static List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery) {
-        return getModelService().searchName(modelName, flexQuery);
-    }
-
-    /**
      * Call the searchNameIgnoringRowScope method of the specified model — the caller's row range is
      * not appended, the field guards still are.
      *

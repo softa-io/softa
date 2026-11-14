@@ -21,7 +21,8 @@ import io.softa.framework.orm.enums.FieldType;
         label = "System Option Set",
         activeControl = true,
         businessKey = {"optionSetCode"},
-        description = "Metadata catalog of option sets"
+        description = "Metadata catalog of option sets",
+        defaultOrder = {"optionSetCode"}
 )
 public class SysOptionSet extends AuditableModel {
 

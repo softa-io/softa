@@ -17,11 +17,13 @@ import io.softa.starter.user.dto.NavConfigOptions.SfsRef;
  * @param applicableScopes            scope-type names applicable to this model (column-shape derived)
  * @param applicableSensitiveFieldSets SFS owned by / attached to this model
  * @param related                     false = primary model of a granted nav; true = derived lookup model
+ * @param departmentBound             whether the role's department grant bounds this model's records
  */
 public record RoleModelConfigOption(
         String model,
         String label,
         List<String> applicableScopes,
         List<SfsRef> applicableSensitiveFieldSets,
-        boolean related) {
+        boolean related,
+        boolean departmentBound) {
 }

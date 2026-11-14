@@ -20,8 +20,9 @@ import io.softa.framework.orm.enums.FieldType;
  *
  * <p>What it does need is for the fields it reads by name to exist with the meaning it assumes.
  * Declaring them here is what makes that a contract instead of a hope: {@code country} drives the
- * company's country context, {@code abbreviation} is what the {@code companyAbbr} sequence token
- * renders, {@code name} and {@code active} pick the company a template preview is shown for. A field
+ * company's country context, {@code timeZone} is the calendar its dates are judged on, {@code abbreviation}
+ * is what the {@code companyAbbr} sequence token renders, {@code name} and {@code active} pick the company a
+ * template preview is shown for. A field
  * the framework does not read stays on the application's class; moving one here later is compatible.
  *
  * <p>The scanner walks the superclass chain, so these are emitted as fields of the subclass's model
@@ -66,6 +67,19 @@ public abstract class BaseCompany extends AuditableModel {
             description = "Short form of the company name, e.g. ZK. Numbering rules that include "
                     + "{companyAbbr} put it into the code, e.g. ZK1000021.")
     private String abbreviation;
+
+    /**
+     * The company's IANA time zone ({@code Asia/Singapore}) — the calendar its own dates are judged on, read by
+     * {@code CompanyClock}. A company's today is not the server's: a server in another zone answers with a
+     * different date for hours every day.
+     *
+     * <p>A reference to the reference-data {@code CountryTimeZone}, whose id is the zone id itself, so the column
+     * holds the plain zone string. Referenced by name: this module sees the reference-data starter only on its
+     * test classpath. Left empty on create, it takes the country's default zone.
+     */
+    @Field(label = "Time Zone", fieldType = FieldType.MANY_TO_ONE, relatedModelName = "CountryTimeZone",
+            length = 32)
+    private String timeZone;
 
     @Field(label = "Active", defaultValue = "true")
     private Boolean active;

@@ -14,6 +14,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.ModelManager;
@@ -24,6 +25,7 @@ import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -73,6 +75,8 @@ class SearchNameRowScopeTest {
         List<Map<String, Object>> rows = new ArrayList<>();
         rows.add(new HashMap<>(Map.of("id", 1L, "code", "1231", "name", "E1")));
         when(jdbcService.selectByFilter(anyString(), any(FlexQuery.class))).thenReturn(rows);
+        when(jdbcService.selectByPage(anyString(), any(FlexQuery.class), any()))
+                .thenAnswer(i -> i.<Page<Map<String, Object>>>getArgument(2).setRows(rows));
     }
 
     @AfterEach
@@ -82,10 +86,20 @@ class SearchNameRowScopeTest {
 
     @Test
     void searchName_appendsTheCallersRowRange() {
-        service.searchName(MODEL, new FlexQuery(new Filters()));
+        service.searchName(MODEL, new FlexQuery(new Filters()), Page.ofCursorPage(10));
 
         verify(permissionService).appendScopeAccessFilters(eq(MODEL), any(Filters.class));
         verify(permissionService, never()).appendScopeAccessFiltersIgnoringRowScope(anyString(), any(Filters.class));
+    }
+
+    /** A picker loading its next page gets that page, read in a stable order and without a count. */
+    @Test
+    void searchName_readsThePageItIsGiven() {
+        service.searchName(MODEL, new FlexQuery(new Filters()), Page.ofCursorPage(2, 20));
+
+        verify(jdbcService).selectByPage(eq(MODEL), any(FlexQuery.class), argThat(page ->
+                page.getPageNumber() == 2 && page.getPageSize() == 20 && page.isCursorPage() && !page.isCount()));
+        verify(jdbcService, never()).selectByFilter(anyString(), any(FlexQuery.class));
     }
 
     @Test
@@ -106,7 +120,7 @@ class SearchNameRowScopeTest {
 
     @Test
     void bothComposeTheSameDisplayName() {
-        List<Map<String, Object>> scoped = service.searchName(MODEL, new FlexQuery(new Filters()));
+        List<Map<String, Object>> scoped = service.searchName(MODEL, new FlexQuery(new Filters()), Page.ofCursorPage(10));
         List<Map<String, Object>> crossing = service.searchNameIgnoringRowScope(MODEL, new FlexQuery(new Filters()));
 
         assertThat(scoped).extracting(r -> r.get(ModelConstant.DISPLAY_NAME)).containsExactly("1231 / E1");

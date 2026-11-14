@@ -52,12 +52,10 @@ class MessageServiceImplTest {
         first.setSubject("first");
         SendMailDTO second = new SendMailDTO();
         second.setSubject("second");
-        when(mailHandler.send(first)).thenReturn(11L);
-        when(mailHandler.send(second)).thenReturn(12L);
+        when(mailHandler.sendBatch(List.of(first, second))).thenReturn(List.of(11L, 12L));
 
         assertEquals(List.of(11L, 12L), service.sendMailBatch(List.of(first, second)));
-        verify(mailHandler).send(first);
-        verify(mailHandler).send(second);
+        verify(mailHandler).sendBatch(List.of(first, second));
     }
 
     @Test
@@ -66,8 +64,7 @@ class MessageServiceImplTest {
         first.setPhoneNumber("+111");
         SendSmsDTO second = new SendSmsDTO();
         second.setPhoneNumber("+222");
-        when(smsHandler.send(first)).thenReturn(21L);
-        when(smsHandler.send(second)).thenReturn(22L);
+        when(smsHandler.sendBatch(List.of(first, second))).thenReturn(List.of(21L, 22L));
 
         assertEquals(List.of(21L, 22L), service.sendSmsBatch(List.of(first, second)));
     }

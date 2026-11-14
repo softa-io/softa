@@ -46,7 +46,8 @@ import io.softa.framework.orm.enums.IdStrategy;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Model(idStrategy = IdStrategy.EXTERNAL_ID, businessKey = {"id"},
-        description = "Fallback row scope per model, for callers holding no rule of their own")
+        description = "Fallback row scope per model, for callers holding no rule of their own",
+        defaultOrder = {"id"})
 public class ModelDefaultScope extends AuditableModel {
 
     @Serial

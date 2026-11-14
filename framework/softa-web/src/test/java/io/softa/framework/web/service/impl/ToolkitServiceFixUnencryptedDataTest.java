@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.security.EncryptUtils;
 import io.softa.framework.base.security.algorithm.AESEncryption;
@@ -151,5 +153,50 @@ class ToolkitServiceFixUnencryptedDataTest {
 
         assertThatThrownBy(() -> toolkitService.fixUnencryptedData(MODEL, FIELD, true))
                 .hasMessageContaining("not an encrypted field");
+    }
+
+    /**
+     * A full page is followed by the next one, and the pass ends at the first page that is not full. It
+     * used to read the first page forever, so a model with 1,000 rows or more never finished.
+     */
+    @Test
+    void fixUnencryptedData_readsThePageAfterAFullOne() {
+        int pageSize = BaseConstant.DEFAULT_BATCH_SIZE;
+        givenPages(plaintextRows(0, pageSize), plaintextRows(pageSize, 1));
+
+        assertThat(toolkitService.fixUnencryptedData(MODEL, FIELD, true)).isEqualTo(pageSize + 1L);
+    }
+
+    /** A last page that happens to be full is followed by one empty page, and the pass stops there. */
+    @Test
+    void fixUnencryptedData_stopsAtTheEmptyPageAfterAFullLastPage() {
+        int pageSize = BaseConstant.DEFAULT_BATCH_SIZE;
+        givenPages(plaintextRows(0, pageSize), plaintextRows(pageSize, pageSize), List.of());
+
+        assertThat(toolkitService.fixUnencryptedData(MODEL, FIELD, true)).isEqualTo(2L * pageSize);
+    }
+
+    /**
+     * Serves the pages by the number asked for, and fails the test instead of looping when asked for more
+     * reads than there are pages.
+     */
+    @SafeVarargs
+    private void givenPages(List<Map<String, Object>>... pages) {
+        AtomicInteger reads = new AtomicInteger();
+        when(modelService.searchPage(anyString(), any(), any())).thenAnswer(invocation -> {
+            if (reads.incrementAndGet() > pages.length) {
+                throw new AssertionError("Read " + reads + " pages, but there are only " + pages.length);
+            }
+            Page<Map<String, Object>> page = invocation.getArgument(2);
+            return page.setRows(pages[page.getPageNumber() - 1]);
+        });
+    }
+
+    private static List<Map<String, Object>> plaintextRows(int from, int count) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (long id = from + 1; id <= from + count; id++) {
+            rows.add(row(id, "plain-" + id));
+        }
+        return rows;
     }
 }

@@ -3,13 +3,15 @@ package io.softa.starter.flow.service.impl;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Stream;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -17,6 +19,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.flow.dto.FlowApprovalTaskSearchRequest;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.dto.FlowInboxCountView;
 import io.softa.starter.flow.entity.FlowApprovalTask;
@@ -24,13 +27,16 @@ import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.engine.FlowStateChangeListener;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
+import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.query.ApprovalTaskQuerySupport;
 import io.softa.starter.flow.service.query.TaskInstanceContextEnricher;
+import io.softa.starter.flow.service.support.CallerConditions;
 import io.softa.starter.flow.service.support.FlowApprovalTaskProjector;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.view.FlowApprovalTaskViewMapper;
@@ -42,92 +48,58 @@ import io.softa.starter.flow.service.support.view.FlowApprovalTaskViewMapper;
 public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalTask, Long>
         implements FlowApprovalTaskQueryService, FlowStateChangeListener {
 
+    /** What a task's holder does that closes their task. */
+    private static final Set<ApprovalActionType> HOLDER_DECISIONS = EnumSet.of(ApprovalActionType.APPROVE,
+            ApprovalActionType.REJECT, ApprovalActionType.RETURN, ApprovalActionType.TRANSFER,
+            ApprovalActionType.DELEGATE);
+
+    /**
+     * What an approval records that closes nobody's task — it only adds to the approval: a CC (those an approval's
+     * result sends come after the entry that ended it), a CC read, a comment, an urge.
+     */
+    private static final Set<ApprovalActionType> CLOSES_NO_TASK = EnumSet.of(ApprovalActionType.CC,
+            ApprovalActionType.READ, ApprovalActionType.COMMENT, ApprovalActionType.URGE);
+
     private final FlowApprovalTaskProjector projector;
     private final FlowInstanceAccessGuard accessGuard;
     private final ApprovalAuditReader auditReader;
     private final TaskInstanceContextEnricher instanceContextEnricher;
+    private final FlowInstanceService instanceService;
 
     public FlowApprovalTaskServiceImpl(FlowApprovalTaskProjector projector,
                                        FlowInstanceAccessGuard accessGuard,
                                        ApprovalAuditReader auditReader,
-                                       TaskInstanceContextEnricher instanceContextEnricher) {
+                                       TaskInstanceContextEnricher instanceContextEnricher,
+                                       FlowInstanceService instanceService) {
         this.projector = projector;
         this.accessGuard = accessGuard;
         this.auditReader = auditReader;
         this.instanceContextEnricher = instanceContextEnricher;
+        this.instanceService = instanceService;
     }
 
     @Override
-    public List<FlowApprovalTaskView> getPendingTasks(String actorId, String flowId, String instanceId, String nodeId) {
-        return pagePendingTasks(actorId, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pagePendingTasks(String actorId,
-                                                       String flowId,
-                                                       String instanceId,
-                                                       String nodeId,
-                                                       Integer pageNumber,
-                                                       Integer pageSize) {
+    public Page<FlowApprovalTaskView> searchTasks(String actorId, FlowApprovalTaskSearchRequest request) {
         ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        // Newest first: what reached the approver last is what they look for.
-        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowApprovalTask::getStartTime)
-                .addDesc(FlowApprovalTask::getId));
-        return mapPage(this.searchPage(query, Page.of(pageNumber, pageSize)), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCompletedTasks(String actorId, String flowId, String instanceId, String nodeId) {
-        return pageCompletedTasks(actorId, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pageCompletedTasks(String actorId,
-                                                         String flowId,
-                                                         String instanceId,
-                                                         String nodeId,
-                                                         Integer pageNumber,
-                                                         Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowApprovalTask::getEndTime)
-                .addDesc(FlowApprovalTask::getId));
-        return mapPage(this.searchPage(query, Page.of(pageNumber, pageSize)), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCcTasks(String actorId, Boolean read, String flowId, String instanceId, String nodeId) {
-        return pageCcTasks(actorId, read, flowId, instanceId, nodeId, 1, 50).getRows();
-    }
-
-    @Override
-    public Page<FlowApprovalTaskView> pageCcTasks(String actorId,
-                                                  Boolean read,
-                                                  String flowId,
-                                                  String instanceId,
-                                                  String nodeId,
-                                                  Integer pageNumber,
-                                                  Integer pageSize) {
-        ApprovalTaskQuerySupport.requireActorId(actorId);
-        // read=false shares the unread-CC badge-count definition; read=true its mirror.
-        Filters filters;
-        if (Boolean.FALSE.equals(read)) {
-            filters = ApprovalTaskQuerySupport.unreadCcFilters(actorId);
-        } else if (Boolean.TRUE.equals(read)) {
-            filters = ApprovalTaskQuerySupport.readCcFilters(actorId);
-        } else {
-            filters = new Filters()
-                    .eq(FlowApprovalTask::getActorId, actorId)
-                    .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC);
+        if (request == null || request.box() == null) {
+            throw new FlowActionValidationException("Choose the tasks to search: Pending, Handled or Cc");
         }
-        applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        Orders orders = Boolean.TRUE.equals(read)
-                ? Orders.ofDesc(FlowApprovalTask::getEndTime).addDesc(FlowApprovalTask::getId)
-                : Orders.ofAsc(FlowApprovalTask::getStartTime).addAsc(FlowApprovalTask::getId);
-        return mapPage(this.searchPage(new FlexQuery(filters, orders), Page.of(pageNumber, pageSize)), pageNumber, pageSize);
+        CallerConditions.requireStoredFields(modelName, request.filters(), request.orders());
+        // The box pins the rows to the actor; the caller's filters only narrow them.
+        Filters own = switch (request.box()) {
+            case PENDING -> ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
+            case HANDLED -> ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
+            case CC -> ApprovalTaskQuerySupport.ccFilters(actorId);
+        };
+        // Each box's default puts what reached the caller last first: pending and copied by when they arrived,
+        // handled by when they closed. The CC box holds read and unread alike, so oldest first left the copy just
+        // received on the last page.
+        Orders defaults = switch (request.box()) {
+            case PENDING, CC -> newestStartedFirst();
+            case HANDLED -> latestClosedFirst();
+        };
+        return page(CallerConditions.and(own, request.filters()),
+                CallerConditions.ordersOr(request.orders(), defaults), request.pageNumber(), request.pageSize());
     }
 
     @Override
@@ -144,9 +116,9 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         boolean participant = tasks.stream()
                 .anyMatch(task -> requesterId != null && requesterId.equals(task.getActorId()));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
-        List<FlowApprovalTaskView> views = FlowApprovalTaskViewMapper.toViews(tasks);
-        instanceContextEnricher.enrich(views);
-        return views;
+        // The tasks of one instance, read on its own page: the instance is already in hand there, so the tasks carry
+        // none of its context — what the lists of many instances' tasks add.
+        return FlowApprovalTaskViewMapper.toViews(tasks);
     }
 
     /**
@@ -160,16 +132,19 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                 .toList();
     }
 
-    private static void applyOptionalFilters(Filters filters, String flowId, String instanceId, String nodeId) {
-        if (StringUtils.hasText(flowId)) {
-            filters.eq(FlowApprovalTask::getFlowId, flowId);
-        }
-        if (StringUtils.hasText(instanceId)) {
-            filters.eq(FlowApprovalTask::getInstanceId, instanceId);
-        }
-        if (StringUtils.hasText(nodeId)) {
-            filters.eq(FlowApprovalTask::getNodeId, nodeId);
-        }
+    private Page<FlowApprovalTaskView> page(Filters filters, Orders orders, Integer pageNumber, Integer pageSize) {
+        return mapPage(this.searchPage(new FlexQuery(filters, orders), Page.of(pageNumber, pageSize)),
+                pageNumber, pageSize);
+    }
+
+    /** Newest first: what reached the approver last is what they look for. */
+    private static Orders newestStartedFirst() {
+        return Orders.ofDesc(FlowApprovalTask::getStartTime).addDesc(FlowApprovalTask::getId);
+    }
+
+    /** Latest closed first. */
+    private static Orders latestClosedFirst() {
+        return Orders.ofDesc(FlowApprovalTask::getEndTime).addDesc(FlowApprovalTask::getId);
     }
 
     private Page<FlowApprovalTaskView> mapPage(Page<FlowApprovalTask> source,
@@ -193,7 +168,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         Map<String, FlowApprovalTask> openTasksByKey = new LinkedHashMap<>();
         Map<String, FlowApprovalTask> latestTasksByKey = new LinkedHashMap<>();
         for (FlowApprovalTask task : existingTasks) {
-            String key = keyOf(task.getNodeId(), task.getCycleNumber(), task.getActorId(), task.getTaskType());
+            String key = keyOf(task.getNodeId(), task.getActorId(), task.getTaskType());
             latestTasksByKey.merge(key, task, FlowApprovalTaskServiceImpl::latestTask);
             if (isOpen(task)) {
                 openTasksByKey.putIfAbsent(key, task);
@@ -205,7 +180,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         List<FlowApprovalTask> toUpdate = new ArrayList<>();
 
         for (FlowApprovalTask desired : desiredTasks) {
-            String key = keyOf(desired.getNodeId(), desired.getCycleNumber(), desired.getActorId(), desired.getTaskType());
+            String key = keyOf(desired.getNodeId(), desired.getActorId(), desired.getTaskType());
             FlowApprovalTask openTask = openTasksByKey.remove(key);
             if (openTask != null) {
                 copyMutableFields(openTask, desired);
@@ -226,6 +201,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             toUpdate.add(staleOpenTask);
         }
 
+        copyInstanceFields(state.getInstanceId(), toCreate, toUpdate);
         if (!toCreate.isEmpty()) {
             this.createList(toCreate);
         }
@@ -234,24 +210,57 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         }
     }
 
+    /**
+     * Gives the rows about to be written their instance's list fields, as its row holds them — what the views are
+     * enriched with: every new row, and a row written before tasks stored them when the sync next updates it. The
+     * instance is read once, and only when a row lacks them; the fields never change for its life.
+     */
+    private void copyInstanceFields(String instanceId, List<FlowApprovalTask> toCreate, List<FlowApprovalTask> toUpdate) {
+        List<FlowApprovalTask> lacking = Stream.concat(toCreate.stream(), toUpdate.stream())
+                .filter(task -> task.getSubmittedTime() == null)
+                .toList();
+        if (lacking.isEmpty()) {
+            return;
+        }
+        ContextUtils.withoutPermissionChecks(() -> instanceService.findByInstanceIds(List.of(instanceId))).stream()
+                .findFirst()
+                .ifPresent(instance -> lacking.forEach(task -> {
+                    task.setInstanceTitle(instance.getTitle());
+                    task.setRecordCode(instance.getRecordCode());
+                    task.setModelName(instance.getModelName());
+                    task.setRowId(instance.getRowId());
+                    task.setInitiatorId(instance.getInitiatorId());
+                    task.setSubmittedTime(instance.getCreatedTime());
+                    task.setSubjectId(instance.getSubjectId());
+                    task.setDepartmentId(instance.getDepartmentId());
+                    task.setEffectiveDate(instance.getEffectiveDate());
+                }));
+    }
+
     private static FlowApprovalTask latestTask(FlowApprovalTask left, FlowApprovalTask right) {
         return Comparator.comparing(FlowApprovalTask::getId,
                         Comparator.nullsLast(Long::compareTo))
                 .compare(left, right) >= 0 ? left : right;
     }
 
+    /**
+     * A row the sync updates in place: a task still waiting on its holder, and a CC not yet read — which carries
+     * the time it was sent as its end, so that its reading lands on it rather than on a copy of it.
+     */
     private static boolean isOpen(FlowApprovalTask task) {
-        return task.getEndTime() == null && FlowApprovalTaskStatus.PENDING.equals(task.getStatus());
+        return FlowApprovalTaskStatus.PENDING.equals(task.getStatus())
+                && (task.getEndTime() == null || FlowApprovalTaskType.CC.equals(task.getTaskType()));
     }
 
+    /**
+     * Whether a closed row already is what the projection asks for. The step's vote counts are left out: they move
+     * as the others vote, and are no new task of the holder's — comparing them, every later action copied each closed
+     * row whose counts it changed (and a CC's, which read back empty as null, on every action).
+     */
     private static boolean sameState(FlowApprovalTask current, FlowApprovalTask desired) {
         return Objects.equals(current.getStatus(), desired.getStatus())
                 && Objects.equals(current.getTaskType(), desired.getTaskType())
                 && Objects.equals(current.getAction(), desired.getAction())
-                && Objects.equals(current.getApprovedActors(), desired.getApprovedActors())
-                && Objects.equals(current.getRejectedActors(), desired.getRejectedActors())
-                && Objects.equals(current.getBlocked(), desired.getBlocked())
-                && Objects.equals(current.getBlockedByActorId(), desired.getBlockedByActorId())
                 && Objects.equals(current.getComment(), desired.getComment());
     }
 
@@ -260,18 +269,11 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         target.setTaskType(source.getTaskType());
         target.setAction(source.getAction());
         target.setComment(source.getComment());
-        target.setDynamicApprovers(source.getDynamicApprovers());
-        target.setApprovalMode(source.getApprovalMode());
         target.setRequiredApprovalCount(source.getRequiredApprovalCount());
-        target.setTotalApproverCount(source.getTotalApproverCount());
-        target.setRejectMode(source.getRejectMode());
-        target.setRequiredRejectCount(source.getRequiredRejectCount());
-        target.setCandidateActors(source.getCandidateActors());
         target.setApprovedActors(source.getApprovedActors());
-        target.setRejectedActors(source.getRejectedActors());
         target.setClosedByActorId(source.getClosedByActorId());
-        target.setBlocked(source.getBlocked());
-        target.setBlockedByActorId(source.getBlockedByActorId());
+        // An escalation sets a new deadline on the step it hands on.
+        target.setDueTime(source.getDueTime());
         if (target.getStartTime() == null) {
             target.setStartTime(source.getStartTime());
         }
@@ -279,7 +281,14 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     private void closeStaleTask(FlowApprovalTask task, FlowExecutionState state) {
-        ApprovalActionAuditEntry latestAudit = lastAudit(state);
+        // What closed it: its holder's own decision in this action when they made one — approving a step the next one
+        // then auto-approves ends the action on the next step's entry, which says nothing of theirs — else the latest
+        // entry of the approval that closes tasks (another approver's vote, a withdrawal, a termination), never the
+        // CCs its result sends after it.
+        ApprovalActionAuditEntry latestAudit = ownDecision(task, state);
+        if (latestAudit == null) {
+            latestAudit = lastAudit(state);
+        }
         task.setStatus(resolveTerminalStatus(task, state, latestAudit));
         task.setAction(latestAudit == null ? task.getAction() : latestAudit.getAction());
         task.setComment(latestAudit == null ? task.getComment() : latestAudit.getComment());
@@ -291,9 +300,36 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         }
     }
 
+    /**
+     * The task holder's latest decision on its step among the entries the current action recorded, or null.
+     * Only this action's: an earlier decision of theirs on the step — before a transfer came back to them — did not
+     * close this task.
+     */
+    private static ApprovalActionAuditEntry ownDecision(FlowApprovalTask task, FlowExecutionState state) {
+        List<ApprovalActionAuditEntry> delta = state.getApprovalAuditDelta();
+        if (delta == null) {
+            return null;
+        }
+        for (int i = delta.size() - 1; i >= 0; i--) {
+            ApprovalActionAuditEntry entry = delta.get(i);
+            if (HOLDER_DECISIONS.contains(entry.getAction())
+                    && Objects.equals(task.getNodeId(), entry.getNodeId())
+                    && Objects.equals(task.getActorId(), entry.getActorId())) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    /** The approval's latest entry that can close a task, past those that only add to it ({@link #CLOSES_NO_TASK}). */
     private ApprovalActionAuditEntry lastAudit(FlowExecutionState state) {
         List<ApprovalActionAuditEntry> history = auditReader.fullHistory(state);
-        return history.isEmpty() ? null : history.getLast();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            if (!CLOSES_NO_TASK.contains(history.get(i).getAction())) {
+                return history.get(i);
+            }
+        }
+        return null;
     }
 
     private static FlowApprovalTaskStatus resolveTerminalStatus(FlowApprovalTask task,
@@ -339,11 +375,8 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return FlowApprovalTaskStatus.CANCELED;
     }
 
-    private static String keyOf(String nodeId,
-                                Integer cycleNumber,
-                                String actorId,
-                                FlowApprovalTaskType taskType) {
-        return nodeId + "::" + cycleNumber + "::" + actorId + "::" + taskType;
+    private static String keyOf(String nodeId, String actorId, FlowApprovalTaskType taskType) {
+        return nodeId + "::" + actorId + "::" + taskType;
     }
 
     /**

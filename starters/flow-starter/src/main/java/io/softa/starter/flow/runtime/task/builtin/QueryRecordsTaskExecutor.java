@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.orm.domain.Filters;
@@ -17,7 +16,6 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.nodeconfig.QueryRecordsConfig;
 import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
-import io.softa.starter.flow.runtime.task.TaskExecutor;
 
 /**
  * Built-in executor for {@link FlowNodeType#QUERY_RECORDS} — paginated model query
@@ -52,15 +50,8 @@ import io.softa.starter.flow.runtime.task.TaskExecutor;
  * <p>
  * Use {@code GetData} for bounded (non-paginated) lookups, single-row fetches,
  * existence checks, and counts.
- * <p>
- * Disable via {@code flow.task.builtin.query-records.enabled=false} to register a
- * custom {@link TaskExecutor} for {@code QUERY_RECORDS}.
  */
 @Component
-@ConditionalOnProperty(
-        name = "flow.task.builtin.query-records.enabled",
-        havingValue = "true",
-        matchIfMissing = true)
 public class QueryRecordsTaskExecutor extends AbstractTaskExecutor {
 
     @Autowired
@@ -69,11 +60,6 @@ public class QueryRecordsTaskExecutor extends AbstractTaskExecutor {
     @Override
     public FlowNodeType getSupportedNodeType() {
         return FlowNodeType.QUERY_RECORDS;
-    }
-
-    @Override
-    public String getExecutor() {
-        return "QueryRecords";
     }
 
     @Override

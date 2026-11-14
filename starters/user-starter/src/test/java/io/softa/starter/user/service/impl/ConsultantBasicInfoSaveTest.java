@@ -97,6 +97,7 @@ class ConsultantBasicInfoSaveTest {
         identity.setProfileId(PROFILE);
         identity.setLoginEmail("old@zingkey.com");
         identity.setLoginMobile(MOBILE);
+        identity.setPassword("hash-read-with-the-row");
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
         when(identityService.updateOne(any(UserIdentity.class))).thenReturn(true);
         when(identityService.isIdentifierClaimable(any(), eq(PROFILE))).thenReturn(true);
@@ -236,6 +237,9 @@ class ConsultantBasicInfoSaveTest {
         // typed is one that query can never find.
         assertThat(credential.getValue().getLoginEmail()).isEqualTo("ada@zingkey.com");
         assertThat(credential.getValue().getLoginMobile()).isEqualTo("+6591234567");
+        // A patch, not the row that was read: a password changed since that read is not put back.
+        assertThat(credential.getValue().getId()).isEqualTo(11L);
+        assertThat(credential.getValue().getPassword()).isNull();
     }
 
     @Test
@@ -433,6 +437,7 @@ class ConsultantBasicInfoSaveTest {
         ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
         verify(identityService).updateOne(saved.capture());
         assertThat(saved.getValue().getLoginMobile()).isEqualTo("+6591234567");
-        assertThat(saved.getValue().getLoginEmail()).isEqualTo("old@zingkey.com");
+        // The email did not change, so the patch does not carry it at all.
+        assertThat(saved.getValue().getLoginEmail()).isNull();
     }
 }

@@ -1,5 +1,6 @@
 package io.softa.starter.message.inbox.service.impl;
 
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,6 +102,29 @@ class InboxNotificationServiceImplTest {
         Assertions.assertTrue(filters.contains("isRead"), filters);
         Assertions.assertTrue(patchCaptor.getValue().getIsRead());
         Assertions.assertNotNull(patchCaptor.getValue().getReadAt());
+    }
+
+    // ========== markReadByIds Tests ==========
+
+    @Test
+    void markReadByIdsMarksTheRecipientsUnreadNoticesAmongThoseIdsOnly() {
+        var filterCaptor = ArgumentCaptor.forClass(Filters.class);
+        doReturn(1).when(service).updateByFilter(filterCaptor.capture(), any(InboxNotification.class));
+
+        int marked = service.markReadByIds(42L, List.of(5L, 6L));
+
+        Assertions.assertEquals(1, marked);
+        String filters = filterCaptor.getValue().toString();
+        Assertions.assertTrue(filters.contains("recipientId") && filters.contains("42"), filters);
+        Assertions.assertTrue(filters.contains("id") && filters.contains("5") && filters.contains("6"), filters);
+        Assertions.assertTrue(filters.contains("isRead"), filters);
+    }
+
+    @Test
+    void markReadByIdsWithNoIdsMarksNothing() {
+        Assertions.assertEquals(0, service.markReadByIds(42L, List.of()));
+        Assertions.assertEquals(0, service.markReadByIds(42L, null));
+        verify(service, never()).updateByFilter(any(Filters.class), any(InboxNotification.class));
     }
 
     // ========== countUnread Tests ==========

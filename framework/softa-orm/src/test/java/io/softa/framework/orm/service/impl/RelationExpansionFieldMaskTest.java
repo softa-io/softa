@@ -11,6 +11,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.service.PermissionService;
@@ -164,6 +165,7 @@ class RelationExpansionFieldMaskTest {
         svc.searchList(MODEL, queryAskingForAmount());
 
         var order = inOrder(permissionService, jdbcService);
+        order.verify(permissionService).guardQuery(eq(MODEL), any(FlexQuery.class));
         order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).appendScopeAccessFilters(eq(MODEL), any(Filters.class));
@@ -186,6 +188,7 @@ class RelationExpansionFieldMaskTest {
         svc.searchListIgnoringRowScope(MODEL, queryAskingForAmount());
 
         var order = inOrder(permissionService, jdbcService);
+        order.verify(permissionService).guardQuery(eq(MODEL), any(FlexQuery.class));
         order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
         // The one substitution: everything but the range, where the plain path also takes the range.
@@ -218,6 +221,7 @@ class RelationExpansionFieldMaskTest {
 
         var order = inOrder(permissionService, jdbcService);
         order.verify(permissionService).hasOwnRowScope(MODEL);
+        order.verify(permissionService).guardQuery(eq(MODEL), any(FlexQuery.class));
         order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).appendScopeAccessFilters(eq(MODEL), any(Filters.class));
@@ -240,11 +244,37 @@ class RelationExpansionFieldMaskTest {
 
         var order = inOrder(permissionService, jdbcService);
         order.verify(permissionService).hasOwnRowScope(MODEL);
+        order.verify(permissionService).guardQuery(eq(MODEL), any(FlexQuery.class));
         order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).appendScopeAccessFiltersIgnoringRowScope(eq(MODEL), any(Filters.class));
         order.verify(jdbcService).selectByFilter(eq(MODEL), any(FlexQuery.class));
         order.verify(permissionService).maskResponseValue(eq(MODEL), any(), eq(AccessType.READ));
+        order.verifyNoMoreInteractions();
+        assertThat(query.getFields()).containsExactlyInAnyOrder("id", "employeeId");
+    }
+
+    /**
+     * The page read, pinned the same way. Every picker reads through it ({@code searchName}), and it
+     * used to keep its own copy of these steps, which no test here followed; it now shares
+     * {@code guardAndScope} with the list read, and this keeps it from drifting off again.
+     */
+    @Test
+    void plainSearchPage_runsTheWholeSequenceInOrder() {
+        ModelServiceImpl<Long> svc = wire(new ArrayList<>());
+        Page<Map<String, Object>> page = Page.of(1, 10);
+        when(jdbcService.selectByPage(eq(MODEL), any(FlexQuery.class), eq(page))).thenReturn(page);
+        FlexQuery query = queryAskingForAmount();
+
+        svc.searchPage(MODEL, query, page);
+
+        var order = inOrder(permissionService, jdbcService);
+        order.verify(permissionService).guardQuery(eq(MODEL), any(FlexQuery.class));
+        order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
+        order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
+        order.verify(permissionService).appendScopeAccessFilters(eq(MODEL), any(Filters.class));
+        order.verify(jdbcService).selectByPage(eq(MODEL), any(FlexQuery.class), eq(page));
+        order.verify(permissionService).maskResponseValue(eq(MODEL), eq(page), eq(AccessType.READ));
         order.verifyNoMoreInteractions();
         assertThat(query.getFields()).containsExactlyInAnyOrder("id", "employeeId");
     }

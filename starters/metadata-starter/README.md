@@ -82,6 +82,31 @@ Then `SELECT model_name, app_code FROM sys_model WHERE app_code = '<system.app-c
 returns the built-in `SYSTEM_MODEL`s plus your annotated entities for this
 runtime app.
 
+### 5. Check the catalog in a test
+
+The checks `ModelManager` makes when it loads `sys_*` at boot read the whole
+catalog — a relation needs the model it points at, a `searchName` the type of
+every field it names — so a mistake can pass each module's own tests and stop
+the boot instead (softa 3.0.1 did, over `InboxNotification`). `CatalogBootCheck`
+runs those checks over the catalog your annotations declare, with no database
+and no Spring context:
+
+```java
+class CatalogBootCheckTest {
+    @Test
+    void everyModelPassesTheBootChecks() {
+        // The packages models are discovered under (yours + scan-base-packages),
+        // and the deployment's system.enable-multi-tenancy.
+        CatalogBootCheck.validate(List.of("io.softa", "io.acme.app"), true);
+    }
+}
+```
+
+It checks what a `scanner-scope: ["*"]` boot writes. Out of its reach: rows no
+class declares (Studio no-code, seed-authored models), rows an environment
+still holds from older code, and the boot steps outside `ModelManager`. softa
+runs it over every softa module in demo-app (`SoftaCatalogBootCheckTest`).
+
 ## The 5 annotations
 
 `@Model` / `@Field` / `@Index` live in `io.softa.framework.orm.annotation`;

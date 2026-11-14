@@ -18,7 +18,7 @@ starters) — see [config.md](config.md):
 
 | Starter | Use it for | Reference |
 |---|---|---|
-| `flow-starter` | Node-based workflow engine — JSON-defined flows, conditions, parallel branches, approvals, task executors | [flow-starter README](../../../starters/flow-starter/README.md) |
+| `flow-starter` | Node-based workflow engine — JSON-defined flows, conditions, parallel branches, approvals, task executors | [Flow docs](https://softa.io/en-US/docs/features/flow) (behaviour, integration, APIs) · [flow-starter README](../../../starters/flow-starter/README.md) (wiring, extension points) |
 | `message-starter` | SMS / email + Pulsar messaging — templates, OAuth2 mail, delivery pipeline, retry, dead-letter, provider routing | [message-starter README](../../../starters/message-starter/README.md) |
 | `file-starter` | File management — upload/download, object storage (MinIO / OSS). Backs the `File` / `MultiFile` field types (see [entities.md](entities.md), [queries.md](queries.md)) | [file-starter README](../../../starters/file-starter/README.md) |
 | `reference-data-starter` | ISO reference masters — countries (3166-1), currencies (4217), subdivisions (3166-2) | [reference-data-starter README](../../../starters/reference-data-starter/README.md) |

@@ -1,12 +1,12 @@
 package io.softa.starter.flow.runtime.bundle;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
@@ -16,9 +16,6 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.design.DesignFlowDefinition;
-import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
-import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.service.FlowBundleService;
@@ -27,15 +24,15 @@ import io.softa.starter.flow.service.FlowBundleService;
  * ORM-backed {@link FlowBundleRegistry} for a multi-tenant deployment: nothing is loaded at
  * startup, and every answer is scoped to the current tenant.
  * <ul>
- *   <li><b>Trigger index</b> — per tenant, its active bundles bucketed by the model their trigger
- *       watches. Loaded in that tenant's own context the first time one of its events asks (an
- *       empty result is kept too) and reused for {@code flow.trigger-cache-ttl-seconds} (default 60).
- *       Publishing or activating on this instance drops the tenant's entry at once; other
- *       instances pick the change up within the TTL. Platform-shared bundles have an entry of
+ *   <li><b>Trigger index</b> — per tenant, the active bundles of its enabled flows, bucketed by the model
+ *       whose records they start on. Loaded in that tenant's own context the first time one of its events asks (an
+ *       empty result is kept too) and reused for {@link #TRIGGER_INDEX_TTL}. Every write, change-log message,
+ *       submission and approval preview asks it, so it is not read from the database each time. Publishing,
+ *       activating, disabling or enabling on this instance drops the tenant's entry at once; other instances pick the
+ *       change up within the TTL. Platform-shared bundles have an entry of
  *       their own, merged into every tenant's candidates.</li>
  *   <li><b>Definitions</b> — {@code bundleId → definition}, a bounded LRU. A published revision
- *       never changes, so entries never go stale; a debug purge evicts its bundle. Every read is
- *       checked against the current tenant.</li>
+ *       never changes, so entries never go stale. Every read is checked against the current tenant.</li>
  *   <li>The active revision of a design is not cached: it is one indexed lookup, and its
  *       definition then comes from the LRU.</li>
  * </ul>
@@ -49,11 +46,17 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
 
     private static final int MAX_CACHED_DEFINITIONS = 2000;
 
-    /** Index bucket of triggers bound to no model: candidates for every event. */
-    private static final String ANY_MODEL = "";
+    /** Index bucket of flows started on no record (schedule, API call, parent flow): candidates for no event. */
+    private static final String NO_RECORD = "";
 
     private static final Comparator<CompiledFlowDefinition> BY_FLOW_NAME = Comparator.comparing(
             CompiledFlowDefinition::getFlowName, Comparator.nullsLast(Comparator.naturalOrder()));
+
+    /**
+     * How long a tenant's trigger index is reused. Publishing, activating, disabling or enabling drops it at once on
+     * the instance that does it; another instance sees the change within this.
+     */
+    static final Duration TRIGGER_INDEX_TTL = Duration.ofSeconds(60);
 
     private final FlowBundleService bundleService;
 
@@ -71,30 +74,21 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     /** tenantId → that tenant's active bundles, for trigger matching. */
     private final ConcurrentHashMap<Long, TenantFlows> triggerIndex = new ConcurrentHashMap<>();
 
-    public OrmFlowBundleRegistry(FlowBundleService bundleService,
-                                 @Value("${flow.trigger-cache-ttl-seconds:60}") long triggerCacheTtlSeconds) {
+    @Autowired
+    public OrmFlowBundleRegistry(FlowBundleService bundleService) {
+        this(bundleService, TRIGGER_INDEX_TTL);
+    }
+
+    /** With another trigger-index TTL: for tests. */
+    OrmFlowBundleRegistry(FlowBundleService bundleService, Duration triggerIndexTtl) {
         this.bundleService = bundleService;
-        this.triggerCacheTtlNanos = TimeUnit.SECONDS.toNanos(triggerCacheTtlSeconds);
+        this.triggerCacheTtlNanos = triggerIndexTtl.toNanos();
     }
 
     @Override
     public CompiledFlowDefinition register(CompiledFlowDefinition definition,
                                            DesignFlowDefinition design,
                                            String flowId) {
-        return doRegister(definition, design, flowId, false);
-    }
-
-    @Override
-    public CompiledFlowDefinition registerDebug(CompiledFlowDefinition definition,
-                                                DesignFlowDefinition design,
-                                                String flowId) {
-        return doRegister(definition, design, flowId, true);
-    }
-
-    private CompiledFlowDefinition doRegister(CompiledFlowDefinition definition,
-                                              DesignFlowDefinition design,
-                                              String flowId,
-                                              boolean debug) {
         if (definition == null) {
             throw new FlowRuntimeException("Compiled flow definition must not be null");
         }
@@ -117,11 +111,6 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
                     .build();
 
             FlowBundle entity = FlowBundleMapper.toEntity(published, design, null, flowId);
-            if (debug) {
-                // resolvable like any bundle, but never the design's effective revision
-                entity.setActive(false);
-                entity.setDebug(true);
-            }
             try {
                 bundleService.saveBundle(entity);
             } catch (DuplicateKeyException e) {
@@ -133,13 +122,10 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
             // Not put into the definition cache: the first read loads the stored row, which
             // carries the owning tenant this object lacks.
             published.setBundleId(entity.getId());
-            if (!debug) {
-                bundleService.markAsActive(flowId, nextRevision);
-                invalidateTriggerIndex();
-            }
+            bundleService.markAsActive(flowId, nextRevision);
+            invalidateTriggerIndex();
 
-            log.debug("Registered flow bundle: bundleId={} flowId={} r{} debug={}",
-                    entity.getId(), flowId, nextRevision, debug);
+            log.debug("Registered flow bundle: bundleId={} flowId={} r{}", entity.getId(), flowId, nextRevision);
             return published;
         }
         throw new FlowRuntimeException(
@@ -179,13 +165,6 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
         return bundleId.flatMap(this::getByBundleId);
     }
 
-    @Override
-    public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) {
-        return bundleService.listRevisionsByFlowId(flowId).stream()
-                .map(FlowBundleMapper::toDefinition)
-                .filter(Objects::nonNull)
-                .toList();
-    }
 
     @Override
     public List<CompiledFlowDefinition> list() {
@@ -219,11 +198,6 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
         invalidateTriggerIndex();
     }
 
-    @Override
-    public void evict(Long bundleId) {
-        definitions.remove(bundleId);
-    }
-
     private TenantFlows tenantFlows(Long tenantId) {
         TenantFlows cached = triggerIndex.get(tenantId);
         if (cached != null && !cached.isExpired(triggerCacheTtlNanos)) {
@@ -239,7 +213,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
 
     private TenantFlows loadTenantFlows(Long tenantId) {
         // Pinned to the tenant and permission-skipped: what can fire must not depend on whose
-        // write happened to cause the load. Active bundles are never debug runs.
+        // write happened to cause the load.
         List<CompiledFlowDefinition> active = ContextUtils.inTenantContext(tenantId, bundleService::getAllActiveFlow)
                 .stream()
                 .map(FlowBundleMapper::toDefinition)
@@ -274,14 +248,12 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
                 || Objects.equals(owner, context.getTenantId());
     }
 
+    /**
+     * The model whose records the flow starts on, as its trigger names it; a flow started on no record is a candidate
+     * for no event.
+     */
     private static String watchedModel(CompiledFlowDefinition definition) {
-        String model = switch (definition.getTrigger()) {
-            case EntityChangeTrigger trigger -> trigger.modelName();
-            case FieldChangeTrigger trigger -> trigger.modelName();
-            case SubmitTrigger trigger -> trigger.modelName();
-            case null, default -> null;
-        };
-        return StringUtils.hasText(model) ? model : ANY_MODEL;
+        return StringUtils.hasText(definition.getModelName()) ? definition.getModelName() : NO_RECORD;
     }
 
     /** One tenant's active bundles, keyed by the model their trigger watches. */
@@ -291,18 +263,9 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
             return System.nanoTime() - loadedAt >= ttlNanos;
         }
 
-        /** Bundles watching {@code sourceModel}, then those watching no particular model. */
+        /** Bundles started on records of {@code sourceModel}. */
         List<CompiledFlowDefinition> candidates(String sourceModel) {
-            List<CompiledFlowDefinition> bound = StringUtils.hasText(sourceModel)
-                    ? byModel.getOrDefault(sourceModel, List.of())
-                    : List.of();
-            List<CompiledFlowDefinition> unbound = byModel.getOrDefault(ANY_MODEL, List.of());
-            if (bound.isEmpty() || unbound.isEmpty()) {
-                return bound.isEmpty() ? unbound : bound;
-            }
-            List<CompiledFlowDefinition> both = new ArrayList<>(bound);
-            both.addAll(unbound);
-            return both;
+            return StringUtils.hasText(sourceModel) ? byModel.getOrDefault(sourceModel, List.of()) : List.of();
         }
     }
 }

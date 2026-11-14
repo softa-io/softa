@@ -4,6 +4,7 @@ import io.softa.framework.base.context.UserInfo;
 import java.util.List;
 
 import io.softa.starter.user.dto.AuthenticationResult;
+import io.softa.starter.user.dto.JoinPasswordResult;
 import io.softa.starter.user.dto.JoinVerification;
 import io.softa.starter.user.dto.InvitationInfo;
 import io.softa.starter.user.dto.MembershipOption;
@@ -86,10 +87,14 @@ public interface LoginService {
      * way (a live login identifier the invitation was not addressed to) is refused too and sets
      * the password in-session: the code proved control of the work address, not of the person.
      *
+     * <p>On an Unbind &amp; Re-invite link the membership already exists: the password is set — or
+     * reset, when the person has one — and the account is bound to this person and activated in the
+     * same step, so the flow ends here ({@code completed}).
+     *
      * @param proof the value {@link #verifyJoinCode} returned; refused unless it was minted for this
      *              very invitation and person, so holding the link is not enough to reach the write
      */
-    void setJoinPassword(String rawToken, Long profileId, String newPassword, String proof);
+    JoinPasswordResult setJoinPassword(String rawToken, Long profileId, String newPassword, String proof);
 
     /** Whether this person still has to set a password (arrived by invitation or code only). */
     boolean mustSetPassword(Long profileId);
@@ -154,6 +159,13 @@ public interface LoginService {
      * token is consumed on success.
      */
     AuthenticationResult selectTenant(String authToken, Long accountId);
+
+    /**
+     * Set the first password of the person who just authenticated, named by the single-use sign-in
+     * token rather than by any session — the password comes before choosing where to go. Only for a
+     * person with no password yet. Answers with the entry rule's result, as a sign-in would.
+     */
+    AuthenticationResult setFirstPassword(String authToken, String newPassword);
 
     /**
      * The same company list the login picker shows, for a person who is ALREADY signed in — the

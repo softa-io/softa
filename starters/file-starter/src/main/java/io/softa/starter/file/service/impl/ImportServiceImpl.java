@@ -28,6 +28,7 @@ import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.base.exception.ValidationException;
 import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.base.placeholder.PlaceholderKind;
 import io.softa.framework.base.placeholder.PlaceholderToken;
@@ -42,7 +43,6 @@ import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.FileUtils;
@@ -60,6 +60,8 @@ import io.softa.starter.file.excel.export.support.ExcelUploadService;
 import io.softa.starter.file.excel.export.support.OptionDropdownHandler;
 import io.softa.starter.file.excel.style.TemporalColumnFormatHandler;
 import io.softa.starter.file.excel.export.support.OptionDropdownResolver;
+import io.softa.starter.file.excel.imports.ImportFieldAccess;
+import io.softa.starter.file.excel.imports.ImportFieldPaths;
 import io.softa.starter.file.excel.imports.ImportHeaderMatcher;
 import io.softa.starter.file.excel.imports.ImportRowPipeline;
 import io.softa.starter.file.excel.style.ImportSheetStyleHandler;
@@ -105,6 +107,9 @@ public class ImportServiceImpl implements ImportService {
     @Autowired
     private PermissionService permissionService;
 
+    @Autowired
+    private ImportFieldAccess importFieldAccess;
+
     public void validateImportTemplate(ImportTemplate importTemplate) {
         Assert.notBlank(importTemplate.getModelName(),
                 "Import template `{0}` modelName cannot be empty.", importTemplate.getName());
@@ -142,7 +147,8 @@ public class ImportServiceImpl implements ImportService {
         // may download another country's template, and inferring it from the request would fill that
         // template with the wrong country's values.
         Map<Integer, List<String>> dropdowns = optionDropdownResolver.resolve(
-                importTemplate.getModelName(), importFields, importTemplate.getCountry());
+                importTemplate.getModelName(), importFields, importTemplate.getCountry(),
+                importTemplate.getImportRule());
         ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
                 new WriteHandler[]{
                         // Header look, description comments, freeze, filter, widths, data-area grid.
@@ -314,7 +320,7 @@ public class ImportServiceImpl implements ImportService {
         long startNanos = System.nanoTime();
         RuntimeException importException = null;
         try {
-            ImportDataDTO importDataDTO = this.generateImportDataDTO(importTemplateDTO, inputStream);
+            ImportDataDTO importDataDTO = this.generateImportDataDTO(importTemplateDTO, inputStream, false);
             importRowPipeline.importData(importTemplateDTO, importDataDTO);
             updateImportStatistics(importHistory, importDataDTO);
             // Every import leaves a result file — every row in file order with its outcome — not only
@@ -362,7 +368,7 @@ public class ImportServiceImpl implements ImportService {
         long startNanos = System.nanoTime();
         RuntimeException validateException = null;
         try {
-            ImportDataDTO importDataDTO = this.generateImportDataDTO(importTemplateDTO, inputStream);
+            ImportDataDTO importDataDTO = this.generateImportDataDTO(importTemplateDTO, inputStream, true);
             importRowPipeline.validateData(importTemplateDTO, importDataDTO);
             int failedCount = importDataDTO.getFailedRows() != null ? importDataDTO.getFailedRows().size() : 0;
             int successCount = importDataDTO.getRows().size();
@@ -460,13 +466,18 @@ public class ImportServiceImpl implements ImportService {
      *
      * @param importTemplateDTO the importTemplateDTO object
      * @param inputStream the input stream of the uploaded file
+     * @param validating whether this is a validation run, which reports every row instead of stopping
      * @return the generated ImportDataDTO object
      */
-    private ImportDataDTO generateImportDataDTO(ImportTemplateDTO importTemplateDTO, InputStream inputStream) {
+    private ImportDataDTO generateImportDataDTO(ImportTemplateDTO importTemplateDTO, InputStream inputStream,
+                                                boolean validating) {
         ImportHeaderMatcher headerMatcher = ImportHeaderMatcher.of(importTemplateDTO.getImportFields());
-        List<Map<String, Object>> allDataList =
-                this.extractDataFromExcel(headerMatcher, importTemplateDTO.getFileName(), inputStream);
+        ImportHeaderMatcher withheldMatcher = CollectionUtils.isEmpty(importTemplateDTO.getWithheldFields())
+                ? null : ImportHeaderMatcher.of(importTemplateDTO.getWithheldFields());
+        List<Map<String, Object>> allDataList = this.extractDataFromExcel(headerMatcher, withheldMatcher,
+                importTemplateDTO.getFileName(), inputStream);
         Assert.notEmpty(allDataList, "No data exists in the excel file `{0}`", importTemplateDTO.getFileName());
+        refuseWithheldValues(allDataList, importTemplateDTO, validating);
         ImportDataDTO importDataDTO = new ImportDataDTO();
         importDataDTO.setRows(allDataList);
         importDataDTO.setEnv(importTemplateDTO.getEnv());
@@ -528,7 +539,73 @@ public class ImportServiceImpl implements ImportService {
             ImportFieldDTO importFieldDTO = convertToImportFieldDTO(importTemplateDTO, importTemplateField);
             importTemplateDTO.addImportField(importFieldDTO);
         });
+        withholdUnwritableFields(importTemplateDTO);
         return importTemplateDTO;
+    }
+
+    /**
+     * Take the columns the caller may not write out of the template, into {@code withheldFields}.
+     *
+     * <p>Everything downstream reads {@code importFields} — the downloaded file's header row, the
+     * required checks, the relation lookups and the write — so a withheld column is gone from all of
+     * them at once: the caller's file is not asked for it and the save is not handed it. What remains
+     * is a file that still carries the column, made from another caller's template; see
+     * {@link #refuseWithheldValues}.
+     */
+    private void withholdUnwritableFields(ImportTemplateDTO importTemplateDTO) {
+        List<ImportFieldDTO> importFields = importTemplateDTO.getImportFields();
+        if (CollectionUtils.isEmpty(importFields)) {
+            return;
+        }
+        Set<String> withheld = importFieldAccess.withheld(importTemplateDTO.getModelName(),
+                importTemplateDTO.getImportRule(),
+                importFields.stream().map(ImportFieldDTO::getFieldName).toList());
+        if (withheld.isEmpty()) {
+            return;
+        }
+        List<ImportFieldDTO> kept = new ArrayList<>();
+        for (ImportFieldDTO field : importFields) {
+            if (withheld.contains(field.getFieldName())) {
+                importTemplateDTO.getWithheldFields().add(field);
+            } else {
+                kept.add(field);
+            }
+        }
+        importTemplateDTO.setImportFields(kept);
+    }
+
+    /**
+     * Refuse a row that carries a value in a column the caller may not write, then drop those columns.
+     *
+     * <p>A file made from another caller's template still has them. Read off its header like any other
+     * column, so a value there is said rather than silently lost: the row fails, naming the columns,
+     * and the rows that leave them empty import as they would from the caller's own template.
+     */
+    void refuseWithheldValues(List<Map<String, Object>> rows, ImportTemplateDTO importTemplateDTO, boolean validating) {
+        List<ImportFieldDTO> withheld = importTemplateDTO.getWithheldFields();
+        if (CollectionUtils.isEmpty(withheld)) {
+            return;
+        }
+        for (Map<String, Object> row : rows) {
+            List<String> filled = new ArrayList<>();
+            for (ImportFieldDTO field : withheld) {
+                Object value = row.remove(field.getFieldName());
+                if (value != null && !(value instanceof String text && text.isBlank())) {
+                    filled.add(field.getHeader());
+                }
+            }
+            if (filled.isEmpty()) {
+                continue;
+            }
+            String reason = I18n.get("You do not have permission to set {0}.", String.join(", ", filled));
+            // A validation reports every row, whatever the template says about stopping at the first:
+            // the pipeline forces that for its own checks, but this one runs before it.
+            if (!validating && !Boolean.TRUE.equals(importTemplateDTO.getSkipException())) {
+                throw new ValidationException(reason);
+            }
+            Object prior = row.get(FAILED_REASON);
+            row.put(FAILED_REASON, prior == null ? reason : prior + "; " + reason);
+        }
     }
 
     /**
@@ -542,6 +619,7 @@ public class ImportServiceImpl implements ImportService {
         ImportTemplateDTO importTemplateDTO = new ImportTemplateDTO();
         importTemplateDTO.setTemplateId(importTemplate.getId());
         importTemplateDTO.setModelName(importTemplate.getModelName());
+        importTemplateDTO.setCountry(importTemplate.getCountry());
         importTemplateDTO.setImportRule(importTemplate.getImportRule());
         importTemplateDTO.setIgnoreEmpty(importTemplate.getIgnoreEmpty());
         importTemplateDTO.setSkipException(importTemplate.getSkipException());
@@ -573,6 +651,7 @@ public class ImportServiceImpl implements ImportService {
         // update the `ignoreEmpty` of the import fields
         importTemplateDTO.getImportFields()
                 .forEach(importFieldDTO -> importFieldDTO.setIgnoreEmpty(importTemplateDTO.getIgnoreEmpty()));
+        withholdUnwritableFields(importTemplateDTO);
         return importTemplateDTO;
     }
 
@@ -591,7 +670,7 @@ public class ImportServiceImpl implements ImportService {
         importFieldDTO.setDescription(importTemplateField.getDescription());
         importFieldDTO.setNoDropdown(importTemplateField.getNoDropdown());
         // Get the metaField object of the last field in cascading `fieldName`.
-        MetaField lastField = resolveLastImportField(importTemplateDTO.getModelName(), importTemplateField.getFieldName());
+        MetaField lastField = ImportFieldPaths.lastField(importTemplateDTO.getModelName(), importTemplateField.getFieldName());
         // Set the default value of the imported field
         if (StringUtils.isNotBlank(importTemplateField.getDefaultValue())) {
             Object defaultValue = this.getDefaultValue(lastField.getFieldType(), importTemplateField.getDefaultValue(), importTemplateDTO.getEnv());
@@ -604,37 +683,6 @@ public class ImportServiceImpl implements ImportService {
             importFieldDTO.setHeader(lastField.getLabel());
         }
         return importFieldDTO;
-    }
-
-    /**
-     * Resolve the last field for import template field names.
-     *
-     * <p>Unlike generic cascaded-field resolution, import lookup supports to-many relation roots
-     * such as {@code roleIds.code} and {@code additionalProjectTeamIds.code}.
-     */
-    private MetaField resolveLastImportField(String modelName, String fullFieldName) {
-        String[] fieldsArray = StringUtils.split(fullFieldName, ".");
-        Assert.isTrue(fieldsArray != null && fieldsArray.length > 0,
-                "Import field `{0}` cannot be empty.", fullFieldName);
-
-        MetaField metaField = null;
-        for (int i = 0; i < fieldsArray.length; i++) {
-            metaField = ModelManager.getModelField(modelName, fieldsArray[i]);
-            if (i < fieldsArray.length - 1) {
-                Assert.isTrue(FieldType.RELATED_TYPES.contains(metaField.getFieldType()),
-                        "The field {0} in import lookup field {1} must be relation field!",
-                        metaField.getFieldName(), fullFieldName);
-                Assert.notBlank(metaField.getRelatedModel(),
-                        "The field {0} in import lookup field {1} has no related model configured!",
-                        metaField.getFieldName(), fullFieldName);
-                modelName = metaField.getRelatedModel();
-            } else {
-                Assert.notTrue(metaField.isDynamic(),
-                        "The last field {0} in import field {1} must be a stored field in model {2}!",
-                        metaField.getFieldName(), fullFieldName, metaField.getModelName());
-            }
-        }
-        return metaField;
     }
 
     /**
@@ -668,6 +716,17 @@ public class ImportServiceImpl implements ImportService {
     // by the real reader, and that read is what a test has to be able to call.
     List<Map<String, Object>> extractDataFromExcel(ImportHeaderMatcher headerMatcher, String fileName,
                                                    InputStream inputStream) {
+        return extractDataFromExcel(headerMatcher, null, fileName, inputStream);
+    }
+
+    /**
+     * As above, also reading the columns the caller may not write — matched by {@code withheldMatcher}
+     * and left off the header check, so a file without them is complete and one with them is still
+     * read, for {@link #refuseWithheldValues} to judge.
+     */
+    List<Map<String, Object>> extractDataFromExcel(ImportHeaderMatcher headerMatcher,
+                                                   ImportHeaderMatcher withheldMatcher, String fileName,
+                                                   InputStream inputStream) {
         List<Map<String, Object>> rows = new ArrayList<>();
         FesodSheet.read(inputStream, new AnalysisEventListener<Map<Integer, String>>() {
             // The mapping of column index and header name
@@ -680,6 +739,9 @@ public class ImportServiceImpl implements ImportService {
                 for (Map.Entry<Integer, String> entry : rowData.entrySet()) {
                     String headerName = headerMap.get(entry.getKey());
                     String fieldName = headerMatcher.fieldNameFor(headerName);
+                    if (fieldName == null && withheldMatcher != null) {
+                        fieldName = withheldMatcher.fieldNameFor(headerName);
+                    }
                     if (fieldName != null) {
                         mappedRow.put(fieldName, entry.getValue());
                     }

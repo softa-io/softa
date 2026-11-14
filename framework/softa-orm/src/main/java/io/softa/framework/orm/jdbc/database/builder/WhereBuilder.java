@@ -29,10 +29,6 @@ import io.softa.framework.orm.meta.ModelManager;
  */
 public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
 
-    /** Field types a `searchName` text match applies to as written. */
-    private static final Set<FieldType> TEXT_SEARCH_TYPES =
-            EnumSet.of(FieldType.STRING, FieldType.TEXT, FieldType.MULTI_STRING);
-
     /** Field types a typed whole number can be matched against exactly. */
     private static final Set<FieldType> WHOLE_NUMBER_TYPES = EnumSet.of(FieldType.INTEGER, FieldType.LONG);
 
@@ -421,7 +417,7 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
         FieldType fieldType = ModelManager.getModelField(mainModelName, fieldName).getFieldType();
         boolean textMatch = TEXT_MATCH_OPERATORS.contains(operator);
         boolean textMatchNegated = NEGATED_TEXT_MATCH_OPERATORS.contains(operator);
-        if (TEXT_SEARCH_TYPES.contains(fieldType) || !(textMatch || textMatchNegated)) {
+        if (FieldType.TEXT_SEARCH_TYPES.contains(fieldType) || !(textMatch || textMatchNegated)) {
             return parseFilterUnit(new FilterUnit(fieldName, operator, value), xToManyBuilder);
         }
         Long wholeNumber = WHOLE_NUMBER_TYPES.contains(fieldType) ? parseWholeNumber(value) : null;

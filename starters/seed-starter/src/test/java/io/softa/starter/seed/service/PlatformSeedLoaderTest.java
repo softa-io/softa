@@ -22,6 +22,7 @@ import io.softa.starter.seed.enums.SeedLoadStatus;
 import io.softa.starter.seed.enums.SeedLoadType;
 import io.softa.starter.seed.enums.SeedRecordStatus;
 import io.softa.starter.seed.manifest.SeedFile;
+import io.softa.starter.seed.manifest.SeedFileMode;
 import io.softa.starter.seed.manifest.SeedManifest;
 import io.softa.starter.seed.manifest.SeedManifestReader;
 
@@ -57,12 +58,12 @@ class PlatformSeedLoaderTest {
             """);
 
     /** The access catalogue owned by the build, beside a file the page loads. */
-    private static final SeedManifest AUTO_MANIFEST = manifest("""
+    private static final SeedManifest STARTUP_MANIFEST = manifest("""
             platform:
               - file: data-system/Navigation.json
-                auto: true
+                mode: startup
               - file: data-system/Permission.json
-                auto: true
+                mode: startup
               - data-system/Currency.json
             """);
 
@@ -303,14 +304,14 @@ class PlatformSeedLoaderTest {
 
     @Test
     void thePendingFilesTheBuildOwnsLoadWithoutInitializing() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         firstLoad(false);
         // Never loaded, changed since: both pending. The page's file is not the startup's business.
         when(loadLog.state(eq(file("Navigation.json")), any())).thenReturn(FileState.NOT_LOADED);
         when(loadLog.state(eq(file("Permission.json")), any())).thenReturn(FileState.CHANGED);
         when(loadLog.state(eq(file("Currency.json")), any())).thenReturn(FileState.NOT_LOADED);
 
-        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
+        PlatformLoadResult result = loader.loadStartupFiles().orElseThrow();
 
         assertTrue(result.succeeded());
         assertEquals(List.of("Navigation.json", "Permission.json"), result.loadedFiles());
@@ -322,23 +323,23 @@ class PlatformSeedLoaderTest {
 
     @Test
     void aFailedFileTheBuildOwnsLoadsAgain() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending("Permission.json");
         when(loadLog.state(eq(file("Permission.json")), any())).thenReturn(FileState.FAILED);
 
-        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
+        PlatformLoadResult result = loader.loadStartupFiles().orElseThrow();
 
         assertEquals(List.of("Permission.json"), result.loadedFiles());
     }
 
     @Test
     void aBatchLeftRunningDoesNotKeepTheFilesTheBuildOwnsOut() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending("Navigation.json", "Permission.json");
         // An instance that stopped part-way left its batch Running; it is not stale yet.
         doThrow(new BusinessException("A seed data operation is still running (batch 7).")).when(loadLog).requireIdle();
 
-        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
+        PlatformLoadResult result = loader.loadStartupFiles().orElseThrow();
 
         assertEquals(List.of("Navigation.json", "Permission.json"), result.loadedFiles());
     }
@@ -346,11 +347,11 @@ class PlatformSeedLoaderTest {
     @Test
     void aFileTheBuildOwnsThatANewerBuildLoadedIsLeftAlone() {
         // After a rollback: this build's older content does not go over the newer one.
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending("Navigation.json");
         when(loadLog.state(eq(file("Permission.json")), any())).thenReturn(FileState.LOADED_BY_NEWER_BUILD);
 
-        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
+        PlatformLoadResult result = loader.loadStartupFiles().orElseThrow();
 
         assertEquals(List.of("Navigation.json"), result.loadedFiles());
         verify(preDataService, never()).loadPreSystemData(eq(List.of("Permission.json")), any());
@@ -358,17 +359,17 @@ class PlatformSeedLoaderTest {
 
     @Test
     void nothingLoadsWhenNoFileTheBuildOwnsIsPending() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending("Currency.json");
 
-        assertTrue(loader.pendingAutoFiles().isEmpty());
-        assertTrue(loader.loadAutoFiles().isEmpty());
+        assertTrue(loader.pendingStartupFiles().isEmpty());
+        assertTrue(loader.loadStartupFiles().isEmpty());
         verify(loadLog, never()).start(any(), any(), any());
     }
 
     @Test
     void thePageLeavesTheFilesTheBuildOwnsOut() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending("Navigation.json", "Permission.json", "Currency.json");
 
         PlatformLoadResult result = loader.load(null);
@@ -379,7 +380,7 @@ class PlatformSeedLoaderTest {
 
     @Test
     void thePageRefusesAFileTheBuildOwnsByName() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending("Navigation.json", "Currency.json");
 
         BusinessException failure = assertThrows(BusinessException.class,
@@ -392,7 +393,7 @@ class PlatformSeedLoaderTest {
 
     @Test
     void thePageHasNothingToDoWhenOnlyFilesTheBuildOwnsArePending() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending("Navigation.json");
 
         assertThrows(BusinessException.class, () -> loader.load(null));
@@ -401,13 +402,14 @@ class PlatformSeedLoaderTest {
 
     @Test
     void theStatusSaysWhichFilesTheBuildOwns() {
-        use(AUTO_MANIFEST);
+        use(STARTUP_MANIFEST);
         pending();
 
-        Map<String, Boolean> auto = new java.util.LinkedHashMap<>();
-        loader.status().files().forEach(status -> auto.put(status.fileName(), status.auto()));
+        Map<String, SeedFileMode> modes = new java.util.LinkedHashMap<>();
+        loader.status().files().forEach(status -> modes.put(status.fileName(), status.mode()));
 
-        assertEquals(Map.of("Navigation.json", true, "Permission.json", true, "Currency.json", false), auto);
+        assertEquals(Map.of("Navigation.json", SeedFileMode.STARTUP, "Permission.json", SeedFileMode.STARTUP,
+                "Currency.json", SeedFileMode.OVERWRITE), modes);
     }
 
     private static SeedManifest manifest(String yaml) {

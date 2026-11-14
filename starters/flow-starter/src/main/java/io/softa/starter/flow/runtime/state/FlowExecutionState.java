@@ -1,7 +1,6 @@
 package io.softa.starter.flow.runtime.state;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +15,7 @@ import lombok.NoArgsConstructor;
  * Serializable execution state for the in-memory runtime engine.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @Schema(name = "FlowExecutionState")
@@ -27,6 +26,14 @@ public class FlowExecutionState {
 
     @Schema(description = "Optimistic-lock version for persisted runtime state")
     private Integer version;
+
+    /**
+     * The id of the FlowInstance row the state was read from or first saved as; null until then. A save updates that
+     * row by it, without reading the row first. Not part of the API.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private Long persistedId;
 
     @Schema(description = "Exact FlowBundle.id used when this instance was created (primary runtime key)")
     private Long bundleId;
@@ -52,8 +59,12 @@ public class FlowExecutionState {
     @Schema(description = "Flow initiator id")
     private String initiatorId;
 
+    /** Not stored: the initiator named, filled in when the instance detail is served. */
+    @Schema(description = "The initiator's name, on the instance detail", accessMode = Schema.AccessMode.READ_ONLY)
+    private String initiatorName;
+
     @Schema(description = "Whether the instance is the approval of its record: started by submitting the record, "
-            + "so its result is written back to it. Other instances running on a record are automation or debug runs")
+            + "so its result is written back to it. Other instances running on a record are automation runs")
     private Boolean recordApproval;
 
     @Schema(description = "A record's approval: the employee the record is about, as at submission")
@@ -68,6 +79,9 @@ public class FlowExecutionState {
     @Schema(description = "A record's approval: the record's own number, when its model has one")
     private String recordCode;
 
+    @Schema(description = "A record's approval: a line saying what the record asks for, as its handler words it")
+    private String summary;
+
     @Schema(description = "Identity of the trigger event that started the instance (a change log's uuid); with "
             + "the flow, an event starts a run at most once")
     private String triggerEventId;
@@ -75,13 +89,10 @@ public class FlowExecutionState {
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;
 
-    @Schema(description = "Immutable trigger payload (the 'input' tier of the three-tier variable context)")
-    private Map<String, Object> inputPayload;
-
     @Schema(description = "Execution variables (the 'vars' tier of the three-tier variable context)")
     private Map<String, Object> variables;
 
-    @Schema(description = "Active waits (timer / async) pinned to the nodes that suspended them")
+    @Schema(description = "AsyncTask nodes waiting for their callback")
     private List<FlowWaitToken> waitTokens;
 
     @Schema(description = "Completed node ids")
@@ -118,6 +129,24 @@ public class FlowExecutionState {
     @Schema(hidden = true)
     @Builder.Default
     private int auditSequenceBase = 0;
+
+    /**
+     * The instance's committed audit rows as this action read them, with what it flushed since — so an action reads
+     * the ledger once ({@code ApprovalAuditReader}). {@code null} = not read yet; a new instance starts it empty.
+     * Excluded from JSON / persistence, as the delta is.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private List<ApprovalActionAuditEntry> committedAudit;
+
+    /**
+     * The status the instance had when this action read it; {@code null} for an instance not saved yet. A save that
+     * leaves {@link #status} as this found it moved nothing a status listener follows ({@code FlowProjectionPublisher}),
+     * which then moves it on to the status it announced. Excluded from JSON / persistence.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private FlowExecutionStatus loadedStatus;
 
     @Schema(description = "Parallel join arrival counts")
     private Map<String, Integer> joinArrivalCounts;
@@ -157,6 +186,14 @@ public class FlowExecutionState {
     @Schema(description = "Node where execution failed (set when status = Failed)")
     private String failedNodeId;
 
+    /**
+     * The approval step after which a failed approval runs again: set when the steps after that step failed — the
+     * approval kept, their work rolled back — and cleared when they run through. Only an instance that has one can
+     * be retried.
+     */
+    @Schema(description = "Approval step after which a failed approval runs again on retry")
+    private String retryAfterNodeId;
+
     // ── Wait-token helpers (null-safe) ─────────────────────────────────────────
 
     /** Register a new wait, initializing the list on first use. */
@@ -185,24 +222,9 @@ public class FlowExecutionState {
         }
     }
 
-    /** Whether the instance is still parked on any timer / async wait. */
+    /** Whether the instance is still parked on an async task. */
     public boolean hasWaitTokens() {
         return waitTokens != null && !waitTokens.isEmpty();
-    }
-
-    /**
-     * Earliest due time across TIMER waits, or {@code null} if none. Denormalized
-     * onto {@code FlowInstance.nextFireAt} so the timer sweep can index it.
-     */
-    public LocalDateTime earliestTimerDueAt() {
-        if (waitTokens == null) {
-            return null;
-        }
-        return waitTokens.stream()
-                .filter(t -> t.getType() == WaitType.TIMER && t.getDueAt() != null)
-                .map(FlowWaitToken::getDueAt)
-                .min(LocalDateTime::compareTo)
-                .orElse(null);
     }
 
     /** Whether this instance is its record's approval (see {@link #recordApproval}). */
@@ -211,15 +233,4 @@ public class FlowExecutionState {
         return Boolean.TRUE.equals(recordApproval);
     }
 
-    /** TIMER waits whose due time is at or before {@code cutoff}. */
-    public List<FlowWaitToken> dueTimerTokens(LocalDateTime cutoff) {
-        if (waitTokens == null) {
-            return List.of();
-        }
-        return waitTokens.stream()
-                .filter(t -> t.getType() == WaitType.TIMER
-                        && t.getDueAt() != null
-                        && !t.getDueAt().isAfter(cutoff))
-                .toList();
-    }
 }

@@ -15,7 +15,7 @@ public record RunningBatch(
         @Schema(description = "Batch id")
         Long id,
 
-        @Schema(description = "Platform, Tenant, Provision or Initialize")
+        @Schema(description = "Platform, Tenant, Reapply or Initialize")
         SeedLoadType type,
 
         @Schema(description = "Running")

@@ -8,7 +8,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
-import io.softa.starter.flow.runtime.engine.InProcessFlowClient;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -32,13 +31,9 @@ class FlowSelfServiceScopeWaiverTest {
     @Test
     @DisplayName("every self-service entry point waives row scope")
     void selfServiceEntryPointsWaiveRowScope() {
-        assertWaived(FlowApprovalTaskController.class,
-                "counts", "pagePendingTasks", "pageCompletedTasks", "pageCcTasks", "getInbox");
-        assertWaived(FlowApprovalRecordController.class, "getHistory", "getSentCcHistory");
-        assertWaived(FlowDelegationController.class, "myDelegations", "delegationsToMe", "cancel");
+        assertWaived(FlowApprovalTaskController.class, "counts", "searchTasks");
+        assertWaived(FlowDelegationController.class, "searchDelegations", "delegableFlows", "cancel");
         assertWaived(FlowInstanceController.class, "searchInstances");
-        assertWaived(InProcessFlowClient.class, "myInstances", "inbox", "pendingTasks", "completedTasks",
-                "ccTasks", "approvalHistory", "sentCcHistory");
     }
 
     @Test
@@ -47,9 +42,20 @@ class FlowSelfServiceScopeWaiverTest {
         assertChecked(FlowApprovalTaskController.class, "getTasksByInstance");
         assertChecked(FlowApprovalRecordController.class, "getByInstance");
         assertChecked(FlowInstanceController.class, "getInstance", "getOverlay", "getTrace",
-                "getRecordApprovals", "previewRecordApproval", "getInstanceRecord", "getFormPermissions");
-        assertChecked(InProcessFlowClient.class, "getInstance", "recordApprovals", "previewRecord", "tasksByInstance",
-                "recordsByInstance", "getFormPermissions");
+                "getRecordApprovals", "previewRecordApproval", "getInstanceRecord", "getRecordThroughApprovals",
+                "getInstanceSummary", "getInstanceDesign", "getFormPermissions");
+    }
+
+    @Test
+    @DisplayName("a person's directory search keeps their row scope; the rest of the directory waives it")
+    void theDirectorySearchKeepsTheCallersRowScope() {
+        for (Method method : declared(FlowDirectoryController.class, "searchPeople")) {
+            assertNull(method.getAnnotation(SkipPermissionCheck.class), "FlowDirectoryController.searchPeople reads "
+                    + "the directory model with the caller's row scope, which decides whom they may pick; a waiver "
+                    + "would hand every person the whole tenant.");
+        }
+        assertWaived(FlowDirectoryController.class, "getPeople", "searchAllPeople", "getAllPeople", "searchDepartments",
+                "getDepartments");
     }
 
     private static void assertWaived(Class<?> type, String... names) {

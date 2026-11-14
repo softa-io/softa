@@ -1,5 +1,7 @@
 package io.softa.starter.message.inbox.service;
 
+import java.util.Collection;
+
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.inbox.entity.InboxNotification;
 
@@ -35,6 +37,16 @@ public interface InboxNotificationService extends EntityService<InboxNotificatio
      * @return how many were marked
      */
     int markReadBySource(Long recipientId, String sourceModel, String sourceId);
+
+    /**
+     * Mark a recipient's unread notifications among the ids given as read — the ones picked on a list of them. An id
+     * of another recipient's notification is passed over.
+     *
+     * @param recipientId user ID
+     * @param ids         notification IDs; null or empty marks nothing
+     * @return how many were marked
+     */
+    int markReadByIds(Long recipientId, Collection<Long> ids);
 
     /**
      * Count unread notifications for a recipient.

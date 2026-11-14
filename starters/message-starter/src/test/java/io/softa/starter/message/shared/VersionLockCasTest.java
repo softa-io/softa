@@ -30,8 +30,6 @@ import io.softa.framework.orm.service.versioning.IdentityStrategy;
 import io.softa.framework.orm.service.versioning.VersioningStrategyResolver;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.impl.MailSendRecordServiceImpl;
-import io.softa.starter.message.mq.outbox.OutboxServiceImpl;
-import io.softa.starter.message.mq.outbox.OutboxStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,7 +39,7 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 /**
- * The outbox and send-record transitions are compare-and-sets on the framework's optimistic lock:
+ * The send-record transitions are compare-and-sets on the framework's optimistic lock:
  * a caller passes the version it read, and of two callers holding the same version only one wins.
  *
  * <p>The services' other tests stub ModelService, so they cannot tell whether the lock holds — and
@@ -74,9 +72,6 @@ class VersionLockCasTest {
         ReflectionTestUtils.setField(modelService, "versioning", versioning);
 
         models = mockStatic(ModelManager.class);
-        stubModel("OutboxEntry", "message_outbox", Map.of(
-                "status", FieldType.OPTION, "attempts", FieldType.INTEGER, "lastError", FieldType.STRING,
-                "nextAttemptAt", FieldType.DATE_TIME, "publishedAt", FieldType.DATE_TIME));
         stubModel("MailSendRecord", "mail_send_record", Map.of(
                 "status", FieldType.OPTION, "attemptStartedAt", FieldType.DATE_TIME, "retryCount", FieldType.INTEGER,
                 "errorCode", FieldType.STRING, "errorMessage", FieldType.STRING, "nextRetryAt", FieldType.DATE_TIME));
@@ -86,27 +81,6 @@ class VersionLockCasTest {
     void tearDown() {
         models.close();
         SystemConfig.env = previousConfig;
-    }
-
-    @Test
-    void ofTwoPublishersClaimingTheSameOutboxRowOnlyOneWins() {
-        OutboxServiceImpl outbox = wire(new OutboxServiceImpl());
-        table.insert("message_outbox", 1L, Map.of("status", "New", "attempts", 0));
-
-        assertThat(outbox.markPublishing(1L, 0)).isTrue();
-        assertThat(outbox.markPublishing(1L, 0)).isFalse();
-        assertThat(table.version(1L)).isEqualTo(1L);
-    }
-
-    @Test
-    void aSweeperHoldingAStaleSnapshotCannotReviveARowClaimedSinceItsRead() {
-        // ZombieRecordSweeper read the row at version 0; the publisher claimed it meanwhile.
-        OutboxServiceImpl outbox = wire(new OutboxServiceImpl());
-        table.insert("message_outbox", 1L, Map.of("status", "New", "attempts", 0));
-        assertThat(outbox.markPublishing(1L, 0)).isTrue();
-
-        assertThat(outbox.markNew(1L, 0, 1, "stale sweep", LocalDateTime.now().plusMinutes(1))).isFalse();
-        assertThat(table.row(1L)).containsEntry("status", OutboxStatus.PUBLISHING.getCode());
     }
 
     @Test
@@ -129,6 +103,17 @@ class VersionLockCasTest {
 
         assertThat(mails.markSending(1L, 0)).isFalse();
         assertThat(table.version(1L)).isEqualTo(1L);
+    }
+
+    @Test
+    void aReviveHoldingAStaleVersionCannotUndoAClaim() {
+        // ZombieRecordSweeper read the record at version 0; the delivery loop claimed it since.
+        MailSendRecordServiceImpl mails = wire(new MailSendRecordServiceImpl());
+        table.insert("mail_send_record", 1L, Map.of("status", MailSendStatus.PENDING.getCode(), "retryCount", 0));
+        assertThat(mails.markSending(1L, 0)).isTrue();
+
+        assertThat(mails.markRetry(1L, 0, "ZOMBIE_RECOVERED", "stale sweep", LocalDateTime.now())).isFalse();
+        assertThat(table.row(1L)).containsEntry("status", MailSendStatus.SENDING.getCode());
     }
 
     private <S> S wire(S service) {

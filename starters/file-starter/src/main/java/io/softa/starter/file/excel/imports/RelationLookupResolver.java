@@ -45,8 +45,10 @@ import io.softa.starter.file.dto.ImportFieldDTO;
  * company reference (the importing model's field onto the company model — {@code legalEntityId} on
  * an employee, {@code companyId} on a department) is resolved first, turned into a country, and the
  * rows bucketed by it; each bucket queries with {@code country = X} on top of the field's own filters.
- * A row naming no company falls into an unbucketed group and is resolved as before, within the
- * caller's country set. See {@link #countryOfRow}.
+ * A row naming no company — an update that leaves the company column blank — is resolved in the
+ * template's own country when the template is written for one: a Singapore template's values are
+ * Singapore's. Only a row of a template for every country falls into an unbucketed group, resolved
+ * within the caller's country set. See {@link #countryOfRow}.
  *
  * <p>Rules:
  * <ul>
@@ -131,56 +133,21 @@ public class RelationLookupResolver {
      * @return a list of LookupGroup describing the relation lookups
      */
     public List<LookupGroup> detectLookupGroups(String modelName, List<ImportFieldDTO> importFields) {
-        // Collect all fieldNames
-        Set<String> directFields = new HashSet<>();
         // rootField -> list of ImportFieldDTOs with dotted paths
         Map<String, List<ImportFieldDTO>> rootToDottedFields = new LinkedHashMap<>();
 
         for (ImportFieldDTO field : importFields) {
             String fieldName = field.getFieldName();
             if (!fieldName.contains(".")) {
-                directFields.add(fieldName);
                 continue;
             }
-            // Has dot: validate relation lookup
-            String[] parts = fieldName.split("\\.");
-            if (parts.length > 3) {
-                throw new IllegalArgumentException(
-                        "Import field `{0}` has more than two levels of cascade. " +
-                        "Supported forms are deptId.code, and employeeProfileId.idType.name where " +
-                        "the first hop is the row's own one-to-one sub-record.",
-                        fieldName);
-            }
-
-            String rootField = parts[0];
-            // Validate root field is ManyToOne/OneToOne
-            if (!ModelManager.existField(modelName, rootField)) {
-                throw new IllegalArgumentException(
-                        "Import field `{0}`: root field `{1}` does not exist in model `{2}`.",
-                        fieldName, rootField, modelName);
-            }
-            MetaField rootMetaField = ModelManager.getModelField(modelName, rootField);
-            if (!FieldType.RELATED_TYPES.contains(rootMetaField.getFieldType())) {
-                throw new IllegalArgumentException(
-                        "Import field `{0}`: root field `{1}` must be a relation field, but is `{2}`.",
-                        fieldName, rootField, rootMetaField.getFieldType());
-            }
-            if (parts.length == 3) {
-                validateNestedLookupPath(modelName, fieldName, rootMetaField, parts);
-            }
+            // Has dot: validate relation lookup — the rules an import template's save check applies too.
+            String rootField = ImportFieldPaths.checkLookupPath(modelName, fieldName).getFieldName();
             rootToDottedFields.computeIfAbsent(rootField, ignored -> new ArrayList<>()).add(field);
         }
 
-        for (String rootField : rootToDottedFields.keySet()) {
-            if (directFields.contains(rootField)) {
-                List<String> paths = rootToDottedFields.get(rootField).stream()
-                        .map(ImportFieldDTO::getFieldName).toList();
-                throw new IllegalArgumentException(
-                        "Import field `{0}` and `{1}` cannot coexist. " +
-                                "Either import the relation value directly or use relation lookup, not both.",
-                        rootField, paths);
-            }
-        }
+        // The columns taken together — the rules an import template's save check applies too.
+        ImportFieldPaths.checkColumns(importFields.stream().map(ImportFieldDTO::getFieldName).toList());
 
         // Build lookup groups
         List<LookupGroup> groups = new ArrayList<>();
@@ -201,19 +168,8 @@ public class RelationLookupResolver {
             boolean toMany = FieldType.TO_MANY_TYPES.contains(rootMetaField.getFieldType());
             boolean oneToOne = FieldType.ONE_TO_ONE.equals(rootMetaField.getFieldType());
             List<NestedLookup> nestedLookups = new ArrayList<>();
-            Set<String> nestedKeys = new HashSet<>();
             for (String path : dottedPaths) {
                 String[] segments = path.split("\\.");
-                String key = segments[1];
-                if (!nestedKeys.add(key)) {
-                    // deptId.code twice is caught by column validation upstream; what arrives here is
-                    // employeeProfileId.idType next to employeeProfileId.idType.name — two columns
-                    // writing the same nested field, one of which would silently win.
-                    throw new IllegalArgumentException(
-                            "Import fields address `{0}.{1}` more than once; a sub-record field can " +
-                                    "be written by only one column.",
-                            rootField, key);
-                }
                 if (segments.length == 3) {
                     MetaField nestedMetaField = ModelManager.getModelField(relatedModel, segments[1]);
                     nestedLookups.add(new NestedLookup(segments[1], nestedMetaField.getRelatedModel(),
@@ -281,54 +237,6 @@ public class RelationLookupResolver {
     }
 
     /**
-     * A three-segment path is allowed through exactly one shape, and this rejects every other.
-     *
-     * <p>The first hop must be the row's own one-to-one sub-record: its columns are folded into a
-     * nested value object rather than used as a business key, so there is a place for a resolved id
-     * to land. Through a many-to-one the two segments already are the business key of some other row,
-     * and a third would change what the column means. The middle field must be a many-to-one — that is
-     * the thing being named — and the leaf must be a plain field on its target, because the leaf is
-     * what the cell carries and a relation cannot be typed into a cell.
-     */
-    private void validateNestedLookupPath(String modelName, String fieldName, MetaField rootMetaField,
-                                          String[] parts) {
-        if (!FieldType.ONE_TO_ONE.equals(rootMetaField.getFieldType())) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: a two-level path is only supported through the row's own " +
-                            "one-to-one sub-record, but `{1}` is `{2}`.",
-                    fieldName, parts[0], rootMetaField.getFieldType());
-        }
-        String subRecordModel = rootMetaField.getRelatedModel();
-        if (!ModelManager.existField(subRecordModel, parts[1])) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}` does not exist in model `{2}`.",
-                    fieldName, parts[1], subRecordModel);
-        }
-        MetaField nestedMetaField = ModelManager.getModelField(subRecordModel, parts[1]);
-        if (!FieldType.MANY_TO_ONE.equals(nestedMetaField.getFieldType())) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}.{2}` must be a many-to-one relation to be looked up by " +
-                            "`{3}`, but is `{4}`.",
-                    fieldName, subRecordModel, parts[1], parts[2], nestedMetaField.getFieldType());
-        }
-        String targetModel = nestedMetaField.getRelatedModel();
-        Assert.notBlank(targetModel,
-                "Import field `{0}`: `{1}.{2}` has no related model configured.",
-                fieldName, subRecordModel, parts[1]);
-        if (!ModelManager.existField(targetModel, parts[2])) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}` does not exist in model `{2}`.",
-                    fieldName, parts[2], targetModel);
-        }
-        if (FieldType.RELATED_TYPES.contains(ModelManager.getModelField(targetModel, parts[2]).getFieldType())) {
-            throw new IllegalArgumentException(
-                    "Import field `{0}`: `{1}.{2}` is a relation itself and cannot be the value a " +
-                            "cell carries.",
-                    fieldName, targetModel, parts[2]);
-        }
-    }
-
-    /**
      * Resolve all relation lookup fields in the rows: for each lookup group,
      * batch-query the related model, write back the real FK id, and remove the dotted-path temporary columns.
      *
@@ -354,6 +262,22 @@ public class RelationLookupResolver {
      */
     public List<InFileReferences.Reference> resolveRows(String modelName, List<Map<String, Object>> rows,
                                                         List<LookupGroup> lookupGroups, boolean skipException) {
+        return resolveRows(modelName, null, rows, lookupGroups, skipException);
+    }
+
+    /**
+     * Same, for a template written for one country: a row that names no company is resolved in
+     * {@code templateCountry} rather than across every country the caller works in, where a value
+     * several countries share — a race, an employment type — matches more than one row and fails the
+     * whole file.
+     *
+     * @param templateCountry the country the template is written for; null for a template for every
+     *                        country
+     * @return the references to other rows of this file, left unresolved
+     */
+    public List<InFileReferences.Reference> resolveRows(String modelName, String templateCountry,
+                                                        List<Map<String, Object>> rows,
+                                                        List<LookupGroup> lookupGroups, boolean skipException) {
         List<InFileReferences.Reference> inFile = new ArrayList<>();
         // A group that resolves the row's company goes first, whatever the template's column order:
         // every country-partitioned lookup after it needs the company id already written back.
@@ -361,11 +285,11 @@ public class RelationLookupResolver {
         ordered.sort(Comparator.comparing((LookupGroup g) -> !ModelConstant.COMPANY_MODEL.equals(g.relatedModel())));
         for (LookupGroup group : ordered) {
             if (group.oneToOne()) {
-                resolveNestedOneToOneGroup(modelName, rows, group, skipException);
+                resolveNestedOneToOneGroup(modelName, templateCountry, rows, group, skipException);
             } else if (group.toMany()) {
-                resolveToManyGroup(rows, group, skipException);
+                resolveToManyGroup(modelName, rows, group, skipException);
             } else {
-                resolveToOneGroup(modelName, rows, group, skipException, inFile);
+                resolveToOneGroup(modelName, templateCountry, rows, group, skipException, inFile);
             }
         }
         return inFile;
@@ -406,17 +330,9 @@ public class RelationLookupResolver {
         return key;
     }
 
-    private static String labelOf(String modelName, String fieldName) {
-        try {
-            String label = ModelManager.getModelField(modelName, fieldName).getLabel();
-            return StringUtils.isBlank(label) ? fieldName : label;
-        } catch (RuntimeException e) {
-            return fieldName;
-        }
-    }
-
     /**
-     * The country a row's values belong to: that of the company the row names, or {@code null}.
+     * The country a row's values belong to: that of the company the row names, else the country the
+     * template is written for, else {@code null}.
      *
      * <p>The company reference is the importing model's field onto the company model — found by
      * target, not by name, because the HR app calls it {@code legalEntityId} on an employee and
@@ -424,7 +340,12 @@ public class RelationLookupResolver {
      * lookup column still holding a name has not been resolved yet, which is why company groups are
      * resolved first. Rows with several company fields take the first that carries a value.
      */
-    String countryOfRow(String modelName, Map<String, Object> row) {
+    String countryOfRow(String modelName, Map<String, Object> row, String templateCountry) {
+        String named = companyCountryOf(modelName, row);
+        return named != null ? named : StringUtils.trimToNull(templateCountry);
+    }
+
+    private String companyCountryOf(String modelName, Map<String, Object> row) {
         if (companyCountryResolver == null || !ModelManager.existModel(modelName)) {
             return null;
         }
@@ -449,7 +370,7 @@ public class RelationLookupResolver {
      * before, for anything else. The result is keyed by (country, business key) so the write-back can
      * pick a row's own bucket.
      */
-    private Bucketed lookupByCountry(String modelName, String relatedModel,
+    private Bucketed lookupByCountry(String modelName, String templateCountry, String relatedModel,
                                      List<String> lookupFields, Filters relationFilters,
                                      List<Map<String, Object>> rows,
                                      java.util.function.Function<Map<String, Object>, Collection<List<Object>>> keysOf) {
@@ -465,7 +386,7 @@ public class RelationLookupResolver {
             if (keys == null || keys.isEmpty()) {
                 continue;
             }
-            String country = partitioned ? countryOfRow(modelName, row) : null;
+            String country = partitioned ? countryOfRow(modelName, row, templateCountry) : null;
             countryByRow.put(row, country);
             keysByCountry.computeIfAbsent(country, ignored -> new LinkedHashSet<>()).addAll(keys);
         }
@@ -504,11 +425,11 @@ public class RelationLookupResolver {
      * belongs to the main row, so a create must still produce one (the owning FK is typically
      * required) and an update simply relinks the sub-row already there without touching a field.
      */
-    private void resolveNestedOneToOneGroup(String modelName, List<Map<String, Object>> rows, LookupGroup group,
-                                            boolean skipException) {
+    private void resolveNestedOneToOneGroup(String modelName, String templateCountry, List<Map<String, Object>> rows,
+                                            LookupGroup group, boolean skipException) {
         // Business values first, ids after: each nested lookup is one query across every row, the
         // same bargain resolveToOneGroup strikes — per-row queries would turn a sheet into N calls.
-        Map<String, Bucketed> resolvedByPath = resolveNestedLookupValues(modelName, rows, group);
+        Map<String, Bucketed> resolvedByPath = resolveNestedLookupValues(modelName, templateCountry, rows, group);
         for (Map<String, Object> row : rows) {
             if (!row.containsKey(FileConstant.FAILED_REASON)) {
                 Map<String, Object> nested = new LinkedHashMap<>();
@@ -532,7 +453,8 @@ public class RelationLookupResolver {
                     }
                     Object resolvedId = resolvedByPath.get(nestedLookup.dottedPath()).idFor(row, List.of(raw));
                     if (resolvedId == null) {
-                        markFailure(row, buildNotFoundMessage(nestedLookup.relatedModel(),
+                        markFailure(row, buildNotFoundMessage(subjectOf(group.relatedModel(), nestedLookup.nestedField(),
+                                nestedLookup.relatedModel()),
                                 List.of(nestedLookup.lookupField()), List.of(raw)), skipException);
                         failed = true;
                         break;
@@ -557,11 +479,11 @@ public class RelationLookupResolver {
      * names a different row in every country that has one; without the narrowing this lookup would be
      * wrong the day a second country seeds it.
      */
-    private Map<String, Bucketed> resolveNestedLookupValues(String modelName, List<Map<String, Object>> rows,
-                                                            LookupGroup group) {
+    private Map<String, Bucketed> resolveNestedLookupValues(String modelName, String templateCountry,
+                                                            List<Map<String, Object>> rows, LookupGroup group) {
         Map<String, Bucketed> resolvedByPath = new LinkedHashMap<>();
         for (NestedLookup nestedLookup : group.nestedLookups()) {
-            resolvedByPath.put(nestedLookup.dottedPath(), lookupByCountry(modelName, nestedLookup.relatedModel(),
+            resolvedByPath.put(nestedLookup.dottedPath(), lookupByCountry(modelName, templateCountry, nestedLookup.relatedModel(),
                     List.of(nestedLookup.lookupField()), nestedLookup.relationFilters(), rows, row -> {
                         Object raw = row.get(nestedLookup.dottedPath());
                         boolean present = raw != null && (!(raw instanceof String text) || !text.isBlank());
@@ -574,8 +496,8 @@ public class RelationLookupResolver {
     /**
      * Resolve one lookup group across all rows.
      */
-    private void resolveToOneGroup(String modelName, List<Map<String, Object>> rows, LookupGroup group,
-                                   boolean skipException, List<InFileReferences.Reference> inFile) {
+    private void resolveToOneGroup(String modelName, String templateCountry, List<Map<String, Object>> rows,
+                                   LookupGroup group, boolean skipException, List<InFileReferences.Reference> inFile) {
         Set<List<Object>> distinctKeys = new LinkedHashSet<>();
         for (Map<String, Object> row : rows) {
             if (row.containsKey(FileConstant.FAILED_REASON)) {
@@ -595,7 +517,7 @@ public class RelationLookupResolver {
 
         // Step 2: Batch query related model to get businessKey -> id mapping, per row country when the
         // target is partitioned by country (see the class comment).
-        Bucketed lookedUp = lookupByCountry(modelName, group.relatedModel(),
+        Bucketed lookedUp = lookupByCountry(modelName, templateCountry, group.relatedModel(),
                 group.lookupFields(), group.relationFilters(), rows, row -> {
                     List<Object> keys = extractKeyValues(row, group);
                     return keys == null ? List.of() : List.of(keys);
@@ -605,6 +527,7 @@ public class RelationLookupResolver {
         boolean selfReference = isSelfReference(modelName, group);
         Map<List<Object>, Map<String, Object>> fileRows = selfReference
                 ? rowsByOwnKey(rows, group.lookupFields()) : Map.of();
+        String subject = subjectOf(modelName, group.rootField(), group.relatedModel());
 
         // Step 3: Write back the FK id and remove dotted-path columns
         for (Map<String, Object> row : rows) {
@@ -625,15 +548,14 @@ public class RelationLookupResolver {
                 List<Object> key = selfReference ? normalizedKey(keyValues) : null;
                 Map<String, Object> target = key == null ? null : fileRows.get(key);
                 if (target == row) {
-                    markFailure(row, labelOf(modelName, group.rootField()) + " cannot be the row itself.",
-                            skipException);
+                    markFailure(row, subject + " cannot be the row itself.", skipException);
                 } else if (target != null) {
                     // Left unset: the row it names gets its id when the file is written, and the write
                     // fills it in before this row goes in.
                     inFile.add(new InFileReferences.Reference(row, group.rootField(),
-                            labelOf(modelName, group.rootField()), group.lookupFields(), key, target));
+                            subject, group.lookupFields(), key, target));
                 } else {
-                    markFailure(row, buildNotFoundMessage(group, keyValues), skipException);
+                    markFailure(row, buildNotFoundMessage(subject, group, keyValues), skipException);
                 }
             }
             removeDottedPaths(row, group);
@@ -646,7 +568,8 @@ public class RelationLookupResolver {
      * <p>Example: {@code roleIds.code -> roleIds} where the source cell may contain
      * comma-separated values such as {@code ADMIN,USER}.</p>
      */
-    private void resolveToManyGroup(List<Map<String, Object>> rows, LookupGroup group, boolean skipException) {
+    private void resolveToManyGroup(String modelName, List<Map<String, Object>> rows, LookupGroup group,
+                                    boolean skipException) {
         Set<List<Object>> distinctKeys = new LinkedHashSet<>();
         Map<Map<String, Object>, List<List<Object>>> rowResolvedKeys = new IdentityHashMap<>();
         for (Map<String, Object> row : rows) {
@@ -690,7 +613,8 @@ public class RelationLookupResolver {
                 }
             }
             if (!missingKeys.isEmpty()) {
-                String message = missingKeys.stream().map(keys -> buildNotFoundMessage(group, keys))
+                String subject = subjectOf(modelName, group.rootField(), group.relatedModel());
+                String message = missingKeys.stream().map(keys -> buildNotFoundMessage(subject, group, keys))
                         .collect(Collectors.joining("; "));
                 markFailure(row, message, skipException);
             } else {
@@ -865,24 +789,47 @@ public class RelationLookupResolver {
      * catching it looks like. Left unexplained, the reader sees two values they know exist and
      * concludes the import is broken rather than that it just did its job.
      */
-    private String buildNotFoundMessage(LookupGroup group, List<Object> keyValues) {
-        return buildNotFoundMessage(group.relatedModel(), group.lookupFields(), keyValues);
+    private String buildNotFoundMessage(String subject, LookupGroup group, List<Object> keyValues) {
+        return buildNotFoundMessage(subject, group.lookupFields(), keyValues);
     }
 
-    private String buildNotFoundMessage(String relatedModel, List<String> lookupFields,
-                                        List<Object> keyValues) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Cannot find ").append(relatedModel).append(" by ");
+    /**
+     * "IPA Position not found: Bar Bender" — named the way the sheet's reader knows the column, by the
+     * relation's label, not by the model behind it ({@code IpaPosition}) and the field it was matched
+     * on, which they never see. Several columns name the fields, since the reader needs to know which
+     * values were taken together.
+     */
+    private String buildNotFoundMessage(String subject, List<String> lookupFields, List<Object> keyValues) {
+        StringBuilder sb = new StringBuilder(subject).append(" not found: ");
+        if (lookupFields.size() == 1) {
+            return sb.append(keyValues.getFirst()).toString();
+        }
         for (int i = 0; i < lookupFields.size(); i++) {
             if (i > 0) {
                 sb.append(", ");
             }
             sb.append(lookupFields.get(i)).append("=").append(keyValues.get(i));
         }
-        if (lookupFields.size() > 1) {
-            sb.append(" — these must all describe the same ").append(relatedModel)
-                    .append("; no one record matches them together.");
-        }
+        sb.append(" — these must all describe the same ").append(subject)
+                .append("; no one record matches them together.");
         return sb.toString();
+    }
+
+    /**
+     * What a missed lookup is called in its message: the relation's own label on {@code modelName}, or —
+     * when the field is not known there — the related model's label, and its name as a last resort.
+     */
+    private static String subjectOf(String modelName, String rootField, String relatedModel) {
+        MetaField field = modelName == null ? null : ModelManager.getModelFieldOrNull(modelName, rootField);
+        if (field != null && StringUtils.isNotBlank(field.getLabel())) {
+            return field.getLabel();
+        }
+        if (StringUtils.isNotBlank(relatedModel) && ModelManager.existModel(relatedModel)) {
+            String label = ModelManager.getModel(relatedModel).getLabel();
+            if (StringUtils.isNotBlank(label)) {
+                return label;
+            }
+        }
+        return relatedModel;
     }
 }

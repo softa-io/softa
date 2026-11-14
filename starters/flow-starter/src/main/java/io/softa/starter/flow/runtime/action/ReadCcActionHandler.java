@@ -33,18 +33,17 @@ public class ReadCcActionHandler implements FlowActionHandler<FlowCcReadRequest>
         if (request == null
                 || !StringUtils.hasText(request.getInstanceId())
                 || !StringUtils.hasText(request.getNodeId())
-                || request.getCycleNumber() == null
                 || !StringUtils.hasText(request.getActorId())) {
-            throw new FlowActionValidationException("instanceId, nodeId, cycleNumber, and actorId are required to mark a CC task as read");
+            throw new FlowActionValidationException("instanceId, nodeId and actorId are required to mark a CC task as read");
         }
 
         FlowExecutionState state = contextService.requireState(request.getInstanceId());
-        ApprovalActionAuditEntry ccAudit = auditService.findCcAudit(state, request.getNodeId(), request.getCycleNumber(), request.getActorId())
+        ApprovalActionAuditEntry ccAudit = auditService.findCcAudit(state, request.getNodeId(), request.getActorId())
                 .orElseThrow(() -> new FlowActionValidationException("CC task not found for node '" + request.getNodeId()
-                        + "', cycle " + request.getCycleNumber() + ", actor '" + request.getActorId() + "'"));
-        if (auditService.hasReadCcAudit(state, request.getNodeId(), request.getCycleNumber(), request.getActorId())) {
+                        + "', actor '" + request.getActorId() + "'"));
+        if (auditService.hasReadCcAudit(state, request.getNodeId(), request.getActorId())) {
             throw new FlowActionValidationException("CC task has already been marked as read for node '" + request.getNodeId()
-                    + "', cycle " + request.getCycleNumber() + ", actor '" + request.getActorId() + "'");
+                    + "', actor '" + request.getActorId() + "'");
         }
 
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
@@ -58,7 +57,6 @@ public class ReadCcActionHandler implements FlowActionHandler<FlowCcReadRequest>
                 .flowRevision(definition.getRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())
-                .cycleNumber(request.getCycleNumber())
                 .actorId(request.getActorId())
                 .targetActorId(ccAudit.getActorId())
                 .comment(request.getComment())

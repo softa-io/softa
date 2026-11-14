@@ -28,7 +28,8 @@ import io.softa.framework.orm.enums.StorageType;
 @Model(
         label = "System Model",
         businessKey = {"modelName"},
-        description = "Metadata catalog of models"
+        description = "Metadata catalog of models",
+        defaultOrder = {"modelName"}
 )
 public class SysModel extends AuditableModel {
 

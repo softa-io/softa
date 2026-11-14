@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.ConsultantAccessChecker;
 
@@ -210,6 +211,42 @@ class PermissionInterceptorTest {
     }
 
     @Test
+    void tenantUser_holdingAPlatformPermission_isDeniedThePlatformOnlyEndpoints() {
+        // Roles are the tenant's to write; a grant naming the platform's permission must not open the
+        // platform's endpoints — shared models, every tenant's rows — to one tenant's ordinary user.
+        props.setPlatformOnlyPatterns(List.of("/TenantInfo/**"));
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleCodes(Set.of());
+        pi.setPermissions(Set.of("permission.system.tenant-info.view"));
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of("permission.system.tenant-info.view"));
+
+        MockHttpServletRequest r = req("POST", "/TenantInfo/searchList");
+        inCtx(10L, 42L, () -> {
+            assertThatThrownBy(() -> interceptor.preHandle(r, new MockHttpServletResponse(), null))
+                    .isInstanceOf(PermissionException.class)
+                    .hasMessageContaining("Platform-admin only");
+            return null;
+        });
+    }
+
+    @Test
+    void platformTenantUser_keepsWhatTheirRolesGrant() {
+        // The platform tenant's staff are the platform's own; their roles may name its pages.
+        props.setPlatformOnlyPatterns(List.of("/TenantInfo/**"));
+        PermissionInfo pi = new PermissionInfo();
+        pi.setRoleCodes(Set.of());
+        pi.setPermissions(Set.of("permission.system.tenant-info.view"));
+        when(snapshotProvider.get(eq(-1L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup(anyString(), anyString())).thenReturn(Set.of("permission.system.tenant-info.view"));
+
+        MockHttpServletRequest r = req("POST", "/TenantInfo/searchList");
+        boolean allowed = inCtx(-1L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    @Test
     void platformAdmin_stillReachesAnUnregisteredEndpoint() {
         // The platform's own operations (pre-data loading, cron triggers) are such endpoints, and
         // the platform administrator is who they are for. The two in-tenant principals are refused.
@@ -309,6 +346,33 @@ class PermissionInterceptorTest {
         assertThat(ctx.getGrantedCountries()).containsExactly("SG");
     }
 
+    @Test
+    void anAdmittedRequestKeepsThePermissionsThatAdmittedIt() {
+        // A custom endpoint writes its model with no holder of the model's standard write; the
+        // company grant of the write is then asked of the roles holding what let the request in.
+        PermissionInfo pi = PermissionInfo.builder()
+                .roleCodes(Set.of("HR"))
+                .permissions(Set.of("contract.edit"))
+                .build();
+        when(snapshotProvider.get(eq(10L), eq(42L))).thenReturn(pi);
+        when(endpointIndex.lookup("/EmpDocument/editUploaded", "POST")).thenReturn(Set.of("contract.edit"));
+
+        MockHttpServletRequest r = req("POST", "/EmpDocument/editUploaded");
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(r));
+        try {
+            Context ctx = new Context();
+            ctx.setTenantId(10L);
+            ctx.setUserId(42L);
+            ContextHolder.runWith(ctx, () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+
+            assertThat(AdmittedRequest.current())
+                    .isEqualTo(new AdmittedRequest("EmpDocument", Set.of("contract.edit")));
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
     // ─── unmapped endpoint → 403 ───
 
     @Test
@@ -363,6 +427,41 @@ class PermissionInterceptorTest {
 
         MockHttpServletRequest r = req("POST", "/Employee/searchList");
         boolean allowed = inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
+        assertThat(allowed).isTrue();
+    }
+
+    // ─── platform-only patterns hold for everyone inside a tenant ───
+
+    /** A grant that lists a platform-only endpoint — as a derived lookup of a referenced shared model does. */
+    private void anOrdinaryUserWhoseGrantListsTheProfileReads() {
+        props.setPlatformOnlyPatterns(List.of("/UserProfile/**"));
+        when(snapshotProvider.get(anyLong(), anyLong())).thenReturn(
+                PermissionInfo.builder()
+                        .roleCodes(Set.of("HR"))
+                        .permissions(Set.of("user-account.view"))
+                        .build());
+        when(endpointIndex.lookup(eq("/UserProfile/searchPage"), eq("POST")))
+                .thenReturn(Set.of("user-account.view"));
+    }
+
+    @Test
+    void anOrdinaryUserInATenant_isDeniedAPlatformOnlyEndpoint_evenWhenAGrantListsIt() {
+        anOrdinaryUserWhoseGrantListsTheProfileReads();
+
+        MockHttpServletRequest r = req("POST", "/UserProfile/searchPage");
+        assertThatThrownBy(() -> inCtx(10L, 42L,
+                () -> interceptor.preHandle(r, new MockHttpServletResponse(), null)))
+                .isInstanceOf(PermissionException.class)
+                .hasMessageContaining("Platform-admin only");
+    }
+
+    @Test
+    void anOrdinaryUserOfThePlatformTenant_keepsThem() {
+        anOrdinaryUserWhoseGrantListsTheProfileReads();
+
+        MockHttpServletRequest r = req("POST", "/UserProfile/searchPage");
+        boolean allowed = inCtx(BaseConstant.PLATFORM_TENANT_ID, 42L,
                 () -> interceptor.preHandle(r, new MockHttpServletResponse(), null));
         assertThat(allowed).isTrue();
     }
@@ -709,10 +808,10 @@ class PermissionInterceptorTest {
     @Test
     void platformAdmin_reachesASharedModule() {
         // Messaging is in shared-nav-prefixes, not platform-nav-prefixes, and the difference matters:
-        // every model under it is multiTenant, so a tenant admin keeps its own menus while the
-        // platform reads the same ones on its own tier — where the verification-code and
-        // password-reset mails live, including the one a consultant logs in with. Locking the
-        // platform out of those was the first version of this narrowing's bug.
+        // its pages on multiTenant models — the mail templates here — are one set of menus on two tiers,
+        // so a tenant admin keeps its own while the platform reads the same ones on its own tier — where
+        // the verification-code and password-reset mails live, including the one a consultant logs in
+        // with. Locking the platform out of those was the first version of this narrowing's bug.
         PermissionInfo pi = PermissionInfo.builder()
                 .roleCodes(Set.of(PermissionInfo.CODE_SUPER_ADMIN))
                 .permissions(Set.of("message.mail-template.view"))

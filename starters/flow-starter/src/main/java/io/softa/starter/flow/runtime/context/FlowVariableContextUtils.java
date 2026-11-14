@@ -17,17 +17,6 @@ public final class FlowVariableContextUtils {
 
     // ── Construction ──────────────────────────────────────────────────────────
 
-    /**
-     * Build an initial context that combines a static trigger payload with
-     * extra variables provided by the caller (e.g. initiator-supplied vars
-     * from {@code FlowStartRequest.variables}).
-     */
-    public static FlowVariableContext fromTriggerPayloadAndVars(
-            Map<String, Object> payload, Map<String, Object> initialVars) {
-        return new FlowVariableContext(payload,
-                initialVars != null ? initialVars : Map.of());
-    }
-
     // ── Subflow fork / merge ──────────────────────────────────────────────────
 
     /**
@@ -39,13 +28,15 @@ public final class FlowVariableContextUtils {
      * inputMapping: { "reviewerId": "{{ currentUser }}", "docId": "{{ documentId }}" }
      * </pre>
      *
-     * @param parentCtx    the parent flow's variable context
-     * @param inputMapping child input key → AviatorScript expression resolved in parent scope
+     * @param parentCtx      the parent flow's variable context
+     * @param inputMapping   child input key → AviatorScript expression resolved in parent scope
+     * @param childVariables the child run's own variables, which its nodes write to
      * @return a fresh context for the subflow; its {@code input} is populated from the mapping
      */
     public static FlowVariableContext forkForSubflow(
             FlowVariableContext parentCtx,
-            Map<String, String> inputMapping) {
+            Map<String, String> inputMapping,
+            Map<String, Object> childVariables) {
 
         Map<String, Object> childInput = new LinkedHashMap<>();
         if (inputMapping != null) {
@@ -55,7 +46,7 @@ public final class FlowVariableContextUtils {
                 childInput.put(childKey, value);
             });
         }
-        return new FlowVariableContext(childInput, Map.of());
+        return new FlowVariableContext(childInput, childVariables);
     }
 
     /**

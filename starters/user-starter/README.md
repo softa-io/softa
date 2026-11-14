@@ -21,15 +21,18 @@ invites the person into it.
 </dependency>
 ```
 
-Depends on `softa-web`, `reference-data-starter`, and `cron-starter` (**optional** —
+Depends on `softa-web`, `reference-data-starter`, `message-starter`, and `cron-starter` (**optional** —
 powers the built-in `UserMaintenanceCronConsumer` for the nightly `DynamicRoleSync` job; a deployment on
 a different scheduler omits it, the consumer stays dormant via `@ConditionalOnClass`, and the app drives
 `DynamicRoleSyncJob.syncAll()` itself. The job + Role / UserRoleRel entities live here). The cron row
 ships in `data-system/SysCron.UserMaintenance.json`, which the app lists under `platform` in its
 `seed-manifest.yml`; an unlisted file never loads, and the job never runs.
 Auto-configured by `io.softa.starter.user.UserAutoConfiguration` (component-scans the
-module — no enabling flag). Sessions require Redis; password-reset emails require a
-`MessageService` (message-starter).
+module — no enabling flag). Sessions require Redis. Login and join codes, invitation and
+password-reset links, account-change notices and subscription reminders are sent through
+message-starter's `MessageService`; a send it rejects (an address that does not parse) is logged at
+ERROR and never fails the change that triggered it — except the codes of the self-service password
+and mobile changes, where it refuses that step.
 
 ## Entities
 
@@ -53,7 +56,7 @@ hops through `profileId` first.
 | Entity | Purpose | Key fields |
 |---|---|---|
 | `UserProfile` | The person | `userId`, `fullName`, `chineseName`, `birthDate`, `gender`, `photoId`, `language`, `timezone` |
-| `UserIdentity` | The person's credentials — global, unique | `profileId`, `loginEmail`, `loginMobile`, `password`, `passwordSalt`, `passwordLockedUntil` |
+| `UserIdentity` | The person's credentials — global, unique | `profileId`, `loginEmail`, `loginMobile`, `password`, `passwordSalt` (old hashes only), `passwordLockedUntil` |
 | `UserAccount` | One membership (person × tenant) | `tenantId`, `profileId`, `consultant`, `nickname`, `username`, `email`, `mobile`, `policyId`, `status`, `activationTime`, `locked` (derived) |
 | `UserInvitation` | An issued invitation | `tenantId`, `userId`, `email`, `mobile`, `purpose`, `tokenHash`, `status`, `invitedBy`, `sentAt`, `expiresAt`, `acceptedAt` |
 | `ConsultantProfile` | Marks a person as platform consultant staff | `profileId`, `active` |
@@ -64,20 +67,71 @@ hops through `profileId` first.
 | `UserAuthFailure` | Failed-auth audit | `userId`, `failureReason`, `ipAddress`, `userAgent` |
 | `UserListViewPreference` | One person's arrangement of one list (see [List arrangements](#list-arrangements)) | `userId`, `viewStateKey`, `modelName`, `columns`, `exportFields`, `exportObjectFields`, `viewSettings` |
 
+Wherever another row references an account or a picker lists accounts, the account
+shows as `nickname / username` (`@Model(displayName)`): the person's name and the
+login that tells two people of one name apart; an empty one is left out. Either one
+finds it in a search (`searchName`).
+
 ## Authentication & security
 
-- **Passwords** live on `UserIdentity`, hashed (BCrypt) with a per-person
-  `passwordSalt`; never stored or returned in clear text. They belong to the PERSON,
-  not to a membership — one password opens every company they belong to.
+- **Passwords** live on `UserIdentity`, never stored or returned in clear text. They
+  belong to the PERSON, not to a membership — one password opens every company they
+  belong to.
+  - **Hashed slowly**: PBKDF2-HMAC-SHA256 at 600,000 iterations, stored as one string,
+    `pbkdf2-sha256$<iterations>$<salt>$<hash>` (87 characters), the salt inside
+    (`PasswordUtils` in softa-base). About 70 ms of one core per check. The count is a
+    code constant; each hash records its own, so raising it strands nothing.
+  - **Trimmed**: surrounding spaces are not part of a password, as before; the clients
+    send what was typed.
+  - **Older hashes still sign in.** Rows written before this scheme hold one round of
+    SHA-512, with the salt in `passwordSalt`. The first successful check stores the
+    password again in the current scheme and clears `passwordSalt` — only while the
+    row still holds the hash that matched, so a password changed meanwhile on another
+    device is not overwritten. No SQL: the password is known only when typed, so a
+    person who never signs in again keeps the old hash. Rolling back to a release
+    without this scheme stops everyone already upgraded from signing in by password
+    (code sign-in and resetting by code still work).
+  - **One place each**: `UserIdentityService.setPassword` is the only write,
+    `matchesPassword` the only check (and the upgrade).
+  - **Same time whatever the answer**: an unknown identifier, a person with no
+    password yet and an old-scheme hash each spend the same hash before saying no, so
+    the time a refusal takes does not tell whether the identifier is anyone's.
 - **Login identifiers** (`loginEmail` / `loginMobile`) are **globally unique** and
   stored in one canonical spelling — trimmed, lowercased, mobile separators folded.
   `LoginIdentifiers` is that rule, and it must be applied wherever an identifier is
   stored, looked up or hashed, or a row is written in a spelling the lookups cannot
   find. Distinct from the **work contacts** on `UserAccount` (`email` / `mobile`),
   which are HR's per-company data and keep their case.
-- **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`) and carried by the
-  `SOFTA_SESSION_ID` cookie set on login; `logout` clears it. A session names one
+- **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`). A session names one
   membership — switching company mints a new one.
+- **A session belongs to the kind of client it was issued to.** A request that sends
+  `X-App-Platform` or `X-App-Version` is the APP's; one that sends neither is Web's (H5
+  included). Each carries its session one way only:
+
+  | Client | Gets the session | Sends it back | Ignored |
+  | --- | --- | --- | --- |
+  | APP | `sessionToken` in the response body (no cookie) | `X-Session-Id` header | any cookie |
+  | Web / H5 | `sessionId` cookie (never in the body) | the cookie | `X-Session-Id` |
+
+  The Web cookie is `HttpOnly`, `Secure` and `SameSite=Lax`, kept 30 days: page scripts
+  cannot read it, and the browser leaves it off any request another site starts (a form
+  post, a fetch, an iframe) while still sending it when the user follows a link from
+  elsewhere. A cross-site page therefore cannot act with the session; a page on another
+  subdomain of the same registrable domain still counts as the same site.
+
+  A session is also checked against the client using it, on every authenticated request
+  and on `/login/myTenants`, `/login/switchTenant`, `/login/leaveTenant` and
+  `/UserAccount/logout`: a Web session sent with the APP headers, or an APP session sent
+  without them, is refused with `errorCode = SESSION_EXPIRED` (code 410) and is **not**
+  ended — whoever sent it that way may not be its holder, and the holder's own client
+  keeps working. The client goes back to its sign-in screen. A session stored before the
+  client was recorded on it reads as a Web session; the release that brings this rule
+  clears all sessions anyway.
+- **The client type is self-reported.** Telling the APP from Web by request headers is a
+  product rule (consultants and platform accounts on the Web only, the APP minimum
+  version), not a security boundary: any caller can send or omit those headers. The
+  source (`APP` / `WEB`) and device model recorded in the security log and the login
+  history are what the client said about itself.
 - **Password lockout** lives on the credential (`UserIdentity.passwordLockedUntil`),
   so it is linked across every company the person belongs to. `UserAccount.locked`
   is a **derived, read-only** projection of it for the account list — writes that
@@ -126,6 +180,29 @@ to lists, plus:
 | `resetWorkContacts` / `unbindAndReinvite` | Correct a mis-addressed or mis-bound invitation |
 | `logout`, `getMyAccount`, `saveMyAccount`, `changeMyPassword`, `setMyFirstPassword`, `mustSetMyPassword` | The caller's own membership |
 
+`UserProfileController` (`/UserProfile/*`) — `getMyUserInfo` returns the session's `UserInfo`,
+which login also returns. Besides the person's name, language, timezone and photo it carries
+`tenantId` and `tenantName`, the tenant's display name, for the client to show which company the
+session is in. `UserInfo` is cached for a month under `user-info:{accountId}` and `tenantName` is
+cached with it, so serving a cached one reads no tenant.
+
+The photo is cached as `photoId` only. `photoUrl` is filled by `UserProfileService.withPhotoUrl`
+where a `UserInfo` leaves for the client — `getMyUserInfo`, `loginByApple`, `loginByOAuth2` — as a
+file key only that account can open, valid 30 to 31 days (softa-web README, File keys); in the
+cache it is always null. An address built into the cached entry would have to outlive it: a storage
+link cannot (seven days at most), and signing one for 90 days made every login of a person with a
+photo fail once the entry was rebuilt. Entries cached before `photoId` existed carry a dead
+`photoUrl` and no `photoId`: delete the `user-info:*` keys once after upgrading.
+
+Two consequences of caching `tenantName`:
+
+- Entries cached before `tenantName` existed carry none. Delete the `user-info:*` keys once after
+  upgrading; the next request rebuilds each one.
+- A renamed tenant keeps its old name until its cache entries expire: `user-info:*` and
+  `tenant-info:{tenantId}`, which a rename does not evict either. Delete them to show it at once.
+
+Keys sit under `spring.data.redis.root-key` when one is set.
+
 `ConsultantController` (`/consultant/*`) — platform-side, not reachable from a
 tenant. `list`, `save` (person + consultant record + the whole grant table in one
 transaction), `authorizations`, `setActive`, and `actors` (which of these acting
@@ -140,6 +217,23 @@ entitlement is installed. `modelHiddenFieldsMap` and `empId` are computed per re
 the cached snapshot. A field hidden only on some records is not in `modelHiddenFieldsMap`; ask
 `POST /{model}/getRecordAccess` for those. The same fields are left out of what
 `GET /metadata/getMetaModel` serves this caller (metadata-starter README).
+
+The same controller lets the signed-in person change their own password and login mobile, each a
+chain of steps over `MyCredentialService` in which every step hands back a ticket only the next step
+accepts (`{"ticket": "..."}`):
+
+| Endpoint | Body | Returns |
+| --- | --- | --- |
+| `POST /me/password/sendCode` | — | a code sent to the login mobile |
+| `POST /me/password/verifyCode` | `verificationCode` | a ticket for `/me/password/change`, ten minutes |
+| `POST /me/password/change` | `ticket`, `newPassword` | — ; every other device is signed out |
+| `POST /me/mobile/verifyCurrent` | `method` (`code` or `password`), `verificationCode` / `password` | a ticket for `/me/mobile/checkNew` |
+| `POST /me/mobile/checkNew` | `ticket`, `newMobile` | a ticket for confirming; a code is sent to the new number |
+| `POST /me/mobile/resendCode` | `ticket` | another code, same ticket |
+| `POST /me/mobile/confirm` | `ticket`, `verificationCode` | — ; the number holds in every company, every other device is signed out |
+
+They act on the caller only and carry no business permission: the application lists `/me/**` under
+`permission.authenticated-bypass-patterns`, as `uiContext` already needs.
 
 ## Consultants
 
@@ -263,6 +357,29 @@ social-oauth:
   x:        { enable: true,  client-id: ..., client-secret: ... }
   linkedin: { enable: false, client-id: ..., client-secret: ... }
 ```
+
+### Sign-in protection
+
+Per-address limits and how the caller's address is read (prefix `softa.user.login-protection`,
+bound by `LoginProtectionProperties`):
+
+```yaml
+softa:
+  user:
+    login-protection:
+      trusted-proxies: 1                  # proxies in front of the app that append to X-Forwarded-For
+      trust-real-ip: false                # read X-Real-IP when X-Forwarded-For is absent
+      attempts-per-address-per-hour: 300  # codes sent + codes checked + passwords tried, together
+```
+
+`trusted-proxies` must match the deployment: the caller's address is read that many entries from
+the right of `X-Forwarded-For`, and everything further left was written by the caller. Set it to 1
+behind a single reverse proxy (or one that replaces the header), 2 behind a load balancer and a
+reverse proxy that both append. Too low puts every caller behind one address into one bucket; too
+high trusts an entry the caller wrote. **The gateway must append to `X-Forwarded-For`**: without
+it the address is the socket peer — the proxy itself — unless `trust-real-ip` is on, which is right
+only behind a proxy that sets `X-Real-IP` and drops one sent by the caller. Looking up an identifier nobody signs in with is limited
+separately (30 misses per address per hour); a spent miss budget refuses misses only.
 
 ### First platform administrator
 

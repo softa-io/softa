@@ -103,7 +103,7 @@ class IdentityAdoptionTest {
         doThrow(new IllegalArgumentException("more than 1"))
                 .when(identityService).searchOne(any(Filters.class));
 
-        assertThatThrownBy(() -> identityService.findByLoginIdentifier("shared@acme.com"))
+        assertThatThrownBy(() -> identityService.findByLoginIdentifier("+6591234567"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("shared by more than one account");
     }

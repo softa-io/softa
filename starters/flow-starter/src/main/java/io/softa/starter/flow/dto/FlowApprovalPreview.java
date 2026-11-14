@@ -12,9 +12,9 @@ import lombok.NoArgsConstructor;
 /**
  * What submitting a business record would do now, worked out without submitting it: the Submit flow
  * the record would get and the approval steps it would go through, each with the approvers who would
- * be asked or why it passes on its own. For a record whose approval is in progress, the rest of its path
- * instead: the step it waits on now, then those after it. Nothing is started or written. Users come with
- * their names.
+ * be asked or why it passes on its own. A record whose approval is in progress is only said to be
+ * ({@link Status#IN_PROGRESS}): its steps, those ahead included, are the record's approval's to show
+ * ({@link FlowRecordApprovalsView}). Nothing is started or written. Users come with their names.
  *
  * <p>The path assumes every step is approved. Nothing is guessed: a route that depends on data only
  * known once the approval runs stops the path where it is decided ({@link #undecided}), and a step
@@ -33,32 +33,30 @@ public class FlowApprovalPreview {
     @Schema(description = "Why no approval would start (Refused, NoFlow, SeveralFlows): the message the submission would be refused with")
     private String message;
 
-    @Schema(description = "The flow that would approve the record (Ready), or approves it now (InProgress)")
+    @Schema(description = "The flow that would approve the record (Ready)")
     private Flow flow;
 
-    @Schema(description = "The flows that apply to the record, of which exactly one must (SeveralFlows)")
-    private List<Flow> candidates;
-
-    @Schema(description = "The approval steps in the order the approval reaches them, every step assumed approved (Ready); "
-            + "the step it waits on now, then those after it (InProgress)")
+    @Schema(description = "The approval steps in the order the approval reaches them, every step assumed approved (Ready)")
     private List<Step> steps;
 
-    @Schema(description = "Where the route depends on data only known once the approval runs: the path shown stops there (Ready, InProgress)")
+    @Schema(description = "Where the route depends on data only known once the approval runs: the path shown stops there (Ready)")
     private List<Stop> undecided;
 
-    @Schema(description = "Where the approval would stop with an error, and why: the path shown ends there (Ready, InProgress)")
+    @Schema(description = "Where the approval would stop with an error, and why: the path shown ends there (Ready)")
     private Stop failure;
 
-    @Schema(description = "Whether the requester may withdraw the record now: its submitter, while its approval waits on a "
-            + "flow that lets them withdraw (InProgress), or after its approval failed (Refused)")
-    private Boolean withdrawable;
+    @Schema(description = "The nodes the route passes, in the order it reaches them, up to where it stops (Ready)")
+    private List<String> nodeIds;
+
+    @Schema(description = "The record's approval in progress (InProgress): the instance its steps and actions belong to")
+    private String instanceId;
 
     @Getter
     @AllArgsConstructor
     public enum Status {
         /** One flow applies: {@code flow} would approve the record along {@code steps}. */
         READY("Ready"),
-        /** The record's approval is in progress: {@code steps} are the step it waits on now, then those after it. */
+        /** The record's approval is in progress: {@code instanceId} names it, and no step is previewed. */
         IN_PROGRESS("InProgress"),
         /** The record is not a draft — approved, rejected, cancelled — or its own checks refuse a submission now. */
         REFUSED("Refused"),
@@ -83,8 +81,6 @@ public class FlowApprovalPreview {
         AUTO_APPROVED("AutoApproved"),
         /** Nobody resolves to the step, which is approved on record (empty-approver strategy AutoApprove). */
         NO_APPROVER_APPROVED("NoApproverApproved"),
-        /** Nobody resolves to the step, which is skipped (empty-approver strategy Skip). */
-        NO_APPROVER_SKIPPED("NoApproverSkipped"),
         /** Nobody resolves to the step, and the approval stops there with an error (empty-approver strategy Error). */
         NO_APPROVER_FAILS("NoApproverFails"),
         /** Who approves the step, or whether it passes on its own, depends on data only known once the approval runs. */
@@ -99,8 +95,6 @@ public class FlowApprovalPreview {
     public enum AutoApprovalReason {
         /** The submitter is one of the step's approvers, and the flow approves for them. */
         SUBMITTER("Submitter"),
-        /** The employee the record is about is one of the step's approvers, and the flow approves for them. */
-        SUBJECT("Subject"),
         /** The approver approved an earlier step, and the flow's approver dedup counts that here too. */
         EARLIER_APPROVAL("EarlierApproval");
 
@@ -146,8 +140,13 @@ public class FlowApprovalPreview {
         @Schema(description = "Approvers counted as having approved the step, and why")
         private List<AutoApproval> autoApprovals;
 
-        @Schema(description = "Whether the approval waits on this step now (InProgress); its approvers are those still asked")
+        @Schema(description = "A running approval's route, worked out for its record's approval: whether the approval "
+                + "waits on this step now, its approvers those still asked. Null in a preview of a submission")
         private Boolean current;
+
+        @Schema(description = "The roles the step goes to because it finds nobody (empty-approver strategy AssignToRole), by "
+                + "name: its approvers are their holders, any one of whom decides. Null otherwise")
+        private List<String> assignedRoles;
     }
 
     @Data

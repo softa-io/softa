@@ -10,9 +10,41 @@ package io.softa.starter.user.dto;
  *
  * @param profileId       the person, found by the invitation's own address or created on the spot
  * @param mustSetPassword whether a password step must run before the confirm screen
+ * @param nextStep        what the page does next; on a rebind link always {@code SET_PASSWORD}
  * @param proof           single-use evidence that the code was passed, which setJoinPassword and
  *                        confirmJoin require back — see {@code JoinProofGuard} for why a
  *                        caller-supplied profileId alone could not authorize either
  */
-public record JoinVerification(Long profileId, boolean mustSetPassword, String proof) {
+public record JoinVerification(Long profileId, boolean mustSetPassword, String proof,
+                               NextStep nextStep, String maskedMobile) {
+
+    /** What the join page does next. */
+    public enum NextStep {
+        /**
+         * Set the login password, then confirm — or, on an Unbind &amp; Re-invite link, set it and
+         * the join is complete (setJoinPassword answers {@code completed}).
+         */
+        SET_PASSWORD,
+        /** Confirm joining. */
+        CONFIRM,
+        /**
+         * The email proved who the employee is, not that the person found by their mobile is them:
+         * verify that mobile too (channel {@code mobile}). No proof until then.
+         */
+        VERIFY_MOBILE
+    }
+
+    public static JoinVerification verified(Long profileId, boolean mustSetPassword, String proof) {
+        return new JoinVerification(profileId, mustSetPassword, proof,
+                mustSetPassword ? NextStep.SET_PASSWORD : NextStep.CONFIRM, null);
+    }
+
+    /** An Unbind &amp; Re-invite link: the password is (re)set whether or not the person has one. */
+    public static JoinVerification rebindVerified(Long profileId, String proof) {
+        return new JoinVerification(profileId, true, proof, NextStep.SET_PASSWORD, null);
+    }
+
+    public static JoinVerification verifyMobile(String maskedMobile) {
+        return new JoinVerification(null, false, null, NextStep.VERIFY_MOBILE, maskedMobile);
+    }
 }

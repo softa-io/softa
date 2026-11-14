@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import io.softa.framework.base.placeholder.PlaceholderToken;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.orm.compute.ComputeUtils;
+import io.softa.framework.orm.compute.CronPreview;
+import io.softa.framework.orm.compute.CronSchedule;
 import io.softa.framework.web.dto.FixUnencryptedDataParams;
 import io.softa.framework.web.dto.ModelFields;
 import io.softa.framework.web.response.ApiResponse;
@@ -74,5 +76,23 @@ public class ToolkitController {
         }
         boolean isValid = ComputeUtils.validateExpression(expression);
         return ApiResponse.success(isValid);
+    }
+
+    /**
+     * Preview a cron expression the way the cron scheduler runs it.
+     *
+     * @param expression the cron expression
+     * @param count how many next runs to list
+     * @return whether the scheduler accepts it, what it means and its next runs, or why it is not accepted
+     */
+    @Operation(summary = "Preview a cron expression",
+            description = "Whether the cron scheduler can run the expression (Quartz: second minute hour day-of-month "
+                    + "month day-of-week [year], one of the two day fields `?`) and it fires again, what it means in "
+                    + "words, and its next runs in the server's zone, the one the scheduler runs it in. `count` is "
+                    + "clamped to 1–" + CronSchedule.MAX_PREVIEW_RUNS + ".")
+    @GetMapping("/previewCron")
+    public ApiResponse<CronPreview> previewCron(@RequestParam String expression,
+                                                @RequestParam(defaultValue = "5") int count) {
+        return ApiResponse.success(CronSchedule.preview(expression, count));
     }
 }

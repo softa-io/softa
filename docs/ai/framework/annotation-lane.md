@@ -118,16 +118,21 @@ mvn -B -ntp test -pl starters/metadata-starter \
 # 3. The module's own tests (don't skip Service tests)
 mvn -B -ntp test -pl <affected module>
 
-# 4. Read the diff
+# 4. Every softa model through the checks ModelManager makes at boot (CatalogBootCheck):
+#    they read the whole catalog, so a change can pass step 3 and still stop the boot
+mvn -B -ntp test -pl apps/demo-app -am -Dtest=SoftaCatalogBootCheckTest \
+    -Dsurefire.failIfNoSpecifiedTests=false
+
+# 5. Read the diff
 git diff -- '<affected files>'
 git diff main...HEAD -- '**/*.java'      # full PR scope
 
-# 5. (If a scanner-scope: ["*"] app exists) restart and watch:
+# 6. (If a scanner-scope: ["*"] app exists) restart and watch:
 #   DdlOrchestrator: CREATE TABLE ... OK / ADD COLUMN ... OK / DROP COLUMN ... [converge] undeclared OK
 #   DdlOrchestrator: converged N in-scope model(s) — executed X DDL statement(s), ...
 #   MetadataAnnotationScanner: applied N row change(s)
 #   MetadataAnnotationScanner: physical schema drift — N finding(s) ...   (RESIDUAL audit; absent = converged clean)
-# 6. GET /metadata/status — code vs catalog fingerprints ("did my change land?")
+# 7. GET /metadata/status — code vs catalog fingerprints ("did my change land?")
 #    + the physical drift report from this boot.
 ```
 
@@ -152,7 +157,8 @@ the annotation change** for the cases it can't express:
   field fail with `SequenceNotFoundException` (fail-closed by design).
 
 ```sql
--- deploy/migrations/mysql/V_N__rename_..._with_data.sql
+-- release script of the deploying app (softa keeps no migration files),
+-- run before the new jar boots, e.g. NN-before-jar-rename-customer-legacy-id.sql
 ALTER TABLE customer CHANGE COLUMN legacy_id external_id BIGINT NULL;
 UPDATE sys_field SET field_name = 'externalId', column_name = 'external_id'
  WHERE model_name = 'Customer' AND field_name = 'legacyId';

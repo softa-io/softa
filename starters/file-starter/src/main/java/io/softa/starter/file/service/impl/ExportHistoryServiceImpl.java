@@ -26,7 +26,7 @@ public class ExportHistoryServiceImpl extends EntityServiceImpl<ExportHistory, L
                 .where(new Filters()
                         .eq(ExportHistory::getCreatedId, userId)
                         .eq(ExportHistory::getModelName, modelName))
-                .orderBy(Orders.ofDesc(ExportHistory::getCreatedTime))
+                .orderBy(Orders.ofDesc(ExportHistory::getId))
                 .setConvertType(ConvertType.REFERENCE);
         return this.modelService.searchList(this.modelName, flexQuery);
     }

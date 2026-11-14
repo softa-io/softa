@@ -11,7 +11,6 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  * the resolved execution state, compiled definition, pending approval, compiled node,
  * and the status snapshotted before the action runs.
  *
- * @see FlowActionContextService#loadApprovalContext(String, String)
  * @see FlowActionContextService#loadApprovalContext(String, String, String)
  */
 public record ApprovalContext(FlowExecutionState state,

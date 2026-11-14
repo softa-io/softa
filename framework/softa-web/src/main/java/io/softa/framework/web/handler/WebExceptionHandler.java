@@ -1,6 +1,8 @@
 package io.softa.framework.web.handler;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ValidationException;
@@ -26,6 +28,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BaseException;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.framework.base.i18n.I18n;
 import io.softa.framework.web.response.ApiResponse;
@@ -39,7 +42,9 @@ import io.softa.framework.web.response.ApiResponseErrorDetails;
  * "message": category label of the response code,
  * "data": optional error payload,
  * "error": user-facing error message (i18n-resolved),
- * "traceId": server-side trace ID for log correlation
+ * "traceId": server-side trace ID for log correlation,
+ * "errorCode": stable machine-readable reason, only when the exception carries one,
+ * "errorDetails": values accompanying errorCode, only when present
  * }
  */
 @Slf4j
@@ -96,6 +101,11 @@ public class WebExceptionHandler {
         } else {
             log.error(logMessage, e);
         }
+        if (e instanceof BaseException baseE && baseE.getErrorCode() != null) {
+            ApiResponseErrorDetails<Void> response = ApiResponseErrorDetails.exception(responseCode, exceptionMessage)
+                    .withErrorCode(baseE.getErrorCode(), baseE.getErrorDetails());
+            return new ResponseEntity<>(response, HttpStatus.OK);
+        }
         return wrapResponse(responseCode, exceptionMessage);
     }
 
@@ -129,6 +139,25 @@ public class WebExceptionHandler {
     @ExceptionHandler(value = BaseException.class)
     public ResponseEntity<ApiResponse<Void>> handleException(BaseException e) {
         return handler(e.getResponseCode(), e);
+    }
+
+    /**
+     * A refusal that names fields carries them as {@code fieldErrors}: those sentences are written for
+     * the user, where the message of any other refusal is detail for the server log. Logged and coded
+     * like every other permission refusal.
+     *
+     * @param e Exception
+     * @return ResponseEntity
+     */
+    @ExceptionHandler(value = PermissionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(PermissionException e) {
+        ResponseEntity<ApiResponse<Void>> response = handler(e.getResponseCode(), e);
+        if (e.getFieldErrors() == null || e.getFieldErrors().isEmpty()) {
+            return response;
+        }
+        ApiResponseErrorDetails<Void> body = (ApiResponseErrorDetails<Void>) response.getBody();
+        body.setFieldErrors(e.getFieldErrors());
+        return response;
     }
 
     /**
@@ -228,6 +257,9 @@ public class WebExceptionHandler {
      * Handle MethodArgumentNotValidException
      * Each message is written as {@code field: message}, the form a refused write uses too:
      * a default message such as "must not be blank" does not say which field it is about.
+     * The body also carries {@code fieldErrors}, field → message, as a refused write does, so a form can
+     * put each sentence on its control instead of showing the joined text; when a field has several
+     * messages the first is kept.
      *
      * @param e Exception
      * @return All the validation error messages.
@@ -235,14 +267,20 @@ public class WebExceptionHandler {
     @ExceptionHandler(value = MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleException(MethodArgumentNotValidException e) {
         StringBuilder errorMessage = new StringBuilder();
+        Map<String, String> byField = new LinkedHashMap<>();
         List<FieldError> fieldErrors = e.getBindingResult().getFieldErrors();
         for (FieldError fieldError : fieldErrors) {
             if (!errorMessage.isEmpty()) {
                 errorMessage.append("; ");
             }
             errorMessage.append(fieldError.getField()).append(": ").append(fieldError.getDefaultMessage());
+            byField.putIfAbsent(fieldError.getField(), fieldError.getDefaultMessage());
         }
-        return handler(ResponseCode.BAD_REQUEST, e, "Validation Error: " + errorMessage);
+        ResponseEntity<ApiResponse<Void>> response = handler(ResponseCode.BAD_REQUEST, e, "Validation Error: " + errorMessage);
+        if (response.getBody() instanceof ApiResponseErrorDetails<Void> details && !byField.isEmpty()) {
+            details.setFieldErrors(byField);
+        }
+        return response;
     }
 
     /**

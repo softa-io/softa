@@ -18,7 +18,6 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
  * @see ApiTrigger
  * @see CronTrigger
  * @see SubflowTrigger
- * @see FieldChangeTrigger
  * @see SubmitTrigger
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
@@ -27,18 +26,25 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @Type(value = ApiTrigger.class,          name = "Api"),
         @Type(value = CronTrigger.class,         name = "Cron"),
         @Type(value = SubflowTrigger.class,      name = "Subflow"),
-        @Type(value = FieldChangeTrigger.class,  name = "FieldChange"),
         @Type(value = SubmitTrigger.class,       name = "Submit"),
 })
 public sealed interface TriggerSource
-        permits EntityChangeTrigger, ApiTrigger, CronTrigger,
-                SubflowTrigger, FieldChangeTrigger, SubmitTrigger {
+        permits EntityChangeTrigger, ApiTrigger, CronTrigger, SubflowTrigger, SubmitTrigger {
 
     /**
-     * The model of the record the flow starts on — whose fields its route rules read — or null for a
-     * start that carries no record. The record triggers' {@code modelName} component answers it.
+     * The model of the record the flow starts on — whose fields its variables and route rules read — or null for a
+     * start that carries no record. The record triggers' {@code modelName} component answers it: what a flow starts
+     * on is part of how it starts, so a flow touching several models names none of them as its own.
      */
     default String modelName() {
         return null;
+    }
+
+    /**
+     * Whether a trigger of this kind starts the flow on a record — a submission, a change, a field change — and so
+     * must name the record's model. A schedule, an API call or a parent flow carries no record.
+     */
+    default boolean onRecord() {
+        return false;
     }
 }

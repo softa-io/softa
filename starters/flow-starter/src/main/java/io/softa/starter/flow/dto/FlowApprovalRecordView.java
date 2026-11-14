@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.starter.flow.runtime.state.AddSignPosition;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
@@ -43,12 +42,6 @@ public class FlowApprovalRecordView {
     @Schema(description = "Primary node label")
     private String nodeLabel;
 
-    @Schema(description = "Approval task cycle number associated with the record when applicable")
-    private Integer cycleNumber;
-
-    @Schema(description = "Task id when the record is attached to one task row")
-    private Long taskId;
-
     @Schema(description = "Monotonic runtime sequence within one instance")
     private Integer sequence;
 
@@ -58,15 +51,18 @@ public class FlowApprovalRecordView {
     @Schema(description = "Operator actor id")
     private String actorId;
 
+    @Schema(description = "The actor's name, on an instance's history; null when no one acted (an automatic approval)")
+    private String actorName;
+
     @Schema(description = "Target actor id")
     private String targetActorId;
+
+    @Schema(description = "The target actor's name, on an instance's history")
+    private String targetActorName;
 
     @Schema(description = "Who did it on the actor's behalf: an administrator who reassigned the actor's task; "
             + "null when the actor acted themselves")
     private String operatorId;
-
-    @Schema(description = "Add-sign position when the record represents an add-sign action")
-    private AddSignPosition addSignPosition;
 
     @Schema(description = "Comment")
     private String comment;
@@ -79,9 +75,6 @@ public class FlowApprovalRecordView {
 
     @Schema(description = "Actors who had already approved")
     private List<String> approvedActors;
-
-    @Schema(description = "Actors who had already rejected")
-    private List<String> rejectedActors;
 
     @Schema(description = "Recorded time")
     private LocalDateTime eventTime;

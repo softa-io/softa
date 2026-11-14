@@ -13,6 +13,7 @@ import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.SpringContextUtils;
 import io.softa.framework.base.utils.StringTools;
+import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.enums.AccessType;
@@ -44,7 +45,10 @@ public class ExportDataFetcher {
         assertMayExport(modelName);
         Page<Map<String, Object>> page = Page.ofCursorPage(BaseConstant.MAX_BATCH_SIZE);
         List<Map<String, Object>> exportedRows = new ArrayList<>();
+        // searchPage writes the access-scoped filters back into the query: each page starts from the export's own.
+        Filters exportFilters = flexQuery.getFilters();
         do {
+            flexQuery.setFilters(exportFilters);
             Page<Map<String, Object>> current = page;
             page = AccessScope.callAs(AccessType.EXPORT, modelName, () -> modelService.searchPage(modelName, flexQuery, current));
             if (!page.getRows().isEmpty()) {

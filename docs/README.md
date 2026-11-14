@@ -20,7 +20,7 @@ proposals were retired pre-production). The operating rules are:
 |---|---|---|
 | **Module README** | API surface, configuration, usage examples, behavioral invariants, known limitations | `<module>/README.md` |
 | **AI agent guidance** | Copy-paste guides for AI agents, split by audience | `docs/ai/**` — `authoring/` (downstream apps) · `framework/` (this repo) · `studio-no-code.md` |
-| **Migration ledger** | The ordered ledger of hand-run migrations; each file's header comment carries its context, variants, and run-before-boot ordering contract | `deploy/migrations/<db>/V<N>__<slug>.sql` (the version-numbered listing *is* the ledger) |
+| **Migration notes** | For a change that needs hand-run SQL: what the SQL must do to stored data, its variants, and when it runs (before or after the new jar boots). Softa keeps no migration files — the deploying app ships the SQL with its release | The PR description + the README of the module the change touches |
 | **Top-level agent guidance** | What an AI / new contributor needs to operate the repo | `CLAUDE.md` / `AGENTS.md` |
 
 ## Decision tree — which doc should I write?
@@ -39,15 +39,17 @@ I have a code change to land
   │         module READMEs it touches). No separate decision document.
   │
   ├── DB schema or data change
-  │       → additive structure is annotation-only (scanner self-applies) —
-  │         EXCEPT new columns on the sys_*/design_* catalog tables
-  │         themselves: the strict catalog read runs before any auto-DDL,
-  │         so those always ship a migration (run before the patched
-  │         binary boots). SQL is otherwise only for data transformation /
-  │         destruction / non-scanner-owned rows.
-  │         If SQL is needed: deploy/migrations/<db>/V<N>__<slug>.sql —
-  │         the next free number is the registration; put context, variants
-  │         and ordering contract in the header comment (copy V34's shape)
+  │       → additive structure is annotation-only (scanner self-applies),
+  │         the sys_* catalog tables included: they reconcile from their own
+  │         annotations before the strict catalog read, so a new catalog
+  │         column needs no migration. SQL is only for data transformation
+  │         (backfill UPDATE, stored-code rename) / destruction or renames
+  │         the scanner can't do / non-scanner-owned rows — and for every
+  │         change on a checker-only (empty scanner-scope) environment.
+  │         If SQL is needed: softa keeps no migration files — state the
+  │         transition, its variants and when it runs (before or after the
+  │         new jar boots) in the PR and the module README; the deploying
+  │         app ships the script with its release.
   │         There is no tracked DDL baseline to mirror any more — fresh
   │         databases self-bootstrap (catalog reconcile + ["*"] scanner), and a
   │         reference DDL is generated on demand (MetadataBaselineDdlGenerator)

@@ -13,7 +13,8 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
  * and return them as a list (fail-late), rather than throwing on the first error.
  * {@link io.softa.starter.flow.compiler.DefaultFlowCompiler} aggregates the lists from
  * all validators and throws a single {@link io.softa.starter.flow.api.FlowCompileException}
- * if any diagnostics are present.</p>
+ * if any of them is an error; a {@link CompileDiagnostic.Severity#WARNING warning} is advice
+ * the editor shows and does not stop a publish.</p>
  */
 @FunctionalInterface
 public interface FlowValidator {

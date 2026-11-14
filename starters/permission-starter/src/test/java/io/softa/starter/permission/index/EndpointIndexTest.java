@@ -110,6 +110,47 @@ class EndpointIndexTest {
                 .hasMessageContaining("blank");
     }
 
+    // ─── custom write endpoints ───
+
+    @Test
+    void customWritePermissions_listTheWritesNoStandardEndpointCovers() {
+        // A contract saved through endpoints of its own: who writes it, asked before the save.
+        EndpointIndex idx = build(List.of(
+                explicit("contract.edit", "POST /Contract/upload", "POST /Contract/stageFile"),
+                explicit("contract.view", "POST /Contract/searchList", "GET /Contract/preview"),
+                explicit("contract.update", "POST /Contract/updateOne"),
+                explicit("signing.resend", "POST /document-signing/resend")));
+
+        assertThat(idx.customWritePermissions("Contract")).containsExactly("contract.edit");
+        assertThat(idx.customWritePermissions("Employee")).isEmpty();
+    }
+
+    @Test
+    void customWritePermissions_leaveOutWhatIsNamedAsARead() {
+        // Reads travel as POST too: previewing a file or searching by a custom path chooses no company.
+        EndpointIndex idx = build(List.of(
+                explicit("bank.preview", "POST /BankFile/preview"),
+                explicit("bank.search", "POST /BankFile/searchByEmployee", "POST /BankFile/countByBatch"),
+                explicit("bank.export", "POST /BankFile/exportPdf", "POST /BankFile/getTotals"),
+                explicit("bank.item", "POST /BankFile/{id}/preview"),
+                explicit("bank.submit", "POST /BankFile/submit")));
+
+        assertThat(idx.customWritePermissions("BankFile")).containsExactly("bank.submit");
+    }
+
+    @Test
+    void namedAsRead_wantsAWholeWord() {
+        assertThat(EndpointIndex.namedAsRead("POST /BankFile/preview")).isTrue();
+        assertThat(EndpointIndex.namedAsRead("POST /BankFile/previewContinuousServiceDate")).isTrue();
+        // First letters are not the verb, and a verb later in the name is not what the endpoint does.
+        assertThat(EndpointIndex.namedAsRead("POST /Mq/listenAgain")).isFalse();
+        assertThat(EndpointIndex.namedAsRead("POST /Mq/getaway")).isFalse();
+        assertThat(EndpointIndex.namedAsRead("POST /Mail/resendPreview")).isFalse();
+        // Writes whose names begin like a read, which is why these two are not read verbs.
+        assertThat(EndpointIndex.namedAsRead("POST /Attendance/checkIn")).isFalse();
+        assertThat(EndpointIndex.namedAsRead("POST /MailReceiveRecord/fetch")).isFalse();
+    }
+
     // ─── lookup: exact-index hits ───
 
     @Test

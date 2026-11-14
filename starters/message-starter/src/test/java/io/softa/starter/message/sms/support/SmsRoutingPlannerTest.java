@@ -76,7 +76,6 @@ class SmsRoutingPlannerTest {
         when(dispatcher.resolveRegion("+14155550100")).thenReturn("US");
         when(dispatcher.resolveProviders("+14155550100")).thenReturn(List.of(twilio));
         when(bindingService.findByTemplateId(10L)).thenReturn(List.of());
-        when(bindingService.findPlatformBindingsByTemplateId(10L)).thenReturn(List.of());
 
         SmsRoutingPlanner.Plan plan = planner.plan(routingRequest(dto, template));
 

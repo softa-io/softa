@@ -18,10 +18,13 @@ import io.softa.starter.user.entity.RoleNavigation;
 import io.softa.starter.user.entity.RoleSensitiveFieldSet;
 import io.softa.starter.user.entity.UserRoleRel;
 import io.softa.starter.user.enums.UserRoleSource;
+import io.softa.starter.user.service.DepartmentGrants;
 import io.softa.starter.user.service.DynamicRoleSyncJob;
 import io.softa.starter.user.service.RoleDataScopeService;
 import io.softa.starter.user.service.RoleGrantCeiling;
+import io.softa.starter.user.service.RoleTenantFacingGuard;
 import io.softa.starter.user.service.RoleNavigationService;
+import io.softa.starter.user.service.RoleSaveValidator;
 import io.softa.starter.user.service.RoleSensitiveFieldSetService;
 import io.softa.starter.user.service.RoleService;
 import io.softa.starter.user.service.UserRoleRelService;
@@ -31,6 +34,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +50,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * Role controller — mapped under {@code /Role} to share the generic model
@@ -78,6 +84,14 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     private final DynamicRoleSyncJob dynamicRoleSyncJob;
     private final UiContextBuilder uiContextBuilder;
     private final RoleGrantCeiling roleGrantCeiling;
+    private final RoleTenantFacingGuard roleTenantFacingGuard;
+
+    /**
+     * The application's own rules on what a role may be saved as, in {@code @Order}; none by default.
+     * Field-injected and optional so that an application implementing none needs nothing.
+     */
+    @Autowired(required = false)
+    List<RoleSaveValidator> roleSaveValidators = List.of();
 
     @Override
     protected String modelName() {
@@ -131,6 +145,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
     @Transactional
     @Operation(summary = "Wizard create — insert Role + role_navigation + user_role rows (Manual + Dynamic) in one transaction; returns new role id")
     public ApiResponse<Long> createWithWizard(@RequestBody @Valid WizardSaveDTO body) {
+        roleTenantFacingGuard.assertTenantFacing(null, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(null);
         dynamicRoleSyncJob.assertRuleSeenByCaller(role.getDynamicFilter());
@@ -140,6 +155,7 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         writeRoleSensitiveFieldSets(newId, body.roleSensitiveFieldSetIds());
         // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
         roleGrantCeiling.assertWithinCaller(newId);
+        assertSaveAllowed(newId, true);
         RoleGrantCeiling.withRoleCleared(newId, () -> writeManualUserRoleRels(newId, body.userIds()));
         // Inline DYNAMIC sync — same in-transaction guarantee. The cron
         // job covers the in-between drift (employee data changes between
@@ -155,6 +171,12 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         // Before anything is rewritten: when the caller holds this role, it is the role as it was that
         // bounds what the role may become.
         List<RoleGrantCeiling.Grants> callerBefore = roleGrantCeiling.callerGrants();
+        // The role as it was too: what the save merely keeps on it is not judged as something new it grants.
+        RoleGrantCeiling.Grants roleBefore = roleGrantCeiling.roleGrants(id);
+        // Who holds it now, and by what rule: a save that gives the role to anyone new is an assignment.
+        Set<Long> membersBefore = memberIdsOf(id);
+        JsonNode dynamicFilterBefore = roleService.getById(id).map(Role::getDynamicFilter).orElse(null);
+        roleTenantFacingGuard.assertTenantFacing(id, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
         // A rule left as it was passes: it was judged when it was written, and a narrower manager
@@ -173,10 +195,15 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         // ModelService.updateOne, which writes whatever keys are in the
         // map regardless of their value, so the SQL becomes a literal
         // `SET dynamic_filter = NULL`.
-        if (isExplicitNull(body.roleUpdate(), "dynamicFilter")) {
+        // The department grant is cleared the same way — back to "not configured", unrestricted, which
+        // is a different statement from [] (no department) and has to be writable as such.
+        boolean clearFilter = isExplicitNull(body.roleUpdate(), "dynamicFilter");
+        boolean clearDepartments = isExplicitNull(body.roleUpdate(), DepartmentGrants.FIELD);
+        if (clearFilter || clearDepartments) {
             Map<String, Object> clearFields = new HashMap<>();
             clearFields.put("id", id);
-            clearFields.put("dynamicFilter", null);
+            if (clearFilter) clearFields.put("dynamicFilter", null);
+            if (clearDepartments) clearFields.put(DepartmentGrants.FIELD, null);
             modelService.updateOne("Role", clearFields);
         }
         roleNavigationService.deleteByFilters(new Filters().eq(RoleNavigation::getRoleId, id));
@@ -188,8 +215,14 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         writeRoleDataScopes(id, body.roleDataScopes());
         roleSensitiveFieldSetService.deleteByFilters(new Filters().eq(RoleSensitiveFieldSet::getRoleId, id));
         writeRoleSensitiveFieldSets(id, body.roleSensitiveFieldSetIds());
-        // Judged on what was written, inside this transaction: a refusal rolls the whole save back.
-        roleGrantCeiling.assertWithinCaller(id, callerBefore);
+        // Judged on what was written, inside this transaction: a refusal rolls the whole save back. A save that
+        // keeps the members judges only what it adds to the role; one that gives the role to someone new — a
+        // member named, or the rule picking members changed — judges all of it, as an assignment does.
+        boolean newMembers = !membersBefore.containsAll(JsonArrayUtils.toLongList(body.userIds()))
+                || !Objects.equals(dynamicFilterBefore,
+                        roleService.getById(id).map(Role::getDynamicFilter).orElse(null));
+        roleGrantCeiling.assertWithinCaller(id, callerBefore, newMembers ? null : roleBefore);
+        assertSaveAllowed(id, false);
         // Wipe ALL existing user_role rows for this role — both Manual and
         // Dynamic — then rebuild from scratch. By application convention
         // there's at most one row per (user, role): Manual takes precedence,
@@ -255,7 +288,42 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         if (active != null && !active.isNull()) role.setActive(active.asBoolean());
         JsonNode dynamicFilter = payload.get("dynamicFilter");
         if (dynamicFilter != null && !dynamicFilter.isNull()) role.setDynamicFilter(dynamicFilter);
+        JsonNode departmentGrant = payload.get(DepartmentGrants.FIELD);
+        if (departmentGrant != null && !departmentGrant.isNull()) {
+            role.setDepartmentGrant(parseDepartmentGrant(departmentGrant));
+        }
         return role;
+    }
+
+    /**
+     * The role's department grant from the wizard payload, refused unless it is one the runtime reads
+     * the way it reads: {@code ALL}, or department subtrees with fixed roots and conditions worked out for the
+     * holder, possibly none — see {@link DepartmentGrants}. Absent from the payload leaves the stored grant as it is, so a client
+     * that does not know the grant does not wipe it; an explicit null clears it ({@link #saveWizard}).
+     *
+     * <p>Refused outright where the role model does not declare the column: the value would be dropped
+     * on the way to the database and the role saved as unrestricted, which is the one outcome the
+     * person writing a department grant did not ask for.
+     */
+    private static JsonNode parseDepartmentGrant(JsonNode departmentGrant) {
+        if (!DepartmentGrants.declared()) {
+            throw new BusinessException("Department grants are not available in this application.");
+        }
+        DepartmentGrants.validate(departmentGrant);
+        return departmentGrant;
+    }
+
+    /**
+     * Run the application's {@link RoleSaveValidator}s on the role just written; the first refusal is
+     * thrown as the save's error and rolls it back.
+     */
+    private void assertSaveAllowed(Long roleId, boolean created) {
+        for (RoleSaveValidator validator : roleSaveValidators) {
+            validator.validate(roleId, created).ifPresent(reason -> {
+                // As an argument, not the pattern: the application's sentence is shown as written.
+                throw new BusinessException("{0}", reason);
+            });
+        }
     }
 
     /** Inserts one user_role row per id in the wizard payload with source=MANUAL.
@@ -264,6 +332,17 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
      *  UserAccount ids arrive as JSON strings (frontend serializes all ids as
      *  string per type convention) but may be numbers in tests — {@link
      *  JsonArrayUtils#toLongList} accepts both. */
+    /** The users holding {@code roleId}, by any source. */
+    private Set<Long> memberIdsOf(Long roleId) {
+        Set<Long> members = new java.util.HashSet<>();
+        for (UserRoleRel rel : userRoleRelService.searchList(new Filters().eq(UserRoleRel::getRoleId, roleId))) {
+            if (rel.getUserId() != null) {
+                members.add(rel.getUserId());
+            }
+        }
+        return members;
+    }
+
     private void writeManualUserRoleRels(Long roleId, JsonNode idsJson) {
         java.util.Set<Long> userIds = new java.util.LinkedHashSet<>(JsonArrayUtils.toLongList(idsJson));
         if (userIds.isEmpty()) return;
@@ -298,7 +377,10 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleNavigationService.createList(rows);
     }
 
-    /** Writes one role_data_scope row per {@code {model, dataScopes, scopeCondition?}} entry
+    /** The wizard's entry field exempting a model from the department grant. */
+    private static final String DEPARTMENT_EXEMPT = "departmentGrantExempt";
+
+    /** Writes one role_data_scope row per {@code {model, dataScopes, scopeCondition?, departmentGrantExempt?}} entry
      *  (one per queryable model). Entries without a model are skipped; a condition without any
      *  rule is refused.
      *  Incoming id/roleId ignored — id auto-assigned, roleId bound by caller. */
@@ -322,6 +404,14 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
                     throw new BusinessException("An additional condition needs at least one scope rule.");
                 }
                 rds.setScopeCondition(condition);
+            }
+            JsonNode exempt = row.get(DEPARTMENT_EXEMPT);
+            if (exempt != null && exempt.asBoolean(false)) {
+                if (!DepartmentGrants.bounds(rds.getModel())) {
+                    throw new BusinessException("Only a model whose records belong to a department can be exempt "
+                            + "from Department access.");
+                }
+                rds.setDepartmentGrantExempt(true);
             }
             rows.add(rds);
         }

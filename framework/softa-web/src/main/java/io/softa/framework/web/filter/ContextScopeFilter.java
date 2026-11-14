@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,7 @@ import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BaseException;
 import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.file.FileOpenKeys;
 import io.softa.framework.web.enums.IdentifyType;
 import io.softa.framework.web.filter.context.ContextBuilder;
 import io.softa.framework.web.filter.context.IdentityResolver;
@@ -51,10 +53,19 @@ public class ContextScopeFilter implements Filter {
                 Context userContext = contextBuilder.buildUserContext(httpReq);
                 runInScope(userContext, request, response, chain);
             } catch (UserNotFoundException e) {
+                if (opensAFile(httpReq)) {
+                    noSessionForFile(httpRes);
+                    return;
+                }
                 // Must-login endpoint but no user => legacy behavior: USER_NOT_FOUND JSON
                 log.warn("UserNotFoundException: {}", e.getMessage());
-                this.userNotFound(httpRes, e.getMessage());
+                this.userNotFound(httpRes, e);
             } catch (BaseException e) {
+                if (opensAFile(httpReq)) {
+                    log.warn("Failed to build user context for a file key: {}", e.getMessage());
+                    noSessionForFile(httpRes);
+                    return;
+                }
                 log.error("Failed to build user context", e);
                 this.responseError(httpRes, e.getResponseCode(), e.getMessage());
             }
@@ -114,25 +125,58 @@ public class ContextScopeFilter implements Filter {
      *
      * @param response the HTTP response
      */
-    private void userNotFound(HttpServletResponse response, String message) {
+    private void userNotFound(HttpServletResponse response, UserNotFoundException e) {
         try {
-            ApiResponse<Void> redirectResponse = ApiResponse.error(ResponseCode.USER_NOT_FOUND, message);
-            String jsonResponse = JsonUtils.objectToString(redirectResponse);
-            response.setStatus(HttpServletResponse.SC_OK);
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            response.getWriter().write(jsonResponse);
-        } catch (IOException e) {
-            log.error("User not found", e);
+            // Same code and message as ever, so a client that only knows "410 → log in again" keeps
+            // working; errorCode tells a newer client WHICH of the two it is — the session is gone
+            // (SESSION_EXPIRED), or only this organisation is (ORG_UNAVAILABLE).
+            ApiResponseErrorDetails<Void> redirectResponse =
+                    ApiResponseErrorDetails.exception(ResponseCode.USER_NOT_FOUND, e.getMessage())
+                            .withErrorCode(e.getErrorCode(), e.getErrorDetails());
+            redirectResponse.setMessage(e.getMessage());
+            writeError(response, redirectResponse);
+        } catch (IOException io) {
+            log.error("User not found", io);
         }
+    }
+
+    /**
+     * Whether the request opens a user file key ({@code /file/open/...}, see {@code FileOpenKeys}): an
+     * address an img, an iframe, a download or a new tab opens by itself — never the API client that
+     * reads the JSON envelope.
+     */
+    static boolean opensAFile(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return path != null && path.startsWith(request.getContextPath() + FileOpenKeys.USER_PATH);
+    }
+
+    /**
+     * No usable session where a file key is opened: answer in HTTP terms. The envelope every other
+     * refusal here uses — HTTP 200, the error in a JSON body — would be saved by a download as the file
+     * itself, under the file's own name; an image just breaks either way.
+     */
+    static void noSessionForFile(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        response.setContentType("text/plain;charset=UTF-8");
+        response.getWriter().write("Your session has ended. Sign in again, then open the file from its page.");
     }
 
     /**
      * Send error response as JSON.
      */
     private void responseError(HttpServletResponse response, ResponseCode code, String message) throws IOException {
+        writeError(response, ApiResponseErrorDetails.exception(code, message));
+    }
+
+    /**
+     * Write an error the way a filter answers before any controller runs: HTTP 200 with the error in
+     * the JSON body, as the exception handler does for a controller. For other filters that refuse a
+     * request, so every refusal reaches the client in one shape.
+     */
+    public static void writeError(HttpServletResponse response, ApiResponseErrorDetails<?> body) throws IOException {
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        ApiResponseErrorDetails<Void> apiResponse = ApiResponseErrorDetails.exception(code, message);
-        response.getWriter().write(JsonUtils.objectToString(apiResponse));
+        response.getWriter().write(JsonUtils.objectToString(body));
     }
 }

@@ -66,7 +66,7 @@ class ManualCcScenarioTest {
 
         List<ApprovalActionAuditEntry> ccs = ccsBy(state, FIRST);
         assertEquals(List.of("cc-1", "cc-2"), targets(ccs));
-        assertTrue(ccs.stream().allMatch(entry -> "approval".equals(entry.getNodeId()) && entry.getCycleNumber() == 1));
+        assertTrue(ccs.stream().allMatch(entry -> "approval".equals(entry.getNodeId())));
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus(), "a CC changes nobody's task");
         assertTrue(FlowParticipants.isParticipant(state, state.getApprovalAuditDelta(), "cc-2"));
         assertEquals(List.of(List.of("cc-1", "cc-2")),
@@ -118,12 +118,12 @@ class ManualCcScenarioTest {
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Manual CC")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approvers", List.of(FIRST, SECOND), "approvalMode", approvalMode))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(FIRST, SECOND))), "approvalMode", approvalMode))
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(

@@ -27,8 +27,9 @@ import io.softa.starter.es.document.ChangeLogDocument;
  * <p>
  * The subscription is Shared, so every replica takes messages off the topic; under the former
  * default (Exclusive) a second replica failed to boot. Each log is indexed as its own document,
- * so the order the replicas process messages in does not matter. The one-time switch needs a
- * stop-then-start release; see {@code MailSendConsumer}.
+ * so the order the replicas process messages in does not matter. Switching an existing deployment
+ * from Exclusive needs one stop-then-start release: Pulsar refuses a Shared consumer while an
+ * Exclusive one is still attached.
  */
 @Slf4j
 @Component

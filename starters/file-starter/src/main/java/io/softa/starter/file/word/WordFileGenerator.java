@@ -16,6 +16,7 @@ import org.docx4j.openpackaging.packages.WordprocessingMLPackage;
 import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
+import io.softa.framework.base.utils.DateUtils;
 
 /**
  * Word document file generator.
@@ -35,6 +36,10 @@ public final class WordFileGenerator {
         // Register LoopRowTableRenderPolicy for OneToMany dynamic table row looping.
         // Use {{#fieldName}} in Word templates to render a list as looping table rows.
         builder.addPlugin('#', new LoopRowTableRenderPolicy());
+        // Print a date or time as the API writes it (yyyy-MM-dd HH:mm:ss) rather than as its ISO
+        // toString(). Applied to the value of every tag, looping table rows included, after any
+        // expression in the tag has been evaluated.
+        builder.addPreRenderDataCastor((policy, data) -> DateUtils.formatTemporal(data));
         CONFIGURE = builder.build();
     }
 

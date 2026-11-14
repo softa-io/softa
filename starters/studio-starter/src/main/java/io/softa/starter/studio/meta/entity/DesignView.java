@@ -19,7 +19,8 @@ import io.softa.framework.orm.enums.ViewType;
 @Model(idStrategy = IdStrategy.DISTRIBUTED_LONG,
         // hard delete (no softDelete) so a re-created view never collides with a soft-deleted row that
         // still occupies the {modelName, code} business key — consistent with the other design_* models.
-        businessKey = {"modelName", "code"})
+        businessKey = {"modelName", "code"},
+        defaultOrder = {"modelName", "sequence"})
 public class DesignView extends AuditableModel {
 
     @Serial

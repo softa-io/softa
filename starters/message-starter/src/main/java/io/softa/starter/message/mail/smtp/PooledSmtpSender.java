@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 
-import io.softa.starter.message.mail.entity.MailSendServerConfig;
+import io.softa.starter.message.mail.entity.AbstractMailSendServer;
 import io.softa.starter.message.mail.enums.SendProtocol;
 
 /**
@@ -24,8 +24,8 @@ import io.softa.starter.message.mail.enums.SendProtocol;
  * lends an idle connection (or opens one), and {@code close()} hands it back.
  * <p>
  * A connection returns to the idle set only after a clean send. One that saw
- * any failure, carried {@code maxMessagesPerConnection} messages, or sat idle
- * past {@code idleTimeout} is closed instead. An idle connection is probed with
+ * any failure, carried {@link #MAX_MESSAGES_PER_CONNECTION} messages, or sat idle
+ * past {@link #IDLE_TIMEOUT} is closed instead. An idle connection is probed with
  * {@code NOOP} before it is lent (that is what {@code SMTPTransport.isConnected()}
  * does), so a connection the server has closed costs one round trip, not a
  * failed send. The short idle timeout is what keeps that probe away from a
@@ -40,6 +40,19 @@ import io.softa.starter.message.mail.enums.SendProtocol;
  */
 @Slf4j
 class PooledSmtpSender extends JavaMailSenderImpl {
+
+    /**
+     * An idle connection older than this is closed instead of reused. Well below the idle cut-off of
+     * any NAT or load balancer on the path to the SMTP server (typically minutes): a connection one of
+     * those dropped silently would only answer the reuse probe with a read timeout.
+     */
+    static final Duration IDLE_TIMEOUT = Duration.ofSeconds(30);
+
+    /**
+     * A connection is closed after carrying this many messages. Some servers cap messages per session;
+     * closing first avoids a failed send, and the retry it would cost, when the cap is hit.
+     */
+    static final int MAX_MESSAGES_PER_CONNECTION = 100;
 
     private final Key key;
     private final long idleTimeoutNanos;
@@ -129,7 +142,7 @@ class PooledSmtpSender extends JavaMailSenderImpl {
     record Key(SendProtocol protocol, String host, Integer port, String username, String password,
                boolean sslEnabled, boolean starttlsEnabled) {
 
-        static Key of(MailSendServerConfig config) {
+        static Key of(AbstractMailSendServer config) {
             return new Key(config.getProtocol(), config.getHost(), config.getPort(),
                     config.getUsername(), config.getPassword(),
                     Boolean.TRUE.equals(config.getSslEnabled()),

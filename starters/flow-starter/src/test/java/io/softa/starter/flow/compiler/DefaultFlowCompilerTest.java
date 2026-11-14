@@ -1,23 +1,22 @@
 package io.softa.starter.flow.compiler;
 
-import io.softa.starter.flow.api.CompileDiagnostic;
-import io.softa.starter.flow.api.FlowCompileException;
-
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+import io.softa.starter.flow.api.CompileDiagnostic;
+import io.softa.starter.flow.api.FlowCompileException;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
-import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
-import io.softa.starter.flow.enums.*;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.VoteThresholdMode;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
-import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -26,22 +25,22 @@ class DefaultFlowCompilerTest {
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
 
     @Test
-    void shouldCompileApprovalFlowWithPostApprovalAutomation() {
+    void shouldCompileApprovalFlowOfTwoSteps() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Leave Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
                                 node("managerApproval", FlowNodeType.APPROVAL),
-                                callServiceNode("syncLeaveBalance"),
+                                node("hrApproval", FlowNodeType.APPROVAL),
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
                                 edge("e1", "start", "managerApproval"),
-                                edge("e2", "managerApproval", "syncLeaveBalance"),
-                                edge("e3", "syncLeaveBalance", "end")
+                                edge("e2", "managerApproval", "hrApproval"),
+                                edge("e3", "hrApproval", "end")
                         ))
                         .build())
                 .build();
@@ -49,11 +48,7 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
         assertEquals(List.of("start"), compiled.getEntryNodeIds());
-        assertEquals(List.of("end"), compiled.getTerminalNodeIds());
-        assertEquals(List.of("start", "managerApproval", "syncLeaveBalance", "end"), compiled.getTopologicalOrder());
         assertEquals(FlowScenario.APPROVAL, compiled.getScenario());
-        assertFalse(compiled.getCapabilitySummary().isHasSubflow());
-        assertFalse(compiled.getCapabilitySummary().isHasParallelGateway());
     }
 
     @Test
@@ -86,18 +81,16 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
         assertEquals(List.of("start"), compiled.getEntryNodeIds());
-        assertTrue(compiled.getCapabilitySummary().isHasSubflow());
-        assertTrue(compiled.getCapabilitySummary().isHasParallelGateway());
         assertEquals(6, compiled.getNodeIndex().size());
         assertEquals(6, compiled.getTransitionIndex().size());
     }
 
     @Test
-    void shouldRejectApprovalNodeInComputeScenario() {
+    void shouldRejectApprovalNodeInAutomationScenario() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Compute With Approval")
-                .scenario(FlowScenario.COMPUTE)
-                .trigger(new FieldChangeTrigger())
+                .name("Automation With Approval")
+                .scenario(FlowScenario.AUTOMATION)
+                .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -125,7 +118,7 @@ class DefaultFlowCompilerTest {
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                node("service", FlowNodeType.CALL_SERVICE),  // no config
+                                node("service", FlowNodeType.CALL_WEBHOOK),  // no config
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
@@ -136,7 +129,8 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> d.message().contains("must define config")));
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d ->
+                "MISSING_REQUIRED_INPUT".equals(d.code()) && "config.url".equals(d.field())));
     }
 
     @Test
@@ -169,17 +163,17 @@ class DefaultFlowCompilerTest {
                 .scenario(FlowScenario.APPROVAL)
                 .withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
                 .urgeEnabled(false)
-                .urgeIntervalMinutes(60)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .urgeIntervalHours(2)
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
-                                callServiceNode("service"),
+                                node("approval", FlowNodeType.APPROVAL),
                                 node("end", FlowNodeType.END)
                         ))
                         .edges(List.of(
-                                edge("e1", "start", "service"),
-                                edge("e2", "service", "end")
+                                edge("e1", "start", "approval"),
+                                edge("e2", "approval", "end")
                         ))
                         .build())
                 .build();
@@ -187,15 +181,16 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
         assertEquals(WithdrawPolicy.BEFORE_FIRST_ACTION, compiled.getWithdrawPolicy());
         assertEquals(false, compiled.getUrgeEnabled());
-        assertEquals(60, compiled.getUrgeIntervalMinutes());
+        assertEquals(2, compiled.getUrgeIntervalHours());
     }
 
     @Test
-    void shouldCompileApprovalNodeReturnPolicy() {
+    void shouldCompileTheFlowsReturnPolicy() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Returnable Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .returnEnabled(true)
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -203,8 +198,8 @@ class DefaultFlowCompilerTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        // A return always goes to the initiator: nothing else to configure.
-                                        .config(Map.of("returnEnabled", true))
+                                        // A step saved with its own switch before: ignored, the flow's decides.
+                                        .config(Map.of("returnEnabled", false, "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("1001")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -217,10 +212,9 @@ class DefaultFlowCompilerTest {
 
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
-        CompiledFlowNode approvalNode = compiled.getNodeIndex().get("approval");
-        ApprovalNodeConfig cfg = (ApprovalNodeConfig) approvalNode.getParsedConfig();
-        assertNotNull(cfg);
-        assertTrue(cfg.getReturnEnabled());
+        // A return always goes to the initiator: nothing else to configure.
+        assertTrue(compiled.getReturnEnabled());
+        assertNotNull(compiled.getNodeIndex().get("approval").getParsedConfig());
     }
 
     @Test
@@ -228,7 +222,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Unanimous Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -238,7 +232,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.UNANIMOUS,
-                                                "approvers", List.of("manager", "hr")))
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -260,7 +254,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Unanimous Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -280,7 +274,8 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> d.message().contains("Unanimous approval mode")));
+        // Naming nobody is what is wrong, whatever the mode: said once, as for any approval step.
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "MISSING_APPROVERS".equals(d.code())));
     }
 
     @Test
@@ -288,7 +283,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Min Count Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -298,7 +293,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
-                                                "approvers", List.of("manager", "hr"),
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr"))),
                                                 "minCount", 3))
                                         .build(),
                                 node("end", FlowNodeType.END)
@@ -319,7 +314,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Dynamic Min Count Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -330,9 +325,9 @@ class DefaultFlowCompilerTest {
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
-                                                "approverSource", Map.of(
-                                                        "type", "VariableList",
-                                                        "variable", "managerIds")))
+                                                "approverSources", List.of(Map.of(
+                                                        "type", "RoleQuery",
+                                                        "roleCodes", List.of("MANAGER")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -347,8 +342,9 @@ class DefaultFlowCompilerTest {
 
         assertEquals(VoteThresholdMode.MIN_COUNT, compiled.getNodeIndex().get("approval").getConfig().get("approvalMode"));
         assertEquals(2, compiled.getNodeIndex().get("approval").getConfig().get("minCount"));
-        assertEquals("VariableList",
-                ((Map<?, ?>) compiled.getNodeIndex().get("approval").getConfig().get("approverSource")).get("type"));
+        assertEquals("RoleQuery",
+                ((Map<?, ?>) ((List<?>) compiled.getNodeIndex().get("approval").getConfig().get("approverSources")).getFirst())
+                        .get("type"));
     }
 
     @Test
@@ -356,7 +352,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Percentage Approval")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -366,7 +362,7 @@ class DefaultFlowCompilerTest {
                                         .label("approval")
                                         .config(Map.of(
                                                 "approvalMode", VoteThresholdMode.PERCENTAGE,
-                                                "approvers", List.of("manager", "hr"),
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr"))),
                                                 "percentage", 0))
                                         .build(),
                                 node("end", FlowNodeType.END)
@@ -383,42 +379,14 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldRejectMinCountRejectModeWhenThresholdExceedsApprovers() {
+    void aRejectModeAStepWasSavedWithBeforeIsIgnored() {
+        // Two approvals of two beside two rejections of two used to deadlock, and three rejections of two to be
+        // refused. A rejection has no threshold any more — one rejects the approval — so the old settings compile and
+        // decide nothing.
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Invalid Min Count Reject")
+                .name("Old Reject Thresholds")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("approval")
-                                        .type(FlowNodeType.APPROVAL)
-                                        .label("approval")
-                                        .config(Map.of(
-                                                "approvers", List.of("manager", "hr"),
-                                                "rejectMode", VoteThresholdMode.MIN_COUNT,
-                                                "rejectMinCount", 3))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "approval"),
-                                edge("e2", "approval", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "config.rejectMinCount".equals(d.field())));
-    }
-
-    @Test
-    void shouldRejectDeadlockingApprovalAndRejectThresholds() {
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Deadlocking Thresholds")
-                .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -430,8 +398,8 @@ class DefaultFlowCompilerTest {
                                                 "approvalMode", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
                                                 "rejectMode", VoteThresholdMode.MIN_COUNT,
-                                                "rejectMinCount", 2,
-                                                "approvers", List.of("manager", "hr")))
+                                                "rejectMinCount", 3,
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -442,71 +410,7 @@ class DefaultFlowCompilerTest {
                         .build())
                 .build();
 
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "DEADLOCK_THRESHOLD".equals(d.code())));
-    }
-
-    @Test
-    void shouldRejectForEachNodeAsUnsupported() {
-        // FOR_EACH child-node iteration is not implemented by the runtime;
-        // it must be rejected at compile time so it can never publish and silently no-op.
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("ForEach Flow")
-                .scenario(FlowScenario.AUTOMATION)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("loop")
-                                        .type(FlowNodeType.FOR_EACH)
-                                        .label("loop")
-                                        .config(Map.of(
-                                                "collectionExpression", "{{ items }}",
-                                                "itemVariable", "item",
-                                                "childNodeIds", List.of("end")))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "loop"),
-                                edge("e2", "loop", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "UNSUPPORTED_NODE_TYPE".equals(d.code())));
-    }
-
-    @Test
-    void shouldRejectHumanTaskNodeAsUnsupported() {
-        // The runtime has no human-task wait (assignee resolution, completion API); the node
-        // must be rejected at compile time so it can never publish and fail at execution.
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Human Task Flow")
-                .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("confirm")
-                                        .type(FlowNodeType.HUMAN_TASK)
-                                        .label("confirm")
-                                        .config(Map.of("assigneeExpression", "{{ initiatorId }}"))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "confirm"),
-                                edge("e2", "confirm", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "UNSUPPORTED_NODE_TYPE".equals(d.code())));
+        assertDoesNotThrow(() -> compiler.compile(definition));
     }
 
     @Test
@@ -535,38 +439,6 @@ class DefaultFlowCompilerTest {
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
         assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "config.input.modelName".equals(d.field())));
-    }
-
-    @Test
-    void shouldRejectCallServiceWithMismatchedArgTypesArity() {
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Invalid ArgTypes")
-                .scenario(FlowScenario.AUTOMATION)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("svc")
-                                        .type(FlowNodeType.CALL_SERVICE)
-                                        .label("svc")
-                                        .config(Map.of("input", Map.of(
-                                                "beanName", "demoService",
-                                                "methodName", "run",
-                                                "args", List.of(1),
-                                                "argTypes", List.of("int", "long"))))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "svc"),
-                                edge("e2", "svc", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "ARG_TYPES_ARITY".equals(d.code())));
     }
 
     // ==================== validate() — success-shaped diagnostics ====================
@@ -669,7 +541,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("No Start")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(node("approval", FlowNodeType.APPROVAL), node("end", FlowNodeType.END)))
                         .edges(List.of(edge("e1", "approval", "end")))
@@ -710,7 +582,7 @@ class DefaultFlowCompilerTest {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Orphan Branch")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -738,6 +610,79 @@ class DefaultFlowCompilerTest {
                 .allMatch(d -> d.severity() == CompileDiagnostic.Severity.ERROR));
     }
 
+    @Test
+    void validate_requiresEveryNodeToHaveALabel() {
+        // People see the label as the step's name; without one they would see the generated id
+        DesignFlowDefinition definition = DesignFlowDefinition.builder()
+                .name("Unnamed Step")
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest"))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                node("start", FlowNodeType.START),
+                                labelled("approval_x7k2", FlowNodeType.APPROVAL, " "),
+                                node("end", FlowNodeType.END)))
+                        .edges(List.of(
+                                edge("e1", "start", "approval_x7k2"),
+                                edge("e2", "approval_x7k2", "end")))
+                        .build())
+                .build();
+
+        List<CompileDiagnostic> missing = compiler.validate(definition).stream()
+                .filter(d -> "MISSING_NODE_LABEL".equals(d.code()))
+                .toList();
+
+        assertEquals(1, missing.size(), missing.toString());
+        assertEquals(CompileDiagnostic.Severity.ERROR, missing.getFirst().severity());
+        assertEquals("approval_x7k2", missing.getFirst().nodeId());
+        assertEquals("label", missing.getFirst().field());
+        assertThrows(FlowCompileException.class, () -> compiler.compile(definition), "publishing is refused");
+    }
+
+    @Test
+    void validate_namesNodesAndEdgesAsPeopleSeeThem() {
+        // A node by its label, an edge without a label by the nodes it joins — never by a generated id
+        DesignFlowDefinition definition = DesignFlowDefinition.builder()
+                .name("Named Steps")
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest"))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                node("start", FlowNodeType.START),
+                                labelled("approval_x7k2", FlowNodeType.APPROVAL, "Direct Manager"),
+                                labelled("approval_p3q9", FlowNodeType.APPROVAL, "HR Review"),
+                                labelled("end_k1", FlowNodeType.END, "Approved")))
+                        .edges(List.of(
+                                edge("e1", "start", "approval_x7k2"),
+                                edge("e2", "approval_x7k2", "end_k1", "amount >"),
+                                edge("e3", "approval_p3q9", "end_k1")))
+                        .build())
+                .build();
+
+        List<CompileDiagnostic> diagnostics = compiler.validate(definition);
+
+        assertEquals("Node 'HR Review' cannot be reached from the Start node — connect it or delete it",
+                messageOf(diagnostics, "UNREACHABLE_NODE"));
+        assertEquals("Node 'Direct Manager' has invalid condition expression on edge 'Direct Manager → Approved': "
+                + "amount >", messageOf(diagnostics, "INVALID_CONDITION_EXPR"));
+    }
+
+    private static String messageOf(List<CompileDiagnostic> diagnostics, String code) {
+        return diagnostics.stream()
+                .filter(d -> code.equals(d.code()))
+                .map(CompileDiagnostic::message)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No " + code + " in " + diagnostics));
+    }
+
+    private static FlowGraphNode labelled(String id, FlowNodeType type, String label) {
+        return FlowGraphNode.builder()
+                .id(id)
+                .type(type)
+                .label(label)
+                .build();
+    }
+
     private static FlowGraphNode node(String id, FlowNodeType type) {
         return FlowGraphNode.builder()
                 .id(id)
@@ -762,16 +707,6 @@ class DefaultFlowCompilerTest {
                 .type(type)
                 .label(id)
                 .config(Map.of("input", input))
-                .build();
-    }
-
-    /** CALL_SERVICE is a typed node type — the compiler now requires beanName/methodName in its input. */
-    private static FlowGraphNode callServiceNode(String id) {
-        return FlowGraphNode.builder()
-                .id(id)
-                .type(FlowNodeType.CALL_SERVICE)
-                .label(id)
-                .config(Map.of("input", Map.of("beanName", "demoService", "methodName", "run")))
                 .build();
     }
 

@@ -1,137 +1,27 @@
 package io.softa.starter.message.mail.service.impl;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Properties;
-import jakarta.mail.MessagingException;
-import jakarta.mail.Session;
-import jakarta.mail.Store;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.orm.annotation.CrossTenant;
-import io.softa.framework.orm.domain.FilterControl;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Orders;
-import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.dto.ConnectivityTestResultDTO;
 import io.softa.starter.message.mail.entity.MailReceiveServerConfig;
 import io.softa.starter.message.mail.service.MailReceiveServerConfigService;
-import io.softa.starter.message.shared.TenantScopes;
+import io.softa.starter.message.mail.support.TenantMailHostGuard;
 
 /**
- * Implementation of {@link MailReceiveServerConfigService}.
+ * Implementation of {@link MailReceiveServerConfigService}: a tenant's own receive servers. The
+ * connectivity test refuses a host inside the deployment.
  */
-@Slf4j
 @Service
-public class MailReceiveServerConfigServiceImpl extends EntityServiceImpl<MailReceiveServerConfig, Long>
+public class MailReceiveServerConfigServiceImpl extends AbstractMailReceiveServerServiceImpl<MailReceiveServerConfig>
         implements MailReceiveServerConfigService {
 
     @Autowired
-    private MessageProperties messageProperties;
-
-    @Override
-    public Optional<MailReceiveServerConfig> findTenantDefault() {
-        // active = true is appended by the framework's active control.
-        Filters filters = new Filters()
-                .eq(MailReceiveServerConfig::getIsDefault, true);
-        FlexQuery flexQuery = new FlexQuery(filters,
-                Orders.ofAsc(MailReceiveServerConfig::getSequence));
-        List<MailReceiveServerConfig> results = this.searchList(flexQuery);
-        return results.isEmpty() ? Optional.empty() : Optional.of(results.getFirst());
-    }
-
-    @Override
-    @CrossTenant
-    public Optional<MailReceiveServerConfig> findVisibleById(Long id) {
-        // Disabled configs stay resolvable by id: a stored receive record
-        // points at the config it was fetched through.
-        FlexQuery flexQuery = new FlexQuery(new Filters()
-                .eq(MailReceiveServerConfig::getId, id)
-                .in(MailReceiveServerConfig::getTenantId, TenantScopes.currentPlusPlatform()));
-        flexQuery.setFilterControl(FilterControl.bypassActiveControl());
-        return searchOne(flexQuery);
-    }
-
-    @Override
-    @CrossTenant
-    public Optional<MailReceiveServerConfig> findPlatformDefault() {
-        Filters filters = new Filters()
-                .eq(MailReceiveServerConfig::getTenantId, TenantScopes.PLATFORM)
-                .eq(MailReceiveServerConfig::getIsDefault, true);
-        FlexQuery flexQuery = new FlexQuery(filters,
-                Orders.ofAsc(MailReceiveServerConfig::getSequence));
-        List<MailReceiveServerConfig> results = this.searchList(flexQuery);
-        return results.isEmpty() ? Optional.empty() : Optional.of(results.getFirst());
-    }
-
-    /**
-     * ORM-scoped search sees exactly the rows of the scope being written
-     * (the write path's tenant context), so "other defaults" can never leak
-     * across tenants.
-     */
-    @Override
-    public void demoteOtherDefaults(Long keptId) {
-        Filters filters = new Filters().eq(MailReceiveServerConfig::getIsDefault, true);
-        for (MailReceiveServerConfig previous : this.searchList(filters)) {
-            if (Objects.equals(previous.getId(), keptId)) {
-                continue;
-            }
-            MailReceiveServerConfig demoted = new MailReceiveServerConfig();
-            demoted.setId(previous.getId());
-            demoted.setIsDefault(false);
-            this.updateOne(demoted);
-        }
-    }
-
-    @Override
-    public ConnectivityTestResultDTO testConnectivity(Long id) {
-        MailReceiveServerConfig config = this.getById(id)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Mail receive server config with ID {0} not found.", id));
-        return testConnectivity(config);
-    }
+    private TenantMailHostGuard hostGuard;
 
     @Override
     public ConnectivityTestResultDTO testConnectivity(MailReceiveServerConfig config) {
-        ConnectivityTestResultDTO result = new ConnectivityTestResultDTO();
-        long start = System.currentTimeMillis();
-        String protocol = config.getProtocol().getCode().toLowerCase();
-        try {
-            Properties props = buildSessionProperties(config, protocol);
-            Session session = Session.getInstance(props);
-            try (Store store = session.getStore(protocol)) {
-                store.connect(config.getHost(), config.getPort(), config.getUsername(), config.getPassword());
-                result.setSuccess(true);
-                result.setServerGreeting(protocol.toUpperCase() + " connection successful to "
-                        + config.getHost() + ":" + config.getPort());
-            }
-        } catch (MessagingException e) {
-            result.setSuccess(false);
-            result.setErrorMessage(e.getMessage());
-            log.warn("IMAP/POP3 connectivity test failed for [{}:{}]: {}", config.getHost(), config.getPort(), e.getMessage());
-        }
-        result.setLatencyMs(System.currentTimeMillis() - start);
-        return result;
-    }
-
-    private Properties buildSessionProperties(MailReceiveServerConfig config, String protocol) {
-        Properties props = new Properties();
-        props.put("mail." + protocol + ".host", config.getHost());
-        props.put("mail." + protocol + ".port", config.getPort());
-        props.put("mail." + protocol + ".ssl.enable", Boolean.TRUE.equals(config.getSslEnabled()));
-        props.put("mail." + protocol + ".auth", true);
-        long connTimeoutMs = messageProperties.getMail().getTransport()
-                .getConnectionTimeout().toMillis();
-        long readTimeoutMs = messageProperties.getMail().getTransport()
-                .getReadTimeout().toMillis();
-        props.put("mail." + protocol + ".connectiontimeout", connTimeoutMs);
-        props.put("mail." + protocol + ".timeout", readTimeoutMs);
-        return props;
+        hostGuard.requirePublicBeforeConnecting(config.getHost());
+        return super.testConnectivity(config);
     }
 }

@@ -17,7 +17,7 @@ import io.softa.framework.orm.enums.FieldType;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(multiTenant = true, searchName = {"fileName"})
+@Model(multiTenant = true, searchName = {"fileName"}, defaultOrder = {"fileName"})
 public class ExportTemplate extends AuditableModel {
 
     @Serial

@@ -24,7 +24,7 @@ import io.softa.framework.orm.enums.IdStrategy;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(idStrategy = IdStrategy.EXTERNAL_ID, displayName = {"name"}, searchName = {"name"})
+@Model(idStrategy = IdStrategy.EXTERNAL_ID, displayName = {"name"}, searchName = {"name"}, defaultOrder = {"id"})
 @Index(indexName = "idx_permission_navigation", fields = {"navigationId"})
 public class Permission extends AuditableModel {
 

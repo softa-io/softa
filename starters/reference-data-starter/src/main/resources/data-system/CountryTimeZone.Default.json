@@ -1,0 +1,2930 @@
+{
+  "CountryTimeZone": [
+    {
+      "id": "Europe/Andorra",
+      "country": "AD",
+      "name": "Europe/Andorra",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Dubai",
+      "country": "AE",
+      "name": "Asia/Dubai",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Kabul",
+      "country": "AF",
+      "name": "Asia/Kabul",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Antigua",
+      "country": "AG",
+      "name": "America/Antigua",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Anguilla",
+      "country": "AI",
+      "name": "America/Anguilla",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Tirane",
+      "country": "AL",
+      "name": "Europe/Tirane",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Yerevan",
+      "country": "AM",
+      "name": "Asia/Yerevan",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Luanda",
+      "country": "AO",
+      "name": "Africa/Luanda",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Antarctica/McMurdo",
+      "country": "AQ",
+      "name": "Antarctica/McMurdo — New Zealand time - McMurdo, South Pole",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Antarctica/Casey",
+      "country": "AQ",
+      "name": "Antarctica/Casey — Casey",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Davis",
+      "country": "AQ",
+      "name": "Antarctica/Davis — Davis",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/DumontDUrville",
+      "country": "AQ",
+      "name": "Antarctica/DumontDUrville — Dumont-d'Urville",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Mawson",
+      "country": "AQ",
+      "name": "Antarctica/Mawson — Mawson",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Palmer",
+      "country": "AQ",
+      "name": "Antarctica/Palmer — Palmer",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Rothera",
+      "country": "AQ",
+      "name": "Antarctica/Rothera — Rothera",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Syowa",
+      "country": "AQ",
+      "name": "Antarctica/Syowa — Syowa",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Troll",
+      "country": "AQ",
+      "name": "Antarctica/Troll — Troll",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Vostok",
+      "country": "AQ",
+      "name": "Antarctica/Vostok — Vostok",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Buenos_Aires",
+      "country": "AR",
+      "name": "America/Argentina/Buenos_Aires — Buenos Aires (BA, CF)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Argentina/Cordoba",
+      "country": "AR",
+      "name": "America/Argentina/Cordoba — Argentina (most areas: CB, CC, CN, ER, FM, MN, SE, SF)",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Salta",
+      "country": "AR",
+      "name": "America/Argentina/Salta — Salta (SA, LP, NQ, RN)",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Jujuy",
+      "country": "AR",
+      "name": "America/Argentina/Jujuy — Jujuy (JY)",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Tucuman",
+      "country": "AR",
+      "name": "America/Argentina/Tucuman — Tucuman (TM)",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Catamarca",
+      "country": "AR",
+      "name": "America/Argentina/Catamarca — Catamarca (CT), Chubut (CH)",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/La_Rioja",
+      "country": "AR",
+      "name": "America/Argentina/La_Rioja — La Rioja (LR)",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/San_Juan",
+      "country": "AR",
+      "name": "America/Argentina/San_Juan — San Juan (SJ)",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Mendoza",
+      "country": "AR",
+      "name": "America/Argentina/Mendoza — Mendoza (MZ)",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/San_Luis",
+      "country": "AR",
+      "name": "America/Argentina/San_Luis — San Luis (SL)",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Rio_Gallegos",
+      "country": "AR",
+      "name": "America/Argentina/Rio_Gallegos — Santa Cruz (SC)",
+      "sequence": 10,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Argentina/Ushuaia",
+      "country": "AR",
+      "name": "America/Argentina/Ushuaia — Tierra del Fuego (TF)",
+      "sequence": 11,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Pago_Pago",
+      "country": "AS",
+      "name": "Pacific/Pago_Pago",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Vienna",
+      "country": "AT",
+      "name": "Europe/Vienna",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Australia/Sydney",
+      "country": "AU",
+      "name": "Australia/Sydney — New South Wales (most areas)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Australia/Lord_Howe",
+      "country": "AU",
+      "name": "Australia/Lord_Howe — Lord Howe Island",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Antarctica/Macquarie",
+      "country": "AU",
+      "name": "Antarctica/Macquarie — Macquarie Island",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Hobart",
+      "country": "AU",
+      "name": "Australia/Hobart — Tasmania",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Melbourne",
+      "country": "AU",
+      "name": "Australia/Melbourne — Victoria",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Broken_Hill",
+      "country": "AU",
+      "name": "Australia/Broken_Hill — New South Wales (Yancowinna)",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Brisbane",
+      "country": "AU",
+      "name": "Australia/Brisbane — Queensland (most areas)",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Lindeman",
+      "country": "AU",
+      "name": "Australia/Lindeman — Queensland (Whitsunday Islands)",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Adelaide",
+      "country": "AU",
+      "name": "Australia/Adelaide — South Australia",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Darwin",
+      "country": "AU",
+      "name": "Australia/Darwin — Northern Territory",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Perth",
+      "country": "AU",
+      "name": "Australia/Perth — Western Australia (most areas)",
+      "sequence": 10,
+      "defaultZone": false
+    },
+    {
+      "id": "Australia/Eucla",
+      "country": "AU",
+      "name": "Australia/Eucla — Western Australia (Eucla)",
+      "sequence": 11,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Aruba",
+      "country": "AW",
+      "name": "America/Aruba",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Mariehamn",
+      "country": "AX",
+      "name": "Europe/Mariehamn",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Baku",
+      "country": "AZ",
+      "name": "Asia/Baku",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Sarajevo",
+      "country": "BA",
+      "name": "Europe/Sarajevo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Barbados",
+      "country": "BB",
+      "name": "America/Barbados",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Dhaka",
+      "country": "BD",
+      "name": "Asia/Dhaka",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Brussels",
+      "country": "BE",
+      "name": "Europe/Brussels",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Ouagadougou",
+      "country": "BF",
+      "name": "Africa/Ouagadougou",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Sofia",
+      "country": "BG",
+      "name": "Europe/Sofia",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Bahrain",
+      "country": "BH",
+      "name": "Asia/Bahrain",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Bujumbura",
+      "country": "BI",
+      "name": "Africa/Bujumbura",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Porto-Novo",
+      "country": "BJ",
+      "name": "Africa/Porto-Novo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/St_Barthelemy",
+      "country": "BL",
+      "name": "America/St_Barthelemy",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Atlantic/Bermuda",
+      "country": "BM",
+      "name": "Atlantic/Bermuda",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Brunei",
+      "country": "BN",
+      "name": "Asia/Brunei",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/La_Paz",
+      "country": "BO",
+      "name": "America/La_Paz",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Kralendijk",
+      "country": "BQ",
+      "name": "America/Kralendijk",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Sao_Paulo",
+      "country": "BR",
+      "name": "America/Sao_Paulo — Brazil (southeast: GO, DF, MG, ES, RJ, SP, PR, SC, RS)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Noronha",
+      "country": "BR",
+      "name": "America/Noronha — Atlantic islands",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Belem",
+      "country": "BR",
+      "name": "America/Belem — Para (east), Amapa",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Fortaleza",
+      "country": "BR",
+      "name": "America/Fortaleza — Brazil (northeast: MA, PI, CE, RN, PB)",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Recife",
+      "country": "BR",
+      "name": "America/Recife — Pernambuco",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Araguaina",
+      "country": "BR",
+      "name": "America/Araguaina — Tocantins",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Maceio",
+      "country": "BR",
+      "name": "America/Maceio — Alagoas, Sergipe",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Bahia",
+      "country": "BR",
+      "name": "America/Bahia — Bahia",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Campo_Grande",
+      "country": "BR",
+      "name": "America/Campo_Grande — Mato Grosso do Sul",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Cuiaba",
+      "country": "BR",
+      "name": "America/Cuiaba — Mato Grosso",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Santarem",
+      "country": "BR",
+      "name": "America/Santarem — Para (west)",
+      "sequence": 10,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Porto_Velho",
+      "country": "BR",
+      "name": "America/Porto_Velho — Rondonia",
+      "sequence": 11,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Boa_Vista",
+      "country": "BR",
+      "name": "America/Boa_Vista — Roraima",
+      "sequence": 12,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Manaus",
+      "country": "BR",
+      "name": "America/Manaus — Amazonas (east)",
+      "sequence": 13,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Eirunepe",
+      "country": "BR",
+      "name": "America/Eirunepe — Amazonas (west)",
+      "sequence": 14,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Rio_Branco",
+      "country": "BR",
+      "name": "America/Rio_Branco — Acre",
+      "sequence": 15,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Nassau",
+      "country": "BS",
+      "name": "America/Nassau",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Thimphu",
+      "country": "BT",
+      "name": "Asia/Thimphu",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Gaborone",
+      "country": "BW",
+      "name": "Africa/Gaborone",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Minsk",
+      "country": "BY",
+      "name": "Europe/Minsk",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Belize",
+      "country": "BZ",
+      "name": "America/Belize",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Toronto",
+      "country": "CA",
+      "name": "America/Toronto — Eastern - ON & QC (most areas)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/St_Johns",
+      "country": "CA",
+      "name": "America/St_Johns — Newfoundland, Labrador (SE)",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Halifax",
+      "country": "CA",
+      "name": "America/Halifax — Atlantic - NS (most areas), PE",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Glace_Bay",
+      "country": "CA",
+      "name": "America/Glace_Bay — Atlantic - NS (Cape Breton)",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Moncton",
+      "country": "CA",
+      "name": "America/Moncton — Atlantic - New Brunswick",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Goose_Bay",
+      "country": "CA",
+      "name": "America/Goose_Bay — Atlantic - Labrador (most areas)",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Blanc-Sablon",
+      "country": "CA",
+      "name": "America/Blanc-Sablon — AST - QC (Lower North Shore)",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Iqaluit",
+      "country": "CA",
+      "name": "America/Iqaluit — Eastern - NU (most areas)",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Atikokan",
+      "country": "CA",
+      "name": "America/Atikokan — EST - ON (Atikokan), NU (Coral H)",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Winnipeg",
+      "country": "CA",
+      "name": "America/Winnipeg — Central - ON (west), Manitoba",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Resolute",
+      "country": "CA",
+      "name": "America/Resolute — Central - NU (Resolute)",
+      "sequence": 10,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Rankin_Inlet",
+      "country": "CA",
+      "name": "America/Rankin_Inlet — Central - NU (central)",
+      "sequence": 11,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Regina",
+      "country": "CA",
+      "name": "America/Regina — CST - SK (most areas)",
+      "sequence": 12,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Swift_Current",
+      "country": "CA",
+      "name": "America/Swift_Current — CST - SK (midwest)",
+      "sequence": 13,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Edmonton",
+      "country": "CA",
+      "name": "America/Edmonton — CST - AB, BC(E), NT(E), SK(W)",
+      "sequence": 14,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Cambridge_Bay",
+      "country": "CA",
+      "name": "America/Cambridge_Bay — Mountain - NU (west)",
+      "sequence": 15,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Inuvik",
+      "country": "CA",
+      "name": "America/Inuvik — Mountain - NT (west)",
+      "sequence": 16,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Vancouver",
+      "country": "CA",
+      "name": "America/Vancouver — MST - BC (most areas)",
+      "sequence": 17,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Creston",
+      "country": "CA",
+      "name": "America/Creston — MST - BC (Creston)",
+      "sequence": 18,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Dawson_Creek",
+      "country": "CA",
+      "name": "America/Dawson_Creek — MST - BC (Dawson Cr, Ft St John)",
+      "sequence": 19,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Fort_Nelson",
+      "country": "CA",
+      "name": "America/Fort_Nelson — MST - BC (Ft Nelson)",
+      "sequence": 20,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Whitehorse",
+      "country": "CA",
+      "name": "America/Whitehorse — MST - Yukon (east)",
+      "sequence": 21,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Dawson",
+      "country": "CA",
+      "name": "America/Dawson — MST - Yukon (west)",
+      "sequence": 22,
+      "defaultZone": false
+    },
+    {
+      "id": "Indian/Cocos",
+      "country": "CC",
+      "name": "Indian/Cocos",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Kinshasa",
+      "country": "CD",
+      "name": "Africa/Kinshasa — Dem. Rep. of Congo (west)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Lubumbashi",
+      "country": "CD",
+      "name": "Africa/Lubumbashi — Dem. Rep. of Congo (east)",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Bangui",
+      "country": "CF",
+      "name": "Africa/Bangui",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Brazzaville",
+      "country": "CG",
+      "name": "Africa/Brazzaville",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Zurich",
+      "country": "CH",
+      "name": "Europe/Zurich",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Abidjan",
+      "country": "CI",
+      "name": "Africa/Abidjan",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Rarotonga",
+      "country": "CK",
+      "name": "Pacific/Rarotonga",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Santiago",
+      "country": "CL",
+      "name": "America/Santiago — most of Chile",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Coyhaique",
+      "country": "CL",
+      "name": "America/Coyhaique — Aysen Region",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Punta_Arenas",
+      "country": "CL",
+      "name": "America/Punta_Arenas — Magallanes Region",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Easter",
+      "country": "CL",
+      "name": "Pacific/Easter — Easter Island",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Douala",
+      "country": "CM",
+      "name": "Africa/Douala",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Shanghai",
+      "country": "CN",
+      "name": "Asia/Shanghai — Beijing Time",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Urumqi",
+      "country": "CN",
+      "name": "Asia/Urumqi — Xinjiang Time",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Bogota",
+      "country": "CO",
+      "name": "America/Bogota",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Costa_Rica",
+      "country": "CR",
+      "name": "America/Costa_Rica",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Havana",
+      "country": "CU",
+      "name": "America/Havana",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Atlantic/Cape_Verde",
+      "country": "CV",
+      "name": "Atlantic/Cape_Verde",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Curacao",
+      "country": "CW",
+      "name": "America/Curacao",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Christmas",
+      "country": "CX",
+      "name": "Indian/Christmas",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Nicosia",
+      "country": "CY",
+      "name": "Asia/Nicosia — most of Cyprus",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Famagusta",
+      "country": "CY",
+      "name": "Asia/Famagusta — Northern Cyprus",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Prague",
+      "country": "CZ",
+      "name": "Europe/Prague",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Berlin",
+      "country": "DE",
+      "name": "Europe/Berlin — most of Germany",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Busingen",
+      "country": "DE",
+      "name": "Europe/Busingen — Busingen",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Djibouti",
+      "country": "DJ",
+      "name": "Africa/Djibouti",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Copenhagen",
+      "country": "DK",
+      "name": "Europe/Copenhagen",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Dominica",
+      "country": "DM",
+      "name": "America/Dominica",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Santo_Domingo",
+      "country": "DO",
+      "name": "America/Santo_Domingo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Algiers",
+      "country": "DZ",
+      "name": "Africa/Algiers",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Guayaquil",
+      "country": "EC",
+      "name": "America/Guayaquil — Ecuador (mainland)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Galapagos",
+      "country": "EC",
+      "name": "Pacific/Galapagos — Galapagos Islands",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Tallinn",
+      "country": "EE",
+      "name": "Europe/Tallinn",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Cairo",
+      "country": "EG",
+      "name": "Africa/Cairo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/El_Aaiun",
+      "country": "EH",
+      "name": "Africa/El_Aaiun",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Asmara",
+      "country": "ER",
+      "name": "Africa/Asmara",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Madrid",
+      "country": "ES",
+      "name": "Europe/Madrid — Spain (mainland)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Ceuta",
+      "country": "ES",
+      "name": "Africa/Ceuta — Ceuta, Melilla",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Atlantic/Canary",
+      "country": "ES",
+      "name": "Atlantic/Canary — Canary Islands",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Addis_Ababa",
+      "country": "ET",
+      "name": "Africa/Addis_Ababa",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Helsinki",
+      "country": "FI",
+      "name": "Europe/Helsinki",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Fiji",
+      "country": "FJ",
+      "name": "Pacific/Fiji",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Atlantic/Stanley",
+      "country": "FK",
+      "name": "Atlantic/Stanley",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Chuuk",
+      "country": "FM",
+      "name": "Pacific/Chuuk — Chuuk/Truk, Yap",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Pohnpei",
+      "country": "FM",
+      "name": "Pacific/Pohnpei — Pohnpei/Ponape",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Kosrae",
+      "country": "FM",
+      "name": "Pacific/Kosrae — Kosrae",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Atlantic/Faroe",
+      "country": "FO",
+      "name": "Atlantic/Faroe",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Paris",
+      "country": "FR",
+      "name": "Europe/Paris",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Libreville",
+      "country": "GA",
+      "name": "Africa/Libreville",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/London",
+      "country": "GB",
+      "name": "Europe/London",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Grenada",
+      "country": "GD",
+      "name": "America/Grenada",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Tbilisi",
+      "country": "GE",
+      "name": "Asia/Tbilisi",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Cayenne",
+      "country": "GF",
+      "name": "America/Cayenne",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Guernsey",
+      "country": "GG",
+      "name": "Europe/Guernsey",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Accra",
+      "country": "GH",
+      "name": "Africa/Accra",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Gibraltar",
+      "country": "GI",
+      "name": "Europe/Gibraltar",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Nuuk",
+      "country": "GL",
+      "name": "America/Nuuk — most of Greenland",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Danmarkshavn",
+      "country": "GL",
+      "name": "America/Danmarkshavn — National Park (east coast)",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Scoresbysund",
+      "country": "GL",
+      "name": "America/Scoresbysund — Scoresbysund/Ittoqqortoormiit",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Thule",
+      "country": "GL",
+      "name": "America/Thule — Thule/Pituffik",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Banjul",
+      "country": "GM",
+      "name": "Africa/Banjul",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Conakry",
+      "country": "GN",
+      "name": "Africa/Conakry",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Guadeloupe",
+      "country": "GP",
+      "name": "America/Guadeloupe",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Malabo",
+      "country": "GQ",
+      "name": "Africa/Malabo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Athens",
+      "country": "GR",
+      "name": "Europe/Athens",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Atlantic/South_Georgia",
+      "country": "GS",
+      "name": "Atlantic/South_Georgia",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Guatemala",
+      "country": "GT",
+      "name": "America/Guatemala",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Guam",
+      "country": "GU",
+      "name": "Pacific/Guam",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Bissau",
+      "country": "GW",
+      "name": "Africa/Bissau",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Guyana",
+      "country": "GY",
+      "name": "America/Guyana",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Hong_Kong",
+      "country": "HK",
+      "name": "Asia/Hong_Kong",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Tegucigalpa",
+      "country": "HN",
+      "name": "America/Tegucigalpa",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Zagreb",
+      "country": "HR",
+      "name": "Europe/Zagreb",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Port-au-Prince",
+      "country": "HT",
+      "name": "America/Port-au-Prince",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Budapest",
+      "country": "HU",
+      "name": "Europe/Budapest",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Jakarta",
+      "country": "ID",
+      "name": "Asia/Jakarta — Java, Sumatra",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Pontianak",
+      "country": "ID",
+      "name": "Asia/Pontianak — Borneo (west, central)",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Makassar",
+      "country": "ID",
+      "name": "Asia/Makassar — Borneo (east, south), Sulawesi/Celebes, Bali, Nusa Tengarra, Timor (west)",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Jayapura",
+      "country": "ID",
+      "name": "Asia/Jayapura — New Guinea (West Papua / Irian Jaya), Malukus/Moluccas",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Dublin",
+      "country": "IE",
+      "name": "Europe/Dublin",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Jerusalem",
+      "country": "IL",
+      "name": "Asia/Jerusalem",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Isle_of_Man",
+      "country": "IM",
+      "name": "Europe/Isle_of_Man",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Kolkata",
+      "country": "IN",
+      "name": "Asia/Kolkata",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Chagos",
+      "country": "IO",
+      "name": "Indian/Chagos",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Baghdad",
+      "country": "IQ",
+      "name": "Asia/Baghdad",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Tehran",
+      "country": "IR",
+      "name": "Asia/Tehran",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Atlantic/Reykjavik",
+      "country": "IS",
+      "name": "Atlantic/Reykjavik",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Rome",
+      "country": "IT",
+      "name": "Europe/Rome",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Jersey",
+      "country": "JE",
+      "name": "Europe/Jersey",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Jamaica",
+      "country": "JM",
+      "name": "America/Jamaica",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Amman",
+      "country": "JO",
+      "name": "Asia/Amman",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Tokyo",
+      "country": "JP",
+      "name": "Asia/Tokyo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Nairobi",
+      "country": "KE",
+      "name": "Africa/Nairobi",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Bishkek",
+      "country": "KG",
+      "name": "Asia/Bishkek",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Phnom_Penh",
+      "country": "KH",
+      "name": "Asia/Phnom_Penh",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Tarawa",
+      "country": "KI",
+      "name": "Pacific/Tarawa — Gilbert Islands",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Kanton",
+      "country": "KI",
+      "name": "Pacific/Kanton — Phoenix Islands",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Kiritimati",
+      "country": "KI",
+      "name": "Pacific/Kiritimati — Line Islands",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Indian/Comoro",
+      "country": "KM",
+      "name": "Indian/Comoro",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/St_Kitts",
+      "country": "KN",
+      "name": "America/St_Kitts",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Pyongyang",
+      "country": "KP",
+      "name": "Asia/Pyongyang",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Seoul",
+      "country": "KR",
+      "name": "Asia/Seoul",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Kuwait",
+      "country": "KW",
+      "name": "Asia/Kuwait",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Cayman",
+      "country": "KY",
+      "name": "America/Cayman",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Almaty",
+      "country": "KZ",
+      "name": "Asia/Almaty — most of Kazakhstan",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Qyzylorda",
+      "country": "KZ",
+      "name": "Asia/Qyzylorda — Qyzylorda/Kyzylorda/Kzyl-Orda",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Qostanay",
+      "country": "KZ",
+      "name": "Asia/Qostanay — Qostanay/Kostanay/Kustanay",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Aqtobe",
+      "country": "KZ",
+      "name": "Asia/Aqtobe — Aqtobe/Aktobe",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Aqtau",
+      "country": "KZ",
+      "name": "Asia/Aqtau — Mangghystau/Mankistau",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Atyrau",
+      "country": "KZ",
+      "name": "Asia/Atyrau — Atyrau/Atirau/Gur'yev",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Oral",
+      "country": "KZ",
+      "name": "Asia/Oral — West Kazakhstan",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Vientiane",
+      "country": "LA",
+      "name": "Asia/Vientiane",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Beirut",
+      "country": "LB",
+      "name": "Asia/Beirut",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/St_Lucia",
+      "country": "LC",
+      "name": "America/St_Lucia",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Vaduz",
+      "country": "LI",
+      "name": "Europe/Vaduz",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Colombo",
+      "country": "LK",
+      "name": "Asia/Colombo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Monrovia",
+      "country": "LR",
+      "name": "Africa/Monrovia",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Maseru",
+      "country": "LS",
+      "name": "Africa/Maseru",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Vilnius",
+      "country": "LT",
+      "name": "Europe/Vilnius",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Luxembourg",
+      "country": "LU",
+      "name": "Europe/Luxembourg",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Riga",
+      "country": "LV",
+      "name": "Europe/Riga",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Tripoli",
+      "country": "LY",
+      "name": "Africa/Tripoli",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Casablanca",
+      "country": "MA",
+      "name": "Africa/Casablanca",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Monaco",
+      "country": "MC",
+      "name": "Europe/Monaco",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Chisinau",
+      "country": "MD",
+      "name": "Europe/Chisinau",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Podgorica",
+      "country": "ME",
+      "name": "Europe/Podgorica",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Marigot",
+      "country": "MF",
+      "name": "America/Marigot",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Antananarivo",
+      "country": "MG",
+      "name": "Indian/Antananarivo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Majuro",
+      "country": "MH",
+      "name": "Pacific/Majuro — most of Marshall Islands",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Kwajalein",
+      "country": "MH",
+      "name": "Pacific/Kwajalein — Kwajalein",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Skopje",
+      "country": "MK",
+      "name": "Europe/Skopje",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Bamako",
+      "country": "ML",
+      "name": "Africa/Bamako",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Yangon",
+      "country": "MM",
+      "name": "Asia/Yangon",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Ulaanbaatar",
+      "country": "MN",
+      "name": "Asia/Ulaanbaatar — most of Mongolia",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Hovd",
+      "country": "MN",
+      "name": "Asia/Hovd — Bayan-Olgii, Hovd, Uvs",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Macau",
+      "country": "MO",
+      "name": "Asia/Macau",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Saipan",
+      "country": "MP",
+      "name": "Pacific/Saipan",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Martinique",
+      "country": "MQ",
+      "name": "America/Martinique",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Nouakchott",
+      "country": "MR",
+      "name": "Africa/Nouakchott",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Montserrat",
+      "country": "MS",
+      "name": "America/Montserrat",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Malta",
+      "country": "MT",
+      "name": "Europe/Malta",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Mauritius",
+      "country": "MU",
+      "name": "Indian/Mauritius",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Maldives",
+      "country": "MV",
+      "name": "Indian/Maldives",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Blantyre",
+      "country": "MW",
+      "name": "Africa/Blantyre",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Mexico_City",
+      "country": "MX",
+      "name": "America/Mexico_City — Central Mexico",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Cancun",
+      "country": "MX",
+      "name": "America/Cancun — Quintana Roo",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Merida",
+      "country": "MX",
+      "name": "America/Merida — Campeche, Yucatan",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Monterrey",
+      "country": "MX",
+      "name": "America/Monterrey — Durango; Coahuila, Nuevo Leon, Tamaulipas (most areas)",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Matamoros",
+      "country": "MX",
+      "name": "America/Matamoros — Coahuila, Nuevo Leon, Tamaulipas (US border)",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Chihuahua",
+      "country": "MX",
+      "name": "America/Chihuahua — Chihuahua (most areas)",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Ciudad_Juarez",
+      "country": "MX",
+      "name": "America/Ciudad_Juarez — Chihuahua (US border - west)",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Ojinaga",
+      "country": "MX",
+      "name": "America/Ojinaga — Chihuahua (US border - east)",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Mazatlan",
+      "country": "MX",
+      "name": "America/Mazatlan — Baja California Sur, Nayarit (most areas), Sinaloa",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Bahia_Banderas",
+      "country": "MX",
+      "name": "America/Bahia_Banderas — Bahia de Banderas",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Hermosillo",
+      "country": "MX",
+      "name": "America/Hermosillo — Sonora",
+      "sequence": 10,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Tijuana",
+      "country": "MX",
+      "name": "America/Tijuana — Baja California",
+      "sequence": 11,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Kuala_Lumpur",
+      "country": "MY",
+      "name": "Asia/Kuala_Lumpur — Malaysia (peninsula)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Kuching",
+      "country": "MY",
+      "name": "Asia/Kuching — Sabah, Sarawak",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Maputo",
+      "country": "MZ",
+      "name": "Africa/Maputo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Windhoek",
+      "country": "NA",
+      "name": "Africa/Windhoek",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Noumea",
+      "country": "NC",
+      "name": "Pacific/Noumea",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Niamey",
+      "country": "NE",
+      "name": "Africa/Niamey",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Norfolk",
+      "country": "NF",
+      "name": "Pacific/Norfolk",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Lagos",
+      "country": "NG",
+      "name": "Africa/Lagos",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Managua",
+      "country": "NI",
+      "name": "America/Managua",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Amsterdam",
+      "country": "NL",
+      "name": "Europe/Amsterdam",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Oslo",
+      "country": "NO",
+      "name": "Europe/Oslo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Kathmandu",
+      "country": "NP",
+      "name": "Asia/Kathmandu",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Nauru",
+      "country": "NR",
+      "name": "Pacific/Nauru",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Niue",
+      "country": "NU",
+      "name": "Pacific/Niue",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Auckland",
+      "country": "NZ",
+      "name": "Pacific/Auckland — most of New Zealand",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Chatham",
+      "country": "NZ",
+      "name": "Pacific/Chatham — Chatham Islands",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Muscat",
+      "country": "OM",
+      "name": "Asia/Muscat",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Panama",
+      "country": "PA",
+      "name": "America/Panama",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Lima",
+      "country": "PE",
+      "name": "America/Lima",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Tahiti",
+      "country": "PF",
+      "name": "Pacific/Tahiti — Society Islands",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Marquesas",
+      "country": "PF",
+      "name": "Pacific/Marquesas — Marquesas Islands",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Gambier",
+      "country": "PF",
+      "name": "Pacific/Gambier — Gambier Islands",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Port_Moresby",
+      "country": "PG",
+      "name": "Pacific/Port_Moresby — most of Papua New Guinea",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Bougainville",
+      "country": "PG",
+      "name": "Pacific/Bougainville — Bougainville",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Manila",
+      "country": "PH",
+      "name": "Asia/Manila",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Karachi",
+      "country": "PK",
+      "name": "Asia/Karachi",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Warsaw",
+      "country": "PL",
+      "name": "Europe/Warsaw",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Miquelon",
+      "country": "PM",
+      "name": "America/Miquelon",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Pitcairn",
+      "country": "PN",
+      "name": "Pacific/Pitcairn",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Puerto_Rico",
+      "country": "PR",
+      "name": "America/Puerto_Rico",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Gaza",
+      "country": "PS",
+      "name": "Asia/Gaza — Gaza Strip",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Hebron",
+      "country": "PS",
+      "name": "Asia/Hebron — West Bank",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Lisbon",
+      "country": "PT",
+      "name": "Europe/Lisbon — Portugal (mainland)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Atlantic/Madeira",
+      "country": "PT",
+      "name": "Atlantic/Madeira — Madeira Islands",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Atlantic/Azores",
+      "country": "PT",
+      "name": "Atlantic/Azores — Azores",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Palau",
+      "country": "PW",
+      "name": "Pacific/Palau",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Asuncion",
+      "country": "PY",
+      "name": "America/Asuncion",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Qatar",
+      "country": "QA",
+      "name": "Asia/Qatar",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Reunion",
+      "country": "RE",
+      "name": "Indian/Reunion",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Bucharest",
+      "country": "RO",
+      "name": "Europe/Bucharest",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Belgrade",
+      "country": "RS",
+      "name": "Europe/Belgrade",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Moscow",
+      "country": "RU",
+      "name": "Europe/Moscow — MSK+00 - Moscow area",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Kaliningrad",
+      "country": "RU",
+      "name": "Europe/Kaliningrad — MSK-01 - Kaliningrad",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Kirov",
+      "country": "RU",
+      "name": "Europe/Kirov — MSK+00 - Kirov",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Volgograd",
+      "country": "RU",
+      "name": "Europe/Volgograd — MSK+00 - Volgograd",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Astrakhan",
+      "country": "RU",
+      "name": "Europe/Astrakhan — MSK+01 - Astrakhan",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Saratov",
+      "country": "RU",
+      "name": "Europe/Saratov — MSK+01 - Saratov",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Ulyanovsk",
+      "country": "RU",
+      "name": "Europe/Ulyanovsk — MSK+01 - Ulyanovsk",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Samara",
+      "country": "RU",
+      "name": "Europe/Samara — MSK+01 - Samara, Udmurtia",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Yekaterinburg",
+      "country": "RU",
+      "name": "Asia/Yekaterinburg — MSK+02 - Urals",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Omsk",
+      "country": "RU",
+      "name": "Asia/Omsk — MSK+03 - Omsk",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Novosibirsk",
+      "country": "RU",
+      "name": "Asia/Novosibirsk — MSK+04 - Novosibirsk",
+      "sequence": 10,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Barnaul",
+      "country": "RU",
+      "name": "Asia/Barnaul — MSK+04 - Altai",
+      "sequence": 11,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Tomsk",
+      "country": "RU",
+      "name": "Asia/Tomsk — MSK+04 - Tomsk",
+      "sequence": 12,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Novokuznetsk",
+      "country": "RU",
+      "name": "Asia/Novokuznetsk — MSK+04 - Kemerovo",
+      "sequence": 13,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Krasnoyarsk",
+      "country": "RU",
+      "name": "Asia/Krasnoyarsk — MSK+04 - Krasnoyarsk area",
+      "sequence": 14,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Irkutsk",
+      "country": "RU",
+      "name": "Asia/Irkutsk — MSK+05 - Irkutsk, Buryatia",
+      "sequence": 15,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Chita",
+      "country": "RU",
+      "name": "Asia/Chita — MSK+06 - Zabaykalsky",
+      "sequence": 16,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Yakutsk",
+      "country": "RU",
+      "name": "Asia/Yakutsk — MSK+06 - Lena River",
+      "sequence": 17,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Khandyga",
+      "country": "RU",
+      "name": "Asia/Khandyga — MSK+06 - Tomponsky, Ust-Maysky",
+      "sequence": 18,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Vladivostok",
+      "country": "RU",
+      "name": "Asia/Vladivostok — MSK+07 - Amur River",
+      "sequence": 19,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Ust-Nera",
+      "country": "RU",
+      "name": "Asia/Ust-Nera — MSK+07 - Oymyakonsky",
+      "sequence": 20,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Magadan",
+      "country": "RU",
+      "name": "Asia/Magadan — MSK+08 - Magadan",
+      "sequence": 21,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Sakhalin",
+      "country": "RU",
+      "name": "Asia/Sakhalin — MSK+08 - Sakhalin Island",
+      "sequence": 22,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Srednekolymsk",
+      "country": "RU",
+      "name": "Asia/Srednekolymsk — MSK+08 - Sakha (E), N Kuril Is",
+      "sequence": 23,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Kamchatka",
+      "country": "RU",
+      "name": "Asia/Kamchatka — MSK+09 - Kamchatka",
+      "sequence": 24,
+      "defaultZone": false
+    },
+    {
+      "id": "Asia/Anadyr",
+      "country": "RU",
+      "name": "Asia/Anadyr — MSK+09 - Bering Sea",
+      "sequence": 25,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Kigali",
+      "country": "RW",
+      "name": "Africa/Kigali",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Riyadh",
+      "country": "SA",
+      "name": "Asia/Riyadh",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Guadalcanal",
+      "country": "SB",
+      "name": "Pacific/Guadalcanal",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Mahe",
+      "country": "SC",
+      "name": "Indian/Mahe",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Khartoum",
+      "country": "SD",
+      "name": "Africa/Khartoum",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Stockholm",
+      "country": "SE",
+      "name": "Europe/Stockholm",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Singapore",
+      "country": "SG",
+      "name": "Asia/Singapore",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Atlantic/St_Helena",
+      "country": "SH",
+      "name": "Atlantic/St_Helena",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Ljubljana",
+      "country": "SI",
+      "name": "Europe/Ljubljana",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Arctic/Longyearbyen",
+      "country": "SJ",
+      "name": "Arctic/Longyearbyen",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Bratislava",
+      "country": "SK",
+      "name": "Europe/Bratislava",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Freetown",
+      "country": "SL",
+      "name": "Africa/Freetown",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/San_Marino",
+      "country": "SM",
+      "name": "Europe/San_Marino",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Dakar",
+      "country": "SN",
+      "name": "Africa/Dakar",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Mogadishu",
+      "country": "SO",
+      "name": "Africa/Mogadishu",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Paramaribo",
+      "country": "SR",
+      "name": "America/Paramaribo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Juba",
+      "country": "SS",
+      "name": "Africa/Juba",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Sao_Tome",
+      "country": "ST",
+      "name": "Africa/Sao_Tome",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/El_Salvador",
+      "country": "SV",
+      "name": "America/El_Salvador",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Lower_Princes",
+      "country": "SX",
+      "name": "America/Lower_Princes",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Damascus",
+      "country": "SY",
+      "name": "Asia/Damascus",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Mbabane",
+      "country": "SZ",
+      "name": "Africa/Mbabane",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Grand_Turk",
+      "country": "TC",
+      "name": "America/Grand_Turk",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Ndjamena",
+      "country": "TD",
+      "name": "Africa/Ndjamena",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Kerguelen",
+      "country": "TF",
+      "name": "Indian/Kerguelen",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Lome",
+      "country": "TG",
+      "name": "Africa/Lome",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Bangkok",
+      "country": "TH",
+      "name": "Asia/Bangkok",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Dushanbe",
+      "country": "TJ",
+      "name": "Asia/Dushanbe",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Fakaofo",
+      "country": "TK",
+      "name": "Pacific/Fakaofo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Dili",
+      "country": "TL",
+      "name": "Asia/Dili",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Ashgabat",
+      "country": "TM",
+      "name": "Asia/Ashgabat",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Tunis",
+      "country": "TN",
+      "name": "Africa/Tunis",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Tongatapu",
+      "country": "TO",
+      "name": "Pacific/Tongatapu",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Istanbul",
+      "country": "TR",
+      "name": "Europe/Istanbul",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Port_of_Spain",
+      "country": "TT",
+      "name": "America/Port_of_Spain",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Funafuti",
+      "country": "TV",
+      "name": "Pacific/Funafuti",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Taipei",
+      "country": "TW",
+      "name": "Asia/Taipei",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Dar_es_Salaam",
+      "country": "TZ",
+      "name": "Africa/Dar_es_Salaam",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Kyiv",
+      "country": "UA",
+      "name": "Europe/Kyiv — most of Ukraine",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Europe/Simferopol",
+      "country": "UA",
+      "name": "Europe/Simferopol — Crimea",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Africa/Kampala",
+      "country": "UG",
+      "name": "Africa/Kampala",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Midway",
+      "country": "UM",
+      "name": "Pacific/Midway — Midway Islands",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Wake",
+      "country": "UM",
+      "name": "Pacific/Wake — Wake Island",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/New_York",
+      "country": "US",
+      "name": "America/New_York — Eastern (most areas)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Detroit",
+      "country": "US",
+      "name": "America/Detroit — Eastern - MI (most areas)",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Kentucky/Louisville",
+      "country": "US",
+      "name": "America/Kentucky/Louisville — Eastern - KY (Louisville area)",
+      "sequence": 2,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Kentucky/Monticello",
+      "country": "US",
+      "name": "America/Kentucky/Monticello — Eastern - KY (Wayne)",
+      "sequence": 3,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Indianapolis",
+      "country": "US",
+      "name": "America/Indiana/Indianapolis — Eastern - IN (most areas)",
+      "sequence": 4,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Vincennes",
+      "country": "US",
+      "name": "America/Indiana/Vincennes — Eastern - IN (Da, Du, K, Mn)",
+      "sequence": 5,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Winamac",
+      "country": "US",
+      "name": "America/Indiana/Winamac — Eastern - IN (Pulaski)",
+      "sequence": 6,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Marengo",
+      "country": "US",
+      "name": "America/Indiana/Marengo — Eastern - IN (Crawford)",
+      "sequence": 7,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Petersburg",
+      "country": "US",
+      "name": "America/Indiana/Petersburg — Eastern - IN (Pike)",
+      "sequence": 8,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Vevay",
+      "country": "US",
+      "name": "America/Indiana/Vevay — Eastern - IN (Switzerland)",
+      "sequence": 9,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Chicago",
+      "country": "US",
+      "name": "America/Chicago — Central (most areas)",
+      "sequence": 10,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Tell_City",
+      "country": "US",
+      "name": "America/Indiana/Tell_City — Central - IN (Perry)",
+      "sequence": 11,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Indiana/Knox",
+      "country": "US",
+      "name": "America/Indiana/Knox — Central - IN (Starke)",
+      "sequence": 12,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Menominee",
+      "country": "US",
+      "name": "America/Menominee — Central - MI (Wisconsin border)",
+      "sequence": 13,
+      "defaultZone": false
+    },
+    {
+      "id": "America/North_Dakota/Center",
+      "country": "US",
+      "name": "America/North_Dakota/Center — Central - ND (Oliver)",
+      "sequence": 14,
+      "defaultZone": false
+    },
+    {
+      "id": "America/North_Dakota/New_Salem",
+      "country": "US",
+      "name": "America/North_Dakota/New_Salem — Central - ND (Morton rural)",
+      "sequence": 15,
+      "defaultZone": false
+    },
+    {
+      "id": "America/North_Dakota/Beulah",
+      "country": "US",
+      "name": "America/North_Dakota/Beulah — Central - ND (Mercer)",
+      "sequence": 16,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Denver",
+      "country": "US",
+      "name": "America/Denver — Mountain (most areas)",
+      "sequence": 17,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Boise",
+      "country": "US",
+      "name": "America/Boise — Mountain - ID (south), OR (east)",
+      "sequence": 18,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Phoenix",
+      "country": "US",
+      "name": "America/Phoenix — MST - AZ (except Navajo)",
+      "sequence": 19,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Los_Angeles",
+      "country": "US",
+      "name": "America/Los_Angeles — Pacific",
+      "sequence": 20,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Anchorage",
+      "country": "US",
+      "name": "America/Anchorage — Alaska (most areas)",
+      "sequence": 21,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Juneau",
+      "country": "US",
+      "name": "America/Juneau — Alaska - Juneau area",
+      "sequence": 22,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Sitka",
+      "country": "US",
+      "name": "America/Sitka — Alaska - Sitka area",
+      "sequence": 23,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Metlakatla",
+      "country": "US",
+      "name": "America/Metlakatla — Alaska - Annette Island",
+      "sequence": 24,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Yakutat",
+      "country": "US",
+      "name": "America/Yakutat — Alaska - Yakutat",
+      "sequence": 25,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Nome",
+      "country": "US",
+      "name": "America/Nome — Alaska (west)",
+      "sequence": 26,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Adak",
+      "country": "US",
+      "name": "America/Adak — Alaska - western Aleutians",
+      "sequence": 27,
+      "defaultZone": false
+    },
+    {
+      "id": "Pacific/Honolulu",
+      "country": "US",
+      "name": "Pacific/Honolulu — Hawaii",
+      "sequence": 28,
+      "defaultZone": false
+    },
+    {
+      "id": "America/Montevideo",
+      "country": "UY",
+      "name": "America/Montevideo",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Tashkent",
+      "country": "UZ",
+      "name": "Asia/Tashkent — Uzbekistan (east)",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Samarkand",
+      "country": "UZ",
+      "name": "Asia/Samarkand — Uzbekistan (west)",
+      "sequence": 1,
+      "defaultZone": false
+    },
+    {
+      "id": "Europe/Vatican",
+      "country": "VA",
+      "name": "Europe/Vatican",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/St_Vincent",
+      "country": "VC",
+      "name": "America/St_Vincent",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Caracas",
+      "country": "VE",
+      "name": "America/Caracas",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/Tortola",
+      "country": "VG",
+      "name": "America/Tortola",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "America/St_Thomas",
+      "country": "VI",
+      "name": "America/St_Thomas",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Ho_Chi_Minh",
+      "country": "VN",
+      "name": "Asia/Ho_Chi_Minh",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Efate",
+      "country": "VU",
+      "name": "Pacific/Efate",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Wallis",
+      "country": "WF",
+      "name": "Pacific/Wallis",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Pacific/Apia",
+      "country": "WS",
+      "name": "Pacific/Apia",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Asia/Aden",
+      "country": "YE",
+      "name": "Asia/Aden",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Indian/Mayotte",
+      "country": "YT",
+      "name": "Indian/Mayotte",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Johannesburg",
+      "country": "ZA",
+      "name": "Africa/Johannesburg",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Lusaka",
+      "country": "ZM",
+      "name": "Africa/Lusaka",
+      "sequence": 0,
+      "defaultZone": true
+    },
+    {
+      "id": "Africa/Harare",
+      "country": "ZW",
+      "name": "Africa/Harare",
+      "sequence": 0,
+      "defaultZone": true
+    }
+  ]
+}

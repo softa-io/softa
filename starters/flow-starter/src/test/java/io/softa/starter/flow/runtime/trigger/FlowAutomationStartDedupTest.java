@@ -56,7 +56,7 @@ class FlowAutomationStartDedupTest {
         changeLog.setUuid(uuid);
         changeLog.setModel("ExpenseClaim");
         changeLog.setRowId(rowId);
-        return ChangeLogTriggerMapper.mapChangeLogs(List.of(changeLog), "user-1").getFirst();
+        return ChangeLogTriggerMapper.mapChangeLogs(List.of(changeLog), "user-1", model -> true).getFirst();
     }
 
     @Test
@@ -89,7 +89,7 @@ class FlowAutomationStartDedupTest {
                 .scenario(FlowScenario.AUTOMATION)
                 .trigger(new EntityChangeTrigger("ExpenseClaim", List.of(), null))
                 .build();
-        when(registry.findMatchingFlows(any())).thenReturn(List.of(audit));
+        when(registry.findMatches(any())).thenReturn(List.of(DefaultFlowTriggerRegistry.TriggerMatch.holding(audit)));
         when(engine.start(any())).thenReturn(new FlowExecutionState());
     }
 

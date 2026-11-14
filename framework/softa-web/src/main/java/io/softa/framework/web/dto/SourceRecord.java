@@ -22,4 +22,8 @@ public class SourceRecord {
     @Schema(description = "The values of the source record, key is the field name, value is the field value.", example = "{\"name\": \"Tom\", \"age\": 18}")
     private Map<String, Object> values;
 
+    @Schema(description = "The field of the source record the search fills, when the search is a picker's.",
+            example = "departmentId")
+    private String fieldName;
+
 }

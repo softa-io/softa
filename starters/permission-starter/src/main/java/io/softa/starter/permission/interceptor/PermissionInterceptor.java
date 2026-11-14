@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.BuiltinRole;
@@ -181,6 +182,19 @@ public class PermissionInterceptor implements HandlerInterceptor {
             return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.CONSULTANT);
         }
 
+        // Platform-only endpoints are closed to everyone inside a customer tenant, whatever their grants —
+        // not only to the admins above. A tenant role's permissions can still list such an endpoint: a
+        // standard view derives the lookup endpoints of the models it references, so holding the account
+        // page's view registered the full read surface of the people the accounts point at, a shared model
+        // with no tenant column, and an ordinary user read every tenant's people through it. The platform
+        // tenant's own users keep them: they are who these endpoints are for.
+        if (!BaseConstant.PLATFORM_TENANT_ID.equals(ctx.getTenantId())
+                && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied inside a tenant — userId={}, tenantId={}, uri={} {}",
+                    ctx.getUserId(), ctx.getTenantId(), method, uri);
+            throw new PermissionException("Platform-admin only: " + method + " " + uri);
+        }
+
         // EndpointIndex.lookup returns every permission id that lists this
         // endpoint in its `permission.endpoints` array (or matches the
         // standard CRUD derivation). The user is allowed if their permission
@@ -189,6 +203,16 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // /Department/searchList used by both the Department admin page and
         // the Employee page's dept-tree panel) get reachable from multiple
         // business permissions.
+        // The platform's own endpoints stay the platform's for an ordinary user of a customer tenant
+        // too, whatever their roles name. Those roles are the tenant's to write, and a grant naming a
+        // platform permission would otherwise open shared models — every tenant's rows — to them; the
+        // snapshot already drops such grants, this refuses by URL in case one slips past it. Users of
+        // the platform tenant are the platform's staff and keep what their roles grant.
+        if (inCustomerTenant(ctx) && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied to a tenant user — userId={}, uri={} {}",
+                    ctx.getUserId(), method, uri);
+            throw new PermissionException("Platform-admin only: " + method + " " + uri);
+        }
         Set<String> candidatePermissions = endpointIndex.lookup(uri, method);
         if (candidatePermissions == null || candidatePermissions.isEmpty()) {
             throw new PermissionException("Endpoint not registered: " + method + " " + uri);
@@ -203,6 +227,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
                     ctx.getUserId(), method, uri, candidatePermissions);
             throw new PermissionException("Missing permission for " + method + " " + uri);
         }
+        AdmittedRequest.record(req, uri, candidatePermissions);
         return true;
     }
 
@@ -334,6 +359,12 @@ public class PermissionInterceptor implements HandlerInterceptor {
      */
     static boolean deniedPlatformOnly(BuiltinRole principal) {
         return principal != BuiltinRole.SUPER_ADMIN;
+    }
+
+    /** Whether the request runs inside a customer tenant — not the platform tenant, and not untenanted. */
+    static boolean inCustomerTenant(Context ctx) {
+        Long tenantId = ctx.getTenantId();
+        return tenantId != null && !BaseConstant.PLATFORM_TENANT_ID.equals(tenantId);
     }
 
     /**

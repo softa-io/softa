@@ -7,24 +7,39 @@ import java.util.Map;
 import java.util.function.Predicate;
 
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.compute.ComputeUtils;
 import io.softa.framework.orm.domain.FilterEvaluator;
 import io.softa.framework.orm.domain.FilterEvaluator.EvalContext;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
 import io.softa.starter.flow.runtime.context.FlowVariableContext;
+import io.softa.starter.flow.runtime.context.RecordVariables;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 
 /**
- * Resolves outgoing transitions for a node, including condition evaluation.
- * Ordinary nodes use exclusive edge semantics, while inclusive gateways may
- * route to every matching edge.
+ * Resolves outgoing transitions for a node, including condition evaluation. Every node routes over its outgoing
+ * edges, and the edge without a condition is its default — at most one per node, taken only when no condition holds:
+ * <ul>
+ *   <li>an ordinary node routes exclusively: it tries its conditional edges in order — by their priority, as the
+ *       compiler lists them — and takes the first that holds; the conditions after it are not read. A revision
+ *       compiled before priorities lists them in drawing order;</li>
+ *   <li>an inclusive gateway takes every conditional edge whose condition holds, as BPMN's does — its default only
+ *       when none holds;</li>
+ *   <li>a parallel fork takes every edge, its conditions unread.</li>
+ * </ul>
+ * A node with several outgoing edges where nothing is taken has no route ({@link #noRoute}). Publishing gives every
+ * ordinary node that picks its route by conditions a default ({@code NO_DEFAULT_EDGE}), so of those only a revision
+ * published before can stop there; an inclusive gateway none of whose conditions holds still can. A node whose one
+ * edge has a condition that does not hold ends its branch.
  */
 @Component
 public class FlowGatewayRouter {
@@ -42,18 +57,35 @@ public class FlowGatewayRouter {
      */
     public static boolean holds(CompiledFlowDefinition definition, CompiledFlowTransition transition,
                                 Map<String, Object> variables) {
-        if (!Filters.isEmpty(transition.getCondition())) {
-            String modelName = definition.getTrigger() == null ? null : definition.getTrigger().modelName();
-            return FilterEvaluator.matches(transition.getCondition(), variables, EvalContext.of(null),
-                    field -> fieldTypeOf(modelName, field));
-        }
-        return ComputeUtils.executeBoolean(transition.getConditionExpression(), new LinkedHashMap<>(variables));
+        return conditionHolds(definition.getModelName(), transition.getCondition(),
+                transition.getConditionExpression(), variables);
     }
 
+    /**
+     * Whether a condition — a rule over the record of {@code modelName}, or an expression — holds over
+     * {@code variables}: the rule the way a field condition is judged, by the types of the record's fields; the
+     * expression by AviatorScript. An edge's and a change trigger's conditions are both decided here. No condition
+     * holds.
+     *
+     * @throws RuntimeException when the condition cannot be evaluated — a configuration fault, not a "no"
+     */
+    public static boolean conditionHolds(String modelName, Filters rule, String expression, Map<String, Object> variables) {
+        if (!Filters.isEmpty(rule)) {
+            return FilterEvaluator.matches(rule, variables, EvalContext.of(null), field -> fieldTypeOf(modelName, field));
+        }
+        return !StringUtils.hasText(expression) || ComputeUtils.executeBoolean(expression, new LinkedHashMap<>(variables));
+    }
+
+    /** The type of what {@code field} reads: a field of the record, or one a path reaches through a relation. */
     private static FieldType fieldTypeOf(String modelName, String field) {
-        return modelName != null && ModelManager.existModel(modelName) && ModelManager.existField(modelName, field)
-                ? ModelManager.getModelField(modelName, field).getFieldType()
-                : null;
+        if (modelName == null || !ModelManager.existModel(modelName)) {
+            return null;
+        }
+        if (field.indexOf('.') > 0) {
+            MetaField leaf = RecordVariables.routedPathField(modelName, field);
+            return leaf == null ? null : leaf.getFieldType();
+        }
+        return ModelManager.existField(modelName, field) ? ModelManager.getModelField(modelName, field).getFieldType() : null;
     }
 
     /**
@@ -84,10 +116,51 @@ public class FlowGatewayRouter {
         return nextNodeIds;
     }
 
+    /**
+     * The first conditional edge, in order, whose condition holds — the ones after it are not decided — or, when none
+     * holds, the default edge.
+     */
     private List<String> resolveExclusiveEdgeNextNodeIds(CompiledFlowDefinition definition,
                                                          CompiledFlowNode node,
                                                          Predicate<CompiledFlowTransition> condition) {
-        List<CompiledFlowTransition> matches = new ArrayList<>();
+        CompiledFlowTransition defaultTransition = null;
+        for (String edgeId : node.getOutgoingEdgeIds()) {
+            CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
+            if (transition == null || !transition.hasCondition()) {
+                continue;
+            }
+            if (condition.test(transition)) {
+                return List.of(transition.getTarget());
+            }
+        }
+        for (String edgeId : node.getOutgoingEdgeIds()) {
+            CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
+            if (transition == null || transition.hasCondition()) {
+                continue;
+            }
+            if (defaultTransition != null) {
+                throw new FlowRuntimeException("Node '" + node.displayName()
+                        + "' has multiple default outgoing edges");
+            }
+            defaultTransition = transition;
+        }
+        if (defaultTransition != null) {
+            return List.of(defaultTransition.getTarget());
+        }
+        if (node.getOutgoingEdgeIds().size() <= 1) {
+            return List.of();
+        }
+        throw noRoute(node);
+    }
+
+    /**
+     * Every conditional edge whose condition holds — each condition is decided — or, when none holds, the default
+     * edge: the one without a condition.
+     */
+    private List<String> resolveInclusiveGatewayNextNodeIds(CompiledFlowDefinition definition,
+                                                            CompiledFlowNode node,
+                                                            Predicate<CompiledFlowTransition> condition) {
+        List<String> matched = new ArrayList<>();
         CompiledFlowTransition defaultTransition = null;
         for (String edgeId : node.getOutgoingEdgeIds()) {
             CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
@@ -96,51 +169,33 @@ public class FlowGatewayRouter {
             }
             if (!transition.hasCondition()) {
                 if (defaultTransition != null) {
-                    throw new FlowRuntimeException("Node '" + node.getNodeId()
+                    throw new FlowRuntimeException("Inclusive gateway '" + node.displayName()
                             + "' has multiple default outgoing edges");
                 }
                 defaultTransition = transition;
                 continue;
             }
             if (condition.test(transition)) {
-                matches.add(transition);
+                matched.add(transition.getTarget());
             }
         }
-        if (matches.size() > 1) {
-            throw new FlowRuntimeException("Node '" + node.getNodeId()
-                    + "' matched multiple conditional outgoing edges: "
-                    + matches.stream().map(CompiledFlowTransition::getEdgeId).toList());
-        }
-        if (matches.size() == 1) {
-            return List.of(matches.getFirst().getTarget());
+        if (!matched.isEmpty()) {
+            return matched;
         }
         if (defaultTransition != null) {
             return List.of(defaultTransition.getTarget());
         }
-        if (node.getOutgoingEdgeIds().size() <= 1) {
-            return List.of();
-        }
-        throw new FlowRuntimeException("Node '" + node.getNodeId()
-                + "' did not match any outgoing edge");
+        throw noRoute(node);
     }
 
-    private List<String> resolveInclusiveGatewayNextNodeIds(CompiledFlowDefinition definition,
-                                                            CompiledFlowNode node,
-                                                            Predicate<CompiledFlowTransition> condition) {
-        List<String> matched = new ArrayList<>();
-        for (String edgeId : node.getOutgoingEdgeIds()) {
-            CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
-            if (transition == null) {
-                continue;
-            }
-            if (!transition.hasCondition() || condition.test(transition)) {
-                matched.add(transition.getTarget());
-            }
-        }
-        if (matched.isEmpty()) {
-            throw new FlowRuntimeException("Inclusive gateway '" + node.getNodeId()
-                    + "' did not match any outgoing edge");
-        }
-        return matched;
+    /**
+     * No route out of {@code node} fits the request, and none is the default: a gap in the flow, told in words its
+     * reader can act on rather than as an unexpected error. At submission the submitter is refused;
+     * after an approval the instance fails with it, the approval kept, and its initiator and administrators are told
+     * ({@link FlowExecutionOrchestrator#runAfterApproval}).
+     */
+    private static FlowActionValidationException noRoute(CompiledFlowNode node) {
+        return new FlowActionValidationException("No route after '" + node.displayName() + "' fits this request, and "
+                + "the step has no default route. An administrator needs to add one to the approval flow.");
     }
 }

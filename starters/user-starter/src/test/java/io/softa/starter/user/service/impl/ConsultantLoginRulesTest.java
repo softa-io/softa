@@ -43,6 +43,7 @@ class ConsultantLoginRulesTest {
 
     ConsultantLoginRulesTest() {
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
+        ReflectionTestUtils.setField(loginService, "cacheService", mock(io.softa.framework.orm.service.CacheService.class));
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "consultantService", consultantService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
@@ -188,6 +189,35 @@ class ConsultantLoginRulesTest {
             assertThat(option.unavailableReason()).isNull();
             assertThat(option.selectable()).isTrue();
         });
+    }
+
+    @Test
+    void anEmploymentInASuspendedCompany_isGreyed_andNeverEnteredAsTheLastUsed() {
+        // The company entered last time was suspended by the platform. Left selectable, the entry
+        // rule chose it and the session was refused on the spot: no sign-in could ever get through.
+        UserAccount suspended = membership(false, AccountStatus.ACTIVE);
+        UserAccount other = membership(false, AccountStatus.ACTIVE);
+        other.setId(2L);
+        other.setTenantId(200L);
+        UserIdentity identity = new UserIdentity();
+        identity.setProfileId(PROFILE);
+        identity.setLastAccountId(1L);
+        when(identityService.findByProfile(PROFILE)).thenReturn(java.util.Optional.of(identity));
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(java.util.List.of(suspended, other));
+        ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
+        when(tenantInfoService.isTenantActive(100L)).thenReturn(false);
+        when(tenantInfoService.isTenantActive(200L)).thenReturn(true);
+
+        java.util.List<MembershipOption> options = resolveMemberships();
+
+        assertThat(options).hasSize(2);
+        assertThat(options).filteredOn(option -> option.accountId().equals(1L)).singleElement()
+                .satisfies(option -> {
+                    assertThat(option.lastUsed()).isTrue();
+                    assertThat(option.selectable()).isFalse();
+                });
+        // Not entered automatically: the person picks from what is left.
+        assertThat(LoginServiceImpl.autoEnterAccount(options)).isNull();
     }
 
     @Test

@@ -21,7 +21,8 @@ import io.softa.starter.ai.enums.AiModelProvider;
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         softDelete = true,
         activeControl = true,
-        description = "Robots that pre-define system prompts and parameter configurations."
+        description = "Robots that pre-define system prompts and parameter configurations.",
+        defaultOrder = {"name"}
 )
 public class AiRobot extends AuditableModel {
 

@@ -2,6 +2,7 @@ package io.softa.starter.flow.runtime.spi;
 
 import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 
 import io.softa.framework.base.utils.SFunction;
 import io.softa.starter.flow.entity.ApprovalModel;
@@ -10,7 +11,7 @@ import io.softa.starter.flow.enums.RecordEffectStatus;
 /**
  * The business side of one model's record approvals: implement one per model (a Spring bean) and submit
  * records through {@code FlowClient.submitRecord}. Which flow approves a record is not decided here —
- * each flow's submit trigger names its model and, optionally, the records it applies to.
+ * each approval flow's submit trigger names the model and, optionally, which of its records the flow takes.
  *
  * <p>The framework keeps the approval state, the same for every model: the record's
  * {@link ApprovalModel#getApprovalStatus() approvalStatus}, its submitter and submission time, the one
@@ -89,6 +90,19 @@ public interface ModelApprovalHandler<T extends ApprovalModel> {
     default void afterSubmitted(T record) {}
 
     /**
+     * An approver's edits — the fields their approval step lets them change — were written to the record: apply the
+     * model's own rules on such edits, as the record's own page applies them when it saves, such as values the server
+     * works out for lines an approver added, or lines that must stay consistent with each other. Runs inside the
+     * approve, in its transaction with permission checks skipped, right after the write and before the approval goes
+     * on; throwing refuses the approve, the edits with it, and tells the approver why — where an edit no page would
+     * have saved was otherwise found only when the approval's result was applied.
+     *
+     * @param record       the record as the edits left it
+     * @param editedFields the fields the edits wrote
+     */
+    default void afterApproverEdit(T record, Set<String> editedFields) {}
+
+    /**
      * The approval reached a result, already written to the record's {@code approvalStatus}: run the
      * follow-up business actions, such as deducting a leave balance or registering a new salary. A return
      * or a withdrawal arrives with the record a {@code Draft} again; a draft its applicant cancelled arrives
@@ -102,7 +116,7 @@ public interface ModelApprovalHandler<T extends ApprovalModel> {
      * failure there holds up the approval, and a rollback does not undo it.
      *
      * @param record  the record, with its new {@code approvalStatus}
-     * @param outcome how the approval ended, and who ended it
+     * @param outcome how the approval ended, and the approval instance
      */
     default void afterOutcome(T record, ApprovalOutcome outcome) {}
 

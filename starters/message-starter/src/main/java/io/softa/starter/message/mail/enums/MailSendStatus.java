@@ -16,7 +16,7 @@ import lombok.Getter;
 public enum MailSendStatus {
     @OptionItem(description = "Queued, not yet sent", itemTone = OptionItemTone.NEUTRAL)
     PENDING("Pending"),
-    @OptionItem(description = "In-flight: picked up by a consumer, send in progress",
+    @OptionItem(description = "In-flight: claimed by the delivery loop, send in progress",
             itemTone = OptionItemTone.INFO)
     SENDING("Sending"),
     @OptionItem(description = "Successfully delivered to the SMTP server",

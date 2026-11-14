@@ -1,6 +1,5 @@
 package io.softa.starter.flow.runtime.bundle;
 
-import java.util.Map;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import io.softa.framework.orm.domain.Filters;
@@ -25,23 +24,14 @@ public class CompiledFlowTransition {
     @Schema(description = "Source node id")
     private String source;
 
-    @Schema(description = "Source handle")
-    private String sourceHandle;
-
     @Schema(description = "Target node id")
     private String target;
-
-    @Schema(description = "Target handle")
-    private String targetHandle;
 
     @Schema(description = "Rule condition over the fields of the flow's record (Filters); exclusive with conditionExpression")
     private Filters condition;
 
     @Schema(description = "Condition expression")
     private String conditionExpression;
-
-    @Schema(description = "Transition data")
-    private Map<String, Object> data;
 
     /** Whether the transition is taken only when a condition holds — either kind; one without is a default. */
     public boolean hasCondition() {

@@ -1,8 +1,8 @@
 package io.softa.starter.flow.compiler.graph;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import io.softa.starter.flow.api.CompileDiagnostic;
@@ -11,7 +11,7 @@ import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.enums.FlowNodeType;
 
 /**
- * Builds lookup indexes and resolves entry/terminal nodes from graph primitives.
+ * Builds lookup indexes and resolves the entry nodes from graph primitives.
  * <p>
  * Structural defects (blank/duplicate ids, missing types, dangling endpoints) are
  * reported as anchored {@link CompileDiagnostic}s into the caller's sink — all of
@@ -27,6 +27,11 @@ public final class GraphIndexBuilder {
     public static final String MISSING_EDGE_ENDPOINT = "MISSING_EDGE_ENDPOINT";
     public static final String DUPLICATE_EDGE_ID     = "DUPLICATE_EDGE_ID";
 
+    /** Conditional edges first, by priority, unset after set; the default last. Stable: ties keep drawing order. */
+    private static final Comparator<FlowGraphEdge> TRY_ORDER = Comparator
+            .comparing((FlowGraphEdge edge) -> !edge.hasCondition())
+            .thenComparing(edge -> edge.getPriority() == null ? Integer.MAX_VALUE : edge.getPriority());
+
     private GraphIndexBuilder() {}
 
     public static Map<String, FlowGraphNode> indexNodes(List<FlowGraphNode> nodes,
@@ -40,7 +45,7 @@ public final class GraphIndexBuilder {
             }
             if (node.getType() == null) {
                 diagnostics.add(CompileDiagnostic.nodeLevel(node.getId(), null, MISSING_NODE_TYPE,
-                        "Node '" + node.getId() + "' must define a type"));
+                        "Node '" + node.displayName() + "' must define a type"));
                 continue;
             }
             if (nodeMap.putIfAbsent(node.getId(), node) != null) {
@@ -81,13 +86,24 @@ public final class GraphIndexBuilder {
         return incoming;
     }
 
+    /**
+     * Each node's outgoing edges in the order a node that is not a gateway tries them: the conditional edges by their
+     * {@code priority}, those without one after, in drawing order; the default — the edge without a condition — last.
+     * A gateway takes every edge that holds whatever the order, so the order is the same for every node.
+     */
     public static Map<String, List<String>> buildOutgoingEdgeIds(Collection<FlowGraphEdge> edges) {
-        Map<String, List<String>> outgoing = new HashMap<>();
+        Map<String, List<FlowGraphEdge>> outgoing = new HashMap<>();
         for (FlowGraphEdge edge : edges) {
-            outgoing.computeIfAbsent(edge.getSource(), _ -> new ArrayList<>()).add(edge.getId());
+            outgoing.computeIfAbsent(edge.getSource(), _ -> new ArrayList<>()).add(edge);
         }
-        return outgoing;
+        Map<String, List<String>> ordered = new HashMap<>();
+        outgoing.forEach((source, list) -> ordered.put(source, list.stream()
+                .sorted(TRY_ORDER)
+                .map(FlowGraphEdge::getId)
+                .collect(Collectors.toCollection(ArrayList::new))));
+        return ordered;
     }
+
 
     /**
      * The flow's entry is its Start node — never inferred from the graph shape, so a node
@@ -101,18 +117,4 @@ public final class GraphIndexBuilder {
                 .toList();
     }
 
-    public static List<String> resolveTerminalNodes(Collection<FlowGraphNode> nodes,
-                                                     Map<String, List<String>> outgoingEdgeIds) {
-        List<String> explicitEnds = nodes.stream()
-                .filter(node -> FlowNodeType.END.equals(node.getType()))
-                .map(FlowGraphNode::getId)
-                .toList();
-        if (!explicitEnds.isEmpty()) {
-            return explicitEnds;
-        }
-        return nodes.stream()
-                .map(FlowGraphNode::getId)
-                .filter(id -> CollectionUtils.isEmpty(outgoingEdgeIds.get(id)))
-                .toList();
-    }
 }

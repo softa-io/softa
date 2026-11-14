@@ -9,6 +9,7 @@ import tools.jackson.databind.ObjectMapper;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.message.shared.ErrorText;
 import io.softa.starter.message.dlq.entity.DeadLetterMessage;
 import io.softa.starter.message.dlq.enums.DeadLetterSource;
 import io.softa.starter.message.dlq.enums.DeadLetterStatus;
@@ -51,7 +52,7 @@ public class DeadLetterMessageServiceImpl extends EntityServiceImpl<DeadLetterMe
                 .eventId(recordId)               // FK back to mail_send_record / sms_send_record
                 .payload(objectMapper.valueToTree(payload))
                 .status(DeadLetterStatus.PENDING)
-                .lastErrorMsg(errorMessage)
+                .lastErrorMsg(ErrorText.clip(errorMessage, ErrorText.MESSAGE_LENGTH))
                 .build();
         createOne(record);
     }

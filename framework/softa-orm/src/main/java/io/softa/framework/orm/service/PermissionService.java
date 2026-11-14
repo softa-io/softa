@@ -6,10 +6,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.CreateAccess;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.RecordAccess;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 
 /**
  * Permission check service interface
@@ -318,12 +322,17 @@ public interface PermissionService {
     /**
      * Whether the caller holds the export of {@code model}. The export endpoints are shared by every model,
      * so the endpoint gate admits anyone holding the export of some model; the export asks here, naming
-     * the model, before it reads a row. A model with no export permission registered is granted.
+     * the model, before it reads a row. Only the platform administrator passes on its role — a tenant
+     * administrator is answered from the permissions its menus give it, like everybody else.
+     *
+     * <p>A model with no export permission registered is granted, its rows bounded by the caller's row
+     * scope — except to a caller who reads past row scope (a tenant administrator, a consultant) when the
+     * model is not multiTenant: its one table holds every tenant's rows.
      *
      * <p>Default: granted.
      *
      * @param model the model being exported
-     * @return true when the caller may export it, or when no permission covers it
+     * @return true when the caller may export it, or when no permission covers it and the read stays bounded
      */
     default boolean hasModelExportGrant(String model) {
         return true;
@@ -335,13 +344,14 @@ public interface PermissionService {
      * <p>The import endpoints are shared by every model — the model rides in a template or a request
      * part — so the endpoint gate admits anyone holding the import of <em>some</em> model and cannot
      * have authorized this one. The import service asks here, naming the model, before it reads a row.
-     * A model with no import permission registered is granted, as {@link #hasModelActionGrant} grants
-     * an unregistered model.
+     * Answered as {@link #hasModelExportGrant} is: from the caller's permissions for everyone but the
+     * platform administrator, an unregistered model granted unless the caller reads past row scope and
+     * the model is not multiTenant.
      *
      * <p>Default: granted.
      *
      * @param model the model being imported
-     * @return true when the caller may import it, or when no permission covers it
+     * @return true when the caller may import it, or when no permission covers it and the write stays bounded
      */
     default boolean hasModelImportGrant(String model) {
         return true;
@@ -409,6 +419,105 @@ public interface PermissionService {
      */
     default CreateAccess getCreateAccess(String model) {
         return new CreateAccess(Set.of());
+    }
+
+    /**
+     * The companies the caller may perform {@code accessType} on {@code model} for: the company grants
+     * of the roles holding that action, together.
+     *
+     * <p>For a write that names a company in a field the company axis does not read — a signing entity
+     * beside the {@code companyId} the record belongs to. Row scope bounds the record by its
+     * {@code companyId}; nothing bounds such a field, and checking it by reading the company list is no
+     * answer either, since that read reaches the companies of <em>every</em> role the user holds (any
+     * role without a company grant reaches them all). This asks only the roles that may perform the write.
+     *
+     * <p>Default: {@code null}.
+     *
+     * @return {@code null} when unrestricted (an admin, a bypassed caller, or a holding role with no
+     *         company grant); empty when the caller reaches no company; otherwise exactly those
+     */
+    default Set<Long> getGrantedCompanyIds(String model, AccessType accessType) {
+        return null;
+    }
+
+    /**
+     * {@link #getGrantedCompanyIds(String, AccessType)} for a write to one stored row: the company grants of
+     * the holding roles that reach that row. A role answers for its own rows and its own companies together,
+     * so a role that may edit one department's records in company A and another that may edit every record in
+     * company B do not add up to moving the first department's records to company B.
+     *
+     * <p>Default: the answer for the model. A null {@code id} — a record with none yet — is that answer too.
+     *
+     * @return as {@link #getGrantedCompanyIds(String, AccessType)}; empty when no holding role reaches the row
+     */
+    default Set<Long> getGrantedCompanyIds(String model, AccessType accessType, Serializable id) {
+        return getGrantedCompanyIds(model, accessType);
+    }
+
+    /**
+     * Which departments a write of {@code model} may put a record in, as a filter on the department model:
+     * the department grants of the roles holding that write, together. An exemption does not count, since it
+     * lifts the grant only for viewing.
+     *
+     * <p>For a picker choosing a record's department. The department list as the user reads it answers for what
+     * they may view, so it offered departments the write would then refuse.
+     *
+     * <p>Default: {@code null}.
+     *
+     * @return {@code null} when the choice is not bounded: an admin, a bypassed caller, a holding role with no
+     *         department grant or with a condition on direct reports that applies to the model, whose reports
+     *         can sit anywhere and leave the save to decide, or a model whose rows the picked department does not place — one belonging to
+     *         a department by no field, or through its employee
+     */
+    default Filters getWritableDepartmentScope(String model, AccessType accessType) {
+        return null;
+    }
+
+    /**
+     * {@link #getWritableDepartmentScope(String, AccessType)} for a write to one stored row: the department grants
+     * of the holding roles that reach that row, since the save of that row is judged by them alone. A holding role
+     * the row is beyond — another company's, say — would otherwise widen the choice past what the save allows.
+     *
+     * <p>Default: the scope for the write as a whole.
+     *
+     * @param id the stored row; {@code null}, or a create, reads as the write as a whole
+     * @return as {@link #getWritableDepartmentScope(String, AccessType)}; a filter matching nothing when no holding
+     *         role reaches the row
+     */
+    default Filters getWritableDepartmentScope(String model, AccessType accessType, Serializable id) {
+        return getWritableDepartmentScope(model, accessType);
+    }
+
+    /**
+     * Whether {@code fieldName} is what places a record of {@code model} in a department: its
+     * {@code departmentId}, or the parent of a department. Only such a field is bounded by
+     * {@link #getWritableDepartmentScope}. Any other field naming a department (where a person is being moved
+     * to, say) does not decide whose the record is, so what the write's department grant reaches says nothing
+     * about it.
+     */
+    static boolean placesInDepartment(String model, String fieldName) {
+        return ModelConstant.DEPARTMENT_FIELD.equals(fieldName)
+                || (ModelConstant.DEPARTMENT_MODEL.equals(model) && "parentId".equals(fieldName));
+    }
+
+    /**
+     * Whether {@code fieldName} names a company a write of {@code model} is bounded by: a stored to-one field onto the
+     * company model — the {@code companyId} the record belongs to, bounded by row scope, or another company it names,
+     * judged on save against {@link #getGrantedCompanyIds}. A projection is never written, a {@code dynamic} field is
+     * not stored, and a cascaded field copies the company of the record it follows rather than naming one: nothing
+     * bounds what those name, and a picker for one reads as any other.
+     */
+    static boolean namesCompany(String model, String fieldName) {
+        return ModelManager.existModel(model) && !ModelManager.isProjectionModel(model)
+                && namesCompany(ModelManager.getModelFieldOrNull(model, fieldName));
+    }
+
+    /** {@link #namesCompany(String, String)} for a field of a model that is written, already looked up. */
+    static boolean namesCompany(MetaField field) {
+        return field != null
+                && FieldType.TO_ONE_TYPES.contains(field.getFieldType())
+                && ModelConstant.COMPANY_MODEL.equals(field.getRelatedModel())
+                && !field.isDynamic() && field.getCascadedField() == null;
     }
 
 }

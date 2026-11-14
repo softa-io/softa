@@ -53,11 +53,6 @@ public class GenerateFileTaskExecutor extends AbstractTaskExecutor {
     }
 
     @Override
-    public String getExecutor() {
-        return "GenerateFile";
-    }
-
-    @Override
     public String getName() {
         return "Generate File";
     }
@@ -72,7 +67,7 @@ public class GenerateFileTaskExecutor extends AbstractTaskExecutor {
     public Map<String, Object> getConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("templateId", Map.of("type", "number", "label", "Template ID", "required", true));
-        schema.put("rowId", Map.of("type", "string", "label", "Row ID"));
+        schema.put("rowId", Map.of("type", "template", "label", "Row ID"));
         return schema;
     }
 
@@ -106,7 +101,8 @@ public class GenerateFileTaskExecutor extends AbstractTaskExecutor {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("fileId", fileInfo.getFileId());
         result.put("fileName", fileInfo.getFileName());
-        result.put("url", fileInfo.getUrl());
+        // No url: whatever reads this output — a mail, a webhook, a variable kept for later — outlives
+        // any link. Send the file as an attachment by fileId (SendEmail input.attachments).
         if (fileInfo.getFileType() != null) {
             result.put("fileType", fileInfo.getFileType().name());
         }

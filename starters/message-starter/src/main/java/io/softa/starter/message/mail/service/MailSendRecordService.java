@@ -2,10 +2,13 @@ package io.softa.starter.message.mail.service;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.mail.entity.MailSendRecord;
+import io.softa.starter.message.mail.enums.MailServerOwner;
 
 /**
  * CRUD service for outgoing mail records.
@@ -13,21 +16,41 @@ import io.softa.starter.message.mail.entity.MailSendRecord;
 public interface MailSendRecordService extends EntityService<MailSendRecord, Long> {
 
     /**
-     * Resolve many SMTP Message-IDs with a single {@code IN (...)} query. Returns a
-     * map keyed by Message-ID; missing ids simply aren't in the map, and order is
-     * not preserved. Used when correlating a batch of inbound mails (bounces /
-     * receipts) back to their original sent messages, avoiding N+1 queries.
+     * Resolve many SMTP Message-IDs with a single {@code IN (...)} query, among the records whose mail
+     * a server of {@code carriedBy} sent — the platform's (every tenant's relayed mail included), or the
+     * current tenant's own. Returns a map keyed by Message-ID; missing ids simply aren't in the map.
+     * Used when correlating a batch of inbound mails (bounces / receipts) back to their original sent
+     * messages: a receive server only ever answers for the mail its own owner's send servers carried.
      */
-    Map<String, MailSendRecord> findByMessageIds(Collection<String> messageIds);
+    Map<String, MailSendRecord> findByMessageIds(Collection<String> messageIds, MailServerOwner carriedBy);
+
+    /**
+     * The record, when the current caller may see it: the platform sees every record, a tenant only
+     * those filed under it. The table is not multi-tenant, so a by-id read reaching a tenant goes
+     * through here.
+     */
+    Optional<MailSendRecord> findVisibleById(Long id);
+
+    /** {@link #retry} for a record the current caller may see ({@link #findVisibleById}). */
+    boolean retryVisible(Long id);
+
+    /** {@link #retryByIds} over the records the current caller may see; the others are skipped. */
+    int retryVisibleByIds(List<Long> ids);
 
     /**
      * Claim a record for a send attempt: compare-and-set PENDING/RETRY → SENDING
      * and stamp {@code attemptStartedAt}. Returns true iff the row was updated
      * (current {@code version} matched {@code expectedVersion}); a losing
-     * concurrent attempt gets {@code false} and must treat its delivery as a
-     * duplicate.
+     * concurrent claim gets {@code false} and must leave the record alone.
      */
     boolean markSending(Long id, long expectedVersion);
+
+    /**
+     * Write back what the first delivery attempt prepared — rendered subject and
+     * bodies, template defaults, the chosen server and sender — so retries replay
+     * it. Bumps version; {@code false} if the version did not match.
+     */
+    boolean markPrepared(MailSendRecord record, long expectedVersion);
 
     /**
      * Mark a record as terminally SENT with the SMTP Message-ID, transport name,
@@ -44,13 +67,22 @@ public interface MailSendRecordService extends EntityService<MailSendRecord, Lon
 
     /**
      * Manually requeue one record for delivery: {@code PENDING} / {@code RETRY} /
-     * {@code FAILED} / {@code DEAD_LETTER} → {@code RETRY} plus a fresh outbox row,
-     * atomically. The fresh row also rescues records whose original outbox row died
-     * (broker outage), the case the automatic machinery never recovers. {@code SENT}
-     * and in-flight {@code SENDING} records are rejected with a business error —
-     * stuck SENDING is the zombie sweeper's job.
+     * {@code FAILED} / {@code DEAD_LETTER} → {@code RETRY}, due now, so the delivery
+     * loop takes it on its next poll. A record that failed before it was prepared
+     * (no server, no template, quota used up) is prepared afresh, so fixing the
+     * configuration and retrying is enough. {@code SENT} and in-flight
+     * {@code SENDING} records are rejected with a business error — stuck SENDING
+     * is the zombie sweeper's job.
      */
     boolean retry(Long id);
+
+    /**
+     * Requeue the selected records the way {@link #retry} does, skipping what it
+     * would reject instead of failing: {@code SENT} and in-flight {@code SENDING}
+     * records, a record that changed while being requeued (a worker claimed it),
+     * and ids that are not found. Returns how many were requeued.
+     */
+    int retryByIds(List<Long> ids);
 
     /**
      * Terminally fail a record with no more retries. Bumps version.

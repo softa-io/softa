@@ -124,6 +124,40 @@ class CascadeFieldWalkerTest {
     }
 
     @Test
+    void aConditionMayCrossAToManyRelation() {
+        // The WHERE builder answers the rest of the path in a sub-query on the related model.
+        MetaField team = field("AppEnv", "team", FieldType.ONE_TO_MANY, "Member");
+        MetaField email = field("Member", "email", FieldType.STRING, null);
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("AppEnv", "team")).thenReturn(true);
+            modelManager.when(() -> ModelManager.existField("Member", "email")).thenReturn(true);
+            modelManager.when(() -> ModelManager.getModelField("AppEnv", "team")).thenReturn(team);
+            modelManager.when(() -> ModelManager.getModelField("Member", "email")).thenReturn(email);
+
+            CascadeFieldWalker.Result result = CascadeFieldWalker.walk(
+                    "AppEnv", "team.email", 4, true, CascadeFieldWalker.Visitor.NOOP);
+
+            CascadeFieldWalker.Result.Ok ok = assertInstanceOf(CascadeFieldWalker.Result.Ok.class, result);
+            assertSame(email, ok.leaf());
+        }
+    }
+
+    @Test
+    void crossingAToManyRelationStillNeedsARelation() {
+        MetaField name = field("AppEnv", "name", FieldType.STRING, null);
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("AppEnv", "name")).thenReturn(true);
+            modelManager.when(() -> ModelManager.getModelField("AppEnv", "name")).thenReturn(name);
+
+            CascadeFieldWalker.Result result = CascadeFieldWalker.walk(
+                    "AppEnv", "name.length", 4, true, CascadeFieldWalker.Visitor.NOOP);
+
+            CascadeFieldWalker.Result.Failure failure = assertInstanceOf(CascadeFieldWalker.Result.Failure.class, result);
+            assertEquals(CascadeFieldWalker.ErrorKind.TRAVERSE_NON_RELATION, failure.kind());
+        }
+    }
+
+    @Test
     void traverseThroughManyToManyFails() {
         MetaField tags = field("Article", "tags", FieldType.MANY_TO_MANY, "Tag");
         try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {

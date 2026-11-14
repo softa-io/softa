@@ -22,8 +22,10 @@ import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.PatchType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
+import io.softa.framework.orm.utils.OneToManyPatch;
 import io.softa.framework.orm.utils.ReflectTool;
 
 /**
@@ -32,17 +34,12 @@ import io.softa.framework.orm.utils.ReflectTool;
 @Slf4j
 public class OneToManyProcessor extends BaseProcessor {
 
-    private static final Set<PatchType> ONE_TO_MANY_PATCH_TYPES =
-            EnumSet.of(PatchType.CREATE, PatchType.UPDATE, PatchType.DELETE);
-
     private final FlexQuery flexQuery;
 
     private SubQuery subQuery;
 
     @Getter
     private boolean changed = false;
-
-    private record OneToManyPatchValues(List<?> createRows, List<?> updateRows, List<?> deleteIds) {}
 
     /**
      * Constructor of the OneToMany field processor object.
@@ -82,6 +79,7 @@ public class OneToManyProcessor extends BaseProcessor {
         for (Map<String, Object> row : rows) {
             Serializable id = (Serializable) row.get(ModelConstant.ID);
             Object value = row.get(fieldName);
+            requireRowsOnCreate(value);
             if (value instanceof List<?> valueList) {
                 if (!valueList.isEmpty()) {
                     List<Map<String, Object>> subRows = convertAndLinkSubRows(id, valueList);
@@ -162,6 +160,42 @@ public class OneToManyProcessor extends BaseProcessor {
         if (updated || deleted || !newIds.isEmpty()) {
             changed = true;
         }
+        requireRowsLeft(rows);
+    }
+
+    /**
+     * A required one-to-many keeps at least one row. A new record names its rows in the value — a list, or the
+     * {@code Create} rows of a patch — so it is judged on the value, before any row is written.
+     */
+    private void requireRowsOnCreate(Object value) {
+        if (!metaField.isRequired()) {
+            return;
+        }
+        boolean namesRows = value instanceof List<?> list
+                ? !list.isEmpty()
+                : value instanceof Map<?, ?> patchMap && !parseOneToManyPatchValues(patchMap).createRows().isEmpty();
+        if (!namesRows) {
+            throw WriteValidationException.requiredField(metaField);
+        }
+    }
+
+    /**
+     * A required one-to-many keeps at least one row. An update that sends it is judged on the rows the write leaves —
+     * the rows a patch creates and deletes say nothing of the rows left, so deleting every one sends a patch, not an
+     * empty value — counted in the write's own transaction, whose rollback the refusal takes the write with. An update
+     * that leaves the field out is not judged, as a required column left out is not.
+     */
+    private void requireRowsLeft(List<Map<String, Object>> rows) {
+        if (!metaField.isRequired()) {
+            return;
+        }
+        List<Serializable> sent = rows.stream()
+                .filter(row -> row.containsKey(fieldName))
+                .map(row -> (Serializable) row.get(ModelConstant.ID))
+                .toList();
+        if (!sent.isEmpty() && !ToManyRows.allHeld(metaField.getRelatedModel(), metaField.getRelatedField(), sent)) {
+            throw WriteValidationException.requiredField(metaField);
+        }
     }
 
     /**
@@ -196,7 +230,7 @@ public class OneToManyProcessor extends BaseProcessor {
      * Apply OneToMany patch in create scene.
      */
     private void applyOneToManyCreatePatch(Serializable mainId, Map<?, ?> patchMap, List<Map<String, Object>> createRows) {
-        OneToManyPatchValues patchValues = parseOneToManyPatchValues(patchMap);
+        OneToManyPatch patchValues = parseOneToManyPatchValues(patchMap);
         Assert.isEmpty(patchValues.updateRows(),
                 "Model field {0}:{1} in create scene does not support patch operation: {2}", modelName, fieldName, PatchType.UPDATE.getType());
         Assert.isEmpty(patchValues.deleteIds(),
@@ -212,7 +246,7 @@ public class OneToManyProcessor extends BaseProcessor {
     private void applyOneToManyUpdatePatch(Serializable mainId, Map<?, ?> patchMap, Set<Serializable> previousSubIds,
                                            List<Map<String, Object>> createRows, List<Map<String, Object>> updateRows,
                                            List<Serializable> deleteIds) {
-        OneToManyPatchValues patchValues = parseOneToManyPatchValues(patchMap);
+        OneToManyPatch patchValues = parseOneToManyPatchValues(patchMap);
         if (!patchValues.createRows().isEmpty()) {
             createRows.addAll(convertAndLinkSubRows(mainId, patchValues.createRows()));
         }
@@ -231,13 +265,8 @@ public class OneToManyProcessor extends BaseProcessor {
     /**
      * Parse one-to-many patch value object.
      */
-    private OneToManyPatchValues parseOneToManyPatchValues(Map<?, ?> patchMap) {
-        Map<PatchType, Object> patchData = parsePatchData(patchMap, ONE_TO_MANY_PATCH_TYPES);
-        return new OneToManyPatchValues(
-                getPatchList(patchData, PatchType.CREATE),
-                getPatchList(patchData, PatchType.UPDATE),
-                getPatchList(patchData, PatchType.DELETE)
-        );
+    private OneToManyPatch parseOneToManyPatchValues(Map<?, ?> patchMap) {
+        return OneToManyPatch.parse(patchMap, modelName, fieldName);
     }
 
     /**
@@ -437,6 +466,8 @@ public class OneToManyProcessor extends BaseProcessor {
         }
         relatedFlexQuery.setConvertType(flexQuery.getConvertType());
         relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
+        // The lines read in the order they were entered unless the subQuery or the related model names one.
+        orderAsEntered(metaField.getRelatedModel(), relatedFlexQuery);
         applyAcrossTimeline(relatedFlexQuery);
         // When get the related model rows of OneToMany field, the `relatedField` field of the related model is only
         // needed to get the ID for GroupBy, which might be a ManyToOne field defined in the related model.

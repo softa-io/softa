@@ -6,10 +6,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.ApplicationEventPublisher;
 
-import io.softa.framework.base.message.MailRequestMessage;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
@@ -58,11 +58,13 @@ class ForgotPasswordScopeTest {
 
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
-    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final MessageService messageService = mock(MessageService.class);
     private final VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
     private final UserInvitationServiceImpl service = spy(new UserInvitationServiceImpl(
-            accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
+            accountService, identityService, messageService, null, mock(JoinProofGuard.class),
             codeGuard, siteAt("https://app.example.test")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(service);
 
     ForgotPasswordScopeTest() {
         // The inherited ORM surface: this test is about whether a token is issued, not how it is stored.
@@ -97,9 +99,8 @@ class ForgotPasswordScopeTest {
 
     private void nothingIssued() {
         verify(service, never()).createOne(any(UserInvitation.class));
-        // any(Object.class), not any(): publishEvent is overloaded and a bare any() binds to the
-        // ApplicationEvent form, which nothing here ever calls — the check would pass on its own.
-        verify(eventPublisher, never()).publishEvent(any(Object.class));
+        verify(messageService, never()).sendMail(any());
+        verify(messageService, never()).sendSms(any());
     }
 
     private UserInvitation issuedInvitation() {
@@ -124,10 +125,10 @@ class ForgotPasswordScopeTest {
         nothingIssued();
     }
 
-    private MailRequestMessage sentMail() {
-        ArgumentCaptor<Object> mail = ArgumentCaptor.forClass(Object.class);
-        verify(eventPublisher).publishEvent(mail.capture());
-        return (MailRequestMessage) mail.getValue();
+    private SendMailDTO sentMail() {
+        ArgumentCaptor<SendMailDTO> mail = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendMail(mail.capture());
+        return mail.getValue();
     }
 
     @Test
@@ -146,7 +147,7 @@ class ForgotPasswordScopeTest {
         assertThat(invitation.getUserId()).isEqualTo(200L);
         // Load-bearing: the link goes to the identifier that proved the person — never to the
         // ACTIVE row's work mailbox, which would hand the company the person's global password.
-        assertThat(sentMail().to()).containsExactly(PERSONAL_EMAIL).doesNotContain("ada@other.com");
+        assertThat(sentMail().getTo()).containsExactly(PERSONAL_EMAIL).doesNotContain("ada@other.com");
         assertThat(invitation.getEmail()).isEqualTo(PERSONAL_EMAIL);
         assertThat(invitation.getMobile()).isNull();
     }
@@ -161,8 +162,23 @@ class ForgotPasswordScopeTest {
 
         service.forgotPassword(PERSONAL_EMAIL);
 
-        assertThat(sentMail().to()).containsExactly(PERSONAL_EMAIL);
+        assertThat(sentMail().getTo()).containsExactly(PERSONAL_EMAIL);
         assertThat(issuedInvitation().getMobile()).isNull();
+    }
+
+    @Test
+    void aNewEmployee_signingInByTheirEnterpriseEmail_getsTheLinkThere() {
+        // Nothing writes a login email any more: the address that signs a new employee in is the
+        // enterprise email of the account they joined, and that is where the reset goes.
+        UserIdentity identity = ada(null, "hash");
+        when(identityService.findByLoginIdentifier(WORK_EMAIL)).thenReturn(Optional.of(identity));
+        UserAccount acme = row(300L, 3L, AccountStatus.ACTIVE, WORK_EMAIL);
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(acme));
+
+        service.forgotPassword(WORK_EMAIL);
+
+        assertThat(issuedInvitation().getUserId()).isEqualTo(300L);
+        assertThat(sentMail().getTo()).containsExactly(WORK_EMAIL);
     }
 
     @Test
@@ -179,7 +195,7 @@ class ForgotPasswordScopeTest {
 
         assertThat(issuedInvitation().getUserId()).isEqualTo(300L);
         assertThat(issuedInvitation().getEmail()).isEqualTo(WORK_EMAIL);
-        assertThat(sentMail().to()).containsExactly(WORK_EMAIL);
+        assertThat(sentMail().getTo()).containsExactly(WORK_EMAIL);
     }
 
     @Test
@@ -192,7 +208,7 @@ class ForgotPasswordScopeTest {
         service.forgotPassword(PERSONAL_EMAIL);
 
         assertThat(issuedInvitation().getUserId()).isEqualTo(200L);
-        assertThat(sentMail().to()).containsExactly(PERSONAL_EMAIL);
+        assertThat(sentMail().getTo()).containsExactly(PERSONAL_EMAIL);
     }
 
     @Test
@@ -261,7 +277,7 @@ class ForgotPasswordScopeTest {
         assertThat(issuedInvitation().getUserId()).isEqualTo(200L);
         // Recorded and mailed in canonical form — acceptToken compares it against the login email.
         assertThat(issuedInvitation().getEmail()).isEqualTo(PERSONAL_EMAIL);
-        assertThat(sentMail().to()).containsExactly(PERSONAL_EMAIL);
+        assertThat(sentMail().getTo()).containsExactly(PERSONAL_EMAIL);
     }
 
     // ─────────────────── the send limit ───────────────────

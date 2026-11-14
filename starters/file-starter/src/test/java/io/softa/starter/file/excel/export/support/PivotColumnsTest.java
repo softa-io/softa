@@ -73,7 +73,7 @@ class PivotColumnsTest {
         ModelService<Long> models = mock(ModelService.class);
         ReflectionTestUtils.setField(pivot, "modelService", models);
         // The key model: SG has Full Time, NZ has Casual.
-        when(models.searchName(eq("EmploymentType"), any(FlexQuery.class))).thenReturn(List.of(
+        when(models.searchName(eq("EmploymentType"), any(FlexQuery.class), any())).thenReturn(List.of(
                 Map.of("id", "SG_FullTime", "displayName", "Full Time", "country", "SG"),
                 Map.of("id", "NZ_Casual", "displayName", "Casual", "country", "NZ")));
         // The long table: dept 1 has 8 full-timers, dept 2 has 2 casuals.

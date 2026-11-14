@@ -4,10 +4,10 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.starter.message.service.MessageService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserInvitation;
@@ -51,8 +51,10 @@ class AcceptTokenTest {
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
-            accountService, identityService, mock(ApplicationEventPublisher.class), null,
+            accountService, identityService, mock(MessageService.class), null,
             mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
+    private final io.softa.starter.user.service.UserSecurityLogService invitationSecurityLog =
+            InvitationServiceTestSupport.quiet(invitationService);
 
     private UserAccount tokenFor(AccountStatus status, String password) {
         return tokenFor(status, password, LOGIN_EMAIL);
@@ -71,6 +73,10 @@ class AcceptTokenTest {
         identity.setLoginEmail(LOGIN_EMAIL);
         identity.setPassword(password);
         when(identityService.findByProfile(PERSON)).thenReturn(Optional.of(identity));
+        // The address signs this person in (case aside); any other signs in nobody.
+        when(identityService.findByLoginIdentifier(org.mockito.ArgumentMatchers.anyString())).thenAnswer(inv ->
+                LOGIN_EMAIL.equalsIgnoreCase(String.valueOf(inv.<String>getArgument(0)).trim())
+                        ? Optional.of(identity) : Optional.empty());
         UserInvitation invitation = new UserInvitation();
         invitation.setId(1L);
         invitation.setUserId(ACCOUNT);
@@ -94,6 +100,23 @@ class AcceptTokenTest {
         assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
         assertThat(account.getActivationTime()).isEqualTo(activated);
         verify(accountService, never()).updateOne(any(UserAccount.class));
+    }
+
+    @Test
+    void aResetByLink_endsEverySession_dropsEveryDevice_andIsLogged() {
+        // As a reset by code does: whoever knew the old password may be signed in somewhere.
+        tokenFor(AccountStatus.ACTIVE, "hash");
+        io.softa.starter.user.service.UserSessionService sessions = mock(io.softa.starter.user.service.UserSessionService.class);
+        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(invitationService, "sessionService", sessions);
+        org.springframework.test.util.ReflectionTestUtils.setField(invitationService, "pushDeviceRegistry", devices);
+
+        invitationService.acceptToken("raw-token", "Str0ng!Passw0rd");
+
+        verify(sessions).revokePerson(PERSON, null, io.softa.framework.web.session.SessionRevokeReason.PASSWORD_RESET);
+        verify(devices).unregisterPerson(PERSON);
+        verify(invitationSecurityLog).entry(org.mockito.ArgumentMatchers.eq(io.softa.starter.user.enums.SecurityAction.PASSWORD_RESET),
+                any(), any(), org.mockito.ArgumentMatchers.eq(PERSON));
     }
 
     @Test

@@ -17,10 +17,10 @@ import io.softa.framework.base.placeholder.PlaceholderToken;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.starter.message.mail.dto.MailTemplateVariableDTO;
 import io.softa.starter.message.mail.dto.TemplateVariableKind;
-import io.softa.starter.message.mail.entity.MailTemplate;
+import io.softa.starter.message.mail.entity.AbstractMailTemplate;
 
 /**
- * Extracts the distinct input-relevant tokens of a {@link MailTemplate} in
+ * Extracts the distinct input-relevant tokens of a {@link AbstractMailTemplate} in
  * first-appearance order (subject, then bodyHtml, then bodyText — all stored
  * columns are scanned regardless of {@code bodyMode}: an extra variable
  * offered to the user is harmless, a missing one is not).
@@ -80,7 +80,7 @@ public final class TemplateVariableExtractor {
     private TemplateVariableExtractor() {
     }
 
-    public static List<MailTemplateVariableDTO> extract(MailTemplate template) {
+    public static List<MailTemplateVariableDTO> extract(AbstractMailTemplate template) {
         List<String> pebbleColumns = new ArrayList<>();
         if (StringUtils.hasText(template.getBodyHtml())) {
             pebbleColumns.add(template.getBodyHtml());

@@ -3,33 +3,23 @@ package io.softa.starter.message.shared.retry;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.message.shared.ErrorCategory;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Coverage for the (sole) retry strategy: exponential back-off driven by
- * {@code softa.message.retry.exponential.*}, the {@code defaultMaxAttempts}
- * cap, the QUOTA floor, and the category → decision mapping.
+ * Coverage for the (sole) retry strategy: the exponential back-off curve, the
+ * {@code MAX_ATTEMPTS} cap, the QUOTA floor, and the category → decision mapping.
  */
 class ExponentialBackoffPolicyTest {
 
     private ExponentialBackoffPolicy policy;
-    private RetryProperties properties;
 
     @BeforeEach
     void setUp() {
-        policy = new ExponentialBackoffPolicy();
-        properties = new RetryProperties();
-        // Disable jitter so delay computation is deterministic in this test.
-        properties.getExponential().setJitter(0.0);
-        properties.getExponential().setBaseSeconds(30);
-        properties.getExponential().setMultiplier(2.0);
-        properties.getExponential().setMaxSeconds(3600);
-        properties.setDefaultMaxAttempts(5);
-        ReflectionTestUtils.setField(policy, "properties", properties);
+        // No jitter, so every delay is exact.
+        policy = new ExponentialBackoffPolicy(0.0);
     }
 
     @Test
@@ -49,19 +39,30 @@ class ExponentialBackoffPolicyTest {
     }
 
     @Test
-    void delayCappedByMaxSeconds() {
-        // 30 * 2^4 = 480s, which exceeds the lowered cap of 100s.
-        properties.getExponential().setMaxSeconds(100);
-        RetryDecision decision = policy.decide(4, ErrorCategory.TRANSIENT);
-        assertInstanceOf(RetryDecision.Retry.class, decision);
-        assertTrue(((RetryDecision.Retry) decision).delay().getSeconds() <= 100,
-                "delay should be capped at maxSeconds=100");
+    void theWholeScheduleBeforeTheDeadLetter() {
+        long[] expected = {30, 60, 120, 240, 480};
+        for (int attempt = 0; attempt < expected.length; attempt++) {
+            RetryDecision decision = policy.decide(attempt, ErrorCategory.TRANSIENT);
+            assertEquals(Duration.ofSeconds(expected[attempt]), ((RetryDecision.Retry) decision).delay(),
+                    "attempt " + attempt);
+        }
+        assertInstanceOf(RetryDecision.DeadLetter.class,
+                policy.decide(expected.length, ErrorCategory.TRANSIENT));
+    }
+
+    @Test
+    void jitterStaysWithinHalfTheDelay() {
+        ExponentialBackoffPolicy jittered = new ExponentialBackoffPolicy();
+        for (int i = 0; i < 50; i++) {
+            long seconds = ((RetryDecision.Retry) jittered.decide(2, ErrorCategory.TRANSIENT)).delay().getSeconds();
+            // 120s ± 50%
+            assertTrue(seconds >= 60 && seconds <= 180, "delay " + seconds + "s outside 120s ± 50%");
+        }
     }
 
     @Test
     void quotaErrorClampedToFloor() {
         // base would be 30s at attempt 0, but the QUOTA floor is 300s.
-        properties.getExponential().setQuotaFloorSeconds(300);
         RetryDecision decision = policy.decide(0, ErrorCategory.QUOTA);
         assertInstanceOf(RetryDecision.Retry.class, decision);
         assertTrue(((RetryDecision.Retry) decision).delay().getSeconds() >= 300);
@@ -69,8 +70,8 @@ class ExponentialBackoffPolicyTest {
 
     @Test
     void exhaustedAttemptsDeadLetter() {
-        // attempt == defaultMaxAttempts (5) → retries exhausted.
-        RetryDecision decision = policy.decide(5, ErrorCategory.TRANSIENT);
+        // attempt == MAX_ATTEMPTS (5) → retries exhausted.
+        RetryDecision decision = policy.decide(ExponentialBackoffPolicy.MAX_ATTEMPTS, ErrorCategory.TRANSIENT);
         assertInstanceOf(RetryDecision.DeadLetter.class, decision);
     }
 

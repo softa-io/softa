@@ -101,6 +101,17 @@ File Starter supports two import modes:
 | `defaultValue` | String | `null` | Default value (supports `{{ expr }}`) |
 | `description` | String | `null` | Description text |
 
+### Checked when saved
+
+An import template is checked against its `modelName` when it is written — by the generic endpoints, the API, a seed or an import of the template itself (`TemplateFieldWriteValidator`, a `ModelWriteValidator`). Before this the fields were strings until someone ran the template, and a wrong one failed the whole import or the template download for whoever ran it:
+
+- `modelName` must be a model of the metadata;
+- each `uniqueConstraints` entry is looked up in the target table, so it must be able to stand in a WHERE (`FieldPaths`, `FieldPathUse.FILTER`);
+- each column's `fieldName` must pass the importer's own rules (`ImportFieldPaths` — the class the import itself builds its columns with): every segment exists, every one before the last is a relation, the last is stored, at most three segments, and a third only through the row's own one-to-one sub-record;
+- the columns taken together (`ImportFieldPaths.checkColumns`, which the import also runs): a relation is imported directly or by lookup, not both (`deptId` beside `deptId.code`), and a sub-record's field is written by one column (`employeeProfileId.idType` beside `employeeProfileId.idType.name`, or `deptId.code` twice).
+
+A field is checked when the write sets it. Moving a template to another model re-checks its unique key and the columns the write keeps — a write that restates the columns as a list has each checked as it is written. A template already broken by a later metadata change can still be edited; its wrong fields are named when they are next set. The columns are checked together whenever a write of the template sets `importFields` — a list or a patch, as the template page saves them — on the columns as the write leaves them: what is stored, with the list or patch laid on top. That is decided before any column is written, because the columns are then created, updated and deleted one batch after another and may pass through a combination neither the old nor the new columns are (a relation imported directly while it is turned into a lookup). A column written on its own — a seed file that lists `ImportTemplateField` rows apart from their template, a direct API call — is checked alone when saved; the combination is checked when the import runs, as it is for a dynamic import, whose columns are chosen then.
+
 ### 1. Import By Template (Configured)
 1. Configure ImportTemplate and ImportTemplateField
 
@@ -153,19 +164,27 @@ The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic impor
 - Only **single-level** cascade is supported: `deptId.code` ✅, `deptId.companyId.code` ❌
 - A direct FK field (e.g. `deptId`) and a lookup field (e.g. `deptId.code`) **must not coexist** in the same template.
 - Multiple lookup fields sharing the same root are combined as a composite business key (e.g. `deptId.code` + `deptId.name` together uniquely identify a Department).
-- **Country-partitioned targets resolve in the row's own country.** "Full Time" names a different Employment Type in every country that has one, so a business key on a `@Model(multiCountry)` target is only unique within a country — and the importer's own countries are the wrong domain when one file carries both Singapore and New Zealand employees. `RelationLookupResolver` resolves the row's company reference first (the importing model's field onto `Company` — `legalEntityId` on an employee, `companyId` on a department — whatever the column order), turns it into a country (`CompanyCountryResolver`, cached), buckets the rows by it and queries each bucket with `country = X` on top of the field's own filters. Rows naming no company resolve as before, within the caller's countries. A template that looks a partitioned target up by name without carrying a company column logs a warning at detection time (`partitionedLookupsWithoutCompanyColumn` exposes the same list for a template editor): it works for a single-country importer and fails the row as a duplicate key for a multi-country one.
+- **Country-partitioned targets resolve in the row's own country.** "Full Time" names a different Employment Type in every country that has one, so a business key on a `@Model(multiCountry)` target is only unique within a country — and the importer's own countries are the wrong domain when one file carries both Singapore and New Zealand employees. `RelationLookupResolver` resolves the row's company reference first (the importing model's field onto `Company` — `legalEntityId` on an employee, `companyId` on a department — whatever the column order), turns it into a country (`CompanyCountryResolver`, cached), buckets the rows by it and queries each bucket with `country = X` on top of the field's own filters. A row naming no company — an update that leaves the company column blank — resolves in the template's own country when the template is written for one (`ImportTemplate.country`): a Singapore template's values are Singapore's. Only a row of a template for every country resolves within the caller's countries, where a name several countries share matches twice and fails the whole file as a duplicate key. A template that looks a partitioned target up by name without carrying a company column logs a warning at detection time (`partitionedLookupsWithoutCompanyColumn` exposes the same list for a template editor): it works for a single-country importer and fails the row as a duplicate key for a multi-country one.
 - When all lookup values in a row are empty:
   - If `ignoreEmpty = true`: the FK field is skipped (not written).
   - If `ignoreEmpty = false`: the FK field is explicitly set to `null`.
 - When a lookup fails (no matching record found):
   - If `skipException = true`: the row is marked as failed with a reason message.
   - If `skipException = false`: a `ValidationException` is thrown immediately.
+  - The reason names the relation by its label, the way the sheet's reader knows the column: `IPA Position not found: Bar Bender`. Several lookup columns name each field and say they must describe one record: `Department not found: code=D1, name=Sales — these must all describe the same Department; …`.
 - **A row may name another row of the same file through a many-to-one onto its own model** — an employee's `piEmployeeId.code`, a department's `parentId.code`. The lookup only sees stored rows and runs before any row of the file is written, so such a value used to fail as "Cannot find …" whatever the row order. Now, when it matches nothing stored but matches another row's own values for the same fields (`code`, compared trimmed), it is recorded as an in-file reference (`InFileReferences`, carried on `ImportDataDTO.inFileReferences`) instead of failing, and the file is **written in layers**: rows naming nobody in the file first, then the rows naming them, and so on. Each layer's references are filled from the ids the earlier layers went in under, so a row is inserted with its manager already set — write validators see it — rather than patched afterwards. The rules:
   - Only a plain many-to-one onto the importing model qualifies (not to-many, not one-to-one); every other lookup is unchanged, and a file without such references is written in one go as before.
   - Settled before anything is written, in the preview too: rows naming each other round a loop fail together (`Manager forms a loop within this file: E1 → E2 → E1.`), a row naming itself fails, and a row naming a row that failed fails with that reason (`Manager E1 is a row of this file that was not imported.`), transitively. A target that fails at the write takes its dependants down the same way at the next layer.
   - `skipException = true` commits layer by layer, as it already committed row by row on a failed batch. `skipException = false` writes every layer in one transaction, so the file stays all or nothing.
   - The custom handler still sees the whole file once, and `afterImportData` is called once with every layer's rows.
   - **To the custom handler such a field reads as empty** — the write fills it in later — so a rule that reads it would mistake a department whose parent is in the file for a root. While the handler runs, `InFileReferences.targetOf(row, field)` returns the row of the file that `row` names through `field` (or `null`); a handler whose rules read a self-referencing field must ask it first.
+
+**Which field to look up by.** `LookupKeys.of(relation)` (softa-orm) answers it for a ManyToOne onto any model but a code-as-id master (whose id is already the code a person writes), and serves it as `MetaFieldDTO.lookupFields` so an import screen can default a column naming the relation to `relation.<first>` instead of the bare id. Every field it returns identifies one row on its own; the first is recommended:
+1. the related model's first `displayName` field, when a unique index covers it alone (plus `tenantId` on a multi-tenant model) — a name a person writes and an export writes, so a filled-in or exported sheet matches as it is;
+2. otherwise its `businessKey`, when one component is left after those the relation's own `filters` pin;
+3. then any other field a unique index covers alone.
+
+A name unique only under a parent (a department per parent department) does not count, nor does a composite key with more than one free component — both would match several rows — and a code-as-id master (`CountryRegion`) needs none, its id being the code. The `RelationIdHandler` hint for a bare column filled with a non-id (`map this column to ipaPositionId.name`) suggests the same first field.
 
 #### 1.1.1 Nested OneToOne Import (Cascade Write)
 
@@ -240,7 +259,10 @@ by `ImportSheetStyleHandler`:
 | Column width | header length × 1.2 (bold text) + 5 (filter button) characters, clamped to 14–40; a longer header wraps |
 | Result file rows | the Failed Reason wraps, and a row grows to the lines its reason needs (estimated from the text's display width against the column width, a CJK character counting as two); the row's other cells are vertically centred |
 
-Option dropdowns and date / time column formats work as before. With `includeDescription = true` the
+Option dropdowns and date / time column formats work as before. A column onto `Company` offers only the
+companies the template's writes are granted — `getGrantedCompanyIds` for `CREATE`, `UPDATE` or both, by
+the import rule — the same way a company picker on a form is narrowed (softa-web README §Record access).
+With `includeDescription = true` the
 instruction sheet is still added (same header look, no comments / freeze / filter); the header comments
 are in addition to it. Exact colours are set as XSSF colours on POI styles after Fesod's own style fill,
 because Fesod's `WriteCellStyle` only takes palette indexes; the derived styles are cached per workbook.
@@ -323,6 +345,16 @@ curl -X POST http://localhost:8080/import/dynamicImport \
   grant on `ImportHistory` finish their own run instead of leaving it `PROCESSING`.
 - Writes made by an import run inside `ImportScope`, so a permission refusal reads "update" for the
   uploader rather than "edit".
+- **Columns follow the caller's field permissions** (`ImportFieldAccess`). A column whose field the
+  caller may not write — a field of a sensitive field set none of their roles grants, asked of the field
+  the column lands on (`empBankAccountId.methodOfPayment` is the bank account's `methodOfPayment`) — is
+  left out of the downloaded template, out of the fields `POST /ImportTemplate/listByModel` returns for
+  the import dialog, and out of the required checks and the write. A create-or-update template drops a
+  column refused for either. A file that still carries such a column (made from another caller's
+  template) is read: a row that fills it fails with `You do not have permission to set <header>.`, and
+  an empty one is ignored. Admins and consultants are blocked from nothing, so their templates are
+  unchanged. Before this, a caller without the set was handed a template requiring a column the save
+  then refused — a file that could not succeed either way.
 - Import status can be `PROCESSING`, `SUCCESS`, `FAILURE`, `PARTIAL_FAILURE`; a validation run
   (§5) records `VALIDATION_SUCCESS` / `VALIDATION_FAILURE` instead and attaches a result file in the
   **same format**, named `<uploaded file name>_Validation Result` — kept apart by name because a
@@ -478,6 +510,17 @@ masked and checked as the caller.
 | `customHeader` | String | `null` | Custom column header |
 | `sequence` | Integer | `null` | Field order in export |
 | `ignored` | Boolean | `null` | Whether to ignore the field in output |
+
+### Checked when saved
+
+An export template is checked against its `modelName` when it is written (`TemplateFieldWriteValidator`), by the rules the export applies when it runs — `FieldPaths` in softa-orm, which states what the WHERE builder, the ORDER BY builder and the cascaded read accept:
+
+- `modelName` must be a model of the metadata;
+- every field of `filters` must be able to stand in a WHERE (`FieldPathUse.FILTER`): through to-one relations, or a to-many one by a sub-query, ending on a stored field;
+- every field of `orders` must be able to stand in an ORDER BY (`FieldPathUse.SORT`): through to-one relations only, ending on a stored field;
+- each column's `fieldName` must be readable (`FieldPathUse.READ`): through to-one relations only, up to four levels — what the export resolves its headers and values with.
+
+As for import templates, a field is checked when the write sets it, and moving a template to another model re-checks its filters, orders and the columns the write keeps.
 
 ### Cascaded Field Export
 All three export modes support **cascaded field references** using dotted-path syntax (e.g. `deptId.name`, `deptId.companyId.code`).
@@ -665,10 +708,12 @@ templateType = RICH_TEXT
 - Uses `{{ variable }}` placeholder syntax.
 - Use `{{#fieldName}}` for OneToMany fields rendered as looping table rows via `LoopRowTableRenderPolicy`.
 - OneToMany fields are auto-detected from model metadata; SubQueries are built automatically to load related data.
+- Date and time fields print as the API writes them: a date-time as `2026-11-12 13:00:40`, a date as `2026-11-12` — not the ISO `2026-11-12T13:00:40`. Looping table rows print them the same way (a `PreRenderDataCastor` on `WordFileGenerator`'s configuration formats every tag's value, after any expression in it has been evaluated).
 
 ### RICH_TEXT Template
 - `htmlTemplate` stores HTML with `{{ variable }}` placeholders.
 - Placeholders are rendered to the final HTML via Pebble.
+- Date and time fields print as the API writes them too (`2026-11-12 13:00:40`). A filter still receives the date object, so another format is `{{ hireDate | date("dd/MM/yyyy") }}`.
 - The rendered HTML is converted to PDF via OpenHTMLToPDF.
 
 ### Endpoint
@@ -700,6 +745,8 @@ Map<String, Object> data = Map.of(
 );
 FileInfo fileInfo = documentTemplateService.generateDocument(templateId, data);
 ```
+
+The returned `FileInfo.url` is a file key's address ending in `?download=1` (softa-web README, File keys): hand it to the client that asked for the document. Code that keeps the result — a flow variable, a mail — keeps `fileInfo.getFileId()`; to mail the document, attach it by its id.
 
 The `generateDocument(templateId, data)` overload skips the model data fetch step and renders the template directly with the provided `Map<String, Object>`. This is useful when:
 - The data comes from an external source or custom aggregation.

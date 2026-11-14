@@ -31,6 +31,12 @@ public class ImportTemplateDTO {
 
     private String modelName;
 
+    /**
+     * The country the template is written for; null for a template for every country. A row that names
+     * no company has its country-partitioned values looked up in this country.
+     */
+    private String country;
+
     private ImportRule importRule;
 
     private List<String> uniqueConstraints;
@@ -44,6 +50,14 @@ public class ImportTemplateDTO {
     private Map<String, Object> env;
 
     private List<ImportFieldDTO> importFields;
+
+    /**
+     * The template's columns the caller may not write ({@link io.softa.starter.file.excel.imports.ImportFieldAccess}),
+     * taken out of {@link #importFields}. Decided where the caller's permissions are known and carried
+     * here, because an asynchronous import reads the file on a consumer that has no such caller: there
+     * a value in one of these columns is refused, row by row, and the column is otherwise ignored.
+     */
+    private List<ImportFieldDTO> withheldFields = new ArrayList<>();
 
     // file info
     private Long templateId;

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -11,6 +12,8 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.starter.user.dto.MembershipOption;
+import io.softa.starter.user.constant.AccountErrorCodes;
+import io.softa.starter.user.service.UserSessionService;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.enums.AccountStatus;
@@ -23,6 +26,9 @@ import io.softa.starter.user.service.UserProfileService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,20 +53,82 @@ class MembershipSelectionTest {
     private final CacheService cacheService = mock(CacheService.class);
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
+    private final UserSessionService sessionService = mock(UserSessionService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     MembershipSelectionTest() {
+        ReflectionTestUtils.setField(loginService, "sessionService", sessionService);
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "consultantService",
                 mock(ConsultantService.class));
         ReflectionTestUtils.setField(loginService, "tenantInfoService", tenantInfoService);
+        // Every company here is a live customer unless a test says otherwise.
+        when(tenantInfoService.isTenantActive(org.mockito.ArgumentMatchers.any())).thenReturn(true);
         ReflectionTestUtils.setField(loginService, "cacheService", cacheService);
         ReflectionTestUtils.setField(loginService, "profileService", profileService);
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         when(tenantInfoService.getTenantName(1L)).thenReturn("Acme");
         when(tenantInfoService.getTenantName(2L)).thenReturn("Globex");
         // A live pre-auth token standing for PROFILE — what authentication would have minted.
-        when(cacheService.get("login:preauth:" + TOKEN)).thenReturn(PROFILE.toString());
+        when(cacheService.get("login:preauth:" + TOKEN)).thenReturn(PROFILE + ":" + System.currentTimeMillis());
+        when(cacheService.getAndClear("login:preauth:" + TOKEN)).thenReturn(PROFILE + ":" + System.currentTimeMillis());
+    }
+
+    @AfterEach
+    void unbindRequest() {
+        ClientRequests.clear();
+    }
+
+    private void givenNoPassword() {
+        UserIdentity identity = new UserIdentity();
+        identity.setId(11L);
+        identity.setProfileId(PROFILE);
+        when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
+    }
+
+    @Test
+    void cannotPickACompanyBeforeSettingThePasswordItOwes() {
+        // The sign-in token alone used to be enough to enter: the step "set a password first" was
+        // only advice, and an APP that skipped it got a session.
+        ClientRequests.fromApp();
+        givenNoPassword();
+        givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE), membership(200L, 2L, AccountStatus.ACTIVE));
+
+        assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.PASSWORD_REQUIRED);
+        // Put back: the person sets the password, then picks with the same token.
+        verify(cacheService).save(eq("login:preauth:" + TOKEN), any(), anyInt());
+    }
+
+    @Test
+    void web_isHeldToTheSameRule() {
+        givenNoPassword();
+        givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE), membership(200L, 2L, AccountStatus.ACTIVE));
+
+        assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.PASSWORD_REQUIRED);
+    }
+
+    @Test
+    void aSignInTokenIssuedBeforeTheCredentialsChanged_isDead() {
+        // Reset User took the old number away; whoever signed in with it a minute before must not
+        // turn that sign-in into a session now.
+        when(cacheService.get("login:preauth:" + TOKEN)).thenReturn(PROFILE + ":1000");
+        when(cacheService.getAndClear("login:preauth:" + TOKEN)).thenReturn(PROFILE + ":1000");
+        when(sessionService.credentialsChangedSince(PROFILE, 1000L)).thenReturn(true);
+        givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE));
+
+        assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.AUTH_TOKEN_EXPIRED);
+        // Taken and not put back.
+        verify(cacheService).getAndClear("login:preauth:" + TOKEN);
+        verify(cacheService, never()).save(eq("login:preauth:" + TOKEN), any(), anyInt());
     }
 
     private static UserAccount membership(Long accountId, Long tenantId, AccountStatus status) {
@@ -80,6 +148,8 @@ class MembershipSelectionTest {
         UserIdentity identity = new UserIdentity();
         identity.setId(11L);
         identity.setProfileId(PROFILE);
+        // A lock is on a password the person has.
+        identity.setPassword("hash");
         identity.setPasswordLockedUntil(LocalDateTime.now().plusMinutes(5));
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
         when(identityService.isPasswordLocked(identity)).thenReturn(true);
@@ -125,7 +195,10 @@ class MembershipSelectionTest {
 
         assertThatThrownBy(() -> loginService.resolveSingleMembership(PROFILE))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("not linked to any company");
+                .hasMessageContaining("not linked to any company")
+                // A code for the client to word it by, not the English sentence.
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.NO_COMPANY);
     }
 
     @Test
@@ -152,7 +225,9 @@ class MembershipSelectionTest {
         assertThatThrownBy(() -> loginService.resolveSingleMembership(PROFILE))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("invitation has not been accepted")
-                .hasMessageNotContaining("not linked to any company");
+                .hasMessageNotContaining("not linked to any company")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AccountErrorCodes.INVITATION_PENDING);
     }
 
     @Test
@@ -221,8 +296,9 @@ class MembershipSelectionTest {
 
         assertThat(result.isResolved()).isTrue();
         assertThat(result.profileId()).isEqualTo(PROFILE);
-        // Single use: the token is consumed so a leaked one cannot be replayed into a session.
-        verify(cacheService).clear("login:preauth:" + TOKEN);
+        // Single use, taken atomically: two requests racing with one token cannot both enter.
+        verify(cacheService).getAndClear("login:preauth:" + TOKEN);
+        verify(cacheService, never()).save(eq("login:preauth:" + TOKEN), any(), anyInt());
     }
 
     @Test
@@ -238,7 +314,8 @@ class MembershipSelectionTest {
         assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
                 .isInstanceOf(BusinessException.class);
 
-        verify(cacheService, never()).clear("login:preauth:" + TOKEN);
+        // Put back for the rest of its lifetime.
+        verify(cacheService).save(eq("login:preauth:" + TOKEN), any(), anyInt());
     }
 
     @Test
@@ -270,6 +347,7 @@ class MembershipSelectionTest {
         // The authentication-bypass regression: without a live token, naming a person's accountId
         // must not mint their session. An unknown token resolves to nobody.
         when(cacheService.get("login:preauth:forged")).thenReturn(null);
+        when(cacheService.getAndClear("login:preauth:forged")).thenReturn(null);
 
         assertThatThrownBy(() -> loginService.selectTenant("forged", 100L))
                 .isInstanceOf(BusinessException.class)

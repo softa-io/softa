@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -41,6 +42,29 @@ public class CacheServiceImpl implements CacheService {
                 redis.call('EXPIRE', KEYS[1], ARGV[1])
             end
             return count
+            """, Long.class);
+
+    // GET then DEL in one script rather than GETDEL, which needs Redis 6.2.
+    private static final RedisScript<String> GET_AND_CLEAR_SCRIPT = RedisScript.of("""
+            local value = redis.call('GET', KEYS[1])
+            if value then
+                redis.call('DEL', KEYS[1])
+            end
+            return value
+            """, String.class);
+
+    private static final RedisScript<Long> ADD_TO_BOUNDED_SET_SCRIPT = RedisScript.of("""
+            if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then
+                return 1
+            end
+            if redis.call('SCARD', KEYS[1]) >= tonumber(ARGV[2]) then
+                return 0
+            end
+            redis.call('SADD', KEYS[1], ARGV[1])
+            if redis.call('TTL', KEYS[1]) < 0 then
+                redis.call('EXPIRE', KEYS[1], ARGV[3])
+            end
+            return 1
             """, Long.class);
 
     /** Keys requested per SCAN step, and removed per UNLINK. */
@@ -226,6 +250,11 @@ public class CacheServiceImpl implements CacheService {
         stringRedisTemplate.delete(cacheKey);
     }
 
+    @Override
+    public String getAndClear(String key) {
+        return stringRedisTemplate.execute(GET_AND_CLEAR_SCRIPT, List.of(this.getKeyPath(key)));
+    }
+
     /**
      * Clear key list.
      *
@@ -288,6 +317,42 @@ public class CacheServiceImpl implements CacheService {
             out.append(c);
         }
         return out.toString();
+    }
+
+    @Override
+    public long getExpire(String key) {
+        Long seconds = stringRedisTemplate.getExpire(this.getKeyPath(key));
+        return seconds == null ? -2 : seconds;
+    }
+
+    @Override
+    public void expire(String key, int expireSeconds) {
+        stringRedisTemplate.expire(this.getKeyPath(key), Duration.ofSeconds(expireSeconds));
+    }
+
+    @Override
+    public void addToSet(String key, String member, int expireSeconds) {
+        String cacheKey = this.getKeyPath(key);
+        stringRedisTemplate.opsForSet().add(cacheKey, member);
+        stringRedisTemplate.expire(cacheKey, Duration.ofSeconds(expireSeconds));
+    }
+
+    @Override
+    public boolean addToBoundedSet(String key, String member, int maxSize, int expireSeconds) {
+        Long added = stringRedisTemplate.execute(ADD_TO_BOUNDED_SET_SCRIPT, List.of(this.getKeyPath(key)),
+                member, String.valueOf(maxSize), String.valueOf(expireSeconds));
+        return added != null && added == 1L;
+    }
+
+    @Override
+    public void removeFromSet(String key, String member) {
+        stringRedisTemplate.opsForSet().remove(this.getKeyPath(key), member);
+    }
+
+    @Override
+    public Set<String> getSetMembers(String key) {
+        Set<String> members = stringRedisTemplate.opsForSet().members(this.getKeyPath(key));
+        return members == null ? Set.of() : members;
     }
 
 }

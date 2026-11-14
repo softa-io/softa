@@ -13,7 +13,7 @@ public interface FlowRuntimeEngine {
 
     /**
      * Start an instance of the requested bundle without asking how its flow is meant to start: for the
-     * trigger dispatch, which matched the flow's trigger to the event, and for debug runs of a draft.
+     * trigger dispatch, which matched the flow's trigger to the event.
      * Callers starting a flow on someone's request use {@link #startAutomation}.
      */
     FlowExecutionState start(FlowStartRequest request);
@@ -28,30 +28,17 @@ public interface FlowRuntimeEngine {
     /**
      * {@link #start}, as the approval of the request's record: the instance's result is written
      * back to the record, and the record can have only one such instance in progress. Only record
-     * submission ({@code FlowLaunchService.submitRecord}) starts one; a debug run of the same flow
-     * runs on the record without being its approval.
+     * submission ({@code FlowLaunchService.submitRecord}) starts one; an automation run on the record
+     * is not its approval. A start that fails throws without keeping a
+     * failed instance or telling anyone: the submission fails with it, and its transaction rolls back.
      */
     FlowExecutionState startRecordApproval(FlowStartRequest request);
-
-    /**
-     * Run a stateless Validation / Compute flow transiently: the same traversal as
-     * {@link #start}, but with zero flow footprint — no instance row, no trace rows,
-     * no notifications. Business writes made by task nodes still join the caller's
-     * transaction. Rejects Approval and Automation bundles.
-     */
-    FlowExecutionState evaluate(FlowStartRequest request);
 
     FlowExecutionState approve(FlowApproveRequest request);
 
     FlowExecutionState reject(FlowRejectRequest request);
 
     FlowExecutionState transfer(FlowTransferRequest request);
-
-    FlowExecutionState delegate(FlowDelegateRequest request);
-
-    FlowExecutionState addSignBefore(FlowAddSignBeforeRequest request);
-
-    FlowExecutionState addSignAfter(FlowAddSignAfterRequest request);
 
     FlowExecutionState cc(FlowCcRequest request);
 
@@ -77,6 +64,14 @@ public interface FlowRuntimeEngine {
      * (the monitoring console's permission and data scope). The instance is cancelled, its record with it.
      */
     FlowExecutionState terminate(FlowTerminateRequest request);
+
+    /**
+     * Runs the steps after an approval again, as an administrator, for an instance that failed in them — authorized
+     * by the caller beforehand, as terminating is. The approval goes on from the step it failed after; should the
+     * steps fail again, the instance fails again. Refused for an instance that failed otherwise, and for a record
+     * no longer in that approval: taken back by its submitter, or submitted again.
+     */
+    FlowExecutionState retry(FlowRetryRequest request);
 
     /**
      * Moves an approver's pending task to another approver, as an administrator — authorized by the caller
@@ -106,13 +101,5 @@ public interface FlowRuntimeEngine {
      */
     FlowExecutionState resumeAsyncTask(String instanceId, String nodeId, Map<String, Object> callbackOutputs);
 
-    /**
-     * Resume a flow instance that is suspended waiting for a timer to fire.
-     *
-     * @param instanceId the suspended instance id
-     * @param nodeId     the timer node that triggered the suspension
-     */
-    FlowExecutionState resumeTimer(String instanceId, String nodeId);
 }
-
 

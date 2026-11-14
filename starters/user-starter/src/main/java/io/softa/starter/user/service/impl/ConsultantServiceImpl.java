@@ -46,6 +46,7 @@ import io.softa.starter.user.entity.UserIdentity;
 import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
+import io.softa.starter.user.spi.PushDeviceRegistry;
 import io.softa.starter.user.util.LoginIdentifiers;
 
 /**
@@ -87,6 +88,9 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
     /** Optional: the list shows company names; absent tenant-starter → the id alone. */
     @Autowired(required = false)
     private TenantInfoService tenantInfoService;
+
+    @Autowired(required = false)
+    private PushDeviceRegistry pushDeviceRegistry;
 
     /** Upper bound on one {@code consultantActors} lookup — the actors on one audit page. */
     private static final int MAX_ACTOR_LOOKUP = 500;
@@ -385,19 +389,25 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         String canonicalEmail = LoginIdentifiers.normalize(email);
         String canonicalMobile = LoginIdentifiers.normalize(mobile);
         return identityService.findByProfile(profileId).map(identity -> {
+            // A patch carrying only what changed, not the row that was read: writing that back would
+            // also put back whatever password it held, over one changed in the meantime.
+            UserIdentity patch = new UserIdentity();
+            patch.setId(identity.getId());
             boolean changed = false;
             if (canonicalEmail != null && !canonicalEmail.equals(identity.getLoginEmail())) {
                 requireClaimable(canonicalEmail, profileId);
                 identity.setLoginEmail(canonicalEmail);
+                patch.setLoginEmail(canonicalEmail);
                 changed = true;
             }
             if (canonicalMobile != null && !canonicalMobile.equals(identity.getLoginMobile())) {
                 requireClaimable(canonicalMobile, profileId);
                 identity.setLoginMobile(canonicalMobile);
+                patch.setLoginMobile(canonicalMobile);
                 changed = true;
             }
             if (changed) {
-                identityService.updateOne(identity);
+                identityService.updateOne(patch);
             }
             return changed;
         }).orElse(false);
@@ -457,7 +467,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         // could surface anywhere in it — and the row an operator is looking for right after
         // creating it is the one they just made.
         List<ConsultantProfile> profiles = this.searchList(
-                new FlexQuery(new Filters(), Orders.ofDesc(ModelConstant.CREATED_TIME)));
+                new FlexQuery(new Filters(), Orders.ofDesc(ModelConstant.ID)));
         if (profiles.isEmpty()) {
             return List.of();
         }
@@ -734,6 +744,11 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
                 .ifPresent(account -> {
                     account.setStatus(AccountStatus.DEACTIVATED);
                     accountService.updateOne(account);
+                    // As every closed account: no device keeps receiving the company's notifications.
+                    if (pushDeviceRegistry != null) {
+                        AfterCommit.run("Dropping the push devices of account " + account.getId(),
+                                () -> pushDeviceRegistry.unregisterAccount(account.getId()));
+                    }
                     // Evicted HERE, because after this write the row is invisible to the sweep that
                     // follows: forgetEntryAnswers reads listMembershipsOf, which hides DEACTIVATED
                     // rows on purpose. The one membership a revoke is actually about was therefore

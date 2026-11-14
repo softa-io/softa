@@ -14,8 +14,6 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>{@code softa.message.sent} (channel=mail/sms, provider)</li>
  *   <li>{@code softa.message.failed} (channel, provider, outcome=retry/failed/dead_letter)</li>
- *   <li>{@code softa.message.outbox.published} (route)</li>
- *   <li>{@code softa.message.outbox.dead} (route)</li>
  * </ul>
  * Gated on {@link MeterRegistry} being on the classpath so the starter stays
  * usable in stripped-down test contexts without actuator.
@@ -26,8 +24,6 @@ public class MessageMetrics {
 
     private static final String SENT = "softa.message.sent";
     private static final String FAILED = "softa.message.failed";
-    private static final String OUTBOX_PUBLISHED = "softa.message.outbox.published";
-    private static final String OUTBOX_DEAD = "softa.message.outbox.dead";
 
     @Autowired
     private MeterRegistry registry;
@@ -41,14 +37,6 @@ public class MessageMetrics {
                 "channel", channel,
                 "provider", safeTag(provider),
                 "outcome", outcome)).increment();
-    }
-
-    public void outboxPublished(String route) {
-        counter(OUTBOX_PUBLISHED, Tags.of("route", route)).increment();
-    }
-
-    public void outboxDead(String route) {
-        counter(OUTBOX_DEAD, Tags.of("route", route)).increment();
     }
 
     private Counter counter(String name, Tags tags) {

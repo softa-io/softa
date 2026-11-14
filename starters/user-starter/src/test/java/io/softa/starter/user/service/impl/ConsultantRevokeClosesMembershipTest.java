@@ -193,6 +193,18 @@ class ConsultantRevokeClosesMembershipTest {
     }
 
     @Test
+    void revokingAlsoStopsTheClosedMembershipsPushNotifications() {
+        UserAccount live = membership(AccountStatus.ACTIVE);
+        when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.of(live));
+        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        ReflectionTestUtils.setField(service, "pushDeviceRegistry", devices);
+
+        service.applyAuthorizations(PROFILE, revoking(STANDING_GRANT));
+
+        verify(devices).unregisterAccount(live.getId());
+    }
+
+    @Test
     void anEmploymentInThatCompanyIsNotTouched() {
         // The same person may be an employee of the company they consulted for — the design says so
         // explicitly. Revoking the consultancy must not close the job.

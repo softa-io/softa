@@ -1,16 +1,37 @@
 package io.softa.starter.message.mail.service.impl;
 
 import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.message.mail.entity.MailSendServerConfig;
+import io.softa.starter.message.mail.entity.PlatformMailSendServer;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+/**
+ * One default per owner ({@link AbstractMailSendServerServiceImpl#demoteOtherDefaults}): every other
+ * default of the same table is demoted — disabled rows too. Each demotion is a model-service write, so
+ * the config cache follows it through {@code ConfigCacheEvictor}.
+ */
 class MailSendServerConfigServiceImplTest {
+
+    private ModelService<Long> modelService;
+
+    @BeforeEach
+    @SuppressWarnings("unchecked")
+    void setUp() {
+        modelService = mock(ModelService.class);
+    }
 
     private static MailSendServerConfig config(long id) {
         MailSendServerConfig config = new MailSendServerConfig();
@@ -19,12 +40,17 @@ class MailSendServerConfigServiceImplTest {
         return config;
     }
 
+    private MailSendServerConfigServiceImpl tenantService() {
+        MailSendServerConfigServiceImpl service = spy(new MailSendServerConfigServiceImpl());
+        ReflectionTestUtils.setField(service, "modelService", modelService);
+        return service;
+    }
+
     @Test
     void demoteClearsEveryOtherDefaultButKeepsTheSavedOne() {
-        MailSendServerConfigServiceImpl service = spy(new MailSendServerConfigServiceImpl());
+        MailSendServerConfigServiceImpl service = tenantService();
         doReturn(List.of(config(1L), config(2L), config(3L)))
                 .when(service).searchList(any(FlexQuery.class));
-        doReturn(true).when(service).updateOne(any(MailSendServerConfig.class));
 
         service.demoteOtherDefaults(2L);
 
@@ -32,20 +58,32 @@ class MailSendServerConfigServiceImplTest {
         // would resurface as a second default when it is re-activated.
         verify(service).searchList(argThat((FlexQuery q) ->
                 q.getFilterControl().isSkipActiveControl()));
-        verify(service, times(2)).updateOne(any(MailSendServerConfig.class));
-        verify(service).updateOne(argThat((MailSendServerConfig c) ->
-                c.getId().equals(1L) && Boolean.FALSE.equals(c.getIsDefault())));
-        verify(service).updateOne(argThat((MailSendServerConfig c) ->
-                c.getId().equals(3L) && Boolean.FALSE.equals(c.getIsDefault())));
+        verify(modelService, times(2)).updateOne(eq("MailSendServerConfig"), anyMap());
+        verify(modelService).updateOne("MailSendServerConfig", Map.of("id", 1L, "isDefault", false));
+        verify(modelService).updateOne("MailSendServerConfig", Map.of("id", 3L, "isDefault", false));
     }
 
     @Test
     void demoteIsNoOpWhenTheSavedRowIsTheOnlyDefault() {
-        MailSendServerConfigServiceImpl service = spy(new MailSendServerConfigServiceImpl());
+        MailSendServerConfigServiceImpl service = tenantService();
         doReturn(List.of(config(2L))).when(service).searchList(any(FlexQuery.class));
 
         service.demoteOtherDefaults(2L);
 
-        verify(service, never()).updateOne(any(MailSendServerConfig.class));
+        verify(modelService, never()).updateOne(anyString(), anyMap());
+    }
+
+    @Test
+    void thePlatformsDefaultIsDemotedInItsOwnTable() {
+        PlatformMailSendServerServiceImpl service = spy(new PlatformMailSendServerServiceImpl());
+        ReflectionTestUtils.setField(service, "modelService", modelService);
+        PlatformMailSendServer other = new PlatformMailSendServer();
+        other.setId(8L);
+        other.setIsDefault(true);
+        doReturn(List.of(other)).when(service).searchList(any(FlexQuery.class));
+
+        service.demoteOtherDefaults(9L);
+
+        verify(modelService).updateOne("PlatformMailSendServer", Map.of("id", 8L, "isDefault", false));
     }
 }

@@ -53,7 +53,7 @@ class ApprovalWritesAsApproverTest {
             bundleRegistry,
             new StubFlowInstanceStore(),
             new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
-            approvalHandler, state -> {}, state -> {}, records);
+            approvalHandler, state -> {}, (state, from) -> {}, records);
 
     @Test
     void theApproversFormEditsAreWrittenPastTheirOwnPermissions() {
@@ -86,13 +86,13 @@ class ApprovalWritesAsApproverTest {
         return DesignFlowDefinition.builder()
                 .name("Approval Writes")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
                                         .config(Map.of(
-                                                "approvers", List.of(APPROVER),
+                                                "approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER))),
                                                 "formPermissions", Map.of("note", "Editable")))
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))

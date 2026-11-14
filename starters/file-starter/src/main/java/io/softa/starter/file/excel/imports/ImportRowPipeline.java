@@ -140,7 +140,8 @@ public class ImportRowPipeline {
                 relationLookupResolver.detectLookupGroups(importTemplateDTO.getModelName(), importTemplateDTO.getImportFields());
         if (!lookupGroups.isEmpty()) {
             List<InFileReferences.Reference> inFile = relationLookupResolver.resolveRows(
-                    importTemplateDTO.getModelName(), importDataDTO.getRows(), lookupGroups, skipException);
+                    importTemplateDTO.getModelName(), importTemplateDTO.getCountry(), importDataDTO.getRows(),
+                    lookupGroups, skipException);
             importDataDTO.setInFileReferences(inFile == null ? new ArrayList<>() : inFile);
         }
         // Keep only the first of any rows in this file sharing a unique key. Before the database

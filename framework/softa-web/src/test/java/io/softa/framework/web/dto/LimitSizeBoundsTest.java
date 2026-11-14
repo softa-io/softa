@@ -10,7 +10,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * `/searchList` and `/searchName` take a stated limitSize at its word, or refuse it.
+ * `/searchList` takes a stated limitSize at its word, or refuses it. (`/searchName` reads a page now, and
+ * its page size is held to the same bounds by {@code Page}: see {@link SearchNameParamsTest}.)
  *
  * <p>Both DTOs read {@code limitSize == null || limitSize < 1} as "use the default", which meant a
  * request for zero rows came back with a default page of them. The framework had in fact already
@@ -64,60 +65,8 @@ class LimitSizeBoundsTest {
                 .hasMessageContaining("maximum");
     }
 
-    // ---- /searchName ----
-
-    @Test
-    void searchNameOmittingTheLimitTakesItsOwnSmallerDefault() {
-        FlexQuery flexQuery = SearchNameParams.convertParamsToFlexQuery(new SearchNameParams());
-        assertThat(flexQuery.getLimitSize()).isEqualTo(BaseConstant.DEFAULT_NAME_LIST_SIZE);
-    }
-
-    @Test
-    void searchNameTreatsAnExplicitNullAsOmitted() {
-        // The field carries a default value, so null only ever arrives from a body that spelled it
-        // out. That is still "I did not choose", not "I chose nothing".
-        SearchNameParams params = new SearchNameParams();
-        params.setLimitSize(null);
-        assertThat(SearchNameParams.convertParamsToFlexQuery(params).getLimitSize())
-                .isEqualTo(BaseConstant.DEFAULT_NAME_LIST_SIZE);
-    }
-
-    @Test
-    void searchNameRejectsZero() {
-        assertThatThrownBy(() -> SearchNameParams.convertParamsToFlexQuery(searchName(0)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("positive");
-    }
-
-    @Test
-    void searchNameRejectsANegativeLimit() {
-        assertThatThrownBy(() -> SearchNameParams.convertParamsToFlexQuery(searchName(-1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("positive");
-    }
-
-    @Test
-    void searchNameHonoursAStatedLimit() {
-        assertThat(SearchNameParams.convertParamsToFlexQuery(searchName(25)).getLimitSize())
-                .isEqualTo(25);
-    }
-
-    @Test
-    void searchNameStillCapsAtTheBatchMaximum() {
-        assertThatThrownBy(() ->
-                SearchNameParams.convertParamsToFlexQuery(searchName(BaseConstant.MAX_BATCH_SIZE + 1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("maximum");
-    }
-
     private static SearchListParams searchList(Integer limitSize) {
         SearchListParams params = new SearchListParams();
-        params.setLimitSize(limitSize);
-        return params;
-    }
-
-    private static SearchNameParams searchName(Integer limitSize) {
-        SearchNameParams params = new SearchNameParams();
         params.setLimitSize(limitSize);
         return params;
     }

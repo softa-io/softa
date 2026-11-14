@@ -17,7 +17,7 @@ import io.softa.framework.orm.enums.ViewType;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(label = "System View", businessKey = {"modelName", "code"})
+@Model(label = "System View", businessKey = {"modelName", "code"}, defaultOrder = {"modelName", "sequence"})
 public class SysView extends AuditableModel {
 
     @Serial

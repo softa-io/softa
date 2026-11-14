@@ -63,7 +63,7 @@ class UniqueConstraintValidatorInFileTest {
         // Otherwise a row rejected earlier in the pipeline would still claim the key, and the good row
         // below it would be dropped as its duplicate — losing both.
         Map<String, Object> broken = row("code", "ADR001", "line1", "bad");
-        broken.put(FileConstant.FAILED_REASON, "Cannot find Employee by code=E9");
+        broken.put(FileConstant.FAILED_REASON, "Employee not found: E9");
         List<Map<String, Object>> rows = rows(broken, row("code", "ADR001", "line1", "good"));
 
         validator.markInFileDuplicates(List.of("code"), rows, true);

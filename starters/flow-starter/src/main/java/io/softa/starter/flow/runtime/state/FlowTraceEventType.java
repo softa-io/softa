@@ -23,6 +23,7 @@ public enum FlowTraceEventType {
     APPROVAL_REJECTED("ApprovalRejected"),
     APPROVAL_TRANSFERRED("ApprovalTransferred"),
     APPROVAL_DELEGATED("ApprovalDelegated"),
+    /** No longer emitted — the add-sign actions are gone; kept so traces recorded before still read. */
     APPROVAL_ADD_SIGNED("ApprovalAddSigned"),
     // Explicit labels: humanize flattens the CC acronym to "Cced" / "Cc Read".
     @OptionItem(label = "Approval CC'd")
@@ -41,6 +42,9 @@ public enum FlowTraceEventType {
     LOOP_END("LoopEnd"),
     FLOW_COMPLETED("FlowCompleted"),
     FLOW_FAILED("FlowFailed"),
+    /** An administrator ran the steps after an approval again, after they had failed. */
+    FLOW_RETRIED("FlowRetried"),
+    /** A node retried after an error, on revisions from before node retries were removed: kept to read their traces. */
     NODE_ERROR_RETRIED("NodeErrorRetried"),
     FLOW_URGED("FlowUrged"),
     ;

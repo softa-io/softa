@@ -5,7 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * Whether an approval may be urged now, and if not, when it may be. Each step the approval waits on is
- * urged at most once per its flow's interval ({@code urgeIntervalMinutes}, default 240), whether its
+ * urged at most once per its flow's interval ({@code urgeIntervalHours}, default 4), whether its
  * initiator urges it or an administrator does; the initiator of a flow that turns urging off
  * ({@code urgeEnabled}) may not urge it at all.
  */

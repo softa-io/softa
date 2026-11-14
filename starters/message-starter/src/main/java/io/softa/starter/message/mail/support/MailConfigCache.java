@@ -6,9 +6,9 @@ import io.softa.starter.message.mail.entity.MailSendServerConfig;
 import io.softa.starter.message.shared.ConfigCache;
 
 /**
- * Read-through cache for {@link MailSendServerConfig} lookups.
- * See {@link ConfigCache} for semantics; this subclass only binds the
- * cache keys and entity type for the mail channel.
+ * Read-through cache for a tenant's own {@link MailSendServerConfig} lookups,
+ * its defaults keyed by tenant. See {@link ConfigCache} for semantics; this
+ * subclass only binds the cache keys and entity type.
  */
 @Component
 public class MailConfigCache extends ConfigCache<MailSendServerConfig> {

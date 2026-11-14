@@ -6,10 +6,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -22,17 +22,15 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.dto.FlowBundleSummaryView;
 import io.softa.starter.flow.dto.FlowDesignCreateRequest;
 import io.softa.starter.flow.dto.FlowDesignDuplicateRequest;
+import io.softa.starter.flow.dto.FlowDesignPreview;
+import io.softa.starter.flow.dto.FlowDesignPreviewRequest;
 import io.softa.starter.flow.dto.FlowDesignSaveRequest;
 import io.softa.starter.flow.dto.FlowDesignStatusView;
 import io.softa.starter.flow.dto.FlowPublishRequest;
 import io.softa.starter.flow.dto.FlowValidationResult;
 import io.softa.starter.flow.dto.FlowVariableView;
-import io.softa.starter.flow.entity.FlowDebugHistory;
 import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.enums.FlowScenario;
-import io.softa.starter.flow.runtime.api.FlowStartRequest;
-import io.softa.starter.flow.runtime.engine.FlowLaunchResponse;
-import io.softa.starter.flow.service.FlowDebugHistoryService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.FlowPublishService;
@@ -75,9 +73,6 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @Autowired
     private FlowLaunchService flowLaunchService;
 
-    @Autowired(required = false)
-    private FlowDebugHistoryService debugHistoryService;
-
     @PostMapping
     @Operation(summary = "Create flow draft")
     public ApiResponse<FlowDesign> create(@Valid @RequestBody FlowDesignCreateRequest request) {
@@ -87,14 +82,23 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @GetMapping
     @Operation(summary = "List flow drafts",
             description = "Paged draft list for the editor home. Excludes the canvas document; "
-                    + "keyword matches the flow name.")
+                    + "keyword matches the flow name; subflowTargets=true keeps the flows a Subflow node can call — "
+                    + "enabled Automation flows whose effective revision declares a Subflow trigger.")
     public ApiResponse<Page<FlowDesign>> list(@RequestParam(required = false) String keyword,
                                               @RequestParam(required = false) FlowScenario scenario,
+                                              @RequestParam(required = false) Boolean subflowTargets,
                                               @RequestParam(defaultValue = "1") Integer pageNumber,
                                               @RequestParam(defaultValue = "50") Integer pageSize) {
         Filters filters = new Filters();
         if (scenario != null) {
             filters.eq(FlowDesign::getScenario, scenario);
+        }
+        if (Boolean.TRUE.equals(subflowTargets)) {
+            List<String> targets = service.subflowTargetIds();
+            if (targets.isEmpty()) {
+                return ApiResponse.success(Page.of(pageNumber, pageSize));
+            }
+            filters.in(FlowDesign::getId, targets);
         }
         if (keyword != null && !keyword.isBlank()) {
             filters.contains(FlowDesign::getFlowName, keyword);
@@ -122,14 +126,16 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
 
     @PostMapping("/{id}/delete")
     @Operation(summary = "Delete flow draft",
-            description = "Deletes the draft by id. Returns false if the draft has been published.")
+            description = "Deletes a flow that was never published. A published flow is refused — its revisions, "
+                    + "instances and approval history refer to it — and is disabled instead.")
     public ApiResponse<Boolean> delete(@PathVariable String id) {
         return ApiResponse.success(service.deleteById(id));
     }
 
     @PostMapping("/{id}/duplicate")
     @Operation(summary = "Duplicate flow draft",
-            description = "Copies the draft under a fresh name; publish state is not copied.")
+            description = "Copies the flow under a fresh name as an unpublished draft — an approval flow too: the "
+                    + "copy keeps its document and submit condition, to be changed before it is published.")
     public ApiResponse<FlowDesign> duplicate(@PathVariable String id,
                                              @RequestBody(required = false) FlowDesignDuplicateRequest request) {
         return ApiResponse.success(service.duplicateDesign(id, request));
@@ -139,7 +145,8 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @Operation(summary = "Validate flow definition",
             description = "Runs the full compile pipeline on the posted document (which need not be saved) "
                     + "and returns every diagnostic as a success payload — each anchored to nodeId/edgeId/field "
-                    + "for on-canvas markers. An empty diagnostics list means the document compiles.")
+                    + "for on-canvas markers. The document compiles (valid) when no diagnostic is an Error; a Warning "
+                    + "— an approver whose account cannot act, say — is advice and does not stop a publish.")
     public ApiResponse<FlowValidationResult> validate(@RequestBody DesignFlowDefinition definition) {
         return ApiResponse.success(FlowValidationResult.of(flowCompiler.validate(definition)));
     }
@@ -165,10 +172,29 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
 
     @GetMapping("/{id}/status")
     @Operation(summary = "Get draft publish status",
-            description = "Revision badge + dirty flag: dirty is true when the draft differs from the most "
-                    + "recently published design.")
+            description = "Revision badge, dirty flag and on/off: dirty is true when the draft differs from the most "
+                    + "recently published design; enabled is false while the flow is disabled.")
     public ApiResponse<FlowDesignStatusView> status(@PathVariable String id) {
         return ApiResponse.success(service.getStatus(id));
+    }
+
+    @PostMapping("/{id}/disable")
+    @Operation(summary = "Disable flow",
+            description = "Switches the flow off: no submission, change, schedule, API call or parent flow starts it "
+                    + "any more. The effective revision stays, and publishing keeps the flow off. Refused while any "
+                    + "of its instances has not finished, and while an enabled flow, or an unfinished instance of "
+                    + "another flow, calls it as a subflow. Returns the status.")
+    public ApiResponse<FlowDesignStatusView> disable(@PathVariable String id) {
+        return ApiResponse.success(service.disable(id));
+    }
+
+    @PostMapping("/{id}/enable")
+    @Operation(summary = "Enable flow",
+            description = "Switches the flow back on, on the revision that was effective. Refused for an approval "
+                    + "flow while another enabled approval flow of its document has the same submit condition. "
+                    + "Returns the status.")
+    public ApiResponse<FlowDesignStatusView> enable(@PathVariable String id) {
+        return ApiResponse.success(service.enable(id));
     }
 
     @GetMapping("/{id}/availableVariables")
@@ -186,28 +212,17 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
         return ApiResponse.success(variableCatalogService.availableVariables(definition, nodeId, afterNode));
     }
 
-    @PostMapping("/{id}/debugRun")
-    @Operation(summary = "Debug-run the current draft",
-            description = "Compiles the saved draft (compile errors return anchored diagnostics), registers "
-                    + "a debug bundle (never active, hidden from revision lists, purged after retention) and "
-                    + "executes it through the normal engine. NOT a sandbox — node side effects are real. "
-                    + "Returns the compiled graph plus the execution state for an immediate canvas overlay.")
-    public ApiResponse<FlowLaunchResponse> debugRun(@PathVariable String id,
-                                                    @RequestBody(required = false) FlowStartRequest request) {
-        FlowStartRequest startRequest = request != null ? request : new FlowStartRequest();
-        startRequest.setInitiatorId(currentUserId());
-        return ApiResponse.success(flowLaunchService.debugRunDraft(id, startRequest));
-    }
-
-    @GetMapping("/{id}/debugRuns")
-    @Operation(summary = "List debug-run history",
-            description = "Past debug runs of this flow, newest first (trigger payload, node trace, "
-                    + "final variables, error).")
-    public ApiResponse<List<FlowDebugHistory>> debugRuns(@PathVariable String id) {
-        return service.getById(id)
-                .map(design -> ApiResponse.success(
-                        debugHistoryService.listByFlowId(design.getId())))
-                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
-                        "FlowDesign not found: " + id));
+    @PostMapping("/{id}/preview")
+    @Operation(summary = "Test-run an approval flow's draft",
+            description = "What submitting a request with these field values as this user (the current user when "
+                    + "none is named) would do under the saved draft: whether its submit condition holds, the route "
+                    + "and each step's approvers, worked out without running the flow — nothing is started, written "
+                    + "or sent. The employee the request is about is the submitter's own when the values name none. "
+                    + "Compile errors return anchored diagnostics; a flow that is not an approval flow is refused.")
+    public ApiResponse<FlowDesignPreview> preview(@PathVariable String id,
+                                                  @RequestBody(required = false) FlowDesignPreviewRequest request) {
+        String submitterId = request != null && StringUtils.hasText(request.submitterId())
+                ? request.submitterId() : currentUserId();
+        return ApiResponse.success(flowLaunchService.previewDraft(id, submitterId, request == null ? null : request.values()));
     }
 }

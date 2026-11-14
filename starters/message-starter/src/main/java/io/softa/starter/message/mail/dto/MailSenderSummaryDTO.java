@@ -3,7 +3,7 @@ package io.softa.starter.message.mail.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import io.softa.starter.message.mail.entity.MailSendServerConfig;
+import io.softa.starter.message.mail.entity.AbstractMailSendServer;
 
 /**
  * Summary DTO for available mail sending server configurations.
@@ -13,7 +13,7 @@ import io.softa.starter.message.mail.entity.MailSendServerConfig;
 @Schema(name = "MailSenderSummaryDTO")
 public class MailSenderSummaryDTO {
 
-    public static MailSenderSummaryDTO from(MailSendServerConfig config) {
+    public static MailSenderSummaryDTO from(AbstractMailSendServer config) {
         MailSenderSummaryDTO dto = new MailSenderSummaryDTO();
         dto.setId(config.getId());
         dto.setName(config.getName());

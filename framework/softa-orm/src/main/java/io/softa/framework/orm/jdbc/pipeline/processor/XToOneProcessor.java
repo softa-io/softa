@@ -4,11 +4,8 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 
-import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQuery;
@@ -18,6 +15,7 @@ import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.IdUtils;
+import io.softa.framework.orm.utils.DisplayNames;
 import io.softa.framework.orm.vo.ModelReference;
 
 /**
@@ -137,10 +135,7 @@ public class XToOneProcessor extends BaseProcessor {
         Map<Serializable, String> displayNameMap = new HashMap<>();
         List<String> displayFields = ModelManager.getModelDisplayName(metaField.getRelatedModel());
         for (Map.Entry<Serializable, Map<String, Object>> value : relatedValueMap.entrySet()) {
-            List<Object> displayValues = displayFields.stream().map(value.getValue()::get)
-                    .filter(n -> n != null && n != "").collect(Collectors.toList());
-            String name = StringUtils.join(displayValues, StringConstant.DISPLAY_NAME_SEPARATOR);
-            displayNameMap.put(value.getKey(), name);
+            displayNameMap.put(value.getKey(), DisplayNames.of(value.getValue(), displayFields));
         }
         return displayNameMap;
     }

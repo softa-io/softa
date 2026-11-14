@@ -53,6 +53,16 @@ public interface OssClientService {
     String getDownloadUrl(String ossKey, int expirationInSeconds, String fileName);
 
     /**
+     * Copies a stored object to a new key in the same bucket, on the storage side: the bytes are not
+     * read through this process.
+     *
+     * @param sourceKey the key of the object to copy
+     * @param targetKey the key the copy is stored under
+     * @param fileName  file name, for the error message
+     */
+    void copyObject(String sourceKey, String targetKey, String fileName);
+
+    /**
      * Downloads the file from the OSS bucket and returns the InputStream
      *
      * @param ossKey the key of the file stored in the OSS bucket

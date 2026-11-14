@@ -12,7 +12,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowBundle;
-import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
+import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.service.FlowBundleService;
 
 @Service
@@ -31,6 +31,10 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
             LambdaUtils.getAttributeName(FlowBundle::getId),
             LambdaUtils.getAttributeName(FlowBundle::getTenantId),
             LambdaUtils.getAttributeName(FlowBundle::getCronExpression));
+
+    /** The owning flow's on/off switch, reached through the bundle's flow. */
+    private static final String FLOW_ENABLED = LambdaUtils.getAttributeName(FlowBundle::getFlowId) + "."
+            + LambdaUtils.getAttributeName(FlowDesign::getEnabled);
 
     @Override
     public Optional<FlowBundle> findById(Long id) {
@@ -62,15 +66,16 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     }
 
     /**
-     * Runtime lookup behind "start the active revision": the caller's own row permissions do
-     * not apply, the tenant filter still does.
+     * Runtime lookup behind "start the active revision": none while the flow is disabled. The caller's own row
+     * permissions do not apply, the tenant filter still does.
      */
     @Override
     @SkipPermissionCheck
     public Optional<Long> findActiveBundleId(String flowId) {
         Filters filters = new Filters()
                 .eq(FlowBundle::getFlowId, flowId)
-                .eq(FlowBundle::getActive, true);
+                .eq(FlowBundle::getActive, true)
+                .eq(FLOW_ENABLED, true);
         FlexQuery query = new FlexQuery(filters).select(FlowBundle::getId);
         return this.searchOne(query).map(FlowBundle::getId);
     }
@@ -87,15 +92,13 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     public List<FlowBundle> listRevisionsByFlowId(String flowId) {
         Filters filters = new Filters().eq(FlowBundle::getFlowId, flowId);
         return this.searchList(filters).stream()
-                // debug-run bundles are resolvable by id but are not revisions
-                .filter(bundle -> !Boolean.TRUE.equals(bundle.getDebug()))
                 .sorted(Comparator.comparingInt(FlowBundle::getRevision).reversed())
                 .toList();
     }
 
     @Override
     public List<FlowBundle> getAllActiveFlow() {
-        FlexQuery query = new FlexQuery(new Filters().eq(FlowBundle::getActive, true));
+        FlexQuery query = new FlexQuery(new Filters().eq(FlowBundle::getActive, true).eq(FLOW_ENABLED, true));
         query.select(DEFINITION_FIELDS);
         return this.searchList(query);
     }
@@ -104,6 +107,7 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     public List<FlowBundle> listActiveCronBundles() {
         Filters filters = new Filters()
                 .eq(FlowBundle::getActive, true)
+                .eq(FLOW_ENABLED, true)
                 .isSet(FlowBundle::getCronExpression);
         FlexQuery query = new FlexQuery(filters).select(CRON_JOB_FIELDS);
         return this.searchList(query);
@@ -126,16 +130,25 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
                 .eq(FlowBundle::getActive, true);
         for (FlowBundle bundle : this.searchList(activeFilters)) {
             if (!revision.equals(bundle.getRevision())) {
-                bundle.setActive(false);
-                this.updateOne(bundle, false);
+                writeActive(bundle.getId(), false);
             }
         }
         findByFlowIdAndRevision(flowId, revision).ifPresent(bundle -> {
             if (!Boolean.TRUE.equals(bundle.getActive())) {
-                bundle.setActive(true);
-                this.updateOne(bundle, false);
+                writeActive(bundle.getId(), true);
             }
         });
+    }
+
+    /**
+     * Only the flag: written back whole, a bundle read with any field cut would clear that field — the
+     * compiled definition among them.
+     */
+    private void writeActive(Long bundleId, boolean active) {
+        FlowBundle patch = new FlowBundle();
+        patch.setId(bundleId);
+        patch.setActive(active);
+        this.updateOne(patch);
     }
 
     /**
@@ -152,9 +165,6 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
             return Optional.empty();
         }
         FlowBundle bundle = target.get();
-        if (Boolean.TRUE.equals(bundle.getDebug())) {
-            throw new FlowRuntimeException("Debug bundle " + bundleId + " cannot be activated");
-        }
         markAsActive(bundle.getFlowId(), bundle.getRevision());
         return target;
     }

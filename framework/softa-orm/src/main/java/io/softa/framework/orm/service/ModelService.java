@@ -552,16 +552,20 @@ public interface ModelService<K extends Serializable> {
     List<Map<String, Object>> searchRelatedRows(String modelName, FlexQuery flexQuery);
 
     /**
-     * Name search within the caller's row range: the display fields plus {@code displayName}.
+     * Name search within the caller's row range: one page of candidates, each with the display fields
+     * and {@code displayName}.
      * <p>This is what a picker lists candidates through, so it applies the row range like
-     * {@link #searchList}. If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no
-     * exception is thrown.</p>
+     * {@link #searchPage}. Given a cursor page ({@link Page#ofCursorPage(Integer, Integer)}) it keeps one
+     * order from page to page and counts nothing, so a picker can load the next page as its list scrolls.
+     * Only the rows come back: fewer of them than the page size is the last page, which is all a picker
+     * needs to know, so there is no total to return.</p>
      *
      * @param modelName the name of the model
-     * @param flexQuery a {@link FlexQuery} object defining fields, filters, sorting, etc.
-     * @return a list of maps representing the matching rows with displayName and ID
+     * @param flexQuery what to search: the match, filters, orders and fields to read
+     * @param page which page to read
+     * @return the page's rows: the matching records with displayName and ID
      */
-    List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery);
+    List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page);
 
     /**
      * Performs a non-paginated query based on FlexQuery.

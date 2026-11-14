@@ -34,6 +34,9 @@ import io.softa.starter.message.mail.support.MailClassification;
 @Order(20)
 public class DsnRule implements MailClassificationRule {
 
+    /** The DSN {@code Action} of a recipient the mail could not be delivered to. */
+    private static final String FAILED = "failed";
+
     @Override
     public Optional<MailClassification> match(MimeMessage message) throws Exception {
         String ct = message.getContentType();
@@ -49,8 +52,17 @@ public class DsnRule implements MailClassificationRule {
             BodyPart part = multipart.getBodyPart(i);
             String partCt = part.getContentType();
             if (partCt != null && partCt.toLowerCase(Locale.ROOT).contains("message/delivery-status")) {
-                BounceInfo info = parseDsnFields(part.getContent().toString());
-                info.setOriginalMessageId(MailClassificationSupport.extractOriginalMessageId(message));
+                // Read as text: with no content handler for this type, getContent()
+                // is a raw stream, whose toString() holds no DSN fields.
+                BounceInfo info = parseDsnFields(MailClassificationSupport.partText(part));
+                // Only a DSN reporting a failure is a bounce of the original:
+                // "delayed" warns that delivery is still being retried, and
+                // "delivered" / "relayed" / "expanded" report success. Those are
+                // kept as received mail but not linked — linking marks the send
+                // record bounced and failed.
+                if (info.getAction() == null || FAILED.equals(info.getAction())) {
+                    info.setOriginalMessageId(MailClassificationSupport.extractOriginalMessageId(message));
+                }
                 return Optional.of(MailClassification.bounce(info));
             }
         }
@@ -78,7 +90,12 @@ public class DsnRule implements MailClassificationRule {
                     }
                     recipients.add(value);
                 } else if (lower.startsWith("action:")) {
-                    info.setAction(line.substring(line.indexOf(':') + 1).trim().toLowerCase(Locale.ROOT));
+                    // One action per recipient block; a failure for any recipient
+                    // makes the DSN a bounce.
+                    String action = line.substring(line.indexOf(':') + 1).trim().toLowerCase(Locale.ROOT);
+                    if (info.getAction() == null || FAILED.equals(action)) {
+                        info.setAction(action);
+                    }
                 } else if (lower.startsWith("status:")) {
                     String status = line.substring(line.indexOf(':') + 1).trim();
                     info.setEnhancedStatusCode(status);

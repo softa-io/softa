@@ -95,7 +95,9 @@ public class Context implements Serializable {
 
     /**
      * Whether to skip permission verification (including model permission and data range),
-     * the default is to perform permission verification.
+     * the default is to perform permission verification. A copy keeps it: work handed on from a context
+     * running as the system — a per-tenant scope, an async task — runs as the system too. Code that needs
+     * the caller's own scope back on a copy sets it to {@code false} there.
      */
     private boolean skipPermissionCheck = false;
 
@@ -180,6 +182,7 @@ public class Context implements Serializable {
         newContext.setRoleCodes(this.roleCodes);
         newContext.setGrantedCompanyIds(this.grantedCompanyIds);
         newContext.setGrantedCountries(this.grantedCountries);
+        newContext.setSkipPermissionCheck(this.skipPermissionCheck);
         newContext.setSkipAutoAudit(this.skipAutoAudit);
         newContext.setCrossTenant(this.crossTenant);
         newContext.setDataMask(this.dataMask);

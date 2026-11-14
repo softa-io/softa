@@ -34,7 +34,7 @@ import io.softa.framework.orm.enums.IdStrategy;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, displayName = {"name"}, searchName = {"name"})
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, multiTenant = true, displayName = {"name"}, searchName = {"name"}, defaultOrder = {"name"})
 @Index(indexName = "uk_role_tenant_name", fields = {"tenantId", "name"}, unique = true,
         message = "A role with this name already exists.")
 // code is nullable (admin-created roles); the unique index treats NULLs as distinct, so it only
@@ -66,6 +66,18 @@ public class Role extends AuditableModel {
 
     @Field(description = "Dynamic membership filter (JSON FilterCondition). DynamicRoleSyncJob auto-assigns matching users (source=DYNAMIC)")
     private JsonNode dynamicFilter;
+
+    /**
+     * The departments this role reaches on every model that belongs to a department — an outer bound,
+     * AND-ed per role onto its rules like the company grant. A JSON array of rules in the data-scope
+     * form: {@code {"scopeType":"ALL"}}, or any of
+     * {@code {"scopeType":"DEPT_SUBTREE","scopeExpr":{"deptId":"<id>"}}} (that department and everything
+     * under it) and the conditions worked out for the holder: {@code OWN_DEPARTMENT},
+     * {@code MANAGED_DEPARTMENTS} and {@code DIRECT_REPORTS}. A record has to meet any one of them.
+     * {@code null} = not configured, unrestricted; {@code []} = no department.
+     */
+    @Field(description = "Department grant (JSON rules: ALL, or DEPT_SUBTREE with a fixed deptId, OWN_DEPARTMENT, MANAGED_DEPARTMENTS, DIRECT_REPORTS). NULL = unrestricted, [] = none")
+    private JsonNode departmentGrant;
 
     // Reverse relations (mirror live sys_field). Dynamic (not stored) — loaded only when requested.
     @Field(fieldType = FieldType.MANY_TO_MANY, relatedModel = UserAccount.class,

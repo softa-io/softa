@@ -2,29 +2,69 @@ package io.softa.starter.flow.runtime.store;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
  * Bidirectional mapper between {@link FlowExecutionState} (runtime) and
  * {@link FlowInstance} (persistence entity).
  * Complex nested objects are serialized as JSON strings for DB storage.
+ *
+ * <p>{@link #toState} is public for the reads that already hold the rows: a record's approvals come
+ * as states from the one query that finds them ({@code FlowInstanceService.recordApprovalStates}).
+ * Writing stays with the store.</p>
  */
 @Slf4j
-final class FlowExecutionStateMapper {
+public final class FlowExecutionStateMapper {
 
     private FlowExecutionStateMapper() {
     }
 
     /**
-     * Convert runtime state to persistence entity.
+     * {@code state} as a save would keep it and a load give it back — through the same mapping — with what a save is
+     * yet to write, its new trace and approval audit entries, and where their numbering stands: the point the steps
+     * after an approval are undone to, should one fail. Nothing is saved.
      */
-    static FlowInstance toEntity(FlowExecutionState state, FlowInstance existing) {
-        FlowInstance entity = existing != null ? existing : new FlowInstance();
+    public static FlowExecutionState copyOf(FlowExecutionState state) {
+        FlowExecutionState copy = toState(toEntity(state));
+        copy.setFlowName(state.getFlowName());
+        copy.setInitiatorName(state.getInitiatorName());
+        copy.setTrace(state.getTrace() == null ? new ArrayList<>() : new ArrayList<>(state.getTrace()));
+        copy.setPersistedTraceCount(state.getPersistedTraceCount());
+        copy.setTraceSequenceBase(state.getTraceSequenceBase());
+        copy.setApprovalAuditDelta(state.getApprovalAuditDelta() == null
+                ? new ArrayList<>() : new ArrayList<>(state.getApprovalAuditDelta()));
+        copy.setPersistedAuditCount(state.getPersistedAuditCount());
+        copy.setAuditSequenceBase(state.getAuditSequenceBase());
+        copy.setCommittedAudit(state.getCommittedAudit() == null ? null : new ArrayList<>(state.getCommittedAudit()));
+        // The copy stands in for the instance the action read: a save of it announces a move from what that read.
+        copy.setLoadedStatus(state.getLoadedStatus());
+        return copy;
+    }
+
+    /**
+     * The FlowInstance fields a state holds — every one {@link #toEntity} sets — which a save writes, nulls included,
+     * and no other: a column written apart from the state ({@code superseded}) keeps its value.
+     */
+    public static final Set<String> STATE_FIELDS = Set.of("instanceId", "version", "bundleId", "flowId",
+            "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "subjectId", "departmentId",
+            "effectiveDate", "recordCode", "summary", "triggerEventId", "openRecordId", "status", "errorMessage",
+            "failedNodeId", "retryAfterNodeId", "variables", "waitTokens", "completedNodeIds", "pendingApprovals",
+            "joinArrivalCounts", "returnData");
+
+    /**
+     * Convert runtime state to persistence entity: the row it was read from or saved as ({@code persistedId}), else a
+     * new one.
+     */
+    public static FlowInstance toEntity(FlowExecutionState state) {
+        FlowInstance entity = new FlowInstance();
+        entity.setId(state.getPersistedId());
         entity.setInstanceId(state.getInstanceId());
         entity.setVersion(state.getVersion());
         entity.setBundleId(state.getBundleId());
@@ -39,6 +79,7 @@ final class FlowExecutionStateMapper {
         entity.setDepartmentId(state.getDepartmentId());
         entity.setEffectiveDate(state.getEffectiveDate());
         entity.setRecordCode(state.getRecordCode());
+        entity.setSummary(state.getSummary());
         entity.setTriggerEventId(state.getTriggerEventId());
         // Held while the record's approval is unfinished; the unique index on it keeps a record
         // to one approval in progress, concurrent submissions included.
@@ -47,10 +88,9 @@ final class FlowExecutionStateMapper {
         entity.setStatus(state.getStatus());
         entity.setErrorMessage(state.getErrorMessage());
         entity.setFailedNodeId(state.getFailedNodeId());
-        entity.setInputPayload(JsonUtils.objectToString(state.getInputPayload()));
+        entity.setRetryAfterNodeId(state.getRetryAfterNodeId());
         entity.setVariables(JsonUtils.objectToString(state.getVariables()));
         entity.setWaitTokens(JsonUtils.objectToString(state.getWaitTokens()));
-        entity.setNextFireAt(state.earliestTimerDueAt());
         entity.setCompletedNodeIds(JsonUtils.objectToString(state.getCompletedNodeIds()));
         entity.setPendingApprovals(JsonUtils.objectToString(state.getPendingApprovals()));
         entity.setJoinArrivalCounts(JsonUtils.objectToString(state.getJoinArrivalCounts()));
@@ -60,12 +100,14 @@ final class FlowExecutionStateMapper {
     }
 
     /**
-     * Convert persistence entity to runtime state.
+     * Convert persistence entity to runtime state — the state {@link FlowInstanceStore#get} loads: the trace and
+     * the approval audit stay empty delta buffers, and the status it is read in is kept as the one the action found.
      */
-    static FlowExecutionState toState(FlowInstance entity) {
+    public static FlowExecutionState toState(FlowInstance entity) {
         return FlowExecutionState.builder()
                 .instanceId(entity.getInstanceId())
                 .version(entity.getVersion())
+                .persistedId(entity.getId())
                 .bundleId(entity.getBundleId())
                 .flowId(entity.getFlowId())
                 .flowName(entity.getFlowName())
@@ -79,12 +121,16 @@ final class FlowExecutionStateMapper {
                 .departmentId(entity.getDepartmentId())
                 .effectiveDate(entity.getEffectiveDate())
                 .recordCode(entity.getRecordCode())
+                .summary(entity.getSummary())
                 .triggerEventId(entity.getTriggerEventId())
                 .status(entity.getStatus())
+                .loadedStatus(entity.getStatus())
                 .errorMessage(entity.getErrorMessage())
                 .failedNodeId(entity.getFailedNodeId())
-                .inputPayload(JsonUtils.stringToObject(entity.getInputPayload(), new TypeReference<>() {}, new LinkedHashMap<>()))
-                .variables(JsonUtils.stringToObject(entity.getVariables(), new TypeReference<>() {}, new LinkedHashMap<>()))
+                .retryAfterNodeId(entity.getRetryAfterNodeId())
+                // The record's numbers come back as text from the JSON; the routes compare them as numbers.
+                .variables(RecordVariables.restoreNumbers(entity.getModelName(),
+                        JsonUtils.stringToObject(entity.getVariables(), new TypeReference<>() {}, new LinkedHashMap<>())))
                 .waitTokens(JsonUtils.stringToObject(entity.getWaitTokens(), new TypeReference<>() {}, new ArrayList<>()))
                 .completedNodeIds(JsonUtils.stringToObject(entity.getCompletedNodeIds(), new TypeReference<>() {}, new ArrayList<>()))
                 .pendingApprovals(JsonUtils.stringToObject(entity.getPendingApprovals(), new TypeReference<>() {}, new ArrayList<>()))

@@ -9,6 +9,7 @@ import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.permission.spi.PermissionEndpointSource;
@@ -335,6 +336,62 @@ class EndpointIndexStandardDerivationTest {
 
             // No related model → nothing derived beyond Employee's own endpoints.
             assertThat(idx.lookup("/Department/searchList", "POST")).isEmpty();
+        }
+    }
+
+    // ─── records a model owns are reached through it ───
+
+    private static MetaField owned(String name, FieldType type, String relatedModel, String relatedField, OnDelete onDelete) {
+        MetaField mf = field(name, type, relatedModel);
+        if (relatedField != null) ReflectionTestUtils.setField(mf, "relatedField", relatedField);
+        if (onDelete != null) ReflectionTestUtils.setField(mf, "onDelete", onDelete);
+        return mf;
+    }
+
+    @Test
+    void ownedRecords_getNoEndpointsOfTheirOwn_theirLookupsStillDo() {
+        // A one-to-many child and a one-to-one section are read through the employee: the employee's view
+        // opens its own relation endpoints, not the child's. A section deleted along with what it points at is
+        // not owned and keeps its read. The child's own pickers are still reached.
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            for (String m : List.of("Employee", "EmpAddress", "EmpBankAccount", "Credential", "CountryRegion")) {
+                mm.when(() -> ModelManager.existModel(m)).thenReturn(true);
+            }
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of(
+                    owned("empAddresses", FieldType.ONE_TO_MANY, "EmpAddress", "employeeId", null),
+                    owned("empBankAccountId", FieldType.ONE_TO_ONE, "EmpBankAccount", null, OnDelete.SET_NULL),
+                    owned("credentialId", FieldType.ONE_TO_ONE, "Credential", null, OnDelete.CASCADE)));
+            mm.when(() -> ModelManager.getModelFields("EmpAddress")).thenReturn(List.of(
+                    field("country", FieldType.MANY_TO_ONE, "CountryRegion")));
+            mm.when(() -> ModelManager.getModelFields("EmpBankAccount")).thenReturn(List.of());
+            mm.when(() -> ModelManager.getModelFields("Credential")).thenReturn(List.of());
+
+            EndpointIndex idx = build(List.of(derivedPerm("employee.view", "Employee")));
+
+            assertThat(idx.lookup("/Employee/searchRelationPage", "POST")).containsExactly("employee.view");
+            assertThat(idx.lookup("/Employee/getRelationUnmaskedFields", "GET")).containsExactly("employee.view");
+            assertThat(idx.lookup("/EmpAddress/searchList", "POST")).isEmpty();
+            assertThat(idx.lookup("/EmpAddress/searchPage", "POST")).isEmpty();
+            assertThat(idx.lookup("/EmpAddress/getUnmaskedFields", "GET")).isEmpty();
+            assertThat(idx.lookup("/EmpBankAccount/getById", "POST")).isEmpty();
+            assertThat(idx.lookup("/Credential/searchList", "POST")).containsExactly("employee.view");
+            assertThat(idx.lookup("/CountryRegion/searchName", "POST")).containsExactly("employee.view");
+        }
+    }
+
+    @Test
+    void aProjection_ownsNothing_soItsSectionsKeepTheirRead() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("EmployeeReport")).thenReturn(true);
+            mm.when(() -> ModelManager.existModel("EmployeeProfile")).thenReturn(true);
+            mm.when(() -> ModelManager.isProjectionModel("EmployeeReport")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("EmployeeReport")).thenReturn(List.of(
+                    owned("employeeProfileId", FieldType.ONE_TO_ONE, "EmployeeProfile", null, null)));
+            mm.when(() -> ModelManager.getModelFields("EmployeeProfile")).thenReturn(List.of());
+
+            EndpointIndex idx = build(List.of(derivedPerm("report.view", "EmployeeReport")));
+
+            assertThat(idx.lookup("/EmployeeProfile/searchList", "POST")).containsExactly("report.view");
         }
     }
 }

@@ -35,14 +35,8 @@ public class PendingApproval {
     @Schema(description = "Node label")
     private String nodeLabel;
 
-    @Schema(description = "Approval task cycle number for repeated visits to the same node")
-    private Integer cycleNumber;
-
     @Schema(description = "Static approver ids or names from config")
     private List<String> approvers;
-
-    @Schema(description = "Whether approvers were resolved from a dynamic source")
-    private Boolean dynamicApprovers;
 
     @Schema(description = "Approval mode for this node")
     private VoteThresholdMode approvalMode;
@@ -50,26 +44,8 @@ public class PendingApproval {
     @Schema(description = "Required approval count before the node can continue")
     private Integer requiredApprovalCount;
 
-    @Schema(description = "Total configured approver count")
-    private Integer totalApproverCount;
-
-    @Schema(description = "Reject mode for this node")
-    private VoteThresholdMode rejectMode;
-
-    @Schema(description = "Required reject count before the node is rejected")
-    private Integer requiredRejectCount;
-
     @Schema(description = "Approvers who have already approved in unanimous mode")
     private List<String> approvedActors;
-
-    @Schema(description = "Approvers who have already rejected in threshold-based reject mode")
-    private List<String> rejectedActors;
-
-    @Schema(description = "Actor who is currently blocked by an unresolved add-sign dependency")
-    private String blockedActorId;
-
-    @Schema(description = "Actor who must approve before the blocked actor can proceed")
-    private String prerequisiteActorId;
 
     @Schema(description = "Due time computed from timeout config when the approval was created")
     private LocalDateTime dueTime;
@@ -79,5 +55,14 @@ public class PendingApproval {
 
     @Schema(description = "Timestamp of the last timeout reminder sent")
     private LocalDateTime lastRemindTime;
+
+    @Schema(description = "The roles the step went to because it found nobody (empty-approver strategy AssignToRole), "
+            + "by name: its approvers are their holders, any one of whom decides. Empty otherwise")
+    private List<String> assignedRoles;
+
+    /** Whether the step went to the holders of roles because it found nobody: any one of them decides. */
+    public boolean assignedToRoles() {
+        return assignedRoles != null && !assignedRoles.isEmpty();
+    }
 }
 

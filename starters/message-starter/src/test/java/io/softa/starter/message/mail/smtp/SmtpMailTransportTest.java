@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import com.icegreen.greenmail.util.GreenMail;
 import com.icegreen.greenmail.util.GreenMailUtil;
@@ -222,7 +223,7 @@ class SmtpMailTransportTest {
 
     @Test
     void evictionClosesIdleConnectionsAndSendsStillWork() throws Exception {
-        properties.getMail().getSmtpPool().setIdleTimeout(Duration.ZERO);
+        ReflectionTestUtils.setField(transport, "poolIdleTimeout", Duration.ZERO);
         MailSendServerConfig config = savedConfig();
         assertTrue(transport.send(config, request("One", "<p>1</p>", null)).isSuccess());
 
@@ -233,10 +234,37 @@ class SmtpMailTransportTest {
     }
 
     @Test
-    void poolingDisabled_sendsWithSingleUseSender() throws Exception {
-        properties.getMail().getSmtpPool().setEnabled(false);
+    void aServerWithReuseOffSendsOnAConnectionOfItsOwn() throws Exception {
+        MailSendServerConfig config = savedConfig();
+        config.setConnectionReuseEnabled(false);
 
-        assertTrue(transport.send(savedConfig(), request("Plain", "<p>x</p>", null)).isSuccess());
+        assertTrue(transport.send(config, request("Own", "<p>x</p>", null)).isSuccess());
+
+        assertTrue(greenMail.waitForIncomingEmail(5000, 1));
+        assertTrue(pools().isEmpty(), "no pool is kept for a server with reuse off");
+    }
+
+    @Test
+    void turningReuseOffClosesTheServersPool() throws Exception {
+        MailSendServerConfig config = savedConfig();
+        assertTrue(transport.send(config, request("Pooled", "<p>1</p>", null)).isSuccess());
+        assertEquals(1, pools().size());
+
+        config.setConnectionReuseEnabled(false);
+        assertTrue(transport.send(config, request("Own", "<p>2</p>", null)).isSuccess());
+
+        assertTrue(greenMail.waitForIncomingEmail(5000, 2));
+        assertTrue(pools().isEmpty());
+    }
+
+    private Map<?, ?> pools() {
+        return (Map<?, ?>) ReflectionTestUtils.getField(transport, "pools");
+    }
+
+    @Test
+    void anUnsavedConfigSendsWithASingleUseSender() throws Exception {
+        // A connectivity test sends through a config with no id yet: nothing to key a pool by.
+        assertTrue(transport.send(config(), request("Plain", "<p>x</p>", null)).isSuccess());
         assertTrue(greenMail.waitForIncomingEmail(5000, 1));
     }
 

@@ -93,12 +93,12 @@ class FlowActionReplayTest {
         return DesignFlowDefinition.builder()
                 .name("Replay Flow")
                 .scenario(FlowScenario.APPROVAL)
-                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .trigger(new SubmitTrigger("LeaveRequest"))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approvers", List.of(X))).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(X))))).build(),
                                 node("end", FlowNodeType.END)))
                         .edges(List.of(
                                 edge("e1", "start", "approval"),

@@ -2,36 +2,23 @@ package io.softa.starter.message.service.internal;
 
 import java.lang.reflect.Method;
 import java.util.List;
-import java.util.function.Supplier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
-import io.softa.starter.message.config.MessageProperties;
-import io.softa.framework.base.message.MessageScope;
-import io.softa.starter.message.shared.MonthlyQuotaGuard;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.entity.MailSendRecord;
-import io.softa.starter.message.mail.entity.MailSendServerConfig;
 import io.softa.starter.message.mail.enums.BodyMode;
 import io.softa.starter.message.mail.service.MailSendRecordService;
-import io.softa.starter.message.mail.service.MailTemplateService;
 import io.softa.starter.message.mail.service.impl.MailDeliveryProcessor;
-import io.softa.starter.message.mail.support.MailServerDispatcher;
-import io.softa.starter.message.mq.TopicRoute;
-import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
- * Round-trip coverage for the four {@link BodyMode}s through
- * {@code buildRecord} → {@code rebuildDTO}. Both bodies are persisted verbatim
- * (option B unified storage) so retry replays bit-for-bit, with no
- * derivation at retry time.
+ * Round-trip coverage for the four {@link BodyMode}s of caller-supplied bodies,
+ * through acceptance ({@code accept}) → delivery ({@code rebuildDTO}). Both
+ * bodies are persisted verbatim (option B unified storage) so retry replays
+ * bit-for-bit, with no derivation at retry time. Template-rendered bodies are
+ * covered by {@code MailDeliveryProcessorTest}.
  *
  * <p>The {@code DERIVED} vs {@code AUTHORED} distinction is preserved as
  * audit metadata on the record — both modes persist the same shape of data
@@ -115,45 +102,6 @@ class MailMessageBodyModeTest {
     }
 
     @Test
-    void replyToFallbackChainPersistsConfigDefaultWhenDtoEmpty() throws Exception {
-        // dto carries no replyTo (caller didn't override, no template path).
-        // buildRecord must apply the third tier (config.replyToAddress) and
-        // persist that on the record so retry replays the same value.
-        SendMailDTO dto = new SendMailDTO();
-        dto.setHtmlBody("<p>X</p>");
-        // dto.replyTo intentionally null
-
-        MailSendServerConfig config = new MailSendServerConfig();
-        config.setId(1L);
-        config.setFromAddress("noreply@example.com");
-        config.setReplyToAddress("support@example.com");
-        MailSendRecord record = sendAndCapture(dto, config);
-
-        Assertions.assertEquals("support@example.com", record.getReplyTo(),
-                "Empty dto.replyTo must fall through to config.replyToAddress at persist time");
-
-        SendMailDTO rebuilt = invokeRebuildDTO(record);
-        Assertions.assertEquals("support@example.com", rebuilt.getReplyTo(),
-                "Retry must replay the persisted Reply-To verbatim, not re-resolve from config");
-    }
-
-    @Test
-    void replyToDtoOverrideWinsOverConfig() throws Exception {
-        SendMailDTO dto = new SendMailDTO();
-        dto.setHtmlBody("<p>X</p>");
-        dto.setReplyTo("campaign-2024@example.com");
-
-        MailSendServerConfig config = new MailSendServerConfig();
-        config.setId(1L);
-        config.setFromAddress("noreply@example.com");
-        config.setReplyToAddress("support@example.com");
-        MailSendRecord record = sendAndCapture(dto, config);
-
-        Assertions.assertEquals("campaign-2024@example.com", record.getReplyTo(),
-                "dto.replyTo override must take precedence over config default");
-    }
-
-    @Test
     void inferModeWhenDtoModeUnset() throws Exception {
         // Direct API caller didn't declare bodyMode; service infers from fields.
         // Both populated → AUTHORED (we treat the caller's plain as canonical content).
@@ -169,40 +117,16 @@ class MailMessageBodyModeTest {
     // ---- helpers ----
 
     private MailSendRecord invokeBuildRecord(SendMailDTO dto) {
-        MailSendServerConfig config = new MailSendServerConfig();
-        config.setId(1L);
-        config.setFromAddress("noreply@example.com");
-        return sendAndCapture(dto, config);
-    }
-
-    @SuppressWarnings("unchecked")
-    private MailSendRecord sendAndCapture(SendMailDTO dto, MailSendServerConfig config) {
         if (dto.getTo() == null) {
             dto.setTo(List.of("recipient@example.com"));
         }
-        MailServerDispatcher dispatcher = mock(MailServerDispatcher.class);
-        MailSendRecordService recordService = mock(MailSendRecordService.class);
-        MailTemplateService templateService = mock(MailTemplateService.class);
-        OutboxRecordWriter outboxRecordWriter = mock(OutboxRecordWriter.class);
-        when(dispatcher.resolveSend(MessageScope.TENANT)).thenReturn(config);
-        when(outboxRecordWriter.persistAndEnqueue(
-                any(), eq("MailSendRecord"), eq(TopicRoute.MAIL_SEND)))
-                .thenAnswer(invocation -> ((Supplier<Long>) invocation.getArgument(0)).get());
-        when(recordService.createOne(any(MailSendRecord.class))).thenReturn(1L);
-
-        MailMessageHandler handler = new MailMessageHandler(
-                dispatcher, recordService, templateService, outboxRecordWriter,
-                new MessageProperties(), mock(MonthlyQuotaGuard.class));
-        handler.send(dto);
-
-        ArgumentCaptor<MailSendRecord> captor = ArgumentCaptor.forClass(MailSendRecord.class);
-        verify(recordService).createOne(captor.capture());
-        return captor.getValue();
+        MailMessageHandler handler = new MailMessageHandler(mock(MailSendRecordService.class));
+        return handler.accept(dto);
     }
 
     private SendMailDTO invokeRebuildDTO(MailSendRecord record) throws Exception {
         // rebuildDTO lives on the delivery side: the processor replays the
-        // persisted record verbatim at consume time.
+        // persisted record verbatim on every attempt.
         MailDeliveryProcessor processor = new MailDeliveryProcessor();
         Method m = MailDeliveryProcessor.class.getDeclaredMethod("rebuildDTO", MailSendRecord.class);
         m.setAccessible(true);

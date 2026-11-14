@@ -4,8 +4,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.time.LocalDateTime;
-import java.util.List;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,35 +13,35 @@ import org.springframework.web.bind.annotation.RestController;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowBatchActionResult;
+import io.softa.starter.flow.dto.FlowDelegationMonitorSearchRequest;
+import io.softa.starter.flow.dto.FlowDelegationView;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowReassignApproverRequest;
 import io.softa.starter.flow.dto.FlowReassignPreview;
+import io.softa.starter.flow.dto.FlowRetryBatchRequest;
 import io.softa.starter.flow.dto.FlowTerminateBatchRequest;
 import io.softa.starter.flow.dto.FlowUrgeStatus;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.runtime.api.FlowUrgeRequest;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.UrgeThrottle;
-import io.softa.starter.flow.runtime.monitor.FlowHealthSnapshot;
-import io.softa.starter.flow.runtime.monitor.FlowMonitorService;
 import io.softa.starter.flow.service.FlowAdministrationService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
+import io.softa.starter.flow.service.support.view.FlowDelegationViews;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 
 /**
- * Operator-facing endpoints that expose flow runtime health signals, cross-initiator instance queries for
- * monitoring consoles, and what an administrator does to an instance from there.
+ * Operator-facing endpoints: cross-initiator instance queries for monitoring consoles, and what an administrator
+ * does to an instance from there.
  */
 @Tag(name = "Flow Monitor")
 @RestController
 @RequestMapping("/flow/monitor")
 public class FlowMonitorController {
-
-    private final FlowMonitorService monitorService;
 
     private final FlowInstanceService instanceService;
 
@@ -57,34 +55,32 @@ public class FlowMonitorController {
 
     private final FlowAdministrationService administrationService;
 
-    public FlowMonitorController(FlowMonitorService monitorService, FlowInstanceService instanceService,
+    private final FlowDelegationViews delegationViews;
+
+    public FlowMonitorController(FlowInstanceService instanceService,
                                  FlowRuntimeEngine runtimeEngine, FlowInstanceAccessGuard accessGuard,
                                  UrgeThrottle urgeThrottle, FlowInstanceSummaryComposer summaryComposer,
-                                 FlowAdministrationService administrationService) {
-        this.monitorService = monitorService;
+                                 FlowAdministrationService administrationService, FlowDelegationViews delegationViews) {
         this.instanceService = instanceService;
         this.runtimeEngine = runtimeEngine;
         this.accessGuard = accessGuard;
         this.urgeThrottle = urgeThrottle;
         this.summaryComposer = summaryComposer;
         this.administrationService = administrationService;
-    }
-
-    @GetMapping("/health")
-    @Operation(summary = "Flow runtime health snapshot",
-            description = "Returns per-status instance counts and overdue-timer count for the flow runtime.")
-    public ApiResponse<FlowHealthSnapshot> health() {
-        return ApiResponse.success(monitorService.snapshot());
+        this.delegationViews = delegationViews;
     }
 
     @PostMapping("/instances/search")
     @Operation(summary = "Search flow instances (monitor)",
             description = "Cross-initiator paged instance summaries for operator monitoring views, read with the "
-                    + "caller's own permissions: the FlowInstance rows their roles' data scope reaches. Honors the "
-                    + "request's initiatorId filter when present. Heavy JSON state columns and the trace are "
-                    + "excluded — fetch a single instance or its overlay for detail.")
+                    + "caller's own permissions: the FlowInstance rows their roles' data scope reaches. The "
+                    + "request's filters and orders, on stored fields of FlowInstance only, narrow and sort within "
+                    + "that scope. Heavy JSON state columns and the trace are "
+                    + "excluded — fetch a single instance or its overlay for detail. Each waiting approval's urge "
+                    + "says whether the caller may urge it now as an administrator, and if not, when.")
     public ApiResponse<Page<FlowInstanceSummaryView>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
-        return ApiResponse.success(summaryComposer.summarize(instanceService.searchSummaries(request, null), currentUserId()));
+        return ApiResponse.success(summaryComposer.summarizeForAdministrator(
+                instanceService.searchSummaries(request, null), currentUserId()));
     }
 
     @PostMapping("/instances/urge")
@@ -108,6 +104,18 @@ public class FlowMonitorController {
                     + "own permissions read; each acted on separately. Returns each one's outcome.")
     public ApiResponse<FlowBatchActionResult> terminate(@Valid @RequestBody FlowTerminateBatchRequest request) {
         return ApiResponse.success(administrationService.terminate(request.getInstanceIds(), request.getReason(),
+                currentUserId()));
+    }
+
+    @PostMapping("/instances/retry")
+    @Operation(summary = "Run approvals again",
+            description = "Runs again the steps after an approval of each instance named that failed in them — the "
+                    + "approval goes on from the step it failed after; should they fail again, the instance fails "
+                    + "again and its initiator and the administrators are told. A record taken back by its submitter, "
+                    + "or submitted again since, is refused. Granted with terminating: only instances the caller's own "
+                    + "permissions read; each acted on separately. Returns each one's outcome.")
+    public ApiResponse<FlowBatchActionResult> retry(@Valid @RequestBody FlowRetryBatchRequest request) {
+        return ApiResponse.success(administrationService.retry(request.getInstanceIds(), request.getComment(),
                 currentUserId()));
     }
 
@@ -139,10 +147,17 @@ public class FlowMonitorController {
         return ApiResponse.success(administrationService.delegateOnBehalf(delegation));
     }
 
-    @GetMapping("/delegations")
-    @Operation(summary = "List delegation rules", description = "Every delegation rule of the tenant, newest first.")
-    public ApiResponse<List<FlowDelegation>> listDelegations() {
-        return ApiResponse.success(administrationService.listDelegations());
+    @PostMapping("/delegations/search")
+    @Operation(summary = "Search delegation rules",
+            description = "One page of the tenant's delegation rules — every approver's, whoever made them — newest "
+                    + "first, each with its delegator and delegate named, who set it up, and its status now: "
+                    + "Scheduled, Active, Ended or Cancelled. filters (nested AND / OR) may name the stored fields of "
+                    + "FlowDelegation, and status with = — the rules in that status now; orders, stored fields only, "
+                    + "replace newest first; anything else is refused (400). Whatever the caller's data scope: it is a "
+                    + "permission of its own.")
+    public ApiResponse<Page<FlowDelegationView>> searchDelegations(
+            @RequestBody FlowDelegationMonitorSearchRequest request) {
+        return ApiResponse.success(delegationViews.of(administrationService.searchDelegations(request)));
     }
 
     @PostMapping("/delegations/{id}/cancel")

@@ -17,8 +17,9 @@ public enum SeedLevel {
     PLATFORM_TENANT(BaseConstant.PREDEFINED_DATA_PLATFORM_DIR),
 
     /**
-     * Rows on multi-tenant models, run once in every tenant; the tenant owns its copy afterwards. Only a file
-     * marked {@code overwrite: true} runs again when it changes.
+     * Rows on multi-tenant models, run once in every tenant; the tenant owns its copy afterwards. A file in mode
+     * {@code append} runs again when it changes, creating only the rows a tenant lacks; one in mode
+     * {@code overwrite} runs again whole.
      */
     TENANT(BaseConstant.PREDEFINED_DATA_TENANT_DIR);
 

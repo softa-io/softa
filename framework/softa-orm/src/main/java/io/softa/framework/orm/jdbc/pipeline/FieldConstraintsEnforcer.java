@@ -395,8 +395,7 @@ public final class FieldConstraintsEnforcer {
         }
         Object value = row.get(name);
         if (requiredNow(c.requiredWhen(), row) && FilterEvaluator.isBlank(value)) {
-            throw WriteValidationException.forField(name,
-                    "Model field {0}:{1} is required and cannot be empty!", modelName, name);
+            throw WriteValidationException.requiredField(field);
         }
         if (c.invalidWhen() != null && matches(c.invalidWhen(), row)) {
             // The declared sentence is shown as written — it is not a MessageFormat pattern.

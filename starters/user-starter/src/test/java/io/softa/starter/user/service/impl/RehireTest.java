@@ -37,7 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Re-hiring a leaver through the ordinary create path (PRD S-D).
+ * Re-hiring a leaver through the ordinary create path.
  *
  * <p>Every creation path funnels through {@code registerInvitedUser}, and it refused whenever the
  * person had ANY membership here — a DEACTIVATED one included. So a former employee could never be
@@ -58,6 +58,8 @@ class RehireTest {
     private final UserProfileService profileService = mock(UserProfileService.class);
     private final UserRoleRelService roleRelService = mock(UserRoleRelService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
+    private final io.softa.starter.user.service.UserSecurityLogService securityLog =
+            AccountServiceTestSupport.quiet(accountService);
 
     RehireTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
@@ -103,12 +105,13 @@ class RehireTest {
     void aLeaverReHiredThroughCreateRevivesTheClosedMembershipInsteadOfRefusing() {
         personHasMembershipHere(AccountStatus.DEACTIVATED);
 
-        inThisTenant(() -> assertThatCode(() -> accountService.registerInvitedUser(NEW_EMAIL, MOBILE, "Ada L"))
-                .doesNotThrowAnyException());
+        inThisTenant(() -> assertThat(accountService.registerInvitedUser(NEW_EMAIL, MOBILE, "Ada L").getUserId())
+                .isEqualTo(CLOSED_ROW));
 
-        // The row is reused with the NEW contacts — no second row, no second person.
+        // The row is reused with the NEW contacts — no second row, no second person. Nobody is
+        // bound to it until /join, so the answer is built from the row, not read from a person.
         verify(accountService).reviveMembership(PERSON, NEW_EMAIL, MOBILE);
-        verify(profileService).getUserInfo(CLOSED_ROW);
+        verify(profileService, never()).getUserInfo(anyLong());
         verify(accountService, never()).createOne(any(UserAccount.class));
         verify(profileService, never()).registerUserProfile(anyLong(), any(UserProfileDTO.class));
         verify(profileService, never()).linkAccountToPerson(anyLong(), anyLong());
@@ -276,19 +279,21 @@ class RehireTest {
 
         inThisTenant(() -> assertThatCode(() -> accountService.rehire(CLOSED_ROW)).doesNotThrowAnyException());
 
-        // The row's OWN values — the person is named by the row, never inferred from a contact.
+        // The row's OWN values. The person is detached: /join decides again who this is.
         assertThat(closed.getStatus()).isEqualTo(AccountStatus.PENDING);
-        assertThat(closed.getProfileId()).isEqualTo(PERSON);
+        assertThat(closed.getProfileId()).isNull();
         assertThat(closed.getEmail()).isEqualTo(OLD_EMAIL);
         assertThat(closed.getMobile()).isEqualTo(MOBILE);
         verify(accountService).updateOne(closed, false);
         verify(accountService, never()).reviveMembership(any(), any(), any());
         // Load-bearing: the holder checks name tenant 9, the row's, and never the operator's 2.
+        // (The cross-company check on the email names no tenant at all, by design.)
         ArgumentCaptor<Filters> holderQueries = ArgumentCaptor.forClass(Filters.class);
-        verify(accountService, times(4)).searchList(holderQueries.capture());
-        assertThat(holderQueries.getAllValues()).allSatisfy(f -> assertThat(f.toString())
-                .contains("[\"tenantId\",\"=\",9]")
-                .doesNotContain("[\"tenantId\",\"=\"," + THIS_TENANT + "]"));
+        verify(accountService, org.mockito.Mockito.atLeast(4)).searchList(holderQueries.capture());
+        assertThat(holderQueries.getAllValues()).filteredOn(f -> f.toString().contains("tenantId")).hasSize(4)
+                .allSatisfy(f -> assertThat(f.toString())
+                        .contains("[\"tenantId\",\"=\",9]")
+                        .doesNotContain("[\"tenantId\",\"=\"," + THIS_TENANT + "]"));
     }
 
     @Test

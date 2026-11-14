@@ -8,6 +8,7 @@ import lombok.EqualsAndHashCode;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.message.inbox.enums.NotificationType;
@@ -23,8 +24,11 @@ import io.softa.starter.message.inbox.enums.NotificationType;
  * tenant_id = -1 — platform-tier notification; tenant_id > 0 — tenant-scoped.
  */
 @Data
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, copyable = false, multiTenant = true)
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, copyable = false, multiTenant = true,
+        searchName = {"title", "content"})
 @Index(indexName = "idx_recipient_read", fields = {"recipientId", "isRead"})
+// A recipient's own list, newest first (POST /InboxNotification/mySearch).
+@Index(indexName = "idx_inbox_notif_recipient_time", fields = {"recipientId", "createdTime"})
 @Index(indexName = "idx_inbox_notif_tenant", fields = {"tenantId"})
 @EqualsAndHashCode(callSuper = true)
 public class InboxNotification extends AuditableModel {
@@ -46,7 +50,11 @@ public class InboxNotification extends AuditableModel {
     @Field(required = true, length = 200)
     private String title;
 
-    @Field(description = "Notification body content")
+    /**
+     * Unbounded: what says it is free text — an approval's comment, an automation's template, an error that stopped a
+     * step. A width would refuse a longer one, and its sender, past the action that sends it, would only log that.
+     */
+    @Field(fieldType = FieldType.TEXT, description = "Notification body content")
     private String content;
 
     @Field(description = "Source category: System, Workflow, or Manual")

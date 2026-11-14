@@ -74,7 +74,7 @@ class CronFlowScheduleTest {
         config.setEnableMultiTenancy(true);
         SystemConfig.env = config;
         StubBundleService bundleService = new StubBundleService();
-        registry = new OrmFlowBundleRegistry(bundleService, 60);
+        registry = new OrmFlowBundleRegistry(bundleService);
 
         executor = new ScheduledThreadPoolExecutor(1) {
             @Override

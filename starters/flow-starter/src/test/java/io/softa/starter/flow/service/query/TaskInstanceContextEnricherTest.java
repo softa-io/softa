@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
+import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
@@ -105,6 +106,37 @@ class TaskInstanceContextEnricherTest {
         verify(names).nameDepartments(List.of(view.getSubjectDept()));
     }
 
+    /**
+     * What a list of tasks says of each request: the line its handler wrote, whether a later
+     * submission replaced it, and — while it still waits — the steps it waits on now, with whom, named in one lookup.
+     */
+    @Test
+    void eachRequestSaysWhatItAsksForAndWhereItStandsNow() {
+        CurrentStepsReader reader = mock(CurrentStepsReader.class);
+        TaskInstanceContextEnricher withSteps = new TaskInstanceContextEnricher(instanceService, names, bundleRegistry, reader);
+        FlowInstance waiting = instance("i1", "Leave · Alice", "LeaveRequest", "row-1");
+        waiting.setSummary("Annual Leave · 3 days");
+        FlowInstance returned = instance("i2", "Leave · Bob", "LeaveRequest", "row-2");
+        returned.setStatus(FlowExecutionStatus.RETURNED);
+        returned.setSuperseded(true);
+        when(instanceService.findByInstanceIds(argThat(ids -> ids.containsAll(List.of("i1", "i2")))))
+                .thenReturn(List.of(waiting, returned));
+        FlowRecordApprovalsView.PendingStep step = new FlowRecordApprovalsView.PendingStep("hr", "HR",
+                new java.util.ArrayList<>(List.of(new FlowRecordApprovalsView.Actor("u9", null))));
+        when(reader.of(List.of("i1"))).thenReturn(Map.of("i1", List.of(step)));
+
+        FlowApprovalTaskView first = view("i1");
+        FlowApprovalTaskView second = view("i2");
+        withSteps.enrich(List.of(first, second));
+
+        assertEquals("Annual Leave · 3 days", first.getSummary());
+        assertEquals(List.of(step), first.getCurrentSteps());
+        org.junit.jupiter.api.Assertions.assertNull(first.getSuperseded());
+        org.junit.jupiter.api.Assertions.assertNull(second.getCurrentSteps(), "only a waiting request stands at a step");
+        assertEquals(Boolean.TRUE, second.getSuperseded());
+        verify(names).name(List.of(step.getApprovers().getFirst()));
+    }
+
     private static CompiledFlowNode approvalNode(String nodeId, ApprovalNodeConfig cfg) {
         return CompiledFlowNode.builder().nodeId(nodeId).parsedConfig(cfg).build();
     }
@@ -118,12 +150,13 @@ class TaskInstanceContextEnricherTest {
     void theStepsConfigurationSaysHowItsTaskMayBeActedOn() {
         FlowInstance instance = instance("i1", "Confirmation · Bob", "EmpConfirmationRequest", "row-1");
         instance.setBundleId(9L);
-        CompiledFlowNode plain = approvalNode("plain", ApprovalNodeConfig.builder().returnEnabled(true).build());
+        CompiledFlowNode plain = approvalNode("plain", ApprovalNodeConfig.builder().build());
         CompiledFlowNode required = approvalNode("required", ApprovalNodeConfig.builder()
                 .formPermissions(Map.of("decision", FormFieldPermission.REQUIRED)).build());
         CompiledFlowNode editable = approvalNode("editable", ApprovalNodeConfig.builder()
                 .formPermissions(Map.of("comment", FormFieldPermission.EDITABLE)).build());
         CompiledFlowDefinition definition = CompiledFlowDefinition.builder()
+                .returnEnabled(true)
                 .nodeIndex(Map.of("plain", plain, "required", required, "editable", editable))
                 .build();
         when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("i1")))).thenReturn(List.of(instance));
@@ -132,18 +165,18 @@ class TaskInstanceContextEnricherTest {
         FlowApprovalTaskView plainTask = pendingTask("i1", "plain");
         FlowApprovalTaskView requiredTask = pendingTask("i1", "required");
         FlowApprovalTaskView editableTask = pendingTask("i1", "editable");
-        FlowApprovalTaskView blockedTask = pendingTask("i1", "plain");
-        blockedTask.setBlocked(true);
         FlowApprovalTaskView doneTask = pendingTask("i1", "plain");
         doneTask.setStatus(FlowApprovalTaskStatus.APPROVED);
-        enricher.enrich(List.of(plainTask, requiredTask, editableTask, blockedTask, doneTask));
+        enricher.enrich(List.of(plainTask, requiredTask, editableTask, doneTask));
 
         assertTrue(plainTask.getBatchable());
         assertTrue(plainTask.getReturnAllowed());
-        assertFalse(requiredTask.getReturnAllowed());
+        assertTrue(requiredTask.getReturnAllowed(), "the flow's switch holds at every step");
         assertFalse(requiredTask.getBatchable(), "a batch cannot fill in a required field");
+        assertTrue(requiredTask.getFillIn(), "a step with a required field is filled in and submitted");
+        assertFalse(plainTask.getFillIn());
         assertTrue(editableTask.getBatchable(), "an editable field is left as it is");
-        assertFalse(blockedTask.getBatchable(), "an add-sign prerequisite comes first");
+        assertFalse(editableTask.getFillIn(), "an editable field may be left as it is: still approved");
         assertFalse(doneTask.getBatchable());
         // One lookup per revision on the page, however many tasks it carries.
         verify(bundleRegistry, times(1)).getByBundleId(9L);
@@ -163,6 +196,35 @@ class TaskInstanceContextEnricherTest {
         enricher.enrich(List.of(task));
 
         assertFalse(task.getBatchable());
+    }
+
+    // The lists name a task's holder and who closed it — the people they show — in one lookup for the page.
+    @Test
+    void everyAccountATaskNamesIsNamedInOneLookup() {
+        when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("i1")))).thenReturn(List.of());
+        when(names.namesOf(argThat(ids -> ids != null && ids.contains("u1")))).thenReturn(Map.of(
+                "u1", "Ann Lee", "u2", "Bob Tan"));
+        FlowApprovalTaskView task = FlowApprovalTaskView.builder()
+                .instanceId("i1")
+                .actorId("u1")
+                .approvedActors(List.of("u3"))
+                .closedByActorId("u2")
+                .build();
+        FlowApprovalTaskView closedByAStranger = FlowApprovalTaskView.builder()
+                .instanceId("i1")
+                .actorId("u1")
+                .closedByActorId("u-unknown")
+                .build();
+
+        enricher.enrich(List.of(task, closedByAStranger));
+
+        verify(names, times(1)).namesOf(argThat(ids ->
+                ids.containsAll(List.of("u1", "u2", "u-unknown")) && ids.size() == 3));
+        assertEquals("Ann Lee", task.getActorName());
+        assertEquals(Map.of("u1", "Ann Lee", "u2", "Bob Tan"), task.getActorNames(),
+                "who approved is counted, not named");
+        // An account the lookup cannot name is left out, for the client to show as it is.
+        assertEquals(Map.of("u1", "Ann Lee"), closedByAStranger.getActorNames());
     }
 
     @Test

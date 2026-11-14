@@ -28,11 +28,11 @@ import io.softa.starter.message.quota.service.TenantMessageUsageService;
  * ({@code VersionException}) and the attempt is retried on a fresh read.
  * Each attempt runs in its own {@code REQUIRES_NEW} transaction because a
  * {@code VersionException} crossing a joined transaction proxy would mark an
- * ambient (batch-accept) transaction rollback-only even when caught.
+ * ambient transaction rollback-only even when caught.
  * <p>
  * Ledger writes run with permission checks skipped and no tenant stamping
- * concerns (the model is not {@code multiTenant}): the accept path executes
- * in the SENDER's context — a tenant session — while the ledger is
+ * concerns (the model is not {@code multiTenant}): a send is charged while it
+ * is prepared, in its record's tenant context, while the ledger is
  * platform-owned bookkeeping the sender needs no grant for.
  */
 @Slf4j
@@ -41,7 +41,10 @@ public class TenantMessageUsageServiceImpl extends EntityServiceImpl<TenantMessa
         implements TenantMessageUsageService {
 
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
-    /** Collisions need send-level concurrency inside ONE bucket — rare; fail loud beyond this. */
+    /**
+     * Lost races in a row before one attempt gives up. Every delivery worker of every instance charges
+     * the same row while one bucket's sends are being prepared, so losing a race is ordinary.
+     */
     private static final int MAX_CAS_ATTEMPTS = 5;
 
     /** Self-reference so {@code REQUIRES_NEW} on {@link #tryConsumeOnce} crosses the proxy. */
@@ -65,9 +68,11 @@ public class TenantMessageUsageServiceImpl extends EntityServiceImpl<TenantMessa
                         channel, tenantId);
             }
         }
-        throw new BusinessException(
-                "Monthly {0} quota accounting is under heavy contention for this tenant — "
-                + "please retry the send.", channel);
+        // Not a BusinessException: the delivery processors read that as "the quota is used up" and fail
+        // the record for good. Losing the race this often is contention, which passes; as a
+        // VersionException the attempt fails like any database hiccup and the record goes to RETRY.
+        throw new VersionException("The monthly {0} usage counter of bucket {1} kept changing under "
+                + "concurrent sends ({2} attempts); try again.", channel, tenantId, MAX_CAS_ATTEMPTS);
     }
 
     @Override

@@ -12,7 +12,6 @@ import org.springframework.dao.DuplicateKeyException;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.starter.flow.api.CompiledFlowCapabilitySummary;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
@@ -38,7 +37,7 @@ public class OrmFlowBundleRegistryTest {
     @BeforeEach
     void setUp() {
         stubService = new StubBundleService();
-        registry = new OrmFlowBundleRegistry(stubService, 60);
+        registry = new OrmFlowBundleRegistry(stubService);
     }
 
     // ==================== FlowBundleMapper Tests ====================
@@ -64,12 +63,9 @@ public class OrmFlowBundleRegistryTest {
         assertEquals(original.getSync(), restored.getSync());
         assertEquals(original.getRollbackOnFail(), restored.getRollbackOnFail());
         assertEquals(original.getEntryNodeIds(), restored.getEntryNodeIds());
-        assertEquals(original.getTerminalNodeIds(), restored.getTerminalNodeIds());
-        // topologicalOrder is a compile-time output, intentionally not persisted (@JsonIgnore).
-        assertNull(restored.getTopologicalOrder());
         assertNotNull(restored.getTrigger());
         assertInstanceOf(EntityChangeTrigger.class, restored.getTrigger());
-        assertEquals("Order", ((EntityChangeTrigger) restored.getTrigger()).modelName());
+        assertEquals("Order", restored.getModelName());
     }
 
     @Test
@@ -174,23 +170,6 @@ public class OrmFlowBundleRegistryTest {
     }
 
     @Test
-    void listRevisionsByFlowId_returnsAllRevisionsDescending() {
-        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
-        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
-        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
-
-        List<CompiledFlowDefinition> revisions = registry.listRevisionsByFlowId(FLOW_A);
-
-        assertEquals(3, revisions.size());
-        assertEquals(List.of(3, 2, 1), revisions.stream().map(CompiledFlowDefinition::getRevision).toList());
-    }
-
-    @Test
-    void listRevisionsByFlowId_returnsEmptyForUnknownDesign() {
-        assertTrue(registry.listRevisionsByFlowId("999").isEmpty());
-    }
-
-    @Test
     void list_returnsActiveRevisionPerDesign() {
         registry.register(sampleDefinition("list-a", null), null, FLOW_A);
         registry.register(sampleDefinition("list-a", null), null, FLOW_A);
@@ -213,7 +192,7 @@ public class OrmFlowBundleRegistryTest {
         entity.setFlowId(FLOW_A);
         stubService.savedBundles.put(1L, entity);
 
-        OrmFlowBundleRegistry freshRegistry = new OrmFlowBundleRegistry(stubService, 60);
+        OrmFlowBundleRegistry freshRegistry = new OrmFlowBundleRegistry(stubService);
 
         Optional<CompiledFlowDefinition> loaded = freshRegistry.getActiveByFlowId(FLOW_A);
         assertTrue(loaded.isPresent());
@@ -239,7 +218,7 @@ public class OrmFlowBundleRegistryTest {
 
         assertNotNull(result.getTrigger());
         assertInstanceOf(EntityChangeTrigger.class, result.getTrigger());
-        assertEquals("Order", ((EntityChangeTrigger) result.getTrigger()).modelName());
+        assertEquals("Order", result.getModelName());
     }
 
     @Test
@@ -262,20 +241,17 @@ public class OrmFlowBundleRegistryTest {
     }
 
     @Test
-    void register_preservesApproverDedupAndDeclaredOutputs() {
+    void register_preservesApproverDedup() {
         CompiledFlowDefinition def = sampleDefinition("dedup-flow", null);
         def.setApproverDedup(ApproverDedupStrategy.CONTIGUOUS);
-        def.setDeclaredOutputs(List.of("result"));
 
         CompiledFlowDefinition published = registry.register(def, null, FLOW_A);
 
         assertEquals(ApproverDedupStrategy.CONTIGUOUS, published.getApproverDedup());
-        assertEquals(List.of("result"), published.getDeclaredOutputs());
 
         CompiledFlowDefinition reloaded = FlowBundleMapper.toDefinition(
                 stubService.savedBundles.get(published.getBundleId()));
         assertEquals(ApproverDedupStrategy.CONTIGUOUS, reloaded.getApproverDedup());
-        assertEquals(List.of("result"), reloaded.getDeclaredOutputs());
     }
 
     @Test
@@ -297,29 +273,12 @@ public class OrmFlowBundleRegistryTest {
                 return revision;
             }
         };
-        OrmFlowBundleRegistry racingRegistry = new OrmFlowBundleRegistry(racingStub, 60);
+        OrmFlowBundleRegistry racingRegistry = new OrmFlowBundleRegistry(racingStub);
 
         CompiledFlowDefinition result = racingRegistry.register(sampleDefinition("race-flow", null), null, FLOW_A);
 
         assertEquals(2, result.getRevision());
         assertEquals(2, nextRevisionCalls.get());
-    }
-
-    @Test
-    void registerDebug_isResolvableButNeverActiveNorListed() {
-        CompiledFlowDefinition published = registry.register(sampleDefinition("dbg-flow", null), null, FLOW_A);
-        CompiledFlowDefinition debug = registry.registerDebug(sampleDefinition("dbg-flow", null), null, FLOW_A);
-
-        // resolvable by id (instances pin it), with its own revision number
-        assertTrue(registry.getByBundleId(debug.getBundleId()).isPresent());
-        assertEquals(2, debug.getRevision());
-        // never the design's effective revision
-        assertEquals(published.getBundleId(), registry.getActiveByFlowId(FLOW_A).orElseThrow().getBundleId());
-        // hidden from the revision list
-        assertEquals(List.of(1), stubService.listRevisionsByFlowId(FLOW_A).stream()
-                .map(FlowBundle::getRevision).toList());
-        // and cannot be activated
-        assertThrows(Exception.class, () -> stubService.activateBundle(debug.getBundleId()));
     }
 
     // ==================== Revision Management Tests ====================
@@ -358,22 +317,15 @@ public class OrmFlowBundleRegistryTest {
                 .rollbackOnFail(false)
                 .trigger(new EntityChangeTrigger("Order", null, null))
                 .entryNodeIds(List.of("start"))
-                .terminalNodeIds(List.of("end"))
-                .topologicalOrder(List.of("start", "task1", "end"))
                 .nodeIndex(Map.of(
                         "start", CompiledFlowNode.builder().nodeId("start").type(FlowNodeType.START).label("Start").build(),
-                        "task1", CompiledFlowNode.builder().nodeId("task1").type(FlowNodeType.CALL_SERVICE).label("Task 1").build(),
+                        "task1", CompiledFlowNode.builder().nodeId("task1").type(FlowNodeType.CALL_WEBHOOK).label("Task 1").build(),
                         "end", CompiledFlowNode.builder().nodeId("end").type(FlowNodeType.END).label("End").build()
                 ))
                 .transitionIndex(Map.of(
                         "e1", CompiledFlowTransition.builder().edgeId("e1").source("start").target("task1").build(),
                         "e2", CompiledFlowTransition.builder().edgeId("e2").source("task1").target("end").build()
                 ))
-                .capabilitySummary(CompiledFlowCapabilitySummary.builder()
-                        .hasSubflow(false)
-                        .hasParallelGateway(false)
-                        .hasLoop(false)
-                        .build())
                 .build();
     }
 
@@ -451,7 +403,6 @@ public class OrmFlowBundleRegistryTest {
         public List<FlowBundle> listRevisionsByFlowId(String flowId) {
             return visibleBundles()
                     .filter(b -> flowId.equals(b.getFlowId()))
-                    .filter(b -> !Boolean.TRUE.equals(b.getDebug()))
                     .sorted(Comparator.comparingInt(FlowBundle::getRevision).reversed())
                     .toList();
         }
@@ -492,9 +443,6 @@ public class OrmFlowBundleRegistryTest {
             Optional<FlowBundle> target = findById(bundleId);
             if (target.isEmpty()) return Optional.empty();
             FlowBundle bundle = target.get();
-            if (Boolean.TRUE.equals(bundle.getDebug())) {
-                throw new IllegalStateException("Debug bundle cannot be activated");
-            }
             markAsActive(bundle.getFlowId(), bundle.getRevision());
             return target;
         }

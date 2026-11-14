@@ -5,6 +5,7 @@ Platform-level reference data for international SaaS applications:
 - **CountryRegion** — ISO 3166-1 alpha-2 territories (249 entries)
 - **Currency** — ISO 4217 active alpha-3 currencies (155 entries)
 - **CountrySubdivision** — ISO 3166-2 first-level subdivisions (entity + service; no seed data this release)
+- **CountryTimeZone** — the IANA time zones of each country (418 zones of 247 countries), one default per country; what a company's `timeZone` is picked from
 - **Continent** — 7-continent enum used by `CountryRegion`
 
 All rows are **platform-scoped, read-only, and shared across tenants**. There
@@ -13,7 +14,7 @@ every tenant in the deployment.
 
 ## Metadata catalog
 
-The three entities (`CountryRegion` / `Currency` / `CountrySubdivision`) and
+The four entities (`CountryRegion` / `Currency` / `CountrySubdivision` / `CountryTimeZone`) and
 the `Continent` enum are annotated with `@Model` / `@Field` / `@OptionSet` /
 `@OptionItem` (see
 [`framework/softa-orm`](../../framework/softa-orm/README.md#metadata-annotations)).
@@ -63,7 +64,7 @@ against the compiled catalog:
 
 ```sql
 SELECT model_name, app_code FROM sys_model
- WHERE model_name IN ('CountryRegion', 'Currency', 'CountrySubdivision');
+ WHERE model_name IN ('CountryRegion', 'Currency', 'CountrySubdivision', 'CountryTimeZone');
 ```
 
 | Entity | Rows (seeded) | Primary key (`id`) | Notes |
@@ -71,10 +72,11 @@ SELECT model_name, app_code FROM sys_model
 | `CountryRegion` | 249 | ISO 3166-1 alpha-2 (`CN`, `US`, …) | Indexed on `continent`, `currencyCode`, `eea` |
 | `Currency` | 155 | ISO 4217 alpha-3 (`USD`, `CNY`, …) | `decimalPlaces` is critical for monetary arithmetic |
 | `CountrySubdivision` | 0 | ISO 3166-2 code | Schema reserved; populated when address/tax features land |
+| `CountryTimeZone` | 418 | IANA zone id (`Asia/Singapore`, …) | `defaultZone` marks one zone per country; indexed on `country`, `sequence` |
 
 `CountryRegion.currencyCode` references `Currency.id` (same string value as the
 ISO alpha-3 code). `CountrySubdivision.countryCode` references
-`CountryRegion.id`. Validation happens at the service layer; the database does
+`CountryRegion.id`, and so does `CountryTimeZone.country`. Validation happens at the service layer; the database does
 not enforce physical FKs because reference data is loaded as denormalized seed.
 
 ## Services
@@ -97,6 +99,10 @@ Seed data lives in `src/main/resources/data-system/`:
 
 - `Currency.AllCurrencies.json` — 155 active ISO 4217 currencies
 - `CountryRegion.AllCountries.json` — 249 ISO 3166-1 alpha-2 territories
+- `CountryTimeZone.Default.json` — 418 zones generated from the tz database's `zone.tab`. The default zone of
+  each country is its first `zone.tab` line, except where that is a remote island or enclave (Australia, Brazil,
+  Canada, Russia, Ukraine, Uzbekistan), which get the capital's or the most populous zone. Regenerate it when the
+  tz database adds or retires a zone.
 - *(no `CountrySubdivision` JSON yet — entity + service are ready, JSON ships
   with address/tax feature)*
 
@@ -107,10 +113,12 @@ Seed data lives in `src/main/resources/data-system/`:
    `SysPreData` binding protects an operator override from the next load).
 3. One person loads, once per deploy — no load-time race between instances.
 
-The app lists both files under `platform` in its `seed-manifest.yml`
-(`data-system/Currency.AllCurrencies.json`, `data-system/CountryRegion.AllCountries.json`),
-**Currency first**: a platform load runs in list order, and
-`CountryRegion.currencyCode` references `Currency.id`. The platform
+The app lists the files under `platform` in its `seed-manifest.yml`
+(`data-system/Currency.AllCurrencies.json`, `data-system/CountryRegion.AllCountries.json`,
+`data-system/CountryTimeZone.Default.json`), **Currency first and the time zones after the countries**: a
+platform load runs in list order, `CountryRegion.currencyCode` references `Currency.id` and
+`CountryTimeZone.country` references `CountryRegion.id`. An app that lists no time zones still runs: a company
+then has no zone to pick, and `CompanyClock` falls back to the tenant's. The platform
 admin then loads them with the other pending platform files from the Seed Data
 page (`POST /SeedData/platform/load`) — see the
 [seed-starter README](../seed-starter/README.md).
@@ -150,3 +158,15 @@ when loading seed updates:
 
 Mismatching `decimalPlaces` silently breaks monetary arithmetic, so this is
 covered by unit tests against well-known special-case currencies.
+
+## A company's time zone
+
+`BaseCompany.timeZone` (metadata-starter) references `CountryTimeZone` by name. `CompanyTimeZoneValidator` holds
+it to the company's country on every write of the application's `Company` model:
+
+- **Create** — an empty time zone takes the country's default zone; a zone of another country is refused.
+- **Update** — judged only when the country or the time zone changes, and the zone must then be one of the
+  country's. A country with no zone at all accepts an empty time zone and nothing else.
+
+`CompanyClock` (softa-orm) reads the company's today in that zone, else the tenant's default time zone, else the
+server's.

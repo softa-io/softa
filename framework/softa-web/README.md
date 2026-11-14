@@ -16,6 +16,16 @@ What this buys, with no application code involved: **every log line written insi
 
 Requests that skip context binding have no MDC either — `IdentifyType.NONE` and `OPENAPI` endpoints run outside a bound scope by design.
 
+## Error Logs
+
+An API call that fails is logged by `WebExceptionHandler` together with the request it failed on (`RequestInfoHandler`): the URL and query string, the user, the traceId, the client IP and the method parameters `ApiExceptionAspect` collected. An exception whose log level is WARN (`BusinessException` among them) is logged at WARN, any other at ERROR. With `sentry-starter`, an ERROR line becomes a Sentry event and the request's earlier lines its breadcrumbs, text and all — `sentry.send-default-pii: false` does not reach the text of a log line.
+
+Credentials are masked in that text before it is written (`SecretMasker`). A value becomes `***` when the name it is sent under — a method parameter, a query parameter, or a JSON member at any depth, whether in a parameter written out as JSON or in the request body — is one of:
+
+`password` `newPassword` `currentPassword` `oldPassword` `jdbcPassword` `verificationCode` `codeVerifier` `ticket` `proof` `token` `authToken` `verificationToken` `secret` `apiKey` `apiSecret` `privateKey`
+
+Names are compared whole and ignoring case, so `token` is masked and `tokenType` is not; a null or empty value is kept. `code` is deliberately not on the list: it names business codes (a role, template or sequence code) far more often than one-time ones, so a verification code is masked when it is sent as `verificationCode`. A new credential field takes one of these names, or adds its own to `SecretMasker`. Only credentials are masked: personal data in a request still reaches the line, and exception messages are written as they are.
+
 ## Record access
 
 Two model endpoints tell a form what to render before it renders it; both answer only about the caller's
@@ -30,6 +40,37 @@ permission module is present):
 A detail form hides Edit / Delete and the sections of hidden sets from the answer, and renders the
 sections of read-only sets read-only. The record's answer stands on its own: it overrides what the user
 holds through some other role.
+
+**A company picker offers the companies the write may name.** `POST /Company/searchName` with a
+`sourceRecord` — the record the picker fills a field of — is narrowed to the company grants of the roles
+holding that write: create when `sourceRecord.recordId` is empty, update otherwise
+(`PermissionService.getGrantedCompanyIds`). The company list as the user reads it reaches the companies of
+every role they hold, and a role with no company grant (the self-service role) reaches them all, so a form
+picking a signing entity or a cost centre's company would offer companies the save then refuses. A search
+with no `sourceRecord` — a list filter, a report — is left as it reads. A write granted no company offers
+none: every company the picker could list would be refused. On an update, only the holding roles reaching
+that record count.
+
+**A department picker offers what the write may choose.** `POST /Department/searchName` and
+`POST /Department/searchList` — the read a tree picker makes — take the same `sourceRecord`, and are narrowed to the
+department grants of the roles holding that write (`PermissionService.getWritableDepartmentScope`). The list as
+the user reads it answers for what they may view, which an exemption from the grant opens in full. Only where the
+picked department places the record: a model with a `departmentId` of its own, or the department model itself. A
+picker that names its field in `sourceRecord.fieldName` is narrowed only when that field places the record: the
+`departmentId`, or a department's `parentId`.
+## Field errors
+
+A rejection that is about particular fields answers with HTTP 200 and code 400 as any rejected input does,
+and adds `fieldErrors` (field name → sentence) to the body so a form can put each sentence on its control
+instead of one toast. Two rejections carry it:
+
+| Rejection | Raised by | `error` |
+|---|---|---|
+| A refused write | field constraints or a `ModelWriteValidator` (`WriteValidationException`) | `field: sentence; …`, fields by label |
+| A request body failing its bean validation | `@Valid` on a controller argument, field or class-level constraints (`MethodArgumentNotValidException`) | `Validation Error: field: sentence; …` |
+
+A field with more than one sentence keeps its first in `fieldErrors`; `error` still lists them all. Every
+other error leaves `fieldErrors` out, so a client that does not read it sees the body it always did.
 
 ## Enum Request Parameters
 
@@ -159,6 +200,35 @@ SubQuery fields:
 Notes:
 1. `QueryParams` does not expose `convertType`. The web layer sets `ConvertType.REFERENCE` by default. To use other `ConvertType` values, call the service layer with `FlexQuery` directly.
 2. Filters and orders follow the same formats as top-level `filters` and `orders` (`Filters` list format and `Orders` list or string format).
+
+## SearchNameParams
+`SearchNameParams` is the request body for `/searchName`: a relation field's candidates, each as `id` and `displayName` plus any `additionalFields`, one page at a time.
+
+Key fields in `SearchNameParams`:
+- `value`: the text typed, matched with `operator` (default `CONTAINS`) on `matchField` (default `searchName`, the model's search fields). Blank lists every candidate.
+- `filters`: context filters from the relation field or the form, joined to the match with AND.
+- `orders`: sorting rules. Without them the model's `defaultOrder` applies, and newest first (`id DESC`) on a model without one; either way the primary key ends the order (`sliceId` on a timeline model), so consecutive pages neither repeat nor skip a candidate.
+- `additionalFields`: fields returned beside `id` and `displayName`.
+- `pageNumber`: which page, counting from 1 (default 1).
+- `pageSize`: candidates per page, 10 when omitted, at most `MAX_BATCH_SIZE`. It replaced `limitSize`, which the endpoint no longer reads.
+- `effectiveDate`: the date effective-dated models are read on, default today.
+- `sourceRecord`: the record being edited, for searches that depend on it.
+
+Example request (the second page of active records matching "an"):
+```json
+{
+  "value": "an",
+  "filters": ["active", "=", true],
+  "additionalFields": ["code"],
+  "pageNumber": 2,
+  "pageSize": 20
+}
+```
+
+Notes:
+1. The response is the page's rows as a list, not a `Page`: a name search reads a cursor page, in one stable order and with nothing counted, so a picker asks for the next page until one comes back short.
+2. In code, `toFlexQuery()` builds the query (the match, filters, orders, additional fields, `ConvertType.REFERENCE`, the effective date) and `toPage()` the page; `ModelService.searchName(modelName, flexQuery, page)` takes both and returns the page's rows, the same list the endpoint answers with. A controller that serves its own `/searchName` to narrow the candidates adds its filters to `toFlexQuery()` and passes `toPage()` on unchanged, so its pages keep the same order.
+3. A lookup that wants a known set rather than a picker's pages, such as the names of known ids, sends its `filters` with `pageSize` set to how many it expects.
 
 ## Return Values by ConvertType, QueryParams, SubQuery
 Unless stated otherwise, the descriptions below refer to service-level `FlexQuery` behavior. Web APIs using `QueryParams` default to `ConvertType.REFERENCE`, so they follow the `REFERENCE` column when no SubQuery is specified.
@@ -293,15 +363,15 @@ Typical `FileInfo` fields include:
 1. `fileId`
 2. `fileName`
 3. `size`
-4. `url`
+4. `url` — a site-relative address with a signed key, not a storage link; see [File keys](#file-keys)
 
 Example:
 ```json
 {
-  "avatar": { "fileId": 1001, "fileName": "a.png", "url": "..." },
+  "avatar": { "fileId": 1001, "fileName": "a.png", "url": "/api/demo/file/open/1001.1797206400.G4CHYJkdKbgZABYFb9A1mw" },
   "attachments": [
-    { "fileId": 2001, "fileName": "doc.pdf", "url": "..." },
-    { "fileId": 2002, "fileName": "spec.docx", "url": "..." }
+    { "fileId": 2001, "fileName": "doc.pdf", "url": "/api/demo/file/open/2001.1797206400.qP3vXWm1lB0aZ7cYt5dE2g" },
+    { "fileId": 2002, "fileName": "spec.docx", "url": "/api/demo/file/open/2002.1797206400.K9sLx2Rb0nVfQ6hTz1uW4A" }
   ]
 }
 ```
@@ -395,6 +465,76 @@ Rules:
    - OneToMany: `CREATE/UPDATE/DELETE` or `Create/Update/Delete`
    - ManyToMany: `ADD/REMOVE` or `Add/Remove`
 3. Unknown patch key or non-list patch value will fail fast with parameter validation error.
+
+## File keys
+
+`FileInfo.url` — on every File / MultiFile field read, every upload, every generated file — is not a storage link. It is a site-relative address carrying a signed key (`FileOpenKeys`, softa-orm), made in `FileServiceImpl.convertToFileInfo` each time a file is returned:
+
+| Request | `url` | Opens for | Valid |
+|---|---|---|---|
+| With a logged-in user (`Context.userId`) | `<context-path>/file/open/<key>` | that account only — its session must present the key | until UTC midnight of the issue day + 31 days (30–31 days; one address per file per day) |
+| Without one: a public page under `/openapi/**`, a scheduled job, a flow nobody triggered | `<context-path>/openapi/file/<key>` | anyone holding it | 1 hour |
+
+A key is `<fileId>.<exp>.<signature>`: the signature is HMAC-SHA256 over the file, the expiry and — for a user key — the account, cut to 128 bits and base64url-encoded. The account is signed in, not written out: opening recomputes the signature with the userId of the session presenting the key. Nothing is stored, nothing is encrypted, no Redis.
+
+Opening (`FileController` `GET /file/open/{key}`, `PublicFileController` `GET /openapi/file/{key}`) checks the key and answers `302` to a storage link signed at that moment, valid `oss.url-expire-seconds` (default 300). `?download=1` asks for `Content-Disposition: attachment` with the file name; otherwise the file displays inline. Generated files (`uploadFromStream`: exports, import results, documents) carry `?download=1` already. Every answer is `Cache-Control: no-store` — a shared cache holding one account's `302` would hand the file to anyone. Refusals are one line of plain text, since these addresses are opened by img, iframe and new tabs: `404` malformed key or missing file, `403` a key issued to another account (or of the other kind), `410` expired. A `/file/open/` address reached with no usable session gets `401` from `ContextScopeFilter`, in plain text too — not the HTTP 200 JSON envelope every other call gets, which a download would save as the file.
+
+Opening does not re-check access to the record the file hangs on: a key only comes out of a read that was authorized already, under the record's scope. A revoked permission or a removed attachment therefore stops keys already handed out when they expire — at most 31 days — not at once. Rebinding an account to another person (Unbind & Re-invite) revokes the previous person's sessions, which their keys need.
+
+Configuration — required; startup fails without it:
+
+```yaml
+security:
+  file-key:
+    secret: ...   # at least 32 characters: openssl rand -base64 48
+```
+
+Keep the real value out of committed files: set the environment variable `SECURITY_FILE_KEY_SECRET`, which Spring binds to `security.file-key.secret` with no mapping in the YAML. Every instance must use the same secret: a key one instance signed has to open on any other, rolling deploys included. Changing it invalidates every key handed out — a page refresh issues new ones.
+
+It is a secret of its own, not `security.encryption.password`. That password can never change once data is encrypted with it, while changing this secret is how every key handed out is revoked at once. And the password is stretched before use, while an HMAC key is used as it is, so this one has to be long and random.
+
+With `permission-starter`, the endpoint gate cannot tell a model from `/file/open/**` (the same reason as `/file/uploadFileTo*`): list it in `permission.authenticated-bypass-patterns` — the key is the check. `/openapi/file/**` must be reachable without a session: it is under `/openapi/**`, which `IdentityResolver` binds no context for; list it (or `/openapi/**`) in `permission.public-uri-patterns`.
+
+Rules for code that handles files:
+
+- Caches, the database, flow variables and mails hold file ids, never addresses. The address is made when the data is returned to a client; an address kept anywhere outlives what signed it.
+- Backend code never reads `FileInfo.url`. Read the content with `FileService.downloadStream(fileId)`; attach a file to a mail by its `FileInfo` (the transport streams it by `fileId`); hand a file to an external system that fetches by URL with `FileService.getStorageLink(fileId, download)` — signed at call time, gone within minutes, never stored.
+- To let a person open a file later (a mail, an SMS, a notification), attach it or link to the record's page; the person signs in and reads the record, which hands them their own key.
+
+Clients: a browser on the same origin sends the session cookie by itself. The mobile APP sends `X-Session-Id` with image and file requests; for a viewer that cannot send headers (the system browser, a third-party PDF viewer), it requests the address with the header itself and hands the `302`'s `Location` — a short storage link — to the viewer.
+
+## APP Version Check
+
+For an application with a mobile APP: `AppVersionGate` (order `HIGHEST_PRECEDENCE + 1`, right after the identity filter) stops an APP below the minimum supported version, and `GET /app/version?platform=ios` tells the APP which versions are supported and where to get a new one. Nothing is refused until a version is configured, so an application without an APP needs no configuration.
+
+```yaml
+app:
+  versions:
+    ios:
+      min-version: 1.0.0      # below it, every signed-in endpoint answers UPGRADE_REQUIRED
+      latest-version: 1.2.0   # below it, the APP offers an upgrade the person may postpone
+      store-url: https://apps.apple.com/...   # https, itms-apps or market; see below
+      release-notes: ...
+  # Signed-in endpoints an old APP may still call. Signing out (/UserAccount/logout) is always open.
+  upgrade-exempt-paths:
+    - DELETE /app/devices/*   # "[METHOD] /path pattern"; no method means any; excludes the context path
+```
+
+The refusal is the usual error body (HTTP 200) with `errorCode` `UPGRADE_REQUIRED`.
+
+- **Who is checked:** requests with both `X-App-Platform` and `X-App-Version` (`SessionStore.APP_PLATFORM_HEADER` / `APP_VERSION_HEADER`) on a signed-in endpoint, on a platform with a `min-version`. A request with only one header has nothing to compare and passes, though `SessionStore.isAppRequest` calls it an APP's for session handling. Web and H5 send neither. The headers are self-reported: this steers an honest old APP to the upgrade screen and is no security boundary.
+- **Versions** compare by number: `1.10.0` is newer than `1.9.3`, a missing part counts as 0, a leading `v` is ignored.
+- **`store-url`** is opened by the APP only when it starts with `https`, `itms-apps` (the iOS App Store) or `market` (the generic Android store form, `market://details?id=<package>`, which phones from Chinese vendors open in their own store). Any other form — a vendor's private store scheme, an `intent:` URL — is not opened. Left empty, the upgrade button cannot be tapped.
+- **`/app/version` has to be declared anonymous by the application**, since an APP too old to do anything else must still reach it. Like any public endpoint that takes both layers, and a profile's list replaces the base's rather than adding to it:
+
+```yaml
+web:
+  identity:
+    additional-anonymous-patterns: /app/version
+permission:                   # with permission-starter
+  public-uri-patterns:
+    - /app/version
+```
 
 ## Service-to-Service RPC
 

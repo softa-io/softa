@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,15 +22,17 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  *
  * <p>Two lists, each in load order:
  * <pre>{@code
- * platform:                                   # loaded whole, on the platform admin's load
+ * platform:                                   # loaded whole whenever they change
  *   - file: data-system/Navigation.json       # shared rows
- *     auto: true                              # the build owns it: loads at startup, wherever pending
- *   - data-platform/MailTemplate.Platform.json  # the platform tenant's own rows
- * tenant:                                     # run once in each tenant
+ *     mode: startup                           # the build owns it: loads at startup, wherever pending
+ *   - data-platform/MailTemplate.Platform.json  # the platform tenant's own rows, loaded from the page
+ * tenant:                                     # run once in each tenant, unless the file's mode says otherwise
  *   - files:                                  # every tenant
  *       - data-tenant/SysSequence.json
+ *       - file: data-tenant/MailTemplate.json
+ *         mode: append                        # run again when it changes, creating the rows a tenant lacks
  *       - file: data-tenant/Role.Tenant.json
- *         overwrite: true                     # run again whenever the file changes
+ *         mode: overwrite                     # run again, whole, whenever the file changes
  *   - module: leave                           # tenants whose plan includes the module
  *     countries: [NZ]                         # and that work in one of these countries
  *     files:
@@ -39,14 +40,15 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * }</pre>
  *
  * <p>A file's directory says whose rows it holds, so a platform file sits in {@code data-system/} or
- * {@code data-platform/} and a tenant file in {@code data-tenant/}. Everything wrong is collected and reported
- * at once, so a broken manifest is fixed in one pass: an unknown key (a misspelt {@code countrys} would
- * otherwise be silently ignored), a file in a directory its list does not take, {@code overwrite} on a
- * platform file (platform files always reload), {@code auto} on a tenant file (only platform files load at
- * startup), a file registered twice or missing from the classpath, a file
- * that is not JSON or CSV, a {@code module} that is not one name, a country that is not a two-letter code, and
- * blank or repeated entries. A key written twice is refused before any of that: YAML would keep the second
- * and drop the first, with its files.
+ * {@code data-platform/} and a tenant file in {@code data-tenant/}. Its {@code mode} says what it does after a scope
+ * has loaded it ({@link SeedFileMode}): a platform file is {@code overwrite} (the default) or {@code startup}, a
+ * tenant file {@code once} (the default), {@code append} or {@code overwrite}. Everything wrong is collected and
+ * reported at once, so a broken manifest is fixed in one pass: an unknown key (a misspelt {@code countrys} would
+ * otherwise be silently ignored; the {@code auto} and {@code overwrite} flags the mode replaced are named with what
+ * to write instead), a file in a directory its list does not take, a mode its list does not take, a file registered
+ * twice or missing from the classpath, a file that is not JSON or CSV, a {@code module} that is not one name, a
+ * country that is not a two-letter code, and blank or repeated entries. A key written twice is refused before any
+ * of that: YAML would keep the second and drop the first, with its files.
  */
 public final class SeedManifestReader {
 
@@ -56,19 +58,22 @@ public final class SeedManifestReader {
     private static final String PLATFORM = "platform";
     private static final String TENANT = "tenant";
     private static final String FILE = "file";
-    private static final String OVERWRITE = "overwrite";
-    private static final String AUTO = "auto";
+    private static final String MODE = "mode";
     private static final String MODULE = "module";
     private static final String COUNTRIES = "countries";
     private static final String FILES = "files";
 
     private static final Set<String> ROOT_KEYS = Set.of(PLATFORM, TENANT);
     private static final Set<String> GROUP_KEYS = Set.of(MODULE, COUNTRIES, FILES);
+    private static final Set<String> FILE_KEYS = Set.of(FILE, MODE);
+    /** The flags the mode replaced, and what to write instead — named where one is still found. */
+    private static final Map<String, String> REPLACED_KEYS = Map.of(
+            "auto", "'auto: true' is now 'mode: startup'",
+            "overwrite", "'overwrite: true' is now 'mode: overwrite'");
     /** The formats the loader reads. */
     private static final List<String> FILE_EXTENSIONS = List.of(".json", ".csv");
     /** ISO 3166-1 alpha-2, as {@code CountryRegion} ids are. */
     private static final Pattern COUNTRY_CODE = Pattern.compile("[A-Z]{2}");
-    private static final Set<String> TENANT_FILE_KEYS = Set.of(FILE, OVERWRITE);
 
     private SeedManifestReader() {
     }
@@ -130,18 +135,15 @@ public final class SeedManifestReader {
     /** The platform list: files only, each in a platform directory. */
     private static List<SeedFile> parsePlatform(Object value, List<String> problems) {
         List<SeedFile> files = new ArrayList<>();
-        for (Entry entry : entries(value, "platform", Set.of(FILE, AUTO), problems)) {
-            if (entry.overwriteDeclared()) {
-                problems.add("file '" + entry.path() + "' is a platform file, and platform files always reload: "
-                        + "remove 'overwrite'");
-            }
+        for (Entry entry : entries(value, "platform", problems)) {
+            SeedFileMode mode = mode(entry, true, problems);
             Optional<SeedLevel> level = SeedLevel.ofPath(entry.path()).filter(SeedLevel::isPlatform);
             if (level.isEmpty()) {
                 problems.add("platform file '" + entry.path() + "' is not in data-system/ or data-platform/");
                 continue;
             }
             fileName(entry.path(), level.get(), problems).ifPresent(name ->
-                    files.add(new SeedFile(name, level.get(), false, null, List.of(), entry.auto())));
+                    files.add(new SeedFile(name, level.get(), mode, null, List.of())));
         }
         return files;
     }
@@ -169,32 +171,28 @@ public final class SeedManifestReader {
                 problems.add(where + " has no files");
                 continue;
             }
-            for (Entry entry : entries(group.get(FILES), where + " files", TENANT_FILE_KEYS, problems)) {
-                if (entry.autoDeclared()) {
-                    problems.add("file '" + entry.path() + "' is a tenant file, and only platform files load at "
-                            + "startup: remove 'auto'");
-                }
+            for (Entry entry : entries(group.get(FILES), where + " files", problems)) {
+                SeedFileMode mode = mode(entry, false, problems);
                 if (SeedLevel.ofPath(entry.path()).orElse(null) != SeedLevel.TENANT) {
                     problems.add("tenant file '" + entry.path() + "' is not in data-tenant/");
                     continue;
                 }
                 fileName(entry.path(), SeedLevel.TENANT, problems).ifPresent(name ->
-                        files.add(new SeedFile(name, SeedLevel.TENANT, entry.overwrite(), module, countries)));
+                        files.add(new SeedFile(name, SeedLevel.TENANT, mode, module, countries)));
             }
         }
         return files;
     }
 
-    /** One file entry: its path, its flags, and whether it declares a flag its list does not take. */
-    private record Entry(String path, boolean overwrite, boolean overwriteDeclared, boolean auto,
-                         boolean autoDeclared) {
+    /** One file entry: its path, and its mode as written — null when it names none. */
+    private record Entry(String path, Object mode) {
     }
 
     /**
-     * The entries of a list of files. An entry is the file's path, or a map with the path under {@code file}
-     * and the flags the list allows.
+     * The entries of a list of files. An entry is the file's path, or a map with the path under {@code file} and
+     * the file's {@code mode}.
      */
-    private static List<Entry> entries(Object value, String where, Set<String> allowedKeys, List<String> problems) {
+    private static List<Entry> entries(Object value, String where, List<String> problems) {
         if (value == null) {
             return List.of();
         }
@@ -207,24 +205,15 @@ public final class SeedManifestReader {
             String entryWhere = where + " #" + (i + 1);
             Object item = items.get(i);
             if (item instanceof String path && !path.isBlank()) {
-                entries.add(new Entry(path.trim(), false, false, false, false));
+                entries.add(new Entry(path.trim(), null));
             } else if (item instanceof Map<?, ?> map) {
                 String path = text(map, FILE);
                 if (path == null) {
                     problems.add(entryWhere + " has no file");
                     continue;
                 }
-                Set<String> allowed = new HashSet<>(allowedKeys);
-                // A platform file's `overwrite` and a tenant file's `auto` get messages of their own, not
-                // unknown-key ones.
-                allowed.add(OVERWRITE);
-                allowed.add(AUTO);
-                unknownKeys(map, allowed, "file '" + path + "'", problems);
-                entries.add(new Entry(path,
-                        parseFlag(map.get(OVERWRITE), OVERWRITE, path, problems),
-                        map.containsKey(OVERWRITE) && !allowedKeys.contains(OVERWRITE),
-                        parseFlag(map.get(AUTO), AUTO, path, problems),
-                        map.containsKey(AUTO) && !allowedKeys.contains(AUTO)));
+                unknownKeys(map, FILE_KEYS, "file '" + path + "'", problems);
+                entries.add(new Entry(path, map.get(MODE)));
             } else {
                 problems.add(entryWhere + " must be a file path, or a map with the path under `file`");
             }
@@ -232,15 +221,34 @@ public final class SeedManifestReader {
         return entries;
     }
 
-    private static boolean parseFlag(Object value, String key, String path, List<String> problems) {
-        if (value == null) {
-            return false;
+    /**
+     * An entry's mode: its list's default when it names none, else one of the modes its list takes, as the manifest
+     * writes it. A bare {@code on} or {@code yes}, which YAML reads as a boolean, names no mode.
+     *
+     * @param platform whether the entry is in the platform list
+     */
+    private static SeedFileMode mode(Entry entry, boolean platform, List<String> problems) {
+        List<SeedFileMode> modes = platform ? SeedFileMode.PLATFORM_MODES : SeedFileMode.TENANT_MODES;
+        if (entry.mode() == null) {
+            return modes.getFirst();
         }
-        if (!(value instanceof Boolean flag)) {
-            problems.add("file '" + path + "': " + key + " must be true or false, not '" + value + "'");
-            return false;
+        Optional<SeedFileMode> mode = entry.mode() instanceof String code
+                ? SeedFileMode.of(code.trim()) : Optional.empty();
+        if (mode.isPresent() && modes.contains(mode.get())) {
+            return mode.get();
         }
-        return flag;
+        String list = platform ? "platform" : "tenant";
+        problems.add(list + " file '" + entry.path() + "' has mode '" + entry.mode() + "'"
+                + (mode.isPresent() ? ", which only a " + (platform ? "tenant" : "platform") + " file takes" : "")
+                + "; a " + list + " file's mode is " + described(modes));
+        return modes.getFirst();
+    }
+
+    /** The modes as the manifest writes them, the default first: "once (the default), append or overwrite". */
+    private static String described(List<SeedFileMode> modes) {
+        List<String> codes = new ArrayList<>(modes.stream().map(SeedFileMode::getCode).toList());
+        codes.set(0, codes.getFirst() + " (the default)");
+        return String.join(", ", codes.subList(0, codes.size() - 1)) + " or " + codes.getLast();
     }
 
     /** The file's name inside its level's directory — what the load records name it by. */
@@ -276,7 +284,9 @@ public final class SeedManifestReader {
     private static void unknownKeys(Map<?, ?> map, Set<String> allowed, String where, List<String> problems) {
         for (Object key : map.keySet()) {
             if (!allowed.contains(String.valueOf(key))) {
-                problems.add(where + " has an unknown key '" + key + "' (allowed: " + sorted(allowed) + ")");
+                String replaced = REPLACED_KEYS.get(String.valueOf(key));
+                problems.add(where + " has an unknown key '" + key + "' (allowed: " + sorted(allowed) + ")"
+                        + (replaced == null ? "" : "; " + replaced));
             }
         }
     }

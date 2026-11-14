@@ -19,12 +19,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Two prefix lists, deliberately disjoint, answering two different questions.
+ * Two prefix lists, answering two different questions.
  *
  * <p>{@code platform-nav-prefixes} is what a tenant admin is kept OUT of. {@code shared-nav-prefixes}
- * is what BOTH audiences are let into. Messaging belongs to the second: every model under it is
- * multiTenant, so the platform is not looking at another module — it reads the same menus on its own
- * tier, where the verification-code and password-reset mails live.
+ * is what BOTH audiences are let into. Messaging's pages on multiTenant models belong to the second: the
+ * platform is not looking at another module — it reads the same menus on its own tier, where the
+ * verification-code and password-reset mails live. Its operations pages sit on tables that are not
+ * multiTenant, so they are the platform's alone and belong to the first.
  *
  * <p>Folding the two into one list would name system and studio twice, once under each meaning. What
  * is pinned here is that they stay separate: the tenant admin must NOT lose messaging, and the

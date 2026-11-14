@@ -28,6 +28,7 @@ class SnapshotBuildStampTest {
 
     private static final String THIS_BUILD = "2.9.0@2026-10-28T01:00:00Z";
     private static final String KEY = "perm:7:user:42";
+    private static final String MARK = "dept-paths-mark:7";
 
     private final CacheService cache = mock(CacheService.class);
     private final DefaultPermissionSnapshotProvider provider = spy(new DefaultPermissionSnapshotProvider(
@@ -61,6 +62,29 @@ class SnapshotBuildStampTest {
         doReturn(new PermissionInfo()).when(provider).doLoadFromDb(7L, 42L);
 
         assertEquals(THIS_BUILD, provider.get(7L, 42L).getBuildStamp());
+    }
+
+    @Test
+    void aSnapshotBuiltWhileADepartmentMovedDoesNotStand() {
+        // Read the old paths, then the move's clear ran, then this save: it must not stand for the whole TTL.
+        when(cache.get(MARK)).thenReturn("before", "after");
+        doReturn(new PermissionInfo()).when(provider).doLoadFromDb(7L, 42L);
+
+        provider.get(7L, 42L);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(cache);
+        order.verify(cache).save(eq(KEY), org.mockito.ArgumentMatchers.any(PermissionInfo.class), eq(3600));
+        order.verify(cache).clear(KEY);
+    }
+
+    @Test
+    void aSnapshotBuiltWithNoMoveStands() {
+        when(cache.get(MARK)).thenReturn("same", "same");
+        doReturn(new PermissionInfo()).when(provider).doLoadFromDb(7L, 42L);
+
+        provider.get(7L, 42L);
+
+        verify(cache, never()).clear(KEY);
     }
 
     private static PermissionInfo stamped(String buildStamp) {

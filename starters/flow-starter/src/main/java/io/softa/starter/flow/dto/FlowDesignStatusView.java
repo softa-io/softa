@@ -12,10 +12,10 @@ public record FlowDesignStatusView(
         @Schema(description = "Revision of the most recent successful publish; null = never published")
         Integer publishedRevision,
 
-        @Schema(description = "Bundle id of the currently active revision; null = never published")
-        Long activeBundleId,
-
         @Schema(description = "True when the draft differs from the most recently published design")
-        boolean dirty
+        boolean dirty,
+
+        @Schema(description = "False while the flow is disabled: it starts nothing")
+        boolean enabled
 ) {
 }

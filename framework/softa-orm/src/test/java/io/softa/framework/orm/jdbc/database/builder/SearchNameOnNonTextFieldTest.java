@@ -53,6 +53,7 @@ class SearchNameOnNonTextFieldTest {
         stubField("id", "id", FieldType.LONG);
         stubField("subject", "subject", FieldType.STRING);
         stubField("toAddresses", "to_addresses", FieldType.MULTI_STRING);
+        stubField("body", "body", FieldType.TEXT);
         stubField("sentAt", "sent_at", FieldType.DATE_TIME);
     }
 
@@ -98,6 +99,17 @@ class SearchNameOnNonTextFieldTest {
 
         assertThat(built.where()).contains("t.to_addresses ILIKE").contains("t.subject ILIKE").contains(" OR ");
         assertThat(built.args()).containsExactly("%ct02@example.com%", "%ct02@example.com%");
+    }
+
+    /** An unbounded body is free text too: searched as written, like the String beside it. */
+    @Test
+    void aTextMemberIsSearchedAsWritten() {
+        searchedBy("subject", "body");
+
+        Built built = build(Operator.CONTAINS, "overtime");
+
+        assertThat(built.where()).contains("t.subject ILIKE").contains("t.body ILIKE").contains(" OR ");
+        assertThat(built.args()).containsExactly("%overtime%", "%overtime%");
     }
 
     /** A text member and a non-text one in one box: the text one still matches, the other cannot fail. */

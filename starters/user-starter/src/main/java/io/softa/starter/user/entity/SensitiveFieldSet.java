@@ -21,7 +21,7 @@ import io.softa.framework.orm.enums.IdStrategy;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(idStrategy = IdStrategy.EXTERNAL_ID, displayName = {"name"}, searchName = {"name"})
+@Model(idStrategy = IdStrategy.EXTERNAL_ID, displayName = {"name"}, searchName = {"name"}, defaultOrder = {"model", "id"})
 @Index(indexName = "idx_sensitive_field_set_model", fields = {"model"})
 public class SensitiveFieldSet extends AuditableModel {
 

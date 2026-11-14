@@ -69,7 +69,7 @@ class MailApiControllerTest {
         record.setReadReceiptReceivedAt(LocalDateTime.of(2026, 4, 10, 12, 0));
         record.setBounced(false);
 
-        when(sendRecordService.getById(1L)).thenReturn(Optional.of(record));
+        when(sendRecordService.findVisibleById(1L)).thenReturn(Optional.of(record));
 
         ApiResponse<MailSendStatusDTO> response = controller.getStatus(1L);
         Assertions.assertNotNull(response.getData());
@@ -84,7 +84,7 @@ class MailApiControllerTest {
 
     @Test
     void getStatusReturnsNullForNonexistent() {
-        when(sendRecordService.getById(99L)).thenReturn(Optional.empty());
+        when(sendRecordService.findVisibleById(99L)).thenReturn(Optional.empty());
 
         ApiResponse<MailSendStatusDTO> response = controller.getStatus(99L);
         Assertions.assertNull(response.getData());

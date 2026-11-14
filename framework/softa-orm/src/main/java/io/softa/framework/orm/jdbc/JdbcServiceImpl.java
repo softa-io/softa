@@ -239,15 +239,17 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
     public Page<Map<String, Object>> selectByPage(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page) {
         if (page.isCount()) {
             long totalCount = this.count(modelName, flexQuery);
-            if (totalCount == 0) {
-                return page;
-            }
             page.setTotalCount(totalCount);
+            if (totalCount == 0) {
+                return page.setRows(Collections.emptyList());
+            }
         }
         SqlParams sqlParams = SqlBuilderFactory.buildPageSql(modelName, flexQuery, page);
         List<Map<String, Object>> rows = jdbcProxy.queryForList(modelName, sqlParams);
         if (CollectionUtils.isEmpty(rows)) {
-            return page;
+            // A loop reads every page into the same page object. An empty read that left the rows of the
+            // page before in place had the loop handle them twice and, as they filled the page, go on forever.
+            return page.setRows(Collections.emptyList());
         }
         // Whether to format the data, including data decryption, convert data, and fill in relation fields
         if (!ConvertType.ORIGINAL.equals(flexQuery.getConvertType())) {

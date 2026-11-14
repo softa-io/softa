@@ -1,5 +1,7 @@
 package io.softa.starter.flow.dto;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonValue;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -18,9 +20,6 @@ public record FlowVariableView(
         @Schema(description = "Where the variable comes from")
         Source source,
 
-        @Schema(description = "Producing node id; null for trigger/builtin variables")
-        String sourceNodeId,
-
         @Schema(description = "Human-readable origin, e.g. the producing node's label or the trigger model")
         String sourceLabel,
 
@@ -30,8 +29,19 @@ public record FlowVariableView(
         String type,
 
         @Schema(description = "Model name when the variable is record-shaped (relation target or data-node model)")
-        String modelName
+        String modelName,
+
+        @Schema(description = "For a relation of the record a rule reads through: the fields of modelName a rule may "
+                + "read through it — its own, and those one more relation on (`departmentId.costCentreId`) — each named "
+                + "in the rule by its path `<name>.<field>` (`employeeId.departmentId.costCentreId`); null otherwise. "
+                + "Rules only — an expression does not read them")
+        List<String> ruleFields
 ) {
+
+    /** A variable no rule reads through. */
+    public FlowVariableView(String name, Source source, String sourceLabel, String type, String modelName) {
+        this(name, source, sourceLabel, type, modelName, null);
+    }
 
     @Getter
     @AllArgsConstructor
