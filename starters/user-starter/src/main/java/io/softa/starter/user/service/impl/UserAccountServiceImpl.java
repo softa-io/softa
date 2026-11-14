@@ -433,12 +433,19 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     /**
      * The one place that decides whether an account with these contacts may be created here.
      *
-     * <p>Does this identifier already belong to somebody? If so this is their SECOND company, not a
+     * <p>Is this mobile already somebody's login? If so this is their SECOND company, not a
      * duplicate: one person keeps one person record, and the account is linked to it instead of
      * minting a rival. Refusing that is what used to make "a person in two tenants" unreachable
      * through the product at all — every creation path funnels here, so the /join flow's own
      * find-or-create could never fire either: it needs an account carrying the person's identifier,
      * and that account was exactly what could not be created.
+     *
+     * <p>Only the mobile names the person. The enterprise email is the company's choice, and HR may
+     * type an address another company has given to somebody else: linking by it filed the new hire
+     * under that somebody, whose own number then did not match at /join, and the link refused the
+     * new hire as "not belonging to that account". Who the person is gets decided at /join by the
+     * number verified there; whether the email collides with another person's is asked of joined
+     * accounts, when the record is saved for a joined account and again when the person joins.
      *
      * <p>Within ONE tenant the identifiers stay unique — that is what uk_user_account_tenant_email
      * enforces, and a person already holding a live membership here is a duplicate rather than a
@@ -455,30 +462,34 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * the human being typed into the form — reviving it would hand the newcomer the leaver's
      * person record (and hand the operator the leaver's identity, which a create form must never
      * answer). Nor is it unique: nothing indexes (tenant, mobile), so two closed rows can carry one
-     * number and any pick between them is a guess. When a closed row does hold the contact the
-     * create is refused and the operator is pointed at the explicit {@link #rehire}, where the row
-     * is named by id and the intent is stated rather than inferred.
+     * number and any pick between them is a guess. A closed row's mobile is not a hold at all (see
+     * contactHolder). When a closed row still holds the email — closing clears it, so only a row
+     * closed before that did — the create is refused and the operator is pointed at the explicit
+     * {@link #rehire}, where the row is named by id and the intent is stated rather than inferred.
      */
     private NewAccountDecision decideNewAccount(String email, String mobile, boolean release) {
         Long tenantId = ContextHolder.getContext() == null ? null : ContextHolder.getContext().getTenantId();
-        Long byEmail = this.personHolding(email);
         Long byMobile = this.personHolding(mobile);
         // A number whose holder has left every company is most likely a recycled one: the new
         // employee must not be filed under the leaver's person. Released, and a new person is made.
         // Except when the holder left THIS company: that is the leaver coming back with their own
         // number, and the closed row below is revived for them.
-        if (byMobile != null && !byMobile.equals(byEmail) && this.listMembershipsOf(byMobile).isEmpty()
+        if (byMobile != null && this.listMembershipsOf(byMobile).isEmpty()
                 && !this.belongedToTenant(tenantId, byMobile)
                 && (!release || this.releaseDormantLoginMobile(mobile, "Account created"))) {
             byMobile = null;
         }
-        // A second identifier pointing at a DIFFERENT person is not a second company — it is two
-        // people's credentials on one account, which no later step could untangle.
-        if (byEmail != null && byMobile != null && !byEmail.equals(byMobile)) {
-            return NewAccountDecision.refuse("This email and mobile belong to two different "
-                    + "people. Enter contacts for one person.");
+        Long existingPerson = byMobile;
+        // A consultant's address is their own, not a company's, so it does name them: one already
+        // authorized here is told apart rather than reported as an address somebody uses.
+        Long byEmail = this.personHolding(email);
+        if (byEmail != null && !byEmail.equals(existingPerson)) {
+            Optional<UserAccount> consultantHere = this.findMembershipInTenant(tenantId, byEmail)
+                    .filter(membership -> Boolean.TRUE.equals(membership.getConsultant()));
+            if (consultantHere.isPresent()) {
+                return NewAccountDecision.refuse(liveMembershipRefusal(consultantHere.get()));
+            }
         }
-        Long existingPerson = byEmail != null ? byEmail : byMobile;
 
         UserAccount membershipHere = existingPerson == null ? null
                 : this.findMembershipInTenant(tenantId, existingPerson).orElse(null);
@@ -544,6 +555,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 .orElse(null);
     }
 
+    /** What HR is told wherever an enterprise email is refused because somebody else uses it. */
+    public static final String EMAIL_USED = "This work email is already used by another user.";
+
     /** What an operator is told when a closed row of this tenant still carries the contact. */
     static final String REHIRE_INSTEAD = "A former employee's closed account still holds this "
             + "contact. Re-hire that account instead of creating a new one.";
@@ -561,7 +575,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 // closed one nobody holds, is simply a duplicate of the address.
                 .map(holder -> holder.getStatus() == AccountStatus.DEACTIVATED && holder.getProfileId() != null
                         ? REHIRE_INSTEAD
-                        : label + " already exists: " + contact)
+                        : "Email".equals(label) ? EMAIL_USED : label + " already exists: " + contact)
                 .orElse(null);
     }
 
@@ -770,8 +784,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // The account being joined or edited never counts against itself: when /join puts the
         // verified person in place of the placeholder minted with the account, the account still
         // names the placeholder until the bind is written.
+        // Only a joined account says whose the address is: a Pending or Invited one names the
+        // placeholder minted with it, nobody yet, and a Deactivated one has let the address go.
         return acrossTenants(() -> this.accountsWithEmail(new Filters(), wanted)).stream()
-                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED
+                .filter(account -> JOINED_STATUSES.contains(account.getStatus())
                         && !Objects.equals(account.getId(), exceptAccountId))
                 .anyMatch(account -> account.getProfileId() != null && !account.getProfileId().equals(profileId));
     }
@@ -911,10 +927,14 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             return null;
         }
         if (this.contactHolderInTenant(account.getTenantId(), wanted, accountId).isPresent()) {
-            return "That work email already belongs to another account in this company.";
+            return EMAIL_USED;
         }
-        if (this.isEmailHeldByAnotherPerson(wanted, account.getProfileId(), accountId)) {
-            return "That work email is already linked to another person's account.";
+        // Another company's use is only asked of an account its person has joined. Before that the
+        // account's person is nobody yet — the employee may well be the one using the address in
+        // the other company — and /join asks again once the number verified there has named them.
+        if (JOINED_STATUSES.contains(account.getStatus())
+                && this.isEmailHeldByAnotherPerson(wanted, account.getProfileId(), accountId)) {
+            return EMAIL_USED;
         }
         return null;
     }
@@ -1181,7 +1201,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                     .filter(account -> email.equalsIgnoreCase(StringUtils.trim(field.apply(account))))
                     .findFirst();
         }
-        return this.searchList(contactFilter(field, spellings).and(inTenant)).stream().findFirst();
+        // A closed row's mobile is the last number it had, not a hold on it: off-boarding released
+        // the person's login when it was the company's phone, nothing indexes the column, and the
+        // company hands the number to whoever it hires next.
+        return this.searchList(contactFilter(field, spellings).and(inTenant)).stream()
+                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED)
+                .findFirst();
     }
 
     /**
@@ -1382,7 +1407,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         Assert.notNull(tenantId, "A membership must belong to a company to be revived.");
         this.contactHolderInTenant(tenantId, workEmail, account.getId())
                 .ifPresent(other -> {
-                    throw new BusinessException("That work email already belongs to another account.");
+                    throw new BusinessException(EMAIL_USED);
                 });
         this.contactHolderInTenant(tenantId, workMobile, account.getId())
                 .ifPresent(other -> {
@@ -1392,8 +1417,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // aside). The person coming back is the one this row belonged to.
         Long returning = account.getProfileId() != null ? account.getProfileId() : account.getFormerProfileId();
         if (this.isEmailHeldByAnotherPerson(workEmail, returning, account.getId())) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN,
-                    "That work email is already linked to another person's account.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN, EMAIL_USED);
         }
         Long previousPerson = account.getProfileId();
         reviveWith(account, workEmail, workMobile);

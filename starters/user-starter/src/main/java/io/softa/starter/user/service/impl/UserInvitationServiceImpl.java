@@ -203,8 +203,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // constraint violation names no account and arrives after the unbind has been written.
         accountService.findContactHolderInTenant(email, userId)
                 .ifPresent(other -> {
-                    throw new BusinessException(
-                            "That work email already belongs to another account.");
+                    throw new BusinessException(UserAccountServiceImpl.EMAIL_USED);
                 });
 
         // ① The wrong person is signed out of this company on every device, FIRST: a failure after
@@ -255,7 +254,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                 StringUtils.trimToNull(last.get().getEmail()));
         if (sameMobile && sameEmail) {
             throw AccountErrorCodes.refusal(AccountErrorCodes.INVITATION_UNCHANGED,
-                    "The personal mobile and work email are the same as the last invitation. "
+                    "The mobile number and email are the same as in the last invitation. "
                             + "Update the employee profile first.");
         }
     }
@@ -747,7 +746,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (accountService.isEmailHeldByAnotherPerson(account.getEmail(), profileId, account.getId())) {
             this.logJoinBlocked(account, profileId, AccountErrorCodes.EMAIL_TAKEN);
             throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN,
-                    "This email is already linked to another account. Please contact your HR.");
+                    UserAccountServiceImpl.EMAIL_USED + " Please contact your HR.");
         }
 
         if (!profileId.equals(account.getProfileId())) {

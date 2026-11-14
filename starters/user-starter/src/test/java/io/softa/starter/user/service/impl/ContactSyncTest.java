@@ -178,7 +178,7 @@ class ContactSyncTest {
         UserAccount itself = new UserAccount();
         itself.setId(ACCOUNT);
         itself.setProfileId(5L);
-        itself.setStatus(AccountStatus.INVITED);
+        itself.setStatus(AccountStatus.ACTIVE);
         itself.setEmail("Ada@Acme.com");
         doReturn(List.of(itself)).when(accountService).searchList(any(Filters.class));
 

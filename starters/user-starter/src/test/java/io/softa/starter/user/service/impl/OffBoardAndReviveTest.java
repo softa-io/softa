@@ -341,7 +341,7 @@ class OffBoardAndReviveTest {
 
         assertThatThrownBy(() -> accountService.reviveAccount(ACCOUNT, "taken@acme.com", null))
                 .isInstanceOf(io.softa.framework.base.exception.BusinessException.class)
-                .hasMessageContaining("another person");
+                .hasMessage("This work email is already used by another user.");
         assertThat(closed.getStatus()).isEqualTo(AccountStatus.DEACTIVATED);
     }
 

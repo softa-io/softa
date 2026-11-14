@@ -148,34 +148,12 @@ class RehireTest {
         UserAccount closed = membership(AccountStatus.DEACTIVATED, OLD_EMAIL);
         doReturn(Optional.of(closed)).when(accountService).findMembershipInTenant(THIS_TENANT, PERSON);
         doReturn(List.of(closed)).when(accountService).searchList(any(Filters.class));
-        doReturn(Optional.of(closed)).when(accountService).reviveMembership(PERSON, OLD_EMAIL, null);
+        doReturn(Optional.of(closed)).when(accountService).reviveMembership(PERSON, OLD_EMAIL, MOBILE);
 
-        inThisTenant(() -> assertThatCode(() -> accountService.registerInvitedUser(OLD_EMAIL, null, "Ada L"))
+        inThisTenant(() -> assertThatCode(() -> accountService.registerInvitedUser(OLD_EMAIL, MOBILE, "Ada L"))
                 .doesNotThrowAnyException());
 
-        verify(accountService).reviveMembership(PERSON, OLD_EMAIL, null);
-    }
-
-    @Test
-    void aLeaverStillKnownByAPersonalLoginEmailIsRevivedThroughCreate() {
-        // The leaver kept a personal login identifier (set on /join), so off-boarding released only
-        // the work email and the identity still names them. Being named by a LIVE identifier — not
-        // by a contact sitting on a closed row — is what makes reviving safe: the identity is the
-        // person, whereas a work address only says who held it last.
-        String personalEmail = "ada@personal.com";
-        when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
-        UserIdentity ada = new UserIdentity();
-        ada.setProfileId(PERSON);
-        when(identityService.findByLoginIdentifier(personalEmail)).thenReturn(Optional.of(ada));
-        UserAccount closed = membership(AccountStatus.DEACTIVATED, OLD_EMAIL);
-        doReturn(Optional.of(closed)).when(accountService).findMembershipInTenant(THIS_TENANT, PERSON);
-        doReturn(Optional.of(closed)).when(accountService).reviveMembership(PERSON, personalEmail, null);
-
-        inThisTenant(() -> assertThatCode(() -> accountService.registerInvitedUser(personalEmail, null, "Ada L"))
-                .doesNotThrowAnyException());
-
-        verify(accountService).reviveMembership(PERSON, personalEmail, null);
-        verify(accountService, never()).createOne(any(UserAccount.class));
+        verify(accountService).reviveMembership(PERSON, OLD_EMAIL, MOBILE);
     }
 
     // ─── a contact on a closed row names the ADDRESS's last holder, not the person being created ───
@@ -217,20 +195,19 @@ class RehireTest {
     }
 
     @Test
-    void aClosedRowHoldingTheMobileRefusesTheCreateTheSameWay() {
-        // The pool-phone case: a company mobile on a leaver's closed row, entered for a newcomer.
-        // Nothing indexes (tenant, mobile), so "the" closed row holding it is not even well-defined.
+    void aCompanyMobileOnALeaversClosedRowGoesToTheNewcomer() {
+        // The pool-phone case: off-boarding took the company mobile off the leaver's login, and
+        // the closed row only remembers it. The newcomer gets it, and a person of their own.
         when(identityService.findByLoginIdentifier(anyString())).thenReturn(Optional.empty());
-        UserAccount closed = closedRowInTenant(THIS_TENANT, PERSON, OLD_EMAIL, MOBILE);
+        UserAccount closed = closedRowInTenant(THIS_TENANT, PERSON, null, MOBILE);
         doReturn(List.of(closed)).when(accountService).searchList(any(Filters.class));
 
-        inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser("bob@acme.com", MOBILE, "Bob"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("A former employee's closed account still holds this contact. "
-                        + "Re-hire that account instead of creating a new one."));
+        inThisTenant(() -> assertThatCode(() -> accountService.registerInvitedUser("bob@acme.com", MOBILE, "Bob"))
+                .doesNotThrowAnyException());
 
         verify(accountService, never()).reviveMembership(any(), any(), any());
-        verify(accountService, never()).createOne(any(UserAccount.class));
+        verify(accountService).createOne(any(UserAccount.class));
+        verify(profileService).registerUserProfile(anyLong(), any(UserProfileDTO.class));
     }
 
     @Test
@@ -259,7 +236,7 @@ class RehireTest {
 
         inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(OLD_EMAIL, null, "Ada L"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Email already exists"));
+                .hasMessage("This work email is already used by another user."));
 
         verify(accountService, never()).reviveMembership(any(), any(), any());
         verify(accountService, never()).createOne(any(UserAccount.class));
@@ -365,7 +342,7 @@ class RehireTest {
 
         inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(NEW_EMAIL, MOBILE, "Ada L"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Email already exists"));
+                .hasMessage("This work email is already used by another user."));
 
         verify(accountService, never()).reviveMembership(any(), any(), any());
     }
