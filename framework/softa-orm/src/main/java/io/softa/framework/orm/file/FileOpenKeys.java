@@ -73,12 +73,12 @@ public class FileOpenKeys {
     @Autowired
     public FileOpenKeys(FileOpenKeyProperties properties,
                         @Value("${server.servlet.context-path:}") String contextPath) {
-        this(properties.getOpenKeySecret(), contextPath, Clock.systemUTC());
+        this(properties.getSecret(), contextPath, Clock.systemUTC());
     }
 
     FileOpenKeys(String secret, String contextPath, Clock clock) {
         if (StringUtils.isBlank(secret)) {
-            throw new IllegalStateException("file.open-key-secret must be set.");
+            throw new IllegalStateException("security.file-key.secret must be set.");
         }
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
         this.contextPath = StringUtils.removeEnd(Objects.toString(contextPath, "").trim(), "/");

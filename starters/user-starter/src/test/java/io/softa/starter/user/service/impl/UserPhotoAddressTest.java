@@ -24,7 +24,7 @@ class UserPhotoAddressTest {
 
     private static FileOpenKeys keys() {
         FileOpenKeyProperties properties = new FileOpenKeyProperties();
-        properties.setOpenKeySecret("test-only-file-open-key-secret-0123456789");
+        properties.setSecret("test-only-file-open-key-secret-0123456789");
         return new FileOpenKeys(properties, "/api/hcm");
     }
 

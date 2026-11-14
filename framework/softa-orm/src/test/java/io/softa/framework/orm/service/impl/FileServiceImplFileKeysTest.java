@@ -41,7 +41,7 @@ class FileServiceImplFileKeysTest {
     @BeforeEach
     void setUp() {
         FileOpenKeyProperties properties = new FileOpenKeyProperties();
-        properties.setOpenKeySecret("test-only-file-open-key-secret-0123456789");
+        properties.setSecret("test-only-file-open-key-secret-0123456789");
         keys = new FileOpenKeys(properties, PREFIX);
         service = spy(new FileServiceImpl());
         ReflectionTestUtils.setField(service, "ossClientService", oss);

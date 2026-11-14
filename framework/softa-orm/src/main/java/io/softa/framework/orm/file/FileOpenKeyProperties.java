@@ -9,14 +9,20 @@ import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * {@code file.*}: the secret {@link FileOpenKeys} signs file keys with.
+ * {@code security.file-key.*}: the secret {@link FileOpenKeys} signs file keys with. The environment
+ * variable {@code SECURITY_FILE_KEY_SECRET} binds to it.
+ *
+ * <p>Deliberately not {@code security.encryption.password}. That password can never change once data is
+ * encrypted with it, while changing this secret is how every key handed out is revoked at once. And the
+ * password is stretched before use, while an HMAC key is used as it is, so this one has to be long and
+ * random.
  *
  * <p>No {@code toString}: nothing that prints this object may print the secret.
  */
 @Getter
 @Setter
 @Component
-@ConfigurationProperties(prefix = "file")
+@ConfigurationProperties(prefix = "security.file-key")
 @Validated
 public class FileOpenKeyProperties {
 
@@ -26,9 +32,9 @@ public class FileOpenKeyProperties {
      * already handed out — a page refresh issues new ones. Generate it with
      * {@code openssl rand -base64 48}.
      */
-    @NotBlank(message = "file.open-key-secret must be set: a random string of at least 32 characters, "
+    @NotBlank(message = "security.file-key.secret must be set: a random string of at least 32 characters, "
             + "the same on every instance. Generate one with: openssl rand -base64 48")
-    @Size(min = 32, message = "file.open-key-secret is too short: use at least 32 characters. "
+    @Size(min = 32, message = "security.file-key.secret is too short: use at least 32 characters. "
             + "Generate one with: openssl rand -base64 48")
-    private String openKeySecret;
+    private String secret;
 }

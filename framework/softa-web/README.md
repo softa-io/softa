@@ -484,11 +484,14 @@ Opening does not re-check access to the record the file hangs on: a key only com
 Configuration — required; startup fails without it:
 
 ```yaml
-file:
-  open-key-secret: ${FILE_OPEN_KEY_SECRET:}   # at least 32 characters: openssl rand -base64 48
+security:
+  file-key:
+    secret: ...   # at least 32 characters: openssl rand -base64 48
 ```
 
-Every instance must use the same secret: a key one instance signed has to open on any other, rolling deploys included. Changing it invalidates every key handed out — a page refresh issues new ones.
+Keep the real value out of committed files: set the environment variable `SECURITY_FILE_KEY_SECRET`, which Spring binds to `security.file-key.secret` with no mapping in the YAML. Every instance must use the same secret: a key one instance signed has to open on any other, rolling deploys included. Changing it invalidates every key handed out — a page refresh issues new ones.
+
+It is a secret of its own, not `security.encryption.password`. That password can never change once data is encrypted with it, while changing this secret is how every key handed out is revoked at once. And the password is stretched before use, while an HMAC key is used as it is, so this one has to be long and random.
 
 With `permission-starter`, the endpoint gate cannot tell a model from `/file/open/**` (the same reason as `/file/uploadFileTo*`): list it in `permission.authenticated-bypass-patterns` — the key is the check. `/openapi/file/**` must be reachable without a session: it is under `/openapi/**`, which `IdentityResolver` binds no context for; list it (or `/openapi/**`) in `permission.public-uri-patterns`.
 
