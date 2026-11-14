@@ -645,6 +645,60 @@ class RelationLookupResolverTest {
         }
     }
 
+    /**
+     * An update through a Singapore template that leaves the company column blank still means
+     * Singapore's values. Looked up across the importer's countries, a name both countries carry
+     * ("Chinese" is a Race in Singapore and in New Zealand) matched twice and failed the whole file.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aRowNamingNoCompanyResolvesInTheTemplatesCountry() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            partitionedSetup(mm);
+            RelationLookupResolver resolver = createResolver();
+            ReflectionTestUtils.setField(resolver, "companyCountryResolver", mock(CompanyCountryResolver.class));
+            ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+            when(models.getIdsByBusinessKeys(eq("EmploymentType"), eq(List.of("name")), anyCollection(), any()))
+                    .thenReturn(Map.of(List.<Object>of("Full Time"), 101L));
+            var group = new RelationLookupResolver.LookupGroup("employmentType", "EmploymentType",
+                    List.of("name"), List.of("employmentType.name"), true, false, false, null);
+            Map<String, Object> row = new LinkedHashMap<>(Map.of("employmentType.name", "Full Time"));
+
+            resolver.resolveRows("Employee", "SG", new ArrayList<>(List.of(row)), List.of(group), true);
+
+            assertEquals(101L, row.get("employmentType"));
+            ArgumentCaptor<Filters> scope = ArgumentCaptor.forClass(Filters.class);
+            verify(models).getIdsByBusinessKeys(eq("EmploymentType"), eq(List.of("name")), anyCollection(), scope.capture());
+            assertTrue(String.valueOf(scope.getValue()).contains("[\"country\",\"=\",\"SG\"]"),
+                    String.valueOf(scope.getValue()));
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theRowsOwnCompanyWinsOverTheTemplatesCountry() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            partitionedSetup(mm);
+            RelationLookupResolver resolver = createResolver();
+            CompanyCountryResolver countries = mock(CompanyCountryResolver.class);
+            when(countries.resolveCountry(2L)).thenReturn("NZ");
+            ReflectionTestUtils.setField(resolver, "companyCountryResolver", countries);
+            ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+            when(models.getIdsByBusinessKeys(eq("EmploymentType"), eq(List.of("name")), anyCollection(), any()))
+                    .thenReturn(Map.of(List.<Object>of("Full Time"), 202L));
+            var group = new RelationLookupResolver.LookupGroup("employmentType", "EmploymentType",
+                    List.of("name"), List.of("employmentType.name"), true, false, false, null);
+            Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId", 2L, "employmentType.name", "Full Time"));
+
+            resolver.resolveRows("Employee", "SG", new ArrayList<>(List.of(row)), List.of(group), true);
+
+            ArgumentCaptor<Filters> scope = ArgumentCaptor.forClass(Filters.class);
+            verify(models).getIdsByBusinessKeys(eq("EmploymentType"), eq(List.of("name")), anyCollection(), scope.capture());
+            assertTrue(String.valueOf(scope.getValue()).contains("[\"country\",\"=\",\"NZ\"]"),
+                    String.valueOf(scope.getValue()));
+        }
+    }
+
     @Test
     void aTemplateWithoutACompanyColumnIsFlaggedForPartitionedLookups() {
         try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
