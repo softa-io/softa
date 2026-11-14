@@ -619,6 +619,7 @@ public class ImportServiceImpl implements ImportService {
         ImportTemplateDTO importTemplateDTO = new ImportTemplateDTO();
         importTemplateDTO.setTemplateId(importTemplate.getId());
         importTemplateDTO.setModelName(importTemplate.getModelName());
+        importTemplateDTO.setCountry(importTemplate.getCountry());
         importTemplateDTO.setImportRule(importTemplate.getImportRule());
         importTemplateDTO.setIgnoreEmpty(importTemplate.getIgnoreEmpty());
         importTemplateDTO.setSkipException(importTemplate.getSkipException());

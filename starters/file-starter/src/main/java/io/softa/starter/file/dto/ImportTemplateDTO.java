@@ -31,6 +31,12 @@ public class ImportTemplateDTO {
 
     private String modelName;
 
+    /**
+     * The country the template is written for; null for a template for every country. A row that names
+     * no company has its country-partitioned values looked up in this country.
+     */
+    private String country;
+
     private ImportRule importRule;
 
     private List<String> uniqueConstraints;
