@@ -1,5 +1,9 @@
 package io.softa.framework.web.handler;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,11 +23,16 @@ import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.UnsatisfiedServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.exc.InvalidFormatException;
+import tools.jackson.databind.exc.MismatchedInputException;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
@@ -224,7 +233,103 @@ public class WebExceptionHandler {
      */
     @ExceptionHandler(value = HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleException(HttpMessageNotReadableException e) {
-        return handler(ResponseCode.BAD_REQUEST, e, "Failed to parse the request body!");
+        Optional<Map.Entry<String, String>> refused = unreadableValue(e);
+        if (refused.isEmpty()) {
+            return handler(ResponseCode.BAD_REQUEST, e, "Failed to parse the request body!");
+        }
+        ResponseEntity<ApiResponse<Void>> response = handler(ResponseCode.BAD_REQUEST, e,
+                refused.get().getKey() + ": " + refused.get().getValue());
+        if (response.getBody() instanceof ApiResponseErrorDetails<Void> details) {
+            details.setFieldErrors(Map.of(refused.get().getKey(), refused.get().getValue()));
+        }
+        return response;
+    }
+
+    /**
+     * The body value that could not be read into its type, as path → sentence: an end date of
+     * {@code 2026-13-45} reads {@code authorizations[0].endDate → `2026-13-45` is not a valid date
+     * (yyyy-MM-dd).} Empty when the body is not well-formed at all, which has no field to name.
+     */
+    static Optional<Map.Entry<String, String>> unreadableValue(HttpMessageNotReadableException e) {
+        if (!(e.getCause() instanceof MismatchedInputException mismatch)) {
+            return Optional.empty();
+        }
+        StringBuilder path = new StringBuilder();
+        for (JacksonException.Reference reference : mismatch.getPath()) {
+            if (reference.getPropertyName() != null) {
+                path.append(path.isEmpty() ? "" : ".").append(reference.getPropertyName());
+            } else if (reference.getIndex() >= 0) {
+                path.append('[').append(reference.getIndex()).append(']');
+            }
+        }
+        if (path.isEmpty()) {
+            return Optional.empty();
+        }
+        String expected = describeType(mismatch.getTargetType());
+        String sentence = mismatch instanceof InvalidFormatException invalid && invalid.getValue() != null
+                ? "`" + invalid.getValue() + "` is not a valid " + expected + "."
+                : "Expected a " + expected + ".";
+        return Optional.of(Map.entry(path.toString(), sentence));
+    }
+
+    /** What a value of this type is, in the words of whoever sent it. */
+    private static String describeType(Class<?> type) {
+        if (type == null) {
+            return "value";
+        }
+        if (type == LocalDate.class) {
+            return "date (yyyy-MM-dd)";
+        }
+        if (type == LocalDateTime.class) {
+            return "date and time (yyyy-MM-dd HH:mm:ss)";
+        }
+        if (type == LocalTime.class) {
+            return "time (HH:mm:ss)";
+        }
+        if (Number.class.isAssignableFrom(type)
+                || (type.isPrimitive() && type != boolean.class && type != char.class)) {
+            return "number";
+        }
+        if (type == Boolean.class || type == boolean.class) {
+            return "boolean (true or false)";
+        }
+        if (type.isEnum()) {
+            return "option";
+        }
+        if (type.isArray() || Collection.class.isAssignableFrom(type)) {
+            return "list";
+        }
+        if (type == String.class) {
+            return "text";
+        }
+        return "value";
+    }
+
+    /**
+     * Handle MissingServletRequestParameterException: a required query parameter left out — the
+     * body sent instead of {@code ?profileId=}, say. Before this it fell to the catch-all and came back
+     * as a 500 system exception.
+     *
+     * @param e Exception
+     * @return ResponseEntity
+     */
+    @ExceptionHandler(value = MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(MissingServletRequestParameterException e) {
+        return handler(ResponseCode.BAD_REQUEST, e,
+                "The request parameter `" + e.getParameterName() + "` is required.");
+    }
+
+    /**
+     * Handle MethodArgumentTypeMismatchException: a query parameter or path variable that does not
+     * convert to its type ({@code ?profileId=abc}).
+     *
+     * @param e Exception
+     * @return ResponseEntity
+     */
+    @ExceptionHandler(value = MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(MethodArgumentTypeMismatchException e) {
+        return handler(ResponseCode.BAD_REQUEST, e,
+                e.getName() + ": `" + e.getValue() + "` is not a valid " + describeType(e.getRequiredType()) + ".");
     }
 
     /**
