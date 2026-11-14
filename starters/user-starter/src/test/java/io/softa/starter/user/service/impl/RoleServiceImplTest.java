@@ -19,6 +19,7 @@ import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.event.RoleNavigationChangedEvent;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -298,6 +300,45 @@ class RoleServiceImplTest {
         ContextHolder.runWith(ctx, () -> svc.deleteById(500L));
 
         verify(events).publishEvent(new RoleNavigationChangedEvent(9L, 500L));
+    }
+
+    // ─── guardNoMembers: a role someone holds is not deleted ───
+
+    @Test
+    void deleteById_roleWithMembers_throws_andDeletesNothing() {
+        ModelService<Long> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(svc, "modelService", modelService);
+        doReturn(List.of()).when(svc).searchList(any(Filters.class));
+        boolean[] skipped = {false};
+        when(modelService.count(eq("UserRoleRel"), any(Filters.class))).thenAnswer(inv -> {
+            skipped[0] = ContextHolder.getContext().isSkipPermissionCheck();
+            return 1L;
+        });
+
+        Context ctx = new Context();
+        ctx.setTenantId(9L);
+        assertThatThrownBy(() -> ContextHolder.runWith(ctx, () -> svc.deleteById(500L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Revoke all role assignments before deleting.");
+        // Counted past the caller's row scope: a held role is held whoever asks.
+        assertThat(skipped[0]).isTrue();
+        verify(modelService, never()).deleteById(any(), any());
+        verify(events, never()).publishEvent(any());
+    }
+
+    @Test
+    void deleteByIds_anyRoleWithMembers_throws_andDeletesNothing() {
+        ModelService<Long> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(svc, "modelService", modelService);
+        doReturn(List.of()).when(svc).searchList(any(Filters.class));
+        when(modelService.count(eq("UserRoleRel"), any(Filters.class))).thenReturn(2L);
+
+        Context ctx = new Context();
+        ctx.setTenantId(9L);
+        assertThatThrownBy(() -> ContextHolder.runWith(ctx, () -> svc.deleteByIds(List.of(500L, 501L))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Revoke all role assignments before deleting.");
+        verify(modelService, never()).deleteByIds(any(), any());
     }
 
     // ─── helpers ───
