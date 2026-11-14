@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -301,7 +301,7 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
         if (definition == null) {
             return null;
         }
-        return EncryptUtils.computeSha256(JsonUtils.objectToString(definition));
+        return HashUtils.sha256Hex(JsonUtils.objectToString(definition));
     }
 
     /**

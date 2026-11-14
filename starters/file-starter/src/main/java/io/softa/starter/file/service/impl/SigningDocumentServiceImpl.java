@@ -5,8 +5,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -24,6 +22,7 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.placeholder.TemplateEngine;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -106,9 +105,9 @@ public class SigningDocumentServiceImpl extends EntityServiceImpl<SigningDocumen
         String evidenceId = IDGenerator.generateStringId();
         String actualUserAgent = resolveUserAgent(evidence);
         String clientIp = resolveClientIp();
-        String originalPdfSha256 = sha256(originalPdfSource.pdfBytes());
-        String signatureImageSha256 = sha256(signatureImageBytes);
-        String signedPdfSha256 = sha256(signedPdfBytes);
+        String originalPdfSha256 = HashUtils.sha256Hex(originalPdfSource.pdfBytes());
+        String signatureImageSha256 = HashUtils.sha256Hex(signatureImageBytes);
+        String signedPdfSha256 = HashUtils.sha256Hex(signedPdfBytes);
 
         signingDocument.setStatus(SigningDocumentStatus.COMPLETED);
         signingDocument.setSignedImageId(signatureImageFile.getFileId());
@@ -396,15 +395,6 @@ public class SigningDocumentServiceImpl extends EntityServiceImpl<SigningDocumen
             return clientIp.trim();
         }
         return StringUtils.trimToNull(request.getRemoteAddr());
-    }
-
-    private String sha256(byte[] bytes) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(bytes));
-        } catch (NoSuchAlgorithmException e) {
-            throw new SystemException("SHA-256 algorithm is unavailable.", e);
-        }
     }
 
     private OffsetDateTime toOffsetDateTime(LocalDateTime dateTime) {

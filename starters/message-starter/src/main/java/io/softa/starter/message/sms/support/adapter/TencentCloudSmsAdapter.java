@@ -1,22 +1,21 @@
 package io.softa.starter.message.sms.support.adapter;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.sms.dto.SmsAdapterRequest;
 import io.softa.starter.message.sms.dto.SmsSendResult;
@@ -174,7 +173,7 @@ public class TencentCloudSmsAdapter extends AbstractSmsProviderAdapter {
             byte[] secretDate = hmacSha256(("TC3" + secretKey).getBytes(StandardCharsets.UTF_8), date);
             byte[] secretService = hmacSha256(secretDate, service);
             byte[] secretSigning = hmacSha256(secretService, "tc3_request");
-            String signature = hexEncode(hmacSha256(secretSigning, stringToSign));
+            String signature = HexFormat.of().formatHex(hmacSha256(secretSigning, stringToSign));
 
             return "TC3-HMAC-SHA256 Credential=" + secretId + "/" + credentialScope
                     + ", SignedHeaders=" + signedHeaders
@@ -184,23 +183,13 @@ public class TencentCloudSmsAdapter extends AbstractSmsProviderAdapter {
         }
     }
 
-    byte[] hmacSha256(byte[] key, String data) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(key, "HmacSHA256"));
-        return mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
+    /** TC3's HMAC_SHA256(key, data), the data taken as UTF-8. */
+    byte[] hmacSha256(byte[] key, String data) {
+        return HashUtils.hmacSha256(key, data.getBytes(StandardCharsets.UTF_8));
     }
 
-    String sha256Hex(String data) throws Exception {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hash = digest.digest(data.getBytes(StandardCharsets.UTF_8));
-        return hexEncode(hash);
-    }
-
-    private String hexEncode(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
+    /** TC3's HexEncode(Hash(data)): SHA-256 of the UTF-8 bytes as lowercase hex. */
+    String sha256Hex(String data) {
+        return HashUtils.sha256Hex(data);
     }
 }

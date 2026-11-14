@@ -35,6 +35,14 @@ public class SendEmailConfig {
 
     private String htmlBody;
 
+    /**
+     * Attachments, by file id: a list whose items may be {@code {{ expr }}} (a Generate File node's
+     * {@code fileId}, a File field), or one {@code {{ expr }}} resolving to an id or a list of ids.
+     * Each file is read from storage by its id when the mail goes out — never by a link, which would be
+     * dead by then. In template mode they replace the template's own attachments.
+     */
+    private Object attachments;
+
     /** Mail template code; takes precedence over the direct subject/body fields when set. */
     private String templateCode;
 

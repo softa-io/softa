@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,7 @@ import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BaseException;
 import io.softa.framework.base.exception.UserNotFoundException;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.file.FileOpenKeys;
 import io.softa.framework.web.enums.IdentifyType;
 import io.softa.framework.web.filter.context.ContextBuilder;
 import io.softa.framework.web.filter.context.IdentityResolver;
@@ -51,10 +53,19 @@ public class ContextScopeFilter implements Filter {
                 Context userContext = contextBuilder.buildUserContext(httpReq);
                 runInScope(userContext, request, response, chain);
             } catch (UserNotFoundException e) {
+                if (opensAFile(httpReq)) {
+                    noSessionForFile(httpRes);
+                    return;
+                }
                 // Must-login endpoint but no user => legacy behavior: USER_NOT_FOUND JSON
                 log.warn("UserNotFoundException: {}", e.getMessage());
                 this.userNotFound(httpRes, e);
             } catch (BaseException e) {
+                if (opensAFile(httpReq)) {
+                    log.warn("Failed to build user context for a file key: {}", e.getMessage());
+                    noSessionForFile(httpRes);
+                    return;
+                }
                 log.error("Failed to build user context", e);
                 this.responseError(httpRes, e.getResponseCode(), e.getMessage());
             }
@@ -127,6 +138,28 @@ public class ContextScopeFilter implements Filter {
         } catch (IOException io) {
             log.error("User not found", io);
         }
+    }
+
+    /**
+     * Whether the request opens a user file key ({@code /file/open/...}, see {@code FileOpenKeys}): an
+     * address an img, an iframe, a download or a new tab opens by itself — never the API client that
+     * reads the JSON envelope.
+     */
+    static boolean opensAFile(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return path != null && path.startsWith(request.getContextPath() + FileOpenKeys.USER_PATH);
+    }
+
+    /**
+     * No usable session where a file key is opened: answer in HTTP terms. The envelope every other
+     * refusal here uses — HTTP 200, the error in a JSON body — would be saved by a download as the file
+     * itself, under the file's own name; an image just breaks either way.
+     */
+    static void noSessionForFile(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        response.setContentType("text/plain;charset=UTF-8");
+        response.getWriter().write("Your session has ended. Sign in again, then open the file from its page.");
     }
 
     /**

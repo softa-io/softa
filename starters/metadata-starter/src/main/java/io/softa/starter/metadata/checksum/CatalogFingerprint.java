@@ -1,14 +1,11 @@
 package io.softa.starter.metadata.checksum;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
+import io.softa.framework.base.security.HashUtils;
 import io.softa.starter.metadata.entity.SysField;
 import io.softa.starter.metadata.entity.SysModel;
 import io.softa.starter.metadata.entity.SysModelIndex;
@@ -56,15 +53,6 @@ public final class CatalogFingerprint {
         }
         StringBuilder canonical = new StringBuilder();
         aggregates.forEach((key, checksum) -> canonical.append(key).append('=').append(checksum).append('\n'));
-        return sha256Hex(canonical.toString());
-    }
-
-    private static String sha256Hex(String canonical) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(canonical.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 unavailable", e);
-        }
+        return HashUtils.sha256Hex(canonical.toString());
     }
 }

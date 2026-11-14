@@ -19,7 +19,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
@@ -502,7 +502,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
 
     private static String ticketKey(String ticket) {
         // Stored under its digest: a cache dump yields nothing a caller could present.
-        return "me:ticket:" + EncryptUtils.computeSha256(ticket);
+        return "me:ticket:" + HashUtils.sha256Hex(ticket);
     }
 
     private String issue(Step step, UserAccount account, String mobile, boolean byPassword) {

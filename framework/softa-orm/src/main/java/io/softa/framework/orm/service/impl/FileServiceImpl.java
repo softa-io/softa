@@ -31,6 +31,7 @@ import io.softa.framework.orm.dto.UploadFileDTO;
 import io.softa.framework.orm.entity.FileRecord;
 import io.softa.framework.orm.enums.FileSource;
 import io.softa.framework.orm.enums.FileType;
+import io.softa.framework.orm.file.FileOpenKeys;
 import io.softa.framework.orm.oss.OSSProperties;
 import io.softa.framework.orm.oss.OssClientService;
 import io.softa.framework.orm.service.FileService;
@@ -51,6 +52,9 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
 
     @Autowired
     private OSSProperties ossProperties;
+
+    @Autowired
+    private FileOpenKeys fileOpenKeys;
 
     /**
      * Generate an OSS key for the file: {@code [subDir/][tenantId/]modelName/<uuid>.<ext>}.
@@ -189,7 +193,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
     public FileInfo uploadFromStream(UploadFileDTO uploadFileDTO) {
         uploadFileDTO.setFileSource(FileSource.DOWNLOAD);
         FileRecord fileRecord = this.uploadFileWithDTO(uploadFileDTO);
-        return convertToFileInfo(fileRecord, FileConstant.DEFAULT_DOWNLOAD_URL_EXPIRE, true);
+        return convertToFileInfo(fileRecord, true);
     }
 
     /**
@@ -275,12 +279,10 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * @param rowId     the ID of the corresponding business row data
      * @param fieldName The field name of the file belongs to
      * @param url       the URL of the file
-     * @param expireSeconds the expiration time in seconds
      * @return fileInfo object
      */
     @Override
-    public FileInfo uploadFromUrl(String modelName, Serializable rowId, String fieldName, String url,
-            int expireSeconds) {
+    public FileInfo uploadFromUrl(String modelName, Serializable rowId, String fieldName, String url) {
         DownloadFileDTO downloadResult = null;
         try {
             downloadResult = HttpDownloadUtils.downloadFromUrl(url);
@@ -309,7 +311,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
             Long id = this.persistFileRecord(fileRecord);
             fileRecord.setId(id);
 
-            return this.convertToFileInfo(fileRecord, expireSeconds, false);
+            return this.convertToFileInfo(fileRecord);
 
         } finally {
             if (downloadResult != null) {
@@ -325,18 +327,25 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * @return fileInfo object
      */
     private FileInfo convertToFileInfo(FileRecord fileRecord) {
-        return this.convertToFileInfo(fileRecord, FileConstant.DEFAULT_DOWNLOAD_URL_EXPIRE, false);
+        return this.convertToFileInfo(fileRecord, false);
     }
 
     /**
-     * Convert fileRecord object to fileInfo object
+     * Convert fileRecord object to fileInfo object — the only place a FileInfo is made, so the only
+     * place its url is decided.
+     *
+     * <p>The url is a file key's address ({@link FileOpenKeys}), never a storage link: a storage link
+     * dies within minutes (seven days at most) wherever the FileInfo ends up — a cache, a page left
+     * open, the browser's storage. With a logged-in user the key opens for that account only, for 30
+     * to 31 days. Without one — a public page, a scheduled job, a flow nobody triggered — it is an
+     * unbound key anyone holding it can open for an hour; backend code never reads it either way, and
+     * reads the content with {@link #downloadStream(Long)}.
      *
      * @param fileRecord fileRecord object
-     * @param expireSeconds the expiration time in seconds
-     * @param download whether to generate a download URL or a pre-signed URL
+     * @param download whether the url asks for a download rather than inline display
      * @return fileInfo object
      */
-    private FileInfo convertToFileInfo(FileRecord fileRecord, int expireSeconds, boolean download) {
+    private FileInfo convertToFileInfo(FileRecord fileRecord, boolean download) {
         if (fileRecord == null) {
             return null;
         }
@@ -344,13 +353,10 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         fileInfo.setFileId(fileRecord.getId());
         fileInfo.setFileName(fileRecord.getFileName());
         fileInfo.setFileType(fileRecord.getFileType());
-        String ossUrl;
-        if (download) {
-            ossUrl = ossClientService.getDownloadUrl(fileRecord.getOssKey(), expireSeconds, fileRecord.getFileName());
-        } else {
-            ossUrl = ossClientService.getPreSignedUrl(fileRecord.getOssKey(), expireSeconds, fileRecord.getFileName());
-        }
-        fileInfo.setUrl(ossUrl);
+        Long userId = ContextHolder.getContext().getUserId();
+        fileInfo.setUrl(userId != null
+                ? fileOpenKeys.userUrl(fileRecord.getId(), userId, download)
+                : fileOpenKeys.unboundUrl(fileRecord.getId(), download));
         fileInfo.setSize(fileRecord.getFileSize());
         fileInfo.setChecksum(fileRecord.getChecksum());
         return fileInfo;
@@ -382,16 +388,25 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
     }
 
     /**
-     * Get the FileInfo object by fileId
+     * A storage link to the file, signed now and valid for {@code oss.url-expire-seconds}.
      *
-     * @param fileId the ID of the file
-     * @param expireSeconds the expiration time in seconds
-     * @return Optional object containing the FileInfo object if found, or empty if not found
+     * <p>Read past the FileRecord scope, like every other read here: the caller has authorized the
+     * file already — the open endpoints by checking its key.
+     *
+     * @param fileId   the ID of the file
+     * @param download true for {@code Content-Disposition: attachment}, false to display inline
+     * @return the link, or empty when there is no such file
      */
     @Override
-    public Optional<FileInfo> getByFileId(Long fileId, int expireSeconds) {
-        Optional<FileRecord> fileRecordOpt = bypassFileRecordScope(() -> this.getById(fileId));
-        return fileRecordOpt.map(record -> this.convertToFileInfo(record, expireSeconds, false));
+    public Optional<String> getStorageLink(Long fileId, boolean download) {
+        if (fileId == null) {
+            return Optional.empty();
+        }
+        return bypassFileRecordScope(() -> this.getById(fileId))
+                .filter(record -> StringUtils.isNotBlank(record.getOssKey()))
+                .map(record -> download
+                        ? ossClientService.getDownloadUrl(record.getOssKey(), record.getFileName())
+                        : ossClientService.getPreSignedUrl(record.getOssKey(), record.getFileName()));
     }
 
     /**

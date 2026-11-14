@@ -1,12 +1,8 @@
 package io.softa.starter.user.service.impl;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.security.PasswordUtils;
 import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.annotation.CrossTenant;
@@ -411,14 +408,7 @@ public class UserIdentityServiceImpl extends EntityServiceImpl<UserIdentity, Lon
         // guessed at the login form. The input is already in LoginIdentifiers' canonical form and
         // is hashed as-is: any further transformation here is one the known branch's lookup would
         // not make, and a difference between the two is the oracle this counter exists to close.
-        byte[] digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256")
-                    .digest(identifier.getBytes(StandardCharsets.UTF_8));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is a mandatory JCA algorithm.", e);
-        }
-        return HexFormat.of().formatHex(digest);
+        return HashUtils.sha256Hex(identifier);
     }
 
     @Override

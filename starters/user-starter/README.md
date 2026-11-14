@@ -184,7 +184,17 @@ to lists, plus:
 which login also returns. Besides the person's name, language, timezone and photo it carries
 `tenantId` and `tenantName`, the tenant's display name, for the client to show which company the
 session is in. `UserInfo` is cached for a month under `user-info:{accountId}` and `tenantName` is
-cached with it, so serving a cached one reads no tenant. Two consequences:
+cached with it, so serving a cached one reads no tenant.
+
+The photo is cached as `photoId` only. `photoUrl` is filled by `UserProfileService.withPhotoUrl`
+where a `UserInfo` leaves for the client — `getMyUserInfo`, `loginByApple`, `loginByOAuth2` — as a
+file key only that account can open, valid 30 to 31 days (softa-web README, File keys); in the
+cache it is always null. An address built into the cached entry would have to outlive it: a storage
+link cannot (seven days at most), and signing one for 90 days made every login of a person with a
+photo fail once the entry was rebuilt. Entries cached before `photoId` existed carry a dead
+`photoUrl` and no `photoId`: delete the `user-info:*` keys once after upgrading.
+
+Two consequences of caching `tenantName`:
 
 - Entries cached before `tenantName` existed carry none. Delete the `user-info:*` keys once after
   upgrading; the next request rebuilds each one.

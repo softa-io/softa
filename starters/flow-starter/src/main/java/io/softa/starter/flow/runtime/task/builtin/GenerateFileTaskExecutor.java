@@ -101,7 +101,8 @@ public class GenerateFileTaskExecutor extends AbstractTaskExecutor {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("fileId", fileInfo.getFileId());
         result.put("fileName", fileInfo.getFileName());
-        result.put("url", fileInfo.getUrl());
+        // No url: whatever reads this output — a mail, a webhook, a variable kept for later — outlives
+        // any link. Send the file as an attachment by fileId (SendEmail input.attachments).
         if (fileInfo.getFileType() != null) {
             result.put("fileType", fileInfo.getFileType().name());
         }

@@ -3,11 +3,8 @@ package io.softa.starter.seed.service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.ObjectProvider;
@@ -15,6 +12,7 @@ import org.springframework.boot.info.BuildProperties;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.security.HashUtils;
 import io.softa.starter.seed.manifest.SeedFile;
 import io.softa.starter.seed.manifest.SeedManifest;
 
@@ -63,12 +61,9 @@ public class SeedCatalog {
 
     static String sha256(String classpathLocation) {
         try (InputStream in = new ClassPathResource(classpathLocation).getInputStream()) {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(withLfLineEndings(in.readAllBytes())));
+            return HashUtils.sha256Hex(withLfLineEndings(in.readAllBytes()));
         } catch (IOException e) {
             throw new IllegalStateException("Cannot read seed file " + classpathLocation, e);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is not available", e);
         }
     }
 
