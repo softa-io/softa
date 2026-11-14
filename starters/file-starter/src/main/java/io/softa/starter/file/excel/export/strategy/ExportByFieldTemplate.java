@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fesod.sheet.write.handler.WriteHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,7 @@ import io.softa.starter.file.excel.export.support.ExcelUploadService;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
 import io.softa.starter.file.excel.export.support.ExportTemplateResolver;
 import io.softa.starter.file.excel.style.CustomExportStyleHandler;
+import io.softa.starter.file.excel.style.DecimalColumnFormatHandler;
 
 /**
  * Export by template.
@@ -59,7 +61,7 @@ public class ExportByFieldTemplate implements ExportStrategy {
                 exportTemplate.getCustomHandler(), flexQuery);
         List<List<Object>> rowsTable = exportTemplateResolver.resolveRows(resolvedTemplateSheet, rows);
         ExcelSheetData sheetData = new ExcelSheetData(StringUtils.isNotBlank(sheetName) ? sheetName : fileName,
-                resolvedTemplateSheet.getHeaders(), rowsTable, new CustomExportStyleHandler[]{new CustomExportStyleHandler()});
+                resolvedTemplateSheet.getHeaders(), rowsTable, columnHandlers(exportTemplate, resolvedTemplateSheet));
         // Stamped with the model that will HOLD it — the ExportHistory row — not the model whose
         // rows it contains. FileRecord.modelName decides who may claim the file, and stamping the
         // exported model has ExportHistory.fileId refused as "not yours to attach".
@@ -112,12 +114,22 @@ public class ExportByFieldTemplate implements ExportStrategy {
             List<List<Object>> rowsTable = exportTemplateResolver.resolveRows(resolvedTemplateSheet, rows);
             String sheetName = StringUtils.isNotBlank(exportTemplate.getSheetName()) ? exportTemplate.getSheetName() : fileName;
             sheetDataList.add(new ExcelSheetData(sheetName, resolvedTemplateSheet.getHeaders(), rowsTable,
-                    new CustomExportStyleHandler[]{new CustomExportStyleHandler()}));
+                    columnHandlers(exportTemplate, resolvedTemplateSheet)));
         }
         // Multi-sheet exports record no history, so this file is attached to nothing and stays
         // unclaimed. Stamped anyway: an unclaimed record with a blank model may be claimed by ANY
         // model, and "claimable by nobody in particular" is not what we want to leave lying around.
         return excelUploadService.generateFileAndUpload(HISTORY_MODEL, fileName, sheetDataList);
+    }
+
+    /**
+     * The handlers for the sheet's columns: the template's own row styling, and the decimal columns'
+     * number formats when the template exports any (the sheet builder skips a null handler).
+     * The exported fields are positional with the headers — an ignored field is in neither.
+     */
+    private static WriteHandler[] columnHandlers(ExportTemplate exportTemplate, ResolvedTemplateSheet resolvedTemplateSheet) {
+        return new WriteHandler[]{new CustomExportStyleHandler(),
+                DecimalColumnFormatHandler.forFields(exportTemplate.getModelName(), resolvedTemplateSheet.getExportFields())};
     }
 
 }
