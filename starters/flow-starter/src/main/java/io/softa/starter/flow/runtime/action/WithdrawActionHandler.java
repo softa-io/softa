@@ -49,7 +49,7 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
                     + request.getInstanceId() + " is not one");
         }
         if (!FlowExecutionStatus.WAITING.equals(state.getStatus())) {
-            throw new FlowActionValidationException("Flow instance is not waiting for approval and cannot be withdrawn: " + request.getInstanceId());
+            throw new FlowActionValidationException(FlowActionContextService.noLongerWaiting(state.getStatus(), "withdrawn"));
         }
         if (WithdrawPolicyGuard.policyOf(definition) == WithdrawPolicy.NEVER) {
             throw new FlowActionValidationException("Flow instance does not allow initiator withdrawal: " + request.getInstanceId());

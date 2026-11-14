@@ -42,9 +42,29 @@ public class FlowActionContextService {
 
     public void requireWaitingApproval(FlowExecutionState state, String instanceId, String actionLabel) {
         if (!FlowExecutionStatus.WAITING.equals(state.getStatus())) {
-            throw new FlowActionValidationException("Flow instance is not waiting for approval and cannot be "
-                    + actionLabel + ": " + instanceId);
+            throw new FlowActionValidationException(noLongerWaiting(state.getStatus(), actionLabel));
         }
+    }
+
+    /**
+     * Why a request can no longer be acted on, for the person who tried: what became of it since their page was
+     * loaded — withdrawn by its submitter, terminated, already decided — and to look again. Said in their words:
+     * the instance id that used to end this sentence means nothing to them, and the screens show it as it is.
+     *
+     * @param status      the request's status now
+     * @param actionLabel the action refused, as a past participle: "approved", "withdrawn"
+     */
+    public static String noLongerWaiting(FlowExecutionStatus status, String actionLabel) {
+        String why = switch (status) {
+            case WITHDRAWN -> "it was withdrawn by its submitter";
+            case CANCELLED -> "it was terminated";
+            case REJECTED -> "it was rejected";
+            case RETURNED -> "it was returned to its submitter";
+            case COMPLETED -> "its approval is complete";
+            case FAILED -> "its approval stopped with an error";
+            case null, default -> "it is no longer waiting for approval";
+        };
+        return "This request can no longer be " + actionLabel + ": " + why + ". Refresh to see where it stands.";
     }
 
     /**
