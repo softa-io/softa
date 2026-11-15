@@ -268,7 +268,7 @@ public class WebExceptionHandler {
         String expected = describeType(mismatch.getTargetType());
         String sentence = mismatch instanceof InvalidFormatException invalid && invalid.getValue() != null
                 ? "`" + invalid.getValue() + "` is not a valid " + expected + "."
-                : "Expected a " + expected + ".";
+                : "Expected " + (expected.matches("^[aeiou].*") ? "an " : "a ") + expected + ".";
         return Optional.of(Map.entry(path.toString(), sentence));
     }
 
@@ -302,7 +302,9 @@ public class WebExceptionHandler {
         if (type == String.class) {
             return "text";
         }
-        return "value";
+        // Anything else read from a body is a nested object: a payload sending a list or a string where an
+        // object goes is told so, rather than that it sent the wrong "value".
+        return type.isInterface() || type == Object.class ? "value" : "object";
     }
 
     /**

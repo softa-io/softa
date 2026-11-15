@@ -34,6 +34,12 @@ class BadRequestResponseTest {
     record Form(String username, List<Grant> authorizations) {
     }
 
+    record Patch(List<Grant> create) {
+    }
+
+    record PatchForm(String username, Patch authorizations) {
+    }
+
     private WebExceptionHandler handler;
 
     @BeforeEach
@@ -54,6 +60,16 @@ class BadRequestResponseTest {
                 .isEqualTo("authorizations[0].endDate: `2026-13-45` is not a valid date (yyyy-MM-dd).");
         assertThat(body.getFieldErrors())
                 .isEqualTo(Map.of("authorizations[0].endDate", "`2026-13-45` is not a valid date (yyyy-MM-dd)."));
+    }
+
+    @Test
+    void aListWhereAnObjectGoesIsToldItWantsAnObject() {
+        Throwable cause = catchThrowable(() -> JsonMapper.builder().build()
+                .readValue("{\"username\":\"a\",\"authorizations\":[{\"tenantId\":1}]}", PatchForm.class));
+        ApiResponseErrorDetails<Void> body = bodyOf(handler.handleException(
+                new HttpMessageNotReadableException("JSON parse error", cause, Mockito.mock(HttpInputMessage.class))));
+
+        assertThat(body.getError()).isEqualTo("authorizations: Expected an object.");
     }
 
     @Test
