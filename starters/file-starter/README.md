@@ -650,6 +650,8 @@ curl -X POST 'http://localhost:8080/export/dynamicExport?modelName=Product&fileN
 JSON
 ```
 
+A many-to-one is written as two columns when the key an import looks it up by (`LookupKeys`) is not the name it displays: the name under `<Label> (Name)`, then the key under `<Label> (<key label>)` — `Department (Name)`, `Department (Code)`. The sheet then imports back unchanged: the import maps the key column to `departmentId.code`, and the name column is for the reader. A relation looked up by its single display field, a code-as-id master (no lookup key) and a dotted path keep their one column under the field's own label. Template exports write exactly the template's columns. See `DynamicExportColumns`.
+
 ### 4. Custom Export Handler
 You can register a Spring bean implementing `CustomExportHandler` and reference it by name in
 `ExportTemplate.customHandler`.

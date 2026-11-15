@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
-import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.file.dto.ExportResult;
 import io.softa.starter.file.dto.SheetInfo;
@@ -20,6 +19,7 @@ import io.softa.starter.file.excel.export.ExcelSheetData;
 import io.softa.starter.file.vo.PivotSpec;
 import io.softa.starter.file.excel.export.support.PivotColumns;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
+import io.softa.starter.file.excel.export.support.DynamicExportColumns;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
 
 /**
@@ -91,9 +91,8 @@ public class ExportByDynamic implements ExportStrategy {
     /** {@link #extractDataTableFromDB} plus the pivot's columns — the rows are kept for their ids. */
     List<List<Object>> extractDataTableWithPivot(String modelName, FlexQuery flexQuery, PivotSpec pivot,
                                                  List<String> headers) {
-        List<String> exportedFields = List.copyOf(flexQuery.getFields());
+        List<String> exportedFields = readColumns(modelName, flexQuery, headers);
         List<Map<String, Object>> rows = exportDataFetcher.fetchRows(modelName, null, flexQuery);
-        exportedFields.forEach(fieldName -> headers.add(ModelManager.getLastFieldOfCascaded(modelName, fieldName).getLabel()));
         List<List<Object>> rowsTable = new ArrayList<>();
         for (List<Object> row : ListUtils.convertToTableData(exportedFields, rows)) {
             rowsTable.add(new ArrayList<>(row));
@@ -141,12 +140,21 @@ public class ExportByDynamic implements ExportStrategy {
         // flexQuery — `new HashSet<>(fields)` plus the id and whatever a dynamic field depends on —
         // so the list afterwards is no longer the one that was asked for: the sheet came out in hash
         // order, with the id in it, however the fields had been picked.
-        List<String> exportedFields = List.copyOf(flexQuery.getFields());
+        List<String> exportedFields = readColumns(modelName, flexQuery, headers);
         List<Map<String, Object>> rows = exportDataFetcher.fetchRows(modelName, null, flexQuery);
-        exportedFields.forEach(fieldName -> {
-            MetaField lastField = ModelManager.getLastFieldOfCascaded(modelName, fieldName);
-            headers.add(lastField.getLabel());
-        });
         return ListUtils.convertToTableData(exportedFields, rows);
+    }
+
+    /**
+     * The fields the sheet reads, in column order, with their headers added to {@code headers}: the
+     * picked fields, each many-to-one followed by the key it is imported by (see
+     * {@link DynamicExportColumns}). The query is pointed at those fields, so the key is read too.
+     */
+    private static List<String> readColumns(String modelName, FlexQuery flexQuery, List<String> headers) {
+        List<DynamicExportColumns.Column> columns = DynamicExportColumns.of(modelName, List.copyOf(flexQuery.getFields()));
+        List<String> fields = columns.stream().map(DynamicExportColumns.Column::field).toList();
+        columns.forEach(column -> headers.add(column.header()));
+        flexQuery.setFields(fields);
+        return fields;
     }
 }
