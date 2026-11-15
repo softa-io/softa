@@ -136,6 +136,22 @@ class VerificationCodeGuardTest {
     }
 
     @Test
+    void aRightCheck_renewsNoBudget_forTheCodeItLeavesAlive() {
+        issueIgnoringCooldown("123456");
+
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> guard.check(ID, "000000"))
+                    .hasMessageContaining("Incorrect code");
+        }
+        // The owner checks the right code. Clearing the count here would give whoever is guessing four
+        // more tries against the same, still-live code.
+        assertThatCode(() -> guard.check(ID, "123456")).doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> guard.check(ID, "000000"))
+                .hasMessageContaining("no longer valid");
+    }
+
+    @Test
     void missingCode_isRefused_withoutSpendingAnAttempt() {
         issueIgnoringCooldown("123456");
         Map<String, Long> countersBefore = new HashMap<>(counters);

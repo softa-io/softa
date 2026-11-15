@@ -15,8 +15,9 @@ package io.softa.starter.user.dto;
  *                        confirmJoin require back — see {@code JoinProofGuard} for why a
  *                        caller-supplied profileId alone could not authorize either
  * @param signedUp        whether this verification is the person's sign-up: no personal account
- *                        held the number until now — one was created here, or the account's
- *                        placeholder is still all there is. The page welcomes them as new; someone
+ *                        held the number before this link (one was made for it, or the account's
+ *                        placeholder is all there is), this is the link's first pass for them, and
+ *                        a password is still to be set. The page welcomes them as new; someone
  *                        coming back to an account they left half set up is not told they signed up
  */
 public record JoinVerification(Long profileId, boolean mustSetPassword, String proof,

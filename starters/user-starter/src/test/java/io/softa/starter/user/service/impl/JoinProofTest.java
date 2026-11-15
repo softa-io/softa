@@ -144,7 +144,7 @@ class JoinProofTest {
     void theChain_verifyThenSetPasswordThenConfirm_succeeds_andSpendsTheProof() {
         String proof = passTheCode();
         // The cache holds a digest of the proof, never the proof itself: a dump is not a replay.
-        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:proof").doesNotContain(proof));
+        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:").doesNotContain(proof));
 
         loginService.setJoinPassword(TOKEN, ADA, PASSWORD, proof);
         verify(identityService).setPassword(11L, PASSWORD);
@@ -156,6 +156,17 @@ class JoinProofTest {
         verify(accountService).updateOne(revived);
         // Load-bearing: spent on success, so the completed flow leaves no standing credential.
         assertThat(cache).isEmpty();
+    }
+
+    @Test
+    void theSameLinkVerifiedTwice_signsUpOnlyOnce() {
+        // The account's placeholder verifies, leaves before setting a password and comes back.
+        JoinVerification first = loginService.verifyJoinCode(TOKEN, "email", "123456");
+        JoinVerification second = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(first.signedUp()).isTrue();
+        assertThat(second.signedUp()).isFalse();
+        assertThat(second.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
     }
 
     @Test
