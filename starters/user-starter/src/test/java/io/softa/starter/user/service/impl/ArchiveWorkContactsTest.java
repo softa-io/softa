@@ -1,5 +1,9 @@
 package io.softa.starter.user.service.impl;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -12,6 +16,7 @@ import org.mockito.MockedStatic;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.CompanyClock;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.entity.UserAccount;
@@ -168,5 +173,43 @@ class ArchiveWorkContactsTest {
 
         assertThat(accountService.noticeNameOf(reopenedMembership())).isEmpty();
         assertThat(accountService.noticeNameOf(null)).isEmpty();
+    }
+
+    // ─────────────────────── the time a notice prints ───────────────────────
+
+    /** Now in {@code zone} as a notice prints it, read before and after so a minute rollover cannot flake. */
+    private static List<String> nowIn(ZoneId zone, Runnable between) {
+        DateTimeFormatter minute = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        String before = LocalDateTime.now(zone).format(minute);
+        between.run();
+        return List.of(before, LocalDateTime.now(zone).format(minute));
+    }
+
+    @Test
+    void aNoticePrintsTheTimeOnTheLegalEntitysClock() {
+        // Far from any server zone, so the test cannot pass on the server's clock by accident.
+        ZoneId kiritimati = ZoneId.of("Pacific/Kiritimati");
+        archiveRow(Map.of("companyId", 42L));
+        CompanyClock clock = mock(CompanyClock.class);
+        when(clock.zoneOf(42L)).thenReturn(kiritimati);
+        ReflectionTestUtils.setField(accountService, "companyClock", clock);
+        UserAccount account = reopenedMembership();
+        String[] printed = new String[1];
+
+        List<String> expected = nowIn(kiritimati, () -> printed[0] = accountService.noticeTimeOf(account));
+
+        assertThat(expected).contains(printed[0]);
+    }
+
+    @Test
+    void withNoLegalEntity_aNoticePrintsTheServersTime() {
+        archiveRow(null);
+        ReflectionTestUtils.setField(accountService, "companyClock", mock(CompanyClock.class));
+        UserAccount account = reopenedMembership();
+        String[] printed = new String[1];
+
+        List<String> expected = nowIn(ZoneId.systemDefault(), () -> printed[0] = accountService.noticeTimeOf(account));
+
+        assertThat(expected).contains(printed[0]);
     }
 }

@@ -1,6 +1,7 @@
 package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Supplier;
@@ -28,6 +29,7 @@ import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.CompanyClock;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.web.session.SessionRevokeReason;
@@ -65,6 +67,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     private static final String ARCHIVE_EMAIL_FIELD = "workEmail";
     private static final String ARCHIVE_MOBILE_FIELD = "workPhone";
     private static final String ARCHIVE_NAME_FIELD = "fullName";
+    /** The legal entity the employee is contracted with, under the company axis's name. */
+    private static final String ARCHIVE_COMPANY_FIELD = "companyId";
     private static final String ARCHIVE_PROFILE_FIELD = "employeeProfileId";
     private static final String ARCHIVE_PROFILE_MODEL = "EmployeeProfile";
     private static final String ARCHIVE_PERSONAL_MOBILE_FIELD = "personalPhone";
@@ -115,6 +119,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     /** Optional: the contact-change notice names the company; absent tenant-starter → blank. */
     @Autowired(required = false)
     private TenantInfoService tenantInfoService;
+
+    /** The legal entity's calendar, for the time a security notice prints. */
+    @Autowired(required = false)
+    private CompanyClock companyClock;
 
     /**
      * Every single-entity account write funnels through here, so this is the one place that has to
@@ -835,11 +843,33 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             DateTimeFormatter.ofPattern(TimeConstant.DATE_FORMAT + " " + TimeConstant.SIMPLE_TIME_FORMAT);
 
     /**
-     * Now, as a security notice prints it — to the minute: the notice tells the person when to look
-     * back to, and seconds only make it read like a log line.
+     * Now, as a security notice about this account prints it — to the minute, in the time zone of the
+     * legal entity on the employee record: the notice tells the person when to look back to, on the
+     * clock they work by, and seconds only make it read like a log line.
      */
-    static String noticeTime() {
-        return LocalDateTime.now().format(NOTICE_TIME);
+    String noticeTimeOf(UserAccount account) {
+        return LocalDateTime.now(this.noticeZoneOf(account)).format(NOTICE_TIME);
+    }
+
+    /**
+     * The legal entity's zone ({@link CompanyClock}: the company's own, else the tenant's default); the
+     * server's when the account has no employee record, its record names no legal entity, or the zone
+     * cannot be read.
+     */
+    private ZoneId noticeZoneOf(UserAccount account) {
+        Long companyId = companyClock == null ? null : this.archiveCompanyId(account.getId());
+        if (companyId == null) {
+            return ZoneId.systemDefault();
+        }
+        try {
+            // In the account's own tenant: the tenant default the clock falls back to is that company's
+            // tenant's, not the caller's.
+            return account.getTenantId() == null ? companyClock.zoneOf(companyId)
+                    : ContextUtils.inTenantContext(account.getTenantId(), () -> companyClock.zoneOf(companyId));
+        } catch (RuntimeException e) {
+            log.warn("Time zone of company {} unreadable for a notice to account {}", companyId, account.getId(), e);
+            return ZoneId.systemDefault();
+        }
     }
 
     /** The company a notice names: the tenant's display name, empty when it cannot be read. */
@@ -920,7 +950,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 "employeeName", this.noticeNameOf(account),
                 "companyName", this.companyNameOf(tenantId),
                 "newMobile", StringUtils.defaultString(mobileFormat.mask(newMobile)),
-                "time", noticeTime());
+                "time", this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
@@ -1000,7 +1030,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 "employeeName", this.noticeNameOf(account),
                 "companyName", this.companyNameOf(account.getTenantId()),
                 "newEmail", StringUtils.defaultString(ContactMasking.email(wanted)),
-                "time", noticeTime());
+                "time", this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(previous)) {
@@ -1237,6 +1267,28 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
 
     /** The full name on the employee record behind this account, or null when there is no record. */
     private String archiveFullName(Long userId) {
+        return StringUtils.trimToNull(asString(this.archiveField(userId, ARCHIVE_NAME_FIELD)));
+    }
+
+    /** The legal entity on the employee record behind this account, or null when there is no record. */
+    private Long archiveCompanyId(Long userId) {
+        Object value = this.archiveField(userId, ARCHIVE_COMPANY_FIELD);
+        Object id = value instanceof Map<?, ?> ref ? ref.get("id") : value;
+        if (id instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return id == null ? null : Long.valueOf(id.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * One field of the employee record behind this account, or null when there is no record or it cannot
+     * be read: what asks for it is a notice, which still goes out with the next value in line.
+     */
+    private Object archiveField(Long userId, String field) {
         if (userId == null || !ModelManager.existModel(ARCHIVE_MODEL)) {
             return null;
         }
@@ -1249,12 +1301,11 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
         try {
             return modelService.searchOne(ARCHIVE_MODEL, new FlexQuery(
-                            List.of("id", ARCHIVE_NAME_FIELD), new Filters().eq(ARCHIVE_USER_FIELD, userId)))
-                    .map(row -> StringUtils.trimToNull(asString(row.get(ARCHIVE_NAME_FIELD))))
+                            List.of("id", field), new Filters().eq(ARCHIVE_USER_FIELD, userId)))
+                    .map(row -> row.get(field))
                     .orElse(null);
         } catch (RuntimeException e) {
-            // A notice still goes out with the next name in line; failing it over a greeting is worse.
-            log.warn("Employee read failed while resolving the name of account {}", userId, e);
+            log.warn("Employee read failed while resolving {} of account {}", field, userId, e);
             return null;
         } finally {
             if (ctx != null) {
