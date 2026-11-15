@@ -38,6 +38,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import io.softa.starter.user.service.ConsultantService;
@@ -138,6 +139,47 @@ class JoinProofTest {
         assertThat(verified.profileId()).isEqualTo(ADA);
         assertThat(verified.proof()).isNotBlank();
         return verified.proof();
+    }
+
+    @Test
+    void comingBackToAnUnfinishedSetup_saysSo_theFirstVisitDoesNot() {
+        // Ada has no password yet. The first visit greets her like any newcomer; when she left before
+        // setting one and opens the link again, the page says the setup is unfinished.
+        when(invitationService.markJoinVerified(TOKEN)).thenReturn(false, true);
+
+        JoinVerification first = loginService.verifyJoinCode(TOKEN, "email", "123456");
+        JoinVerification again = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(first.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(first.resumed()).isFalse();
+        assertThat(again.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(again.resumed()).isTrue();
+    }
+
+    @Test
+    void aPersonWhoAlreadyHasAPassword_isNeverResuming_whateverTheLinkSaw() {
+        ada.setPassword("hash");
+        when(invitationService.markJoinVerified(TOKEN)).thenReturn(true);
+
+        JoinVerification again = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(again.nextStep()).isEqualTo(JoinVerification.NextStep.CONFIRM);
+        assertThat(again.resumed()).isFalse();
+    }
+
+    @Test
+    void theFirstVerificationOfALink_isRecordedOnce() {
+        UserInvitation seen = pendingInvitation();
+        doAnswer(inv -> Optional.of(seen)).when(realInvitationService).searchOne(any(Filters.class));
+        doAnswer(inv -> {
+            seen.setVerifiedAt(inv.<UserInvitation>getArgument(0).getVerifiedAt());
+            return true;
+        }).when(realInvitationService).updateOne(any(UserInvitation.class));
+
+        assertThat(realInvitationService.markJoinVerified(TOKEN)).isFalse();
+        assertThat(seen.getVerifiedAt()).isNotNull();
+        assertThat(realInvitationService.markJoinVerified(TOKEN)).isTrue();
+        verify(realInvitationService, times(1)).updateOne(any(UserInvitation.class));
     }
 
     @Test

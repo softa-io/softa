@@ -900,6 +900,29 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     @SkipPermissionCheck
     @CrossTenant
     @Override
+    public boolean markJoinVerified(String rawToken) {
+        if (StringUtils.isBlank(rawToken)) {
+            return false;
+        }
+        Optional<UserInvitation> found = this.searchOne(new Filters()
+                .eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)));
+        if (found.isEmpty()) {
+            return false;
+        }
+        UserInvitation invitation = found.get();
+        if (invitation.getVerifiedAt() != null) {
+            return true;
+        }
+        UserInvitation patch = new UserInvitation();
+        patch.setId(invitation.getId());
+        patch.setVerifiedAt(LocalDateTime.now());
+        this.updateOne(patch);
+        return false;
+    }
+
+    @SkipPermissionCheck
+    @CrossTenant
+    @Override
     public boolean isRebindLink(String rawToken) {
         return StringUtils.isNotBlank(rawToken) && this.searchOne(new Filters()
                         .eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)))

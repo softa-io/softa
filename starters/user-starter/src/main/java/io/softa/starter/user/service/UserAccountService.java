@@ -287,6 +287,12 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     java.util.Optional<UserAccount> reviveAccount(Long accountId, String workEmail, String workMobile);
 
     /**
+     * Name a revived membership as a new one is named — nickname from the employee's name, username from
+     * the email or mobile. Reviving clears both; the join page shows the nickname to the invitee.
+     */
+    void nameRevivedAccount(Long accountId, String email, String mobile, String fullName);
+
+    /**
      * Change the current user's password
      *
      * @param currentPassword Current password

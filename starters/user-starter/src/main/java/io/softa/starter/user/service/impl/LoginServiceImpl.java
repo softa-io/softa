@@ -485,7 +485,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         if (addressLimiter != null) {
             addressLimiter.count();
         }
-        Optional<UserIdentity> resolved = this.findLinked(identifier);
+        // Anyone holding this identifier, joined somewhere or not. Someone whose every account was
+        // closed or handed back (an Unbind & Re-invite moves the account to the right person) still
+        // has their password, and proving it earns them the reason they cannot go in — the
+        // no-company refusal below — not an "incorrect password" that sends them to reset it. An
+        // identifier nobody holds is still refused exactly like a wrong password.
+        Optional<UserIdentity> resolved =
+                identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier));
         if (resolved.isEmpty()) {
             this.refuseUnknownLikeAWrongPassword(identifier, channel, password);
         }
@@ -866,14 +872,19 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * branch above has just seen the code pass, and the proof must mean exactly that.
      */
     private JoinVerification verified(String rawToken, Long profileId, String channel) {
+        // Recorded on the invitation, not in the short-lived join memory: the person who left the
+        // password step may come back days later.
+        boolean verifiedBefore = invitationService.markJoinVerified(rawToken);
         // An Unbind & Re-invite link always sets the password: the membership is the person's again
         // the moment it is set, and someone who already had one resets it here.
         if (invitationService.isRebindLink(rawToken)) {
-            return JoinVerification.rebindVerified(profileId, proofGuard.mint(rawToken, profileId, channel));
+            return JoinVerification.rebindVerified(profileId, proofGuard.mint(rawToken, profileId, channel),
+                    verifiedBefore);
         }
         boolean mustSetPassword = identityService.findByProfile(profileId)
                 .map(identity -> StringUtils.isBlank(identity.getPassword())).orElse(true);
-        return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel));
+        return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel),
+                verifiedBefore);
     }
 
     @Override

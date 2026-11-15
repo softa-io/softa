@@ -94,6 +94,10 @@ public class UserInvitation extends AuditableModel {
     @Field(copyable = false, description = "Token expiry — after this the token is rejected")
     private LocalDateTime expiresAt;
 
+    @Field(copyable = false, description = "When the invitee first passed a code on this link; a later visit "
+            + "that still owes a password resumes an unfinished setup")
+    private LocalDateTime verifiedAt;
+
     @Field(copyable = false, description = "When the token was accepted (password set)")
     private LocalDateTime acceptedAt;
 }

@@ -49,6 +49,14 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
     boolean isRebindLink(String rawToken);
 
     /**
+     * Record that someone passed a code on this link, and say whether someone already had: a person
+     * who verified, left before finishing, and came back.
+     *
+     * @return whether an earlier verification of this link was recorded
+     */
+    boolean markJoinVerified(String rawToken);
+
+    /**
      * Resolves the PLAINTEXT address the invitation names, for the caller to send a code to.
      *
      * <p>Exists because the join page is shown MASKED contacts by design (a leaked link must not
