@@ -1,6 +1,7 @@
 package io.softa.starter.user.service;
 
 import java.util.List;
+import java.util.Set;
 
 import tools.jackson.databind.JsonNode;
 
@@ -110,4 +111,15 @@ public interface DynamicRoleSyncJob {
      *         each naming the field by its label
      */
     void assertRuleSeenByCaller(JsonNode dynamicFilter);
+
+    /**
+     * The Employee fields {@code dynamicFilter} tests that the caller cannot see on every employee — what
+     * {@link #assertRuleSeenByCaller} refuses — in the order they are met; empty when there are none,
+     * when the rule is empty, and for an admin, a system context or an application without field guards.
+     * For a check that reports the refusal its own way, such as a write validator on {@code Role}.
+     *
+     * @param dynamicFilter the rule, in the form {@code Role.dynamicFilter} stores it
+     * @return the fields, by name
+     */
+    Set<String> ruleFieldsNotSeenByCaller(JsonNode dynamicFilter);
 }

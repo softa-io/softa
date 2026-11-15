@@ -383,10 +383,7 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      */
     @Override
     public void assertRuleSeenByCaller(JsonNode dynamicFilter) {
-        Filters filters = ruleFilters(dynamicFilter);
-        PermissionService permissions = permissionService.getIfAvailable();
-        if (filters == null || permissions == null) return;
-        Set<String> unseen = permissions.conditionFieldsNotSeenEverywhere(EMPLOYEE, filters);
+        Set<String> unseen = ruleFieldsNotSeenByCaller(dynamicFilter);
         if (!unseen.isEmpty()) {
             // A refused input, per field, each sentence naming its field by label: a client shows the
             // sentences of a refusal that names fields, and a bare 403 only as "no access".
@@ -396,6 +393,19 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
                                     + ", which you cannot see on every employee."))
                     .toList());
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Asked of the caller's grants, never of the data.
+     */
+    @Override
+    public Set<String> ruleFieldsNotSeenByCaller(JsonNode dynamicFilter) {
+        Filters filters = ruleFilters(dynamicFilter);
+        PermissionService permissions = permissionService.getIfAvailable();
+        if (filters == null || permissions == null) return Set.of();
+        return permissions.conditionFieldsNotSeenEverywhere(EMPLOYEE, filters);
     }
 
     /**

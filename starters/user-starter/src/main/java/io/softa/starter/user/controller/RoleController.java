@@ -148,7 +148,8 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleTenantFacingGuard.assertTenantFacing(null, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(null);
-        dynamicRoleSyncJob.assertRuleSeenByCaller(role.getDynamicFilter());
+        // A rule testing a field the caller cannot see on every employee is refused by
+        // DynamicRuleFieldValidator, on this write as on every other write of a Role.
         Long newId = roleService.createOne(role);
         writeRoleNavigations(newId, body.roleNavigations());
         writeRoleDataScopes(newId, body.roleDataScopes());
@@ -179,12 +180,8 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleTenantFacingGuard.assertTenantFacing(id, body.roleNavigations());
         Role role = parseRole(body.roleUpdate());
         role.setId(id);
-        // A rule left as it was passes: it was judged when it was written, and a narrower manager
-        // editing the role's name must not be stopped by a condition they did not write.
-        if (role.getDynamicFilter() != null && !role.getDynamicFilter().equals(
-                roleService.getById(id).map(Role::getDynamicFilter).orElse(null))) {
-            dynamicRoleSyncJob.assertRuleSeenByCaller(role.getDynamicFilter());
-        }
+        // A changed rule testing a field the caller cannot see on every employee is refused by
+        // DynamicRuleFieldValidator; a rule left as it was passes.
         roleService.updateOne(role, true);
         // Wizard "Clear" on the dynamic membership rule sends
         // {"dynamicFilter": null} explicitly. The entity-based updateOne
