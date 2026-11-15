@@ -55,10 +55,15 @@ public class SessionStore {
      * several requests at once; the first one ends the session, and without this the others would
      * find nothing and answer SESSION_EXPIRED — which the client is free to act on first, sending the
      * person to the login page instead of to their other organisations.
+     *
+     * <p>A session can also be ended before any request notices: the leaving-date job closes the
+     * account at the company's midnight, a freeze closes it from HR's screen. The person's next
+     * request may come minutes or hours later, and must still be told the organisation went away —
+     * not that their session expired — so the mark then lasts as long as the session would have.
      */
     public static final String ORG_UNAVAILABLE_SESSIONS = "session-org-unavailable:";
 
-    /** Long enough for the requests already in flight when the session ended. */
+    /** At least long enough for the requests already in flight when the session ended. */
     static final int ORG_UNAVAILABLE_MARK_SECONDS = RedisConstant.ONE_MINUTES;
 
     private final CacheService cacheService;
@@ -204,7 +209,7 @@ public class SessionStore {
         // Marked before the session goes, so a concurrent request never sees neither.
         if (reason == SessionRevokeReason.ORG_UNAVAILABLE) {
             session.ifPresent(s -> cacheService.save(ORG_UNAVAILABLE_SESSIONS + sessionId, s,
-                    ORG_UNAVAILABLE_MARK_SECONDS));
+                    this.orgUnavailableMarkSeconds(sessionId)));
         }
         // Two requests can both read the session before either removes it; only the one whose delete
         // took the key announces the removal, so its listeners (the login history) record it once.
@@ -216,6 +221,12 @@ public class SessionStore {
             eventPublisher.publishEvent(new SessionRevokedEvent(sessionId, s, reason));
         }
         return removed;
+    }
+
+    /** As long as the session had left to live, and never less than the in-flight minimum. */
+    private int orgUnavailableMarkSeconds(String sessionId) {
+        long remaining = cacheService.getExpire(sessionKey(sessionId));
+        return (int) Math.max(ORG_UNAVAILABLE_MARK_SECONDS, Math.min(remaining, TTL_SECONDS));
     }
 
     /**
