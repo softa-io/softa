@@ -69,7 +69,7 @@ public class UserIdentity extends AuditableModel {
     @Field(fieldType = FieldType.ONE_TO_ONE, relatedModel = UserProfile.class, onDelete = OnDelete.CASCADE)
     private Long profileId;
 
-    @Field(description = "Login identifier. Seeded from the account's work email when a person is "
+    @Field(length = 256, description = "Login identifier. Seeded from the account's work email when a person is "
             + "created; identifies a human, not an employment")
     private String loginEmail;
 

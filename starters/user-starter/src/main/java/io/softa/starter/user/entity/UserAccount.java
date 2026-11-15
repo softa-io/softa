@@ -101,7 +101,11 @@ public class UserAccount extends AuditableModel {
     @Field(length = 128)
     private String nickname;
 
-    @Field
+    /**
+     * The login identifier: the work email when there is one, else the mobile. An email is given the
+     * room the work email it comes from has (256), so a long address does not fail the account.
+     */
+    @Field(length = 256)
     private String username;
 
     // password and passwordSalt moved to UserProfile — a credential belongs to the person, not to
@@ -110,7 +114,7 @@ public class UserAccount extends AuditableModel {
     // them for real is a separate release step (user-02-drop-old-credential-columns.sql).
 
     /** This company's enterprise email: the employee record's Work Email. Cleared when the account closes. */
-    @Field
+    @Field(length = 256)
     private String email;
 
     /**
@@ -121,7 +125,7 @@ public class UserAccount extends AuditableModel {
     @Field
     private String mobile;
 
-    @Field(copyable = false, description = "The enterprise email the account had when it closed; "
+    @Field(length = 256, copyable = false, description = "The enterprise email the account had when it closed; "
             + "shown in the account list, never a login or a uniqueness check")
     private String closedEmail;
 
