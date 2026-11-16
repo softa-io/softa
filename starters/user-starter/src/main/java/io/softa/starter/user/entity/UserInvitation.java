@@ -56,7 +56,7 @@ public class UserInvitation extends AuditableModel {
             description = "The account being invited / reset")
     private Long userId;
 
-    @Field(description = "Recipient email (denormalized for display + auditing); null when the "
+    @Field(length = 256, description = "Recipient email (denormalized for display + auditing); null when the "
             + "account had no work email and the invitation went out by SMS alone")
     private String email;
 
