@@ -156,6 +156,26 @@ class RehireTest {
         verify(accountService).reviveMembership(PERSON, OLD_EMAIL, MOBILE);
     }
 
+    @Test
+    void aLeaverBackUnderANewMobile_isANewPerson_evenWhenTheirEmailStillSignsThemInElsewhere() {
+        // The returning employee kept the same work email and signs in with it in another company
+        // where they are still employed, but the mobile on the form is a new one nobody signs in
+        // with. Only the mobile names the person, so the create mints a new person and a new row;
+        // it does not reopen their closed row here. Bringing a leaver back onto their own row is
+        // the explicit re-hire. (A leaver employed nowhere else was never found by the email: off-
+        // boarding cleared it, and an email names only the person of a joined account.)
+        String newMobile = "+6598765432";
+        when(identityService.findByLoginIdentifier(newMobile)).thenReturn(Optional.empty());
+        personHasMembershipHere(AccountStatus.DEACTIVATED);
+
+        inThisTenant(() -> accountService.registerInvitedUser(OLD_EMAIL, newMobile, "Ada L"));
+
+        verify(accountService, never()).reviveMembership(any(), any(), any());
+        verify(accountService).createOne(any(UserAccount.class));
+        verify(profileService).registerUserProfile(anyLong(), any(UserProfileDTO.class));
+        verify(profileService, never()).linkAccountToPerson(anyLong(), anyLong());
+    }
+
     // ─── a contact on a closed row names the ADDRESS's last holder, not the person being created ───
 
     private static UserAccount closedRowInTenant(Long tenantId, Long profileId, String email, String mobile) {
