@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fesod.sheet.write.handler.WriteHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,7 @@ import io.softa.starter.file.vo.PivotSpec;
 import io.softa.starter.file.excel.export.support.PivotColumns;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
+import io.softa.starter.file.excel.style.DecimalColumnFormatHandler;
 
 /**
  * Export by dynamic parameters
@@ -51,9 +53,10 @@ public class ExportByDynamic implements ExportStrategy {
      */
     public ExportResult export(String modelName, FlexQuery flexQuery) {
         List<String> headers = new ArrayList<>();
+        WriteHandler[] writeHandlers = columnHandlers(modelName, flexQuery);
         List<List<Object>> rowsTable = this.extractDataTableFromDB(modelName, flexQuery, headers);
         String modelLabel = ModelManager.getModel(modelName).getLabel();
-        ExcelSheetData sheetData = new ExcelSheetData(modelLabel, headers, rowsTable, null);
+        ExcelSheetData sheetData = new ExcelSheetData(modelLabel, headers, rowsTable, writeHandlers);
         // Stamped with the model that will HOLD it — the ExportHistory row — not the model whose
         // rows it contains. FileRecord.modelName decides who may claim the file, and stamping the
         // exported model has ExportHistory.fileId refused as "not yours to attach".
@@ -81,9 +84,10 @@ public class ExportByDynamic implements ExportStrategy {
      */
     ExportResult exportWithPivot(String modelName, FlexQuery flexQuery, PivotSpec pivot) {
         List<String> headers = new ArrayList<>();
+        WriteHandler[] writeHandlers = columnHandlers(modelName, flexQuery);
         List<List<Object>> rowsTable = extractDataTableWithPivot(modelName, flexQuery, pivot, headers);
         String modelLabel = ModelManager.getModel(modelName).getLabel();
-        ExcelSheetData sheetData = new ExcelSheetData(modelLabel, headers, rowsTable, null);
+        ExcelSheetData sheetData = new ExcelSheetData(modelLabel, headers, rowsTable, writeHandlers);
         FileInfo fileInfo = excelUploadService.generateFileAndUpload(HISTORY_MODEL, modelLabel, sheetData);
         return new ExportResult(fileInfo, rowsTable.size());
     }
@@ -115,17 +119,31 @@ public class ExportByDynamic implements ExportStrategy {
         List<ExcelSheetData> sheetDataList = new ArrayList<>();
         for (SheetInfo sheetInfo : sheetInfoList) {
             List<String> headers = new ArrayList<>();
+            WriteHandler[] writeHandlers = columnHandlers(sheetInfo.getModelName(), sheetInfo.getFlexQuery());
             List<List<Object>> rowsTable = sheetInfo.getPivot() != null
                     ? this.extractDataTableWithPivot(sheetInfo.getModelName(), sheetInfo.getFlexQuery(), sheetInfo.getPivot(), headers)
                     : this.extractDataTableFromDB(sheetInfo.getModelName(), sheetInfo.getFlexQuery(), headers);
             String sheetName = StringUtils.isNotBlank(sheetInfo.getSheetName()) ? sheetInfo.getSheetName()
                     : sheetInfo.getModelName();
-            sheetDataList.add(new ExcelSheetData(sheetName, headers, rowsTable, null));
+            sheetDataList.add(new ExcelSheetData(sheetName, headers, rowsTable, writeHandlers));
         }
         // Multi-sheet exports record no history, so this file is attached to nothing and stays
         // unclaimed. Stamped anyway: an unclaimed record with a blank model may be claimed by ANY
         // model, and "claimable by nobody in particular" is not what we want to leave lying around.
         return excelUploadService.generateFileAndUpload(HISTORY_MODEL, fileName, sheetDataList);
+    }
+
+    /**
+     * The handlers for the sheet's columns: the decimal columns' number formats, or nothing when the
+     * sheet has none (the sheet builder skips a null handler).
+     *
+     * <p>Read before the query for the reason {@link #extractDataTableFromDB} gives: the fields the
+     * query leaves behind are no longer the columns in their order. A pivot's columns come after the
+     * fields, so the fields' indexes hold either way.
+     */
+    private static WriteHandler[] columnHandlers(String modelName, FlexQuery flexQuery) {
+        List<String> exportedFields = List.copyOf(flexQuery.getFields());
+        return new WriteHandler[]{DecimalColumnFormatHandler.forFields(modelName, exportedFields)};
     }
 
     /**
