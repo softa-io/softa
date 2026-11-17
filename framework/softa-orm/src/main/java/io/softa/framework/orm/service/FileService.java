@@ -82,7 +82,9 @@ public interface FileService {
      * {@link #downloadStream(Long)}.
      *
      * @param fileId   the ID of the file
-     * @param download true for {@code Content-Disposition: attachment}, false to display inline
+     * @param download true for {@code Content-Disposition: attachment}, false to display inline — except
+     *                 a type a browser would run scripts in
+     *                 ({@link io.softa.framework.orm.enums.FileType#SCRIPTABLE_TYPE}), always a download
      * @return the link, or empty when there is no such file
      */
     Optional<String> getStorageLink(Long fileId, boolean download);

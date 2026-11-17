@@ -393,8 +393,13 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * <p>Read past the FileRecord scope, like every other read here: the caller has authorized the
      * file already — the open endpoints by checking its key.
      *
+     * <p>A file a browser would run scripts in ({@link FileType#SCRIPTABLE_TYPE}) is linked as a
+     * download even when asked to display it: displayed, an uploaded SVG or XML document would run its
+     * script on the storage domain. An img element still shows an SVG.
+     *
      * @param fileId   the ID of the file
-     * @param download true for {@code Content-Disposition: attachment}, false to display inline
+     * @param download true for {@code Content-Disposition: attachment}, false to display inline where
+     *                 the type allows it
      * @return the link, or empty when there is no such file
      */
     @Override
@@ -404,9 +409,21 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         }
         return bypassFileRecordScope(() -> this.getById(fileId))
                 .filter(record -> StringUtils.isNotBlank(record.getOssKey()))
-                .map(record -> download
+                .map(record -> download || runsScripts(record)
                         ? ossClientService.getDownloadUrl(record.getOssKey(), record.getFileName())
                         : ossClientService.getPreSignedUrl(record.getOssKey(), record.getFileName()));
+    }
+
+    /**
+     * Whether a browser opening the stored object as a page would run scripts in it. The recorded type
+     * and the key's extension both count, since either can be what the object is served as: an object
+     * is stored with the Content-Type its key names, a copy keeps its source's Content-Type under a key
+     * named after the file's name, and a file fetched from a URL is stored under the remote name while
+     * its type is read from the content.
+     */
+    private static boolean runsScripts(FileRecord record) {
+        return FileType.SCRIPTABLE_TYPE.contains(record.getFileType())
+                || FileType.ofFileName(record.getOssKey()).filter(FileType.SCRIPTABLE_TYPE::contains).isPresent();
     }
 
     /**

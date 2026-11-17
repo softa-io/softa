@@ -100,9 +100,34 @@ class FileServiceImplFileKeysTest {
     }
 
     @Test
+    void aFileABrowserWouldRunScriptsIn_isLinkedAsADownloadEvenWhenAskedToDisplayIt() {
+        stored(7L, "logo.svg", FileType.SVG, "1/EmpDocument/a.svg");
+        stored(8L, "feed.xml", FileType.XML, "1/EmpDocument/b.xml");
+        // A copy keeps its source's Content-Type under a key named after the file's name.
+        stored(9L, "cv.pdf", FileType.SVG, "1/Employee/c.pdf");
+        // A file fetched from a URL keeps the remote name in its key; its type was read from the content.
+        stored(10L, "photo.svg", FileType.TXT, "1/UserProfile/d.svg");
+        when(oss.getDownloadUrl(anyString(), anyString())).thenReturn("https://storage/dl");
+
+        for (long id = 7; id <= 10; id++) {
+            assertThat(service.getStorageLink(id, false)).as("file %d", id).contains("https://storage/dl");
+        }
+        verify(oss, never()).getPreSignedUrl(anyString(), anyString());
+    }
+
+    @Test
     void noFile_noLink() {
         assertThat(service.getStorageLink(6L, false)).isEmpty();
         assertThat(service.getStorageLink(null, false)).isEmpty();
         verifyNoInteractions(oss);
+    }
+
+    private void stored(Long id, String fileName, FileType fileType, String ossKey) {
+        FileRecord record = new FileRecord();
+        record.setId(id);
+        record.setFileName(fileName);
+        record.setFileType(fileType);
+        record.setOssKey(ossKey);
+        doReturn(Optional.of(record)).when(service).getById(id);
     }
 }
