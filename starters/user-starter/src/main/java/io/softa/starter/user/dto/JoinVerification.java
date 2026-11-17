@@ -19,9 +19,13 @@ package io.softa.starter.user.dto;
  *                        placeholder is all there is), this is the link's first pass for them, and
  *                        a password is still to be set. The page welcomes them as new; someone
  *                        coming back to an account they left half set up is not told they signed up
+ * @param resumed         the other side of the same fact: an earlier pass of this link got this far and
+ *                        a password is still owed — the person left the password step and came back. The
+ *                        page says the setup is unfinished, rather than greeting them as if for the first
+ *                        time
  */
 public record JoinVerification(Long profileId, boolean mustSetPassword, String proof,
-                               NextStep nextStep, String maskedMobile, boolean signedUp) {
+                               NextStep nextStep, String maskedMobile, boolean signedUp, boolean resumed) {
 
     /** What the join page does next. */
     public enum NextStep {
@@ -40,17 +44,17 @@ public record JoinVerification(Long profileId, boolean mustSetPassword, String p
     }
 
     public static JoinVerification verified(Long profileId, boolean mustSetPassword, String proof,
-                                            boolean signedUp) {
+                                            boolean signedUp, boolean resumed) {
         return new JoinVerification(profileId, mustSetPassword, proof,
-                mustSetPassword ? NextStep.SET_PASSWORD : NextStep.CONFIRM, null, signedUp);
+                mustSetPassword ? NextStep.SET_PASSWORD : NextStep.CONFIRM, null, signedUp, resumed);
     }
 
     /** An Unbind &amp; Re-invite link: the password is (re)set whether or not the person has one. */
-    public static JoinVerification rebindVerified(Long profileId, String proof) {
-        return new JoinVerification(profileId, true, proof, NextStep.SET_PASSWORD, null, false);
+    public static JoinVerification rebindVerified(Long profileId, String proof, boolean resumed) {
+        return new JoinVerification(profileId, true, proof, NextStep.SET_PASSWORD, null, false, resumed);
     }
 
     public static JoinVerification verifyMobile(String maskedMobile) {
-        return new JoinVerification(null, false, null, NextStep.VERIFY_MOBILE, maskedMobile, false);
+        return new JoinVerification(null, false, null, NextStep.VERIFY_MOBILE, maskedMobile, false, false);
     }
 }

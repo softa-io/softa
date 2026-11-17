@@ -381,6 +381,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (decision.closedRow() != null) {
             UserAccount revived = this.reviveMembership(existingPerson, email, mobile)
                     .orElseThrow(() -> new BusinessException("This person is already a member of this company."));
+            // Reviving clears the name the previous stint carried; the new record's name goes on, as it
+            // would on a new account — the join page shows it so the invitee can spot a misaddressed link.
+            this.nameRevivedAccount(revived.getId(), email, mobile, fullName);
             // Nobody is behind the reopened row until /join binds them, so there is no person to
             // build a full UserInfo from — the caller only needs the account it was given.
             UserInfo reopened = new UserInfo();
@@ -1559,6 +1562,24 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         log.info("Revived membership {} (was profile {}) — reset to PENDING, awaiting a new invitation.",
                 account.getId(), previousPerson != null ? previousPerson : account.getFormerProfileId());
         return account;
+    }
+
+    /**
+     * Name a revived membership the way a new one is named: nickname = the employee's name (else the login
+     * identifier), username = the email (else the mobile). Reviving clears both, since the previous
+     * stint's may not be the new one's; without them the join page has no name to show.
+     */
+    @SkipPermissionCheck
+    @Override
+    @CrossTenant
+    @Transactional
+    public void nameRevivedAccount(Long accountId, String email, String mobile, String fullName) {
+        String identifier = StringUtils.isNotBlank(email) ? email : mobile;
+        UserAccount named = new UserAccount();
+        named.setId(accountId);
+        named.setUsername(identifier);
+        named.setNickname(StringUtils.isNotBlank(fullName) ? fullName : identifier);
+        this.updateOne(named);
     }
 
     /**
