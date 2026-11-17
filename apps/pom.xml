@@ -6,7 +6,7 @@
     <parent>
         <artifactId>softa-parent</artifactId>
         <groupId>io.softa</groupId>
-        <version>3.0.7</version>
+        <version>3.0.8</version>
     </parent>
 
     <artifactId>apps</artifactId>
