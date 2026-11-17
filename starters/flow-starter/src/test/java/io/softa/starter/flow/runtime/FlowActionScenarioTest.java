@@ -8,6 +8,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.base.utils.DateUtils;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
@@ -153,7 +154,8 @@ class FlowActionScenarioTest {
     void onlyTheInstancesParticipantsComment() {
         FlowExecutionState started = startAndExpectPending();
         FlowCommentRequest stranger = comment(started, "stranger");
-        assertThrows(FlowAuthorizationException.class, () -> engine.addComment(stranger));
+        assertEquals("Only the submitter and the people this request gives a task to can comment on it.",
+                assertThrows(FlowAuthorizationException.class, () -> engine.addComment(stranger)).getMessage());
 
         FlowExecutionState afterComment = engine.addComment(comment(started, INITIATOR));
         assertEquals(1, entries(afterComment, ApprovalActionType.COMMENT).size());
@@ -203,7 +205,9 @@ class FlowActionScenarioTest {
     @Test
     void onlyTheInitiatorUrgesTheApproversAndEachStepIsUrgedOnItsOwn() {
         FlowExecutionState started = startAndExpectPending();
-        assertThrows(FlowAuthorizationException.class, () -> engine.urge(urge(started, APPROVER)));
+        assertEquals("Only its submitter can urge the approvers of this request.",
+                assertThrows(FlowAuthorizationException.class,
+                        () -> engine.urge(urge(started, APPROVER))).getMessage());
 
         FlowExecutionState afterUrge = engine.urge(urge(started, INITIATOR));
         List<ApprovalActionAuditEntry> urges = entries(afterUrge, ApprovalActionType.URGE);
@@ -221,7 +225,11 @@ class FlowActionScenarioTest {
         FlowUrgeStatus status = throttle.status(afterUrge, LocalDateTime.now());
         assertFalse(status.urgeable());
         assertFalse(status.nextUrgeAt().isBefore(urgedAt.plusMinutes(240)));
-        assertThrows(FlowActionValidationException.class, () -> engine.urge(urge(started, INITIATOR)));
+        // When, in the format every date of the platform is shown in.
+        assertEquals("A reminder was sent recently. You can urge again after "
+                        + DateUtils.formatTemporal(status.nextUrgeAt()) + ".",
+                assertThrows(FlowActionValidationException.class,
+                        () -> engine.urge(urge(started, INITIATOR))).getMessage());
         assertThrows(FlowActionValidationException.class, () -> engine.urgeAsAdministrator(urge(started, "admin")));
 
         // The interval has passed since the step was urged.
@@ -247,7 +255,9 @@ class FlowActionScenarioTest {
 
         assertEquals(new FlowUrgeStatus(false, null), throttle.status(started, INITIATOR, LocalDateTime.now()));
         assertTrue(throttle.status(started, "admin", LocalDateTime.now()).urgeable());
-        assertThrows(FlowActionValidationException.class, () -> engine.urge(urge(started, INITIATOR)));
+        assertEquals("This request's approval flow does not let its submitter urge the approvers.",
+                assertThrows(FlowActionValidationException.class,
+                        () -> engine.urge(urge(started, INITIATOR))).getMessage());
 
         FlowExecutionState afterUrge = engine.urgeAsAdministrator(urge(started, "admin"));
         assertEquals("admin", entries(afterUrge, ApprovalActionType.URGE).getFirst().getActorId());
@@ -284,6 +294,22 @@ class FlowActionScenarioTest {
     }
 
     @Test
+    void anApprovalThatHasEndedTakesNoMoreCommentsAndSaysHowItEnded() {
+        FlowExecutionState started = startAndExpectPending();
+        FlowApproveRequest approve = new FlowApproveRequest();
+        approve.setInstanceId(started.getInstanceId());
+        approve.setNodeId("approval");
+        approve.setActorId(APPROVER);
+        engine.approve(approve);
+
+        // A page loaded before the approval completed.
+        assertEquals("This request can no longer be commented on: its approval is complete. "
+                        + "Refresh to see where it stands.",
+                assertThrows(FlowActionValidationException.class,
+                        () -> engine.addComment(comment(started, INITIATOR))).getMessage());
+    }
+
+    @Test
     void aRejectionWithoutACommentIsRefusedAndChangesNothing() {
         FlowExecutionState started = startAndExpectPending();
         FlowRejectRequest req = new FlowRejectRequest();
@@ -292,7 +318,8 @@ class FlowActionScenarioTest {
         req.setActorId(APPROVER);
         req.setComment(" ");
 
-        assertThrows(FlowActionValidationException.class, () -> engine.reject(req));
+        assertEquals("A comment is required to reject: say why.",
+                assertThrows(FlowActionValidationException.class, () -> engine.reject(req)).getMessage());
         assertEquals(FlowExecutionStatus.WAITING, engine.getInstance(started.getInstanceId()).orElseThrow().getStatus());
     }
 

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import io.softa.framework.base.enums.ResponseCode;
+import io.softa.framework.web.handler.RequestInfoHandler;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.web.response.ApiResponseErrorDetails;
 import io.softa.starter.flow.api.CompileDiagnostic;
@@ -32,11 +33,22 @@ import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
  * every refusal below into a bare "System exception". Anything else these do not name still reaches it, so an
  * unexpected flow error is logged and answered the way every other one is, its message kept out of the
  * response.</p>
+ *
+ * <p>A refusal reaches the person refused as it is, on the web and in the app, so it says what happened in their
+ * words and names none of the ids the request carried — the instance, the record, the step, an account. Each is
+ * logged with the request that met it ({@link RequestInfoHandler}: path, parameters, user, trace id), as
+ * softa-web logs its own, so whoever looks into a refusal finds them there.</p>
  */
 @Slf4j
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class FlowExceptionHandler {
+
+    private final RequestInfoHandler requestInfo;
+
+    public FlowExceptionHandler(RequestInfoHandler requestInfo) {
+        this.requestInfo = requestInfo;
+    }
 
     @ExceptionHandler(FlowCompileException.class)
     public ResponseEntity<ApiResponse<List<CompileDiagnostic>>> handleFlowCompileException(FlowCompileException ex) {
@@ -49,13 +61,13 @@ public class FlowExceptionHandler {
 
     @ExceptionHandler(FlowActionValidationException.class)
     public ResponseEntity<ApiResponse<Void>> handleFlowActionValidationException(FlowActionValidationException ex) {
-        log.warn("FlowActionValidationException: {}", ex.getMessage());
+        log.warn("FlowActionValidationException: {}{}", ex.getMessage(), requestInfo.getRequestInfo());
         return ResponseEntity.ok(ApiResponseErrorDetails.exception(ResponseCode.BAD_REQUEST, ex.getMessage()));
     }
 
     @ExceptionHandler(FlowAuthorizationException.class)
     public ResponseEntity<ApiResponse<Void>> handleFlowAuthorizationException(FlowAuthorizationException ex) {
-        log.warn("FlowAuthorizationException: {}", ex.getMessage());
+        log.warn("FlowAuthorizationException: {}{}", ex.getMessage(), requestInfo.getRequestInfo());
         return ResponseEntity.ok(ApiResponseErrorDetails.exception(ResponseCode.PERMISSION_DENIED, ex.getMessage()));
     }
 }

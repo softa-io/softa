@@ -68,7 +68,7 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
         actorValidator.validateRejectActor(pendingApproval, request.getActorId(), node);
         // A rejection says why: the submitter is told, and the record's approval history keeps it.
         if (!StringUtils.hasText(request.getComment())) {
-            throw new FlowActionValidationException("A comment is required to reject approval node: " + request.getNodeId());
+            throw new FlowActionValidationException("A comment is required to reject: say why.");
         }
         // One approver's rejection rejects the approval — a rejection has no threshold to count towards — unless they
         // already approved the step: they have had their say on it.

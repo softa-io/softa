@@ -141,7 +141,8 @@ class AdministrationScenarioTest {
         FlowInstanceAccessGuard guard = new FlowInstanceAccessGuard(mock(FlowInstanceService.class),
                 new ApprovalAuditReader(new NoopApprovalActionLedger()), TestFlowRuntimeFactory.taskRows(taskHolders));
         assertDoesNotThrow(() -> guard.requireInstanceViewer(state, ALICE));
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(state, ADMIN));
+        assertEquals("You do not have access to this request.", assertThrows(FlowAuthorizationException.class,
+                () -> guard.requireInstanceViewer(state, ADMIN)).getMessage());
     }
 
     @Test
@@ -157,15 +158,19 @@ class AdministrationScenarioTest {
     @Test
     void onlyARunningWaitingOrFailedInstanceCanBeTerminatedAndAlwaysWithAReason() {
         FlowExecutionState started = start(List.of(ALICE), "AnyOne");
-        assertThrows(FlowActionValidationException.class, () -> engine.terminate(terminate(started.getInstanceId(), " ")));
+        assertEquals("A reason is required to terminate this instance.",
+                assertThrows(FlowActionValidationException.class,
+                        () -> engine.terminate(terminate(started.getInstanceId(), " "))).getMessage());
 
         FlowApproveRequest approve = new FlowApproveRequest();
         approve.setInstanceId(started.getInstanceId());
         approve.setNodeId("approval");
         approve.setActorId(ALICE);
         assertEquals(FlowExecutionStatus.COMPLETED, engine.approve(approve).getStatus());
-        assertThrows(FlowActionValidationException.class,
-                () -> engine.terminate(terminate(started.getInstanceId(), "Too late")));
+        assertEquals("Only an instance that is running, waiting or failed can be terminated; this one is Completed. "
+                        + "Refresh to see where it stands.",
+                assertThrows(FlowActionValidationException.class,
+                        () -> engine.terminate(terminate(started.getInstanceId(), "Too late"))).getMessage());
     }
 
     @Test

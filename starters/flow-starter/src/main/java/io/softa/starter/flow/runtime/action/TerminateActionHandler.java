@@ -48,12 +48,12 @@ public class TerminateActionHandler implements FlowActionHandler<FlowTerminateRe
             throw new FlowActionValidationException("instanceId and actorId are required to terminate a flow instance");
         }
         if (!StringUtils.hasText(request.getComment())) {
-            throw new FlowActionValidationException("A reason is required to terminate flow instance " + request.getInstanceId());
+            throw new FlowActionValidationException("A reason is required to terminate this instance.");
         }
         FlowExecutionState state = contextService.requireState(request.getInstanceId());
         if (!TERMINABLE.contains(state.getStatus())) {
             throw new FlowActionValidationException("Only an instance that is running, waiting or failed can be "
-                    + "terminated; " + request.getInstanceId() + " is " + state.getStatus().getType());
+                    + "terminated; this one is " + state.getStatus().getType() + ". Refresh to see where it stands.");
         }
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
         FlowExecutionStatus statusBefore = state.getStatus();

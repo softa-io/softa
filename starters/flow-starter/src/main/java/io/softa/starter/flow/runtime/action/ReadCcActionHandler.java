@@ -39,11 +39,10 @@ public class ReadCcActionHandler implements FlowActionHandler<FlowCcReadRequest>
 
         FlowExecutionState state = contextService.requireState(request.getInstanceId());
         ApprovalActionAuditEntry ccAudit = auditService.findCcAudit(state, request.getNodeId(), request.getActorId())
-                .orElseThrow(() -> new FlowActionValidationException("CC task not found for node '" + request.getNodeId()
-                        + "', actor '" + request.getActorId() + "'"));
+                .orElseThrow(() -> new FlowActionValidationException(
+                        "This request was not copied to you at this step."));
         if (auditService.hasReadCcAudit(state, request.getNodeId(), request.getActorId())) {
-            throw new FlowActionValidationException("CC task has already been marked as read for node '" + request.getNodeId()
-                    + "', actor '" + request.getActorId() + "'");
+            throw new FlowActionValidationException("You have already marked this request as read.");
         }
 
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());

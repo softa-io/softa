@@ -47,12 +47,12 @@ public class CommentActionHandler implements FlowActionHandler<FlowCommentReques
         FlowExecutionState state = contextService.requireState(request.getInstanceId());
         // A comment belongs to an approval while it runs; one that has ended keeps its history as it closed.
         if (state.getStatus() == null || state.getStatus().isTerminal()) {
-            throw new FlowActionValidationException("Flow instance has ended and takes no more comments: "
-                    + request.getInstanceId());
+            throw new FlowActionValidationException(
+                    FlowActionContextService.noLongerWaiting(state.getStatus(), "commented on"));
         }
         if (!accessGuard.isParticipant(state, request.getActorId())) {
-            throw new FlowAuthorizationException("Only the initiator and the people flow instance "
-                    + request.getInstanceId() + " gives a task to may comment on it");
+            throw new FlowAuthorizationException(
+                    "Only the submitter and the people this request gives a task to can comment on it.");
         }
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
         FlowExecutionStatus statusBefore = state.getStatus();
