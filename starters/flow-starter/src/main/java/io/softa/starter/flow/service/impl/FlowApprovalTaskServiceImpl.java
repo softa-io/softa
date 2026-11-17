@@ -117,8 +117,11 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                 .anyMatch(task -> requesterId != null && requesterId.equals(task.getActorId()));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
         // The tasks of one instance, read on its own page: the instance is already in hand there, so the tasks carry
-        // none of its context — what the lists of many instances' tasks add.
-        return FlowApprovalTaskViewMapper.toViews(tasks);
+        // none of its context — what the lists of many instances' tasks add — only what their steps say about acting
+        // on them, which decides the actions the page offers.
+        List<FlowApprovalTaskView> views = FlowApprovalTaskViewMapper.toViews(tasks);
+        instanceContextEnricher.applyStepConfig(instanceId, views);
+        return views;
     }
 
     /**
