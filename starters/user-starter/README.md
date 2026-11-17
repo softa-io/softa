@@ -177,7 +177,7 @@ then choose which membership to enter.
 | `leaveTenant` | Drop this tenant's session and return to the company step, **still authenticated** — what the client calls on a 414 instead of signing the person out |
 | `joinEntry` / `sendJoinCode` / `verifyJoinCode` / `setJoinPassword` / `confirmJoin` | The `/join` flow: an invitee proves the contact, sets a password and binds the membership, with no session at any point |
 | `inviteInfo` | What the invitation landing page may show for a token |
-| `forgetPassword` / `resetPasswordByCode` / `resetPassword` | Verification-code password reset |
+| `forgetPassword` / `checkResetCode` / `resetPasswordByCode` / `resetPassword` | Verification-code password reset; `checkResetCode` checks the code on its own step without spending it, under the same attempt limits |
 
 `UserAccountController` (`/UserAccount/*`) — the generic CRUD endpoints are all
 **shadowed** here so the roster scope applies to by-id reads and writes as well as

@@ -804,7 +804,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             // A record from before the personal mobile was required: the email is all there is.
             if (account.getProfileId() == null) {
                 return this.verified(rawToken, Objects.requireNonNullElseGet(proofGuard.joinPersonOf(rawToken),
-                        () -> this.createJoinPerson(rawToken, address)), "email");
+                        () -> this.createJoinPerson(rawToken, address)), "email", true);
             }
             // The email proves who holds the mailbox, which the company chose; it says nothing about
             // the person the row names. That is enough for the placeholder minted with the account —
@@ -815,16 +815,21 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 throw AccountErrorCodes.refusal(AccountErrorCodes.JOIN_NEEDS_MOBILE,
                         "This invitation needs a mobile number to confirm who you are. Please contact your HR.");
             }
-            return this.verified(rawToken, account.getProfileId(), "email");
+            return this.verified(rawToken, account.getProfileId(), "email", true);
         }
         Long createdForThisLink = proofGuard.joinPersonOf(rawToken);
         UserIdentity holder = this.holderOf(mobile, account, createdForThisLink);
         if (holder == null) {
-            return this.verified(rawToken, this.createJoinPerson(rawToken, mobile), byMobile ? "mobile" : "email");
+            return this.verified(rawToken, this.createJoinPerson(rawToken, mobile), byMobile ? "mobile" : "email",
+                    true);
         }
-        if (byMobile || this.isPlaceholderFor(holder, account)
-                || Objects.equals(holder.getProfileId(), createdForThisLink)) {
-            return this.verified(rawToken, holder.getProfileId(), byMobile ? "mobile" : "email");
+        boolean placeholder = this.isPlaceholderFor(holder, account);
+        boolean madeForThisLink = Objects.equals(holder.getProfileId(), createdForThisLink);
+        if (byMobile || placeholder || madeForThisLink) {
+            // No personal account held the number before this link: the account's own placeholder,
+            // or a person an earlier verification of this link made. Anyone else had one already.
+            return this.verified(rawToken, holder.getProfileId(), byMobile ? "mobile" : "email",
+                    placeholder || madeForThisLink);
         }
         return JoinVerification.verifyMobile(mobileFormat.format(mobile).masked());
     }
@@ -865,7 +870,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * The verification result, carrying a freshly minted proof. Minted here and nowhere else: every
      * branch above has just seen the code pass, and the proof must mean exactly that.
      */
-    private JoinVerification verified(String rawToken, Long profileId, String channel) {
+    private JoinVerification verified(String rawToken, Long profileId, String channel, boolean newPerson) {
+        // Recorded on every pass, so a second visit is known whichever branch the first one took.
+        boolean firstVisit = proofGuard.firstVerification(rawToken, profileId);
         // An Unbind & Re-invite link always sets the password: the membership is the person's again
         // the moment it is set, and someone who already had one resets it here.
         if (invitationService.isRebindLink(rawToken)) {
@@ -873,7 +880,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         }
         boolean mustSetPassword = identityService.findByProfile(profileId)
                 .map(identity -> StringUtils.isBlank(identity.getPassword())).orElse(true);
-        return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel));
+        // Signed up: nobody held the number before this link, this is the link's first pass for them,
+        // and a password is still to be set. Someone back to an account they left half set up — a
+        // second pass of the same link — is not told they signed up again.
+        return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel),
+                newPerson && firstVisit && mustSetPassword);
     }
 
     @Override
@@ -940,6 +951,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         }
         return new AuthenticationResult.JoinPrefill(channel,
                 "mobile".equals(channel) ? LoginIdentifiers.normalize(value) : value);
+    }
+
+    @Override
+    public void checkResetCode(String identifier, String code) {
+        // Same order and same answers as resetPasswordByCode, minus the spending.
+        codeGuard.check(LoginIdentifiers.normalize(identifier), code);
+        this.findLinked(identifier).orElseThrow(LoginServiceImpl::incorrectCode);
     }
 
     @Override

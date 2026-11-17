@@ -49,7 +49,8 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         implements UserInvitationService {
 
     /** Invitation / reset links are valid for 7 days. */
-    private static final int EXPIRY_DAYS = 7;
+    /** How long an invitation link lives. Package-visible: the join flow remembers per-link facts as long. */
+    static final int EXPIRY_DAYS = 7;
     /** Token entropy: 32 random bytes → URL-safe Base64 (~43 chars). */
     private static final int TOKEN_BYTES = 32;
     /** Cap on the unbind reason. Long enough for a sentence, short enough to stay readable. */
@@ -766,8 +767,10 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         invitation.setStatus(InvitationStatus.ACCEPTED);
         invitation.setAcceptedAt(LocalDateTime.now());
         this.updateOne(invitation);
-        // Spent, not left to expire: the flow it authorized is complete.
+        // Spent, not left to expire: the flow it authorized is complete — and with it whatever the
+        // link remembered about its earlier verifications.
         proofGuard.consume(proof);
+        proofGuard.forgetVerifications(rawToken);
         log.info("Profile {} joined tenant {} via invitation {}.",
                 profileId, account.getTenantId(), invitation.getId());
     }

@@ -75,6 +75,8 @@ class JoinIdentificationTest {
         when(invitationService.resolveJoinChannel(TOKEN, "mobile")).thenReturn(MOBILE);
         when(invitationService.resolveJoinContacts(TOKEN)).thenReturn(new JoinContacts(EMAIL, MOBILE));
         when(proofGuard.mint(any(), any(), any())).thenReturn("proof");
+        // Each test is a first visit of the link unless it says otherwise.
+        when(proofGuard.firstVerification(any(), any())).thenReturn(true);
         when(profileService.createPersonForJoin(MOBILE)).thenReturn(NEW_PERSON);
         when(identityService.findByLoginIdentifier(MOBILE)).thenReturn(Optional.empty());
     }
@@ -109,6 +111,7 @@ class JoinIdentificationTest {
 
         assertThat(result.profileId()).isEqualTo(EXISTING);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.CONFIRM);
+        assertThat(result.signedUp()).isFalse();
         verify(proofGuard).mint(TOKEN, EXISTING, "mobile");
     }
 
@@ -143,7 +146,10 @@ class JoinIdentificationTest {
         when(profileService.createPersonForJoin(EMAIL)).thenReturn(NEW_PERSON);
         when(proofGuard.joinPersonOf(TOKEN)).thenReturn(null);
 
-        assertThat(loginService.verifyJoinCode(TOKEN, "email", "123456").profileId()).isEqualTo(NEW_PERSON);
+        JoinVerification result = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(result.profileId()).isEqualTo(NEW_PERSON);
+        assertThat(result.signedUp()).isTrue();
     }
 
     @Test
@@ -156,6 +162,33 @@ class JoinIdentificationTest {
 
         assertThat(result.profileId()).isEqualTo(PLACEHOLDER);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(result.signedUp()).isTrue();
+    }
+
+    @Test
+    void thePlaceholderBackForASecondPass_isNotToldTheySignedUpAgain() {
+        // Verified once, left before setting a password, back on the same link: still the account's
+        // placeholder (no password, no other membership), but no longer a sign-up.
+        holding(PLACEHOLDER, null);
+        when(invitationService.isPlaceholderPerson(PLACEHOLDER, ACCOUNT)).thenReturn(true);
+        when(proofGuard.firstVerification(TOKEN, PLACEHOLDER)).thenReturn(false);
+
+        JoinVerification result = loginService.verifyJoinCode(TOKEN, "mobile", "123456");
+
+        assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(result.signedUp()).isFalse();
+    }
+
+    @Test
+    void anExistingHolderWithoutAPassword_isNotASignUp_evenOnTheLinksFirstPass() {
+        // Someone who already had a personal account elsewhere and never set its password.
+        holding(EXISTING, null);
+        when(invitationService.isPlaceholderPerson(EXISTING, ACCOUNT)).thenReturn(false);
+
+        JoinVerification result = loginService.verifyJoinCode(TOKEN, "mobile", "123456");
+
+        assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(result.signedUp()).isFalse();
     }
 
     @Test
@@ -167,6 +200,7 @@ class JoinIdentificationTest {
 
         assertThat(result.profileId()).isEqualTo(NEW_PERSON);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(result.signedUp()).isTrue();
         verify(proofGuard).rememberJoinPerson(TOKEN, NEW_PERSON);
     }
 
@@ -176,11 +210,14 @@ class JoinIdentificationTest {
         // a dormant holder looks like. Releasing their number would orphan them and make a third.
         holding(NEW_PERSON, null);
         when(proofGuard.joinPersonOf(TOKEN)).thenReturn(NEW_PERSON);
+        when(proofGuard.firstVerification(TOKEN, NEW_PERSON)).thenReturn(false);
 
         JoinVerification result = loginService.verifyJoinCode(TOKEN, "email", "123456");
 
         assertThat(result.profileId()).isEqualTo(NEW_PERSON);
         assertThat(result.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        // Back to an account they left half set up: not a sign-up a second time.
+        assertThat(result.signedUp()).isFalse();
         verify(accountService, never()).releaseDormantLoginMobile(anyString(), anyString());
         verify(profileService, never()).createPersonForJoin(anyString());
     }

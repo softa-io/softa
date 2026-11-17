@@ -104,6 +104,54 @@ class VerificationCodeGuardTest {
     }
 
     @Test
+    void aCheck_passesWithoutSpendingTheCode_whichTheActionThenSpends() {
+        issueIgnoringCooldown("123456");
+
+        assertThatCode(() -> guard.check(ID, "123456")).doesNotThrowAnyException();
+        assertThatCode(() -> guard.check(ID, "123456")).doesNotThrowAnyException();
+
+        // Still there for the action the check came before — and gone once that spends it.
+        assertThatCode(() -> guard.verify(ID, "123456")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> guard.verify(ID, "123456"))
+                .hasMessageContaining("expired");
+    }
+
+    @Test
+    void wrongChecks_drawOnTheSameBudget_asWrongVerifies() {
+        issueIgnoringCooldown("123456");
+
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> guard.check(ID, "000000"))
+                    .hasMessageContaining("Incorrect code");
+        }
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> guard.verify(ID, "000000"))
+                    .hasMessageContaining("Incorrect code");
+        }
+        // The fifth wrong try, whichever call makes it, kills the code: a check is no free guess.
+        assertThatThrownBy(() -> guard.check(ID, "000000"))
+                .hasMessageContaining("no longer valid");
+        assertThatThrownBy(() -> guard.check(ID, "123456"))
+                .hasMessageContaining("expired");
+    }
+
+    @Test
+    void aRightCheck_renewsNoBudget_forTheCodeItLeavesAlive() {
+        issueIgnoringCooldown("123456");
+
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> guard.check(ID, "000000"))
+                    .hasMessageContaining("Incorrect code");
+        }
+        // The owner checks the right code. Clearing the count here would give whoever is guessing four
+        // more tries against the same, still-live code.
+        assertThatCode(() -> guard.check(ID, "123456")).doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> guard.check(ID, "000000"))
+                .hasMessageContaining("no longer valid");
+    }
+
+    @Test
     void missingCode_isRefused_withoutSpendingAnAttempt() {
         issueIgnoringCooldown("123456");
         Map<String, Long> countersBefore = new HashMap<>(counters);

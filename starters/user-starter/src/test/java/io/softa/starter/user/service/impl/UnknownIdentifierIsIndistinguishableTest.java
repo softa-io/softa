@@ -333,4 +333,17 @@ class UnknownIdentifierIsIndistinguishableTest {
         verify(codeGuard).verify("+6590000001", "123456");
         verify(identityService, never()).setPassword(any(Long.class), anyString());
     }
+
+    @Test
+    void checkingAResetCode_nobodysNumberGetsTheWrongCodeAnswer_andTheCodeIsNotSpent() {
+        somebodyHolds("+6591234567");
+        doThrow(wrongCode()).when(codeGuard).check("+6591234567", "000000");
+        Throwable known = catchThrowable(() -> loginService.checkResetCode("+6591234567", "000000"));
+
+        Throwable unknown = catchThrowable(() -> loginService.checkResetCode("+6590000001", "123456"));
+
+        sameAnswer(known, unknown);
+        verify(codeGuard).check("+6590000001", "123456");
+        verify(codeGuard, never()).verify(anyString(), anyString());
+    }
 }

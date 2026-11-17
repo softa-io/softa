@@ -449,6 +449,18 @@ public class LoginController {
         return ApiResponse.success();
     }
 
+    /**
+     * Checks a reset code without spending it: the forgot-password page asks for the code first and
+     * the new password next, and a wrong code must be refused on the first screen.
+     */
+    @Operation(summary = "Check a password-reset code without spending it")
+    @PostMapping("/checkResetCode")
+    @SwitchUser(SystemUser.REGISTERED_USER)
+    public ApiResponse<Void> checkResetCode(@RequestBody @Valid CheckResetCodeDTO dto) {
+        loginService.checkResetCode(dto.getIdentifier(), dto.getVerificationCode());
+        return ApiResponse.success();
+    }
+
     @PostMapping("/resetPassword")
     @SwitchUser(SystemUser.REGISTERED_USER)
     public ApiResponse<Void> resetPassword(@RequestBody @Valid ResetPasswordDTO resetPasswordDTO) {

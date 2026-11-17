@@ -111,6 +111,33 @@ public class JoinProofGuard {
         return value == null ? null : Long.valueOf(value);
     }
 
+    private static String verifiedKey(String rawToken) {
+        return "join:verified:" + HashUtils.sha256Hex(rawToken);
+    }
+
+    /**
+     * Record that a verification of this link passed for {@code profileId}, and say whether it is the
+     * first one: true the first time, false when the same person verifies the same link again — the
+     * invitee who verified, left before setting a password and came back. Kept as long as the link
+     * lives, not as long as a proof: someone may well come back the next day.
+     */
+    public boolean firstVerification(String rawToken, Long profileId) {
+        if (StringUtils.isBlank(rawToken) || profileId == null) {
+            return false;
+        }
+        String key = verifiedKey(rawToken);
+        String earlier = cacheService.get(key);
+        cacheService.save(key, profileId.toString(), UserInvitationServiceImpl.EXPIRY_DAYS * 24 * 60 * 60);
+        return !profileId.toString().equals(earlier);
+    }
+
+    /** Drop what {@link #firstVerification} recorded for this link: the join it served is complete. */
+    public void forgetVerifications(String rawToken) {
+        if (StringUtils.isNotBlank(rawToken)) {
+            cacheService.clear(verifiedKey(rawToken));
+        }
+    }
+
     /** Spend the proof: the step it existed for has completed. */
     public void consume(String proof) {
         if (StringUtils.isNotBlank(proof)) {
