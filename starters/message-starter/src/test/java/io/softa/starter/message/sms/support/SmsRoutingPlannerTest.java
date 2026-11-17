@@ -31,8 +31,8 @@ class SmsRoutingPlannerTest {
     @Test
     void templatePlanIntersectsCountryEligibleProvidersWithBindings() {
         SendSmsDTO dto = templateDto("+8613800138000");
-        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO, 10);
-        SmsProviderConfig aliyun = provider(2L, SmsProvider.ALIYUN, 20);
+        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO);
+        SmsProviderConfig aliyun = provider(2L, SmsProvider.ALIYUN);
         SmsTemplate template = template(10L);
 
         when(dispatcher.resolveRegion("+8613800138000")).thenReturn("CN");
@@ -52,7 +52,7 @@ class SmsRoutingPlannerTest {
     @Test
     void regionSpecificBindingWinsOverGenericForSameProvider() {
         SendSmsDTO dto = templateDto("+8613800138000");
-        SmsProviderConfig aliyun = provider(2L, SmsProvider.ALIYUN, 20);
+        SmsProviderConfig aliyun = provider(2L, SmsProvider.ALIYUN);
         SmsTemplate template = template(10L);
 
         when(dispatcher.resolveRegion("+8613800138000")).thenReturn("CN");
@@ -70,7 +70,7 @@ class SmsRoutingPlannerTest {
     @Test
     void noBindingsUsesFirstEligibleProviderAndDtoOverrides() {
         SendSmsDTO dto = templateDto("+14155550100");
-        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO, 10);
+        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO);
         SmsTemplate template = template(10L);
 
         when(dispatcher.resolveRegion("+14155550100")).thenReturn("US");
@@ -87,7 +87,7 @@ class SmsRoutingPlannerTest {
     @Test
     void bindingConfiguredButNoneEligibleThrows() {
         SendSmsDTO dto = templateDto("+14155550100");
-        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO, 10);
+        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO);
         SmsTemplate template = template(10L);
 
         when(dispatcher.resolveRegion("+14155550100")).thenReturn("US");
@@ -104,7 +104,7 @@ class SmsRoutingPlannerTest {
         dto.setPhoneNumber("+14155550100");
         dto.setExternalTemplateId("directTpl");
         dto.setSignName("directSign");
-        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO, 10);
+        SmsProviderConfig twilio = provider(1L, SmsProvider.TWILIO);
 
         when(dispatcher.resolveRegion("+14155550100")).thenReturn("US");
         when(dispatcher.resolveProviders("+14155550100")).thenReturn(List.of(twilio));
@@ -142,11 +142,10 @@ class SmsRoutingPlannerTest {
         return template;
     }
 
-    private static SmsProviderConfig provider(Long id, SmsProvider type, int priority) {
+    private static SmsProviderConfig provider(Long id, SmsProvider type) {
         SmsProviderConfig config = new SmsProviderConfig();
         config.setId(id);
         config.setProviderType(type);
-        config.setPriority(priority);
         config.setActive(true);
         return config;
     }

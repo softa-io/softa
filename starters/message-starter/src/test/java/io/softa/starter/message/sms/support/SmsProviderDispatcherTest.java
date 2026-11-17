@@ -18,14 +18,13 @@ import io.softa.starter.message.sms.service.SmsProviderRegionService;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Covers two-tier resolution: precise per-country candidates ordered by region
- * priority, then isDefault catchall, then BusinessException. Also
- * verifies longest-prefix parsing so {@code +886} resolves to TW (not CN).
+ * Covers country routing: the routed, enabled configs ordered by route priority
+ * then config id, and BusinessException for a country with no usable route —
+ * there is no catchall provider. Also verifies longest-prefix parsing so
+ * {@code +886} resolves to TW (not CN).
  */
 class SmsProviderDispatcherTest {
 
@@ -53,23 +52,21 @@ class SmsProviderDispatcherTest {
     }
 
     @Test
-    void preciseRoutingWinsOverDefault() {
-        // Aliyun-CN configured for CN; defaults must not be consulted.
-        SmsProviderConfig aliyun = enabledConfig(1L, SmsProvider.ALIYUN, false, 10);
+    void routedConfigIsReturned() {
+        SmsProviderConfig aliyun = enabledConfig(1L, SmsProvider.ALIYUN);
         when(regionService.findEnabledByRegion("CN")).thenReturn(List.of(row(1L, 10)));
         when(configService.getById(1L)).thenReturn(Optional.of(aliyun));
 
         List<SmsProviderConfig> result = dispatcher.resolveProviders("+8613800138000");
         Assertions.assertEquals(List.of(SmsProvider.ALIYUN), providerTypes(result));
-        verify(configService, never()).findEnabledDefaults();
     }
 
     @Test
-    void precisePicksHighestRegionPriority() {
-        // CN: Aliyun (region priority 10) before Tencent (20).
-        SmsProviderConfig aliyun = enabledConfig(1L, SmsProvider.ALIYUN, false, 100);
-        SmsProviderConfig tencent = enabledConfig(2L, SmsProvider.TENCENT, false, 100);
-        when(regionService.findEnabledByRegion("CN")).thenReturn(List.of(row(1L, 10), row(2L, 20)));
+    void picksHighestRoutePriority() {
+        // CN: Aliyun (route priority 10) before Tencent (20), whatever the row order.
+        SmsProviderConfig aliyun = enabledConfig(1L, SmsProvider.ALIYUN);
+        SmsProviderConfig tencent = enabledConfig(2L, SmsProvider.TENCENT);
+        when(regionService.findEnabledByRegion("CN")).thenReturn(List.of(row(2L, 20), row(1L, 10)));
         when(configService.getById(1L)).thenReturn(Optional.of(aliyun));
         when(configService.getById(2L)).thenReturn(Optional.of(tencent));
 
@@ -79,22 +76,22 @@ class SmsProviderDispatcherTest {
     }
 
     @Test
-    void fallbackToDefaultWhenNoPreciseRow() {
-        SmsProviderConfig twilio = enabledConfig(3L, SmsProvider.TWILIO, true, 1);
-        SmsProviderConfig sinch = enabledConfig(4L, SmsProvider.SINCH, true, 2);
-        when(regionService.findEnabledByRegion("FR")).thenReturn(List.of());
-        when(configService.findEnabledDefaults()).thenReturn(List.of(twilio, sinch));
+    void equalRoutePriorityOrdersByConfigId() {
+        SmsProviderConfig tencent = enabledConfig(5L, SmsProvider.TENCENT);
+        SmsProviderConfig aliyun = enabledConfig(2L, SmsProvider.ALIYUN);
+        when(regionService.findEnabledByRegion("CN")).thenReturn(List.of(row(5L, 10), row(2L, 10)));
+        when(configService.getById(5L)).thenReturn(Optional.of(tencent));
+        when(configService.getById(2L)).thenReturn(Optional.of(aliyun));
 
-        List<SmsProviderConfig> result = dispatcher.resolveProviders("+33123456789");
-        Assertions.assertEquals(List.of(SmsProvider.TWILIO, SmsProvider.SINCH),
+        List<SmsProviderConfig> result = dispatcher.resolveProviders("+8613800138000");
+        Assertions.assertEquals(List.of(SmsProvider.ALIYUN, SmsProvider.TENCENT),
                 providerTypes(result));
     }
 
     @Test
-    void throwsWhenNoPreciseAndNoDefault() {
-        // +49 = Germany (DE), unambiguous.
+    void throwsWhenCountryHasNoRoute() {
+        // +49 = Germany (DE), unambiguous. No route row: the country is not supported.
         when(regionService.findEnabledByRegion("DE")).thenReturn(List.of());
-        when(configService.findEnabledDefaults()).thenReturn(List.of());
 
         BusinessException ex = Assertions.assertThrows(BusinessException.class,
                 () -> dispatcher.resolveProviders("+4915112345678"));
@@ -103,24 +100,24 @@ class SmsProviderDispatcherTest {
     }
 
     @Test
-    void precisePresentDoesNotConsultDefaults() {
-        // TW has Twilio precisely → returns Twilio without touching the default tier.
-        SmsProviderConfig twilio = enabledConfig(3L, SmsProvider.TWILIO, true, 1);
-        when(regionService.findEnabledByRegion("TW")).thenReturn(List.of(row(3L, 10)));
-        when(configService.getById(3L)).thenReturn(Optional.of(twilio));
+    void throwsWhenEveryRoutedConfigIsDisabled() {
+        SmsProviderConfig aliyunDisabled = enabledConfig(1L, SmsProvider.ALIYUN);
+        aliyunDisabled.setActive(false);
+        when(regionService.findEnabledByRegion("CN")).thenReturn(List.of(row(1L, 10)));
+        when(configService.getById(1L)).thenReturn(Optional.of(aliyunDisabled));
 
-        List<SmsProviderConfig> result = dispatcher.resolveProviders("+886912345678");
-        Assertions.assertEquals(List.of(SmsProvider.TWILIO), providerTypes(result));
-        verify(configService, never()).findEnabledDefaults();
+        BusinessException ex = Assertions.assertThrows(BusinessException.class,
+                () -> dispatcher.resolveProviders("+8613800138000"));
+        Assertions.assertTrue(ex.getMessage().contains("CN"),
+                "Error should name the unresolved region; was: " + ex.getMessage());
     }
 
     @Test
     void longestPrefixMatchTaiwanNotChina() {
         // +886 must be parsed as TW, not falsely matched by +86 prefix.
         when(regionService.findEnabledByRegion(eq("TW"))).thenReturn(List.of());
-        when(configService.findEnabledDefaults()).thenReturn(List.of());
 
-        // No TW precise + no defaults → throws with "TW", NOT "CN".
+        // No TW route → throws with "TW", NOT "CN".
         BusinessException ex = Assertions.assertThrows(BusinessException.class,
                 () -> dispatcher.resolveProviders("+886912345678"));
         Assertions.assertTrue(ex.getMessage().contains("TW"), "Region must parse to TW");
@@ -130,9 +127,9 @@ class SmsProviderDispatcherTest {
     @Test
     void disabledConfigSkippedEvenIfRegionRowEnabled() {
         // Aliyun has a region row but its config is disabled → next enabled wins.
-        SmsProviderConfig aliyunDisabled = enabledConfig(1L, SmsProvider.ALIYUN, false, 10);
+        SmsProviderConfig aliyunDisabled = enabledConfig(1L, SmsProvider.ALIYUN);
         aliyunDisabled.setActive(false);
-        SmsProviderConfig twilio = enabledConfig(2L, SmsProvider.TWILIO, false, 20);
+        SmsProviderConfig twilio = enabledConfig(2L, SmsProvider.TWILIO);
         when(regionService.findEnabledByRegion("CN")).thenReturn(List.of(row(1L, 10), row(2L, 20)));
         when(configService.getById(1L)).thenReturn(Optional.of(aliyunDisabled));
         when(configService.getById(2L)).thenReturn(Optional.of(twilio));
@@ -159,13 +156,11 @@ class SmsProviderDispatcherTest {
         return providers.stream().map(SmsProviderConfig::getProviderType).toList();
     }
 
-    private static SmsProviderConfig enabledConfig(Long id, SmsProvider type, boolean isDefault, int priority) {
+    private static SmsProviderConfig enabledConfig(Long id, SmsProvider type) {
         SmsProviderConfig c = new SmsProviderConfig();
         c.setId(id);
         c.setProviderType(type);
-        c.setIsDefault(isDefault);
         c.setActive(true);
-        c.setPriority(priority);
         return c;
     }
 

@@ -13,7 +13,7 @@ public interface SmsProviderRegionService extends EntityService<SmsProviderRegio
     /**
      * Enabled routing rows for {@code regionCode}, ordered by {@code priority}
      * ascending. Returns the rows themselves (not joined provider configs) so
-     * the caller (dispatcher) can apply its own join + isDefault catchall logic.
+     * the caller (dispatcher) can join them to the enabled provider configs.
      *
      * @param regionCode ISO 3166-1 alpha-2 country code parsed from the recipient's E.164 number
      * @return ordered enabled rows; empty when no row matches the region
