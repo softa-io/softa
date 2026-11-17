@@ -10,6 +10,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.OnDelete;
 
 /**
  * RoleSensitiveFieldSet — one row = one sensitive_field_set grant for a role
@@ -48,7 +49,7 @@ public class RoleSensitiveFieldSet extends AuditableModel {
     private Long tenantId;
 
     @Field(label = "Role", fieldType = FieldType.MANY_TO_ONE, relatedModel = Role.class,
-            description = "Role ID (FK role.id)")
+            onDelete = OnDelete.CASCADE, description = "Role ID (FK role.id)")
     private Long roleId;
 
     @Field(length = 64,
