@@ -23,10 +23,15 @@ public enum ApproverSourceType {
     USERS("Users", false),
     /** One manager: the Nth up the chain. */
     SUPERVISOR("Supervisor", true),
-    /** One leader per department — one department, unless a variable names several. */
+    /** The leader of one department. */
     DEPT_LEADER("DeptLeader", true),
-    /** One HR business partner per department, as {@link #DEPT_LEADER}. */
+    /** The HR business partner of one department, as {@link #DEPT_LEADER}. */
     DEPT_HRBP("DeptHrbp", true),
+    /**
+     * The person a field of the record names — an employee or a login account, such as a transfer's new manager: the
+     * field {@link #FIELD} says, one of the record's own.
+     */
+    RECORD_FIELD("RecordField", true),
     ROLE_QUERY("RoleQuery", false),
     POSITION("Position", false),
     DEPARTMENT("Department", false),
@@ -34,6 +39,9 @@ public enum ApproverSourceType {
 
     /** The field a {@link #USERS} source names its people in: user ids. */
     public static final String USER_IDS = "userIds";
+
+    /** The field of the record a {@link #RECORD_FIELD} source reads its person from: the field's name. */
+    public static final String FIELD = "field";
 
     @JsonValue
     private final String type;

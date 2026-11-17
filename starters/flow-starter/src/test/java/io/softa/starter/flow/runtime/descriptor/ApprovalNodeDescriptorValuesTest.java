@@ -70,24 +70,45 @@ class ApprovalNodeDescriptorValuesTest {
     }
 
     /**
-     * The sources come in the order an HR administrator reaches for them — specific people, then the organization's:
-     * one person, then the holders of a role, a position or a department — every one of them offered, and each says
-     * what the designer needs to tell which settings apply: where specific people are named, and that a source finds
-     * one person at most.
+     * The sources come in the order an HR administrator reaches for them — specific people, then one person found
+     * (in the organization, or named by a field of the record), then the holders of a role, a position or a
+     * department — every one of them offered, and each says what the designer needs to tell which settings apply:
+     * where specific people are named, and that a source finds one person at most.
      */
     @Test
     void sourcesComeInTheOrderTheyAreReachedForAndSayWhatTheyFind() {
         List<?> options = (List<?>) property(approvalSchema(), "approverSources").get("options");
-        assertEquals(List.of("Specific people", "Supervisor", "Department leader", "Department HRBP", "Role", "Position",
-                "Department members"), options.stream().map(option -> ((Map<?, ?>) option).get("label")).toList());
+        assertEquals(List.of("Specific people", "Supervisor", "Department leader", "Department HRBP",
+                "Person on the record", "Role", "Position", "Department members"),
+                options.stream().map(option -> ((Map<?, ?>) option).get("label")).toList());
         assertTrue(options.stream().noneMatch(option -> ((Map<?, ?>) option).containsKey("deprecated")),
                 "every source is offered");
 
         Map<Object, Map<?, ?>> byType = new java.util.LinkedHashMap<>();
         options.forEach(option -> byType.put(((Map<?, ?>) option).get("type"), (Map<?, ?>) option));
         assertEquals("userIds", byType.get("Users").get("names"));
-        assertEquals(List.of("Supervisor", "DeptLeader", "DeptHrbp"), byType.values().stream()
+        assertEquals(List.of("Supervisor", "DeptLeader", "DeptHrbp", "RecordField"), byType.values().stream()
                 .filter(option -> Boolean.TRUE.equals(option.get("findsOne"))).map(option -> option.get("type")).toList());
+    }
+
+    /**
+     * A source that reads a field of the record picks it from the record's fields onto what it reads: a person — an
+     * employee or a login account — for the person on the record, a department for a department taken from the record.
+     */
+    @Test
+    void fieldsOfTheRecordArePickedByWhatTheyPointAt() {
+        Map<Object, Map<?, ?>> byType = new java.util.LinkedHashMap<>();
+        ((List<?>) property(approvalSchema(), "approverSources").get("options"))
+                .forEach(option -> byType.put(((Map<?, ?>) option).get("type"), (Map<?, ?>) option));
+
+        assertEquals(Map.of("type", "recordField", "label", "Field", "targets", List.of("Employee", "UserAccount"),
+                "required", true), ((Map<?, ?>) byType.get("RecordField").get("fields")).get("field"));
+        for (String type : List.of("DeptLeader", "DeptHrbp", "RoleQuery", "Department")) {
+            Map<?, ?> deptField = (Map<?, ?>) ((Map<?, ?>) byType.get(type).get("fields")).get("deptVariable");
+            assertEquals("recordField", deptField.get("type"), type);
+            assertEquals(List.of("Department"), deptField.get("targets"), type);
+            assertEquals(Map.of("deptScope", "VARIABLE_DEPT"), deptField.get("depends"), type);
+        }
     }
 
     /**

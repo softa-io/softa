@@ -515,7 +515,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         variables.putAll(submission.approval().variables());
         // The trigger metadata every triggered start carries (see FlowAutomationService).
         variables.put("_triggerType", FlowAutomationService.SUBMIT_TRIGGER_TYPE);
-        variables.put("_sourceModel", modelName);
+        variables.put(ApproverResolutionService.MODEL_KEY, modelName);
         variables.put("_sourceRowId", rowId);
         variables.put(ApproverResolutionService.SUBJECT_ID_KEY, submission.subjectId());
         return variables;
