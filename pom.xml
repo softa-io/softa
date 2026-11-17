@@ -191,6 +191,10 @@
 							<publishingServerId>central</publishingServerId>
 							<autoPublish>true</autoPublish>
 							<waitUntil>VALIDATED</waitUntil>
+							<!-- Every file counts toward the organization's monthly Central publishing
+							     limit, checksums included. Central requires only MD5 and SHA-1; the
+							     default (all) adds SHA-256 and SHA-512, two more files per artifact. -->
+							<checksums>required</checksums>
 						</configuration>
 					</plugin>
 				</plugins>
