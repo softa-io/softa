@@ -337,6 +337,24 @@ writes) is serialized across instances by a database session lock
 advisory lock on a dedicated connection, 60s wait budget; a timeout fails the
 boot rather than queueing instances behind a wedged sibling).
 
+### `SysModel` is named by its label, and found by its name or label
+
+`SysModel` declares `displayName = {"label"}` and `searchName = {"modelName", "label"}`. It has no
+`name` field, so the framework default was its id: a reference to a model showed a number, and
+`POST /SysModel/searchName` — behind the model pickers of the import and export template pages and
+of the flow designer — matched nothing typed into it.
+
+Transition: under a `scanner-scope` that covers `io\.softa\.starter\.metadata\.entity`, the
+`sys_model` row of `SysModel` and its two derived search indexes converge at boot. Anywhere else —
+an app whose scope leaves the catalog packages out, and production — update the row before the new
+jar starts, or restart after it: the catalog is read when the app starts. The derived indexes are not
+needed on a table of a few hundred rows.
+
+```sql
+UPDATE sys_model SET display_name = 'label', search_name = 'modelName,label'
+WHERE model_name = 'SysModel';
+```
+
 ### Physical convergence
 
 The convergence planner needs facts: the orchestrator snapshots the managed tables via
