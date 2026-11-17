@@ -378,6 +378,21 @@ deploying application moves the data; in zingkey-hcm it is
   platform's pages are new models (`PlatformMail*`, the platform's `MailSendRecord`)
   while a tenant's send log is `TenantMailSendRecord`: menus and role grants follow.
 
+### Upgrading to SMS routing without a default provider
+
+`SmsProviderConfig.isDefault` and `SmsProviderConfig.priority` are removed. A country
+is served only by its `sms_provider_region` rows; a number from a country without one
+now fails with `CONFIG_NOT_RESOLVABLE` instead of going out through a default
+provider. Route rows of equal priority are ordered by config id.
+
+- **Before the new jar**: give each country a default provider was serving a route
+  row of its own. The configs that were defaults:
+  `SELECT id, name, provider_type FROM sms_provider_config WHERE is_default AND active;`
+  — none, and nothing changes.
+- The columns `is_default` and `priority` and the index `idx_sms_provider_cfg_default`
+  are dropped by the scanner where `scanner-scope` covers message-starter; elsewhere
+  they stay, nullable and unread, and can be dropped with the release. No data moves.
+
 ### Message-starter properties
 
 Bound under `softa.message` from `MessageProperties` and the DLQ `@Value` keys.
@@ -826,9 +841,8 @@ Unread -> Read -> Archived
 
 SMS is a platform service: providers, country routing, templates and template
 bindings exist once, for every tenant, in tables that are not multi-tenant.
-Provider selection is by the recipient's country (see *SMS Provider Routing*),
-then the enabled `isDefault` providers ordered by `priority`, else a
-`BusinessException`. Provider configs are cached in Redis (5 min TTL) and evicted
+Provider selection is by the recipient's country (see *SMS Provider Routing*); a
+country without a route fails with a `BusinessException`. Provider configs are cached in Redis (5 min TTL) and evicted
 after every committed write, from any endpoint (`ConfigCacheEvictor`).
 
 A provider that sends a template registered with it (a binding's external
@@ -868,16 +882,16 @@ private MessageService messageService;
 
 // Plain text to a single recipient
 SendSmsDTO dto = new SendSmsDTO();
-dto.setPhoneNumber("+1234567890");
+dto.setPhoneNumber("+6591234567");
 dto.setContent("Order #1234 has been shipped.");
 Long id = messageService.sendSms(dto);
 
 // Independent batch: one DTO and one send record per phone number.
 SendSmsDTO first = new SendSmsDTO();
-first.setPhoneNumber("+1111111111");
+first.setPhoneNumber("+6591234567");
 first.setContent("System maintenance tonight at 10pm.");
 SendSmsDTO second = new SendSmsDTO();
-second.setPhoneNumber("+2222222222");
+second.setPhoneNumber("+6581234567");
 second.setContent("System maintenance tonight at 10pm.");
 List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 // ids point at PENDING records; the delivery loop moves them on to SENT/FAILED.
@@ -887,6 +901,25 @@ List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 > sendSmsBatch` persist an `SmsSendRecord (PENDING)` in the caller's
 > transaction and return immediately; the delivery loop renders, routes and
 > performs the provider call.
+
+#### Phone numbers
+
+`phoneNumber` carries its country code: `+6591234567`, or typed with spaces, dashes or brackets
+(`+65 9123-4567`), which acceptance drops — the record, the routing and the provider all see E.164.
+Acceptance refuses, before anything is written, a number without its country code (`91234567`,
+`006591234567`), one with letters or an extension, one with the wrong number of digits for its
+country, and one whose shared calling code (+1, +7, +44, +61) the bundled number ranges cannot place.
+
+The checks are `PhoneUtils` (softa-base). The digits are counted for the country
+(`isPossibleNumber`); the country's assigned ranges are not checked (`isValidNumber`), so a range a
+country opens after the bundled libphonenumber version is still accepted, and a number in an
+unassigned range is the provider's to refuse. Keeping the library current matters most for the
+shared calling codes, whose new ranges cannot be placed in a country until it knows them.
+
+A country without an SMS route is not refused at acceptance: that is configuration, and the record
+fails at its first attempt (`CONFIG_NOT_RESOLVABLE`), where adding the route and retrying recovers
+it. A screen about to text a code to a number the person just typed asks
+`MessageService.canSendSms(phoneNumber)` first, so it can say so before sending.
 
 ### Send Modes
 
@@ -900,12 +933,12 @@ List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 
 ```java
 SendSmsDTO first = new SendSmsDTO();
-first.setPhoneNumber("+111");
+first.setPhoneNumber("+6591234567");
 first.setTemplateCode("ORDER_STATUS");
 first.setTemplateVariables(Map.of("orderId", "A001", "status", "Shipped"));
 
 SendSmsDTO second = new SendSmsDTO();
-second.setPhoneNumber("+222");
+second.setPhoneNumber("+6581234567");
 second.setTemplateCode("ORDER_STATUS");
 second.setTemplateVariables(Map.of("orderId", "B002", "status", "Delivered"));
 
@@ -918,7 +951,7 @@ messageService.sendSmsBatch(List.of(first, second));
 Map<String, Object> vars = Map.of("code", "123456", "minutes", 5);
 
 SendSmsDTO sms = new SendSmsDTO();
-sms.setPhoneNumber("+1234567890");
+sms.setPhoneNumber("+6591234567");
 sms.setTemplateCode("VERIFY_CODE");
 sms.setTemplateVariables(vars);
 messageService.sendSms(sms);
@@ -940,31 +973,34 @@ POST /SmsTemplate/createOne
 
 `SmsProviderDispatcher` picks the provider(s) for an outbound SMS based on
 the recipient's country, parsed from the E.164 phone number via
-[libphonenumber](https://github.com/google/libphonenumber). Resolution is
-**two-tier, strict, no implicit cross-tier fallback**:
+[libphonenumber](https://github.com/google/libphonenumber). The country's route
+rows are the whole answer — **a country without one is not supported**, and there
+is no default provider to fall back to:
 
 ```text
 parseRegion(+8613800138000) -> "CN"
 
-  Tier 1: PRECISE      Tier 2: CATCHALL              FAIL
-  ┌──────────────┐     ┌──────────────────────┐     ┌────────────────────┐
-  │ Enabled rows │     │ SmsProviderConfig    │     │ BusinessException  │
-  │ in           │ ──▶ │ where isDefault=true │ ──▶ │ "No provider for X"│
-  │ sms_provider │     │ (ordered by priority)│     │                    │
-  │ _region      │     │                      │     │                    │
-  │ matching CN  │     │                      │     │                    │
-  └──────────────┘     └──────────────────────┘     └────────────────────┘
-        │                       │                            │
-        ▼                       ▼                            ▼
-  Use this ordered       Use this ordered               Send fails;
-  candidate list         candidate list                 fix config to recover
+  ┌──────────────────────────────┐            ┌──────────────────────────┐
+  │ Enabled sms_provider_region  │  none  ──▶ │ BusinessException        │
+  │ rows for CN whose config is  │            │ "No SMS provider serves  │
+  │ enabled, by priority, then   │            │  region CN"              │
+  │ config id                    │            └──────────────────────────┘
+  └──────────────────────────────┘                        │
+                │                                         ▼
+                ▼                                   Send fails;
+        Ordered candidate list              add a route row to recover
 ```
+
+The country comes from libphonenumber's number ranges, not from
+`country_region.dial_code`: dial codes are shared (`+1` US/CA/UM, `+7` RU/KZ,
+`+44` GB/GG/IM/JE, `+61` AU/CC/CX, `+64` NZ/PN), so a dial code cannot name the
+country of a number.
 
 #### Configuration model
 
 | Table | Purpose | Per-row data |
 |---|---|---|
-| `sms_provider_config` | Provider accounts and credentials | API key, sender number, `isDefault`, `priority` |
+| `sms_provider_config` | Provider accounts and credentials | API key, sender number / sender ID, rate limits |
 | `sms_provider_region` | Per-country routing rules | `region_code` (ISO 3166-1 alpha-2 string), `dial_code` (denormalized), `priority` |
 
 Two tables intentionally — one provider account commonly serves N countries
@@ -985,58 +1021,54 @@ the alpha-2 code itself). It lets admin list views render "CN (+86) → Aliyun"
 without joining `country_region`. Operators must not edit `dial_code`
 directly — the framework derives it from `region_code`.
 
-#### Catchall semantics
-
-There is **no magic** `region_code='*'` row. Catchall is expressed by
-`SmsProviderConfig.isDefault=true` — keeps `region_code` strictly an ISO
-3166 alpha-2 value with no special carve-outs in the schema.
-
 #### Resolution rules
 
-1. **Precise match wins fully** — if any `sms_provider_region` row matches
-   the recipient's country, only that tier's providers are used. The
-   dispatcher does **NOT** merge in the catchall tier.
-2. **Catchall** is consulted only when **no precise row** matches, never as
-   an in-line fallback for a partial precise match.
-3. **Explicit over implicit** — to make a catchall provider eligible for a
-   configured country too, add it explicitly as another
-   `sms_provider_region` row for that country.
+1. **Only route rows send** — a provider serves a country only through an
+   enabled `sms_provider_region` row for that country, pointing to an enabled
+   config. There is no magic `region_code='*'` row and no default provider:
+   `region_code` is always an ISO 3166 alpha-2 value.
+2. **Order** — the candidates are ordered by the row's `priority` (lower first),
+   then by config id. A template with provider bindings narrows them to the bound
+   providers, ordered by binding priority first (see *Template-level provider
+   bindings*).
+3. **Backup is manual** — a record keeps the provider chosen at its first
+   delivery. A lower-priority row is used only once the rows above it, or their
+   configs, are disabled.
 
-This rule keeps misrouting deterministic: a country you've explicitly
-configured cannot accidentally fall through to a wrong provider (e.g. TW
+This keeps misrouting impossible by omission: a country nobody configured is
+refused rather than sent through a provider chosen for somewhere else (e.g. TW
 traffic should never route through a mainland-CN-only line).
 
 #### Failure mode
 
-If neither precise nor catchall yields a provider, the dispatcher throws
-`BusinessException` with the unresolved region in the message. The send
-**fails fast** — there is no "any-enabled-provider" implicit fallback.
-Operators recover by either adding the missing `sms_provider_region` row or
-marking at least one provider `isDefault=true`.
+If no enabled route row points to an enabled config, the dispatcher throws
+`BusinessException` with the unresolved region in the message, and the record
+fails with `CONFIG_NOT_RESOLVABLE`. The same holds when the country has rows but
+every config they point to is disabled. Operators recover by adding a route row
+(or enabling a config) and retrying the record.
 
 #### Example configuration
 
-| `sms_provider_config` | id | name | provider_type | is_default | priority |
-|---|---|---|---|---|---|
-|  | 1 | Aliyun-China  | ALIYUN  | false | 10 |
-|  | 2 | Tencent-China | TENCENT | false | 20 |
-|  | 3 | Twilio-Global | TWILIO  | true  | 1  |
-|  | 4 | Vonage-Backup | VONAGE  | true  | 2  |
+| `sms_provider_config` | id | name | provider_type |
+|---|---|---|---|
+|  | 1 | Aliyun-China  | ALIYUN  |
+|  | 2 | Tencent-China | TENCENT |
+|  | 3 | Twilio-Global | TWILIO  |
 
 | `sms_provider_region` | provider_config_id | region_code | priority |
 |---|---|---|---|
 |  | 1 | CN | 10 |
 |  | 2 | CN | 20 |
 |  | 3 | TW | 10 |
+|  | 3 | US | 10 |
 
 Dispatch behaviour:
 
 | Recipient | Resolved provider list | Notes |
 |---|---|---|
-| `+8613800138000` (CN) | `[Aliyun, Tencent]` | Precise match; selection uses ordered CN candidates |
-| `+886912345678` (TW)  | `[Twilio]`           | Precise match; **Vonage is NOT added** as fallback |
-| `+33123456789` (FR)   | `[Twilio, Vonage]`   | No precise FR; falls to isDefault catchall |
-| `+44...` if no GB row and no defaults | throws `BusinessException` | Operator must configure |
+| `+8613800138000` (CN) | `[Aliyun, Tencent]` | Tencent is used only while Aliyun is disabled |
+| `+886912345678` (TW)  | `[Twilio]`           | |
+| `+33123456789` (FR)   | throws `BusinessException` | No FR row: France is not supported until one is added |
 
 #### Tenant scoping
 

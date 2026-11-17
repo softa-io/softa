@@ -16,37 +16,21 @@ import io.softa.starter.referencedata.entity.CountryRegion;
  * Per-country SMS provider routing row.
  * <p>
  * Each row asserts "{@code providerConfigId} serves recipients in
- * {@code regionCode} with {@code priority}". A provider serves a region only
- * if at least one enabled row exists for that {@code (provider, region)}
- * pair — absence is a hard no, not an implicit fallback.
+ * {@code regionCode} with {@code priority}". These rows are the only statement
+ * of which countries SMS can be sent to: a provider serves a region only if an
+ * enabled row exists for that {@code (provider, region)} pair, and a region
+ * with no enabled row pointing to an enabled provider config is not supported
+ * — sending to it fails. There is no catchall provider and no {@code "*"}
+ * magic value; {@code region_code} is always a real ISO 3166-1 alpha-2 code.
  * <p>
- * <b>Catchall behavior is NOT expressed here.</b> Use
- * {@code SmsProviderConfig.isDefault=true} to mark providers that should be
- * eligible when no precise routing matches. Keeping the two concerns in
- * different fields means {@code region_code} is always a real ISO 3166-1
- * alpha-2 code (no {@code "*"} magic value).
- * <p>
- * Dispatcher resolution order ({@code SmsProviderDispatcher}):
- * <ol>
- *   <li><b>Precise tier</b>: enabled rows whose {@code region_code} equals the
- *       recipient's country, ordered by {@code priority} asc then
- *       {@code SmsProviderConfig.priority} asc.</li>
- *   <li><b>Catchall tier</b>: if precise tier is empty, enabled
- *       {@code SmsProviderConfig} rows with {@code isDefault=true}, ordered
- *       by {@code SmsProviderConfig.priority} asc.</li>
- *   <li>Both empty → {@link io.softa.framework.base.exception.BusinessException}.
- *       Implicit "any enabled provider" fallback is intentionally absent.</li>
- * </ol>
+ * {@code SmsProviderDispatcher} orders a region's candidates by
+ * {@code priority} asc, then config id; the first one is used.
+ * To make a global provider eligible for TW traffic, explicitly add a TW
+ * row for that provider. Explicit configuration prevents routing to the wrong
+ * provider (e.g. accidentally sending TW traffic through a mainland-CN line).
  *
  * <p><b>Platform-owned</b>: routing exists once, for every tenant — SMS is a
  * platform service. The table is not multi-tenant and has no tenant column.
- *
- * <p><b>Precise match wins fully</b> — once the precise tier yields an
- * enabled provider, the dispatcher does NOT merge in the catchall tier.
- * To make a global provider eligible for TW traffic, explicitly add a TW
- * row for that provider too. Explicit
- * configuration over implicit fallback prevents routing to the wrong
- * provider (e.g. accidentally sending TW traffic through a mainland-CN line).
  */
 @Data
 @Model(
@@ -73,7 +57,7 @@ public class SmsProviderRegion extends AuditableModel {
             description = "Routed country — FK to country_region.id (ISO 3166-1 alpha-2, code-as-id). "
                     + "Mainland China (CN), Taiwan (TW), Hong Kong (HK), Macau (MO) are four "
                     + "distinct codes — configure each explicitly if needed on different providers. "
-                    + "No magic values like '*'; catchall is via SmsProviderConfig.isDefault.")
+                    + "No magic values like '*': a country without a row is not supported.")
     private String regionCode;
 
     /** Denormalised so list views can show "CN (+86)" without joining country_region per query. */
@@ -85,7 +69,7 @@ public class SmsProviderRegion extends AuditableModel {
 
     @Field(required = true,
             description = "Lower = higher priority. Ordered ascending within the same "
-                    + "region for provider selection; ties broken by SmsProviderConfig.priority asc. "
+                    + "region for provider selection; ties broken by config id. "
                     + "Defaults to 100 so new rows sort after any explicitly-prioritised ones.")
     private Integer priority;
 

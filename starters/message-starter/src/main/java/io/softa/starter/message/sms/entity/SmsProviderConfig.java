@@ -6,7 +6,6 @@ import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.enums.MaskingType;
 import io.softa.framework.orm.annotation.Field;
-import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
@@ -22,12 +21,14 @@ import io.softa.starter.message.sms.enums.SmsProvider;
  * Platform-owned: SMS is a platform service, so providers, country routing,
  * templates and template bindings exist once, for every tenant. The table is
  * not multi-tenant and has no tenant column; tenants never see or configure it.
+ * <p>
+ * A config sends to no country by itself: which countries it serves, and in which
+ * order, is said only by its {@link SmsProviderRegion} rows.
  */
 @Data
 @Model(label = "SMS Provider Config", idStrategy = IdStrategy.DISTRIBUTED_LONG,
         activeControl = true,
-        defaultOrder = {"priority", "name"})
-@Index(indexName = "idx_sms_provider_cfg_default", fields = {"isDefault"})
+        defaultOrder = {"name"})
 @EqualsAndHashCode(callSuper = true)
 public class SmsProviderConfig extends AuditableModel {
 
@@ -86,13 +87,6 @@ public class SmsProviderConfig extends AuditableModel {
     @Field(description = "Max SMS per day (null = unlimited)")
     private Integer dailySendLimit;
 
-    @Field(description = "Marks this provider as a catchall for second-tier dispatch, used when "
-                    + "no enabled sms_provider_region route matches the recipient's country. "
-                    + "Multiple defaults are ordered by priority before one is selected and "
-                    + "persisted. Orthogonal to region routing — a provider can be both a region "
-                    + "route and a catchall.")
-    private Boolean isDefault;
-
     /**
      * Framework active control: reads are auto-filtered to {@code active = true},
      * so a disabled row is retired from every list and every resolution without
@@ -101,9 +95,4 @@ public class SmsProviderConfig extends AuditableModel {
      */
     @Field(renamedFrom = "isEnabled")
     private Boolean active;
-
-    @Field(description = "Lower = higher priority. Used as selection ordering among "
-                    + "isDefault=true providers in the catchall dispatch tier, and as the list-display "
-                    + "order in admin UIs. Defaults to 100 so new configs sort after explicitly-prioritised ones.")
-    private Integer priority;
 }

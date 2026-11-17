@@ -7,9 +7,11 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.starter.message.shared.TenantScopes;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
@@ -21,9 +23,10 @@ import io.softa.starter.message.sms.support.SmsProviderDispatcher;
 
 /**
  * Internal acceptance handler for one SMS message. The counterpart of {@code MailMessageHandler}:
- * acceptance checks only what the caller got wrong — a number that parses as E.164, content or a
- * template to render it from — and stores the request as it was made in a PENDING
- * {@link SmsSendRecord}, in the caller's transaction.
+ * acceptance checks only what the caller got wrong — a number with its country code and the right
+ * number of digits for that country, content or a template to render it from — and stores the
+ * request in a PENDING {@link SmsSendRecord}, in the caller's transaction, with the number in E.164
+ * ({@code +6591234567}) whatever separators it was typed with.
  * <p>
  * Rendering the template, routing the number to a provider and charging the monthly quota happen at
  * the first delivery attempt, in {@link SmsDeliveryProcessor}; a request that fails there still has
@@ -51,14 +54,32 @@ final class SmsMessageHandler {
         return recordService.createOne(record);
     }
 
+    /**
+     * Whether an SMS can go to {@code phoneNumber} now: it is a number {@link #accept} takes, and an
+     * enabled route serves its country. Asked on a person's own request (a screen about to text them
+     * a code), so the platform's routing tables are read without that person's permissions — a tenant
+     * role holds none on them — and only the yes or no leaves here.
+     */
+    boolean canSend(String phoneNumber) {
+        try {
+            String e164 = PhoneUtils.toE164(phoneNumber);
+            return ContextUtils.withoutPermissionChecks(() -> !providerDispatcher.resolveProviders(e164).isEmpty());
+        } catch (BusinessException e) {
+            return false;
+        }
+    }
+
     /** Validate one request and build its PENDING record, without writing anything. */
     SmsSendRecord accept(SendSmsDTO dto) {
         if (!StringUtils.hasText(dto.getPhoneNumber())) {
             throw new BusinessException("SMS send rejected: phoneNumber is required");
         }
-        // Parses the number only (no configuration read): a bare national number, or one that is not
-        // a number at all, is the caller's mistake and never gets a record.
-        providerDispatcher.resolveRegion(dto.getPhoneNumber());
+        // The number only, no configuration read: one without its country code, with letters, of the
+        // wrong length for its country, or of a country the bundled ranges cannot place, is the
+        // caller's mistake and never gets a record. A country without a route is configuration, and
+        // fails at the first attempt, where adding the route and retrying recovers it.
+        String phoneNumber = PhoneUtils.toE164(dto.getPhoneNumber());
+        providerDispatcher.resolveRegion(phoneNumber);
         if (!StringUtils.hasText(dto.getContent()) && !StringUtils.hasText(dto.getTemplateCode())) {
             throw new BusinessException(
                     "SMS send rejected: no content — provide content or a templateCode that renders one");
@@ -71,7 +92,7 @@ final class SmsMessageHandler {
         // no tenant can be named.
         record.setTenantId(TenantScopes.currentTenantOrPlatform());
         record.setTraceId(ContextHolder.getContext().getTraceId());
-        record.setPhoneNumber(dto.getPhoneNumber());
+        record.setPhoneNumber(phoneNumber);
         record.setTemplateCode(StringUtils.hasText(dto.getTemplateCode()) ? dto.getTemplateCode() : null);
         record.setTemplateVariables(CollectionUtils.isEmpty(dto.getTemplateVariables())
                 ? null : JsonUtils.objectToJsonNode(dto.getTemplateVariables()));
