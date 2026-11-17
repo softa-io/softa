@@ -21,7 +21,7 @@ import io.softa.starter.user.service.AppPushDeviceService;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.web.session.SessionRecord;
@@ -278,7 +278,7 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
     }
 
     static String sessionKey(String sessionId) {
-        return StringUtils.isBlank(sessionId) ? null : EncryptUtils.computeSha256(sessionId);
+        return StringUtils.isBlank(sessionId) ? null : HashUtils.sha256Hex(sessionId);
     }
 
 }
