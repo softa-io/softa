@@ -513,7 +513,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         if (addressLimiter != null) {
             addressLimiter.count();
         }
-        Optional<UserIdentity> resolved = this.findLinked(identifier);
+        // Anyone holding this identifier, joined somewhere or not. Someone whose every account was
+        // closed or handed back (an Unbind & Re-invite moves the account to the right person) still
+        // has their password, and proving it earns them the reason they cannot go in — the
+        // no-company refusal below — not an "incorrect password" that sends them to reset it. An
+        // identifier nobody holds is still refused exactly like a wrong password.
+        Optional<UserIdentity> resolved =
+                identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier));
         if (resolved.isEmpty()) {
             this.refuseUnknownLikeAWrongPassword(identifier, channel, password);
         }
@@ -900,20 +906,24 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * branch above has just seen the code pass, and the proof must mean exactly that.
      */
     private JoinVerification verified(String rawToken, Long profileId, String channel, boolean newPerson) {
-        // Recorded on every pass, so a second visit is known whichever branch the first one took.
+        // Recorded on every pass, so a second visit is known whichever branch the first one took. The one
+        // record both answers below read: whether this pass signs the person up, or resumes a setup an
+        // earlier pass of the link left unfinished.
         boolean firstVisit = proofGuard.firstVerification(rawToken, profileId);
         // An Unbind & Re-invite link always sets the password: the membership is the person's again
         // the moment it is set, and someone who already had one resets it here.
         if (invitationService.isRebindLink(rawToken)) {
-            return JoinVerification.rebindVerified(profileId, proofGuard.mint(rawToken, profileId, channel));
+            return JoinVerification.rebindVerified(profileId, proofGuard.mint(rawToken, profileId, channel),
+                    !firstVisit);
         }
         boolean mustSetPassword = identityService.findByProfile(profileId)
                 .map(identity -> StringUtils.isBlank(identity.getPassword())).orElse(true);
         // Signed up: nobody held the number before this link, this is the link's first pass for them,
-        // and a password is still to be set. Someone back to an account they left half set up — a
-        // second pass of the same link — is not told they signed up again.
+        // and a password is still to be set. Resumed: a second pass of the same link with the password
+        // still owed — someone back to an account they left half set up, who is told the setup is
+        // unfinished instead of that they signed up again.
         return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel),
-                newPerson && firstVisit && mustSetPassword);
+                newPerson && firstVisit && mustSetPassword, !firstVisit && mustSetPassword);
     }
 
     @Override

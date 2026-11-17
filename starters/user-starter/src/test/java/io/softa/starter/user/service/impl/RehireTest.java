@@ -67,6 +67,7 @@ class RehireTest {
         ReflectionTestUtils.setField(accountService, "roleRelService", roleRelService);
         doReturn(1L).when(accountService).createOne(any(UserAccount.class));
         doReturn(true).when(accountService).updateOne(any(UserAccount.class), anyBoolean());
+        doReturn(true).when(accountService).updateOne(any(UserAccount.class));
         doReturn(List.of()).when(accountService).searchList(any(Filters.class));
         doReturn(Optional.empty()).when(accountService).findMembershipInTenant(any(), any());
         when(profileService.registerUserProfile(anyLong(), any(UserProfileDTO.class)))
@@ -111,6 +112,8 @@ class RehireTest {
         // The row is reused with the NEW contacts — no second row, no second person. Nobody is
         // bound to it until /join, so the answer is built from the row, not read from a person.
         verify(accountService).reviveMembership(PERSON, NEW_EMAIL, MOBILE);
+        // Named after the new record, as a new account is: reviving cleared the previous stint's name.
+        verify(accountService).nameRevivedAccount(CLOSED_ROW, NEW_EMAIL, MOBILE, "Ada L");
         verify(profileService, never()).getUserInfo(anyLong());
         verify(accountService, never()).createOne(any(UserAccount.class));
         verify(profileService, never()).registerUserProfile(anyLong(), any(UserProfileDTO.class));
