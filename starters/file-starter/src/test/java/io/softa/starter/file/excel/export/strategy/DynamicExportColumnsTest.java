@@ -50,6 +50,42 @@ class DynamicExportColumnsTest {
         return metaField;
     }
 
+    private static MetaField field(String model, String fieldName, String label, FieldType type, String relatedModel) {
+        MetaField metaField = new MetaField();
+        ReflectionTestUtils.setField(metaField, "modelName", model);
+        ReflectionTestUtils.setField(metaField, "fieldName", fieldName);
+        ReflectionTestUtils.setField(metaField, "fieldType", type);
+        ReflectionTestUtils.setField(metaField, "label", label);
+        ReflectionTestUtils.setField(metaField, "relatedModel", relatedModel);
+        return metaField;
+    }
+
+    @Test
+    void aFieldOfARelatedRecordIsHeadedByItsRelation_aFieldOfTheRowsOwnSubRecordIsNot() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.getModelField("Employee", "managerId"))
+                    .thenReturn(field("Employee", "managerId", "Manager", FieldType.MANY_TO_ONE, "Employee"));
+            mm.when(() -> ModelManager.getModelField("Employee", "hrbpId"))
+                    .thenReturn(field("Employee", "hrbpId", "HRBP", FieldType.MANY_TO_ONE, "Employee"));
+            mm.when(() -> ModelManager.getModelField("Employee", "code"))
+                    .thenReturn(field("Employee", "code", "Employee Code", FieldType.STRING, null));
+            mm.when(() -> ModelManager.getModelField("Employee", "employeeProfileId"))
+                    .thenReturn(field("Employee", "employeeProfileId", "Employee Profile", FieldType.ONE_TO_ONE, "EmployeeProfile"));
+            mm.when(() -> ModelManager.getModelField("EmployeeProfile", "passType"))
+                    .thenReturn(field("EmployeeProfile", "passType", "Pass Type", FieldType.MANY_TO_ONE, "PassType"));
+            mm.when(() -> ModelManager.getModelField("PassType", "name"))
+                    .thenReturn(field("PassType", "name", "Name", FieldType.STRING, null));
+
+            // Two relations onto one model: under the last label alone, both columns read "Employee Code".
+            assertThat(ExportByDynamic.columnHeader("Employee", "managerId.code")).isEqualTo("Manager › Employee Code");
+            assertThat(ExportByDynamic.columnHeader("Employee", "hrbpId.code")).isEqualTo("HRBP › Employee Code");
+            // The row's own sub-record reads as the row's own field, as the export dialog lists it.
+            assertThat(ExportByDynamic.columnHeader("Employee", "employeeProfileId.passType")).isEqualTo("Pass Type");
+            assertThat(ExportByDynamic.columnHeader("Employee", "employeeProfileId.passType.name"))
+                    .isEqualTo("Pass Type › Name");
+        }
+    }
+
     /** Stub the fetch, and have it mangle the field list the way the real query builder does. */
     private void fetchReturning(List<Map<String, Object>> rows) {
         ExportDataFetcher fetcher = mock(ExportDataFetcher.class);

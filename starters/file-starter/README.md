@@ -539,7 +539,7 @@ This allows exporting fields from related models through ManyToOne/OneToOne asso
 3. The related model is queried with the remaining path as expand fields.
 4. For 3+ levels, the process recurses: `deptId.companyId.code` → query `Dept` with field `companyId.code` → query `Company` with field `code`.
 5. The resolved value is stored in the row map with the full dotted key (e.g. `deptId.companyId.code`).
-6. The column header defaults to the **last field's label** (e.g. the label of `code`), unless `customHeader` is set.
+6. The column header: a template column's `customHeader` when set, else the **last field's label** (e.g. the label of `code`). A dynamic export, which has no `customHeader`, heads a dotted column with the label of each many-to-one on its path and then the field's — `deptId.name` is `Department › Name` — so the columns of two relations onto one model stay apart. A one-to-one hop adds nothing: `employeeProfileId.passType` is `Pass Type`, a field of the row's own sub-record (`ExportByDynamic.columnHeader`).
 
 **Rules:**
 - Maximum cascade depth: **4 levels** (`BaseConstant.CASCADE_LEVEL = 4`).
@@ -569,7 +569,7 @@ curl -X POST 'http://localhost:8080/export/dynamicExport?modelName=Employee' \
 JSON
 ```
 
-Result Excel columns: `Name | Department | Dept Manager`
+Result Excel columns: `Name | Department › Name | Department › Manager › Name`
 
 ### 1. Export By Template Fields
 1. Configure ExportTemplate and ExportTemplateField
