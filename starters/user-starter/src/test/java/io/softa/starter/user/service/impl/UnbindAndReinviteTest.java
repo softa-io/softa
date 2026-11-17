@@ -115,7 +115,7 @@ class UnbindAndReinviteTest {
 
         assertThatThrownBy(() -> invitationService.unbindAndReinvite(ACCOUNT, "Wrong hire", OPERATOR))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("The personal mobile and work email are the same as the last invitation. "
+                .hasMessage("The mobile number and email are the same as in the last invitation. "
                         + "Update the employee profile first.")
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(AccountErrorCodes.INVITATION_UNCHANGED);
@@ -259,7 +259,7 @@ class UnbindAndReinviteTest {
 
         assertThatThrownBy(() -> invitationService.unbindAndReinvite(ACCOUNT, "Wrong hire", OPERATOR))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("already belongs to another account");
+                .hasMessage("This work email is already used by another user.");
 
         // Refused BEFORE the unbind: otherwise the membership is detached and the call still fails.
     }

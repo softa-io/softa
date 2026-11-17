@@ -119,16 +119,7 @@ class NewAccountRefusalTest {
         return holder;
     }
 
-    // ─── the four refusals, in precedence order ───
-
-    @Test
-    void twoIdentifiersNamingTwoDifferentPeople() {
-        identifierBelongsTo(EMAIL, PERSON);
-        identifierBelongsTo(MOBILE, SOMEBODY_ELSE);
-
-        assertThat(refusalInThisTenant(EMAIL, MOBILE))
-                .isEqualTo("This email and mobile belong to two different people. Enter contacts for one person.");
-    }
+    // ─── the refusals, in precedence order ───
 
     @Test
     void theEmailIsHeldByAnotherAccountHere() {
@@ -137,7 +128,7 @@ class NewAccountRefusalTest {
         holder.setEmail(EMAIL.toUpperCase());
         doReturn(List.of(holder)).when(accountService).searchList(any(Filters.class));
 
-        assertThat(refusalInThisTenant(EMAIL, null)).isEqualTo("Email already exists: " + EMAIL);
+        assertThat(refusalInThisTenant(EMAIL, null)).isEqualTo("This work email is already used by another user.");
     }
 
     @Test
@@ -150,10 +141,10 @@ class NewAccountRefusalTest {
     @ParameterizedTest
     @EnumSource(value = AccountStatus.class, names = {"ACTIVE", "INVITED", "PENDING", "FROZEN"})
     void thePersonAlreadyHasALiveMembershipHere(AccountStatus live) {
-        identifierBelongsTo(EMAIL, PERSON);
+        identifierBelongsTo(MOBILE, PERSON);
         membershipHere(live);
 
-        assertThat(refusalInThisTenant(EMAIL, null))
+        assertThat(refusalInThisTenant(null, MOBILE))
                 .isEqualTo("This person is already a member of this company.");
     }
 
@@ -162,23 +153,34 @@ class NewAccountRefusalTest {
         // The same refusal, told apart. A consultant's row is minted by the platform and hidden
         // from every roster read, so "already a member of this company" pointed the operator at an
         // account list that does not contain it and never will — a dead end with no next step.
+        identifierBelongsTo(MOBILE, PERSON);
+        consultantMembershipHere();
+
+        assertThat(refusalInThisTenant(null, MOBILE))
+                .isEqualTo("This person is a consultant for this company, so they cannot also be "
+                        + "created as an employee here. Ask the platform administrator.");
+    }
+
+    @Test
+    void aConsultantsOwnEmailStillNamesThem() {
+        // A consultant's address is their own, not a company's: typed for a new hire here, it is
+        // the consultant already authorized for this company.
         identifierBelongsTo(EMAIL, PERSON);
         consultantMembershipHere();
 
-        assertThat(refusalInThisTenant(EMAIL, null))
-                .isEqualTo("This person is a consultant for this company, so they cannot also be "
-                        + "created as an employee here. Ask the platform administrator.");
+        assertThat(refusalInThisTenant(EMAIL, MOBILE))
+                .startsWith("This person is a consultant for this company");
     }
 
     @Test
     void anOrdinaryMembershipKeepsTheGenericWording() {
         // The paired negative: an employee's own row is visible in the account list, so naming it
         // generically is correct there and the consultant branch must not swallow it.
-        identifierBelongsTo(EMAIL, PERSON);
+        identifierBelongsTo(MOBILE, PERSON);
         UserAccount row = membershipHere(AccountStatus.ACTIVE);
         row.setConsultant(Boolean.FALSE);
 
-        assertThat(refusalInThisTenant(EMAIL, null))
+        assertThat(refusalInThisTenant(null, MOBILE))
                 .isEqualTo("This person is already a member of this company.");
     }
 
@@ -196,12 +198,12 @@ class NewAccountRefusalTest {
                         + "Re-hire that account instead of creating a new one.");
     }
 
+    // ─── allowed ───
+
     @Test
-    void aClosedRowHoldingTheMobileIsRefusedTheSameWay_evenWhenTheEmailNamesSomeoneElse() {
-        // The email is a live identifier of one person; the mobile sits on somebody else's closed
-        // row. That row is not read as a second person (it names an address, not a human), so this
-        // is not "two people" — it is a contact HR must free up or re-hire, and it is told which.
-        identifierBelongsTo(EMAIL, PERSON);
+    void aClosedRowsLastMobileHoldsNothing() {
+        // Off-boarding released the company phone from the leaver's login; the closed row only
+        // remembers the number it had, and the company gives it to the next hire.
         UserAccount closed = new UserAccount();
         closed.setId(998L);
         closed.setTenantId(THIS_TENANT);
@@ -210,12 +212,33 @@ class NewAccountRefusalTest {
         closed.setMobile(MOBILE);
         doReturn(List.of(closed)).when(accountService).searchList(any(Filters.class));
 
-        assertThat(refusalInThisTenant(EMAIL, MOBILE))
-                .isEqualTo("A former employee's closed account still holds this contact. "
-                        + "Re-hire that account instead of creating a new one.");
+        assertThat(refusalInThisTenant(null, MOBILE)).isNull();
     }
 
-    // ─── allowed ───
+    @Test
+    void anEnterpriseEmailSomebodyElseSignsInWith_doesNotFileTheHireUnderThem() {
+        // Another company gave this address to a person who signs in with it. HR typing it here
+        // says nothing about who the new hire is: the hire gets a person of their own, and /join
+        // decides by the number verified there whether the address may stay.
+        identifierBelongsTo(EMAIL, PERSON);
+
+        assertThat(refusalInThisTenant(EMAIL, MOBILE)).isNull();
+        inThisTenant(() -> accountService.registerInvitedUser(EMAIL, MOBILE, "Bea"));
+
+        verify(profileService, times(0)).linkAccountToPerson(anyLong(), anyLong());
+        verify(profileService).registerUserProfile(anyLong(), any(UserProfileDTO.class));
+    }
+
+    @Test
+    void theMobileNamesThePerson_whateverTheEmailSays() {
+        identifierBelongsTo(EMAIL, PERSON);
+        identifierBelongsTo(MOBILE, SOMEBODY_ELSE);
+
+        assertThat(refusalInThisTenant(EMAIL, MOBILE)).isNull();
+        inThisTenant(() -> accountService.registerInvitedUser(EMAIL, MOBILE, "Bea"));
+
+        verify(profileService).linkAccountToPerson(1L, SOMEBODY_ELSE);
+    }
 
     @Test
     void freshContactsAreAllowed() {
@@ -225,7 +248,6 @@ class NewAccountRefusalTest {
     @Test
     void aPersonEmployedElsewhereIsAllowed() {
         // Their second company: no membership here, nothing here holds the address.
-        identifierBelongsTo(EMAIL, PERSON);
         identifierBelongsTo(MOBILE, PERSON);
 
         assertThat(refusalInThisTenant(EMAIL, MOBILE)).isNull();
@@ -234,31 +256,30 @@ class NewAccountRefusalTest {
     @Test
     void aLeaverOfThisCompanyIsAllowed() {
         // Their own closed row still carries the address; it is what gets revived, not a duplicate.
-        identifierBelongsTo(EMAIL, PERSON);
+        identifierBelongsTo(MOBILE, PERSON);
         UserAccount closed = membershipHere(AccountStatus.DEACTIVATED);
         doReturn(List.of(closed)).when(accountService).searchList(any(Filters.class));
 
-        assertThat(refusalInThisTenant(EMAIL, null)).isNull();
+        assertThat(refusalInThisTenant(EMAIL, MOBILE)).isNull();
     }
 
     // ─── one source ───
 
     @Test
     void theCreatePathThrowsExactlyThePreCheckReason() {
-        identifierBelongsTo(EMAIL, PERSON);
+        identifierBelongsTo(MOBILE, PERSON);
         membershipHere(AccountStatus.ACTIVE);
-        String reason = refusalInThisTenant(EMAIL, null);
+        String reason = refusalInThisTenant(null, MOBILE);
 
-        inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(EMAIL, null, "Ada"))
+        inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(null, MOBILE, "Ada"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage(reason));
     }
 
     @Test
     void eachIdentifierIsResolvedOnce() {
-        // The person lookup is the expensive, cross-tenant read of the pair; asking it twice for
-        // the same identifier is what a second copy of the rules would do.
-        identifierBelongsTo(EMAIL, PERSON);
+        // The person lookup is the expensive, cross-tenant read; asking it twice for the same
+        // identifier is what a second copy of the rules would do.
         identifierBelongsTo(MOBILE, PERSON);
 
         inThisTenant(() -> accountService.registerInvitedUser(EMAIL, MOBILE, "Ada"));

@@ -92,11 +92,11 @@ class SecondTenantAccountTest {
     }
 
     @Test
-    void anAddressThatBelongsToSomeoneLinksToThatPerson() {
-        when(identityService.findByLoginIdentifier(EMAIL))
-                .thenReturn(Optional.of(personHolding(EMAIL)));
+    void aMobileThatSignsSomeoneInLinksToThatPerson() {
+        when(identityService.findByLoginIdentifier(MOBILE))
+                .thenReturn(Optional.of(personHolding(MOBILE)));
 
-        inThisTenant(() -> accountService.registerInvitedUser(EMAIL, null, "Ada L"));
+        inThisTenant(() -> accountService.registerInvitedUser(EMAIL, MOBILE, "Ada L"));
 
         verify(profileService).linkAccountToPerson(NEW_ACCOUNT, PERSON);
         verify(profileService, never()).registerUserProfile(anyLong(), any(UserProfileDTO.class));
@@ -148,13 +148,13 @@ class SecondTenantAccountTest {
 
         inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(EMAIL, null, "Ada"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Email already exists"));
+                .hasMessage("This work email is already used by another user."));
     }
 
     @Test
     void thePersonAlreadyBeingAMemberHereIsRefused() {
-        when(identityService.findByLoginIdentifier(EMAIL))
-                .thenReturn(Optional.of(personHolding(EMAIL)));
+        when(identityService.findByLoginIdentifier(MOBILE))
+                .thenReturn(Optional.of(personHolding(MOBILE)));
         UserAccount theirMembershipHere = new UserAccount();
         theirMembershipHere.setId(999L);
         theirMembershipHere.setTenantId(THIS_TENANT);
@@ -163,23 +163,24 @@ class SecondTenantAccountTest {
         doReturn(Optional.of(theirMembershipHere))
                 .when(accountService).findMembershipInTenant(THIS_TENANT, PERSON);
 
-        inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(EMAIL, null, "Ada"))
+        inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(EMAIL, MOBILE, "Ada"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("already a member of this company"));
     }
 
     @Test
-    void twoIdentifiersNamingTwoDifferentPeopleIsRefused() {
-        // One account cannot carry two people's credentials, and no later step could untangle it.
+    void anEnterpriseEmailSomebodyElseSignsInWith_leavesTheMobileToDecide() {
+        // The email is the company's choice and may be one another company gave somebody else;
+        // the hire is the person their mobile signs in, and /join asks about the email.
         when(identityService.findByLoginIdentifier(EMAIL))
                 .thenReturn(Optional.of(personHolding(EMAIL)));
         UserIdentity somebodyElse = new UserIdentity();
         somebodyElse.setProfileId(99L);
         when(identityService.findByLoginIdentifier(MOBILE)).thenReturn(Optional.of(somebodyElse));
 
-        inThisTenant(() -> assertThatThrownBy(() -> accountService.registerInvitedUser(EMAIL, MOBILE, "Ada"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("two different"));
+        inThisTenant(() -> accountService.registerInvitedUser(EMAIL, MOBILE, "Ada"));
+
+        verify(profileService).linkAccountToPerson(NEW_ACCOUNT, 99L);
     }
 
     @Test

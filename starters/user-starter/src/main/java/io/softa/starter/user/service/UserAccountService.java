@@ -77,8 +77,8 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     boolean isDormantLoginMobile(String mobile);
 
     /**
-     * Whether this enterprise email sits on an account (any tenant, any status but Deactivated)
-     * that belongs to a person other than {@code profileId}. One person may use one address in
+     * Whether this enterprise email sits on a joined account (Active, Frozen or Locked, in any
+     * tenant) that belongs to a person other than {@code profileId}. One person may use one address in
      * several companies; two people may not. The account {@code exceptAccountId} never counts —
      * it is the one being joined or edited.
      */
@@ -243,8 +243,10 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
 
     /**
      * Why this enterprise email cannot go on this account, or null when it can: another account of
-     * the same company holds it, or a different person holds it anywhere (Deactivated aside). Asked
-     * before the employee record is saved, so the record and the account cannot disagree.
+     * the same company holds it, or — once this account has been joined — a different person's
+     * joined account holds it anywhere. An account not yet joined is let through on the second
+     * ground; /join asks it when the person is known. Asked before the employee record is saved, so
+     * the record and the account cannot disagree.
      */
     String enterpriseEmailRefusal(Long accountId, String email);
 
