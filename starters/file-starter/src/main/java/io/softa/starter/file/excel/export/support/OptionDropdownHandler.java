@@ -69,8 +69,23 @@ public class OptionDropdownHandler implements SheetWriteHandler {
     /** Column index (0-based, on the main sheet) → the item codes allowed in it. */
     private final Map<Integer, List<String>> optionsByColumn;
 
+    /** Last row (0-based; the header is row 0) the dropdowns cover. */
+    private final int lastRow;
+
     public OptionDropdownHandler(Map<Integer, List<String>> optionsByColumn) {
+        this(optionsByColumn, 0);
+    }
+
+    /**
+     * Dropdowns over the {@code dataRows} rows written under the header, and {@link #DROPDOWN_ROWS} more.
+     *
+     * <p>A file exported for re-import carries its records there; with the blank template's range, a
+     * record past row 5000 would get neither the list nor the check, and a row added under the last
+     * record neither.
+     */
+    public OptionDropdownHandler(Map<Integer, List<String>> optionsByColumn, int dataRows) {
         this.optionsByColumn = optionsByColumn == null ? Map.of() : new LinkedHashMap<>(optionsByColumn);
+        this.lastRow = Math.max(0, dataRows) + DROPDOWN_ROWS;
     }
 
     @Override
@@ -123,7 +138,7 @@ public class OptionDropdownHandler implements SheetWriteHandler {
                     nextOptionsColumn++;
                 }
                 DataValidation validation = helper.createValidation(constraint,
-                        new CellRangeAddressList(1, DROPDOWN_ROWS, columnIndex, columnIndex));
+                        new CellRangeAddressList(1, lastRow, columnIndex, columnIndex));
                 // Reject anything not on the list, and say why. Without this Excel accepts a typo
                 // silently and the row only fails later, during the import itself.
                 validation.setShowErrorBox(true);

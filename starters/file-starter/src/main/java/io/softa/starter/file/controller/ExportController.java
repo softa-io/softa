@@ -21,6 +21,7 @@ import io.softa.starter.file.support.ImportTemplateCountryScope;
 import io.softa.starter.file.service.ExportService;
 import io.softa.starter.file.dto.SheetInfo;
 import io.softa.starter.file.vo.ExportParams;
+import io.softa.starter.file.vo.ExportableImportTemplate;
 import io.softa.starter.file.vo.MultiSheetExportParams;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
 
@@ -99,6 +100,42 @@ public class ExportController {
                                                   @RequestBody ExportParams exportParams) {
         FlexQuery flexQuery = ExportParams.convertParamsToFlexQuery(exportParams);
         return ApiResponse.success(exportService.exportByTemplate(exportTemplateId, flexQuery));
+    }
+
+    /**
+     * The import templates of the model a file for re-import can be exported with: the export dialog's
+     * "for re-import" group, described as the caller will get each file.
+     *
+     * <p>Only templates a row can be matched back through — ones that update, with a column for every
+     * field of their unique key — of the model itself; empty for a caller who cannot both export and
+     * import it. See {@code ImportTemplateExport}.
+     *
+     * @param modelName the model of the list
+     * @return the usable import templates, in display order
+     */
+    @Operation(description = "List the model's import templates a file for re-import can be exported with.")
+    @PostMapping(value = "/listImportTemplates")
+    public ApiResponse<List<ExportableImportTemplate>> listImportTemplates(@RequestParam String modelName) {
+        return ApiResponse.success(exportService.listImportTemplates(modelName));
+    }
+
+    /**
+     * Export the selected rows into an import template's workbook — its columns, dropdowns, date formats
+     * and instruction sheet — so the file can be edited and imported back with the same template.
+     *
+     * @param modelName        the model of the list; the template must be one of its own
+     * @param importTemplateId the ID of the import template
+     * @param exportParams     the rows: filters, orders, effective date; fields are the template's columns
+     * @return fileInfo object with download URL
+     */
+    @Operation(description = "Export rows into an import template's workbook, to be imported back with it.")
+    @PostMapping(value = "/exportByImportTemplate")
+    @Parameter(name = "importTemplateId", description = "The id of the ImportTemplate.")
+    public ApiResponse<FileInfo> exportByImportTemplate(@RequestParam String modelName,
+                                                        @RequestParam Long importTemplateId,
+                                                        @RequestBody ExportParams exportParams) {
+        FlexQuery flexQuery = ExportParams.convertParamsToFlexQuery(exportParams);
+        return ApiResponse.success(exportService.exportByImportTemplate(modelName, importTemplateId, flexQuery));
     }
 
     /**

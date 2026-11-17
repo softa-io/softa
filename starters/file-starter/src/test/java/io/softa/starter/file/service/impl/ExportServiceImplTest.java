@@ -18,6 +18,7 @@ import io.softa.starter.file.dto.SheetInfo;
 import io.softa.starter.file.entity.ExportHistory;
 import io.softa.starter.file.entity.ExportTemplate;
 import io.softa.starter.file.excel.export.strategy.*;
+import io.softa.starter.file.excel.export.support.ImportTemplateExport;
 import io.softa.starter.file.service.ExportHistoryService;
 import io.softa.starter.file.service.ExportTemplateService;
 
@@ -63,6 +64,28 @@ class ExportServiceImplTest {
         assertEquals("order", exportHistory.getModelName());
         assertEquals(202L, exportHistory.getExportedFileId());
         assertEquals(5, exportHistory.getTotalRows());
+    }
+
+    @Test
+    void exportByImportTemplateCreatesHistoryNamingTheImportTemplate() {
+        RecordingExportHistoryService historyService = new RecordingExportHistoryService();
+        ExportServiceImpl exportService = createService(new StubExportByDynamic(), new StubExportByFieldTemplate(),
+                new StubExportByFileTemplate(), templateService(Map.of(), Map.of()), historyService.proxy());
+        StubImportTemplateExport importTemplateExport = new StubImportTemplateExport();
+        importTemplateExport.result = exportResult(404L, 7);
+        ReflectionTestUtils.setField(exportService, "importTemplateExport", importTemplateExport);
+
+        exportService.exportByImportTemplate("JobPosition", 21L, new FlexQuery());
+
+        assertEquals(1, historyService.histories.size());
+        ExportHistory exportHistory = historyService.histories.getFirst();
+        // My Export History names the import template the file goes back in through, not an export one.
+        assertEquals(21L, exportHistory.getImportTemplateId());
+        assertNull(exportHistory.getTemplateId());
+        assertEquals("JobPosition", exportHistory.getModelName());
+        assertEquals(404L, exportHistory.getExportedFileId());
+        assertEquals(7, exportHistory.getTotalRows());
+        assertNotNull(exportHistory.getDuration());
     }
 
     @Test
@@ -309,6 +332,15 @@ class ExportServiceImplTest {
         @SuppressWarnings("unchecked")
         private <T> T proxy(InvocationHandler handler) {
             return (T) Proxy.newProxyInstance(ExportHistoryService.class.getClassLoader(), new Class<?>[]{ExportHistoryService.class}, handler);
+        }
+    }
+
+    private static class StubImportTemplateExport extends ImportTemplateExport {
+        private ExportResult result;
+
+        @Override
+        public ExportResult export(String modelName, Long importTemplateId, FlexQuery flexQuery) {
+            return result;
         }
     }
 
