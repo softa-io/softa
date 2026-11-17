@@ -273,7 +273,7 @@ public final class RecordVariables {
     }
 
     /** What a relation's value points at — an id, or a code — whether it is held bare or as a reference. */
-    private static @Nullable Object keyOf(@Nullable Object value) {
+    public static @Nullable Object keyOf(@Nullable Object value) {
         if (value instanceof ModelReference reference) {
             return reference.getId();
         }

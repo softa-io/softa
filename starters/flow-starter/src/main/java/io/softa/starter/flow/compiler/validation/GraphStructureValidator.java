@@ -11,10 +11,12 @@ import io.softa.starter.flow.design.FlowCcRule;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.SubflowTrigger;
+import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.WithdrawPolicy;
+import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
 
 /**
  * Validates definition-level fields, edge endpoints, the single-Start rule, that every
@@ -175,9 +177,10 @@ public class GraphStructureValidator implements FlowValidator {
 
     /**
      * Each CC rule says when, and who: a recipient source with a type — specific people ({@code Users}) naming at
-     * least one, or a source that finds them.
+     * least one, or a source that finds them; one that reads a field of the record ({@code RecordField}, a
+     * {@code VARIABLE_DEPT} department) names one that holds what it reads, as an approval step's does.
      */
-    private static void validateCcRules(List<FlowCcRule> rules, List<CompileDiagnostic> d) {
+    private static void validateCcRules(List<FlowCcRule> rules, String modelName, List<CompileDiagnostic> d) {
         if (rules == null) {
             return;
         }
@@ -197,8 +200,32 @@ public class GraphStructureValidator implements FlowValidator {
             } else if (ApproverSourceType.lookup(type) == null) {
                 // A source this version does not know finds nobody: refused, as a step's group is.
                 d.add(CompileDiagnostic.flowLevel(INVALID_CC_RULE, which + " has an unknown recipient source: " + type));
+            } else {
+                String problem = recordFieldProblem(source, modelName);
+                if (problem != null) {
+                    d.add(CompileDiagnostic.flowLevel(INVALID_CC_RULE, which + " " + problem));
+                }
             }
         }
+    }
+
+    /** What is wrong with the field of the record a CC rule's source reads, if it reads one; null otherwise. */
+    private static String recordFieldProblem(Map<String, Object> source, String modelName) {
+        if (ApproverSourceType.RECORD_FIELD.getType().equals(source.get("type"))) {
+            Object field = source.get(ApproverSourceType.FIELD);
+            return field == null || !StringUtils.hasText(field.toString())
+                    ? "names no field of the record to read its recipient from"
+                    : ApprovalConfigValidator.recordFieldProblem(modelName, field,
+                            ApproverResolutionService.PERSON_MODELS, ApprovalConfigValidator.PERSON);
+        }
+        if (ApproverDeptScope.VARIABLE_DEPT.name().equals(String.valueOf(source.get("deptScope")))) {
+            Object field = source.get("deptVariable");
+            return field == null || !StringUtils.hasText(field.toString())
+                    ? "names no field of the record to take its department from"
+                    : ApprovalConfigValidator.recordFieldProblem(modelName, field,
+                            ApproverResolutionService.DEPARTMENT_MODELS, ApprovalConfigValidator.DEPARTMENT);
+        }
+        return null;
     }
 
     /**
@@ -231,7 +258,7 @@ public class GraphStructureValidator implements FlowValidator {
             d.add(CompileDiagnostic.flowLevel(INVALID_REMIND_AFTER_HOURS,
                     "remindAfterHours must be at least 1, but is " + definition.getRemindAfterHours()));
         }
-        validateCcRules(definition.getCc(), d);
+        validateCcRules(definition.getCc(), ApprovalConfigValidator.modelOf(definition), d);
         // An approval flow without an approval step approves a record as it is submitted: allowed — End and every step
         // are optional — but rarely meant, so the designer says so where the flow starts.
         if (FlowScenario.APPROVAL.equals(scenario)

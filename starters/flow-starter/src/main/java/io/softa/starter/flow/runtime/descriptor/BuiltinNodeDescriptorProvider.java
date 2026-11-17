@@ -15,6 +15,7 @@ import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
+import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
 
 /**
  * The {@link FlowNodeDescriptor}s of the structural (non-executor) node types; the task nodes' come from their
@@ -49,7 +50,7 @@ public class BuiltinNodeDescriptorProvider {
             "SUBJECT_DEPT", "Department of the employee the record is about",
             "INITIATOR_DEPT", "Submitter's department",
             "SPECIFIC_DEPT", "A specific department",
-            "VARIABLE_DEPT", "Department held by a variable");
+            "VARIABLE_DEPT", "Department in a field of the record");
 
     public List<FlowNodeDescriptor> getDescriptors() {
         return List.of(
@@ -124,6 +125,13 @@ public class BuiltinNodeDescriptorProvider {
                                 "fields", deptScopeFields(false, "SUBJECT_DEPT")),
                         ordered("type", "DeptHrbp", "label", "Department HRBP",
                                 "fields", deptScopeFields(false, "SUBJECT_DEPT")),
+                        // The person a field of the record names — a transfer's new manager: one of the record's own
+                        // fields onto an employee or an account (`recordField`, its `targets` the models it may point
+                        // at). The people the record's relations lead to are the organization's, found by the sources
+                        // above.
+                        ordered("type", ApproverSourceType.RECORD_FIELD.getType(), "label", "Person on the record",
+                                "fields", ordered(ApproverSourceType.FIELD, ordered("type", "recordField", "label", "Field",
+                                        "targets", ApproverResolutionService.PERSON_MODELS, "required", true))),
                         ordered("type", "RoleQuery", "label", "Role",
                                 "fields", concat(ordered(
                                         // Either list, or both. Ids reach every role, the tenant's own included; codes reach
@@ -189,6 +197,7 @@ public class BuiltinNodeDescriptorProvider {
                                         + "approve.",
                                 "DeptHrbp", "Applies when the department and those above it have no HR business "
                                         + "partner who can approve.",
+                                "RecordField", "Applies when the field is empty, or the person in it cannot approve.",
                                 "RoleQuery", "Applies when nobody who can approve holds these roles.",
                                 "Position", "Applies when nobody who can approve holds these positions.",
                                 "Department", "Applies when these departments have nobody who can approve."),
@@ -221,7 +230,8 @@ public class BuiltinNodeDescriptorProvider {
     /**
      * The department a department-based source works on: {@code deptScope} — {@code ALL} offered only
      * when {@code defaultScope} is it (a role query) — with the department it names when specific (one,
-     * or several for {@code multipleDepts}) and the variable that holds it otherwise.
+     * or several for {@code multipleDepts}) and the field of the record naming it otherwise: one of the record's own
+     * fields onto a department.
      */
     private static Map<String, Object> deptScopeFields(boolean multipleDepts, String defaultScope) {
         List<String> scopes = Stream.of(ApproverDeptScope.values())
@@ -233,7 +243,8 @@ public class BuiltinNodeDescriptorProvider {
                         "optionLabels", DEPT_SCOPE_LABELS),
                 multipleDepts ? "deptIds" : "deptId", ordered("type", "deptPicker", "label", multipleDepts ? "Departments" : "Department",
                         "multiple", multipleDepts, "depends", Map.of("deptScope", "SPECIFIC_DEPT")),
-                "deptVariable", ordered("type", "variableRef", "label", "Variable holding the department id",
+                "deptVariable", ordered("type", "recordField", "label", "Department field",
+                        "targets", ApproverResolutionService.DEPARTMENT_MODELS,
                         "depends", Map.of("deptScope", "VARIABLE_DEPT")));
     }
 

@@ -6,7 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
@@ -14,6 +16,7 @@ import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.runtime.context.RecordModelFixture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -137,8 +140,11 @@ class ApprovalConfigValidatorOrgTest {
 
         assertTrue(specific.getDiagnostics().stream().anyMatch(d -> "MISSING_DEPT_IDS".equals(d.code())));
         assertTrue(variable.getDiagnostics().stream().anyMatch(d -> "MISSING_DEPT_VARIABLE".equals(d.code())));
-        assertDoesNotThrow(() -> compiler.compile(flowWithApproverSource(
-                Map.of("type", "DeptLeader", "deptScope", "VARIABLE_DEPT", "deptVariable", "toDeptId"))));
+        // The department is a field of the record onto a department (RecordFieldSourceValidationTest).
+        try (MockedStatic<ModelManager> ignored = RecordModelFixture.mockModelManager()) {
+            assertDoesNotThrow(() -> compiler.compile(flowWithApproverSource(
+                    Map.of("type", "DeptLeader", "deptScope", "VARIABLE_DEPT", "deptVariable", "departmentId"))));
+        }
     }
 
     @Test

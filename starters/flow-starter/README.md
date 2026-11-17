@@ -116,7 +116,10 @@ the caller's row scope. An implementation overrides the defaults that matter: `g
 account counts as able to act), `getRoleNames` (none: a step handed to roles names them by id and code) and the five
 directory methods (empty: the pickers find nobody). `FlowOrgService` implements them all over the HR models —
 `Employee`, `Department`, `UserRoleRel`, `Role`, `UserAccount` — by the field names permission-starter reads, fixed in
-the class; an application on other models implements `OrganizationService` itself.
+the class; an application on other models implements `OrganizationService` itself. The sources that read a field of the
+record pick it by the model it points at, by these same names whatever the implementation: a person on the record
+(`RecordField`) from a field onto `Employee` — bridged with `getUserIdOfEmployee` — or `UserAccount`, a department
+(`VARIABLE_DEPT`) from one onto `Department`.
 
 **`ApprovalNotificationService`** (`runtime/spi`) — `notify(FlowNotificationEvent)`, called inside the action's
 transaction. `ApprovalNotices` maps each event to its recipients, inbox text and mail template, once per event. The
@@ -245,6 +248,7 @@ The softa-docs pages state each rule; this is where to change it.
 | When the approval mode and the empty-approver strategy apply | `ApprovalNodeConfig.mayHaveSeveralApprovers` / `findsApproversByRule`, `ApproverSourceType.isFindsOne`, `ApproverResolutionService.resolveApprovalMode`, `PendingApprovalFactory.resolveEmptyApproverStrategy` |
 | Votes needed, capped by the approvers found | `ApproverResolutionService.capRequiredApprovals` |
 | Why a step found nobody | `ApproverResolutionService.whyNobody` |
+| Which field of the record a source reads a person or a department from (`RecordField`, `VARIABLE_DEPT`) | `ApproverResolutionService.recordField` (`PERSON_MODELS`, `DEPARTMENT_MODELS`), on the model the start carries in `MODEL_KEY`; checked by `ApprovalConfigValidator.recordFieldProblem`, for CC rules too |
 | What a submitter may submit or cancel | `FlowLaunchServiceImpl` (`AccessScope.callAs(UPDATE, …)`) |
 | Routing variables, and numbers restored on load | `RecordVariables`, `RecordVariables.restoreNumbers` |
 | A rule reading through relations, up to `RecordVariables.MAX_HOPS` levels: which paths, when read, which a flow needs | `RecordVariables.routedPathField` / `readPaths`; `CompiledFlowDefinition.rulePaths`, `DefaultFlowTriggerRegistry.submitConditionPaths`; read in `FlowLaunchServiceImpl.submitVariables`, `ApprovalFormWriteService.refreshVariables`, `FlowAutomationService.startVariables`; checked by `GatewayValidator.checkRule`; offered as `FlowVariableView.ruleFields` |
