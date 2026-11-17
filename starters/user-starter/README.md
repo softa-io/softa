@@ -102,6 +102,17 @@ finds it in a search (`searchName`).
   stored, looked up or hashed, or a row is written in a spelling the lookups cannot
   find. Distinct from the **work contacts** on `UserAccount` (`email` / `mobile`),
   which are HR's per-company data and keep their case.
+- **Mobiles are E.164** (`+6591234567`). `UserAccount.mobile` declares
+  `pattern = PhoneUtils.E164` and the `PHONE` widget, so a form, an import and the API refuse a
+  number without its country code; `UserIdentity.loginMobile` and `UserInvitation.mobile` are
+  copies of it and carry the widget only, so a row stored before the pattern still copies.
+  `/me/mobile/checkNew` also counts the digits for the number's country, and refuses a country no
+  SMS route serves (`MessageService.canSendSms`) before a code is sent and before the number counts
+  toward the day's probes. The sign-in and join screens do not say so: they answer the same
+  whoever asks. An account whose `mobile` predates the pattern keeps it until its next edit, which
+  must give the number with its country code; find them with
+  `SELECT id, tenant_id, mobile FROM user_account WHERE mobile IS NOT NULL AND mobile !~ '^\+[1-9][0-9]{6,14}$';`
+  (PostgreSQL; MySQL `NOT REGEXP`).
 - **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`). A session names one
   membership — switching company mints a new one.
 - **A session belongs to the kind of client it was issued to.** A request that sends

@@ -3,14 +3,12 @@ package io.softa.starter.message.sms.support;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import com.google.i18n.phonenumbers.NumberParseException;
-import com.google.i18n.phonenumbers.PhoneNumberUtil;
-import com.google.i18n.phonenumbers.Phonenumber;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.starter.message.sms.entity.SmsProviderConfig;
 import io.softa.starter.message.sms.entity.SmsProviderRegion;
 import io.softa.starter.message.sms.service.SmsProviderConfigService;
@@ -102,29 +100,16 @@ public class SmsProviderDispatcher {
     }
 
     /**
-     * Parse the recipient's region from an E.164 phone number. Uses
-     * libphonenumber's longest-prefix matching so e.g. {@code +886...} → TW
-     * (not falsely matched as {@code +86} → CN). Returns the ISO 3166-1
-     * alpha-2 code string directly; downstream lookups against
-     * {@code country_region} happen at the service layer.
+     * Parse the recipient's region from an E.164 phone number ({@link PhoneUtils#regionOf}):
+     * longest match on the number ranges, so {@code +886...} → TW (not {@code +86} → CN) and
+     * {@code +1 787...} → PR. Returns the ISO 3166-1 alpha-2 code string directly; downstream
+     * lookups against {@code country_region} happen at the service layer.
      */
     private String parseRegion(String e164PhoneNumber) {
         if (!StringUtils.hasText(e164PhoneNumber)) {
             throw new BusinessException("Phone number is required for country-aware SMS dispatch");
         }
-        try {
-            PhoneNumberUtil pnu = PhoneNumberUtil.getInstance();
-            Phonenumber.PhoneNumber parsed = pnu.parse(e164PhoneNumber, null);
-            String code = pnu.getRegionCodeForNumber(parsed);
-            if (code == null || "ZZ".equals(code)) {
-                throw new BusinessException("Unable to determine ISO region for phone number {0}",
-                        e164PhoneNumber);
-            }
-            return code;
-        } catch (NumberParseException e) {
-            throw new BusinessException("Invalid E.164 phone number {0}: {1}",
-                    e164PhoneNumber, e.getMessage());
-        }
+        return PhoneUtils.regionOf(e164PhoneNumber);
     }
 
     private record ProviderCandidate(SmsProviderConfig config, int routePriority) {}

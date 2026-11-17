@@ -6,12 +6,14 @@ import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.WidgetType;
 import io.softa.starter.user.enums.AccountStatus;
 
 /**
@@ -122,7 +124,7 @@ public class UserAccount extends AuditableModel {
      * their login mobile after (kept in step when it changes), and on a closed account the number it
      * had when it closed.
      */
-    @Field
+    @Field(widgetType = WidgetType.PHONE, pattern = PhoneUtils.E164, constraintMessage = PhoneUtils.E164_MESSAGE)
     private String mobile;
 
     @Field(length = 256, copyable = false, description = "The enterprise email the account had when it closed; "

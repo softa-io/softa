@@ -29,12 +29,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
-        <!-- E.164 phone number parsing for SMS country-based routing. -->
-        <dependency>
-            <groupId>com.googlecode.libphonenumber</groupId>
-            <artifactId>libphonenumber</artifactId>
-            <version>9.0.30</version>
-        </dependency>
         <!-- Optional: scheduled mail fetching requires cron-starter on classpath -->
         <dependency>
             <groupId>io.softa</groupId>

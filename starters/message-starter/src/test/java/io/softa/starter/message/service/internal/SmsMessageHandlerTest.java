@@ -13,6 +13,7 @@ import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.shared.TenantScopes;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
+import io.softa.starter.message.sms.entity.SmsProviderConfig;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
@@ -94,15 +95,61 @@ class SmsMessageHandlerTest {
     }
 
     @Test
-    void aNumberThatDoesNotParseIsRejectedBeforePersisting() {
-        doThrow(new BusinessException("Invalid E.164 phone number 12345"))
-                .when(providerDispatcher).resolveRegion("12345");
+    void aNumberWithoutItsCountryCodeIsRejectedBeforePersisting() {
         SendSmsDTO dto = new SendSmsDTO();
-        dto.setPhoneNumber("12345");
+        dto.setPhoneNumber("91234567");
         dto.setContent("hi");
 
         assertThrows(BusinessException.class, () -> handler.send(dto));
         verifyNoInteractions(recordService);
+    }
+
+    @Test
+    void aNumberWithLettersOrTheWrongLengthIsRejectedBeforePersisting() {
+        for (String typed : List.of("+65 9123 4567 abc", "+65 912 3456")) {
+            SendSmsDTO dto = new SendSmsDTO();
+            dto.setPhoneNumber(typed);
+            dto.setContent("hi");
+
+            assertThrows(BusinessException.class, () -> handler.send(dto), typed);
+        }
+        verifyNoInteractions(recordService);
+    }
+
+    @Test
+    void aNumberWhoseCountryCannotBePlacedIsRejectedBeforePersisting() {
+        doThrow(new BusinessException("Unable to determine the country of phone number +441000000000"))
+                .when(providerDispatcher).resolveRegion("+441000000000");
+        SendSmsDTO dto = new SendSmsDTO();
+        dto.setPhoneNumber("+44 1000 000000");
+        dto.setContent("hi");
+
+        assertThrows(BusinessException.class, () -> handler.send(dto));
+        verifyNoInteractions(recordService);
+    }
+
+    @Test
+    void theNumberIsStoredInE164WhateverItWasTypedWith() {
+        SendSmsDTO dto = new SendSmsDTO();
+        dto.setPhoneNumber(" +65 9123-4567 ");
+        dto.setContent("hi");
+
+        handler.send(dto);
+
+        assertEquals("+6591234567", capturedRecord().getPhoneNumber());
+        verify(providerDispatcher).resolveRegion("+6591234567");
+    }
+
+    @Test
+    void canSendAnswersFromTheNumberAndTheRoutes() {
+        when(providerDispatcher.resolveProviders("+6591234567")).thenReturn(List.of(new SmsProviderConfig()));
+        when(providerDispatcher.resolveProviders("+60123456789"))
+                .thenThrow(new BusinessException("No SMS provider serves region MY"));
+
+        assertTrue(handler.canSend("+65 9123 4567"));
+        assertFalse(handler.canSend("+60 12-345 6789"));
+        assertFalse(handler.canSend("91234567"));
+        assertFalse(handler.canSend(null));
     }
 
     @Test

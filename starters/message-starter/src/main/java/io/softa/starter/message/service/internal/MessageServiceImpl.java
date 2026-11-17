@@ -60,6 +60,11 @@ public class MessageServiceImpl implements MessageService {
     }
 
     @Override
+    public boolean canSendSms(String phoneNumber) {
+        return smsHandler.canSend(phoneNumber);
+    }
+
+    @Override
     public Long sendInbox(SendInboxDTO message) {
         return inboxHandler.send(requireMessage("inbox", message));
     }

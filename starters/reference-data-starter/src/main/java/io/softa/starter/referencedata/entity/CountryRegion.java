@@ -56,7 +56,8 @@ public class CountryRegion extends AuditableModel {
     private String alpha3Code;
 
     @Field(required = true, length = 8,
-            description = "ITU-T E.164 country dial code, digits only (no leading +)")
+            description = "ITU-T E.164 country calling code, digits only (no leading +): 1 for every "
+                    + "NANP territory, whose area code belongs to the national number")
     private String dialCode;
 
     @Field(required = true, fieldType = FieldType.MANY_TO_ONE, relatedModel = Currency.class,

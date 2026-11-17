@@ -882,16 +882,16 @@ private MessageService messageService;
 
 // Plain text to a single recipient
 SendSmsDTO dto = new SendSmsDTO();
-dto.setPhoneNumber("+1234567890");
+dto.setPhoneNumber("+6591234567");
 dto.setContent("Order #1234 has been shipped.");
 Long id = messageService.sendSms(dto);
 
 // Independent batch: one DTO and one send record per phone number.
 SendSmsDTO first = new SendSmsDTO();
-first.setPhoneNumber("+1111111111");
+first.setPhoneNumber("+6591234567");
 first.setContent("System maintenance tonight at 10pm.");
 SendSmsDTO second = new SendSmsDTO();
-second.setPhoneNumber("+2222222222");
+second.setPhoneNumber("+6581234567");
 second.setContent("System maintenance tonight at 10pm.");
 List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 // ids point at PENDING records; the delivery loop moves them on to SENT/FAILED.
@@ -901,6 +901,25 @@ List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 > sendSmsBatch` persist an `SmsSendRecord (PENDING)` in the caller's
 > transaction and return immediately; the delivery loop renders, routes and
 > performs the provider call.
+
+#### Phone numbers
+
+`phoneNumber` carries its country code: `+6591234567`, or typed with spaces, dashes or brackets
+(`+65 9123-4567`), which acceptance drops — the record, the routing and the provider all see E.164.
+Acceptance refuses, before anything is written, a number without its country code (`91234567`,
+`006591234567`), one with letters or an extension, one with the wrong number of digits for its
+country, and one whose shared calling code (+1, +7, +44, +61) the bundled number ranges cannot place.
+
+The checks are `PhoneUtils` (softa-base). The digits are counted for the country
+(`isPossibleNumber`); the country's assigned ranges are not checked (`isValidNumber`), so a range a
+country opens after the bundled libphonenumber version is still accepted, and a number in an
+unassigned range is the provider's to refuse. Keeping the library current matters most for the
+shared calling codes, whose new ranges cannot be placed in a country until it knows them.
+
+A country without an SMS route is not refused at acceptance: that is configuration, and the record
+fails at its first attempt (`CONFIG_NOT_RESOLVABLE`), where adding the route and retrying recovers
+it. A screen about to text a code to a number the person just typed asks
+`MessageService.canSendSms(phoneNumber)` first, so it can say so before sending.
 
 ### Send Modes
 
@@ -914,12 +933,12 @@ List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 
 ```java
 SendSmsDTO first = new SendSmsDTO();
-first.setPhoneNumber("+111");
+first.setPhoneNumber("+6591234567");
 first.setTemplateCode("ORDER_STATUS");
 first.setTemplateVariables(Map.of("orderId", "A001", "status", "Shipped"));
 
 SendSmsDTO second = new SendSmsDTO();
-second.setPhoneNumber("+222");
+second.setPhoneNumber("+6581234567");
 second.setTemplateCode("ORDER_STATUS");
 second.setTemplateVariables(Map.of("orderId", "B002", "status", "Delivered"));
 
@@ -932,7 +951,7 @@ messageService.sendSmsBatch(List.of(first, second));
 Map<String, Object> vars = Map.of("code", "123456", "minutes", 5);
 
 SendSmsDTO sms = new SendSmsDTO();
-sms.setPhoneNumber("+1234567890");
+sms.setPhoneNumber("+6591234567");
 sms.setTemplateCode("VERIFY_CODE");
 sms.setTemplateVariables(vars);
 messageService.sendSms(sms);
